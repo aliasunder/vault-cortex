@@ -16,20 +16,19 @@ import { loadConfig } from "./config.js"
 import type { VaultConfig } from "./config.js"
 import { logger } from "../logger.js"
 import { extractClientIp, headerAsString } from "../auth.js"
-import type { ForwardedHeaderTrust } from "../auth.js"
 import { describeError } from "../utils/describe-error.js"
 import env from "env-var"
 
 /** Error middleware — logs the failure with request context, answers 500.
- *  The client IP is derived under the same trust flag as everywhere else,
- *  so a client-supplied Forwarded header can't write a false IP into the
- *  error log. */
+ *  The client IP is derived under the same Forwarded hop count as
+ *  everywhere else, so a client-supplied Forwarded header can't write a
+ *  false IP into the error log. */
 export const createErrorMiddleware =
-  (forwardedHeaderTrust: ForwardedHeaderTrust) =>
+  (trustForwardedHops: number) =>
   (err: Error, req: Request, res: Response, _next: NextFunction): void => {
     logger.error("unhandled_error", {
       sessionId: headerAsString(req.headers["mcp-session-id"]),
-      clientIp: extractClientIp(req, forwardedHeaderTrust),
+      clientIp: extractClientIp(req, trustForwardedHops),
       method: req.method,
       path: req.path,
       error: `[${err.name}]: ${err.message}`,
@@ -104,7 +103,6 @@ const startServer = async (): Promise<void> => {
     rerankMode: config.rerankMode,
     windowsBindMount: config.windowsBindMount,
     trustProxyHops: config.trustProxyHops,
-    trustForwardedHeader: config.trustForwardedHeader,
     trustForwardedHops: config.trustForwardedHops,
   })
 
@@ -152,7 +150,7 @@ const startServer = async (): Promise<void> => {
       serverUrl,
       oauthProvider,
       serviceDocumentationUrl: config.serviceDocumentationUrl,
-      forwardedHeaderTrust: config,
+      trustForwardedHops: config.trustForwardedHops,
       logger,
     }),
   )
@@ -166,7 +164,7 @@ const startServer = async (): Promise<void> => {
     }),
   )
 
-  app.use(createErrorMiddleware(config))
+  app.use(createErrorMiddleware(config.trustForwardedHops))
 
   // Express 5 reports a bind failure (EADDRINUSE, EACCES) through the
   // callback's error argument instead of throwing, so an unchecked callback

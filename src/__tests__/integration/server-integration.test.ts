@@ -764,15 +764,15 @@ describe("TRUST_PROXY_HOPS=1", () => {
   })
 })
 
-// ── TRUST_FORWARDED_HEADER=true ────────────────────────────────
+// ── TRUST_FORWARDED_HOPS=1 ─────────────────────────────────────
 
-describe("TRUST_FORWARDED_HEADER=true", () => {
+describe("TRUST_FORWARDED_HOPS=1", () => {
   let cleanup: (() => Promise<void>) | undefined
   let port: number
 
   beforeAll(async () => {
     port = await freePort()
-    const server = await startServer(port, { TRUST_FORWARDED_HEADER: "true" })
+    const server = await startServer(port, { TRUST_FORWARDED_HOPS: "1" })
     cleanup = server.cleanup
   }, 30_000)
 
@@ -835,7 +835,7 @@ describe("TRUST_FORWARDED_HEADER=true", () => {
   })
 })
 
-// ── TRUST_FORWARDED_HEADER=true + TRUST_FORWARDED_HOPS=2 ───────
+// ── TRUST_FORWARDED_HOPS=2 ─────────────────────────────────────
 
 // A CDN in front of the header-writing proxy makes the last for= the
 // CDN's address; the client is the element before it.
@@ -846,7 +846,6 @@ describe("TRUST_FORWARDED_HOPS=2", () => {
   beforeAll(async () => {
     port = await freePort()
     const server = await startServer(port, {
-      TRUST_FORWARDED_HEADER: "true",
       TRUST_FORWARDED_HOPS: "2",
     })
     cleanup = server.cleanup

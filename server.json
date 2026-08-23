@@ -122,14 +122,9 @@
           "default": "0"
         },
         {
-          "name": "TRUST_FORWARDED_HEADER",
-          "description": "Trust the RFC 7239 Forwarded header as the client identity for OAuth rate limiting and request logs. Enable only when the proxy in front sets it (e.g. AWS API Gateway).",
-          "default": "false"
-        },
-        {
           "name": "TRUST_FORWARDED_HOPS",
-          "description": "How many entries from the end of the Forwarded header's for= list to count to reach the client IP. 2 when a CDN fronts the proxy that writes the header.",
-          "default": "1"
+          "description": "How many entries from the end of the RFC 7239 Forwarded header's for= list to count to reach the client IP for OAuth rate limiting and request logs. 0 ignores the header; 1 when the proxy in front writes it (e.g. AWS API Gateway); 2 when a CDN fronts that proxy.",
+          "default": "0"
         },
         {
           "name": "TZ",

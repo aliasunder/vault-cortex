@@ -105,19 +105,14 @@ export type VaultConfig = Readonly<{
    *  1 when a single reverse proxy (Caddy, nginx, Cloudflare Tunnel, API
    *  Gateway) sits in front of the server. Set via TRUST_PROXY_HOPS. */
   trustProxyHops: number
-  /** When true, the client IP (rate limiting, request logs) is read from
-   *  the RFC 7239 Forwarded header (https://www.rfc-editor.org/rfc/rfc7239).
-   *  Safe only when the proxy connecting to
-   *  this server writes that header itself (e.g. AWS API Gateway); when
-   *  false — the default — the header is ignored, since any client can
-   *  send one. Set via TRUST_FORWARDED_HEADER. */
-  trustForwardedHeader: boolean
-  /** How many entries from the end of the Forwarded header's `for=`
-   *  list to reach the client IP — the proxy that writes the header
-   *  appends its peer last. 1 (the default) when the proxy writing the
-   *  header talks to clients directly; 2 when a CDN fronts that proxy,
-   *  so the last element names the CDN. Only read when
-   *  TRUST_FORWARDED_HEADER is true. Set via TRUST_FORWARDED_HOPS. */
+  /** How many entries from the end of the RFC 7239 Forwarded header's
+   *  `for=` list (https://www.rfc-editor.org/rfc/rfc7239) to reach the
+   *  client IP used for rate limiting and request logs. 0 (the default)
+   *  ignores the header — any client can send one, so it is only safe to
+   *  read when the proxy connecting to this server writes it (e.g. AWS
+   *  API Gateway). That proxy appends its peer last: 1 when it talks to
+   *  clients directly; 2 when a CDN fronts it, so the last element names
+   *  the CDN. Set via TRUST_FORWARDED_HOPS. */
   trustForwardedHops: number
   memoryDir: string
   /** Sets the daily notes folder, taking precedence over
@@ -252,15 +247,6 @@ export const loadConfig = (
     .default("0")
     .asIntPositive()
 
-  // Default false: without a proxy that writes the Forwarded header
-  // (e.g. AWS API Gateway), the header is client-supplied — trusting it
-  // by default would let any client choose its own rate-limit bucket.
-  const trustForwardedHeader = envVar
-    .from(env)
-    .get("TRUST_FORWARDED_HEADER")
-    .default("false")
-    .asBool()
-
   const embeddingEnabled = envVar
     .from(env)
     .get("EMBEDDING_ENABLED")
@@ -308,14 +294,15 @@ export const loadConfig = (
     envVar.from(env).get("MAX_PDF_RENDER_PAGES").default("5").asIntPositive(),
   )
 
-  // Default 1: the proxy writing the Forwarded header appends its own
-  // peer as the last for= element, and with no CDN in front of it that
-  // peer is the client. 0 is rejected — it would select the element the
-  // client itself can append.
-  const trustForwardedHops = requireNonZero(
-    "TRUST_FORWARDED_HOPS",
-    envVar.from(env).get("TRUST_FORWARDED_HOPS").default("1").asIntPositive(),
-  )
+  // Default 0 (header ignored): without a proxy that writes the Forwarded
+  // header (e.g. AWS API Gateway), the header is client-supplied — trusting
+  // it by default would let any client choose its own rate-limit bucket.
+  // Mirrors TRUST_PROXY_HOPS, where 0 is also "no trusted proxy".
+  const trustForwardedHops = envVar
+    .from(env)
+    .get("TRUST_FORWARDED_HOPS")
+    .default("0")
+    .asIntPositive()
 
   return Object.freeze({
     memoryEnabled,
@@ -323,7 +310,6 @@ export const loadConfig = (
     readOnlyMode,
     disabledTools,
     trustProxyHops,
-    trustForwardedHeader,
     trustForwardedHops,
     memoryDir,
     dailyNotesFolder,

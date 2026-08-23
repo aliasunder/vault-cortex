@@ -634,18 +634,18 @@ refresh token without inconveniencing active sessions. Expired rows
 `/revoke`) are rate-limited at 5 req/min per client IP, bucketed by a
 client-IP key derived from the deployment's explicit proxy-trust config:
 
-- `TRUST_FORWARDED_HEADER` (default `false`) honors the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239)
-  `Forwarded` header. The proxy that writes it appends its own peer as the
-  **last** `for=` element; a client can prepend elements, but its entries
-  land before the proxy's append. Intended for the reference deployment,
+- `TRUST_FORWARDED_HOPS` (default `0`) honors the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239)
+  `Forwarded` header and picks which trailing element is the client. The
+  proxy that writes the header appends its own peer as the **last** `for=`
+  element; a client can prepend elements, but its entries land before the
+  proxy's append. `0` ignores the header; `1` reads the last element; `2`
+  reads the one before it, for a gateway whose custom domain sits behind a
+  CDN — the gateway's peer is then the CDN, and the CDN had already
+  recorded the client ahead of it. Intended for the reference deployment,
   where API Gateway writes the header. API Gateway folds a client-supplied
   `X-Forwarded-For` into the same list as leading elements and sends no
   `X-Forwarded-For` of its own, so `Forwarded` is the only carrier of the
   client IP behind the gateway.
-- `TRUST_FORWARDED_HOPS` (default `1`) picks which trailing element is the
-  client: `1` reads the last element; `2` reads the one before it, for a
-  gateway whose custom domain sits behind a CDN — the gateway's peer is
-  then the CDN, and the CDN had already recorded the client ahead of it.
 - `TRUST_PROXY_HOPS` (default `0`) sets Express `trust proxy` — how many
   `X-Forwarded-For` hops feed `req.ip`, the bucket key whenever `Forwarded`
   isn't trusted. An injected forwarding header is ignored on both channels,
@@ -856,17 +856,17 @@ the MCP server as PID 1's only child.
 
 The runtime image (`Dockerfile`) minimizes the attack surface:
 
-| Measure                        | What it does                                                                                                                                                                                                                                |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Multi-stage build              | Build deps (`python3`, `make`, `g++`) stay in the build stage — never enter the runtime image                                                                                                                                               |
-| Digest-pinned base             | `node:24-trixie-slim@sha256:...` — reproducible builds, no tag-mutation supply-chain risk; trixie because better-sqlite3's linux-arm64 prebuild needs glibc >= 2.38                                                                         |
-| Non-root processes             | Local target: `USER node` (UID 1000). Remote target: s6 `/init` is PID 1 as root, both services drop to `obsidian` (UID 1000, PUID/PGID-adjustable) via `s6-setuidgid`                                                                      |
-| PID 1 init                     | Local: `tini` forwards SIGTERM so SQLite WAL closes cleanly and reaps zombies. Remote: s6-overlay's `/init` does the same plus process supervision                                                                                          |
-| Package-manager removal        | `npm`, `npx`, `corepack`, `yarn` stripped from both targets — reduces CVE surface. `obsidian-headless` is installed under `/opt/obsidian-headless` from a sha512-pinned lockfile (`npm ci`)                                                 |
-| Debian security fixes          | `apt-get upgrade` at build time covers the node-image rebuild window                                                                                                                                                                        |
-| Log rotation (Compose)         | `max-size: 10m`, `max-file: 3` — prevents disk exhaustion                                                                                                                                                                                   |
-| Explicit proxy trust (Express) | `trust proxy` = `TRUST_PROXY_HOPS` (default 0 — direct exposure); the `Forwarded` header is honored only under `TRUST_FORWARDED_HEADER` — injected forwarding headers can't spoof the client IP (OAuth rate-limit bucket key, request logs) |
-| `Object.freeze` on config      | Prevents accidental mutation of the loaded `ServerConfig` — defense against programming errors                                                                                                                                              |
+| Measure                        | What it does                                                                                                                                                                                                                                         |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Multi-stage build              | Build deps (`python3`, `make`, `g++`) stay in the build stage — never enter the runtime image                                                                                                                                                        |
+| Digest-pinned base             | `node:24-trixie-slim@sha256:...` — reproducible builds, no tag-mutation supply-chain risk; trixie because better-sqlite3's linux-arm64 prebuild needs glibc >= 2.38                                                                                  |
+| Non-root processes             | Local target: `USER node` (UID 1000). Remote target: s6 `/init` is PID 1 as root, both services drop to `obsidian` (UID 1000, PUID/PGID-adjustable) via `s6-setuidgid`                                                                               |
+| PID 1 init                     | Local: `tini` forwards SIGTERM so SQLite WAL closes cleanly and reaps zombies. Remote: s6-overlay's `/init` does the same plus process supervision                                                                                                   |
+| Package-manager removal        | `npm`, `npx`, `corepack`, `yarn` stripped from both targets — reduces CVE surface. `obsidian-headless` is installed under `/opt/obsidian-headless` from a sha512-pinned lockfile (`npm ci`)                                                          |
+| Debian security fixes          | `apt-get upgrade` at build time covers the node-image rebuild window                                                                                                                                                                                 |
+| Log rotation (Compose)         | `max-size: 10m`, `max-file: 3` — prevents disk exhaustion                                                                                                                                                                                            |
+| Explicit proxy trust (Express) | `trust proxy` = `TRUST_PROXY_HOPS` (default 0 — direct exposure); the `Forwarded` header is honored only under a non-zero `TRUST_FORWARDED_HOPS` — injected forwarding headers can't spoof the client IP (OAuth rate-limit bucket key, request logs) |
+| `Object.freeze` on config      | Prevents accidental mutation of the loaded `ServerConfig` — defense against programming errors                                                                                                                                                       |
 
 ### Durability
 

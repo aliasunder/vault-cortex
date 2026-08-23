@@ -29,21 +29,6 @@ export const parseBearer = (header: string | undefined): string | null => {
 /** Bare or quoted `for=` value; capture stops at `"`, `;`, or `,`. */
 const FORWARDED_FOR_CLIENT = /for="?([^";,]+)"?/i
 
-/** How the RFC 7239 Forwarded header contributes to the client IP.
- *  Spec: https://www.rfc-editor.org/rfc/rfc7239 */
-export type ForwardedHeaderTrust = {
-  /** Read the client IP from the Forwarded header at all. Safe only when
-   *  the proxy connecting to this server writes that header itself. */
-  trustForwardedHeader: boolean
-  /** How many trailing `for=` elements were written by proxies the
-   *  deployment controls. The proxy that writes the header appends its
-   *  peer as the last element: with one trusted proxy that peer is the
-   *  client; with a CDN in front of it, the peer is the CDN and the client
-   *  is the element before — so the client sits `trustForwardedHops`
-   *  elements from the end. */
-  trustForwardedHops: number
-}
-
 /**
  * The `for=` value `hops` elements from the end of an RFC 7239 Forwarded
  * header. Counting from the end matters: a client can prepend its own
@@ -64,12 +49,23 @@ const forwardedClientIpBehindHops = (
   return forValues[clientIndex]
 }
 
-/** Real client IP for logging and rate limiting. */
+/**
+ * Real client IP for logging and rate limiting.
+ *
+ * `trustForwardedHops` is how many trailing `for=` elements of the RFC 7239
+ * Forwarded header (https://www.rfc-editor.org/rfc/rfc7239) were written by
+ * proxies the deployment controls — the same shape as Express's `trust
+ * proxy` hop count for X-Forwarded-For. 0 ignores the header entirely: any
+ * client can send one, so it is only safe to read when the proxy connecting
+ * to this server writes it. With one trusted proxy its appended peer is the
+ * client (1); with a CDN in front of that proxy the peer is the CDN and the
+ * client is the element before (2).
+ */
 export const extractClientIp = (
   req: Pick<Request, "headers" | "ip">,
-  { trustForwardedHeader, trustForwardedHops }: ForwardedHeaderTrust,
+  trustForwardedHops: number,
 ): string => {
-  if (trustForwardedHeader) {
+  if (trustForwardedHops > 0) {
     // Node's HTTP parser joins duplicate header lines into one string, but
     // middleware or custom stacks can deliver an array instead — join
     // explicitly so the element count spans every line, never just the

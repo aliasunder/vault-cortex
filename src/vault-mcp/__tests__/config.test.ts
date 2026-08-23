@@ -686,14 +686,14 @@ describe("loadConfig", () => {
   })
 
   describe("TRUST_FORWARDED_HOPS", () => {
-    it("defaults to 1 when unset", () => {
+    it("defaults to 0 (Forwarded header ignored) when unset", () => {
       const config = loadConfig(EMPTY_ENV)
-      expect(config.trustForwardedHops).toBe(1)
+      expect(config.trustForwardedHops).toBe(0)
     })
 
-    it("accepts a custom positive integer", () => {
-      const config = loadConfig({ TRUST_FORWARDED_HOPS: "2" })
-      expect(config.trustForwardedHops).toBe(2)
+    it.each(["0", "1", "2"])("accepts hop count %s", (value) => {
+      const config = loadConfig({ TRUST_FORWARDED_HOPS: value })
+      expect(config.trustForwardedHops).toBe(Number(value))
     })
 
     it("rejects a non-integer value", () => {
@@ -702,32 +702,9 @@ describe("loadConfig", () => {
       )
     })
 
-    it.each(["0", "-1", "1.5"])("rejects hop count %s", (value) => {
+    it.each(["-1", "1.5"])("rejects hop count %s", (value) => {
       expect(() => loadConfig({ TRUST_FORWARDED_HOPS: value })).toThrow(
         /TRUST_FORWARDED_HOPS/,
-      )
-    })
-  })
-
-  describe("TRUST_FORWARDED_HEADER", () => {
-    it("defaults to false when unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.trustForwardedHeader).toBe(false)
-    })
-
-    it("is true when set to 'true'", () => {
-      const config = loadConfig({ TRUST_FORWARDED_HEADER: "true" })
-      expect(config.trustForwardedHeader).toBe(true)
-    })
-
-    it("is false when set to 'false'", () => {
-      const config = loadConfig({ TRUST_FORWARDED_HEADER: "false" })
-      expect(config.trustForwardedHeader).toBe(false)
-    })
-
-    it("rejects a non-boolean value", () => {
-      expect(() => loadConfig({ TRUST_FORWARDED_HEADER: "yes" })).toThrow(
-        /TRUST_FORWARDED_HEADER/,
       )
     })
   })

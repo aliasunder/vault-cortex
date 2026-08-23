@@ -59,9 +59,9 @@ describe("extractClientIp", () => {
     headers: Record<string, string | string[]>,
     ip?: string,
   ): Parameters<typeof extractClientIp>[0] => ({ headers, ip })
-  const UNTRUSTED = { trustForwardedHeader: false, trustForwardedHops: 1 }
-  const TRUSTED_ONE_HOP = { trustForwardedHeader: true, trustForwardedHops: 1 }
-  const TRUSTED_TWO_HOPS = { trustForwardedHeader: true, trustForwardedHops: 2 }
+  const UNTRUSTED = 0
+  const TRUSTED_ONE_HOP = 1
+  const TRUSTED_TWO_HOPS = 2
 
   describe("when the Forwarded header is not trusted (default)", () => {
     // Without a trusted edge proxy, any client can choose the header's

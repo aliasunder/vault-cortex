@@ -218,7 +218,6 @@ jobs:
           DAILY_NOTES_FORMAT: ${{ vars.DAILY_NOTES_FORMAT }}
           READONLY_MODE: ${{ vars.READONLY_MODE }}
           DISABLED_TOOLS: ${{ vars.DISABLED_TOOLS }}
-          TRUST_FORWARDED_HEADER: ${{ vars.TRUST_FORWARDED_HEADER }}
           TRUST_PROXY_HOPS: ${{ vars.TRUST_PROXY_HOPS }}
           TRUST_FORWARDED_HOPS: ${{ vars.TRUST_FORWARDED_HOPS }}
           TZ: ${{ vars.TZ }}
@@ -264,7 +263,6 @@ jobs:
           if [ -n "$DAILY_NOTES_FORMAT" ]; then echo "DAILY_NOTES_FORMAT=$DAILY_NOTES_FORMAT" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$READONLY_MODE" ]; then echo "READONLY_MODE=$READONLY_MODE" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$DISABLED_TOOLS" ]; then echo "DISABLED_TOOLS=$DISABLED_TOOLS" >> "$RUNNER_TEMP/lightsail.env"; fi
-          if [ -n "$TRUST_FORWARDED_HEADER" ]; then echo "TRUST_FORWARDED_HEADER=$TRUST_FORWARDED_HEADER" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$TRUST_PROXY_HOPS" ]; then echo "TRUST_PROXY_HOPS=$TRUST_PROXY_HOPS" >> "$RUNNER_TEMP/lightsail.env"; fi
           if [ -n "$TRUST_FORWARDED_HOPS" ]; then echo "TRUST_FORWARDED_HOPS=$TRUST_FORWARDED_HOPS" >> "$RUNNER_TEMP/lightsail.env"; fi
 
