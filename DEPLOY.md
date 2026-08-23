@@ -103,7 +103,10 @@ curl -H "Authorization: Bearer <McpAuthToken>" <apiUrl>/healthz
 # Skip if you've set MCP_PORT_CIDRS=none (port 8000 blocked).
 curl http://<lightsailIp>:8000/healthz
 
-# If using ORIGIN_URL (tunnel/proxy), verify it reaches the MCP server:
+# If using ORIGIN_URL (tunnel/proxy), verify it reaches the MCP server.
+# Once the tunnel hostname admits only the gateway (Port 8000 Hardening,
+# step 6), a bare request gets 403 from Cloudflare Access — send the
+# service token, as in step 7.
 curl <ORIGIN_URL>/healthz
 ```
 
