@@ -59,7 +59,7 @@ describe("extractClientIp", () => {
     headers: Record<string, string | string[]>,
     ip?: string,
   ): Parameters<typeof extractClientIp>[0] => ({ headers, ip })
-  const UNTRUSTED = 0
+  const IGNORE_FORWARDED_HEADER = 0
   const TRUSTED_ONE_HOP = 1
   const TRUSTED_TWO_HOPS = 2
 
@@ -68,12 +68,12 @@ describe("extractClientIp", () => {
     // value, so it must never become the rate-limit identity.
     it("ignores a client-supplied Forwarded header and returns req.ip", () => {
       const request = requestWith({ forwarded: "for=203.0.113.7" }, "10.0.0.1")
-      expect(extractClientIp(request, UNTRUSTED)).toBe("10.0.0.1")
+      expect(extractClientIp(request, IGNORE_FORWARDED_HEADER)).toBe("10.0.0.1")
     })
 
     it("falls back to 'unknown' when req.ip is also unavailable", () => {
       const request = requestWith({ forwarded: "for=203.0.113.7" })
-      expect(extractClientIp(request, UNTRUSTED)).toBe("unknown")
+      expect(extractClientIp(request, IGNORE_FORWARDED_HEADER)).toBe("unknown")
     })
   })
 
