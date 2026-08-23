@@ -663,8 +663,15 @@ anonymous request and a `/register` write, so `MAX_OAUTH_CLIENTS` (default 1000)
 - A registration past the cap returns `400 registration_limit_reached` and
   logs `oauth_client_registration_refused`
 - Every registration from 80 % of the cap logs `oauth_client_cap_nearing`
-- Nothing deletes registrations, so the default is generous; an operator who
-  hits it clears stale rows from `clients` in `oauth.db` by hand
+- A registration older than a week that holds no refresh token is deleted
+  at boot and before each new registration, logged as `oauth_clients_swept`:
+  - Consent mints a refresh token within minutes, so such a row never
+    finished consent (clients register more than once per connect) or had
+    its last token expire
+  - A swept client that still presents its `client_id` gets `invalid_client`
+    and registers again
+  - Refresh-token rows made unreachable by a rotation stay until they expire,
+    so a rotation does not sweep the clients that were active before it
 
 **Rotating `MCP_AUTH_TOKEN`:** update the SST secret AND the Lightsail `.env`,
 then redeploy both

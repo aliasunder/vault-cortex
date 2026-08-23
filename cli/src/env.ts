@@ -51,8 +51,10 @@ MAX_IMAGE_OUTPUT_BYTES=49152
 MAX_PDF_RENDER_PAGES=5
 
 # Maximum number of OAuth clients the server will register (default: 1000).
-# Every MCP client registers itself once on first connect; the cap keeps the
-# OAuth database bounded if the /register rate limit is ever bypassed.
+# Every MCP client registers itself on first connect; the cap keeps the OAuth
+# database bounded if the /register rate limit is ever bypassed. Registrations
+# that never finished consent, or whose tokens have all expired, are removed
+# after a week, so the cap counts only clients that can still connect.
 MAX_OAUTH_CLIENTS=1000
 
 # Your IANA timezone — affects daily note resolution and memory timestamps.
@@ -202,8 +204,10 @@ MAX_IMAGE_OUTPUT_BYTES=49152
 MAX_PDF_RENDER_PAGES=5
 
 # Maximum number of OAuth clients the server will register (default: 1000).
-# Every MCP client registers itself once on first connect; the cap keeps the
-# OAuth database bounded if the /register rate limit is ever bypassed.
+# Every MCP client registers itself on first connect; the cap keeps the OAuth
+# database bounded if the /register rate limit is ever bypassed. Registrations
+# that never finished consent, or whose tokens have all expired, are removed
+# after a week, so the cap counts only clients that can still connect.
 MAX_OAUTH_CLIENTS=1000
 
 # Enable or disable the memory layer (default: true).
