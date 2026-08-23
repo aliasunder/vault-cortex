@@ -82,7 +82,8 @@ services:
       # Port 8000 is open to the internet, so with the default settings
       # (the "API Gateway" row) anyone can send a fake Forwarded header
       # straight to the server. DEPLOY.md "Port 8000 Hardening" closes the
-      # port; then use a "Gateway → tunnel" row.
+      # port and locks the tunnel to the gateway; then use the "Gateway →
+      # tunnel that admits only the gateway" row.
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       TRUST_FORWARDED_HOPS: ${TRUST_FORWARDED_HOPS:-1}
       LOG_LEVEL: ${LOG_LEVEL:-info}
