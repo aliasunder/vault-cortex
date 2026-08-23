@@ -416,7 +416,7 @@ Vault Cortex writes to personal notes — the file safety layer is built to prev
 - **Injection prevention** — search queries are parameterized and FTS5-sanitized; prompt content is wrapped in XML data markers with closing-tag escaping to prevent tag-breakout injection.
 - **Container hardening** — non-root user, PID 1 init, no package managers in the runtime image, digest-pinned base, graceful shutdown.
 
-See [ARCHITECTURE.md → Data Integrity](./ARCHITECTURE.md#data-integrity) for mechanism details and [SECURITY.md → Runtime Hardening](./SECURITY.md#runtime-hardening) for the full attack-surface inventory.
+See [ARCHITECTURE.md → Data Integrity](./ARCHITECTURE.md#data-integrity) for mechanism details and [SECURITY.md → Runtime Hardening](./SECURITY.md#runtime-hardening) for how each part of the server is hardened.
 
 ---
 
@@ -431,7 +431,7 @@ Two methods:
 | **OAuth 2.1**     | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256, 24h)     |
 | **Static bearer** | Claude Code, MCP Inspector, curl                         | Raw `MCP_AUTH_TOKEN` |
 
-OAuth uses dynamic client registration — no Client ID/Secret needed. A consent page opens in your browser; enter your `MCP_AUTH_TOKEN` to approve. Refresh tokens have a 60-day sliding expiry (daily users never re-authenticate).
+OAuth uses dynamic client registration — no Client ID/Secret needed. A consent page opens in your browser; enter your `MCP_AUTH_TOKEN` to approve. Refresh tokens have a 60-day sliding expiry (daily users never re-authenticate). Rotating `MCP_AUTH_TOKEN` ends every session — each client re-authorizes through the consent page.
 
 See [ARCHITECTURE.md → Auth](./ARCHITECTURE.md#auth-oauth-21--defense-in-depth) for the full flow diagram.
 
