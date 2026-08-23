@@ -43,14 +43,17 @@ export default $config({
     const originUrl = env("ORIGIN_URL").asString()
 
     // ORIGIN_ACCESS_SERVICE_TOKEN=true: API Gateway presents a Cloudflare
-    // Access service token to the ORIGIN_URL host on every request, so an
-    // Access policy on that host can admit the gateway alone. Reads the
-    // OriginAccessClientId / OriginAccessClientSecret secrets. Without
-    // ORIGIN_URL there is no host to present it to, so the flag is
-    // ignored — rollback deploys blank ORIGIN_URL on the command line and
-    // must not have to unset this too. Compared as a string, like the
-    // other optional vars here: CI passes an unset repo Variable as "",
-    // which env-var's default() does not cover and asBool() rejects.
+    // Access service token (the OriginAccessClientId / OriginAccessClientSecret
+    // secrets) to the ORIGIN_URL host on every request, so an Access policy
+    // on that host can admit the gateway alone.
+    //
+    // Ignored without ORIGIN_URL — there is no host to present it to, and a
+    // rollback deploy blanks ORIGIN_URL on the command line without having
+    // to unset this flag too.
+    //
+    // Compared as a string, like the other optional vars here: CI passes an
+    // unset repo Variable as "", which env-var's default() does not cover
+    // and asBool() rejects.
     const originAccessServiceToken =
       Boolean(originUrl) &&
       env("ORIGIN_ACCESS_SERVICE_TOKEN").asString() === "true"

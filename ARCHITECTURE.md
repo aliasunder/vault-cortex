@@ -634,18 +634,23 @@ refresh token without inconveniencing active sessions. Expired rows
 `/revoke`) are rate-limited at 5 req/min per client IP, bucketed by a
 client-IP key derived from the deployment's explicit proxy-trust config:
 
-- `TRUST_FORWARDED_HOPS` (default `0`) honors the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239)
-  `Forwarded` header and picks which trailing element is the client. The
-  proxy that writes the header appends its own peer as the **last** `for=`
-  element; a client can prepend elements, but its entries land before the
-  proxy's append. `0` ignores the header; `1` reads the last element; `2`
-  reads the one before it, for a gateway whose custom domain sits behind a
-  CDN — the gateway's peer is then the CDN, and the CDN had already
-  recorded the client ahead of it. Intended for the reference deployment,
-  where API Gateway writes the header. API Gateway folds a client-supplied
-  `X-Forwarded-For` into the same list as leading elements and sends no
-  `X-Forwarded-For` of its own, so `Forwarded` is the only carrier of the
-  client IP behind the gateway.
+- `TRUST_FORWARDED_HOPS` (default `0`) reads the client from the
+  [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header.
+  The proxy that writes the header appends its own peer as the **last**
+  `for=` element; a client can prepend elements, but its entries land
+  before the proxy's append. The value is how many trailing elements
+  trusted proxies wrote:
+  - `0` — the header is ignored.
+  - `1` — the last element is the client (the proxy talks to clients
+    directly).
+  - `2` — the element before it is the client, for a gateway whose custom
+    domain sits behind a CDN: the gateway's peer is the CDN, and the CDN
+    recorded the client ahead of it.
+- Behind API Gateway, `Forwarded` is the only carrier of the client IP:
+  the gateway writes that header, folds a client-supplied
+  `X-Forwarded-For` into it as leading elements, and sends no
+  `X-Forwarded-For` of its own. The reference deployment therefore runs
+  `TRUST_FORWARDED_HOPS=1`.
 - `TRUST_PROXY_HOPS` (default `0`) sets Express `trust proxy` — how many
   `X-Forwarded-For` hops feed `req.ip`, the bucket key whenever `Forwarded`
   isn't trusted. An injected forwarding header is ignored on both channels,
