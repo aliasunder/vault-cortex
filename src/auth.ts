@@ -30,22 +30,36 @@ export const parseBearer = (header: string | undefined): string | null => {
 const FORWARDED_FOR_CLIENT = /for="?([^";,]+)"?/i
 
 /**
- * The `for=` value `hops` elements from the end of an RFC 7239 Forwarded
- * header. Counting from the end matters: a client can prepend its own
- * elements whenever the edge proxy appends (as API Gateway does) rather
- * than replaces, so only the trailing elements are proxy-written. A chain
+ * The client's `for=` value in an RFC 7239 Forwarded header, counting
+ * `hops` elements back from the end. The proxy that writes the header
+ * appends its own peer last, so with one trusted proxy the client is the
+ * last element; with a CDN in front of that proxy the last element is the
+ * CDN and the client is the one before it:
+ *
+ *     for=203.0.113.7, for=172.69.1.1        hops=1 → 172.69.1.1 (the CDN)
+ *     ^ client          ^ CDN                 hops=2 → 203.0.113.7 (the client)
+ *
+ * Counting from the end matters: a client can prepend its own elements
+ * whenever the edge proxy appends (as API Gateway does) rather than
+ * replaces, so only the trailing elements are proxy-written. A chain
  * shorter than `hops` yields its first element — the same rule Express
  * applies to X-Forwarded-For when every hop is trusted.
  */
-const forwardedClientIpBehindHops = (
-  forwarded: string,
-  hops: number,
-): string | undefined => {
+const forwardedClientIpBehindHops = ({
+  forwarded,
+  hops,
+}: {
+  forwarded: string
+  hops: number
+}): string | undefined => {
   const forValues = forwarded
     .split(",")
     .map((element) => FORWARDED_FOR_CLIENT.exec(element)?.[1])
     .filter((forValue) => forValue !== undefined)
-  const clientIndex = Math.max(0, forValues.length - hops)
+  // hops=1 is the last element, hops=2 the one before it, and so on; a
+  // chain shorter than hops clamps to the first element.
+  const clientIndexFromStart = forValues.length - hops
+  const clientIndex = Math.max(0, clientIndexFromStart)
   return forValues[clientIndex]
 }
 
@@ -78,10 +92,10 @@ export const extractClientIp = (
       ? forwardedHeader.join(", ")
       : forwardedHeader
     if (forwarded) {
-      const clientIp = forwardedClientIpBehindHops(
+      const clientIp = forwardedClientIpBehindHops({
         forwarded,
-        trustForwardedHops,
-      )
+        hops: trustForwardedHops,
+      })
       if (clientIp) return clientIp
     }
   }
