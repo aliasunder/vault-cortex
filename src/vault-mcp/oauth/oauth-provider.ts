@@ -74,7 +74,7 @@ const REFRESH_TOKEN_KEY_PREFIX = "hmac-sha256:"
 // JWT signature, which uses the same key (see jwt.ts).
 const REFRESH_TOKEN_KEY_LABEL = "refresh-token:"
 
-// A registration older than this that holds no refresh token is swept.
+// A registration older than this that holds no unexpired refresh token is swept.
 // Consent mints a refresh token within minutes of registering, so a row
 // still without one after a week never finished consent (clients register
 // more than once per connect) or had its last token expire.
