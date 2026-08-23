@@ -79,11 +79,11 @@ services:
       # from the row that describes what sits between the CDN and this
       # container, and set TRUST_FORWARDED_HOPS to 2.
       #
-      # Port 8000 is open to the internet, so with the default settings
-      # (the "API Gateway" row) anyone can send a fake Forwarded header
-      # straight to the server. DEPLOY.md "Port 8000 Hardening" closes the
-      # port and locks the tunnel to the gateway; then set TRUST_PROXY_HOPS=2
-      # and TRUST_FORWARDED_HOPS=1.
+      # Port 8000 is open to the internet. With the default settings (the
+      # "API Gateway" row), anyone can send a fake Forwarded header straight
+      # to the server. To fix this, follow the steps in DEPLOY.md under "Port
+      # 8000 Hardening". They close the port and lock the tunnel to the
+      # gateway. After that, set TRUST_PROXY_HOPS=2 and TRUST_FORWARDED_HOPS=1.
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       TRUST_FORWARDED_HOPS: ${TRUST_FORWARDED_HOPS:-1}
       LOG_LEVEL: ${LOG_LEVEL:-info}
