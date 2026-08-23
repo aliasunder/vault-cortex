@@ -136,7 +136,9 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     { data: string }
   >
   private readonly insertClientStmt: Database.Statement<[string, string]>
-  private readonly deleteTokenlessClientsStmt: Database.Statement<[number]>
+  private readonly deleteTokenlessClientsStmt: Database.Statement<
+    [number, number]
+  >
 
   constructor(
     private db: Database.Database,
@@ -148,30 +150,34 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     this.insertClientStmt = db.prepare(
       "INSERT INTO clients (client_id, data) VALUES (?, ?)",
     )
-    // Refresh-token rows made unreachable by a rotation stay until they
-    // expire, so a client active before the rotation keeps its
-    // registration through it.
+    // An unexpired row counts even when a rotation made it unreachable, so
+    // a client active before the rotation keeps its registration through
+    // it. Expired rows are purged only when a token is minted, so the
+    // check excludes them itself rather than waiting for that.
     this.deleteTokenlessClientsStmt = db.prepare(`
       DELETE FROM clients
       WHERE json_extract(data, '$.client_id_issued_at') < ?
         AND NOT EXISTS (
           SELECT 1 FROM refresh_tokens
           WHERE refresh_tokens.client_id = clients.client_id
+            AND refresh_tokens.expires_at >= ?
         )
     `)
     this.sweepTokenlessClients()
   }
 
   /** Deletes registrations older than TOKENLESS_CLIENT_MAX_AGE_S that hold
-   *  no refresh token. Runs at boot and before every registration, so the
-   *  table only grows with clients that completed consent. A swept client
-   *  that still presents its old client_id gets invalid_client and
-   *  registers again. */
+   *  no unexpired refresh token. Runs at boot and before every
+   *  registration, so the table only grows with clients that completed
+   *  consent. A swept client that still presents its old client_id gets
+   *  invalid_client and registers again. */
   private sweepTokenlessClients(): void {
-    const issuedBefore =
-      DateTime.now().toUnixInteger() - TOKENLESS_CLIENT_MAX_AGE_S
-    const { changes: sweptClients } =
-      this.deleteTokenlessClientsStmt.run(issuedBefore)
+    const now = DateTime.now().toUnixInteger()
+    const issuedBefore = now - TOKENLESS_CLIENT_MAX_AGE_S
+    const { changes: sweptClients } = this.deleteTokenlessClientsStmt.run(
+      issuedBefore,
+      now,
+    )
     if (sweptClients === 0) return
     this.logger.info("oauth_clients_swept", {
       sweptClients,

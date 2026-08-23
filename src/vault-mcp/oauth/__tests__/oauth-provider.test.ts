@@ -1232,6 +1232,23 @@ describe("OAuth tokenless client sweep", () => {
     expect(registeredClientIds(db)).toEqual(["rotated-client"])
   })
 
+  it("sweeps an old client whose only refresh token has expired", async () => {
+    const { dbPath } = await createSweepTest()
+    const db = openDb(dbPath)
+    seedClientIssuedAt(db, "expired-token-client", EIGHT_DAYS_AGO)
+    seedRefreshToken(
+      db,
+      "long-expired-token",
+      "expired-token-client",
+      ["vault"],
+      DateTime.now().minus({ days: 1 }).toUnixInteger(),
+    )
+
+    createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+
+    expect(registeredClientIds(db)).toEqual([])
+  })
+
   it("sweeps before each registration so the table does not wait for a reboot", async () => {
     const { dbPath } = await createSweepTest()
     const db = openDb(dbPath)
