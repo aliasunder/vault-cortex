@@ -645,7 +645,9 @@ client-IP key derived from the deployment's explicit proxy-trust config:
     directly).
   - `2` — the element before it is the client, for a gateway whose custom
     domain sits behind a CDN: the gateway's peer is the CDN, and the CDN
-    recorded the client ahead of it.
+    recorded the client ahead of it. Only once the CDN is the sole way in
+    (`DISABLE_EXECUTE_API_ENDPOINT=true`) — on the default hostname a
+    request skips the CDN and carries one fewer trusted element.
 - Behind API Gateway, `Forwarded` is the only carrier of the client IP:
   the gateway writes that header, folds a client-supplied
   `X-Forwarded-For` into it as leading elements, and sends no

@@ -89,7 +89,6 @@ jobs:
           CUSTOM_DOMAIN: ${{ secrets.CUSTOM_DOMAIN }}
           CUSTOM_DOMAIN_CERT_ARN: ${{ secrets.CUSTOM_DOMAIN_CERT_ARN }}
           DISABLE_EXECUTE_API_ENDPOINT: ${{ vars.DISABLE_EXECUTE_API_ENDPOINT }}
-          DISABLE_EXECUTE_API_ENDPOINT: ${{ vars.DISABLE_EXECUTE_API_ENDPOINT }}
         run: npx sst deploy --stage "$SST_STAGE"
 
       - name: Connect to Tailscale

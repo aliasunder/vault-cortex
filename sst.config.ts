@@ -56,7 +56,7 @@ export default $config({
     // and asBool() rejects.
     const originAccessServiceToken =
       Boolean(originUrl) &&
-      env("ORIGIN_ACCESS_SERVICE_TOKEN").asString() === "true"
+      env("ORIGIN_ACCESS_SERVICE_TOKEN").asString()?.toLowerCase() === "true"
 
     // Optional custom domain on API Gateway (e.g. mcp.example.com), replacing
     // the auto-generated execute-api URL. DNS stays external (any provider):
@@ -84,7 +84,7 @@ export default $config({
     // Compared as a string, like the other optional vars here: CI passes an
     // unset repo Variable as "", which asBool() rejects.
     const disableExecuteApiEndpoint =
-      env("DISABLE_EXECUTE_API_ENDPOINT").asString() === "true"
+      env("DISABLE_EXECUTE_API_ENDPOINT").asString()?.toLowerCase() === "true"
     if (disableExecuteApiEndpoint && !customDomain) {
       throw new Error(
         "DISABLE_EXECUTE_API_ENDPOINT requires CUSTOM_DOMAIN — without a " +

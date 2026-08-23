@@ -307,6 +307,14 @@ export const loadConfig = (
     .default("0")
     .asIntPositive()
 
+  // TRUST_FORWARDED_HEADER was folded into TRUST_FORWARDED_HOPS. A deployment
+  // still setting it gets the new default silently otherwise, so say so.
+  if (env.TRUST_FORWARDED_HEADER !== undefined) {
+    logger.warn(
+      "TRUST_FORWARDED_HEADER is no longer read — set TRUST_FORWARDED_HOPS instead (0 ignores the Forwarded header, 1 trusts the proxy that writes it)",
+    )
+  }
+
   return Object.freeze({
     memoryEnabled,
     fileToolsEnabled,
