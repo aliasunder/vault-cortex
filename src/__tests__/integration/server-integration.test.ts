@@ -14,6 +14,8 @@ import { createHash, randomBytes } from "node:crypto"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import Database from "better-sqlite3"
+import { DateTime } from "luxon"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
   startServer,
@@ -1434,5 +1436,54 @@ describe("rotating MCP_AUTH_TOKEN", () => {
       refreshToken: reissued.refresh_token,
     })
     expect(refreshedAgain.status).toBe(200)
+  }, 60_000)
+
+  it("sweeps a week-old registration that never consented on the next boot", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "vc-integ-sweep-"))
+    onTestFinished(async () => {
+      await rm(dataDir, { recursive: true, force: true })
+    })
+    const sameDataDir = { INDEX_DB_PATH: join(dataDir, "search.db") }
+    const port = await freePort()
+
+    const before = await startServer(port, sameDataDir)
+    const stale = await registerClient(port)
+    const kept = await registerClient(port)
+    await before.cleanup()
+
+    // Backdate both past the sweep's one-week age on disk. Only `stale`
+    // is tokenless: `kept` gets a refresh token row seeded under an
+    // unrelated key, the state a rotation leaves behind.
+    const oauthDb = new Database(join(dataDir, "oauth.db"))
+    onTestFinished(() => {
+      oauthDb.close()
+    })
+    const eightDaysAgo = DateTime.now().minus({ days: 8 }).toUnixInteger()
+    const backdate = oauthDb.prepare(
+      "UPDATE clients SET data = json_set(data, '$.client_id_issued_at', ?) WHERE client_id = ?",
+    )
+    backdate.run(eightDaysAgo, stale.client_id)
+    backdate.run(eightDaysAgo, kept.client_id)
+    oauthDb
+      .prepare(
+        "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(
+        "hmac-sha256:unreachable-after-rotation",
+        kept.client_id,
+        "vault",
+        DateTime.now().plus({ days: 60 }).toUnixInteger(),
+      )
+
+    const rebootedPort = await freePort()
+    const after = await startServer(rebootedPort, sameDataDir)
+    onTestFinished(() => after.cleanup())
+    await fetch(`http://127.0.0.1:${rebootedPort}/healthz`)
+
+    const registeredClientIds = oauthDb
+      .prepare<[], { client_id: string }>("SELECT client_id FROM clients")
+      .all()
+      .map((clientRow) => clientRow.client_id)
+    expect(registeredClientIds).toEqual([kept.client_id])
   }, 60_000)
 })

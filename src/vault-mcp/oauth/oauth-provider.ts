@@ -74,6 +74,12 @@ const REFRESH_TOKEN_KEY_PREFIX = "hmac-sha256:"
 // JWT signature, which uses the same key (see jwt.ts).
 const REFRESH_TOKEN_KEY_LABEL = "refresh-token:"
 
+// A registration older than this that holds no unexpired refresh token is swept.
+// Consent mints a refresh token within minutes of registering, so a row
+// still without one after a week never finished consent (clients register
+// more than once per connect) or had its last token expire.
+const TOKENLESS_CLIENT_MAX_AGE_S = 7 * 24 * 60 * 60
+
 const initDb = (dbPath: string, logger: Logger): Database.Database => {
   const db = new Database(dbPath)
   db.pragma("journal_mode = WAL") // concurrent reads during writes
@@ -129,6 +135,10 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     [string],
     { data: string }
   >
+  private readonly insertClientStmt: Database.Statement<[string, string]>
+  private readonly deleteTokenlessClientsStmt: Database.Statement<
+    [number, number]
+  >
 
   constructor(
     private db: Database.Database,
@@ -137,6 +147,42 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     this.selectClientStmt = db.prepare(
       "SELECT data FROM clients WHERE client_id = ?",
     )
+    this.insertClientStmt = db.prepare(
+      "INSERT INTO clients (client_id, data) VALUES (?, ?)",
+    )
+    // An unexpired row counts even when a rotation made it unreachable, so
+    // a client active before the rotation keeps its registration through
+    // it. Expired rows are purged only when a token is minted, so the
+    // check excludes them itself rather than waiting for that.
+    this.deleteTokenlessClientsStmt = db.prepare(`
+      DELETE FROM clients
+      WHERE json_extract(data, '$.client_id_issued_at') < ?
+        AND NOT EXISTS (
+          SELECT 1 FROM refresh_tokens
+          WHERE refresh_tokens.client_id = clients.client_id
+            AND refresh_tokens.expires_at >= ?
+        )
+    `)
+    this.sweepTokenlessClients()
+  }
+
+  /** Deletes registrations older than TOKENLESS_CLIENT_MAX_AGE_S that hold
+   *  no unexpired refresh token. Runs at boot and before every
+   *  registration, so the table only grows with clients that completed
+   *  consent. A swept client that still presents its old client_id gets
+   *  invalid_client and registers again. */
+  private sweepTokenlessClients(): void {
+    const now = DateTime.now().toUnixInteger()
+    const issuedBefore = now - TOKENLESS_CLIENT_MAX_AGE_S
+    const { changes: sweptClientCount } = this.deleteTokenlessClientsStmt.run(
+      issuedBefore,
+      now,
+    )
+    if (sweptClientCount === 0) return
+    this.logger.info("oauth_clients_swept", {
+      sweptClientCount,
+      maxAgeSeconds: TOKENLESS_CLIENT_MAX_AGE_S,
+    })
   }
 
   getClient(clientId: string): OAuthClientInformationFull | undefined {
@@ -159,9 +205,8 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
       client_secret: randomBytes(32).toString("hex"),
       client_secret_expires_at: 0,
     }
-    this.db
-      .prepare("INSERT INTO clients (client_id, data) VALUES (?, ?)")
-      .run(full.client_id, JSON.stringify(full))
+    this.sweepTokenlessClients()
+    this.insertClientStmt.run(full.client_id, JSON.stringify(full))
     this.logger.info("oauth_client_registered", {
       clientId: full.client_id,
       clientName: full.client_name ?? null,
@@ -223,6 +268,22 @@ export const createOAuthProvider = ({
   const selectRevokedTokenStmt = db.prepare<[string]>(
     "SELECT 1 FROM revoked_tokens WHERE token = ?",
   )
+  const deleteExpiredRevokedTokensStmt = db.prepare<[number]>(
+    "DELETE FROM revoked_tokens WHERE revoked_at < ?",
+  )
+  /** A revoked access JWT outlives its revocation by at most its own
+   *  lifetime, so rows older than that can never be presented again. */
+  const purgeExpiredRevokedTokens = (): void => {
+    const { changes: purgedTokenCount } = deleteExpiredRevokedTokensStmt.run(
+      DateTime.now().toUnixInteger() - ACCESS_TOKEN_TTL_S,
+    )
+    if (purgedTokenCount === 0) return
+    oauthLogger.info("oauth_revoked_tokens_purged", {
+      purgedTokenCount,
+      maxAgeSeconds: ACCESS_TOKEN_TTL_S,
+    })
+  }
+  purgeExpiredRevokedTokens()
 
   const issueAccessToken = (clientId: string, scopes: string[]): string =>
     signJwt(
@@ -483,6 +544,7 @@ export const createOAuthProvider = ({
       )
       const isValidAccessToken = verifyJwt(request.token, authToken) !== null
       if (isValidAccessToken) {
+        purgeExpiredRevokedTokens()
         insertRevokedTokenStmt.run(
           request.token,
           DateTime.now().toUnixInteger(),

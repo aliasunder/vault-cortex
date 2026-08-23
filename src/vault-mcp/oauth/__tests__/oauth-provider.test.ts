@@ -122,10 +122,14 @@ const seedClient = (db: Database.Database): OAuthClientInformationFull => {
   return client
 }
 
-const seedRevokedToken = (db: Database.Database, token: string): void => {
+const seedRevokedToken = (
+  db: Database.Database,
+  token: string,
+  revokedAt = DateTime.now().toUnixInteger(),
+): void => {
   db.prepare(
     "INSERT INTO revoked_tokens (token, revoked_at) VALUES (?, ?)",
-  ).run(token, DateTime.now().toUnixInteger())
+  ).run(token, revokedAt)
 }
 
 const seedRefreshToken = (
@@ -920,6 +924,81 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     ).rejects.toThrow("Refresh token expired or invalid")
   })
 
+  it("purges revoked_tokens rows older than the access-token lifetime at boot", async () => {
+    const { db, dbPath } = await createKeyedStorageTest()
+    seedRevokedToken(
+      db,
+      "revoked-25h-ago",
+      DateTime.now().minus({ hours: 25 }).toUnixInteger(),
+    )
+    seedRevokedToken(
+      db,
+      "revoked-23h-ago",
+      DateTime.now().minus({ hours: 23 }).toUnixInteger(),
+    )
+    const logs: LogCall[] = []
+
+    createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+
+    expect(storedRevokedTokens(db)).toEqual(["revoked-23h-ago"])
+    const purge = logs.find(
+      (log) => log.message === "oauth_revoked_tokens_purged",
+    )
+    expect(purge).toEqual({
+      level: "info",
+      message: "oauth_revoked_tokens_purged",
+      data: { component: "oauth", purgedTokenCount: 1, maxAgeSeconds: 86_400 },
+    })
+  })
+
+  it("does not log a purge when no revoked_tokens rows are expired", async () => {
+    const { db, dbPath } = await createKeyedStorageTest()
+    seedRevokedToken(
+      db,
+      "revoked-23h-ago",
+      DateTime.now().minus({ hours: 23 }).toUnixInteger(),
+    )
+    const logs: LogCall[] = []
+
+    createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+
+    expect(storedRevokedTokens(db)).toEqual(["revoked-23h-ago"])
+    expect(logs.map((log) => log.message)).not.toContain(
+      "oauth_revoked_tokens_purged",
+    )
+  })
+
+  it("purges revoked_tokens rows older than the access-token lifetime on revocation", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    // Seeded after the boot in createKeyedStorageTest, so only the
+    // revocation below can purge them.
+    seedRevokedToken(
+      db,
+      "revoked-26h-ago",
+      DateTime.now().minus({ hours: 26 }).toUnixInteger(),
+    )
+    seedRevokedToken(
+      db,
+      "revoked-23h-ago",
+      DateTime.now().minus({ hours: 23 }).toUnixInteger(),
+    )
+    const { access_token: accessToken } = await issueTokens(oauth, client)
+
+    await revokeToken(oauth, client, accessToken)
+
+    expect(storedRevokedTokens(db)).toEqual(
+      [accessToken, "revoked-23h-ago"].sort(),
+    )
+  })
+
   it("revoking an access token records it in revoked_tokens and rejects it afterwards", async () => {
     const { oauth, db, client } = await createKeyedStorageTest()
     const { access_token: accessToken } = await issueTokens(oauth, client)
@@ -1098,5 +1177,152 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
         }),
       }),
     )
+  })
+})
+
+describe("OAuth tokenless client sweep", () => {
+  const EIGHT_DAYS_AGO = DateTime.now().minus({ days: 8 }).toUnixInteger()
+  const SIX_DAYS_AGO = DateTime.now().minus({ days: 6 }).toUnixInteger()
+  const SIXTY_DAYS_AHEAD = DateTime.now().plus({ days: 60 }).toUnixInteger()
+
+  const createSweepTest = async (): Promise<{
+    dbPath: string
+    logs: LogCall[]
+  }> => {
+    const dir = await mkdtemp(join(tmpdir(), "oauth-sweep-test-"))
+    const dbPath = join(dir, "oauth.db")
+    // A first boot creates the schema so clients can be seeded before the
+    // boot under test.
+    createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+    onTestFinished(async () => {
+      await rm(dir, { recursive: true, force: true })
+    })
+    return { dbPath, logs: [] }
+  }
+
+  const openDb = (dbPath: string): Database.Database => {
+    const db = new Database(dbPath)
+    onTestFinished(() => {
+      db.close()
+    })
+    return db
+  }
+
+  const seedClientIssuedAt = (
+    db: Database.Database,
+    clientId: string,
+    issuedAt: number,
+  ): void => {
+    const client = {
+      client_id: clientId,
+      client_id_issued_at: issuedAt,
+      client_secret: "test-secret",
+      client_secret_expires_at: 0,
+      redirect_uris: ["https://example.com/cb"],
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+    }
+    db.prepare("INSERT INTO clients (client_id, data) VALUES (?, ?)").run(
+      clientId,
+      JSON.stringify(client),
+    )
+  }
+
+  const registeredClientIds = (db: Database.Database): string[] =>
+    db
+      .prepare<[], { client_id: string }>(
+        "SELECT client_id FROM clients ORDER BY client_id",
+      )
+      .all()
+      .map((clientRow) => clientRow.client_id)
+
+  it("sweeps a client older than seven days that holds no refresh token at boot", async () => {
+    const { dbPath, logs } = await createSweepTest()
+    const db = openDb(dbPath)
+    seedClientIssuedAt(db, "old-tokenless", EIGHT_DAYS_AGO)
+
+    createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+
+    expect(registeredClientIds(db)).toEqual([])
+    const sweep = logs.find((log) => log.message === "oauth_clients_swept")
+    expect(sweep).toEqual({
+      level: "info",
+      message: "oauth_clients_swept",
+      data: { component: "oauth", sweptClientCount: 1, maxAgeSeconds: 604_800 },
+    })
+  })
+
+  it("keeps a client younger than seven days that holds no refresh token", async () => {
+    const { dbPath, logs } = await createSweepTest()
+    const db = openDb(dbPath)
+    seedClientIssuedAt(db, "recent-tokenless", SIX_DAYS_AGO)
+
+    createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+
+    expect(registeredClientIds(db)).toEqual(["recent-tokenless"])
+    expect(logs.map((log) => log.message)).not.toContain("oauth_clients_swept")
+  })
+
+  it("keeps an old client whose refresh token was keyed under a previous auth token", async () => {
+    const { dbPath } = await createSweepTest()
+    const db = openDb(dbPath)
+    seedClientIssuedAt(db, "rotated-client", EIGHT_DAYS_AGO)
+    db.prepare(
+      "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
+    ).run(
+      refreshTokenKey("pre-rotation-token", "previous-auth-token"),
+      "rotated-client",
+      "vault",
+      SIXTY_DAYS_AHEAD,
+    )
+
+    createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+
+    expect(registeredClientIds(db)).toEqual(["rotated-client"])
+  })
+
+  it("sweeps an old client whose only refresh token has expired", async () => {
+    const { dbPath } = await createSweepTest()
+    const db = openDb(dbPath)
+    seedClientIssuedAt(db, "expired-token-client", EIGHT_DAYS_AGO)
+    seedRefreshToken(
+      db,
+      "long-expired-token",
+      "expired-token-client",
+      ["vault"],
+      DateTime.now().minus({ days: 1 }).toUnixInteger(),
+    )
+
+    createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+
+    expect(registeredClientIds(db)).toEqual([])
+  })
+
+  it("sweeps before each registration so the table does not wait for a reboot", async () => {
+    const { dbPath } = await createSweepTest()
+    const db = openDb(dbPath)
+    const oauth = createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+    // Seeded after the boot so the registration itself has to sweep it.
+    seedClientIssuedAt(db, "old-tokenless", EIGHT_DAYS_AGO)
+    const { clientsStore } = oauth.provider
+    if (!clientsStore.registerClient) {
+      throw new Error("registerClient not implemented")
+    }
+
+    const registered = await clientsStore.registerClient({
+      client_name: "fresh",
+      redirect_uris: ["https://example.com/cb"],
+    })
+
+    expect(registeredClientIds(db)).toEqual([registered.client_id])
   })
 })
