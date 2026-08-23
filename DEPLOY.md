@@ -569,6 +569,8 @@ Together:
 > - `TRUST_FORWARDED_HOPS=2` only if the gateway's custom domain is a proxied Cloudflare record **and** that domain is the only way into the gateway — the gateway then lists the Cloudflare edge last and the visitor before it. While the gateway's default `execute-api` hostname is still reachable, a request on it has only one gateway-written element, and the gateway folds a client-supplied `X-Forwarded-For` into the elements before it — so `2` would read an attacker's value there. Keep `1` until the default hostname is closed.
 >
 > Trusting `Forwarded` is safe only once the tunnel hostname admits the gateway alone; otherwise anyone reaching the tunnel hostname directly can write their own `Forwarded` header and pick their OAuth rate-limit bucket. Steps 5–7 of the Cloudflare Tunnel example lock the hostname with an Access service token before the gateway routes through it; step 10 then sets these values.
+>
+> **Other frontends** (Caddy, nginx): the same lock works without Cloudflare Access — `ORIGIN_ACCESS_SERVICE_TOKEN=true` makes the gateway send `CF-Access-Client-Id` / `CF-Access-Client-Secret` on every request regardless of the target, so configure the proxy to reject requests that don't carry your two values (Caddy: a `header` matcher on `handle`; nginx: an `if` on `$http_cf_access_client_secret`). A frontend that cannot check headers (Tailscale Funnel) gets `TRUST_FORWARDED_HEADER=false` instead: nothing can be forged, and rate limiting keys on the gateway's own address — coarser, never attacker-controlled. `TRUST_FORWARDED_HEADER=false` with `TRUST_PROXY_HOPS=2` does **not** recover the visitor: the gateway sends no `X-Forwarded-For`.
 
 #### Example: Cloudflare Tunnel
 
