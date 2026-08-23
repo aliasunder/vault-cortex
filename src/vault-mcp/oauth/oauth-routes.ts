@@ -19,8 +19,8 @@ type OAuthRoutesOptions = {
    *  (https://www.rfc-editor.org/rfc/rfc7239) were written by trusted
    *  proxies. With a value of N, the client IP used for rate limiting and
    *  logs is the Nth element from the end of that list; 0 ignores the
-   *  header. Set from TRUST_FORWARDED_HOPS, and non-zero only where a known
-   *  edge proxy (API Gateway) writes or appends the header. */
+   *  header. The value comes from TRUST_FORWARDED_HOPS. Keep it at 0 unless
+   *  a known edge proxy (API Gateway) writes or appends the header. */
   trustForwardedHops: number
   logger: Logger
 }
