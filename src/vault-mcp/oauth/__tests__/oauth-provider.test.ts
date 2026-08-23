@@ -951,7 +951,7 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     expect(purge).toEqual({
       level: "info",
       message: "oauth_revoked_tokens_purged",
-      data: { component: "oauth", purgedTokens: 1, maxAgeSeconds: 86_400 },
+      data: { component: "oauth", purgedTokenCount: 1, maxAgeSeconds: 86_400 },
     })
   })
 
@@ -1253,7 +1253,7 @@ describe("OAuth tokenless client sweep", () => {
     expect(sweep).toEqual({
       level: "info",
       message: "oauth_clients_swept",
-      data: { component: "oauth", sweptClients: 1, maxAgeSeconds: 604_800 },
+      data: { component: "oauth", sweptClientCount: 1, maxAgeSeconds: 604_800 },
     })
   })
 

@@ -174,13 +174,13 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
   private sweepTokenlessClients(): void {
     const now = DateTime.now().toUnixInteger()
     const issuedBefore = now - TOKENLESS_CLIENT_MAX_AGE_S
-    const { changes: sweptClients } = this.deleteTokenlessClientsStmt.run(
+    const { changes: sweptClientCount } = this.deleteTokenlessClientsStmt.run(
       issuedBefore,
       now,
     )
-    if (sweptClients === 0) return
+    if (sweptClientCount === 0) return
     this.logger.info("oauth_clients_swept", {
-      sweptClients,
+      sweptClientCount,
       maxAgeSeconds: TOKENLESS_CLIENT_MAX_AGE_S,
     })
   }
@@ -274,12 +274,12 @@ export const createOAuthProvider = ({
   /** A revoked access JWT outlives its revocation by at most its own
    *  lifetime, so rows older than that can never be presented again. */
   const purgeExpiredRevokedTokens = (): void => {
-    const { changes: purgedTokens } = deleteExpiredRevokedTokensStmt.run(
+    const { changes: purgedTokenCount } = deleteExpiredRevokedTokensStmt.run(
       DateTime.now().toUnixInteger() - ACCESS_TOKEN_TTL_S,
     )
-    if (purgedTokens === 0) return
+    if (purgedTokenCount === 0) return
     oauthLogger.info("oauth_revoked_tokens_purged", {
-      purgedTokens,
+      purgedTokenCount,
       maxAgeSeconds: ACCESS_TOKEN_TTL_S,
     })
   }
