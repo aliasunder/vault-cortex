@@ -932,6 +932,38 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     ).rejects.toThrow("Refresh token expired or invalid")
   })
 
+  it("purges revoked_tokens rows older than the access-token lifetime at boot and on revoke", async () => {
+    const { oauth, db, client, dbPath } = await createKeyedStorageTest()
+    const seedRevokedToken = (token: string, revokedAt: number): void => {
+      db.prepare(
+        "INSERT INTO revoked_tokens (token, revoked_at) VALUES (?, ?)",
+      ).run(token, revokedAt)
+    }
+    seedRevokedToken(
+      "revoked-25h-ago",
+      DateTime.now().minus({ hours: 25 }).toUnixInteger(),
+    )
+    seedRevokedToken(
+      "revoked-23h-ago",
+      DateTime.now().minus({ hours: 23 }).toUnixInteger(),
+    )
+
+    createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+
+    expect(storedRevokedTokens(db)).toEqual(["revoked-23h-ago"])
+
+    seedRevokedToken(
+      "revoked-26h-ago",
+      DateTime.now().minus({ hours: 26 }).toUnixInteger(),
+    )
+    const { access_token: accessToken } = await issueTokens(oauth, client)
+    await revokeToken(oauth, client, accessToken)
+
+    expect(storedRevokedTokens(db)).toEqual(
+      [accessToken, "revoked-23h-ago"].sort(),
+    )
+  })
+
   it("revoking an access token records it in revoked_tokens and rejects it afterwards", async () => {
     const { oauth, db, client } = await createKeyedStorageTest()
     const { access_token: accessToken } = await issueTokens(oauth, client)
