@@ -72,8 +72,9 @@ services:
       # ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED repo Variable is set and the Access
       # policy is in place (DEPLOY.md "Port 8000 Hardening", steps 5–10). Until
       # then the host passes any client-written Forwarded header through,
-      # which is why that row reads 0. The CDN row adds to whichever row above
-      # describes the path behind the CDN.
+      # which is why the "admits any client" row sets TRUST_FORWARDED_HOPS to
+      # 0. The CDN row adds to whichever row above describes the path behind
+      # the CDN.
       #
       # Port 8000 is bound publicly below, so a request that skips the gateway
       # and reaches the port directly can send any Forwarded header. The
