@@ -1387,6 +1387,9 @@ describe("rotating MCP_AUTH_TOKEN", () => {
     // is tokenless: `kept` gets a refresh token row seeded under an
     // unrelated key, the state a rotation leaves behind.
     const oauthDb = new Database(join(dataDir, "oauth.db"))
+    onTestFinished(() => {
+      oauthDb.close()
+    })
     const eightDaysAgo = DateTime.now().minus({ days: 8 }).toUnixInteger()
     const backdate = oauthDb.prepare(
       "UPDATE clients SET data = json_set(data, '$.client_id_issued_at', ?) WHERE client_id = ?",
@@ -1413,7 +1416,6 @@ describe("rotating MCP_AUTH_TOKEN", () => {
       .prepare<[], { client_id: string }>("SELECT client_id FROM clients")
       .all()
       .map((clientRow) => clientRow.client_id)
-    oauthDb.close()
     expect(registeredClientIds).toEqual([kept.client_id])
   }, 60_000)
 })
