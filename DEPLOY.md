@@ -563,7 +563,7 @@ Together:
 - `MCP_PORT_CIDRS=none` blocks the direct path
 - `ORIGIN_ACCESS_SERVICE_TOKEN=true` lets the alternative path admit the gateway alone
 
-> **Client-IP trust with ORIGIN_URL:** API Gateway reports the visitor only in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header and sends no `X-Forwarded-For`, so `TRUST_FORWARDED_HOPS` is what finds the visitor; `TRUST_PROXY_HOPS` only sizes the `req.ip` fallback. Pick the row that matches the instance:
+> **Client-IP trust with ORIGIN_URL:** API Gateway reports the visitor only in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header and sends no `X-Forwarded-For`, so `TRUST_FORWARDED_HOPS` is what finds the visitor; `TRUST_PROXY_HOPS` only sets how many `X-Forwarded-For` hops feed the fallback client IP, used when `Forwarded` is ignored or absent. Pick the row that matches the instance:
 >
 > | What sits in front of the instance                                                                          | `TRUST_PROXY_HOPS` | `TRUST_FORWARDED_HOPS` |
 > | ----------------------------------------------------------------------------------------------------------- | ------------------ | ---------------------- |
@@ -575,8 +575,8 @@ Together:
 >
 > - **Locked** means the tunnel hostname admits the gateway alone. Otherwise anyone reaching it directly can write their own `Forwarded` header and pick their OAuth rate-limit bucket — hence `0` until the lock exists. Steps 5–7 below lock it with an Access service token before the gateway routes through it; step 10 sets the values.
 > - **Other frontends** (Caddy, nginx) can enforce the same lock: `ORIGIN_ACCESS_SERVICE_TOKEN=true` makes the gateway send `CF-Access-Client-Id` / `CF-Access-Client-Secret` on every request, so reject requests without your two values (Caddy: a `header` matcher on `handle`; nginx: an `if` on `$http_cf_access_client_secret`).
-> - **`0` keys on the gateway's own address** — coarser, never attacker-controlled. `TRUST_PROXY_HOPS=2` alone does **not** recover the visitor: the gateway sends no `X-Forwarded-For`.
-> - **`2` needs the CDN to be the only way in.** Cloudflare appends the visitor to `X-Forwarded-For` and the gateway lists the edge last, so the visitor is the element before it. On the gateway's default `execute-api` hostname a request has only one gateway-written element, and a client-supplied `X-Forwarded-For` lands right before it — `2` would read an attacker's value. Keep `1` until that hostname is closed. A CDN that passes client headers through unchanged cannot use `2`.
+> - **With `0`, rate limiting keys on the gateway's own address** — coarser, but never attacker-controlled. `TRUST_PROXY_HOPS=2` alone does **not** recover the visitor: the gateway sends no `X-Forwarded-For`.
+> - **`2` needs the CDN to be the only way in** (the CDN row adds to whichever row above describes the path behind it). Cloudflare appends the visitor to `X-Forwarded-For` and the gateway lists the edge last, so the visitor is the element before it. On the gateway's default `execute-api` hostname a request has only one gateway-written element, and a client-supplied `X-Forwarded-For` lands right before it — `2` would read an attacker's value. Keep `1` until that hostname is closed. A CDN that passes client headers through unchanged cannot use `2`.
 
 #### Example: Cloudflare Tunnel
 

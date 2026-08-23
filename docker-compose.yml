@@ -43,26 +43,36 @@ services:
       INDEX_DB_PATH: /data/index.db
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?MCP_AUTH_TOKEN required for in-process auth}
       PUBLIC_URL: ${PUBLIC_URL:?PUBLIC_URL required for OAuth metadata}
-      # Client IP for OAuth rate limiting and request logs. The gateway reports
-      # the visitor only in the RFC 7239 Forwarded header
-      # (https://www.rfc-editor.org/rfc/rfc7239) and sends no X-Forwarded-For,
-      # so TRUST_FORWARDED_HOPS is what finds the visitor; TRUST_PROXY_HOPS
-      # only sizes the req.ip fallback.
+      # These two settings choose the client IP used for OAuth rate limiting
+      # and request logs. API Gateway reports the visitor only in the RFC 7239
+      # Forwarded header (https://www.rfc-editor.org/rfc/rfc7239) and sends
+      # no X-Forwarded-For, so TRUST_FORWARDED_HOPS is the setting that finds
+      # the visitor; TRUST_PROXY_HOPS only sets how many X-Forwarded-For hops
+      # feed the fallback client IP, used when the Forwarded header is ignored
+      # or absent.
       #
-      #   What sits in front of this container      PROXY_HOPS  FORWARDED_HOPS
-      #   API Gateway (default)                     1           1
-      #   Gateway → tunnel (ORIGIN_URL), unlocked   2           0
-      #   Gateway → tunnel, locked to the gateway   2           1
-      #   CDN → gateway's custom domain, CDN only   same        2
+      #   What sits in front of this container   TRUST_PROXY_HOPS  TRUST_FORWARDED_HOPS
+      #   API Gateway (default)                  1                 1
+      #   Gateway → tunnel (ORIGIN_URL),         2                 0
+      #     unlocked
+      #   Gateway → tunnel, locked to the        2                 1
+      #     gateway
+      #   CDN → gateway's custom domain, and     as above          2
+      #     the CDN is the only way in
+      #     (execute-api hostname closed)
       #
-      # "Locked" = ORIGIN_ACCESS_SERVICE_TOKEN + the Access policy (DEPLOY.md
-      # "Port 8000 Hardening", steps 5–10); an unlocked tunnel host passes any
-      # client-written Forwarded header through.
+      # "Locked" means the tunnel host admits only the gateway: set the
+      # ORIGIN_ACCESS_SERVICE_TOKEN repo Variable and add the Access policy
+      # (DEPLOY.md "Port 8000 Hardening", steps 5–10). An unlocked tunnel host
+      # passes any client-written Forwarded header through, which is why that
+      # row reads 0. The CDN row adds to whichever row above describes the
+      # path behind the CDN.
       #
-      # Port 8000 is bound publicly below. A request that skips the gateway
-      # and hits it directly can send any Forwarded header, so the default
-      # row only identifies visitors correctly once direct access is closed
-      # (MCP_PORT_CIDRS=none, or ORIGIN_URL — both in "Port 8000 Hardening").
+      # Port 8000 is bound publicly below, so a request that skips the gateway
+      # and reaches the port directly can send any Forwarded header. The
+      # default row is only as trustworthy as that exposure. Closing it means
+      # routing the gateway through ORIGIN_URL and setting MCP_PORT_CIDRS=none
+      # (DEPLOY.md "Port 8000 Hardening"), after which the tunnel rows apply.
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       TRUST_FORWARDED_HOPS: ${TRUST_FORWARDED_HOPS:-1}
       LOG_LEVEL: ${LOG_LEVEL:-info}

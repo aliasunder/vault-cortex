@@ -15,10 +15,12 @@ type OAuthRoutesOptions = {
   serverUrl: URL
   oauthProvider: OAuthProvider
   serviceDocumentationUrl: string
-  /** How far from its end the RFC 7239 Forwarded header
-   *  (https://www.rfc-editor.org/rfc/rfc7239) is read for the client IP
-   *  (rate limiting + logs); 0 ignores it. From TRUST_FORWARDED_HOPS. Only
-   *  trusted where a known edge proxy (API Gateway) sets or appends it. */
+  /** How many trailing `for=` elements of the RFC 7239 Forwarded header
+   *  (https://www.rfc-editor.org/rfc/rfc7239) were written by trusted
+   *  proxies. The client IP for rate limiting and logs is the element that
+   *  many from the end; 0 ignores the header. Set from TRUST_FORWARDED_HOPS,
+   *  and non-zero only where a known edge proxy (API Gateway) writes or
+   *  appends the header. */
   trustForwardedHops: number
   logger: Logger
 }
