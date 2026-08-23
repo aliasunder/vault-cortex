@@ -30,6 +30,28 @@ export const parseBearer = (header: string | undefined): string | null => {
 const FORWARDED_FOR_CLIENT = /for="?([^";,]+)"?/i
 
 /**
+ * RFC 7239 §6 node value: a bracketed IPv6 address (`[2001:db8::17]`) or
+ * an IPv4 address / obfuscated identifier, either followed by an optional
+ * `:port`. Group 1 is the IPv6 address without its brackets; group 2 is the
+ * unbracketed form. A value with more than one colon and no brackets is
+ * not a node (a bare IPv6 from a non-compliant proxy) and does not match.
+ * The regex is the floor here: `URL.parse` keeps the brackets on an IPv6
+ * hostname.
+ */
+const FORWARDED_NODE = /^(?:\[([^\]]+)\]|([^:]+))(?::[^:]*)?$/
+
+/**
+ * The address part of an RFC 7239 node: brackets and port stripped, so an
+ * IPv6 visitor keys the rate limiter and logs the same way an IPv4 visitor
+ * does. A value that is not a well-formed node (a bare unbracketed IPv6
+ * from a non-compliant proxy) is returned unchanged.
+ */
+const forwardedNodeAddress = (forValue: string): string => {
+  const match = FORWARDED_NODE.exec(forValue)
+  return match?.[1] ?? match?.[2] ?? forValue
+}
+
+/**
  * The client's `for=` value in an RFC 7239 Forwarded header, counting
  * `hops` elements back from the end. The proxy that writes the header
  * appends its own peer last, so with one trusted proxy the client is the
@@ -56,6 +78,7 @@ const forwardedClientIpBehindHops = ({
     .split(",")
     .map((element) => FORWARDED_FOR_CLIENT.exec(element)?.[1])
     .filter((forValue) => forValue !== undefined)
+    .map(forwardedNodeAddress)
   // hops=1 is the last element, hops=2 the one before it, and so on; a
   // chain shorter than hops clamps to the first element.
   const clientIndexFromStart = forValues.length - hops

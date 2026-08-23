@@ -91,6 +91,29 @@ describe("extractClientIp", () => {
       expect(extractClientIp(request, TRUSTED_ONE_HOP)).toBe("203.0.113.7")
     })
 
+    // RFC 7239 §6 writes IPv6 nodes bracketed and quoted, optionally with a
+    // port; the rate-limit key and logged IP must be the bare address.
+    it("strips the brackets and port from a bracketed IPv6 for= node", () => {
+      const request = requestWith(
+        { forwarded: 'for="[2001:db8::17]:4711"' },
+        "10.0.0.1",
+      )
+      expect(extractClientIp(request, TRUSTED_ONE_HOP)).toBe("2001:db8::17")
+    })
+
+    it("strips the port from an IPv4 for= node", () => {
+      const request = requestWith(
+        { forwarded: 'for="203.0.113.7:4711"' },
+        "10.0.0.1",
+      )
+      expect(extractClientIp(request, TRUSTED_ONE_HOP)).toBe("203.0.113.7")
+    })
+
+    it("returns an unbracketed IPv6 for= value unchanged", () => {
+      const request = requestWith({ forwarded: "for=2001:db8::17" }, "10.0.0.1")
+      expect(extractClientIp(request, TRUSTED_ONE_HOP)).toBe("2001:db8::17")
+    })
+
     it("stops at parameter separators in the for= value", () => {
       const request = requestWith(
         { forwarded: "for=203.0.113.7;proto=https" },
@@ -155,6 +178,16 @@ describe("extractClientIp", () => {
         "10.0.0.1",
       )
       expect(extractClientIp(request, TRUSTED_TWO_HOPS)).toBe("70.41.3.18")
+    })
+
+    it("returns the bare IPv6 visitor behind an IPv4 CDN element", () => {
+      const request = requestWith(
+        { forwarded: 'for="[2606:4700:4700::1111]:4711", for=172.69.214.195' },
+        "10.0.0.1",
+      )
+      expect(extractClientIp(request, TRUSTED_TWO_HOPS)).toBe(
+        "2606:4700:4700::1111",
+      )
     })
 
     it("ignores client-prepended elements beyond the trusted hops", () => {
