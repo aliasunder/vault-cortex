@@ -624,7 +624,7 @@ curl https://<subdomain>.<yourdomain>/healthz
 # Should return 200 OK
 ```
 
-The tunnel hostname is a public HTTPS endpoint. Steps 5–7 restrict it to API Gateway with a [Cloudflare Access service token](https://developers.cloudflare.com/cloudflare-one/identity/service-tokens/) _before_ the gateway routes through it: the gateway presents the token on every request and the tunnel hostname refuses everything else. Locking first means the container never trusts a `Forwarded` header that arrived through an open tunnel, and nothing goes dark in between — clients keep using port 8000 until step 8.
+The tunnel hostname is a public HTTPS endpoint. Steps 5–7 restrict it to API Gateway with a [Cloudflare Access service token](https://developers.cloudflare.com/cloudflare-one/identity/service-tokens/) _before_ the gateway routes through it: the gateway presents the token on every request and the tunnel hostname refuses everything else. Restricting it first means the container never trusts a `Forwarded` header that arrived through a tunnel anyone could reach, and nothing goes dark in between — clients keep using port 8000 until step 8.
 
 **5. Create a service token** in [Zero Trust](https://one.dash.cloudflare.com/) → Access → Service auth → Service Tokens → **Create Service Token**. Name it (e.g., `vault-cortex-api-gateway`) and copy the Client ID and Client Secret — the secret is shown once. Store both as SST secrets:
 
