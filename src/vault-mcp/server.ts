@@ -127,7 +127,6 @@ const startServer = async (): Promise<void> => {
   const oauthProvider = createOAuthProvider({
     authToken,
     dbPath: oauthDbPath,
-    maxClients: config.maxOauthClients,
     logger,
   })
 

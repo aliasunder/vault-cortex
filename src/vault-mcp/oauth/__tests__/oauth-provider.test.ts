@@ -153,7 +153,6 @@ describe("OAuth refresh token sliding expiry", () => {
     oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
-      maxClients: 1000,
       logger,
     })
     db = new Database(dbPath)
@@ -302,7 +301,6 @@ describe("OAuth refresh token schema migration", () => {
     createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
-      maxClients: 1000,
       logger,
     })
 
@@ -348,7 +346,6 @@ describe("OAuth refresh token schema migration", () => {
     createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
-      maxClients: 1000,
       logger,
     })
 
@@ -363,7 +360,6 @@ describe("OAuth refresh token schema migration", () => {
     createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
-      maxClients: 1000,
       logger,
     })
     const db = new Database(dbPath)
@@ -390,7 +386,6 @@ describe("OAuth refresh token schema migration", () => {
     const reopened = createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
-      maxClients: 1000,
       logger,
     })
 
@@ -426,7 +421,6 @@ describe("OAuth refresh token schema migration", () => {
     createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
-      maxClients: 1000,
       logger: testLogger,
     })
 
@@ -449,7 +443,6 @@ describe("OAuth refresh token schema migration", () => {
     createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
-      maxClients: 1000,
       logger,
     })
     const db = new Database(dbPath)
@@ -468,7 +461,6 @@ describe("OAuth refresh token schema migration", () => {
     const reopened = createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
-      maxClients: 1000,
       logger,
     })
 
@@ -493,7 +485,6 @@ describe("verifyAccessToken", () => {
     oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
-      maxClients: 1000,
       logger,
     })
     db = new Database(dbPath)
@@ -622,7 +613,6 @@ const setupAuditTest = async (): Promise<{
   const oauth = createOAuthProvider({
     authToken: AUTH_TOKEN,
     dbPath,
-    maxClients: 1000,
     logger: testLogger,
   })
   const db = new Database(dbPath)
@@ -865,7 +855,6 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     const oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
-      maxClients: 1000,
       logger,
     })
     const db = new Database(dbPath)
@@ -892,7 +881,6 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     const rotated = createOAuthProvider({
       authToken: OTHER_AUTH_TOKEN,
       dbPath,
-      maxClients: 1000,
       logger,
     })
 
@@ -1091,7 +1079,6 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     const oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
-      maxClients: 1000,
       logger: testLogger,
     })
     const db = new Database(dbPath)
@@ -1126,146 +1113,16 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
   })
 })
 
-describe("OAuth client registration cap", () => {
-  const createCapTest = async (
-    maxClients: number,
-  ): Promise<{
-    oauth: OAuthProvider
-    db: Database.Database
-    logs: LogCall[]
-  }> => {
-    const dir = await mkdtemp(join(tmpdir(), "oauth-cap-test-"))
-    const logs: LogCall[] = []
-    const oauth = createOAuthProvider({
-      authToken: AUTH_TOKEN,
-      dbPath: join(dir, "oauth.db"),
-      maxClients,
-      logger: recordingLogger(logs),
-    })
-    const db = new Database(join(dir, "oauth.db"))
-    onTestFinished(async () => {
-      db.close()
-      await rm(dir, { recursive: true, force: true })
-    })
-    return { oauth, db, logs }
-  }
-
-  // async so a synchronous throw from the store becomes a rejection.
-  const registerClient = async (
-    oauth: OAuthProvider,
-    clientName: string,
-  ): Promise<OAuthClientInformationFull> => {
-    const { clientsStore } = oauth.provider
-    if (!clientsStore.registerClient) {
-      throw new Error("registerClient not implemented")
-    }
-    return clientsStore.registerClient({
-      client_name: clientName,
-      redirect_uris: ["https://example.com/cb"],
-    })
-  }
-
-  const registeredClientNames = (db: Database.Database): string[] =>
-    db
-      .prepare<[], { data: string }>("SELECT data FROM clients ORDER BY data")
-      .all()
-      .map((clientRow) => {
-        const stored: OAuthClientInformationFull = JSON.parse(clientRow.data)
-        return stored.client_name ?? ""
-      })
-      .sort()
-
-  it("registers clients up to the cap", async () => {
-    const { oauth, db } = await createCapTest(2)
-
-    await registerClient(oauth, "first")
-    await registerClient(oauth, "second")
-
-    expect(registeredClientNames(db)).toEqual(["first", "second"])
-  })
-
-  it("refuses the registration that would exceed the cap with registration_limit_reached", async () => {
-    const { oauth, db, logs } = await createCapTest(1)
-    await registerClient(oauth, "first")
-
-    await expect(registerClient(oauth, "second")).rejects.toMatchObject({
-      errorCode: "registration_limit_reached",
-      message: "Client registration limit reached",
-    })
-
-    expect(registeredClientNames(db)).toEqual(["first"])
-    const refusal = logs.find(
-      (log) => log.message === "oauth_client_registration_refused",
-    )
-    expect(refusal).toEqual({
-      level: "warn",
-      message: "oauth_client_registration_refused",
-      data: { component: "oauth", reason: "limit_reached", maxClients: 1 },
-    })
-  })
-
-  it("never overshoots the cap under a burst of concurrent registrations", async () => {
-    const { oauth, db } = await createCapTest(3)
-
-    const outcomes = await Promise.allSettled(
-      Array.from({ length: 10 }, (_unused, index) =>
-        registerClient(oauth, `burst-${index}`),
-      ),
-    )
-
-    const statuses = outcomes.map((outcome) => outcome.status)
-    expect(statuses.filter((status) => status === "fulfilled")).toHaveLength(3)
-    expect(statuses.filter((status) => status === "rejected")).toHaveLength(7)
-    expect(registeredClientNames(db)).toHaveLength(3)
-  })
-
-  it("warns before a small cap is full", async () => {
-    const { oauth, logs } = await createCapTest(2)
-
-    await registerClient(oauth, "one")
-
-    expect(
-      logs.filter((log) => log.message === "oauth_client_cap_nearing"),
-    ).toEqual([
-      {
-        level: "warn",
-        message: "oauth_client_cap_nearing",
-        data: { component: "oauth", registeredClients: 1, maxClients: 2 },
-      },
-    ])
-  })
-
-  it("warns once the table reaches 80% of the cap", async () => {
-    const { oauth, logs } = await createCapTest(5)
-    await registerClient(oauth, "one")
-    await registerClient(oauth, "two")
-    await registerClient(oauth, "three")
-    expect(
-      logs.filter((log) => log.message === "oauth_client_cap_nearing"),
-    ).toEqual([])
-
-    await registerClient(oauth, "four")
-
-    expect(
-      logs.filter((log) => log.message === "oauth_client_cap_nearing"),
-    ).toEqual([
-      {
-        level: "warn",
-        message: "oauth_client_cap_nearing",
-        data: { component: "oauth", registeredClients: 4, maxClients: 5 },
-      },
-    ])
-  })
-})
-
 describe("OAuth tokenless client sweep", () => {
   const EIGHT_DAYS_AGO = DateTime.now().minus({ days: 8 }).toUnixInteger()
   const SIX_DAYS_AGO = DateTime.now().minus({ days: 6 }).toUnixInteger()
   const SIXTY_DAYS_AHEAD = DateTime.now().plus({ days: 60 }).toUnixInteger()
 
-  const createSweepTest = async (
-    maxClients = 1000,
-  ): Promise<{ dir: string; dbPath: string; logs: LogCall[] }> => {
+  const createSweepTest = async (): Promise<{
+    dir: string
+    dbPath: string
+    logs: LogCall[]
+  }> => {
     const dir = await mkdtemp(join(tmpdir(), "oauth-sweep-test-"))
     const dbPath = join(dir, "oauth.db")
     // A first boot creates the schema so clients can be seeded before the
@@ -1273,7 +1130,6 @@ describe("OAuth tokenless client sweep", () => {
     createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
-      maxClients,
       logger,
     })
     onTestFinished(async () => {
@@ -1327,7 +1183,6 @@ describe("OAuth tokenless client sweep", () => {
     createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
-      maxClients: 1000,
       logger: recordingLogger(logs),
     })
 
@@ -1348,7 +1203,6 @@ describe("OAuth tokenless client sweep", () => {
     createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
-      maxClients: 1000,
       logger: recordingLogger(logs),
     })
 
@@ -1372,23 +1226,17 @@ describe("OAuth tokenless client sweep", () => {
     createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath,
-      maxClients: 1000,
       logger,
     })
 
     expect(registeredClientIds(db)).toEqual(["rotated-client"])
   })
 
-  it("sweeps before counting so a stale registration does not consume the cap", async () => {
-    const { dbPath } = await createSweepTest(1)
+  it("sweeps before each registration so the table does not wait for a reboot", async () => {
+    const { dbPath } = await createSweepTest()
     const db = openDb(dbPath)
-    const oauth = createOAuthProvider({
-      authToken: AUTH_TOKEN,
-      dbPath,
-      maxClients: 1,
-      logger,
-    })
-    // Seeded after the boot so the registration itself has to make room.
+    const oauth = createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+    // Seeded after the boot so the registration itself has to sweep it.
     seedClientIssuedAt(db, "old-tokenless", EIGHT_DAYS_AGO)
     const { clientsStore } = oauth.provider
     if (!clientsStore.registerClient) {

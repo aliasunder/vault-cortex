@@ -637,30 +637,6 @@ describe("loadConfig", () => {
     })
   })
 
-  describe("MAX_OAUTH_CLIENTS", () => {
-    it("defaults to 100 when unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.maxOauthClients).toBe(100)
-    })
-
-    it("accepts a custom positive integer", () => {
-      const config = loadConfig({ MAX_OAUTH_CLIENTS: "25" })
-      expect(config.maxOauthClients).toBe(25)
-    })
-
-    it("rejects a non-integer value", () => {
-      expect(() => loadConfig({ MAX_OAUTH_CLIENTS: "abc" })).toThrow(
-        /MAX_OAUTH_CLIENTS/,
-      )
-    })
-
-    it.each(["0", "-1", "1.5"])("rejects non-positive-integer %s", (value) => {
-      expect(() => loadConfig({ MAX_OAUTH_CLIENTS: value })).toThrow(
-        /MAX_OAUTH_CLIENTS/,
-      )
-    })
-  })
-
   describe("MAX_PDF_RENDER_PAGES", () => {
     it("defaults to 5 when unset", () => {
       const config = loadConfig(EMPTY_ENV)

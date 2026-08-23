@@ -153,11 +153,6 @@ export type VaultConfig = Readonly<{
    *  vault_read_file. The per-page byte budget is maxImageOutputBytes divided
    *  evenly across the rendered pages. Set via MAX_PDF_RENDER_PAGES. */
   maxPdfRenderPages: number
-  /** Maximum number of dynamically registered OAuth clients kept in the
-   *  OAuth database. Registration is open to anyone who can reach /register
-   *  (rate-limited per IP); the cap bounds the table if the limiter is ever
-   *  bypassed. Set via MAX_OAUTH_CLIENTS. */
-  maxOauthClients: number
 }>
 
 // ── Loader ─────────────────────────────────────────────────────
@@ -305,13 +300,6 @@ export const loadConfig = (
     envVar.from(env).get("MAX_PDF_RENDER_PAGES").default("5").asIntPositive(),
   )
 
-  // Nothing deletes registrations, so the default is generous: every MCP
-  // client registers itself once, and a zero cap would block all of them.
-  const maxOauthClients = requireNonZero(
-    "MAX_OAUTH_CLIENTS",
-    envVar.from(env).get("MAX_OAUTH_CLIENTS").default("100").asIntPositive(),
-  )
-
   return Object.freeze({
     memoryEnabled,
     fileToolsEnabled,
@@ -331,6 +319,5 @@ export const loadConfig = (
     maxFileBytes,
     maxImageOutputBytes,
     maxPdfRenderPages,
-    maxOauthClients,
   })
 }

@@ -655,23 +655,22 @@ direct-to-server traffic, not reverse-proxy deployments.) A tripped limiter
 emits an `oauth_rate_limited` warn log with the client IP and endpoint path
 before returning the 429.
 
-**Client registration cap:** the rate limiter is the only control between an
-anonymous request and a `/register` write, so `MAX_OAUTH_CLIENTS` (default 100) bounds the `clients` table independently:
+**Registrations that never consented:** every MCP client registers itself
+through `/register` on first connect, and some register more than once per
+connect, so the `clients` table would grow with rows no client ever uses.
+A registration older than a week that holds no refresh token is deleted at
+boot and before each new registration, logged as `oauth_clients_swept`:
 
-- Count and insert run in one SQLite transaction — a burst cannot overshoot
-  the cap
-- A registration past the cap returns `400 registration_limit_reached` and
-  logs `oauth_client_registration_refused`
-- Every registration from 80 % of the cap logs `oauth_client_cap_nearing`
-- A registration older than a week that holds no refresh token is deleted
-  at boot and before each new registration, logged as `oauth_clients_swept`:
-  - Consent mints a refresh token within minutes, so such a row never
-    finished consent (clients register more than once per connect) or had
-    its last token expire
-  - A swept client that still presents its `client_id` gets `invalid_client`
-    and registers again
-  - Refresh-token rows made unreachable by a rotation stay until they expire,
-    so a rotation does not sweep the clients that were active before it
+- Consent mints a refresh token within minutes, so such a row never
+  finished consent or had its last token expire
+- A swept client that still presents its `client_id` gets `invalid_client`
+  and registers again
+- Refresh-token rows made unreachable by a rotation stay until they expire,
+  so a rotation does not sweep the clients that were active before it
+- The per-IP `/register` rate limit bounds how fast rows can appear and the
+  sweep bounds how long they stay, so the table is bounded in time without a
+  row cap — a cap would let one address under the limit fill it and refuse
+  the owner's next client
 
 **Rotating `MCP_AUTH_TOKEN`:** update the SST secret AND the Lightsail `.env`,
 then redeploy both

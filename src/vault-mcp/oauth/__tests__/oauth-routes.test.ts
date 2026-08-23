@@ -72,7 +72,6 @@ describe("OAuth consent token submission", () => {
     oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath: join(dir, "oauth.db"),
-      maxClients: 1000,
       logger,
     })
     const router = createOAuthRoutes({
@@ -201,7 +200,6 @@ describe("OAuth consent body validation", () => {
     const oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath: join(dir, "oauth.db"),
-      maxClients: 1000,
       logger,
     })
     const router = createOAuthRoutes({
@@ -262,7 +260,6 @@ describe("OAuth consent audit logging", () => {
     oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath: join(dir, "oauth.db"),
-      maxClients: 1000,
       logger: testLogger,
     })
     const router = createOAuthRoutes({
@@ -429,7 +426,6 @@ describe("OAuth endpoint rate limiting", () => {
     const oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath: join(dir, "oauth.db"),
-      maxClients: 1000,
       logger: testLogger,
     })
     const router = createOAuthRoutes({
@@ -580,7 +576,6 @@ describe("OAuth rate limiting when the Forwarded header is not trusted (default)
     const oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath: join(dir, "oauth.db"),
-      maxClients: 1000,
       logger: testLogger,
     })
     const router = createOAuthRoutes({
@@ -664,7 +659,6 @@ describe("OAuth protected resource metadata", () => {
     const oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath: join(dir, "oauth.db"),
-      maxClients: 1000,
       logger,
     })
     const router = createOAuthRoutes({
@@ -814,7 +808,6 @@ describe("OAuth refresh over HTTP", () => {
     const oauth = createOAuthProvider({
       authToken: AUTH_TOKEN,
       dbPath: join(dir, "oauth.db"),
-      maxClients: 1000,
       logger,
     })
     const router = createOAuthRoutes({
@@ -1007,58 +1000,6 @@ describe("OAuth refresh over HTTP", () => {
     expect(await consumed.json()).toEqual({
       error: "invalid_grant",
       error_description: "Refresh token expired or invalid",
-    })
-  })
-})
-
-describe("OAuth client registration over HTTP at the cap", () => {
-  it("returns 400 registration_limit_reached once the cap is reached", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "oauth-cap-http-"))
-    const oauth = createOAuthProvider({
-      authToken: AUTH_TOKEN,
-      dbPath: join(dir, "oauth.db"),
-      maxClients: 1,
-      logger,
-    })
-    const router = createOAuthRoutes({
-      authToken: AUTH_TOKEN,
-      serverUrl: new URL("http://localhost:8000"),
-      oauthProvider: oauth,
-      serviceDocumentationUrl: "https://example.com",
-      trustForwardedHeader: false,
-      logger,
-    })
-    const app = express()
-    app.use(router)
-    const server = await new Promise<Server>((resolve) => {
-      const listening = app.listen(0, () => resolve(listening))
-    })
-    onTestFinished(async () => {
-      await new Promise<void>((resolve) => server.close(() => resolve()))
-      await rm(dir, { recursive: true, force: true })
-    })
-    const baseUrl = `http://localhost:${getListeningPort(server)}`
-    const register = (clientName: string) =>
-      fetch(`${baseUrl}/register`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          client_name: clientName,
-          redirect_uris: [REDIRECT_URI],
-          grant_types: ["authorization_code", "refresh_token"],
-          response_types: ["code"],
-          token_endpoint_auth_method: "none",
-        }),
-      })
-
-    const first = await register("first")
-    const second = await register("second")
-
-    expect(first.status).toBe(201)
-    expect(second.status).toBe(400)
-    expect(await second.json()).toEqual({
-      error: "registration_limit_reached",
-      error_description: "Client registration limit reached",
     })
   })
 })

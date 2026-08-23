@@ -30,7 +30,6 @@ import {
   InvalidGrantError,
   InvalidScopeError,
   InvalidTokenError,
-  OAuthError,
 } from "@modelcontextprotocol/sdk/server/auth/errors.js"
 import { safeEqual } from "../../auth.js"
 import { signJwt, verifyJwt } from "../../jwt.js"
@@ -63,8 +62,6 @@ type StoredAuthCode = {
 type OAuthProviderOptions = {
   authToken: string
   dbPath: string
-  /** Maximum rows in the clients table; registration is refused beyond it. */
-  maxClients: number
   logger: Logger
 }
 
@@ -76,18 +73,6 @@ const REFRESH_TOKEN_KEY_PREFIX = "hmac-sha256:"
 // Prepended to the token before hashing, so this HMAC can never equal the
 // JWT signature, which uses the same key (see jwt.ts).
 const REFRESH_TOKEN_KEY_LABEL = "refresh-token:"
-
-/** Registration refused because the clients table is at its cap. The SDK
- *  maps any OAuthError thrown by registerClient to a 400 carrying this
- *  code; RFC 7591 defines no code for a full server, so this one is
- *  vault-cortex's own. https://www.rfc-editor.org/rfc/rfc7591#section-3.2.2 */
-class RegistrationLimitError extends OAuthError {
-  static override errorCode = "registration_limit_reached"
-}
-
-// Fraction of the client cap at which each registration logs a warning,
-// so an operator sees the cap approaching before it refuses anyone.
-const CLIENT_CAP_WARNING_FRACTION = 0.8
 
 // A registration older than this that holds no refresh token is swept.
 // Consent mints a refresh token within minutes of registering, so a row
@@ -150,26 +135,16 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     [string],
     { data: string }
   >
-  private readonly countClientsStmt: Database.Statement<[], { count: number }>
   private readonly insertClientStmt: Database.Statement<[string, string]>
   private readonly deleteTokenlessClientsStmt: Database.Statement<[number]>
-  /** Counts, checks the cap, and inserts in one transaction so concurrent
-   *  registrations cannot overshoot it. Returns the row count after the
-   *  insert; throws RegistrationLimitError when the table is full. */
-  private readonly insertClientWithinCap: (
-    clientId: string,
-    data: string,
-  ) => number
 
   constructor(
     private db: Database.Database,
-    private maxClients: number,
     private logger: Logger,
   ) {
     this.selectClientStmt = db.prepare(
       "SELECT data FROM clients WHERE client_id = ?",
     )
-    this.countClientsStmt = db.prepare("SELECT COUNT(*) AS count FROM clients")
     this.insertClientStmt = db.prepare(
       "INSERT INTO clients (client_id, data) VALUES (?, ?)",
     )
@@ -184,19 +159,6 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
           WHERE refresh_tokens.client_id = clients.client_id
         )
     `)
-    this.insertClientWithinCap = db.transaction(
-      (clientId: string, data: string): number => {
-        this.sweepTokenlessClients()
-        const countRow = this.countClientsStmt.get()
-        if (!countRow) throw new Error("COUNT(*) returned no row")
-        const registeredClients = countRow.count
-        if (registeredClients >= this.maxClients) {
-          throw new RegistrationLimitError("Client registration limit reached")
-        }
-        this.insertClientStmt.run(clientId, data)
-        return registeredClients + 1
-      },
-    )
     this.sweepTokenlessClients()
   }
 
@@ -237,38 +199,12 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
       client_secret: randomBytes(32).toString("hex"),
       client_secret_expires_at: 0,
     }
-    // Logged before re-throwing: the SDK turns the error into a 400 and
-    // the refused client never sees why.
-    let registeredClients: number
-    try {
-      registeredClients = this.insertClientWithinCap(
-        full.client_id,
-        JSON.stringify(full),
-      )
-    } catch (error) {
-      if (error instanceof RegistrationLimitError) {
-        this.logger.warn("oauth_client_registration_refused", {
-          reason: "limit_reached",
-          maxClients: this.maxClients,
-        })
-      }
-      throw error
-    }
+    this.sweepTokenlessClients()
+    this.insertClientStmt.run(full.client_id, JSON.stringify(full))
     this.logger.info("oauth_client_registered", {
       clientId: full.client_id,
       clientName: full.client_name ?? null,
     })
-    // Floored so a small cap still warns before it is full (cap 2 → 1).
-    const nearingCapThreshold = Math.floor(
-      this.maxClients * CLIENT_CAP_WARNING_FRACTION,
-    )
-    const nearingCap = registeredClients >= nearingCapThreshold
-    if (nearingCap) {
-      this.logger.warn("oauth_client_cap_nearing", {
-        registeredClients,
-        maxClients: this.maxClients,
-      })
-    }
     return full
   }
 }
@@ -286,12 +222,11 @@ export type OAuthProvider = {
 export const createOAuthProvider = ({
   authToken,
   dbPath,
-  maxClients,
   logger,
 }: OAuthProviderOptions): OAuthProvider => {
   const oauthLogger = logger.child({ component: "oauth" })
   const db = initDb(dbPath, oauthLogger)
-  const store = new SqliteClientsStore(db, maxClients, oauthLogger)
+  const store = new SqliteClientsStore(db, oauthLogger)
   const pendingRequests = new Map<string, PendingAuthRequest>()
   const authCodes = new Map<string, StoredAuthCode>()
 
