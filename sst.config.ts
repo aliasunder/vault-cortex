@@ -74,6 +74,24 @@ export default $config({
       )
     }
 
+    // DISABLE_EXECUTE_API_ENDPOINT=true: the gateway stops answering on its
+    // default execute-api hostname, so the custom domain is the only way in.
+    // Required before TRUST_FORWARDED_HOPS=2 when a CDN fronts the custom
+    // domain — a request on the default hostname skips the CDN and carries
+    // one fewer trusted Forwarded element. Every client must already use the
+    // custom domain; the default URL stops working at this deploy.
+    //
+    // Compared as a string, like the other optional vars here: CI passes an
+    // unset repo Variable as "", which asBool() rejects.
+    const disableExecuteApiEndpoint =
+      env("DISABLE_EXECUTE_API_ENDPOINT").asString() === "true"
+    if (disableExecuteApiEndpoint && !customDomain) {
+      throw new Error(
+        "DISABLE_EXECUTE_API_ENDPOINT requires CUSTOM_DOMAIN — without a " +
+          "custom domain the API would have no hostname left.",
+      )
+    }
+
     const expandHome = (path: string): string =>
       path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path
 
@@ -281,7 +299,8 @@ export default $config({
     const api = new sst.aws.ApiGatewayV2("VaultCortexApi", {
       // dns: false — SST skips DNS record creation (records live with the
       // external DNS provider) and requires the pre-issued cert instead of
-      // provisioning one. The default execute-api endpoint stays active.
+      // provisioning one. The default execute-api endpoint stays active
+      // unless DISABLE_EXECUTE_API_ENDPOINT closes it.
       ...(customDomain &&
         customDomainCertArn && {
           domain: {
@@ -291,6 +310,7 @@ export default $config({
           },
         }),
       transform: {
+        api: { disableExecuteApiEndpoint },
         stage: {
           defaultRouteSettings: {
             throttlingRateLimit: 20,

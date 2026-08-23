@@ -41,8 +41,9 @@
     "node": ">=24.0.0 <25.0.0"
   },
   "scripts": {
-    "build": "npm run build:server && npm run build:cli",
+    "build": "npm run build:server && npm run build:cli && npm run build:sst",
     "build:server": "tsc",
+    "build:sst": "tsc -p tsconfig.sst.json",
     "build:cli": "tsc -p cli/tsconfig.json && tsc -p cli/tsconfig.test.json",
     "sync:cli-env-blocks": "tsx scripts/sync-cli-env-blocks.ts",
     "sync:lobehub-manifest": "tsx scripts/sync-lobehub-manifest.ts",

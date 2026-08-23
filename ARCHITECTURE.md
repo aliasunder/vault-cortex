@@ -698,7 +698,8 @@ traffic bypasses the public-IP firewall). See
 
 **Optional: custom domain.** Set `CUSTOM_DOMAIN` + `CUSTOM_DOMAIN_CERT_ARN`
 to serve the API Gateway on your own hostname instead of the auto-generated
-execute-api URL (which stays active alongside it). The ACM cert and DNS
+execute-api URL (which stays active alongside it until
+`DISABLE_EXECUTE_API_ENDPOINT=true` closes it). The ACM cert and DNS
 records are managed outside SST — any DNS provider works. See
 [`DEPLOY.md`](./DEPLOY.md#custom-domain-optional).
 

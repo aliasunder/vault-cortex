@@ -59,7 +59,7 @@ services:
       #     gateway
       #   CDN → gateway's custom domain, and     as above          2
       #     the CDN is the only way in
-      #     (execute-api hostname closed)
+      #     (DISABLE_EXECUTE_API_ENDPOINT=true)
       #
       # "Locked" means the tunnel host admits only the gateway: set the
       # ORIGIN_ACCESS_SERVICE_TOKEN repo Variable and add the Access policy
