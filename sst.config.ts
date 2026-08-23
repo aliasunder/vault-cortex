@@ -42,7 +42,7 @@ export default $config({
     // reverse proxy, or any HTTPS frontend that proxies to localhost:8000.
     const originUrl = env("ORIGIN_URL").asString()
 
-    // ORIGIN_ACCESS_SERVICE_TOKEN=true: API Gateway presents a Cloudflare
+    // ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true: API Gateway presents a Cloudflare
     // Access service token (the OriginAccessClientId / OriginAccessClientSecret
     // secrets) to the ORIGIN_URL host on every request, so an Access policy
     // on that host can admit the gateway alone.
@@ -54,9 +54,10 @@ export default $config({
     // Compared as a string, like the other optional vars here: CI passes an
     // unset repo Variable as "", which env-var's default() does not cover
     // and asBool() rejects.
-    const originAccessServiceToken =
+    const originAccessServiceTokenEnabled =
       Boolean(originUrl) &&
-      env("ORIGIN_ACCESS_SERVICE_TOKEN").asString()?.toLowerCase() === "true"
+      env("ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED").asString()?.toLowerCase() ===
+        "true"
 
     // Optional custom domain on API Gateway (e.g. mcp.example.com), replacing
     // the auto-generated execute-api URL. DNS stays external (any provider):
@@ -122,10 +123,10 @@ export default $config({
     // secrets (CI). See deploy.yml and .env.example.
     // ──────────────────────────────────────────────────────────────
     const mcpAuthToken = new sst.Secret("McpAuthToken")
-    const originAccessClientId = originAccessServiceToken
+    const originAccessClientId = originAccessServiceTokenEnabled
       ? new sst.Secret("OriginAccessClientId")
       : undefined
-    const originAccessClientSecret = originAccessServiceToken
+    const originAccessClientSecret = originAccessServiceTokenEnabled
       ? new sst.Secret("OriginAccessClientSecret")
       : undefined
 

@@ -69,7 +69,7 @@ services:
       # no X-Forwarded-For.
       #
       # "Locked" means the tunnel host admits only the gateway: set the
-      # ORIGIN_ACCESS_SERVICE_TOKEN repo Variable and add the Access policy
+      # ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED repo Variable and add the Access policy
       # (DEPLOY.md "Port 8000 Hardening", steps 5–10). An unlocked tunnel host
       # passes any client-written Forwarded header through, which is why that
       # row reads 0. The CDN row adds to whichever row above describes the

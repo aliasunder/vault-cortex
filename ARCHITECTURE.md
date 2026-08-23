@@ -661,7 +661,7 @@ client-IP key derived from the deployment's explicit proxy-trust config:
   between API Gateway and the instance —
   [`DEPLOY.md`](./DEPLOY.md#port-8000-hardening-optional)), the tunnel
   host is a second front door that passes a client-written `Forwarded`
-  through unverified. `ORIGIN_ACCESS_SERVICE_TOKEN` closes it: API Gateway
+  through unverified. `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED` closes it: API Gateway
   presents a Cloudflare Access service token on every request and an
   Access policy on the tunnel host admits nothing else, so the only
   `Forwarded` header reaching the container is the gateway's.
