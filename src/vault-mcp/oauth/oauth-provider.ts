@@ -29,6 +29,7 @@ import type {
 import {
   InvalidGrantError,
   InvalidScopeError,
+  InvalidTokenError,
 } from "@modelcontextprotocol/sdk/server/auth/errors.js"
 import { safeEqual } from "../../auth.js"
 import { signJwt, verifyJwt } from "../../jwt.js"
@@ -445,8 +446,6 @@ export const createOAuthProvider = ({
 
       if (isRevoked(token)) {
         oauthLogger.warn("oauth_token_rejected", { reason: "revoked" })
-        const { InvalidTokenError } =
-          await import("@modelcontextprotocol/sdk/server/auth/errors.js")
         throw new InvalidTokenError("Token has been revoked")
       }
 
@@ -467,8 +466,6 @@ export const createOAuthProvider = ({
       oauthLogger.warn("oauth_token_rejected", {
         reason: "invalid_or_expired",
       })
-      const { InvalidTokenError } =
-        await import("@modelcontextprotocol/sdk/server/auth/errors.js")
       throw new InvalidTokenError("Token expired or invalid")
     },
 
