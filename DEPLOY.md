@@ -349,8 +349,8 @@ To find your stage: `cat .sst/stage` (after your first deploy).
 | `WINDOWS_MODE`                | Optional. Set `true` when the vault is on a Windows drive (Docker Desktop). Default: `false`.                                                                                                                                                                                                                                                                                                                                   |
 | `TRUST_PROXY_HOPS`            | Optional. Trusted reverse-proxy hops for deriving `req.ip` from `X-Forwarded-For` (the fallback client IP). The compose file defaults the instance to `1` (API Gateway); set `2` for `ORIGIN_URL` deployments (a tunnel between the gateway and the instance).                                                                                                                                                                  |
 | `TRUST_FORWARDED_HEADER`      | Optional. Whether the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header identifies the client (OAuth rate limiting, request logs). The compose file defaults the instance to `true` — API Gateway reports visitors there and sends no `X-Forwarded-For`. Keep it `true` for `ORIGIN_URL` deployments too, with the tunnel host locked to the gateway (see the **Client-IP trust with ORIGIN_URL** callout). |
-| `TRUST_FORWARDED_HOPS`        | Optional. How many entries from the end of the `Forwarded` header's `for=` list to count to reach the client IP. Default `1`. Set `2` when the gateway's custom domain is behind a CDN (e.g. a proxied Cloudflare record) — the gateway then lists the CDN last.                                                                                                                                                                |
-| `ORIGIN_ACCESS_SERVICE_TOKEN` | Optional, SST deploys only. Set `true` once the tunnel hostname behind `ORIGIN_URL` is locked with a Cloudflare Access service token — API Gateway then presents the `OriginAccessClientId` / `OriginAccessClientSecret` SST secrets on every request (see [Port 8000 Hardening](#port-8000-hardening-optional), steps 7–11). Ignored without `ORIGIN_URL`.                                                                     |
+| `TRUST_FORWARDED_HOPS`        | Optional. How many entries from the end of the `Forwarded` header's `for=` list to count to reach the client IP. Default `1`. Set `2` when the gateway's custom domain is behind a CDN (e.g. a proxied Cloudflare record) and that domain is the only way into the gateway — the gateway then lists the CDN last. Keep `1` while the default `execute-api` hostname is reachable.                                               |
+| `ORIGIN_ACCESS_SERVICE_TOKEN` | Optional, SST deploys only. Set `true` once the tunnel hostname behind `ORIGIN_URL` is locked with a Cloudflare Access service token — API Gateway then presents the `OriginAccessClientId` / `OriginAccessClientSecret` SST secrets on every request (see [Port 8000 Hardening](#port-8000-hardening-optional), steps 5–8). Ignored without `ORIGIN_URL`.                                                                      |
 
 **Secrets** (Settings → Secrets and variables → Actions → Secrets tab):
 
@@ -566,9 +566,9 @@ Together:
 >
 > - `TRUST_FORWARDED_HEADER=true` — the `Forwarded` header is the only carrier of the visitor's IP.
 > - `TRUST_PROXY_HOPS=2` — one hop per proxy, for the `req.ip` fallback.
-> - `TRUST_FORWARDED_HOPS=2` only if the gateway's custom domain is a proxied Cloudflare record — the gateway then lists the Cloudflare edge last and the visitor before it.
+> - `TRUST_FORWARDED_HOPS=2` only if the gateway's custom domain is a proxied Cloudflare record **and** that domain is the only way into the gateway — the gateway then lists the Cloudflare edge last and the visitor before it. While the gateway's default `execute-api` hostname is still reachable, a request on it has only one gateway-written element, and the gateway folds a client-supplied `X-Forwarded-For` into the elements before it — so `2` would read an attacker's value there. Keep `1` until the default hostname is closed.
 >
-> Trusting `Forwarded` is safe only once the tunnel hostname admits the gateway alone; otherwise anyone reaching the tunnel hostname directly can write their own `Forwarded` header and pick their OAuth rate-limit bucket. Steps 7–10 of the Cloudflare Tunnel example lock the hostname with an Access service token; step 11 then flips these settings.
+> Trusting `Forwarded` is safe only once the tunnel hostname admits the gateway alone; otherwise anyone reaching the tunnel hostname directly can write their own `Forwarded` header and pick their OAuth rate-limit bucket. Steps 5–7 of the Cloudflare Tunnel example lock the hostname with an Access service token before the gateway routes through it; step 10 then sets these values.
 
 #### Example: Cloudflare Tunnel
 
@@ -604,60 +604,57 @@ In the tunnel's Public Hostname tab, add a route:
 - Domain: select your Cloudflare-managed domain
 - Service: `http://localhost:8000`
 
-**4. Verify the tunnel** before blocking port 8000:
+**4. Verify the tunnel** before locking it:
 
 ```bash
 curl https://<subdomain>.<yourdomain>/healthz
 # Should return 200 OK
 ```
 
-**5. Block port 8000** — set `ORIGIN_URL` and `MCP_PORT_CIDRS=none`, then deploy:
+The tunnel hostname is a public HTTPS endpoint. Steps 5–7 restrict it to API Gateway with a [Cloudflare Access service token](https://developers.cloudflare.com/cloudflare-one/identity/service-tokens/) _before_ the gateway routes through it: the gateway presents the token on every request and the tunnel hostname refuses everything else. Locking first means the container never trusts a `Forwarded` header that arrived through an open tunnel, and nothing goes dark in between — clients keep using port 8000 until step 8.
+
+**5. Create a service token** in [Zero Trust](https://one.dash.cloudflare.com/) → Access → Service auth → Service Tokens → **Create Service Token**. Name it (e.g., `vault-cortex-api-gateway`) and copy the Client ID and Client Secret — the secret is shown once. Store both as SST secrets:
 
 ```bash
-ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none npx sst deploy
+npx sst secret set OriginAccessClientId "<client-id>"
+npx sst secret set OriginAccessClientSecret "<client-secret>"
 ```
 
-**6. Verify port 8000 is blocked:**
+**6. Lock the tunnel hostname** in Zero Trust → Access → Applications → **Add an application** → Self-hosted:
+
+- Application domain: the tunnel hostname (`<subdomain>.<yourdomain>`)
+- Add a policy with Action **Service Auth**; under Include, choose Selector **Service Token** and pick the token from step 5
+- Save the application
+
+**7. Verify the lock:**
+
+```bash
+# Without the token — Access refuses it (403 from Cloudflare)
+curl -o /dev/null -w "%{http_code}\n" https://<subdomain>.<yourdomain>/healthz
+
+# With the token — 200 (what API Gateway will send)
+curl -H "CF-Access-Client-Id: <client-id>" -H "CF-Access-Client-Secret: <client-secret>" https://<subdomain>.<yourdomain>/healthz
+```
+
+**8. Route through the tunnel and block port 8000** — set `ORIGIN_URL`, `MCP_PORT_CIDRS=none`, and `ORIGIN_ACCESS_SERVICE_TOKEN=true`, then deploy:
+
+```bash
+ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none ORIGIN_ACCESS_SERVICE_TOKEN=true npx sst deploy
+```
+
+**9. Verify the new path:**
 
 ```bash
 # Direct access — should timeout (port blocked on firewall)
 curl --connect-timeout 5 http://<lightsailIp>:8000/healthz
 
-# API Gateway — should return 200 (routed through tunnel)
+# API Gateway — 200 (routed through the locked tunnel with the service token)
 curl https://<api-gateway-url>/healthz
 ```
 
-The tunnel hostname is still a public HTTPS endpoint. Steps 7–10 restrict it to API Gateway with a [Cloudflare Access service token](https://developers.cloudflare.com/cloudflare-one/identity/service-tokens/): the gateway presents the token on every request and the tunnel hostname refuses everything else. Do the steps in this order — the gateway must be sending the token before the policy starts requiring it, or the deployment goes dark between the two.
+**10. Set the instance's client-IP trust** — `TRUST_FORWARDED_HEADER=true` (the compose default) and `TRUST_PROXY_HOPS=2` in the instance `.env` (repo Variables for CI deploys), then redeploy the instance. Add `TRUST_FORWARDED_HOPS=2` only if the gateway's custom domain is a proxied Cloudflare record **and** the CDN is the only way into the gateway — see the **Client-IP trust with ORIGIN_URL** callout.
 
-**7. Create a service token** in [Zero Trust](https://one.dash.cloudflare.com/) → Access → Service auth → Service Tokens → **Create Service Token**. Name it (e.g., `vault-cortex-api-gateway`) and copy the Client ID and Client Secret — the secret is shown once.
-
-**8. Give the token to API Gateway** — two SST secrets, then a deploy with `ORIGIN_ACCESS_SERVICE_TOKEN=true`:
-
-```bash
-npx sst secret set OriginAccessClientId "<client-id>"
-npx sst secret set OriginAccessClientSecret "<client-secret>"
-ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none ORIGIN_ACCESS_SERVICE_TOKEN=true npx sst deploy
-```
-
-Every route now carries `CF-Access-Client-Id` / `CF-Access-Client-Secret` toward the tunnel hostname; nothing enforces them yet.
-
-**9. Lock the tunnel hostname** in Zero Trust → Access → Applications → **Add an application** → Self-hosted:
-
-- Application domain: the tunnel hostname (`<subdomain>.<yourdomain>`)
-- Add a policy with Action **Service Auth**; under Include, choose Selector **Service Token** and pick the token from step 7
-- Save the application
-
-**10. Verify the lock:**
-
-```bash
-# Direct access — Access refuses it (403 from Cloudflare)
-curl -o /dev/null -w "%{http_code}\n" https://<subdomain>.<yourdomain>/healthz
-
-# API Gateway — still 200 (carries the service token)
-curl https://<api-gateway-url>/healthz
-```
-
-**11. Trust the gateway's client-IP claim** — with the tunnel hostname locked, set `TRUST_FORWARDED_HEADER=true` and `TRUST_PROXY_HOPS=2` in the instance `.env` (repo Variables for CI deploys) and redeploy the instance. Add `TRUST_FORWARDED_HOPS=2` if the gateway's custom domain is a proxied Cloudflare record.
+**Already running `ORIGIN_URL` with an open tunnel?** Do steps 5–7 now, then redeploy with `ORIGIN_ACCESS_SERVICE_TOKEN=true` (step 8's command), verify (step 9), and set the trust values (step 10). Until the lock exists, keep `TRUST_FORWARDED_HEADER=false` — the open tunnel hostname passes any client-written `Forwarded` header through unverified.
 
 #### MCP_PORT_CIDRS reference
 
