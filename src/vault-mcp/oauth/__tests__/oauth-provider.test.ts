@@ -1257,3 +1257,151 @@ describe("OAuth client registration cap", () => {
     ])
   })
 })
+
+describe("OAuth tokenless client sweep", () => {
+  const EIGHT_DAYS_AGO = DateTime.now().minus({ days: 8 }).toUnixInteger()
+  const SIX_DAYS_AGO = DateTime.now().minus({ days: 6 }).toUnixInteger()
+  const SIXTY_DAYS_AHEAD = DateTime.now().plus({ days: 60 }).toUnixInteger()
+
+  const createSweepTest = async (
+    maxClients = 1000,
+  ): Promise<{ dir: string; dbPath: string; logs: LogCall[] }> => {
+    const dir = await mkdtemp(join(tmpdir(), "oauth-sweep-test-"))
+    const dbPath = join(dir, "oauth.db")
+    // A first boot creates the schema so clients can be seeded before the
+    // boot under test.
+    createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath,
+      maxClients,
+      logger,
+    })
+    onTestFinished(async () => {
+      await rm(dir, { recursive: true, force: true })
+    })
+    return { dir, dbPath, logs: [] }
+  }
+
+  const openDb = (dbPath: string): Database.Database => {
+    const db = new Database(dbPath)
+    onTestFinished(() => {
+      db.close()
+    })
+    return db
+  }
+
+  const seedClientIssuedAt = (
+    db: Database.Database,
+    clientId: string,
+    issuedAt: number,
+  ): void => {
+    const client = {
+      client_id: clientId,
+      client_id_issued_at: issuedAt,
+      client_secret: "test-secret",
+      client_secret_expires_at: 0,
+      redirect_uris: ["https://example.com/cb"],
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+    }
+    db.prepare("INSERT INTO clients (client_id, data) VALUES (?, ?)").run(
+      clientId,
+      JSON.stringify(client),
+    )
+  }
+
+  const registeredClientIds = (db: Database.Database): string[] =>
+    db
+      .prepare<[], { client_id: string }>(
+        "SELECT client_id FROM clients ORDER BY client_id",
+      )
+      .all()
+      .map((clientRow) => clientRow.client_id)
+
+  it("sweeps a client older than seven days that holds no refresh token at boot", async () => {
+    const { dbPath, logs } = await createSweepTest()
+    const db = openDb(dbPath)
+    seedClientIssuedAt(db, "old-tokenless", EIGHT_DAYS_AGO)
+
+    createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath,
+      maxClients: 1000,
+      logger: recordingLogger(logs),
+    })
+
+    expect(registeredClientIds(db)).toEqual([])
+    const sweep = logs.find((log) => log.message === "oauth_clients_swept")
+    expect(sweep).toEqual({
+      level: "info",
+      message: "oauth_clients_swept",
+      data: { component: "oauth", sweptClients: 1, maxAgeSeconds: 604_800 },
+    })
+  })
+
+  it("keeps a client younger than seven days that holds no refresh token", async () => {
+    const { dbPath, logs } = await createSweepTest()
+    const db = openDb(dbPath)
+    seedClientIssuedAt(db, "recent-tokenless", SIX_DAYS_AGO)
+
+    createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath,
+      maxClients: 1000,
+      logger: recordingLogger(logs),
+    })
+
+    expect(registeredClientIds(db)).toEqual(["recent-tokenless"])
+    expect(logs.map((log) => log.message)).not.toContain("oauth_clients_swept")
+  })
+
+  it("keeps an old client whose refresh token was keyed under a previous auth token", async () => {
+    const { dbPath } = await createSweepTest()
+    const db = openDb(dbPath)
+    seedClientIssuedAt(db, "rotated-client", EIGHT_DAYS_AGO)
+    db.prepare(
+      "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
+    ).run(
+      refreshTokenKey("pre-rotation-token", "previous-auth-token"),
+      "rotated-client",
+      "vault",
+      SIXTY_DAYS_AHEAD,
+    )
+
+    createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath,
+      maxClients: 1000,
+      logger,
+    })
+
+    expect(registeredClientIds(db)).toEqual(["rotated-client"])
+  })
+
+  it("sweeps before counting so a stale registration does not consume the cap", async () => {
+    const { dbPath } = await createSweepTest(1)
+    const db = openDb(dbPath)
+    seedClientIssuedAt(db, "old-tokenless", EIGHT_DAYS_AGO)
+    const oauth = createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath,
+      maxClients: 1,
+      logger,
+    })
+    // The boot sweep removed the seeded row; re-seed so the registration
+    // itself has to make room.
+    seedClientIssuedAt(db, "old-tokenless", EIGHT_DAYS_AGO)
+    const { clientsStore } = oauth.provider
+    if (!clientsStore.registerClient) {
+      throw new Error("registerClient not implemented")
+    }
+
+    const registered = await clientsStore.registerClient({
+      client_name: "fresh",
+      redirect_uris: ["https://example.com/cb"],
+    })
+
+    expect(registeredClientIds(db)).toEqual([registered.client_id])
+  })
+})

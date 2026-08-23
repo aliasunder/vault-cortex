@@ -89,6 +89,12 @@ class RegistrationLimitError extends OAuthError {
 // so an operator sees the cap approaching before it refuses anyone.
 const CLIENT_CAP_WARNING_FRACTION = 0.8
 
+// A registration older than this that holds no refresh token is swept.
+// Consent mints a refresh token within minutes of registering, so a row
+// still without one after a week never finished consent (clients register
+// more than once per connect) or had its last token expire.
+const TOKENLESS_CLIENT_MAX_AGE_S = 7 * 24 * 60 * 60
+
 const initDb = (dbPath: string, logger: Logger): Database.Database => {
   const db = new Database(dbPath)
   db.pragma("journal_mode = WAL") // concurrent reads during writes
@@ -146,6 +152,7 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
   >
   private readonly countClientsStmt: Database.Statement<[], { count: number }>
   private readonly insertClientStmt: Database.Statement<[string, string]>
+  private readonly deleteTokenlessClientsStmt: Database.Statement<[number]>
   /** Counts, checks the cap, and inserts in one transaction so concurrent
    *  registrations cannot overshoot it. Returns the row count after the
    *  insert; throws RegistrationLimitError when the table is full. */
@@ -166,8 +173,20 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     this.insertClientStmt = db.prepare(
       "INSERT INTO clients (client_id, data) VALUES (?, ?)",
     )
+    // Refresh-token rows made unreachable by a rotation stay until they
+    // expire, so a client active before the rotation keeps its
+    // registration through it.
+    this.deleteTokenlessClientsStmt = db.prepare(`
+      DELETE FROM clients
+      WHERE json_extract(data, '$.client_id_issued_at') < ?
+        AND NOT EXISTS (
+          SELECT 1 FROM refresh_tokens
+          WHERE refresh_tokens.client_id = clients.client_id
+        )
+    `)
     this.insertClientWithinCap = db.transaction(
       (clientId: string, data: string): number => {
+        this.sweepTokenlessClients()
         const countRow = this.countClientsStmt.get()
         if (!countRow) throw new Error("COUNT(*) returned no row")
         const registeredClients = countRow.count
@@ -178,6 +197,24 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
         return registeredClients + 1
       },
     )
+    this.sweepTokenlessClients()
+  }
+
+  /** Deletes registrations older than TOKENLESS_CLIENT_MAX_AGE_S that hold
+   *  no refresh token. Runs at boot and before every registration, so the
+   *  table only grows with clients that completed consent. A swept client
+   *  that still presents its old client_id gets invalid_client and
+   *  registers again. */
+  private sweepTokenlessClients(): void {
+    const issuedBefore =
+      DateTime.now().toUnixInteger() - TOKENLESS_CLIENT_MAX_AGE_S
+    const { changes: sweptClients } =
+      this.deleteTokenlessClientsStmt.run(issuedBefore)
+    if (sweptClients === 0) return
+    this.logger.info("oauth_clients_swept", {
+      sweptClients,
+      maxAgeSeconds: TOKENLESS_CLIENT_MAX_AGE_S,
+    })
   }
 
   getClient(clientId: string): OAuthClientInformationFull | undefined {
