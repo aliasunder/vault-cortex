@@ -274,9 +274,14 @@ export const createOAuthProvider = ({
   /** A revoked access JWT outlives its revocation by at most its own
    *  lifetime, so rows older than that can never be presented again. */
   const purgeExpiredRevokedTokens = (): void => {
-    deleteExpiredRevokedTokensStmt.run(
+    const { changes: purgedTokens } = deleteExpiredRevokedTokensStmt.run(
       DateTime.now().toUnixInteger() - ACCESS_TOKEN_TTL_S,
     )
+    if (purgedTokens === 0) return
+    oauthLogger.info("oauth_revoked_tokens_purged", {
+      purgedTokens,
+      maxAgeSeconds: ACCESS_TOKEN_TTL_S,
+    })
   }
   purgeExpiredRevokedTokens()
 

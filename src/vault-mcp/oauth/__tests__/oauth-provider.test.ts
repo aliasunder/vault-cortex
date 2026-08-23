@@ -936,10 +936,44 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
       "revoked-23h-ago",
       DateTime.now().minus({ hours: 23 }).toUnixInteger(),
     )
+    const logs: LogCall[] = []
 
-    createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+    createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
 
     expect(storedRevokedTokens(db)).toEqual(["revoked-23h-ago"])
+    const purge = logs.find(
+      (log) => log.message === "oauth_revoked_tokens_purged",
+    )
+    expect(purge).toEqual({
+      level: "info",
+      message: "oauth_revoked_tokens_purged",
+      data: { component: "oauth", purgedTokens: 1, maxAgeSeconds: 86_400 },
+    })
+  })
+
+  it("does not log a purge when no revoked_tokens rows are expired", async () => {
+    const { db, dbPath } = await createKeyedStorageTest()
+    seedRevokedToken(
+      db,
+      "revoked-23h-ago",
+      DateTime.now().minus({ hours: 23 }).toUnixInteger(),
+    )
+    const logs: LogCall[] = []
+
+    createOAuthProvider({
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+
+    expect(storedRevokedTokens(db)).toEqual(["revoked-23h-ago"])
+    expect(logs.map((log) => log.message)).not.toContain(
+      "oauth_revoked_tokens_purged",
+    )
   })
 
   it("purges revoked_tokens rows older than the access-token lifetime on revocation", async () => {
