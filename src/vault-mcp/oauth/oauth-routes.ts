@@ -49,11 +49,11 @@ export const createOAuthRoutes = ({
   const rateLimit = {
     windowMs: 60 * 1000,
     max: 5,
-    // Bucket by client IP via extractClientIp: when the deployment trusts
-    // the Forwarded header (API Gateway), the gateway's claim is the key —
-    // the library default (req.ip) would merge every client into a single
-    // gateway-egress bucket. Elsewhere req.ip, governed by the server's
-    // trust-proxy hop count, is the key.
+    // Bucket by client IP via extractClientIp: when the Forwarded header
+    // is trusted (trustForwardedHops > 0), the resolved client IP is the
+    // key — the library default (req.ip) would merge every client into a
+    // single gateway-egress bucket. Elsewhere req.ip, governed by the
+    // server's trust-proxy hop count, is the key.
     keyGenerator: (req: Request) => extractClientIp(req, trustForwardedHops),
     // The default handler sends the 429 silently — log the offender, then
     // send the SDK's per-endpoint message unchanged. The query string is
