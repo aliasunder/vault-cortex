@@ -616,7 +616,9 @@ authorizer and Express can verify independently — no shared state needed.
 - **Auth codes** — in-memory, short-lived (10 minutes).
 - **Access tokens** — JWTs; stateless, no storage.
 - **Revoked tokens** — revoked access tokens are tracked in SQLite; a revoked
-  refresh token is simply deleted.
+  refresh token is simply deleted. A revoked JWT outlives its revocation by at
+  most the access-token lifetime, so rows older than that are purged at boot
+  and before each new revocation, logged as `oauth_revoked_tokens_purged`.
 
 **Refresh token expiry:** 60-day sliding (inactivity) window. Each successful
 use rotates the token AND extends the window by another 60 days, so a daily
