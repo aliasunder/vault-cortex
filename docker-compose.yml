@@ -76,13 +76,12 @@ services:
       # 0. The CDN row adds to whichever row above describes the path behind
       # the CDN.
       #
-      # This file opens port 8000 to the internet (the ports: block below).
-      # With the first row's settings, anyone can connect to that port
-      # directly, skip API Gateway, and send a fake Forwarded header — the
-      # server would believe it. To close the port, send gateway traffic
-      # through a tunnel instead (ORIGIN_URL) and set MCP_PORT_CIDRS=none;
-      # DEPLOY.md "Port 8000 Hardening" walks through it. Then use one of the
-      # two "Gateway → tunnel" rows.
+      # Port 8000 is open to the internet. With the first row's settings,
+      # anyone can connect to it directly, skip API Gateway, and send a fake
+      # Forwarded header — the server would believe it. To close the port,
+      # send gateway traffic through a tunnel instead (ORIGIN_URL) and set
+      # MCP_PORT_CIDRS=none; DEPLOY.md "Port 8000 Hardening" walks through it.
+      # Then use one of the two "Gateway → tunnel" rows.
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
       TRUST_FORWARDED_HOPS: ${TRUST_FORWARDED_HOPS:-1}
       LOG_LEVEL: ${LOG_LEVEL:-info}
