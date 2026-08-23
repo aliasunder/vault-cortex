@@ -163,6 +163,10 @@ describe("default config", () => {
       expect(text).toContain("Projects/alpha.md")
       expect(text).toContain("Projects/beta.md")
       expect(text).toContain("Orphan Note.md")
+      // The Multi Column fixture opens with `--- start-multi-column:` —
+      // its presence in the listing proves the server indexed a note
+      // whose first line gray-matter alone would reject (issue #485)
+      expect(text).toContain("Multi Column Template.md")
     })
 
     it("vault_list_notes — folder filter", async () => {

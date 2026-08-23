@@ -2042,6 +2042,11 @@ export const createSearchIndex = (
       }),
     )
 
+    // Notes whose parse or index write throws are skipped with a warning
+    // instead of aborting the rebuild — one malformed note must never
+    // prevent the server from starting.
+    const skippedNotePaths = new Set<string>()
+
     // better-sqlite3: .transaction() returns a function; call it immediately
     db.transaction(() => {
       // Index non-markdown files so extensionless wikilinks to .canvas, .base,
@@ -2052,15 +2057,23 @@ export const createSearchIndex = (
       // Pass 1: index all notes (content, frontmatter, FTS) — skip link
       // extraction here; Pass 2 handles it with the complete path list.
       for (const note of noteContents) {
-        upsertNote(
-          {
-            filePath: note.relativePath,
-            rawContent: note.content,
-            fileStat: { mtimeMs: note.modifiedAtMs, size: note.sizeBytes },
-            skipLinks: true,
-          },
-          logger,
-        )
+        try {
+          upsertNote(
+            {
+              filePath: note.relativePath,
+              rawContent: note.content,
+              fileStat: { mtimeMs: note.modifiedAtMs, size: note.sizeBytes },
+              skipLinks: true,
+            },
+            logger,
+          )
+        } catch (error) {
+          skippedNotePaths.add(note.relativePath)
+          logger.warn("skipped malformed note during rebuild", {
+            path: note.relativePath,
+            error: describeError(error),
+          })
+        }
       }
 
       // Entry-index reconciliation for memory files deleted while the server
@@ -2068,6 +2081,10 @@ export const createSearchIndex = (
       // its rows survive on content-hash identity), so files that vanished
       // from disk leave orphaned entries the per-file upsert never touches.
       if (selectDistinctMemoryFilesStmt) {
+        // Built from the unfiltered disk listing on purpose: a note in
+        // skippedNotePaths still exists on disk, and treating it as deleted
+        // here would permanently remove its memory_entries rows (the table
+        // survives rebuilds on content-hash identity).
         const memoryFilesOnDisk = new Set(
           noteContents
             .map((note) => memoryFileNameFromPath(note.relativePath))
@@ -2095,6 +2112,8 @@ export const createSearchIndex = (
 
       db.exec("DELETE FROM links")
       for (const note of noteContents) {
+        // A note skipped in Pass 1 would throw the same parse error here
+        if (skippedNotePaths.has(note.relativePath)) continue
         const parsed = parseNote(note.content)
         for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
           const resolved = links.resolve({
@@ -2147,11 +2166,18 @@ export const createSearchIndex = (
       }
     })()
 
-    const totalBytes = noteContents.reduce(
+    const indexedNotes = noteContents.filter(
+      (note) => !skippedNotePaths.has(note.relativePath),
+    )
+    const totalBytes = indexedNotes.reduce(
       (sum, note) => sum + note.sizeBytes,
       0,
     )
-    logger.info("rebuilt index", { count: noteContents.length, totalBytes })
+    logger.info("rebuilt index", {
+      count: indexedNotes.length,
+      totalBytes,
+      ...(skippedNotePaths.size > 0 ? { skipped: skippedNotePaths.size } : {}),
+    })
 
     // Extract only what Pass 3 needs so the full noteContents array (with
     // every note's body + stats) can be garbage-collected during embedding.
@@ -2344,7 +2370,7 @@ export const createSearchIndex = (
       logger.error("embedding pass failed", { error: describeError(err) })
     })
 
-    return { count: noteContents.length, embedding: embeddingPromise }
+    return { count: indexedNotes.length, embedding: embeddingPromise }
   }
 
   // ── Query context + delegation ───────────────────────────────

@@ -1828,6 +1828,82 @@ describe("rebuildFromVault", () => {
     expect(results[0]?.path).toBe("About Me/Principles.md")
   })
 
+  it("skips a note whose frontmatter fails to parse, warns, and indexes the rest", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    await writeFile(
+      join(vaultDir, "broken.md"),
+      "---\ntitle: [unclosed\n---\nbroken body text\n",
+      "utf8",
+    )
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir },
+      logger,
+    )
+    expect(count).toBe(2)
+    expect(warnSpy).toHaveBeenCalledWith(
+      "skipped malformed note during rebuild",
+      expect.objectContaining({ path: "broken.md" }),
+    )
+    const healthyPaths = index
+      .fullTextSearch({ query: "burnout" }, logger)
+      .map((result) => result.path)
+    expect(healthyPaths).toEqual(["About Me/Principles.md"])
+    expect(index.fullTextSearch({ query: "broken" }, logger)).toHaveLength(0)
+  })
+
+  it("indexes a note opening with Multi Column plugin syntax as plain content", async () => {
+    await writeFile(
+      join(vaultDir, "multi-column.md"),
+      "--- start-multi-column: ExampleRegion1\ncolumn snippet text\n\n--- end-multi-column\n",
+      "utf8",
+    )
+    const { count } = await index.rebuildFromVault(
+      { vaultPath: vaultDir },
+      logger,
+    )
+    expect(count).toBe(3)
+    // The plugin line stays in the indexed content — it would vanish if
+    // it were parsed as frontmatter
+    const firstLineHits = index
+      .fullTextSearch({ query: "ExampleRegion1" }, logger)
+      .map((result) => result.path)
+    expect(firstLineHits).toEqual(["multi-column.md"])
+    const propertyHits = index.searchByProperty(
+      { key: "start-multi-column", value: "ExampleRegion1" },
+      logger,
+    )
+    expect(propertyHits).toHaveLength(0)
+  })
+
+  it("stores a link into a skipped note as its raw target", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    await writeFile(
+      join(vaultDir, "broken.md"),
+      "---\ntitle: [unclosed\n---\nbroken body text\n",
+      "utf8",
+    )
+    await writeFile(
+      join(vaultDir, "linker.md"),
+      "# Linker\n\nSee [[broken]].\n",
+      "utf8",
+    )
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+    // exists: false proves the skip happened — an indexed broken.md
+    // would have resolved the link to "broken.md"
+    expect(index.getOutgoingLinks({ path: "linker.md" }, logger)).toEqual([
+      {
+        path: "broken",
+        title: null,
+        exists: false,
+        kind: "note",
+        bytes: null,
+        daily_note_forward_ref: false,
+      },
+    ])
+  })
+
   it("resolves a frontmatter wikilink whose target is indexed later (forward reference)", async () => {
     // related: points to a note that sorts after the source, so the source is
     // indexed first; the two-pass rebuild must still resolve it. The body has

@@ -261,6 +261,17 @@ describe("readNote", () => {
 })
 
 describe("writeNote", () => {
+  it("creates a note whose body opens with Multi Column plugin syntax", async () => {
+    const pluginBody =
+      "--- start-multi-column: ExampleRegion1\ncolumn text\n--- end-multi-column\n"
+    await writeNote(
+      { vaultPath: vault, path: "snippet.md", body: pluginBody },
+      logger,
+    )
+    const written = await readFile(join(vault, "snippet.md"), "utf8")
+    expect(written).toBe(pluginBody)
+  })
+
   it("creates a new file with frontmatter", async () => {
     await writeNote(
       {
@@ -937,6 +948,41 @@ describe("readNoteProperties", () => {
 })
 
 describe("updateProperties", () => {
+  it("prepends a properties block above Multi Column plugin syntax", async () => {
+    const pluginBody =
+      "--- start-multi-column: ExampleRegion1\ncolumn text\n--- end-multi-column\n"
+    await writeFile(join(vault, "snippet.md"), pluginBody, "utf8")
+    await updateProperties(
+      {
+        vaultPath: vault,
+        path: "snippet.md",
+        properties: { title: "Snippet" },
+      },
+      logger,
+    )
+    const written = await readFile(join(vault, "snippet.md"), "utf8")
+    expect(written).toBe("---\ntitle: Snippet\n---\n" + pluginBody)
+  })
+
+  it("preserves a body that opens with a horizontal rule", async () => {
+    // The serializer must not re-parse the body: an HR-leading body read
+    // back through gray-matter's string form is consumed as an unclosed
+    // frontmatter fence and erased
+    await writeFile(
+      join(vault, "rules.md"),
+      "---\ntitle: Original\n---\n---\nbody after rule\n",
+      "utf8",
+    )
+    await updateProperties(
+      { vaultPath: vault, path: "rules.md", properties: { status: "active" } },
+      logger,
+    )
+    const written = await readFile(join(vault, "rules.md"), "utf8")
+    expect(written).toBe(
+      "---\ntitle: Original\nstatus: active\n---\n---\nbody after rule\n",
+    )
+  })
+
   it("merges new keys without changing body", async () => {
     await writeFile(
       join(vault, "test.md"),

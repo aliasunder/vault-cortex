@@ -526,6 +526,33 @@ title: Agents
     expect(countVectors(inspect)).toBe(3)
   })
 
+  it("keeps a skipped memory note's entries when its parse fails during rebuild", async () => {
+    const { dir, memoryDirPath, index, inspect } = await createRebuiltVault()
+    const firstBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
+    await firstBuild.embedding
+    const rowsAfterFirstBuild = selectEntryRows(inspect)
+    expect(rowsAfterFirstBuild).toHaveLength(4)
+
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+    await writeFile(
+      join(memoryDirPath, "Opinions.md"),
+      "---\ntitle: [unclosed\n---\n# Opinions\n",
+    )
+    const secondBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
+    await secondBuild.embedding
+
+    // The skip actually happened: warned, and the note left the index
+    expect(warnSpy).toHaveBeenCalledWith(
+      "skipped malformed note during rebuild",
+      expect.objectContaining({ path: "About Me/Opinions.md" }),
+    )
+    expect(index.fullTextSearch({ query: "Immutable" }, logger)).toHaveLength(0)
+    // A still-on-disk memory note must not be treated as deleted — its
+    // entry rows survive until a rebuild parses it successfully again
+    expect(selectEntryRows(inspect)).toEqual(rowsAfterFirstBuild)
+  })
+
   it("embeds zero entries on a second rebuild with unchanged files", async () => {
     const { dir, index, embedder } = await createRebuiltVault()
     const firstBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
