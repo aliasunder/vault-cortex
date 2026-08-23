@@ -617,7 +617,7 @@ In the tunnel's Public Hostname tab, add a route:
 - Domain: select your Cloudflare-managed domain
 - Service: `http://localhost:8000`
 
-**4. Verify the tunnel** before locking it:
+**4. Verify the tunnel** before steps 5–7 restrict it to API Gateway:
 
 ```bash
 curl https://<subdomain>.<yourdomain>/healthz
