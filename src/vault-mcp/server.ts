@@ -24,7 +24,7 @@ import env from "env-var"
  *  everywhere else, so a client-supplied Forwarded header can't write a
  *  false IP into the error log. */
 export const createErrorMiddleware =
-  (trustForwardedHops: number) =>
+  ({ trustForwardedHops }: { trustForwardedHops: number }) =>
   (err: Error, req: Request, res: Response, _next: NextFunction): void => {
     logger.error("unhandled_error", {
       sessionId: headerAsString(req.headers["mcp-session-id"]),
@@ -164,7 +164,9 @@ const startServer = async (): Promise<void> => {
     }),
   )
 
-  app.use(createErrorMiddleware(config.trustForwardedHops))
+  app.use(
+    createErrorMiddleware({ trustForwardedHops: config.trustForwardedHops }),
+  )
 
   // Express 5 reports a bind failure (EADDRINUSE, EACCES) through the
   // callback's error argument instead of throwing, so an unchecked callback
