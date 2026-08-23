@@ -81,6 +81,21 @@
 
 
 
+
+## [0.41.0] — 2026-08-23
+
+### ⚠ BREAKING CHANGES
+
+- Upgrading clears every stored refresh token; each OAuth client re-authorizes once through the consent page when its access token expires (within 24 hours). Rotating `MCP_AUTH_TOKEN` now ends every OAuth session immediately.
+
+### Features
+
+- **oauth:** Bind refresh tokens to MCP_AUTH_TOKEN and their client so rotation revokes every session (#482)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.40.1
+
 ## [0.40.1] — 2026-08-22
 
 ### Documentation
