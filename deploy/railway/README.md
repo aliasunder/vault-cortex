@@ -44,7 +44,13 @@ your computer — once, before you click the button.
 
 1. **Open a terminal.** macOS: **Applications → Utilities → Terminal**.
    Windows: search the Start menu for **Terminal** (or **PowerShell**).
-2. **Paste this line and press Enter:**
+2. **Check that Node.js is installed** (version 20.12 or later):
+   ```bash
+   node -v
+   ```
+   If Node.js is missing, install it from [nodejs.org](https://nodejs.org/)
+   — or skip to the Docker fallback below.
+3. **Paste this line and press Enter:**
 
    ```bash
    npx vault-cortex@latest get-sync-token
@@ -53,7 +59,7 @@ your computer — once, before you click the button.
    It asks for your Obsidian account email, password, and two-factor code
    (if you use one), then prints the token. No Docker needed.
 
-3. **Copy the token.** The deploy form asks for it as `OBSIDIAN_AUTH_TOKEN`.
+4. **Copy the token.** The deploy form asks for it as `OBSIDIAN_AUTH_TOKEN`.
 
 <details>
 <summary><strong>Don't have Node.js?</strong></summary>
