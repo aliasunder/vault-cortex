@@ -1,6 +1,9 @@
 dist/
 .sst/
 node_modules/
+# Fixture vault content is byte-exact test data — reformatting it changes
+# what the integration tests exercise
+src/__tests__/integration/fixtures/vault/
 *.db
 *.sqlite
 CHANGELOG.md
