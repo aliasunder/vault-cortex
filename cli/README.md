@@ -218,4 +218,5 @@ is available.
 
 - [Local quickstart](https://github.com/aliasunder/vault-cortex/blob/main/deploy/local/README.md)
 - [Remote quickstart (VPS + Obsidian Sync)](https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md)
+- [One-click deploy on Render or Railway](https://github.com/aliasunder/vault-cortex#one-click-deploy)
 - [Full project README](https://github.com/aliasunder/vault-cortex)
