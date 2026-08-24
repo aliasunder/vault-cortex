@@ -158,7 +158,7 @@ export const patchEnvObsidianToken = (
  * them. Removing quotes makes the file work correctly for both paths.
  * Returns true when the file was modified.
  */
-export const sanitizeEnvFile = (envFilePath: string): boolean => {
+export const stripEnvQuotedValues = (envFilePath: string): boolean => {
   if (!existsSync(envFilePath)) return false
   const content = readFileSync(envFilePath, "utf8")
   // Reset lastIndex — the /g flag makes the regex stateful.

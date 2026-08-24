@@ -16,7 +16,7 @@ import {
   readEnvPort,
   readEnvPublicUrl,
   readEnvVaultPath,
-  sanitizeEnvFile,
+  stripEnvQuotedValues,
   writeFiles,
 } from "../scaffold.js"
 
@@ -469,11 +469,11 @@ describe("patchEnvObsidianToken", () => {
   })
 })
 
-describe("sanitizeEnvFile", () => {
+describe("stripEnvQuotedValues", () => {
   it("returns false when the file does not exist", () => {
     const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
 
-    expect(sanitizeEnvFile(missingPath)).toBe(false)
+    expect(stripEnvQuotedValues(missingPath)).toBe(false)
   })
 
   it("returns false when no values are quoted", () => {
@@ -482,7 +482,7 @@ describe("sanitizeEnvFile", () => {
     const content = "MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n"
     writeFileSync(envPath, content)
 
-    expect(sanitizeEnvFile(envPath)).toBe(false)
+    expect(stripEnvQuotedValues(envPath)).toBe(false)
     expect(readFileSync(envPath, "utf8")).toBe(content)
   })
 
@@ -491,7 +491,7 @@ describe("sanitizeEnvFile", () => {
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nVAULT_NAME="My Vault"\n')
 
-    expect(sanitizeEnvFile(envPath)).toBe(true)
+    expect(stripEnvQuotedValues(envPath)).toBe(true)
     expect(readFileSync(envPath, "utf8")).toBe(
       "MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n",
     )
@@ -502,7 +502,7 @@ describe("sanitizeEnvFile", () => {
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_NAME='My Vault'\n")
 
-    expect(sanitizeEnvFile(envPath)).toBe(true)
+    expect(stripEnvQuotedValues(envPath)).toBe(true)
     expect(readFileSync(envPath, "utf8")).toBe(
       "MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n",
     )
@@ -516,7 +516,7 @@ describe("sanitizeEnvFile", () => {
       'VAULT_NAME="My Vault"\nSYNC_EXCLUDED_FOLDERS="Folder A,Folder B"\n',
     )
 
-    expect(sanitizeEnvFile(envPath)).toBe(true)
+    expect(stripEnvQuotedValues(envPath)).toBe(true)
     expect(readFileSync(envPath, "utf8")).toBe(
       "VAULT_NAME=My Vault\nSYNC_EXCLUDED_FOLDERS=Folder A,Folder B\n",
     )
@@ -529,7 +529,7 @@ describe("sanitizeEnvFile", () => {
       '# Comment\nMCP_AUTH_TOKEN=abc\nVAULT_NAME="My Vault"\nPORT=8000\n# Footer\n'
     writeFileSync(envPath, content)
 
-    sanitizeEnvFile(envPath)
+    stripEnvQuotedValues(envPath)
 
     expect(readFileSync(envPath, "utf8")).toBe(
       "# Comment\nMCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\nPORT=8000\n# Footer\n",
@@ -542,7 +542,7 @@ describe("sanitizeEnvFile", () => {
     const content = "VAULT_NAME=\"My Vault'\n"
     writeFileSync(envPath, content)
 
-    expect(sanitizeEnvFile(envPath)).toBe(false)
+    expect(stripEnvQuotedValues(envPath)).toBe(false)
     expect(readFileSync(envPath, "utf8")).toBe(content)
   })
 
@@ -551,7 +551,7 @@ describe("sanitizeEnvFile", () => {
     const envPath = join(targetDir, ".env")
     writeFileSync(envPath, "VAULT_NAME=\"My 'Cool' Vault\"\n")
 
-    sanitizeEnvFile(envPath)
+    stripEnvQuotedValues(envPath)
 
     expect(readFileSync(envPath, "utf8")).toBe("VAULT_NAME=My 'Cool' Vault\n")
   })
