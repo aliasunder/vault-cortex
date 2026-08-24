@@ -60,9 +60,8 @@ What it does:
 Re-running init where a setup already exists asks first — declining leaves
 everything unchanged and points you at [`configure`](#configure), the right
 tool for changing settings in place. Existing files are never overwritten
-without asking. During a remote setup, init offers to run
-[`get-sync-token`](#get-sync-token) for you — sign in to your Obsidian
-account right from the terminal.
+without asking. During a remote setup, init offers to generate your
+[Obsidian Sync token](#get-sync-token) as part of the flow.
 
 Flags:
 
