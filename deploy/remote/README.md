@@ -244,7 +244,11 @@ requests/month for 12 months — effectively free for personal use.
 
 Create an HTTP API in API Gateway with a route that proxies to
 `http://<your-server-ip>:8000/{proxy+}`. Set `PUBLIC_URL` to the API Gateway
-URL. See the project's [full cloud deployment](../../DEPLOY.md) for the SST IaC
+URL, `TRUST_FORWARDED_HOPS=1`, and `TRUST_PROXY_HOPS=1` in `.env` — the
+gateway reports clients through the
+[RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header, and
+this tells the server to read it for OAuth rate limiting and request logs.
+See the project's [full cloud deployment](../../DEPLOY.md) for the SST IaC
 approach, which adds a Lambda authorizer for an extra auth layer.
 
 > **Need a VPS?** Any provider works — [AWS Lightsail](https://aws.amazon.com/lightsail/),
