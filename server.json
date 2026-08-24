@@ -117,6 +117,16 @@
           "default": "About Me"
         },
         {
+          "name": "DAILY_NOTES_FOLDER",
+          "description": "Vault folder for daily notes. Overrides the folder configured in Obsidian's daily-notes plugin.",
+          "default": "Daily Notes"
+        },
+        {
+          "name": "DAILY_NOTES_FORMAT",
+          "description": "Filename date format for daily notes (Moment.js tokens). Overrides the format configured in Obsidian's daily-notes plugin.",
+          "default": "YYYY-MM-DD"
+        },
+        {
           "name": "TRUST_PROXY_HOPS",
           "description": "Number of trusted reverse-proxy hops used to derive the client IP from X-Forwarded-For for OAuth rate limiting and request logs. With 0, injected forwarding headers are ignored.",
           "default": "0"
