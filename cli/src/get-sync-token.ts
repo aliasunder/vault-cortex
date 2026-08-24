@@ -52,36 +52,20 @@ const callSigninApi = async (
     signal: AbortSignal.timeout(SIGNIN_TIMEOUT_MS),
   })
 
-  if (!response.ok) {
-    throw new Error(`HTTP Error ${response.status}`)
-  }
+  if (!response.ok) throw new Error(`HTTP Error ${response.status}`)
 
-  let body: unknown
-  try {
-    body = await response.json()
-  } catch {
+  const body = await response.json().catch(() => null)
+  if (!isJsonObject(body))
     throw new Error("Unexpected response from Obsidian API (not JSON)")
-  }
-
-  if (!isJsonObject(body)) {
-    throw new Error("Unexpected response from Obsidian API (not JSON)")
-  }
-
-  if ("error" in body && typeof body.error === "string") {
-    throw new ObsidianApiError(body.error)
-  }
-
-  const token =
-    "token" in body && typeof body.token === "string" ? body.token : undefined
-  if (!token) {
+  if (typeof body.error === "string") throw new ObsidianApiError(body.error)
+  if (typeof body.token !== "string" || !body.token)
     throw new Error("Unexpected response from Obsidian API (no token)")
+
+  return {
+    token: body.token,
+    name: typeof body.name === "string" ? body.name : "",
+    email: typeof body.email === "string" ? body.email : "",
   }
-
-  const name = "name" in body && typeof body.name === "string" ? body.name : ""
-  const email =
-    "email" in body && typeof body.email === "string" ? body.email : ""
-
-  return { token, name, email }
 }
 
 /**
