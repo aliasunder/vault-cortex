@@ -2,7 +2,7 @@
   "name": "vault-cortex",
   "version": "0.41.0",
   "private": true,
-  "description": "Standalone MCP server for Obsidian vaults — hybrid search, memory, tasks, files. One-click deploy",
+  "description": "Standalone MCP server for Obsidian vaults — hybrid search, memory, tasks, files, OAuth 2.1",
   "license": "MIT",
   "repository": {
     "type": "git",
