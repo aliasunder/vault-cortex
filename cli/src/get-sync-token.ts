@@ -128,9 +128,18 @@ export const captureObsidianToken = async (
         return result.token
       } catch (retryError) {
         spinner.stop("Sign-in failed.")
+        if (retryError instanceof Error && retryError.name === "TimeoutError") {
+          prompts.warn(
+            "Request timed out — check your internet connection and try again.",
+          )
+          return undefined
+        }
+        const retryHint =
+          retryError instanceof ObsidianApiError
+            ? "\n  Check your 2FA code and try again."
+            : ""
         prompts.warn(
-          `Could not sign in: ${describeError(retryError)}\n` +
-            "  Check your 2FA code and try again.",
+          `Could not sign in: ${describeError(retryError)}${retryHint}`,
         )
         return undefined
       }

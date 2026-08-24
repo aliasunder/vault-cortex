@@ -198,6 +198,64 @@ describe("captureObsidianToken", () => {
     ])
   })
 
+  it("shows a timeout message when the MFA retry times out", async () => {
+    let callCount = 0
+    const fetchMfaThenTimeout: typeof fetch = (async () => {
+      callCount += 1
+      if (callCount === 1) {
+        return new Response(
+          JSON.stringify({ error: "Your account requires a 2FA code" }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        )
+      }
+      throw new DOMException("The operation was aborted", "TimeoutError")
+    }) as typeof fetch
+
+    const scripted = createScriptedPrompts([
+      "user@example.com",
+      "password",
+      "123456",
+    ])
+
+    const token = await captureObsidianToken({
+      prompts: scripted.prompts,
+      fetchFn: fetchMfaThenTimeout,
+    })
+
+    expect(token).toBeUndefined()
+    expect(scripted.warnings[0]).toBe(
+      "Request timed out — check your internet connection and try again.",
+    )
+  })
+
+  it("omits 2FA hint when the MFA retry fails with a network error", async () => {
+    let callCount = 0
+    const fetchMfaThenNetworkError: typeof fetch = (async () => {
+      callCount += 1
+      if (callCount === 1) {
+        return new Response(
+          JSON.stringify({ error: "Your account requires a 2FA code" }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        )
+      }
+      throw new Error("fetch failed")
+    }) as typeof fetch
+
+    const scripted = createScriptedPrompts([
+      "user@example.com",
+      "password",
+      "123456",
+    ])
+
+    const token = await captureObsidianToken({
+      prompts: scripted.prompts,
+      fetchFn: fetchMfaThenNetworkError,
+    })
+
+    expect(token).toBeUndefined()
+    expect(scripted.warnings[0]).toBe("Could not sign in: fetch failed")
+  })
+
   it("returns undefined on wrong password", async () => {
     const scripted = createScriptedPrompts([
       "user@example.com",
