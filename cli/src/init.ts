@@ -83,6 +83,10 @@ const offerSyncTokenCapture = async (
   prompts: Prompts,
   fetchFn: typeof fetch,
 ): Promise<string | undefined> => {
+  prompts.log(
+    "Your server needs an Obsidian Sync token to access your vault.\n" +
+      "You can sign in to your Obsidian account now to generate one.",
+  )
   const runNow = await prompts.confirm("Generate the token now?", true)
   if (!runNow) return undefined
   return captureObsidianToken({ prompts, fetchFn })
@@ -443,18 +447,16 @@ const runRemoteInit = async (
   const vaultName = await askVaultName(prompts)
 
   // Sign in to Obsidian and capture the Sync token directly via the API.
-  // Falls back to a paste prompt when the user declines or capture fails.
-  const capturedToken = await offerSyncTokenCapture(prompts, fetchFn)
-  // Masked prompt: the sync token is a credential and must not echo into
-  // the terminal or scrollback. An empty submission still means "fill in
-  // .env later" — clack's password prompt accepts blank input.
+  // When the user declines or capture fails, the token is left blank in .env
+  // and get-sync-token can fill it in later.
   const obsidianAuthToken =
-    capturedToken ??
-    (
-      await prompts.password(
-        "Paste the Obsidian Sync token (leave blank to fill in .env later):",
-      )
-    ).trim()
+    (await offerSyncTokenCapture(prompts, fetchFn)) ?? ""
+  if (!obsidianAuthToken) {
+    prompts.log(
+      "No token yet — run this later to add it:\n" +
+        `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
+    )
+  }
 
   const usesEncryption = await prompts.confirm(
     "Does your vault use end-to-end encryption?",

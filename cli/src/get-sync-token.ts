@@ -94,6 +94,10 @@ export const captureObsidianToken = async (
 ): Promise<string | undefined> => {
   const { prompts, fetchFn } = deps
 
+  prompts.log(
+    "Sign in to your Obsidian account to generate the token your server\n" +
+      "needs to sync your vault.",
+  )
   const email = await prompts.text("Obsidian account email:", {
     placeholder: "you@example.com",
   })
