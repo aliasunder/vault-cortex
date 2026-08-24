@@ -2122,27 +2122,37 @@ export const createSearchIndex = (
 
       db.exec("DELETE FROM links")
       for (const note of noteContents) {
-        // A note skipped in Pass 1 would throw the same parse error here
         if (skippedNotePaths.has(note.relativePath)) continue
-        const parsed = parseNote(note.content)
-        for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
-          const resolved = links.resolve({
-            target: rawTarget,
-            allPaths: pathList,
-            sourcePath: note.relativePath,
-          })
-          if (resolved !== null) {
-            insertLinkStmt.run(note.relativePath, resolved)
-          } else {
-            const resolvedNonMdPath = resolveNonMarkdownFile(
-              rawTarget,
-              note.relativePath,
-            )
-            insertLinkStmt.run(
-              note.relativePath,
-              resolvedNonMdPath ?? rawTarget,
-            )
+        try {
+          const parsed = parseNote(note.content)
+          for (const rawTarget of links.extractAll(
+            parsed.content,
+            parsed.data,
+          )) {
+            const resolved = links.resolve({
+              target: rawTarget,
+              allPaths: pathList,
+              sourcePath: note.relativePath,
+            })
+            if (resolved !== null) {
+              insertLinkStmt.run(note.relativePath, resolved)
+            } else {
+              const resolvedNonMdPath = resolveNonMarkdownFile(
+                rawTarget,
+                note.relativePath,
+              )
+              insertLinkStmt.run(
+                note.relativePath,
+                resolvedNonMdPath ?? rawTarget,
+              )
+            }
           }
+        } catch (error) {
+          skippedNotePaths.add(note.relativePath)
+          logger.warn("skipped malformed note during rebuild", {
+            path: note.relativePath,
+            error: describeError(error),
+          })
         }
       }
 

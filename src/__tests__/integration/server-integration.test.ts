@@ -164,7 +164,7 @@ describe("default config", () => {
       expect(text).toContain("Projects/beta.md")
       expect(text).toContain("Orphan Note.md")
       // The Multi Column fixture opens with `--- start-multi-column:` —
-      // its presence in the listing proves the server indexed a note
+      // its presence proves the server booted without crashing on a note
       // whose first line gray-matter alone would reject (issue #485)
       expect(text).toContain("Multi Column Template.md")
     })
