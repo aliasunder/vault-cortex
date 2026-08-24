@@ -98,7 +98,7 @@ cli/                                   # npx vault-cortex CLI (published as vaul
     docker.ts                          # Container management (docker run, health-check wait)
     upgrade.ts                         # Upgrade command (pull + re-create + health check)
     lifecycle.ts                       # Down/logs/restart commands + shared deployment resolution and re-create plumbing
-    get-sync-token.ts                  # Get-sync-token subcommand (Sync token auto-capture via volume mount)
+    get-sync-token.ts                  # Get-sync-token subcommand (Sync token capture via Obsidian API)
     env.ts                             # Environment file handling (.env generation)
     token.ts                           # Secure token generation (openssl rand)
     vault.ts                           # Vault path validation

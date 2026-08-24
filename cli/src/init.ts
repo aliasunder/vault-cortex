@@ -411,10 +411,10 @@ const runLocalInit = async (
 }
 
 // Remote flow (VPS + Obsidian Sync): resolve target dir → PUBLIC_URL →
-// VAULT_NAME → Obsidian Sync token (optionally running the Obsidian login via
-// Docker) → optional E2E vault password → generate token → write .env →
-// optionally start → print connect instructions. Always interactive —
-// the sync-token step can't be defaulted.
+// VAULT_NAME → Obsidian Sync token (sign in via the Obsidian API) → optional
+// E2E vault password → generate token → write .env → optionally start → print
+// connect instructions. Always interactive — the sync-token step can't be
+// defaulted.
 const runRemoteInit = async (
   flags: InitFlags,
   deps: InitDeps,
