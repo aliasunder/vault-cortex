@@ -491,7 +491,7 @@ throughout the codebase.
 
 ## Code style
 
-<!-- distilled from vault Reference/code-standards-* on 2026-08-17; refresh: run the sync-code-standards skill -->
+<!-- distilled from vault Reference/code-standards-* on 2026-08-24; refresh: run the sync-code-standards skill -->
 
 These rules are authoring guidance, not a review checklist — apply them
 while writing, not after. Several are lint-enforced in `eslint.config.ts`
@@ -544,9 +544,13 @@ undefined) return`) or schema validation to narrow types instead.
   for resource scoping is fine.
 - Every catch logs or re-throws — `.catch(() => {})` and empty catch
   blocks are banned; a swallowed error hides the failure.
-- Explicit rejection over silent normalization at destructive
-  boundaries — when auto-correcting input could silently write or
-  delete the wrong thing, reject loudly instead.
+- Three tiers at input boundaries: invalid input → reject with a
+  clear error; valid input with a surprising structural consequence →
+  non-blocking advisory; machine-derived values (byte-exact match) →
+  auto-correct and report. User-authored values never auto-corrected.
+- Required inputs enforced at every entry point — fail fast at
+  boot/load, not only the friendliest launcher. Making an
+  already-expected value mandatory is a bug fix, not a breaking change.
 - Luxon `DateTime` over the native `Date` API. Luxon is declarative
   (`DateTime.now().minus({ days: 7 }).toISODate()`), immutable, and
   avoids manual arithmetic (`Date.now() - 7 * 86_400_000`) and
@@ -641,20 +645,35 @@ undefined) return`) or schema validation to narrow types instead.
 - No planning-session coinages in identifiers — a term invented during
   design means nothing to a stranger reading one file; sweep new
   identifiers before landing.
-- Regex constants get doc comments explaining what they match.
-  Inline regexes used more than once should be extracted to a named
-  `const` with a doc comment.
-- Comments above any logic that is complex or multi-step. A reader
-  should not need to pause to understand what the code does. SQL
-  with branching logic (CASE, EXISTS subqueries) needs a comment
+- **Comment decision at write time** (use `/** */`; only when earned):
+  1. Can a reader understand this function from its name, params, and
+     return type? → **No comment.** This is most functions.
+  2. Something non-obvious? → One-line JSDoc stating the constraint or
+     behavior the signature doesn't convey.
+  3. Does the JSDoc restate the function name in different words? →
+     **Delete it.** `/** Gets the PDF engine. */` on `getPdfEngine`
+     is noise.
+  4. Does it explain _what_ the code does instead of _why_? → Rewrite
+     to the constraint: why this shape, what breaks if changed.
+  5. More than 2 lines? → Pick the format the reader absorbs quickest
+     — bullets for parallel items, numbered steps for a sequence —
+     never multi-paragraph prose that "breaks down" the blob into
+     smaller blobs. If no structure fits, the comment covers too many
+     concerns — trim to the one why.
+- Inline comments at the relevant line, not everything in the
+  docstring. The docstring states the outward contract; line-level
+  concerns (why this guard, why this ordering) go as inline comments
+  directly above the line they explain. When code moves into a helper,
+  inline why-comments stay beside the call.
+- SQL with branching logic (CASE, EXISTS subqueries) needs a comment
   explaining the overall strategy before the query.
-- Every exported function gets hover-visible JSDoc (`/** */`) carrying
-  the _why_, never restating the signature.
-- Durable rationale only in comments, never transition history
-  ("renamed from X") — state the forward-looking constraint; migration
-  context goes in the PR description.
-- When code moves into a helper, inline why-comments stay beside the
-  call they explain; the helper's docstring states the outward contract.
+- Regex constants get doc comments explaining what they match.
+- Durable rationale only — never transition history, decision
+  narrative, or operator internals. OSS boundary: issue/PR numbers,
+  incident dates, deployment names, task-board IDs, remediation
+  narration, and investigation chronology never enter any public
+  artifact — committed files, PR descriptions, or comments. Internal
+  references belong in session logs only.
 - Early returns over nested `if/else` — reduces indentation depth
   and cognitive load. Prefer `if (done) return` over wrapping 15
   lines in `if (!done) { ... }`. In loops, prefer `if (cond) { …;
@@ -1142,6 +1161,14 @@ terms the end user thinks in — "complete a task," "move between lanes,"
 ARCHITECTURE.md, code comments) use precise engineering language. The
 test: would an Obsidian user with no programming background understand
 the sentence? If not, rewrite it.
+
+**Write-time format decision** — before committing any prose (code
+comments, JSDoc, README sections, PR descriptions, env-file comments):
+information gets structured format (table for lookups, bullets for
+parallel items, numbered list for steps, one sentence for a single
+constraint); narrative goes in the PR description, not committed files.
+More than 3 sentences of prose → probably the wrong format. Sections
+match their siblings' length and shape.
 
 **Doc quality rules:**
 
