@@ -23,6 +23,7 @@ concurrency:
 jobs:
   review:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     name: umm, actually
     if: >-
       (
