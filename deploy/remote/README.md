@@ -69,7 +69,7 @@ Or clone the repo and `cd deploy/remote`.
 **3. Generate your Obsidian Sync auth token** (one-time):
 
 If you have Node.js >= 20.12 on this machine, the CLI signs in to your
-Obsidian account and captures the token — no Docker needed:
+Obsidian account and captures the token:
 
 ```bash
 npx vault-cortex@latest get-sync-token

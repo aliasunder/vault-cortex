@@ -196,9 +196,8 @@ npx vault-cortex@latest get-sync-token
 ```
 
 The command prompts for your Obsidian account email, password, and MFA code
-(if enabled), signs in via the Obsidian API, and prints the token. No Docker
-required. Use `--dir <path>` to write the token straight into an existing
-`.env` instead:
+(if enabled), signs in via the Obsidian API, and prints the token. Use
+`--dir <path>` to write the token straight into an existing `.env` instead:
 
 ```bash
 npx vault-cortex@latest get-sync-token --dir ./vault-cortex

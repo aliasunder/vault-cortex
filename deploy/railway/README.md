@@ -56,7 +56,7 @@ your computer — once, before you click the button.
    ```
 
    It asks for your Obsidian account email, password, and two-factor code
-   (if you use one), then prints the token. No Docker needed.
+   (if you use one), then prints the token.
 
 4. **Copy the token.** The deploy form asks for it as `OBSIDIAN_AUTH_TOKEN`.
 
