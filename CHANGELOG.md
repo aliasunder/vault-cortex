@@ -82,6 +82,26 @@
 
 
 
+
+## [0.42.0] — 2026-08-24
+
+### ⚠ BREAKING CHANGES
+
+- `TRUST_FORWARDED_HEADER` is removed. Replace `TRUST_FORWARDED_HEADER=true` with `TRUST_FORWARDED_HOPS=1` (or the hop count you already set); `TRUST_FORWARDED_HEADER=false` is the new default, `TRUST_FORWARDED_HOPS=0`.
+
+### Features
+
+- **oauth:** Sweep client registrations that never turned into a session (#483)
+
+### Bug Fixes
+
+- **search:** One malformed note no longer prevents server startup (#486)
+- **deploy:** Trust the gateway's Forwarded header behind a locked tunnel; TRUST_FORWARDED_HOPS replaces TRUST_FORWARDED_HEADER (#484)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.41.0
+
 ## [0.41.0] — 2026-08-23
 
 ### ⚠ BREAKING CHANGES
