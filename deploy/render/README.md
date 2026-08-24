@@ -45,8 +45,7 @@ your computer — once, before you click the button.
    ```bash
    node -v
    ```
-   If Node.js is missing, install it from [nodejs.org](https://nodejs.org/)
-   — or skip to the Docker fallback below.
+   If Node.js is missing, install it from [nodejs.org](https://nodejs.org/).
 3. **Paste this line and press Enter:**
 
    ```bash
