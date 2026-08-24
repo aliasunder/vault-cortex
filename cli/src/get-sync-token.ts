@@ -54,7 +54,7 @@ const callSigninApi = async (
   }
 
   const isRecord = (value: unknown): value is Record<string, unknown> =>
-    typeof value === "object" && value !== null
+    typeof value === "object" && value !== null && !Array.isArray(value)
 
   if (!isRecord(body)) {
     throw new Error("Unexpected response from Obsidian API (not JSON)")
@@ -135,7 +135,8 @@ export const captureObsidianToken = async (
           return undefined
         }
         const retryHint =
-          retryError instanceof ObsidianApiError
+          retryError instanceof ObsidianApiError &&
+          retryError.message.includes("2FA code")
             ? "\n  Check your 2FA code and try again."
             : ""
         prompts.warn(

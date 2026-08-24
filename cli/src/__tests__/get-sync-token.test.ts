@@ -59,6 +59,14 @@ const fetchMalformedSuccess = (): typeof fetch =>
       headers: { "Content-Type": "application/json" },
     })) as typeof fetch
 
+/** Builds a mock fetch that returns valid JSON that is not an object (e.g. array). */
+const fetchJsonNonObject = (): typeof fetch =>
+  (async () =>
+    new Response(JSON.stringify([1, 2, 3]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })) as typeof fetch
+
 /**
  * Builds a mock fetch that requires MFA: first call returns the "2FA code"
  * error, second call with a valid MFA code succeeds.
@@ -329,6 +337,20 @@ describe("captureObsidianToken", () => {
     const token = await captureObsidianToken({
       prompts: scripted.prompts,
       fetchFn: fetchNonJson(),
+    })
+
+    expect(token).toBeUndefined()
+    expect(scripted.warnings[0]).toBe(
+      "Could not sign in: Unexpected response from Obsidian API (not JSON)",
+    )
+  })
+
+  it("returns undefined when the response is valid JSON but not an object", async () => {
+    const scripted = createScriptedPrompts(["user@example.com", "password"])
+
+    const token = await captureObsidianToken({
+      prompts: scripted.prompts,
+      fetchFn: fetchJsonNonObject(),
     })
 
     expect(token).toBeUndefined()
