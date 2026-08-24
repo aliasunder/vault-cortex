@@ -42,6 +42,23 @@ export default $config({
     // reverse proxy, or any HTTPS frontend that proxies to localhost:8000.
     const originUrl = env("ORIGIN_URL").asString()
 
+    // ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true: API Gateway presents a Cloudflare
+    // Access service token (the OriginAccessClientId / OriginAccessClientSecret
+    // secrets) to the ORIGIN_URL host on every request, so an Access policy
+    // on that host can admit the gateway alone.
+    //
+    // Ignored without ORIGIN_URL — there is no host to present it to, and a
+    // rollback deploy blanks ORIGIN_URL on the command line without having
+    // to unset this flag too.
+    //
+    // Compared as a string, like the other optional vars here: CI passes an
+    // unset repo Variable as "", which env-var's default() does not cover
+    // and asBool() rejects.
+    const originAccessServiceTokenEnabled =
+      Boolean(originUrl) &&
+      env("ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED").asString()?.toLowerCase() ===
+        "true"
+
     // Optional custom domain on API Gateway (e.g. mcp.example.com), replacing
     // the auto-generated execute-api URL. DNS stays external (any provider):
     // SST only creates the API Gateway domain + mapping from an existing
@@ -55,6 +72,17 @@ export default $config({
       throw new Error(
         "CUSTOM_DOMAIN requires CUSTOM_DOMAIN_CERT_ARN — the ARN of an " +
           "ISSUED ACM certificate (in this API's region) covering that domain.",
+      )
+    }
+
+    // DISABLE_EXECUTE_API_ENDPOINT=true: the gateway stops answering on its
+    // default execute-api hostname, so the custom domain is the only way in.
+    const disableExecuteApiEndpoint =
+      env("DISABLE_EXECUTE_API_ENDPOINT").asString()?.toLowerCase() === "true"
+    if (disableExecuteApiEndpoint && !customDomain) {
+      throw new Error(
+        "DISABLE_EXECUTE_API_ENDPOINT requires CUSTOM_DOMAIN — without a " +
+          "custom domain the API would have no hostname left.",
       )
     }
 
@@ -95,6 +123,12 @@ export default $config({
     // secrets (CI). See deploy.yml and .env.example.
     // ──────────────────────────────────────────────────────────────
     const mcpAuthToken = new sst.Secret("McpAuthToken")
+    const originAccessClientId = originAccessServiceTokenEnabled
+      ? new sst.Secret("OriginAccessClientId")
+      : undefined
+    const originAccessClientSecret = originAccessServiceTokenEnabled
+      ? new sst.Secret("OriginAccessClientSecret")
+      : undefined
 
     // ── SSH key pair ──────────────────────────────────────────────
     // Uses a dedicated deploy key (~/.ssh/vault-cortex.pub) shared
@@ -259,7 +293,8 @@ export default $config({
     const api = new sst.aws.ApiGatewayV2("VaultCortexApi", {
       // dns: false — SST skips DNS record creation (records live with the
       // external DNS provider) and requires the pre-issued cert instead of
-      // provisioning one. The default execute-api endpoint stays active.
+      // provisioning one. The default execute-api endpoint stays active
+      // unless DISABLE_EXECUTE_API_ENDPOINT closes it.
       ...(customDomain &&
         customDomainCertArn && {
           domain: {
@@ -269,6 +304,7 @@ export default $config({
           },
         }),
       transform: {
+        api: { disableExecuteApiEndpoint },
         stage: {
           defaultRouteSettings: {
             throttlingRateLimit: 20,
@@ -315,6 +351,22 @@ export default $config({
         ? `${originUrl}${path}`
         : $interpolate`http://${staticIp.ipAddress}:8000${path}`
 
+    // Service-token headers on every integration. `overwrite:` so a
+    // client-supplied copy of either header is replaced, never joined.
+    const originAccessHeaders: sst.aws.ApiGatewayV2RouteArgs["transform"] =
+      originAccessClientId && originAccessClientSecret
+        ? {
+            integration: {
+              requestParameters: {
+                "overwrite:header.CF-Access-Client-Id":
+                  originAccessClientId.value,
+                "overwrite:header.CF-Access-Client-Secret":
+                  originAccessClientSecret.value,
+              },
+            },
+          }
+        : undefined
+
     // ── Open routes — no authorizer ──────────────────────────────
     // OAuth discovery/flow endpoints must be reachable unauthenticated
     // (MCP/OAuth spec). Express owns their logic — DCR, consent, token
@@ -328,19 +380,27 @@ export default $config({
       "/revoke",
       "/healthz",
     ]) {
-      api.routeUrl(`ANY ${path}`, target(path))
+      api.routeUrl(`ANY ${path}`, target(path), {
+        transform: originAccessHeaders,
+      })
     }
-    api.routeUrl("ANY /.well-known/{proxy+}", target("/.well-known/{proxy}"))
-    api.routeUrl("ANY /oauth/{proxy+}", target("/oauth/{proxy}"))
+    api.routeUrl("ANY /.well-known/{proxy+}", target("/.well-known/{proxy}"), {
+      transform: originAccessHeaders,
+    })
+    api.routeUrl("ANY /oauth/{proxy+}", target("/oauth/{proxy}"), {
+      transform: originAccessHeaders,
+    })
 
     // ── Protected routes — Lambda authorizer ─────────────────────
     // GOTCHA: {proxy+} matches one-or-more path segments but NOT
     // the bare root "/". You need both routes.
     api.routeUrl("ANY /{proxy+}", target("/{proxy}"), {
       auth: { lambda: authorizer.id },
+      transform: originAccessHeaders,
     })
     api.routeUrl("ANY /", target(""), {
       auth: { lambda: authorizer.id },
+      transform: originAccessHeaders,
     })
 
     // Deliberately NOT outputs: the Lightsail IP and the custom domain's

@@ -674,7 +674,7 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
 
     it("logs the RFC 7239 Forwarded client IP over x-forwarded-for when the header is trusted", async () => {
       const harness = await setupHarness({
-        config: loadConfig({ TRUST_FORWARDED_HEADER: "true" }),
+        config: loadConfig({ TRUST_FORWARDED_HOPS: "1" }),
       })
       const response = await fetch(harness.url(), {
         method: "POST",

@@ -27,7 +27,7 @@ services:
       # are safe with nothing in front of the server; set TRUST_PROXY_HOPS=1
       # when a proxy or tunnel sits in front.
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
-      TRUST_FORWARDED_HEADER: ${TRUST_FORWARDED_HEADER:-false}
+      TRUST_FORWARDED_HOPS: ${TRUST_FORWARDED_HOPS:-0}
       LOG_LEVEL: debug
       EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-true}
       RERANK_MODE: ${RERANK_MODE:-blended}

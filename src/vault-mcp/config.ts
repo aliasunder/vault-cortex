@@ -105,12 +105,18 @@ export type VaultConfig = Readonly<{
    *  1 when a single reverse proxy (Caddy, nginx, Cloudflare Tunnel, API
    *  Gateway) sits in front of the server. Set via TRUST_PROXY_HOPS. */
   trustProxyHops: number
-  /** When true, the client IP (rate limiting, request logs) is read from
-   *  the RFC 7239 Forwarded header. Safe only when the proxy connecting to
-   *  this server writes that header itself (e.g. AWS API Gateway); when
-   *  false — the default — the header is ignored, since any client can
-   *  send one. Set via TRUST_FORWARDED_HEADER. */
-  trustForwardedHeader: boolean
+  /** How many entries from the end of the RFC 7239 Forwarded header's
+   *  `for=` list (https://www.rfc-editor.org/rfc/rfc7239) to reach the
+   *  client IP used for rate limiting and request logs. Any client can
+   *  send this header, so it is only safe to read when the proxy
+   *  connecting to this server writes it (e.g. AWS API Gateway).
+   *
+   *  - `0` (default) — ignore the header.
+   *  - `1` — the proxy's appended peer is the client.
+   *  - `2` — a CDN fronts the proxy, so the last element names the CDN.
+   *
+   *  Set via TRUST_FORWARDED_HOPS. */
+  trustForwardedHops: number
   memoryDir: string
   /** Sets the daily notes folder, taking precedence over
    *  .obsidian/daily-notes.json.
@@ -244,15 +250,6 @@ export const loadConfig = (
     .default("0")
     .asIntPositive()
 
-  // Default false: without a proxy that writes the Forwarded header
-  // (e.g. AWS API Gateway), the header is client-supplied — trusting it
-  // by default would let any client choose its own rate-limit bucket.
-  const trustForwardedHeader = envVar
-    .from(env)
-    .get("TRUST_FORWARDED_HEADER")
-    .default("false")
-    .asBool()
-
   const embeddingEnabled = envVar
     .from(env)
     .get("EMBEDDING_ENABLED")
@@ -300,13 +297,31 @@ export const loadConfig = (
     envVar.from(env).get("MAX_PDF_RENDER_PAGES").default("5").asIntPositive(),
   )
 
+  // Default 0 (header ignored): without a proxy that writes the Forwarded
+  // header (e.g. AWS API Gateway), the header is client-supplied — trusting
+  // it by default would let any client choose its own rate-limit bucket.
+  // Mirrors TRUST_PROXY_HOPS, where 0 is also "no trusted proxy".
+  const trustForwardedHops = envVar
+    .from(env)
+    .get("TRUST_FORWARDED_HOPS")
+    .default("0")
+    .asIntPositive()
+
+  // TRUST_FORWARDED_HEADER was folded into TRUST_FORWARDED_HOPS. A deployment
+  // still setting it gets the new default silently otherwise, so say so.
+  if (env.TRUST_FORWARDED_HEADER !== undefined) {
+    logger.warn(
+      "TRUST_FORWARDED_HEADER is no longer read — set TRUST_FORWARDED_HOPS instead (0 ignores the Forwarded header, 1 trusts the proxy that writes it)",
+    )
+  }
+
   return Object.freeze({
     memoryEnabled,
     fileToolsEnabled,
     readOnlyMode,
     disabledTools,
     trustProxyHops,
-    trustForwardedHeader,
+    trustForwardedHops,
     memoryDir,
     dailyNotesFolder,
     dailyNotesFormat,

@@ -34,7 +34,7 @@ MCP_AUTH_TOKEN=$(openssl rand -hex 32)
 npx sst secret set McpAuthToken "$MCP_AUTH_TOKEN"
 ```
 
-`McpAuthToken` is the only SST secret — it's linked to the Lambda authorizer. Obsidian credentials (`OBSIDIAN_AUTH_TOKEN`, `VAULT_NAME`) flow to Docker containers via the `.env` file, not through SST.
+`McpAuthToken` is the only SST secret the base deployment needs — it's linked to the Lambda authorizer. (The optional [Port 8000 Hardening](#port-8000-hardening-optional) adds two more.) Obsidian credentials (`OBSIDIAN_AUTH_TOKEN`, `VAULT_NAME`) flow to Docker containers via the `.env` file, not through SST.
 
 **3. Create the deploy `.env` file** (secrets live outside the repo at `~/.config/vault-cortex/.env`):
 
@@ -103,7 +103,10 @@ curl -H "Authorization: Bearer <McpAuthToken>" <apiUrl>/healthz
 # Skip if you've set MCP_PORT_CIDRS=none (port 8000 blocked).
 curl http://<lightsailIp>:8000/healthz
 
-# If using ORIGIN_URL (tunnel/proxy), verify it reaches the MCP server:
+# If using ORIGIN_URL (tunnel/proxy), verify it reaches the MCP server.
+# Once the tunnel hostname admits only the gateway (Port 8000 Hardening,
+# step 6), a bare request gets 403 from Cloudflare Access — send the
+# service token, as in step 7.
 curl <ORIGIN_URL>/healthz
 ```
 
@@ -323,32 +326,36 @@ To find your stage: `cat .sst/stage` (after your first deploy).
 
 **Variables** (Settings → Secrets and variables → Actions → Variables tab):
 
-| Variable                    | Purpose                                                                                                                                                                                                                                                                        |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `GHCR_USER`                 | GitHub username. Used in image tags and instance `.env`.                                                                                                                                                                                                                       |
-| `DOCKERHUB_USERNAME`        | Optional. Docker Hub username. When set, images are mirrored to Docker Hub alongside GHCR on release and README syncs automatically. Omit to skip entirely.                                                                                                                    |
-| `EMBEDDING_ENABLED`         | Optional. Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching. Default: `true`.                                                                               |
-| `RERANK_MODE`               | Optional. Cross-encoder reranking mode: `blended` (default) applies position-aware score blending after RRF fusion, `none` skips reranking for lower latency. Only takes effect when `EMBEDDING_ENABLED` is true.                                                              |
-| `MEMORY_ENABLED`            | Optional. Set `false` to disable the memory layer entirely — hides memory tools, skips bootstrap, omits memory from server metadata. Default: `true`.                                                                                                                          |
-| `FILE_TOOLS_ENABLED`        | Optional. Set `false` to hide file tools (`vault_read_file`, `vault_list_files`) for deployments without synced attachments. Default: `true`.                                                                                                                                  |
-| `READONLY_MODE`             | Optional. Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — read and search only. Default: `false`.                                                                                                                                  |
-| `DISABLED_TOOLS`            | Optional. Hide individual tools by name, comma-separated. Names match the Name column in the [README tools table](./README.md#tools). Subtractive only; an unknown tool name stops the server at startup. Default: none hidden.                                                |
-| `MEMORY_DIR`                | Optional. Memory folder name in the vault (default: `About Me`). See the [Configuration](./README.md#configuration) section.                                                                                                                                                   |
-| `PROTECTED_PATHS`           | Optional. Comma-separated folders protected from deletion (default: `MEMORY_DIR, DAILY_NOTES_FOLDER` — `Daily Notes` when the latter is unset). Overrides the default entirely when set.                                                                                       |
-| `ORPHAN_EXCLUDE_FOLDERS`    | Optional. Comma-separated folders excluded from orphan detection (default: `DAILY_NOTES_FOLDER, Templates, MEMORY_DIR`). Overrides the default entirely when set.                                                                                                              |
-| `SERVICE_DOCUMENTATION_URL` | Optional. URL in OAuth discovery metadata (default: `https://github.com/aliasunder/vault-cortex`). Set to your fork's URL.                                                                                                                                                     |
-| `SYNC_CONFIGS`              | Optional. Obsidian settings categories synced to the server, comma-separated (default: `core-plugin-data,community-plugin-data` — daily-notes settings and the Tasks plugin's format). Set `none` to disable. See [Daily notes](./README.md#daily-notes).                      |
-| `SYNC_EXCLUDED_FOLDERS`     | Optional. Folders to leave out of Obsidian Sync, comma-separated — the same list as Obsidian's Sync → Excluded folders. Unset syncs everything.                                                                                                                                |
-| `SYNC_FILE_TYPES`           | Optional. Attachment types Obsidian Sync delivers: `image`, `audio`, `video`, `pdf`, `unsupported`, comma-separated. Unset keeps the Sync client's default.                                                                                                                    |
-| `DAILY_NOTES_FOLDER`        | Optional. Sets the daily notes folder (default: read from the vault's `.obsidian/daily-notes.json`, falling back to `Daily Notes`). See [Daily notes](./README.md#daily-notes).                                                                                                |
-| `DAILY_NOTES_FORMAT`        | Optional. Sets the daily note filename format, in the same tokens as Obsidian's daily note date format setting (default: read from the vault's config, falling back to `YYYY-MM-DD`).                                                                                          |
-| `TZ`                        | Optional. Container timezone (default: `UTC`). Affects `vault_update_memory` date stamps and `vault_get_daily_note` date resolution. Set to your IANA timezone (e.g. `America/New_York`).                                                                                      |
-| `LOG_LEVEL`                 | Optional. Logging verbosity: `debug`, `info`, `warn`, `error`. Default: `info`.                                                                                                                                                                                                |
-| `LOG_DIR`                   | Optional. Directory for persistent log files inside the container. Default: `/data/logs`; `none` disables log files.                                                                                                                                                           |
-| `LOG_RETENTION_DAYS`        | Optional. Days to keep log files before automatic cleanup on startup; only applies when `LOG_DIR` is a path. Default: `90`.                                                                                                                                                    |
-| `WINDOWS_MODE`              | Optional. Set `true` when the vault is on a Windows drive (Docker Desktop). Default: `false`.                                                                                                                                                                                  |
-| `TRUST_PROXY_HOPS`          | Optional. Trusted reverse-proxy hops for deriving the client IP from `X-Forwarded-For` (OAuth rate limiting, request logs). The compose file defaults the instance to `1` (API Gateway); set `2` for `ORIGIN_URL` deployments (a tunnel between the gateway and the instance). |
-| `TRUST_FORWARDED_HEADER`    | Optional. Whether the RFC 7239 `Forwarded` header identifies the client. The compose file defaults the instance to `true` (API Gateway reports visitors there); set `false` for `ORIGIN_URL` deployments so the `X-Forwarded-For` chain is used instead.                       |
+| Variable                              | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GHCR_USER`                           | GitHub username. Used in image tags and instance `.env`.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `DOCKERHUB_USERNAME`                  | Optional. Docker Hub username. When set, images are mirrored to Docker Hub alongside GHCR on release and README syncs automatically. Omit to skip entirely.                                                                                                                                                                                                                                                                                                                                         |
+| `EMBEDDING_ENABLED`                   | Optional. Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching. Default: `true`.                                                                                                                                                                                                                                                                                                    |
+| `RERANK_MODE`                         | Optional. Cross-encoder reranking mode: `blended` (default) applies position-aware score blending after RRF fusion, `none` skips reranking for lower latency. Only takes effect when `EMBEDDING_ENABLED` is true.                                                                                                                                                                                                                                                                                   |
+| `MEMORY_ENABLED`                      | Optional. Set `false` to disable the memory layer entirely — hides memory tools, skips bootstrap, omits memory from server metadata. Default: `true`.                                                                                                                                                                                                                                                                                                                                               |
+| `FILE_TOOLS_ENABLED`                  | Optional. Set `false` to hide file tools (`vault_read_file`, `vault_list_files`) for deployments without synced attachments. Default: `true`.                                                                                                                                                                                                                                                                                                                                                       |
+| `READONLY_MODE`                       | Optional. Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — read and search only. Default: `false`.                                                                                                                                                                                                                                                                                                                                                       |
+| `DISABLED_TOOLS`                      | Optional. Hide individual tools by name, comma-separated. Names match the Name column in the [README tools table](./README.md#tools). Subtractive only; an unknown tool name stops the server at startup. Default: none hidden.                                                                                                                                                                                                                                                                     |
+| `MEMORY_DIR`                          | Optional. Memory folder name in the vault (default: `About Me`). See the [Configuration](./README.md#configuration) section.                                                                                                                                                                                                                                                                                                                                                                        |
+| `PROTECTED_PATHS`                     | Optional. Comma-separated folders protected from deletion (default: `MEMORY_DIR, DAILY_NOTES_FOLDER` — `Daily Notes` when the latter is unset). Overrides the default entirely when set.                                                                                                                                                                                                                                                                                                            |
+| `ORPHAN_EXCLUDE_FOLDERS`              | Optional. Comma-separated folders excluded from orphan detection (default: `DAILY_NOTES_FOLDER, Templates, MEMORY_DIR`). Overrides the default entirely when set.                                                                                                                                                                                                                                                                                                                                   |
+| `SERVICE_DOCUMENTATION_URL`           | Optional. URL in OAuth discovery metadata (default: `https://github.com/aliasunder/vault-cortex`). Set to your fork's URL.                                                                                                                                                                                                                                                                                                                                                                          |
+| `SYNC_CONFIGS`                        | Optional. Obsidian settings categories synced to the server, comma-separated (default: `core-plugin-data,community-plugin-data` — daily-notes settings and the Tasks plugin's format). Set `none` to disable. See [Daily notes](./README.md#daily-notes).                                                                                                                                                                                                                                           |
+| `SYNC_EXCLUDED_FOLDERS`               | Optional. Folders to leave out of Obsidian Sync, comma-separated — the same list as Obsidian's Sync → Excluded folders. Unset syncs everything.                                                                                                                                                                                                                                                                                                                                                     |
+| `SYNC_FILE_TYPES`                     | Optional. Attachment types Obsidian Sync delivers: `image`, `audio`, `video`, `pdf`, `unsupported`, comma-separated. Unset keeps the Sync client's default.                                                                                                                                                                                                                                                                                                                                         |
+| `DAILY_NOTES_FOLDER`                  | Optional. Sets the daily notes folder (default: read from the vault's `.obsidian/daily-notes.json`, falling back to `Daily Notes`). See [Daily notes](./README.md#daily-notes).                                                                                                                                                                                                                                                                                                                     |
+| `DAILY_NOTES_FORMAT`                  | Optional. Sets the daily note filename format, in the same tokens as Obsidian's daily note date format setting (default: read from the vault's config, falling back to `YYYY-MM-DD`).                                                                                                                                                                                                                                                                                                               |
+| `TZ`                                  | Optional. Container timezone (default: `UTC`). Affects `vault_update_memory` date stamps and `vault_get_daily_note` date resolution. Set to your IANA timezone (e.g. `America/New_York`).                                                                                                                                                                                                                                                                                                           |
+| `LOG_LEVEL`                           | Optional. Logging verbosity: `debug`, `info`, `warn`, `error`. Default: `info`.                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `LOG_DIR`                             | Optional. Directory for persistent log files inside the container. Default: `/data/logs`; `none` disables log files.                                                                                                                                                                                                                                                                                                                                                                                |
+| `LOG_RETENTION_DAYS`                  | Optional. Days to keep log files before automatic cleanup on startup; only applies when `LOG_DIR` is a path. Default: `90`.                                                                                                                                                                                                                                                                                                                                                                         |
+| `WINDOWS_MODE`                        | Optional. Set `true` when the vault is on a Windows drive (Docker Desktop). Default: `false`.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `TRUST_PROXY_HOPS`                    | Optional. Trusted reverse-proxy hops for deriving `req.ip` from `X-Forwarded-For` (the fallback client IP). The compose file defaults the instance to `1` (API Gateway); set `2` for `ORIGIN_URL` deployments (a tunnel between the gateway and the instance).                                                                                                                                                                                                                                      |
+| `TRUST_FORWARDED_HOPS`                | Optional. How many entries from the end of the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header's `for=` list to count to reach the client IP (OAuth rate limiting, request logs); `0` ignores the header. The compose file defaults the instance to `1` (API Gateway reports visitors there and sends no `X-Forwarded-For`). For `ORIGIN_URL` and CDN setups, see the **Client-IP trust with ORIGIN_URL** callout under [Port 8000 Hardening](#port-8000-hardening-optional). |
+| `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED` | Optional, SST deploys only. Set `true` once the tunnel hostname behind `ORIGIN_URL` is locked with a Cloudflare Access service token — API Gateway then presents the `OriginAccessClientId` / `OriginAccessClientSecret` SST secrets on every request (see [Port 8000 Hardening](#port-8000-hardening-optional), steps 5–8). It has no effect unless `ORIGIN_URL` is set.                                                                                                                           |
+| `DISABLE_EXECUTE_API_ENDPOINT`        | Optional. Requires the `CUSTOM_DOMAIN` secret. Set `true` once every client uses the custom domain: the gateway stops answering on its default `execute-api` hostname at the next deploy. If a CDN sits in front of the custom domain, set this to `true` before setting `TRUST_FORWARDED_HOPS=2`; the **Client-IP trust with ORIGIN_URL** callout under [Port 8000 Hardening](#port-8000-hardening-optional) explains why.                                                                         |
+
+> **Upgrading from a release with `TRUST_FORWARDED_HEADER`:** that variable is no longer read, and the compose file now defaults `TRUST_FORWARDED_HOPS` to `1` (trust the gateway's `Forwarded` header). An `ORIGIN_URL` instance that ran `TRUST_FORWARDED_HEADER=false` behind a tunnel that admits any client must set the `TRUST_FORWARDED_HOPS=0` Variable **before** deploying this release, or the open tunnel starts being trusted. The server logs a warning at startup while the old variable is still set.
 
 **Secrets** (Settings → Secrets and variables → Actions → Secrets tab):
 
@@ -546,9 +553,9 @@ aws lightsail put-instance-public-ports \
 By default, port 8000 is open to all IPs on the Lightsail firewall. API Gateway provides TLS for MCP client traffic, but the port itself is plain HTTP. Leaving it open has two costs:
 
 - **Plain-HTTP exposure** — anyone who discovers the Lightsail IP (scanning, Shodan, historical records) can reach the port directly, without API Gateway's TLS.
-- **Forgeable client identity** — the reference configuration trusts the `Forwarded` header because API Gateway is the expected upstream, so a request that bypasses the gateway can claim any client IP and mint itself a fresh rate-limit bucket. Closing the direct path is what guarantees every bucket key is a real client IP.
+- **Forgeable client identity** — the reference configuration trusts the `Forwarded` header because API Gateway is the expected upstream, so a request that bypasses the gateway can claim any client IP and mint itself a fresh rate-limit bucket. Every bucket key is a real client IP only once the gateway is the sole way in — port 8000 closed, and the tunnel hostname locked to the gateway.
 
-With `ORIGIN_URL` and `MCP_PORT_CIDRS`, you can route API Gateway through a tunnel or reverse proxy and block direct access to port 8000. That setup also changes which header carries the client IP — the **Client-IP trust with ORIGIN_URL** callout below has the two settings to flip.
+With `ORIGIN_URL` and `MCP_PORT_CIDRS`, you can route API Gateway through a tunnel or reverse proxy and block direct access to port 8000. That setup adds a proxy hop — the **Client-IP trust with ORIGIN_URL** callout at the end of **How it works**, just below, has the settings to adjust.
 
 #### How it works
 
@@ -556,9 +563,28 @@ With `ORIGIN_URL` and `MCP_PORT_CIDRS`, you can route API Gateway through a tunn
 
 `MCP_PORT_CIDRS` controls port 8000 on the Lightsail firewall — same format as `SSH_CIDRS`. Set to `none` to block all direct access (traffic flows through the tunnel/proxy instead). Lightsail requires the port entry to exist — removing it would trigger an `InstancePublicPorts` replacement — so `none` sets it to a non-routable CIDR (`192.0.2.1/32`, RFC 5737 TEST-NET) that no real source IP matches. The port still appears in `get-instance-port-states` but is effectively unreachable.
 
-Together: `ORIGIN_URL` provides the alternative path, `MCP_PORT_CIDRS=none` blocks the direct path.
+Together:
 
-> **Client-IP trust with ORIGIN_URL:** this setup puts two proxies between clients and the container (API Gateway, then the tunnel/proxy). Set `TRUST_FORWARDED_HEADER=false` and `TRUST_PROXY_HOPS=2` in the instance `.env` so OAuth rate limiting derives the real client IP from the `X-Forwarded-For` chain — the defaults (`true` / `1`) assume API Gateway is the container's immediate upstream.
+- `ORIGIN_URL` provides the alternative path
+- `MCP_PORT_CIDRS=none` blocks the direct path
+- `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` lets the alternative path admit the gateway alone
+
+> **Client-IP trust with ORIGIN_URL:** API Gateway reports the visitor only in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header and sends no `X-Forwarded-For`, so `TRUST_FORWARDED_HOPS` is what finds the visitor; `TRUST_PROXY_HOPS` only sets how many `X-Forwarded-For` hops feed the fallback client IP, used when `Forwarded` is ignored or absent. Pick the row that matches the instance:
+>
+> | What sits in front of the instance                                                                           | `TRUST_PROXY_HOPS` | `TRUST_FORWARDED_HOPS` | Client IP is          |
+> | ------------------------------------------------------------------------------------------------------------ | ------------------ | ---------------------- | --------------------- |
+> | API Gateway directly (no `ORIGIN_URL`)                                                                       | `1`                | `1`                    | the visitor           |
+> | Gateway → tunnel/proxy that admits any client                                                                | `2`                | `0`                    | the gateway's address |
+> | Gateway → tunnel/proxy that admits only the gateway                                                          | `2`                | `1`                    | the visitor           |
+> | Gateway → a frontend that cannot check headers (Tailscale Funnel)                                            | `2`                | `0`                    | the gateway's address |
+> | A proxied Cloudflare record in front of the gateway's custom domain, and `DISABLE_EXECUTE_API_ENDPOINT=true` | `2`                | `2`                    | the visitor           |
+>
+> Where the client IP is the visitor, it comes from `Forwarded` and `TRUST_PROXY_HOPS` is not consulted. On the `0` rows the header is ignored and the client IP is whatever `TRUST_PROXY_HOPS` resolves from `X-Forwarded-For` — the gateway's own address, never the visitor, because the gateway sends no `X-Forwarded-For`.
+>
+> - **A tunnel hostname that admits any client** lets anyone reaching it directly write their own `Forwarded` header and pick their OAuth rate-limit bucket — hence `0` until it admits only the gateway. Steps 5–7 below close it with an Access service token before the gateway routes through it; step 10 sets the values.
+> - **Other frontends** (Caddy, nginx) can enforce the same check: `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` makes the gateway send `CF-Access-Client-Id` / `CF-Access-Client-Secret` on every request, so reject requests without your two values (Caddy: a `header` matcher on `handle`; nginx: an `if` on `$http_cf_access_client_secret`).
+> - **With `0`, every visitor shares one rate-limit bucket** (the gateway's address), but no visitor can pick their bucket — nothing a client sends changes it.
+> - **`2` needs the CDN to be the only way in.** Cloudflare appends the visitor to `X-Forwarded-For` and the gateway lists the edge last, so the visitor is the element before it. On the gateway's default `execute-api` hostname a request has only one gateway-written element, and a client-supplied `X-Forwarded-For` lands right before it — `2` would read that client-supplied value. Close that hostname with `DISABLE_EXECUTE_API_ENDPOINT=true` (a repo Variable for CI deploys) before setting `2`. A CDN that passes client headers through unchanged cannot use `2`.
 
 #### Example: Cloudflare Tunnel
 
@@ -594,28 +620,62 @@ In the tunnel's Public Hostname tab, add a route:
 - Domain: select your Cloudflare-managed domain
 - Service: `http://localhost:8000`
 
-**4. Verify the tunnel** before blocking port 8000:
+**4. Verify the tunnel** before steps 5–7 restrict it to API Gateway:
 
 ```bash
 curl https://<subdomain>.<yourdomain>/healthz
 # Should return 200 OK
 ```
 
-**5. Block port 8000** — set `ORIGIN_URL` and `MCP_PORT_CIDRS=none`, then deploy:
+The tunnel hostname is a public HTTPS endpoint. Steps 5–7 restrict it to API Gateway with a [Cloudflare Access service token](https://developers.cloudflare.com/cloudflare-one/identity/service-tokens/) _before_ the gateway routes through it: the gateway presents the token on every request and the tunnel hostname refuses everything else. Restricting it first means the container never trusts a `Forwarded` header that arrived through a tunnel anyone could reach, and nothing goes dark in between — clients keep using port 8000 until step 8.
+
+**5. Create a service token** in [Zero Trust](https://one.dash.cloudflare.com/) → Access → Service auth → Service Tokens → **Create Service Token**. Name it (e.g., `vault-cortex-api-gateway`) and copy the Client ID and Client Secret — the secret is shown once. Store both as SST secrets:
 
 ```bash
-ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none npx sst deploy
+npx sst secret set OriginAccessClientId "<client-id>"
+npx sst secret set OriginAccessClientSecret "<client-secret>"
 ```
 
-**6. Verify port 8000 is blocked:**
+**6. Lock the tunnel hostname** in Zero Trust → Access → Applications → **Add an application** → Self-hosted:
+
+- Application domain: the tunnel hostname (`<subdomain>.<yourdomain>`)
+- Add a policy with Action **Service Auth**; under Include, choose Selector **Service Token** and pick the token from step 5
+- Save the application
+
+**7. Verify the lock:**
+
+```bash
+# Without the token — Access refuses it (403 from Cloudflare)
+curl -o /dev/null -w "%{http_code}\n" https://<subdomain>.<yourdomain>/healthz
+
+# With the token — 200 (what API Gateway will send)
+curl -H "CF-Access-Client-Id: <client-id>" -H "CF-Access-Client-Secret: <client-secret>" https://<subdomain>.<yourdomain>/healthz
+```
+
+**8. Route through the tunnel and block port 8000** — set `ORIGIN_URL`, `MCP_PORT_CIDRS=none`, and `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true`, then deploy:
+
+```bash
+ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true npx sst deploy
+```
+
+**9. Verify the new path:**
 
 ```bash
 # Direct access — should timeout (port blocked on firewall)
 curl --connect-timeout 5 http://<lightsailIp>:8000/healthz
 
-# API Gateway — should return 200 (routed through tunnel)
+# API Gateway — 200 (routed through the locked tunnel with the service token)
 curl https://<api-gateway-url>/healthz
 ```
+
+**10. Set the instance's client-IP trust** — `TRUST_FORWARDED_HOPS=1` (the compose default) and `TRUST_PROXY_HOPS=2` in the instance `.env` (repo Variables for CI deploys), then redeploy the instance. Use `TRUST_FORWARDED_HOPS=2` instead only if the gateway's custom domain is a proxied Cloudflare record **and** the CDN is the only way into the gateway — see the **Client-IP trust with ORIGIN_URL** callout under [How it works](#port-8000-hardening-optional).
+
+**Already running `ORIGIN_URL` with an open tunnel?** Until the lock exists, keep `TRUST_FORWARDED_HOPS=0` — the open tunnel hostname passes any client-written `Forwarded` header through unverified. To lock it:
+
+1. Create and apply the service token (steps 5–7)
+2. Redeploy with `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` (step 8's command)
+3. Verify the new path (step 9)
+4. Set the trust values (step 10)
 
 #### MCP_PORT_CIDRS reference
 
@@ -643,9 +703,9 @@ If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, 
    sudo cloudflared service install <TUNNEL_TOKEN>
    ```
 4. Verify the tunnel: `curl https://<subdomain>.<yourdomain>/healthz`
-5. Re-harden:
+5. Re-harden (drop `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` if the tunnel hostname is not locked with a service token):
    ```bash
-   SSH_CIDRS=none ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none npx sst deploy
+   SSH_CIDRS=none ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true npx sst deploy
    ```
 
 The tunnel token doesn't change when the VM is replaced — it's tied to the Cloudflare tunnel resource, not the host.
@@ -673,7 +733,7 @@ aws lightsail put-instance-public-ports \
 
 By default, clients reach the server at the auto-generated API Gateway URL (`https://<id>.execute-api.<region>.amazonaws.com`). A custom domain (e.g. `mcp.example.com`) replaces that with your own hostname — nicer connect URLs, and MCP clients that derive a connector icon from the URL's domain show your site's favicon instead of the AWS one.
 
-DNS stays with your provider (Cloudflare, Route 53, anything) — SST only creates the API Gateway domain and stage mapping from a certificate you already hold. The default execute-api URL keeps working alongside the custom domain, so existing OAuth clients are not cut off.
+DNS stays with your provider (Cloudflare, Route 53, anything) — SST only creates the API Gateway domain and stage mapping from a certificate you already hold. The default execute-api URL keeps working alongside the custom domain, so existing OAuth clients are not cut off — until you close it in step 5.
 
 **1. Get an ACM certificate** in the same region as the API, covering the domain (exact name or a wildcard like `*.example.com`). Request it in the ACM console (or any IaC), add the DNS validation record at your DNS provider, and wait for status **Issued**. The cert is referenced by ARN — it can live in your account already.
 
@@ -702,6 +762,8 @@ curl https://mcp.example.com/healthz
 ```
 
 **4. Update `PUBLIC_URL`** to `https://mcp.example.com` (instance `.env` + the repo secret for CI) and redeploy or restart, so OAuth discovery metadata advertises the custom domain. Existing OAuth clients connected via the execute-api URL keep working; new connections should use the custom domain.
+
+**5. Close the default hostname (optional)** — once every client connects through the custom domain, set `DISABLE_EXECUTE_API_ENDPOINT=true` (a repo Variable for CI deploys, or on the command line) and redeploy. The gateway then answers only on the custom domain; a client still pointed at the execute-api URL gets a connection error until it is re-pointed. This is the precondition for `TRUST_FORWARDED_HOPS=2` when a CDN fronts the domain (see the **Client-IP trust with ORIGIN_URL** callout under [Port 8000 Hardening](#port-8000-hardening-optional)).
 
 ---
 

@@ -685,26 +685,45 @@ describe("loadConfig", () => {
     })
   })
 
-  describe("TRUST_FORWARDED_HEADER", () => {
-    it("defaults to false when unset", () => {
+  describe("TRUST_FORWARDED_HOPS", () => {
+    it("defaults to 0 (Forwarded header ignored) when unset", () => {
       const config = loadConfig(EMPTY_ENV)
-      expect(config.trustForwardedHeader).toBe(false)
+      expect(config.trustForwardedHops).toBe(0)
     })
 
-    it("is true when set to 'true'", () => {
-      const config = loadConfig({ TRUST_FORWARDED_HEADER: "true" })
-      expect(config.trustForwardedHeader).toBe(true)
+    it.each(["0", "1", "2"])("accepts hop count %s", (value) => {
+      const config = loadConfig({ TRUST_FORWARDED_HOPS: value })
+      expect(config.trustForwardedHops).toBe(Number(value))
     })
 
-    it("is false when set to 'false'", () => {
-      const config = loadConfig({ TRUST_FORWARDED_HEADER: "false" })
-      expect(config.trustForwardedHeader).toBe(false)
-    })
-
-    it("rejects a non-boolean value", () => {
-      expect(() => loadConfig({ TRUST_FORWARDED_HEADER: "yes" })).toThrow(
-        /TRUST_FORWARDED_HEADER/,
+    it("rejects a non-integer value", () => {
+      expect(() => loadConfig({ TRUST_FORWARDED_HOPS: "abc" })).toThrow(
+        /TRUST_FORWARDED_HOPS/,
       )
+    })
+
+    it.each(["-1", "1.5"])("rejects hop count %s", (value) => {
+      expect(() => loadConfig({ TRUST_FORWARDED_HOPS: value })).toThrow(
+        /TRUST_FORWARDED_HOPS/,
+      )
+    })
+
+    it("warns when the removed TRUST_FORWARDED_HEADER is still set", () => {
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+      onTestFinished(() => warnSpy.mockRestore())
+      const config = loadConfig({ TRUST_FORWARDED_HEADER: "true" })
+      expect(config.trustForwardedHops).toBe(0)
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith(
+        "TRUST_FORWARDED_HEADER is no longer read — set TRUST_FORWARDED_HOPS instead (0 ignores the Forwarded header, 1 trusts the proxy that writes it)",
+      )
+    })
+
+    it("does not warn when TRUST_FORWARDED_HEADER is unset", () => {
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+      onTestFinished(() => warnSpy.mockRestore())
+      loadConfig({ TRUST_FORWARDED_HOPS: "1" })
+      expect(warnSpy).not.toHaveBeenCalled()
     })
   })
 })

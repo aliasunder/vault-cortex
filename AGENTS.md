@@ -1086,6 +1086,14 @@ you've run `npx sst deploy` (or `sst dev`) once for your stage.
 If you add or rename a secret in `sst.config.ts`, re-run `sst deploy`
 (or `sst dev`) to regenerate `sst-env.d.ts`.
 
+`sst.config.ts` is typechecked by `npm run build:sst` (part of
+`npm run build`) through its own `tsconfig.sst.json`. It cannot share
+`tsconfig.json`: its globals come from `.sst/platform/config.d.ts`, which
+pulls SST's platform source into the program, and that source does not
+compile under the repo's stricter checks. `.sst/platform` exists only after
+`npx sst install` — CI runs it before the build; run it once locally on a
+fresh clone.
+
 ## Upgrading obsidian-headless
 
 The Sync CLI's [documentation](https://obsidian.md/help/sync/headless)

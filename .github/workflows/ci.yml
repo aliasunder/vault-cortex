@@ -55,6 +55,11 @@ jobs:
 
       - run: npm test
 
+      # sst.config.ts is part of the build's typecheck; its globals come from
+      # .sst/platform, which only exists after sst install (no AWS credentials
+      # needed — it fetches the provider types).
+      - run: npx sst install
+
       - run: npm run build
 
   # The cli package targets older runtimes than the server (engines >=20.12),

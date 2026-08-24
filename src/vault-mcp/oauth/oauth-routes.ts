@@ -15,10 +15,13 @@ type OAuthRoutesOptions = {
   serverUrl: URL
   oauthProvider: OAuthProvider
   serviceDocumentationUrl: string
-  /** Whether the RFC 7239 Forwarded header is trusted for client-IP
-   *  extraction (rate limiting + logs) — from TRUST_FORWARDED_HEADER; only
-   *  set where a known edge proxy (API Gateway) sets or appends it. */
-  trustForwardedHeader: boolean
+  /** How many trailing `for=` elements of the RFC 7239 Forwarded header
+   *  (https://www.rfc-editor.org/rfc/rfc7239) were written by trusted
+   *  proxies. With a value of N, the client IP used for rate limiting and
+   *  logs is the Nth element from the end of that list; 0 ignores the
+   *  header. The value comes from TRUST_FORWARDED_HOPS. Keep it at 0 unless
+   *  a known edge proxy (API Gateway) writes or appends the header. */
+  trustForwardedHops: number
   logger: Logger
 }
 
@@ -27,7 +30,7 @@ export const createOAuthRoutes = ({
   serverUrl,
   oauthProvider,
   serviceDocumentationUrl,
-  trustForwardedHeader,
+  trustForwardedHops,
   logger,
 }: OAuthRoutesOptions): Router => {
   const routeLogger = logger.child({ component: "oauth-routes" })
@@ -46,12 +49,12 @@ export const createOAuthRoutes = ({
   const rateLimit = {
     windowMs: 60 * 1000,
     max: 5,
-    // Bucket by client IP via extractClientIp: when the deployment trusts
-    // the Forwarded header (API Gateway), the gateway's claim is the key —
-    // the library default (req.ip) would merge every client into a single
-    // gateway-egress bucket. Elsewhere req.ip, governed by the server's
-    // trust-proxy hop count, is the key.
-    keyGenerator: (req: Request) => extractClientIp(req, trustForwardedHeader),
+    // Bucket by client IP via extractClientIp: when the Forwarded header
+    // is trusted (trustForwardedHops > 0), the resolved client IP is the
+    // key — the library default (req.ip) would merge every client into a
+    // single gateway-egress bucket. Elsewhere req.ip, governed by the
+    // server's trust-proxy hop count, is the key.
+    keyGenerator: (req: Request) => extractClientIp(req, trustForwardedHops),
     // The default handler sends the 429 silently — log the offender, then
     // send the SDK's per-endpoint message unchanged. The query string is
     // stripped from the logged path (authorize carries client_id/state).
@@ -65,7 +68,7 @@ export const createOAuthRoutes = ({
         URL.parse(req.originalUrl, "http://localhost")?.pathname ??
         req.originalUrl
       routeLogger.warn("oauth_rate_limited", {
-        clientIp: extractClientIp(req, trustForwardedHeader),
+        clientIp: extractClientIp(req, trustForwardedHops),
         path: requestPath,
       })
       res.status(options.statusCode).send(options.message)
@@ -123,7 +126,7 @@ export const createOAuthRoutes = ({
         res.status(400).send("Invalid form submission.")
         return
       }
-      const clientIp = extractClientIp(req, trustForwardedHeader)
+      const clientIp = extractClientIp(req, trustForwardedHops)
       const pending = getPendingRequest(
         request_id,
         routeLogger.child({ clientIp, requestId: request_id }),

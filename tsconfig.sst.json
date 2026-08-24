@@ -1,0 +1,19 @@
+{
+  // sst.config.ts cannot share tsconfig.json: its globals come from
+  // .sst/platform/config.d.ts, which pulls SST's platform *source* into the
+  // program, and that source does not compile under this repo's stricter
+  // checks (exactOptionalPropertyTypes, noUncheckedIndexedAccess,
+  // noImplicitOverride). This config typechecks the file with the flags SST
+  // itself uses. .sst/platform exists only after `npx sst install`.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "types": ["node"]
+  },
+  "files": ["sst.config.ts", ".sst/platform/config.d.ts"]
+}

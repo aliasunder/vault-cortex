@@ -636,21 +636,37 @@ refresh token without inconveniencing active sessions. Expired rows
 `/revoke`) are rate-limited at 5 req/min per client IP, bucketed by a
 client-IP key derived from the deployment's explicit proxy-trust config:
 
-- `TRUST_FORWARDED_HEADER` (default `false`) honors the RFC 7239
-  `Forwarded` header, keying on the **last** `for=` element — the edge
-  proxy's own claim, since a client can prepend elements but its entries
-  land before the proxy's append. Intended for the reference deployment,
-  where API Gateway is the immediate upstream.
+- `TRUST_FORWARDED_HOPS` (default `0`) reads the client from the
+  [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header.
+  The proxy that writes the header appends its own peer as the **last**
+  `for=` element; a client can prepend elements, but its entries land
+  before the proxy's append. The value is how many trailing elements
+  trusted proxies wrote:
+  - `0` — the header is ignored.
+  - `1` — the last element is the client (the proxy talks to clients
+    directly).
+  - `2` — the element before it is the client, for a gateway whose custom
+    domain sits behind a CDN: the gateway's peer is the CDN, and the CDN
+    recorded the client ahead of it. Only once the CDN is the sole way in
+    (`DISABLE_EXECUTE_API_ENDPOINT=true`) — on the default hostname a
+    request skips the CDN and carries one fewer trusted element.
+- Behind API Gateway, `Forwarded` is the only carrier of the client IP:
+  the gateway writes that header, folds a client-supplied
+  `X-Forwarded-For` into it as leading elements, and sends no
+  `X-Forwarded-For` of its own. The reference deployment therefore runs
+  `TRUST_FORWARDED_HOPS=1`.
 - `TRUST_PROXY_HOPS` (default `0`) sets Express `trust proxy` — how many
   `X-Forwarded-For` hops feed `req.ip`, the bucket key whenever `Forwarded`
   isn't trusted. An injected forwarding header is ignored on both channels,
   so it can't mint a fresh bucket.
 - With the optional `ORIGIN_URL` hardening (a tunnel or reverse proxy
   between API Gateway and the instance —
-  [`DEPLOY.md`](./DEPLOY.md#port-8000-hardening-optional)), the `Forwarded`
-  header passes through the tunnel unverified, so the deployment flips to
-  `TRUST_FORWARDED_HEADER=false` + `TRUST_PROXY_HOPS=2`: the client IP then
-  comes from the `X-Forwarded-For` chain, one trusted hop per proxy.
+  [`DEPLOY.md`](./DEPLOY.md#port-8000-hardening-optional)), the tunnel
+  host is a second front door that passes a client-written `Forwarded`
+  through unverified. `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED` closes it: API Gateway
+  presents a Cloudflare Access service token on every request and an
+  Access policy on the tunnel host admits nothing else, so the only
+  `Forwarded` header reaching the container is the gateway's.
 
 (express-rate-limit's built-in validators are disabled — they assume
 direct-to-server traffic, not reverse-proxy deployments.) A tripped limiter
@@ -701,7 +717,8 @@ traffic bypasses the public-IP firewall). See
 
 **Optional: custom domain.** Set `CUSTOM_DOMAIN` + `CUSTOM_DOMAIN_CERT_ARN`
 to serve the API Gateway on your own hostname instead of the auto-generated
-execute-api URL (which stays active alongside it). The ACM cert and DNS
+execute-api URL (which stays active alongside it until
+`DISABLE_EXECUTE_API_ENDPOINT=true` closes it). The ACM cert and DNS
 records are managed outside SST — any DNS provider works. See
 [`DEPLOY.md`](./DEPLOY.md#custom-domain-optional).
 
@@ -864,17 +881,17 @@ the MCP server as PID 1's only child.
 
 The runtime image (`Dockerfile`) minimizes the attack surface:
 
-| Measure                        | What it does                                                                                                                                                                                                                                |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Multi-stage build              | Build deps (`python3`, `make`, `g++`) stay in the build stage — never enter the runtime image                                                                                                                                               |
-| Digest-pinned base             | `node:24-trixie-slim@sha256:...` — reproducible builds, no tag-mutation supply-chain risk; trixie because better-sqlite3's linux-arm64 prebuild needs glibc >= 2.38                                                                         |
-| Non-root processes             | Local target: `USER node` (UID 1000). Remote target: s6 `/init` is PID 1 as root, both services drop to `obsidian` (UID 1000, PUID/PGID-adjustable) via `s6-setuidgid`                                                                      |
-| PID 1 init                     | Local: `tini` forwards SIGTERM so SQLite WAL closes cleanly and reaps zombies. Remote: s6-overlay's `/init` does the same plus process supervision                                                                                          |
-| Package-manager removal        | `npm`, `npx`, `corepack`, `yarn` stripped from both targets — reduces CVE surface. `obsidian-headless` is installed under `/opt/obsidian-headless` from a sha512-pinned lockfile (`npm ci`)                                                 |
-| Debian security fixes          | `apt-get upgrade` at build time covers the node-image rebuild window                                                                                                                                                                        |
-| Log rotation (Compose)         | `max-size: 10m`, `max-file: 3` — prevents disk exhaustion                                                                                                                                                                                   |
-| Explicit proxy trust (Express) | `trust proxy` = `TRUST_PROXY_HOPS` (default 0 — direct exposure); the `Forwarded` header is honored only under `TRUST_FORWARDED_HEADER` — injected forwarding headers can't spoof the client IP (OAuth rate-limit bucket key, request logs) |
-| `Object.freeze` on config      | Prevents accidental mutation of the loaded `ServerConfig` — defense against programming errors                                                                                                                                              |
+| Measure                        | What it does                                                                                                                                                                                                                                         |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Multi-stage build              | Build deps (`python3`, `make`, `g++`) stay in the build stage — never enter the runtime image                                                                                                                                                        |
+| Digest-pinned base             | `node:24-trixie-slim@sha256:...` — reproducible builds, no tag-mutation supply-chain risk; trixie because better-sqlite3's linux-arm64 prebuild needs glibc >= 2.38                                                                                  |
+| Non-root processes             | Local target: `USER node` (UID 1000). Remote target: s6 `/init` is PID 1 as root, both services drop to `obsidian` (UID 1000, PUID/PGID-adjustable) via `s6-setuidgid`                                                                               |
+| PID 1 init                     | Local: `tini` forwards SIGTERM so SQLite WAL closes cleanly and reaps zombies. Remote: s6-overlay's `/init` does the same plus process supervision                                                                                                   |
+| Package-manager removal        | `npm`, `npx`, `corepack`, `yarn` stripped from both targets — reduces CVE surface. `obsidian-headless` is installed under `/opt/obsidian-headless` from a sha512-pinned lockfile (`npm ci`)                                                          |
+| Debian security fixes          | `apt-get upgrade` at build time covers the node-image rebuild window                                                                                                                                                                                 |
+| Log rotation (Compose)         | `max-size: 10m`, `max-file: 3` — prevents disk exhaustion                                                                                                                                                                                            |
+| Explicit proxy trust (Express) | `trust proxy` = `TRUST_PROXY_HOPS` (default 0 — direct exposure); the `Forwarded` header is honored only under a non-zero `TRUST_FORWARDED_HOPS` — injected forwarding headers can't spoof the client IP (OAuth rate-limit bucket key, request logs) |
+| `Object.freeze` on config      | Prevents accidental mutation of the loaded `ServerConfig` — defense against programming errors                                                                                                                                                       |
 
 ### Durability
 

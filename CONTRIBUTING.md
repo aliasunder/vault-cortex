@@ -14,7 +14,11 @@ to get started.
    git clone https://github.com/aliasunder/vault-cortex.git
    cd vault-cortex
    npm install
+   npx sst install
    ```
+
+   `npx sst install` fetches the SST platform types that `npm run build`
+   typechecks `sst.config.ts` against.
 
 3. **Run the checks:**
    ```bash

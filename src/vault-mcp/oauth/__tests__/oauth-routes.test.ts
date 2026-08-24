@@ -79,7 +79,7 @@ describe("OAuth consent token submission", () => {
       serverUrl: new URL("http://localhost:8000"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
-      trustForwardedHeader: false,
+      trustForwardedHops: 0,
       logger,
     })
     const app = express()
@@ -207,7 +207,7 @@ describe("OAuth consent body validation", () => {
       serverUrl: new URL("http://localhost:8000"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
-      trustForwardedHeader: false,
+      trustForwardedHops: 0,
       logger,
     })
     const app = express()
@@ -267,7 +267,7 @@ describe("OAuth consent audit logging", () => {
       serverUrl: new URL("http://localhost:8000"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
-      trustForwardedHeader: false,
+      trustForwardedHops: 0,
       logger: testLogger,
     })
     const app = express()
@@ -435,7 +435,7 @@ describe("OAuth endpoint rate limiting", () => {
       serviceDocumentationUrl: "https://example.com",
       // These tests simulate distinct clients through the Forwarded header,
       // which only works when the deployment trusts it.
-      trustForwardedHeader: true,
+      trustForwardedHops: 1,
       logger: testLogger,
     })
     const app = express()
@@ -583,7 +583,7 @@ describe("OAuth rate limiting when the Forwarded header is not trusted (default)
       serverUrl: new URL("http://localhost:8000"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
-      trustForwardedHeader: false,
+      trustForwardedHops: 0,
       logger: testLogger,
     })
     const app = express()
@@ -666,7 +666,7 @@ describe("OAuth protected resource metadata", () => {
       serverUrl: new URL("http://localhost:8000"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
-      trustForwardedHeader: false,
+      trustForwardedHops: 0,
       logger,
     })
     const app = express()
@@ -815,7 +815,7 @@ describe("OAuth refresh over HTTP", () => {
       serverUrl: new URL("http://localhost:8000"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
-      trustForwardedHeader: true,
+      trustForwardedHops: 1,
       logger,
     })
     const app = express()
