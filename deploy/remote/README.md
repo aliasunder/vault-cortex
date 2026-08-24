@@ -30,8 +30,9 @@ container runtime works in place of Docker.
 npx vault-cortex@latest init --mode remote
 ```
 
-The CLI walks through your public URL, Obsidian Sync token (it can run
-[`get-sync-token`](../../cli/#get-sync-token) for you), and auth config, then
+The CLI walks through your public URL, Obsidian Sync token (it can sign in to
+your Obsidian account and [capture the token](../../cli/#get-sync-token) for
+you), and auth config, then
 starts the server and prints the connection details for your MCP client
 ([CLI reference →](../../cli/)).
 
@@ -67,8 +68,8 @@ Or clone the repo and `cd deploy/remote`.
 
 **3. Generate your Obsidian Sync auth token** (one-time):
 
-If you have Node.js >= 20.12 on this machine, the CLI runs the login and
-captures the token for you:
+If you have Node.js >= 20.12 on this machine, the CLI signs in to your
+Obsidian account and captures the token — no Docker needed:
 
 ```bash
 npx vault-cortex@latest get-sync-token

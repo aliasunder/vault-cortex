@@ -174,7 +174,6 @@ export const dockerReady: DockerRunner = {
   stopAndRemoveContainer: () => true,
   containerExists: () => true,
   streamLogs: async () => 0,
-  runObsidianLogin: () => false,
 }
 
 /** Daemon installed but not running — every operation fails. */
@@ -185,7 +184,6 @@ export const dockerDown: DockerRunner = {
   stopAndRemoveContainer: () => false,
   containerExists: () => false,
   streamLogs: async () => 1,
-  runObsidianLogin: () => false,
 }
 
 /** Docker binary absent entirely — every operation fails. */

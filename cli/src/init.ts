@@ -74,20 +74,17 @@ const askMode = async (prompts: Prompts): Promise<Mode> => {
 }
 
 /**
- * Offers to auto-capture the Obsidian Sync token via a Docker volume mount.
- * Returns the captured token string, or undefined when the user declines or
- * the capture fails (the caller falls back to a paste prompt).
+ * Offers to sign in to the Obsidian account and capture the Sync token.
+ * Returns the captured token string, or undefined when the user declines
+ * or the capture fails (the caller falls back to a paste prompt).
  */
 const offerSyncTokenCapture = async (
   prompts: Prompts,
-  docker: DockerRunner,
+  fetchFn: typeof fetch,
 ): Promise<string | undefined> => {
   const runNow = await prompts.confirm("Generate the token now?", true)
   if (!runNow) return undefined
-  return captureObsidianToken(
-    { docker, prompts },
-    "The token is captured automatically and stored in your .env — nothing to copy.",
-  )
+  return captureObsidianToken({ prompts, fetchFn })
 }
 
 /**
@@ -422,7 +419,7 @@ const runRemoteInit = async (
   flags: InitFlags,
   deps: InitDeps,
 ): Promise<number> => {
-  const { prompts, docker } = deps
+  const { prompts, fetchFn } = deps
 
   // expandTilde before resolve: resolve() treats a leading `~` as a literal
   // path segment, so a quoted "~/path" would create a directory named "~".
@@ -442,15 +439,9 @@ const runRemoteInit = async (
   const publicUrl = await askPublicUrl(prompts)
   const vaultName = await askVaultName(prompts)
 
-  // Auto-capture the Obsidian Sync token via a Docker volume mount when
-  // the daemon is reachable. Falls back to a paste prompt when capture
-  // fails or the user declines. Both non-running states stay silent here —
-  // the paste fallback is fully functional without Docker, and the start
-  // offer surfaces the differentiated runtime guidance later in the flow.
-  const capturedToken =
-    docker.daemonStatus() === "running"
-      ? await offerSyncTokenCapture(prompts, docker)
-      : undefined
+  // Sign in to Obsidian and capture the Sync token directly via the API.
+  // Falls back to a paste prompt when the user declines or capture fails.
+  const capturedToken = await offerSyncTokenCapture(prompts, fetchFn)
   // Masked prompt: the sync token is a credential and must not echo into
   // the terminal or scrollback. An empty submission still means "fill in
   // .env later" — clack's password prompt accepts blank input.

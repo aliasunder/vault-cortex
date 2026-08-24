@@ -10,7 +10,7 @@ import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { runInit } from "../init.js"
-import { pollHealth, type DockerRunner } from "../docker.js"
+import { pollHealth } from "../docker.js"
 import { buildDockerNotInstalledMessage } from "../messages.js"
 
 vi.mock("../docker.js", { spy: true })
@@ -228,6 +228,7 @@ describe("remote connect message https routing", () => {
     const scripted = createScriptedPrompts([
       publicUrl,
       "MyVault",
+      false, // don't generate the token now (declined auto-capture)
       "", // blank sync token — fill in .env later
       false, // no encryption
       [], // no optional settings
@@ -286,6 +287,7 @@ describe("remote connect message https routing", () => {
       "https://vault.example.com/mcp", // re-included the /mcp path — rejected
       "https://vault.example.com", // base origin — accepted on re-prompt
       "MyVault",
+      false, // don't generate the token now (declined auto-capture)
       "", // blank sync token — fill in .env later
       false, // no encryption
       [], // no optional settings
@@ -318,6 +320,7 @@ describe("remote connect message https routing", () => {
     const scripted = createScriptedPrompts([
       "https://vault.example.com/", // trailing slash — trimmed, not rejected
       "MyVault",
+      false, // don't generate the token now (declined auto-capture)
       "", // blank sync token — fill in .env later
       false, // no encryption
       [], // no optional settings
@@ -346,6 +349,7 @@ describe("remote connect message https routing", () => {
     const scripted = createScriptedPrompts([
       "https://vault.example.com",
       "MyVault",
+      false, // don't generate the token now (declined auto-capture)
       "", // blank sync token — fill in .env later
       false, // no encryption
       [], // no optional settings
@@ -562,12 +566,13 @@ describe("runInit remote flow", () => {
     )
   })
 
-  it("skips the token auto-capture offer when Docker is not installed", async () => {
+  it("always offers token generation even without Docker", async () => {
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([
       "https://vault.example.com", // public URL
       "MyVault", // vault name
-      "sync-token-xyz", // paste prompt directly — no auto-capture offer
+      false, // don't generate the token now (declined auto-capture)
+      "sync-token-xyz", // paste fallback — obsidian sync token
       false, // no end-to-end encryption
       [], // no optional settings
     ])
@@ -580,12 +585,13 @@ describe("runInit remote flow", () => {
       },
     )
 
-    // No "Generate the token now?" (capture needs Docker) and no "Start the
-    // server now?" (the install warning replaces the start offer).
+    // Token generation is always offered (uses the API, not Docker). No
+    // "Start the server now?" (the install warning replaces the start offer).
     expect(exitCode).toBe(0)
     expect(scripted.asked).toEqual([
       "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
       "Exact name of your Obsidian vault (case-sensitive):",
+      "Generate the token now?",
       "Paste the Obsidian Sync token (leave blank to fill in .env later):",
       "Does your vault use end-to-end encryption?",
       "Any optional settings to change? (press enter to skip)",
@@ -691,35 +697,32 @@ describe("runInit remote flow", () => {
       "https://vault.example.com",
       "MyVault",
       true, // generate the token now
+      "user@example.com", // email
+      "password", // password
       false, // no end-to-end encryption
       [], // no optional settings
       false, // don't start the server
     ])
-    const dockerWithCapture: DockerRunner = {
-      ...dockerDaemonOnly,
-      runObsidianLogin: (configMountPath) => {
-        const tokenDir = join(configMountPath, "obsidian-headless")
-        mkdirSync(tokenDir, { recursive: true })
-        writeFileSync(join(tokenDir, "auth_token"), "captured-token")
-        return true
-      },
-    }
+    const fetchSigninSuccess: typeof fetch = async () =>
+      new Response(
+        JSON.stringify({
+          token: "captured-token",
+          name: "User",
+          email: "user@example.com",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )
 
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerWithCapture,
-        fetchFn: fetchNever,
+        docker: dockerDaemonOnly,
+        fetchFn: fetchSigninSuccess,
       },
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.logs).toContain(
-      "Handing the terminal to the Obsidian login — it will ask for your " +
-        "account email, password, and MFA code. The token is captured " +
-        "automatically and stored in your .env — nothing to copy.",
-    )
     expect(scripted.asked).not.toContain(
       "Paste the Obsidian Sync token (leave blank to fill in .env later):",
     )
@@ -731,12 +734,13 @@ describe("runInit remote flow", () => {
     )
   })
 
-  it("skips the docker-run offer when the sync token was left blank", async () => {
+  it("skips the start offer when the sync token was left blank", async () => {
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([
       "http://203.0.113.10:8000",
       "MyVault",
-      "", // blank token — fill in later (Docker unavailable, no capture offer)
+      false, // don't generate the token now (declined auto-capture)
+      "", // blank token — fill in later
       false, // no encryption
       [], // no optional settings
     ])
@@ -763,7 +767,8 @@ describe("runInit remote flow", () => {
       configDir, // config dir — prompted, not passed as a flag
       "https://vault.example.com", // public URL
       "MyVault", // vault name
-      "", // blank sync token (Docker down, no capture offer)
+      false, // don't generate the token now (declined auto-capture)
+      "", // blank sync token — fill in .env later
       false, // no encryption
       [], // no optional settings
     ])
@@ -782,6 +787,7 @@ describe("runInit remote flow", () => {
       "Where should I put the config files?",
       "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
       "Exact name of your Obsidian vault (case-sensitive):",
+      "Generate the token now?",
       "Paste the Obsidian Sync token (leave blank to fill in .env later):",
       "Does your vault use end-to-end encryption?",
       "Any optional settings to change? (press enter to skip)",
@@ -1050,10 +1056,17 @@ describe("runInit remote with a kept existing .env", () => {
 describe("runInit sync-token auto-capture fallback", () => {
   it("falls back to paste prompt when auto-capture fails", async () => {
     const targetDir = makeTargetDir()
+    const fetchSigninError: typeof fetch = async () =>
+      new Response(JSON.stringify({ error: "Invalid email or password" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
     const scripted = createScriptedPrompts([
       "https://vault.example.com",
       "MyVault",
       true, // try to generate the token
+      "user@example.com", // email
+      "bad-password", // password
       "", // paste fallback — blank token, fill in later
       false, // no encryption
       [], // no optional settings
@@ -1063,7 +1076,7 @@ describe("runInit sync-token auto-capture fallback", () => {
       {
         prompts: scripted.prompts,
         docker: dockerDaemonOnly,
-        fetchFn: fetchNever,
+        fetchFn: fetchSigninError,
       },
     )
 
@@ -1071,7 +1084,7 @@ describe("runInit sync-token auto-capture fallback", () => {
       "Paste the Obsidian Sync token (leave blank to fill in .env later):",
     )
     expect(scripted.warnings[0]).toContain(
-      "The Obsidian login did not complete",
+      "Could not sign in: Invalid email or password",
     )
   })
 })
@@ -1250,6 +1263,7 @@ describe("runInit guided optional settings", () => {
     const scripted = createScriptedPrompts([
       "https://vault.example.com",
       "MyVault",
+      false, // don't generate the token now (declined auto-capture)
       "", // blank sync token — fill in .env later
       false, // no encryption
       ["SYNC_MODE"],

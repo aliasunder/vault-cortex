@@ -61,7 +61,7 @@ your computer — once, before you click the button.
 4. **Copy the token.** The deploy form asks for it as `OBSIDIAN_AUTH_TOKEN`.
 
 Already have Node.js? `npx vault-cortex@latest get-sync-token` does the same
-(Docker still has to be running).
+without Docker.
 
 ## Deploy
 

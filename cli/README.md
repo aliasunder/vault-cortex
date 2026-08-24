@@ -61,7 +61,8 @@ Re-running init where a setup already exists asks first — declining leaves
 everything unchanged and points you at [`configure`](#configure), the right
 tool for changing settings in place. Existing files are never overwritten
 without asking. During a remote setup, init offers to run
-[`get-sync-token`](#get-sync-token) for you when Docker is available.
+[`get-sync-token`](#get-sync-token) for you — sign in to your Obsidian
+account right from the terminal.
 
 Flags:
 
@@ -194,17 +195,16 @@ remote setups — without leaving the CLI:
 npx vault-cortex@latest get-sync-token
 ```
 
-The command opens the Obsidian login inside Docker. Once you've signed in, it
-captures your token and prints it — nothing to dig out of the login output.
-Use `--dir <path>` to write the token straight into an existing `.env`
-instead:
+The command prompts for your Obsidian account email, password, and MFA code
+(if enabled), signs in via the Obsidian API, and prints the token. No Docker
+required. Use `--dir <path>` to write the token straight into an existing
+`.env` instead:
 
 ```bash
 npx vault-cortex@latest get-sync-token --dir ./vault-cortex
 ```
 
-During `init --mode remote`, this flow is offered automatically when Docker
-is available.
+During `init --mode remote`, this flow is offered automatically.
 
 ## Requirements
 
