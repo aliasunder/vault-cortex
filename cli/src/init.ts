@@ -27,6 +27,7 @@ import {
   buildFilesToWrite,
   readEnvPort,
   readEnvPublicUrl,
+  sanitizeEnvFile,
   writeFiles,
   type FileWriteResult,
   type Mode,
@@ -264,9 +265,11 @@ const offerDockerRun = async (
   }
   const startNow = await prompts.confirm("Start the server now?", true)
   if (!startNow) return "not-started"
+  const envFilePath = join(targetDir, ".env")
+  sanitizeEnvFile(envFilePath)
   const containerStarted = docker.dockerRun({
     mode,
-    envFilePath: join(targetDir, ".env"),
+    envFilePath,
     port,
     vaultPath,
   })

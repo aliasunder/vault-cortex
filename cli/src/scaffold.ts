@@ -40,6 +40,19 @@ const ENV_PUBLIC_URL_VALUE_LINE = /^PUBLIC_URL=(.+)\s*$/m
 /** Matches an active (uncommented) OBSIDIAN_AUTH_TOKEN line. */
 const OBSIDIAN_AUTH_TOKEN_LINE = /^OBSIDIAN_AUTH_TOKEN=/m
 
+/** Matches an env line whose value is wrapped in matching quotes. */
+const QUOTED_ENV_VALUE = /^([A-Za-z_][A-Za-z0-9_]*=)(["'])(.*)\2(\s*)$/gm
+
+/**
+ * Strips matching surrounding quotes from a value — `"foo"` → `foo`,
+ * `'bar'` → `bar`, `unquoted` → `unquoted`. Only strips when the
+ * opening and closing quote characters match.
+ */
+const stripSurroundingQuotes = (value: string): string => {
+  const quoteMatch = /^(["'])(.*)\1$/.exec(value)
+  return quoteMatch ? quoteMatch[2] : value
+}
+
 export const buildFilesToWrite = (envContent: string): FileToWrite[] => [
   // .env holds the bearer token (and possibly a vault password) — owner-only.
   { name: ".env", content: envContent, mode: 0o600 },
@@ -64,7 +77,8 @@ export const readEnvPort = (envFilePath: string): number => {
 export const readEnvVaultPath = (envFilePath: string): string | undefined => {
   if (!existsSync(envFilePath)) return undefined
   const match = ENV_VAULT_PATH_LINE.exec(readFileSync(envFilePath, "utf8"))
-  return match?.[1].trim()
+  const rawValue = match?.[1].trim()
+  return rawValue ? stripSurroundingQuotes(rawValue) : undefined
 }
 
 /**
@@ -93,11 +107,12 @@ export const readEnvPublicUrl = (envFilePath: string): string | undefined => {
   )
   // A whitespace-only line matches the regex and trims to "" — normalize to
   // undefined so the non-empty contract holds ("" is never a legitimate URL).
-  const publicUrlValue = match?.[1].trim()
+  const rawValue = match?.[1].trim()
+  const unquotedValue = rawValue ? stripSurroundingQuotes(rawValue) : undefined
   // Strip trailing slashes (mirroring askPublicUrl's prompt-side
   // normalization): consumers append paths to this base, and a hand-edited
   // `https://host/` would otherwise print broken `//mcp` connect URLs.
-  const normalizedPublicUrl = publicUrlValue?.replace(/\/+$/, "")
+  const normalizedPublicUrl = unquotedValue?.replace(/\/+$/, "")
   return normalizedPublicUrl || undefined
 }
 
@@ -133,6 +148,24 @@ export const patchEnvObsidianToken = (
     () => `OBSIDIAN_AUTH_TOKEN=${token}`,
   )
   writeFileSync(envFilePath, patched)
+  return true
+}
+
+/**
+ * Strips surrounding quotes from env values in the file. `docker run
+ * --env-file` passes quotes literally (`VAULT_NAME="My Vault"` becomes
+ * the value `"My Vault"` with embedded quotes), while Compose strips
+ * them. Removing quotes makes the file work correctly for both paths.
+ * Returns true when the file was modified.
+ */
+export const sanitizeEnvFile = (envFilePath: string): boolean => {
+  if (!existsSync(envFilePath)) return false
+  const content = readFileSync(envFilePath, "utf8")
+  // Reset lastIndex — the /g flag makes the regex stateful.
+  QUOTED_ENV_VALUE.lastIndex = 0
+  const sanitized = content.replace(QUOTED_ENV_VALUE, "$1$3$4")
+  if (sanitized === content) return false
+  writeFileSync(envFilePath, sanitized)
   return true
 }
 

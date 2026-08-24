@@ -16,6 +16,7 @@ import {
   readEnvPort,
   readEnvPublicUrl,
   readEnvVaultPath,
+  sanitizeEnvFile,
   writeFiles,
 } from "../scaffold.js"
 
@@ -191,6 +192,28 @@ describe("readEnvVaultPath", () => {
 
     expect(readEnvVaultPath(envPath)).toBe("/Users/me/My Vault")
   })
+
+  it("strips surrounding double quotes from the value", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      'MCP_AUTH_TOKEN=abc\nVAULT_PATH="/Users/me/My Vault"\n',
+    )
+
+    expect(readEnvVaultPath(envPath)).toBe("/Users/me/My Vault")
+  })
+
+  it("strips surrounding single quotes from the value", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      "MCP_AUTH_TOKEN=abc\nVAULT_PATH='/Users/me/My Vault'\n",
+    )
+
+    expect(readEnvVaultPath(envPath)).toBe("/Users/me/My Vault")
+  })
 })
 
 describe("readEnvPublicUrl", () => {
@@ -261,6 +284,28 @@ describe("readEnvPublicUrl", () => {
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=   \n")
 
     expect(readEnvPublicUrl(envPath)).toBeUndefined()
+  })
+
+  it("strips surrounding double quotes from the value", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      'MCP_AUTH_TOKEN=abc\nPUBLIC_URL="https://vault.example.com"\n',
+    )
+
+    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
+  })
+
+  it("strips quotes then trailing slashes", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      'MCP_AUTH_TOKEN=abc\nPUBLIC_URL="https://vault.example.com/"\n',
+    )
+
+    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
   })
 })
 
@@ -421,5 +466,93 @@ describe("patchEnvObsidianToken", () => {
     expect(readFileSync(envPath, "utf8")).toBe(
       "# Comment\nMCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=new\nVAULT_NAME=Test\n# Footer\n",
     )
+  })
+})
+
+describe("sanitizeEnvFile", () => {
+  it("returns false when the file does not exist", () => {
+    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
+
+    expect(sanitizeEnvFile(missingPath)).toBe(false)
+  })
+
+  it("returns false when no values are quoted", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
+    const envPath = join(targetDir, ".env")
+    const content = "MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n"
+    writeFileSync(envPath, content)
+
+    expect(sanitizeEnvFile(envPath)).toBe(false)
+    expect(readFileSync(envPath, "utf8")).toBe(content)
+  })
+
+  it("strips double quotes from values and writes the file", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nVAULT_NAME="My Vault"\n')
+
+    expect(sanitizeEnvFile(envPath)).toBe(true)
+    expect(readFileSync(envPath, "utf8")).toBe(
+      "MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n",
+    )
+  })
+
+  it("strips single quotes from values", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_NAME='My Vault'\n")
+
+    expect(sanitizeEnvFile(envPath)).toBe(true)
+    expect(readFileSync(envPath, "utf8")).toBe(
+      "MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n",
+    )
+  })
+
+  it("strips quotes from multiple values in one pass", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(
+      envPath,
+      'VAULT_NAME="My Vault"\nSYNC_EXCLUDED_FOLDERS="Folder A,Folder B"\n',
+    )
+
+    expect(sanitizeEnvFile(envPath)).toBe(true)
+    expect(readFileSync(envPath, "utf8")).toBe(
+      "VAULT_NAME=My Vault\nSYNC_EXCLUDED_FOLDERS=Folder A,Folder B\n",
+    )
+  })
+
+  it("preserves comments and unquoted values", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
+    const envPath = join(targetDir, ".env")
+    const content =
+      '# Comment\nMCP_AUTH_TOKEN=abc\nVAULT_NAME="My Vault"\nPORT=8000\n# Footer\n'
+    writeFileSync(envPath, content)
+
+    sanitizeEnvFile(envPath)
+
+    expect(readFileSync(envPath, "utf8")).toBe(
+      "# Comment\nMCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\nPORT=8000\n# Footer\n",
+    )
+  })
+
+  it("does not strip mismatched quotes", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
+    const envPath = join(targetDir, ".env")
+    const content = "VAULT_NAME=\"My Vault'\n"
+    writeFileSync(envPath, content)
+
+    expect(sanitizeEnvFile(envPath)).toBe(false)
+    expect(readFileSync(envPath, "utf8")).toBe(content)
+  })
+
+  it("preserves inner quotes of a different type", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, "VAULT_NAME=\"My 'Cool' Vault\"\n")
+
+    sanitizeEnvFile(envPath)
+
+    expect(readFileSync(envPath, "utf8")).toBe("VAULT_NAME=My 'Cool' Vault\n")
   })
 })
