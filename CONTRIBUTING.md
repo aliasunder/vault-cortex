@@ -17,6 +17,11 @@ to get started.
    npx sst install
    ```
 
+   **Windows:** this repo uses symlinks (`CLAUDE.md → AGENTS.md`). Run
+   `git config core.symlinks true` before cloning, or re-clone after
+   setting it — otherwise Git checks out symlinks as plain text files
+   containing the target path.
+
    `npx sst install` fetches the SST platform types that `npm run build`
    typechecks `sst.config.ts` against.
 
