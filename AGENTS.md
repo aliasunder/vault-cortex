@@ -672,8 +672,7 @@ undefined) return`) or schema validation to narrow types instead.
   narrative, or operator internals. OSS boundary: issue/PR numbers,
   incident dates, deployment names, task-board IDs, remediation
   narration, and investigation chronology never enter any public
-  artifact — committed files, PR descriptions, or comments. Internal
-  references belong in session logs only.
+  artifact — committed files, PR descriptions, or comments.
 - Early returns over nested `if/else` — reduces indentation depth
   and cognitive load. Prefer `if (done) return` over wrapping 15
   lines in `if (!done) { ... }`. In loops, prefer `if (cond) { …;
