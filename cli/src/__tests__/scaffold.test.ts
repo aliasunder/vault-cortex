@@ -154,6 +154,14 @@ describe("readEnvPort", () => {
 
     expect(readEnvPort(envPath)).toBe(9000)
   })
+
+  it("strips surrounding double quotes from the port value", () => {
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const envPath = join(targetDir, ".env")
+    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nPORT="9000"\n')
+
+    expect(readEnvPort(envPath)).toBe(9000)
+  })
 })
 
 describe("readEnvVaultPath", () => {

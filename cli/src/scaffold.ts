@@ -25,8 +25,8 @@ export type FileWriteResult = {
 /** Default host port — matches the container's internal port. */
 export const DEFAULT_PORT = 8000
 
-/** Matches an active (uncommented) PORT line in a .env file. */
-const ENV_PORT_LINE = /^PORT=(\d+)\s*$/m
+/** Matches an active (uncommented) PORT line, with optional surrounding quotes. */
+const ENV_PORT_LINE = /^PORT=["']?(\d+)["']?\s*$/m
 
 /** Matches an active (uncommented) VAULT_PATH line in a .env file. */
 const ENV_VAULT_PATH_LINE = /^VAULT_PATH=(.+)\s*$/m
