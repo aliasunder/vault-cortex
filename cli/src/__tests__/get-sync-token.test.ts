@@ -340,8 +340,8 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toBe(
-      "Could not sign in: Unexpected response from Obsidian API (not JSON)",
+    expect(scripted.warnings[0]).toMatch(
+      /^Could not sign in: Unexpected response from Obsidian API \(/,
     )
   })
 
@@ -355,7 +355,7 @@ describe("captureObsidianToken", () => {
 
     expect(token).toBeUndefined()
     expect(scripted.warnings[0]).toBe(
-      "Could not sign in: Unexpected response from Obsidian API (not JSON)",
+      "Could not sign in: Unexpected response from Obsidian API (not a JSON object)",
     )
   })
 
@@ -369,7 +369,7 @@ describe("captureObsidianToken", () => {
 
     expect(token).toBeUndefined()
     expect(scripted.warnings[0]).toBe(
-      "Could not sign in: Unexpected response from Obsidian API (no token)",
+      "Could not sign in: Unexpected response from Obsidian API (no token field)",
     )
   })
 })

@@ -54,17 +54,24 @@ const callSigninApi = async (
 
   if (!response.ok) throw new Error(`HTTP Error ${response.status}`)
 
-  const body = await response.json().catch(() => null)
-  if (!isJsonObject(body))
-    throw new Error("Unexpected response from Obsidian API (not JSON)")
-  if (typeof body.error === "string") throw new ObsidianApiError(body.error)
-  if (typeof body.token !== "string" || !body.token)
-    throw new Error("Unexpected response from Obsidian API (no token)")
+  try {
+    const body = await response.json()
+    if (!isJsonObject(body)) throw new Error("not a JSON object")
+    if (typeof body.error === "string") throw new ObsidianApiError(body.error)
+    if (typeof body.token !== "string" || !body.token)
+      throw new Error("no token field")
 
-  return {
-    token: body.token,
-    name: typeof body.name === "string" ? body.name : "",
-    email: typeof body.email === "string" ? body.email : "",
+    return {
+      token: body.token,
+      name: typeof body.name === "string" ? body.name : "",
+      email: typeof body.email === "string" ? body.email : "",
+    }
+  } catch (error) {
+    if (error instanceof ObsidianApiError) throw error
+    throw new Error(
+      `Unexpected response from Obsidian API (${describeError(error)})`,
+      { cause: error },
+    )
   }
 }
 
