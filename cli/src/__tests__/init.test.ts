@@ -1083,7 +1083,7 @@ describe("runInit sync-token auto-capture fallback", () => {
     expect(scripted.asked).toContain(
       "Paste the Obsidian Sync token (leave blank to fill in .env later):",
     )
-    expect(scripted.warnings[0]).toContain(
+    expect(scripted.warnings[0]).toBe(
       "Could not sign in: Invalid email or password",
     )
   })

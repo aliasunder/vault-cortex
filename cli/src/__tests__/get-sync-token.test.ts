@@ -84,6 +84,27 @@ const fetchMfaRequired = (
   }) as typeof fetch
 }
 
+/**
+ * Builds a mock fetch that requires MFA but the retry fails: first call
+ * returns the "2FA code" error, second call returns a wrong-code rejection.
+ */
+const fetchMfaRetryFail = (retryError: string): typeof fetch => {
+  let callCount = 0
+  return (async () => {
+    callCount += 1
+    if (callCount === 1) {
+      return new Response(
+        JSON.stringify({ error: "Your account requires a 2FA code" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )
+    }
+    return new Response(JSON.stringify({ error: retryError }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    })
+  }) as typeof fetch
+}
+
 describe("captureObsidianToken", () => {
   it("returns the token on successful sign-in", async () => {
     const scripted = createScriptedPrompts([
@@ -145,6 +166,36 @@ describe("captureObsidianToken", () => {
     expect(scripted.warnings[0]).toBe(
       "Could not sign in: 2FA code is incorrect",
     )
+  })
+
+  it("returns undefined with retry guidance when MFA retry fails", async () => {
+    const scripted = createScriptedPrompts([
+      "user@example.com", // email
+      "password", // password
+      "000000", // wrong MFA code
+    ])
+
+    const token = await captureObsidianToken({
+      prompts: scripted.prompts,
+      fetchFn: fetchMfaRetryFail("2FA code is incorrect"),
+    })
+
+    expect(token).toBeUndefined()
+    expect(scripted.asked).toEqual([
+      "Obsidian account email:",
+      "Password:",
+      "2FA code:",
+    ])
+    expect(scripted.warnings[0]).toBe(
+      "Could not sign in: 2FA code is incorrect\n" +
+        "  Check your 2FA code and try again.",
+    )
+    expect(scripted.spinnerMessages).toEqual([
+      "start: Signing in to Obsidian...",
+      "stop: Two-factor authentication required.",
+      "start: Verifying...",
+      "stop: Sign-in failed.",
+    ])
   })
 
   it("returns undefined on wrong password", async () => {
