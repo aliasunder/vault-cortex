@@ -53,10 +53,10 @@ const callSigninApi = async (
     throw new Error("Unexpected response from Obsidian API (not JSON)")
   }
 
-  const isRecord = (value: unknown): value is Record<string, unknown> =>
+  const isJsonObject = (value: unknown): value is Record<string, unknown> =>
     typeof value === "object" && value !== null && !Array.isArray(value)
 
-  if (!isRecord(body)) {
+  if (!isJsonObject(body)) {
     throw new Error("Unexpected response from Obsidian API (not JSON)")
   }
 
