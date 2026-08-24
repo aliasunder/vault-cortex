@@ -2027,20 +2027,30 @@ export const createSearchIndex = (
       )
     ).filter((entry) => entry !== null)
 
-    const noteContents = await Promise.all(
-      markdownFiles.map(async (file) => {
-        const [content, fileStat] = await Promise.all([
-          readFile(file.absolutePath, "utf8"),
-          stat(file.absolutePath),
-        ])
-        return {
-          relativePath: file.relativePath,
-          content,
-          modifiedAtMs: fileStat.mtimeMs,
-          sizeBytes: fileStat.size,
-        }
-      }),
-    )
+    const noteContents = (
+      await Promise.all(
+        markdownFiles.map(async (file) => {
+          try {
+            const [content, fileStat] = await Promise.all([
+              readFile(file.absolutePath, "utf8"),
+              stat(file.absolutePath),
+            ])
+            return {
+              relativePath: file.relativePath,
+              content,
+              modifiedAtMs: fileStat.mtimeMs,
+              sizeBytes: fileStat.size,
+            }
+          } catch (error) {
+            logger.warn("skipped unreadable note during rebuild", {
+              path: file.relativePath,
+              error: describeError(error),
+            })
+            return null
+          }
+        }),
+      )
+    ).filter((entry) => entry !== null)
 
     // Notes whose parse or index write throws are skipped with a warning
     // instead of aborting the rebuild — one malformed note must never
@@ -2081,13 +2091,13 @@ export const createSearchIndex = (
       // its rows survive on content-hash identity), so files that vanished
       // from disk leave orphaned entries the per-file upsert never touches.
       if (selectDistinctMemoryFilesStmt) {
-        // Built from the unfiltered disk listing on purpose: a note in
-        // skippedNotePaths still exists on disk, and treating it as deleted
-        // here would permanently remove its memory_entries rows (the table
-        // survives rebuilds on content-hash identity).
+        // Built from the disk listing (markdownFiles) on purpose: a note
+        // that failed to read or parse still exists on disk, and treating
+        // it as deleted here would permanently remove its memory_entries
+        // rows (the table survives rebuilds on content-hash identity).
         const memoryFilesOnDisk = new Set(
-          noteContents
-            .map((note) => memoryFileNameFromPath(note.relativePath))
+          markdownFiles
+            .map((file) => memoryFileNameFromPath(file.relativePath))
             .filter((fileName) => fileName !== null),
         )
         const deletedMemoryFiles = selectDistinctMemoryFilesStmt
