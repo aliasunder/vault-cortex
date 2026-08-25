@@ -106,10 +106,6 @@ export const captureObsidianToken = async (
 ): Promise<string | undefined> => {
   const { prompts, fetchFn } = deps
 
-  prompts.log(
-    "Sign in to your Obsidian account to generate the token your server\n" +
-      "needs to sync your vault.",
-  )
   const email = await prompts.text("Obsidian account email:", {
     placeholder: "you@example.com",
   })
@@ -194,9 +190,9 @@ export const runGetSyncToken = async (
     )
     return 1
   }
-  prompts.log(`Token written to ${envFilePath}`)
   prompts.log(
-    `Start the server:\n  npx vault-cortex start --dir "${flags.dir}"`,
+    `Token written to ${envFilePath}\n\n` +
+      `Start the server:\n  npx vault-cortex start --dir "${flags.dir}"`,
   )
   prompts.outro("Done.")
   return 0

@@ -417,12 +417,11 @@ describe("runGetSyncToken subcommand", () => {
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
       "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=new-sync-token\nVAULT_NAME=MyVault\n",
     )
-    expect(scripted.logs).toContain(
-      `Token written to ${join(targetDir, ".env")}`,
+    const startHint = scripted.logs.find((log) =>
+      log.includes("Token written to"),
     )
-    expect(scripted.logs).toContain(
-      `Start the server:\n  npx vault-cortex start --dir "${targetDir}"`,
-    )
+    expect(startHint).toContain(`Token written to ${join(targetDir, ".env")}`)
+    expect(startHint).toContain(`npx vault-cortex start --dir "${targetDir}"`)
   })
 
   it("exits 1 when --dir .env has no OBSIDIAN_AUTH_TOKEN line", async () => {
