@@ -78,7 +78,8 @@ const askMode = async (prompts: Prompts): Promise<Mode> => {
 /**
  * Offers to sign in to the Obsidian account and capture the Sync token.
  * Returns the captured token string, or undefined when the user declines
- * or the capture fails (the caller falls back to a paste prompt).
+ * or the capture fails (the caller falls back to any token already in the
+ * on-disk .env, or shows get-sync-token guidance).
  */
 const offerSyncTokenCapture = async (
   prompts: Prompts,
