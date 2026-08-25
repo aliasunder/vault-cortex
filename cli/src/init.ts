@@ -456,7 +456,7 @@ const runRemoteInit = async (
   const hasExistingToken = Boolean(capturedToken ?? existingEnvToken)
   if (!hasExistingToken) {
     prompts.log(
-      "No token yet — run this later to add it:\n" +
+      "No token yet — run this later to add it to your .env:\n" +
         `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
     )
   }

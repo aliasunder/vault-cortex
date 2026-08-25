@@ -13,6 +13,7 @@ import {
   buildFilesToWrite,
   detectMode,
   patchEnvObsidianToken,
+  readEnvObsidianToken,
   readEnvPort,
   readEnvPublicUrl,
   readEnvVaultPath,
@@ -474,6 +475,48 @@ describe("patchEnvObsidianToken", () => {
     expect(readFileSync(envPath, "utf8")).toBe(
       "# Comment\nMCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=new\nVAULT_NAME=Test\n# Footer\n",
     )
+  })
+})
+
+describe("readEnvObsidianToken", () => {
+  it("returns undefined when the file does not exist", () => {
+    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
+
+    expect(readEnvObsidianToken(missingPath)).toBeUndefined()
+  })
+
+  it("returns the token value from an existing .env", () => {
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+    writeFileSync(
+      envPath,
+      "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=my-token\nVAULT_NAME=Test\n",
+    )
+
+    expect(readEnvObsidianToken(envPath)).toBe("my-token")
+  })
+
+  it("returns undefined when the line exists but the value is empty", () => {
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+    writeFileSync(
+      envPath,
+      "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=\nVAULT_NAME=Test\n",
+    )
+
+    expect(readEnvObsidianToken(envPath)).toBeUndefined()
+  })
+
+  it("returns undefined when the file has no OBSIDIAN_AUTH_TOKEN line", () => {
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_NAME=Test\n")
+
+    expect(readEnvObsidianToken(envPath)).toBeUndefined()
+  })
+
+  it("trims whitespace from the token value", () => {
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
+    writeFileSync(envPath, "OBSIDIAN_AUTH_TOKEN=  spaced-token  \n")
+
+    expect(readEnvObsidianToken(envPath)).toBe("spaced-token")
   })
 })
 

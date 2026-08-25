@@ -554,7 +554,7 @@ describe("runInit remote flow", () => {
     expect(envContent).toContain("VAULT_NAME=MyVault\n")
     expect(envContent).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
     expect(scripted.logs).toContain(
-      "No token yet — run this later to add it:\n" +
+      "No token yet — run this later to add it to your .env:\n" +
         `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
     )
   })
@@ -578,8 +578,7 @@ describe("runInit remote flow", () => {
     )
 
     // Token generation is always offered (uses the API, not Docker). With a
-    // blank token (capture declined), no start offer is shown — and since
-    // Docker is not installed, the Docker-not-installed warning fires too.
+    // blank token (capture declined), no start offer is shown.
     expect(exitCode).toBe(0)
     expect(scripted.asked).toEqual([
       "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
@@ -766,6 +765,40 @@ describe("runInit remote flow", () => {
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(
       /^OBSIDIAN_AUTH_TOKEN=$/m,
     )
+  })
+
+  it("preserves existing token and offers start when capture is declined on re-init", async () => {
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=old\nOBSIDIAN_AUTH_TOKEN=existing-token\nPUBLIC_URL=https://vault.example.com\nVAULT_NAME=MyVault\n",
+    )
+    const scripted = createScriptedPrompts([
+      true, // re-run setup
+      "https://vault.example.com",
+      "MyVault",
+      false, // don't generate the token now
+      false, // no encryption
+      [], // no optional settings
+      true, // overwrite .env (content differs due to new MCP_AUTH_TOKEN)
+      false, // don't start the server
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerDaemonOnly,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).toContain("Start the server now?")
+    expect(scripted.logs).not.toContain(expect.stringContaining("No token yet"))
+    const envContent = readFileSync(join(targetDir, ".env"), "utf8")
+    expect(envContent).toMatch(/^OBSIDIAN_AUTH_TOKEN=existing-token$/m)
   })
 
   it("asks the config dir first, then the mode-specific inputs", async () => {
@@ -1103,7 +1136,7 @@ describe("runInit sync-token auto-capture fallback", () => {
       /^OBSIDIAN_AUTH_TOKEN=$/m,
     )
     expect(scripted.logs).toContain(
-      "No token yet — run this later to add it:\n" +
+      "No token yet — run this later to add it to your .env:\n" +
         `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
     )
   })

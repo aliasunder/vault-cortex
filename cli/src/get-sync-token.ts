@@ -13,7 +13,8 @@ export type GetSyncTokenDeps = {
   fetchFn: typeof fetch
 }
 
-const OBSIDIAN_SIGNIN_URL = "https://api.obsidian.md/user/signin"
+const OBSIDIAN_SIGNIN_URL =
+  process.env.OBSIDIAN_SIGNIN_URL ?? "https://api.obsidian.md/user/signin"
 const SIGNIN_TIMEOUT_MS = 30_000
 
 const describeError = (error: unknown): string =>
