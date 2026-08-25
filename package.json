@@ -1,6 +1,6 @@
 {
   "name": "vault-cortex",
-  "version": "0.42.0",
+  "version": "0.42.1",
   "private": true,
   "description": "Standalone MCP server for Obsidian vaults — hybrid search, notes & files, memory, tasks, OAuth 2.1",
   "license": "MIT",
