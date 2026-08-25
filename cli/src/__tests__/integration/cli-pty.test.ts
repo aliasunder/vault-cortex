@@ -3,7 +3,8 @@
 // by verifying actual terminal rendering, keystroke processing, and end-to-end
 // entry point wiring.
 
-import { existsSync, readFileSync } from "node:fs"
+import { createServer, type Server } from "node:http"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
 
@@ -231,6 +232,98 @@ describe("configure", () => {
 
     const envContent = readFileSync(join(configDir, ".env"), "utf8")
     expect(envContent).toContain("READONLY_MODE=true")
+  })
+})
+
+/**
+ * Starts a local HTTP server that returns a successful Obsidian signin
+ * response. Used with the OBSIDIAN_SIGNIN_URL env var seam in get-sync-token.
+ */
+const startSigninServer = (
+  token: string,
+): Promise<{ url: string; server: Server }> =>
+  new Promise((resolvePromise) => {
+    const server = createServer((req, res) => {
+      const chunks: Buffer[] = []
+      req.on("data", (chunk: Buffer) => chunks.push(chunk))
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" })
+        res.end(JSON.stringify({ token }))
+      })
+    })
+    server.listen(0, "127.0.0.1", () => {
+      const addr = server.address()
+      const port = typeof addr === "object" && addr ? addr.port : 0
+      resolvePromise({ url: `http://127.0.0.1:${port}`, server })
+    })
+  })
+
+describe("get-sync-token", () => {
+  it("signs in and prints the token", async () => {
+    const { vaultDir } = createPtyWorkDir()
+    const { url, server } = await startSigninServer("pty-test-token")
+    onTestFinished(() => {
+      server.close()
+    })
+
+    const prompts: PtyPrompt[] = [
+      {
+        match: "Obsidian account email",
+        send: "user@example.com\r",
+        label: "email",
+      },
+      { match: "Password", send: "secret123\r", label: "password" },
+    ]
+
+    const result = await drivePty({
+      args: ["get-sync-token"],
+      workDir: vaultDir,
+      prompts,
+      env: { OBSIDIAN_SIGNIN_URL: url },
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.promptsAnswered).toBe(result.totalPrompts)
+    expect(result.transcript).toContain("pty-test-token")
+    expect(result.transcript).toContain("Done.")
+  })
+
+  it("writes the token to .env with --dir", async () => {
+    const { vaultDir, configDir } = createPtyWorkDir()
+    const { url, server } = await startSigninServer("pty-dir-token")
+    onTestFinished(() => {
+      server.close()
+    })
+
+    mkdirSync(configDir, { recursive: true })
+    writeFileSync(
+      join(configDir, ".env"),
+      "MCP_AUTH_TOKEN=test-token\nOBSIDIAN_AUTH_TOKEN=\nVAULT_NAME=TestVault\nPUBLIC_URL=http://localhost:8000\n",
+    )
+
+    const prompts: PtyPrompt[] = [
+      {
+        match: "Obsidian account email",
+        send: "user@example.com\r",
+        label: "email",
+      },
+      { match: "Password", send: "secret123\r", label: "password" },
+    ]
+
+    const result = await drivePty({
+      args: ["get-sync-token", "--dir", configDir],
+      workDir: vaultDir,
+      prompts,
+      env: { OBSIDIAN_SIGNIN_URL: url },
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.promptsAnswered).toBe(result.totalPrompts)
+    expect(result.transcript).toContain("Token written to")
+    expect(result.transcript).toContain("Done.")
+
+    const envContent = readFileSync(join(configDir, ".env"), "utf8")
+    expect(envContent).toContain("OBSIDIAN_AUTH_TOKEN=pty-dir-token")
   })
 })
 
