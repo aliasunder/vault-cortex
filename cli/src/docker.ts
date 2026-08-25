@@ -45,54 +45,6 @@ export type DockerRunner = {
    * process's exit code once the stream ends.
    */
   streamLogs: (params: DockerLogsParams) => Promise<number>
-  /** Runs the Obsidian login with a volume mount for token auto-capture. */
-  runObsidianLogin: (configMountPath: string) => boolean
-}
-
-export type ObsidianLoginArgParams = {
-  configMountPath: string
-  /** Defaults to process.platform. */
-  platform?: NodeJS.Platform
-  /** Host UID for --user flag on Linux. */
-  uid?: number
-  /** Host GID for --user flag on Linux. */
-  gid?: number
-}
-
-/**
- * Builds the `docker run` args for the Obsidian login with a volume mount
- * that captures the auth token file. Runs `ob login` directly instead of
- * the image's get-sync-token script: the script's additions are locating and
- * printing the token, and the mount makes both unnecessary — the CLI reads
- * the token file itself, and not echoing a credential keeps it out of
- * terminal scrollback. Pure function for testability.
- *
- * On Linux, includes `--user uid:gid` when uid/gid are provided — Node
- * exposes process.getuid/getgid on every POSIX platform, so in practice the
- * flag is always set there — keeping the token file host-user-owned. macOS
- * Docker Desktop translates UIDs automatically, so no flag is needed.
- */
-export const buildObsidianLoginArgs = (
-  params: ObsidianLoginArgParams,
-): string[] => {
-  const { configMountPath, platform = process.platform, uid, gid } = params
-
-  const args = [
-    "run",
-    "--rm",
-    "-it",
-    "--entrypoint",
-    "ob",
-    "-v",
-    `${configMountPath}:/home/obsidian/.config`,
-  ]
-
-  if (platform === "linux" && uid !== undefined && gid !== undefined) {
-    args.push("--user", `${uid}:${gid}`)
-  }
-
-  args.push(REMOTE_IMAGE, "login")
-  return args
 }
 
 /**
@@ -205,10 +157,7 @@ export const createDockerRunner = (): DockerRunner => ({
   // stdout is discarded: `docker run -d` prints only the container ID there,
   // which lands as a raw hex line between the wizard's prompts. stderr stays
   // inherited — image-pull progress and error output print live, which the
-  // "see output above" failure messages rely on. stdin is ignored on purpose:
-  // buildDockerRunArgs always runs detached (never -it), and the prompt
-  // library owns the terminal's stdin — interactive flows go through
-  // runObsidianLogin, which inherits all three streams.
+  // "see output above" failure messages rely on.
   dockerRun: (params) =>
     spawnSync("docker", buildDockerRunArgs(params), {
       stdio: ["ignore", "ignore", "inherit"],
@@ -248,16 +197,6 @@ export const createDockerRunner = (): DockerRunner => ({
       // convention for ctrl-C (128 + SIGINT = 130).
       child.once("close", (code) => resolveExitCode(code ?? 130))
     }),
-  runObsidianLogin: (configMountPath) =>
-    spawnSync(
-      "docker",
-      buildObsidianLoginArgs({
-        configMountPath,
-        uid: process.getuid?.(),
-        gid: process.getgid?.(),
-      }),
-      { stdio: "inherit" },
-    ).status === 0,
 })
 
 /** Default bound on a single health request (shared by probe and poll). */

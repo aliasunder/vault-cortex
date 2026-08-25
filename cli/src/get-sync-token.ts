@@ -1,12 +1,5 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
-import type { DockerRunner } from "./docker.js"
-import {
-  buildDaemonNotRunningMessage,
-  buildDockerNotInstalledMessage,
-} from "./messages.js"
 import type { Prompts } from "./prompts.js"
 import { patchEnvObsidianToken } from "./scaffold.js"
 import { expandTilde } from "./vault.js"
@@ -17,134 +10,150 @@ export type GetSyncTokenFlags = {
 
 export type GetSyncTokenDeps = {
   prompts: Prompts
-  docker: DockerRunner
+  fetchFn: typeof fetch
 }
 
-/** Message from an unknown throw — Error instances keep their message. */
+const OBSIDIAN_SIGNIN_URL =
+  process.env.OBSIDIAN_SIGNIN_URL ?? "https://api.obsidian.md/user/signin"
+const SIGNIN_TIMEOUT_MS = 30_000
+
 const describeError = (error: unknown): string =>
   error instanceof Error ? error.message : String(error)
 
+class ObsidianApiError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "ObsidianApiError"
+  }
+}
+
+const isJsonObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
+
 /**
- * Creates the temp dir the container's config mount writes into.
- * Returns undefined (after warning) when creation fails.
+ * Calls the Obsidian Sync signin API. Returns the parsed JSON on success,
+ * or throws on HTTP/network errors. The API returns { error: string } for
+ * auth failures (200 with an error field), and non-200 for server errors.
  */
-const makeTempMountDir = (prompts: Prompts): string | undefined => {
+const callSigninApi = async (
+  params: { email: string; password: string; mfa: string },
+  fetchFn: typeof fetch,
+): Promise<string> => {
+  const response = await fetchFn(OBSIDIAN_SIGNIN_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://obsidian.md",
+    },
+    body: JSON.stringify({
+      email: params.email,
+      password: params.password,
+      mfa: params.mfa,
+    }),
+    signal: AbortSignal.timeout(SIGNIN_TIMEOUT_MS),
+  })
+
+  if (!response.ok) throw new Error(`HTTP Error ${response.status}`)
+
   try {
-    return mkdtempSync(join(tmpdir(), "vault-cortex-sync-token-"))
+    const body = await response.json()
+    if (!isJsonObject(body)) throw new Error("not a JSON object")
+    if (typeof body.error === "string") throw new ObsidianApiError(body.error)
+    if (typeof body.token !== "string" || !body.token)
+      throw new Error("no token field")
+
+    return body.token
   } catch (error) {
-    prompts.warn(
-      `Could not create a temp directory for token capture — ${describeError(error)}`,
+    if (error instanceof ObsidianApiError) throw error
+    throw new Error(
+      `Unexpected response from Obsidian API (${describeError(error)})`,
+      { cause: error },
     )
-    return undefined
   }
 }
 
 /**
- * Runs the interactive Obsidian login container. A throw from the Docker
- * runner is reported and treated the same as a non-zero exit.
+ * Warns the user about a signin failure with a message tailored to the
+ * error type. Called by both the initial signin and MFA retry paths.
  */
-const runLoginContainer = (
-  configMountPath: string,
-  deps: GetSyncTokenDeps,
-): boolean => {
-  const { docker, prompts } = deps
-  try {
-    return docker.runObsidianLogin(configMountPath)
-  } catch (error) {
-    prompts.warn(`Docker run failed — ${describeError(error)}`)
-    return false
-  }
-}
-
-/**
- * Reads the captured token file from the config mount. Returns undefined
- * when the file is missing, empty, or unreadable — the caller treats all
- * three as "no token captured".
- */
-const readCapturedTokenFile = (configMountPath: string): string | undefined => {
-  const tokenPath = join(configMountPath, "obsidian-headless", "auth_token")
-  try {
-    if (!existsSync(tokenPath)) return undefined
-    const token = readFileSync(tokenPath, "utf8").trim()
-    return token || undefined
-  } catch {
-    return undefined
-  }
-}
-
-/**
- * Best-effort removal of the temp mount dir. Failing to remove it (e.g.
- * root-owned files left by the container) must not turn a successful
- * capture into a failure, so it warns instead of throwing.
- */
-const removeTempMountDir = (
-  configMountPath: string,
+const warnSigninError = (
+  error: unknown,
   prompts: Prompts,
+  isMfaRetry: boolean,
 ): void => {
-  try {
-    rmSync(configMountPath, { recursive: true, force: true })
-  } catch (error) {
+  if (error instanceof Error && error.name === "TimeoutError") {
     prompts.warn(
-      `Could not remove temp directory ${configMountPath} — ${describeError(error)}`,
+      "Request timed out — check your internet connection and try again.",
     )
+    return
   }
+
+  const isMfaError =
+    error instanceof ObsidianApiError && error.message.includes("2FA code")
+  const mfaHint =
+    isMfaRetry && isMfaError ? "\n  Check your 2FA code and try again." : ""
+
+  prompts.warn(`Could not sign in: ${describeError(error)}${mfaHint}`)
 }
 
 /**
- * Runs the Obsidian login (`ob login`) inside a Docker container with a
- * volume mount that captures the auth token file. The interactive login
- * (email, password, MFA) shows in the terminal, but the resulting token is
- * read from the mounted config dir — never printed, so it stays out of
- * terminal scrollback.
- *
- * tokenDestinationMessage finishes the handoff message by telling the user
- * where the captured token ends up — the destination differs per flow
- * (init stores it in the generated .env; the subcommand prints it, or
- * writes it to an existing .env with --dir).
- *
- * Returns the token string on success, undefined on any failure — each
- * fallible operation is wrapped individually by the helpers above, so no
- * catch-all is needed here. The bare try/finally only scopes the temp dir
- * (acquire → release); it has no catch and swallows nothing.
+ * Signs in to the user's Obsidian account via the Sync API and returns
+ * the auth token. Prompts for email, password, and MFA code (when 2FA
+ * is enabled). Returns the token on success, undefined on any failure.
  */
-export const captureObsidianToken = (
+export const captureObsidianToken = async (
   deps: GetSyncTokenDeps,
-  tokenDestinationMessage: string,
-): string | undefined => {
-  const { prompts } = deps
-  const configMountPath = makeTempMountDir(prompts)
-  if (!configMountPath) return undefined
+): Promise<string | undefined> => {
+  const { prompts, fetchFn } = deps
+
+  const email = await prompts.text("Obsidian account email:", {
+    placeholder: "you@example.com",
+  })
+  const password = await prompts.password("Password:")
+
+  const spinner = prompts.spinner()
+  spinner.start("Signing in to Obsidian...")
 
   try {
-    prompts.log(
-      "Handing the terminal to the Obsidian login — it will ask for your " +
-        `account email, password, and MFA code. ${tokenDestinationMessage}`,
-    )
-    const loginSucceeded = runLoginContainer(configMountPath, deps)
-    if (!loginSucceeded) {
-      prompts.warn(
-        "The Obsidian login did not complete — you can run it later with:\n" +
-          "  npx vault-cortex@latest get-sync-token",
-      )
-      return undefined
-    }
-    const token = readCapturedTokenFile(configMountPath)
-    if (!token) {
-      prompts.warn(
-        "The Obsidian login finished, but no token was captured — the " +
-          "token file was missing, empty, or unreadable. You can retry with:\n" +
-          "  npx vault-cortex@latest get-sync-token",
-      )
-      return undefined
-    }
+    const token = await callSigninApi({ email, password, mfa: "" }, fetchFn)
+    spinner.stop(`Signed in as ${email}.`)
     return token
-  } finally {
-    removeTempMountDir(configMountPath, prompts)
+  } catch (error) {
+    // MFA required: the API returns an error containing "2FA code" — prompt
+    // and retry. "2FA code is incorrect" is a wrong-code rejection, not a
+    // prompt-for-code signal. Mirrors the obsidian-headless v0.0.14 logic.
+    const needsMfa =
+      error instanceof ObsidianApiError &&
+      error.message.includes("2FA code") &&
+      !error.message.includes("2FA code is incorrect")
+
+    if (!needsMfa) {
+      spinner.stop("Sign-in failed.")
+      warnSigninError(error, prompts, false)
+      return undefined
+    }
+
+    spinner.stop("Two-factor authentication required.")
+    const mfaCode = await prompts.text("2FA code:")
+
+    spinner.start("Verifying...")
+    try {
+      const token = await callSigninApi(
+        { email, password, mfa: mfaCode },
+        fetchFn,
+      )
+      spinner.stop(`Signed in as ${email}.`)
+      return token
+    } catch (retryError) {
+      spinner.stop("Sign-in failed.")
+      warnSigninError(retryError, prompts, true)
+      return undefined
+    }
   }
 }
 
 /**
- * Subcommand entry: generate an Obsidian Sync token via Docker.
+ * Subcommand entry: generate an Obsidian Sync token via the Obsidian API.
  * Without --dir, prints the token to stdout.
  * With --dir, writes it directly to `<dir>/.env`.
  */
@@ -152,37 +161,19 @@ export const runGetSyncToken = async (
   flags: GetSyncTokenFlags,
   deps: GetSyncTokenDeps,
 ): Promise<number> => {
-  const { prompts, docker } = deps
-
-  const daemonStatus = docker.daemonStatus()
-  if (daemonStatus !== "running") {
-    prompts.error(
-      daemonStatus === "not-installed"
-        ? buildDockerNotInstalledMessage({ nextStep: "\nThen try again." })
-        : buildDaemonNotRunningMessage(" and try again."),
-    )
-    return 1
-  }
+  const { prompts } = deps
 
   prompts.intro("vault-cortex get-sync-token")
 
-  // Resolve the destination up front so the login handoff message can tell
-  // the user where the token will end up.
-  const envFilePath = flags.dir
-    ? join(resolve(expandTilde(flags.dir)), ".env")
-    : undefined
-  const tokenDestinationMessage = envFilePath
-    ? `The token is captured automatically and written to ${envFilePath}.`
-    : "The token is captured automatically and printed at the end."
-
-  const token = captureObsidianToken(
-    { docker, prompts },
-    tokenDestinationMessage,
-  )
+  const token = await captureObsidianToken(deps)
   if (!token) {
     prompts.error("Could not capture the auth token.")
     return 1
   }
+
+  const envFilePath = flags.dir
+    ? join(resolve(expandTilde(flags.dir)), ".env")
+    : undefined
 
   if (!envFilePath) {
     prompts.log("Your OBSIDIAN_AUTH_TOKEN:")
@@ -199,7 +190,10 @@ export const runGetSyncToken = async (
     )
     return 1
   }
-  prompts.log(`Token written to ${envFilePath}`)
+  prompts.log(
+    `Token written to ${envFilePath}\n\n` +
+      `Start the server:\n  npx vault-cortex start --dir "${flags.dir}"`,
+  )
   prompts.outro("Done.")
   return 0
 }

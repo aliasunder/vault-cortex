@@ -152,6 +152,21 @@ export const patchEnvObsidianToken = (
 }
 
 /**
+ * Reads the OBSIDIAN_AUTH_TOKEN value from an existing .env file. Returns
+ * undefined when the file is missing, has no active line, or the value is
+ * empty — an empty `OBSIDIAN_AUTH_TOKEN=` line is not a valid token.
+ */
+export const readEnvObsidianToken = (
+  envFilePath: string,
+): string | undefined => {
+  if (!existsSync(envFilePath)) return undefined
+  const match = /^OBSIDIAN_AUTH_TOKEN=(.+)$/m.exec(
+    readFileSync(envFilePath, "utf8"),
+  )
+  return match?.[1].trim() || undefined
+}
+
+/**
  * Strips surrounding quotes from env values in the file. `docker run
  * --env-file` passes quotes literally (`VAULT_NAME="My Vault"` becomes
  * the value `"My Vault"` with embedded quotes), while Compose strips

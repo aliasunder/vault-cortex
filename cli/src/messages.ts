@@ -62,7 +62,7 @@ const dockerInstallLine = (platform: NodeJS.Platform): string => {
 /**
  * "No runtime at all" guidance — distinct from the daemon-stopped message so
  * the user isn't told to start something that isn't installed. platform is a
- * defaulted param (mirroring buildObsidianLoginArgs) so each branch stays
+ * defaulted param so each branch stays
  * testable; `nextStep` is appended verbatim, as in
  * buildDaemonNotRunningMessage.
  */

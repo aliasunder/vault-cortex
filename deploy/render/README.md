@@ -41,24 +41,33 @@ your computer — once, before you click the button.
 
 1. **Open a terminal.** macOS: **Applications → Utilities → Terminal**.
    Windows: search the Start menu for **Terminal** (or **PowerShell**).
-2. **Install and open Docker Desktop** if you don't have it: download it
-   from [docker.com](https://www.docker.com/products/docker-desktop/) and
-   run the installer. The login runs inside a throwaway container, so Docker
-   has to be running.
+2. **Check that Node.js is installed** (version 20.12 or later):
+   ```bash
+   node -v
+   ```
+   If Node.js is missing, install it from [nodejs.org](https://nodejs.org/).
 3. **Paste this line and press Enter:**
 
    ```bash
-   docker run --rm -it --entrypoint get-sync-token ghcr.io/aliasunder/vault-cortex:remote
+   npx vault-cortex@latest get-sync-token
    ```
 
    It asks for your Obsidian account email, password, and two-factor code
-   (if you use one), prints the token, and exits. Nothing is installed
-   permanently.
+   (if you use one), then prints the token.
 
 4. **Copy the token.** The deploy form asks for it as `OBSIDIAN_AUTH_TOKEN`.
 
-Already have Node.js? `npx vault-cortex@latest get-sync-token` does the same
-(Docker still has to be running).
+<details>
+<summary><strong>Don't have Node.js?</strong></summary>
+
+Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+and run the login in a throwaway container instead:
+
+```bash
+docker run --rm -it --entrypoint get-sync-token ghcr.io/aliasunder/vault-cortex:remote
+```
+
+</details>
 
 ## Deploy
 

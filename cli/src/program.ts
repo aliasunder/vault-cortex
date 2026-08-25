@@ -132,7 +132,7 @@ export const buildProgram = (options: ProgramOptions): Command => {
   program
     .command("get-sync-token")
     .description(
-      "Generate an Obsidian Sync auth token via Docker and print it or write it to .env",
+      "Sign in to your Obsidian account and print the Sync auth token, or write it to .env",
     )
     .option(
       "--dir <path>",
