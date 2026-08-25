@@ -37,7 +37,7 @@ const isJsonObject = (value: unknown): value is Record<string, unknown> =>
 const callSigninApi = async (
   params: { email: string; password: string; mfa: string },
   fetchFn: typeof fetch,
-): Promise<{ token: string; name: string; email: string }> => {
+): Promise<string> => {
   const response = await fetchFn(OBSIDIAN_SIGNIN_URL, {
     method: "POST",
     headers: {
@@ -61,11 +61,7 @@ const callSigninApi = async (
     if (typeof body.token !== "string" || !body.token)
       throw new Error("no token field")
 
-    return {
-      token: body.token,
-      name: typeof body.name === "string" ? body.name : "",
-      email: typeof body.email === "string" ? body.email : "",
-    }
+    return body.token
   } catch (error) {
     if (error instanceof ObsidianApiError) throw error
     throw new Error(
@@ -124,9 +120,9 @@ export const captureObsidianToken = async (
   spinner.start("Signing in to Obsidian...")
 
   try {
-    const result = await callSigninApi({ email, password, mfa: "" }, fetchFn)
-    spinner.stop(`Signed in as ${result.name} (${result.email}).`)
-    return result.token
+    const token = await callSigninApi({ email, password, mfa: "" }, fetchFn)
+    spinner.stop(`Signed in as ${email}.`)
+    return token
   } catch (error) {
     // MFA required: the API returns an error containing "2FA code" — prompt
     // and retry. "2FA code is incorrect" is a wrong-code rejection, not a
@@ -147,12 +143,12 @@ export const captureObsidianToken = async (
 
     spinner.start("Verifying...")
     try {
-      const result = await callSigninApi(
+      const token = await callSigninApi(
         { email, password, mfa: mfaCode },
         fetchFn,
       )
-      spinner.stop(`Signed in as ${result.name} (${result.email}).`)
-      return result.token
+      spinner.stop(`Signed in as ${email}.`)
+      return token
     } catch (retryError) {
       spinner.stop("Sign-in failed.")
       warnSigninError(retryError, prompts, true)

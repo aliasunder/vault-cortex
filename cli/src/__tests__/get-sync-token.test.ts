@@ -7,13 +7,9 @@ import { captureObsidianToken, runGetSyncToken } from "../get-sync-token.js"
 import { createScriptedPrompts } from "./command-stubs.js"
 
 /** Builds a mock fetch that returns a successful signin response. */
-const fetchSigninSuccess = (
-  token = "test-sync-token",
-  name = "Test User",
-  email = "test@example.com",
-): typeof fetch =>
+const fetchSigninSuccess = (token = "test-sync-token"): typeof fetch =>
   (async () =>
-    new Response(JSON.stringify({ token, name, email }), {
+    new Response(JSON.stringify({ token }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     })) as typeof fetch
@@ -71,11 +67,7 @@ const fetchJsonNonObject = (): typeof fetch =>
  * Builds a mock fetch that requires MFA: first call returns the "2FA code"
  * error, second call with a valid MFA code succeeds.
  */
-const fetchMfaRequired = (
-  token = "mfa-sync-token",
-  name = "MFA User",
-  email = "mfa@example.com",
-): typeof fetch => {
+const fetchMfaRequired = (token = "mfa-sync-token"): typeof fetch => {
   let callCount = 0
   return (async () => {
     callCount += 1
@@ -85,7 +77,7 @@ const fetchMfaRequired = (
         { status: 200, headers: { "Content-Type": "application/json" } },
       )
     }
-    return new Response(JSON.stringify({ token, name, email }), {
+    return new Response(JSON.stringify({ token }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     })
@@ -122,17 +114,13 @@ describe("captureObsidianToken", () => {
 
     const token = await captureObsidianToken({
       prompts: scripted.prompts,
-      fetchFn: fetchSigninSuccess(
-        "abc123-sync-token",
-        "Jane",
-        "user@example.com",
-      ),
+      fetchFn: fetchSigninSuccess("abc123-sync-token"),
     })
 
     expect(token).toBe("abc123-sync-token")
     expect(scripted.spinnerMessages).toEqual([
       "start: Signing in to Obsidian...",
-      "stop: Signed in as Jane (user@example.com).",
+      "stop: Signed in as user@example.com.",
     ])
   })
 
@@ -145,7 +133,7 @@ describe("captureObsidianToken", () => {
 
     const token = await captureObsidianToken({
       prompts: scripted.prompts,
-      fetchFn: fetchMfaRequired("mfa-token", "MFA User", "mfa@example.com"),
+      fetchFn: fetchMfaRequired("mfa-token"),
     })
 
     expect(token).toBe("mfa-token")
@@ -158,7 +146,7 @@ describe("captureObsidianToken", () => {
       "start: Signing in to Obsidian...",
       "stop: Two-factor authentication required.",
       "start: Verifying...",
-      "stop: Signed in as MFA User (mfa@example.com).",
+      "stop: Signed in as mfa@example.com.",
     ])
   })
 
@@ -382,11 +370,7 @@ describe("runGetSyncToken subcommand", () => {
       {},
       {
         prompts: scripted.prompts,
-        fetchFn: fetchSigninSuccess(
-          "my-sync-token",
-          "User",
-          "user@example.com",
-        ),
+        fetchFn: fetchSigninSuccess("my-sync-token"),
       },
     )
 
