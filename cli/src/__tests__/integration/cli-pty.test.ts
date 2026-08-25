@@ -320,6 +320,7 @@ describe("get-sync-token", () => {
     expect(result.exitCode).toBe(0)
     expect(result.promptsAnswered).toBe(result.totalPrompts)
     expect(result.transcript).toContain("Token written to")
+    expect(result.transcript).toContain("npx vault-cortex start")
     expect(result.transcript).toContain("Done.")
 
     const envContent = readFileSync(join(configDir, ".env"), "utf8")

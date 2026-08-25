@@ -195,6 +195,9 @@ export const runGetSyncToken = async (
     return 1
   }
   prompts.log(`Token written to ${envFilePath}`)
+  prompts.log(
+    `Start the server:\n  npx vault-cortex start --dir "${flags.dir}"`,
+  )
   prompts.outro("Done.")
   return 0
 }

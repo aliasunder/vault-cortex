@@ -420,6 +420,9 @@ describe("runGetSyncToken subcommand", () => {
     expect(scripted.logs).toContain(
       `Token written to ${join(targetDir, ".env")}`,
     )
+    expect(scripted.logs).toContain(
+      `Start the server:\n  npx vault-cortex start --dir "${targetDir}"`,
+    )
   })
 
   it("exits 1 when --dir .env has no OBSIDIAN_AUTH_TOKEN line", async () => {
