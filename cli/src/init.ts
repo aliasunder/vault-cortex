@@ -453,8 +453,8 @@ const runRemoteInit = async (
   // the "run get-sync-token later" guidance when neither source has a token.
   const capturedToken = await offerSyncTokenCapture(prompts, fetchFn)
   const existingEnvToken = readEnvObsidianToken(join(targetDir, ".env"))
-  const obsidianAuthToken = capturedToken ?? existingEnvToken ?? ""
-  if (!obsidianAuthToken) {
+  const hasExistingToken = Boolean(capturedToken ?? existingEnvToken)
+  if (!hasExistingToken) {
     prompts.log(
       "No token yet — run this later to add it:\n" +
         `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
@@ -479,7 +479,7 @@ const runRemoteInit = async (
   const defaultEnvContent = buildRemoteEnv({
     mcpAuthToken: token,
     publicUrl,
-    obsidianAuthToken,
+    obsidianAuthToken: capturedToken ?? existingEnvToken,
     vaultName,
     vaultPassword,
   })
@@ -516,10 +516,9 @@ const runRemoteInit = async (
 
   // Without the sync token the container can't start (init-check-auth fails
   // and s6 stops it), so only offer docker run when it was provided.
-  const startStatus: StartStatus =
-    obsidianAuthToken === ""
-      ? "not-started"
-      : await offerDockerRun({ targetDir, port, mode: "remote" }, deps)
+  const startStatus: StartStatus = !hasExistingToken
+    ? "not-started"
+    : await offerDockerRun({ targetDir, port, mode: "remote" }, deps)
   // The container check above hit localhost on this machine; the public URL
   // is the ingress path clients actually use — probe it too, informationally.
   if (startStatus === "running") {
@@ -534,7 +533,7 @@ const runRemoteInit = async (
       token,
       publicUrl: effectivePublicUrl,
       startStatus,
-      obsidianTokenMissing: obsidianAuthToken === "",
+      obsidianTokenMissing: !hasExistingToken,
       tokenWritten,
     }),
   )
