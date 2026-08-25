@@ -83,6 +83,28 @@
 
 
 
+
+## [0.42.1] — 2026-08-25
+
+### Features
+
+- **cli:** Replace Docker-based get-sync-token with native Obsidian API call (#492)
+
+### Bug Fixes
+
+- **cli:** Strip quoted values from .env before docker run (#491)
+
+### Documentation
+
+- Align descriptions with one-click deploy positioning; add DAILY_NOTES env vars (#487)
+- Update CHANGELOG.md for v0.42.0
+
+### Maintenance
+
+- Add 30m job timeout to umm-review workflow (#493)
+- Replace CLAUDE.md with symlink to AGENTS.md (#489)
+- Sync code standards from vault (#488)
+
 ## [0.42.0] — 2026-08-24
 
 ### ⚠ BREAKING CHANGES
