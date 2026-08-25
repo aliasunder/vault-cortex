@@ -25,6 +25,7 @@ import {
 } from "./optional-settings.js"
 import {
   buildFilesToWrite,
+  readEnvObsidianToken,
   readEnvPort,
   readEnvPublicUrl,
   stripEnvQuotedValues,
@@ -447,10 +448,12 @@ const runRemoteInit = async (
   const vaultName = await askVaultName(prompts)
 
   // Sign in to Obsidian and capture the Sync token directly via the API.
-  // When the user declines or capture fails, the token is left blank in .env
-  // and get-sync-token can fill it in later.
-  const obsidianAuthToken =
-    (await offerSyncTokenCapture(prompts, fetchFn)) ?? ""
+  // When the user declines or capture fails, fall back to any token already
+  // in the on-disk .env (a re-init over an existing deployment). Only show
+  // the "run get-sync-token later" guidance when neither source has a token.
+  const capturedToken = await offerSyncTokenCapture(prompts, fetchFn)
+  const existingEnvToken = readEnvObsidianToken(join(targetDir, ".env"))
+  const obsidianAuthToken = capturedToken ?? existingEnvToken ?? ""
   if (!obsidianAuthToken) {
     prompts.log(
       "No token yet — run this later to add it:\n" +

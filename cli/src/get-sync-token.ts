@@ -87,12 +87,10 @@ const warnSigninError = (
     return
   }
 
+  const isMfaError =
+    error instanceof ObsidianApiError && error.message.includes("2FA code")
   const mfaHint =
-    isMfaRetry &&
-    error instanceof ObsidianApiError &&
-    error.message.includes("2FA code")
-      ? "\n  Check your 2FA code and try again."
-      : ""
+    isMfaRetry && isMfaError ? "\n  Check your 2FA code and try again." : ""
 
   prompts.warn(`Could not sign in: ${describeError(error)}${mfaHint}`)
 }

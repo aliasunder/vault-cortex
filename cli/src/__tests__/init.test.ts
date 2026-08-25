@@ -686,7 +686,7 @@ describe("runInit remote flow", () => {
     // Signin spinner from auto-capture, then container health, then URL probe.
     expect(scripted.spinnerMessages).toEqual([
       "start: Signing in to Obsidian...",
-      "stop: Signed in as User (user@example.com).",
+      "stop: Signed in as user@example.com.",
       "start: Waiting for the server to come up (first run may take a moment)",
       "stop: Server is up — health check passed.",
       "start: Checking the public URL (https://vault.example.com/healthz)",
