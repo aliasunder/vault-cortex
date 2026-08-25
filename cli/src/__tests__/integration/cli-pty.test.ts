@@ -175,18 +175,12 @@ describe("init remote", () => {
         send: "n\r",
         label: "auto-capture → no",
       },
-      {
-        match: "Paste the Obsidian Sync token",
-        send: "fake-sync-token-abc123\r",
-        label: "paste token",
-      },
       { match: "end-to-end encryption", send: "n\r", label: "E2E → no" },
       {
         match: "Any optional settings",
         send: "\r",
         label: "optional settings → skip",
       },
-      { match: "Start the server now", send: "n\r", label: "start → no" },
     ]
 
     const result = await drivePty({
@@ -198,11 +192,12 @@ describe("init remote", () => {
     expect(result.exitCode).toBe(0)
     expect(result.promptsAnswered).toBe(result.totalPrompts)
     expect(result.transcript).toContain("Done.")
+    expect(result.transcript).toContain("No token yet")
 
     const envContent = readFileSync(join(configDir, ".env"), "utf8")
     expect(envContent).toContain("PUBLIC_URL=https://vault.example.com")
     expect(envContent).toContain("VAULT_NAME=MyVault")
-    expect(envContent).toContain("OBSIDIAN_AUTH_TOKEN=fake-sync-token-abc123")
+    expect(envContent).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
   })
 })
 
