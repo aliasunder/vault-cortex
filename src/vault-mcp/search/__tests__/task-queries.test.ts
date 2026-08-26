@@ -108,6 +108,8 @@ describe("task indexing lifecycle", () => {
       depends_on: [],
       tags: [],
       block_id: "fix-login",
+      depth: 0,
+      parent_block_id: null,
       is_kanban_task: true,
       lane: "Active",
       done_lanes: null,
@@ -149,6 +151,8 @@ describe("task indexing lifecycle", () => {
       depends_on: ["id-1", "id-2"],
       tags: ["home", "home/kitchen"],
       block_id: null,
+      depth: 0,
+      parent_block_id: null,
       is_kanban_task: false,
       lane: null,
       done_lanes: null,
@@ -1292,5 +1296,139 @@ describe("comment block exclusion", () => {
       "Visible task",
       "Also visible",
     ])
+  })
+
+  // ── Depth and parent tracking through the index ────────────────
+
+  it("indexes depth and parent_block_id for nested tasks", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "tasks.md",
+        rawContent: [
+          "- [ ] Parent task ^parent",
+          "  - [ ] Child task ^child",
+          "    - [ ] Grandchild ^grandchild",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = index.listTasks({ sortBy: "position" }, logger)
+    expect(result.total).toBe(3)
+
+    const parentTask = result.tasks.find((task) => task.block_id === "parent")
+    expect(parentTask).toBeDefined()
+    expect(parentTask!.depth).toBe(0)
+    expect(parentTask!.parent_block_id).toBeNull()
+
+    const childTask = result.tasks.find((task) => task.block_id === "child")
+    expect(childTask).toBeDefined()
+    expect(childTask!.depth).toBe(1)
+    expect(childTask!.parent_block_id).toBe("parent")
+
+    const grandchildTask = result.tasks.find(
+      (task) => task.block_id === "grandchild",
+    )
+    expect(grandchildTask).toBeDefined()
+    expect(grandchildTask!.depth).toBe(2)
+    expect(grandchildTask!.parent_block_id).toBe("child")
+  })
+
+  it("parent_block_id is null when the parent has no block_id", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "tasks.md",
+        rawContent: ["- [ ] Parent without id", "  - [ ] Child ^child"].join(
+          "\n",
+        ),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = index.listTasks({ sortBy: "position" }, logger)
+    const childTask = result.tasks.find((task) => task.block_id === "child")
+    expect(childTask).toBeDefined()
+    expect(childTask!.depth).toBe(1)
+    expect(childTask!.parent_block_id).toBeNull()
+  })
+
+  it("heading boundary resets parent tracking in the index", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "board.md",
+        rawContent: [
+          "---",
+          "kanban-plugin: board",
+          "---",
+          "## Active",
+          "",
+          "- [ ] Task A ^task-a",
+          "  - [ ] Sub-A ^sub-a",
+          "",
+          "## Up Next",
+          "",
+          "- [ ] Task B ^task-b",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = index.listTasks({ sortBy: "position" }, logger)
+    const taskB = result.tasks.find((task) => task.block_id === "task-b")
+    expect(taskB).toBeDefined()
+    expect(taskB!.depth).toBe(0)
+    expect(taskB!.parent_block_id).toBeNull()
+  })
+
+  // ── top_level_only filter ──────────────────────────────────────
+
+  it("top_level_only: true excludes sub-tasks", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "tasks.md",
+        rawContent: [
+          "- [ ] Top-level A ^top-a",
+          "  - [ ] Sub of A ^sub-a",
+          "- [ ] Top-level B ^top-b",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const allTasks = index.listTasks({ sortBy: "position" }, logger)
+    expect(allTasks.total).toBe(3)
+
+    const topOnly = index.listTasks(
+      { topLevelOnly: true, sortBy: "position" },
+      logger,
+    )
+    expect(topOnly.total).toBe(2)
+    expect(topOnly.tasks.map((task) => task.block_id)).toEqual([
+      "top-a",
+      "top-b",
+    ])
+  })
+
+  it("top_level_only: false (default) includes sub-tasks", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "tasks.md",
+        rawContent: ["- [ ] Parent ^parent", "  - [ ] Child ^child"].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = index.listTasks({ sortBy: "position" }, logger)
+    expect(result.total).toBe(2)
   })
 })

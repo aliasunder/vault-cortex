@@ -190,6 +190,8 @@ const versionATask = (): TaskEntry => ({
   depends_on: [],
   tags: [],
   block_id: null,
+  depth: 0,
+  parent_block_id: null,
   is_kanban_task: false,
   lane: null,
   done_lanes: null,

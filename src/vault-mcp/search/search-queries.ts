@@ -915,6 +915,7 @@ export const listTasks = (
     tag?: string | undefined
     heading?: string | string[] | undefined
     path?: string | undefined
+    topLevelOnly?: boolean | undefined
     limit?: number | undefined
     sortBy?: TaskSortKey | undefined
     sortDirection?: "asc" | "desc" | undefined
@@ -1035,6 +1036,10 @@ export const listTasks = (
     queryParams.push(params.path)
   }
 
+  if (params.topLevelOnly) {
+    conditions.push("t.depth = 0")
+  }
+
   const whereClause =
     conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""
 
@@ -1060,6 +1065,7 @@ export const listTasks = (
            t.created, t.scheduled, t.start, t.due, t.done, t.cancelled,
            t.priority, t.recurrence, t.on_completion, t.task_id, t.depends_on,
            t.tags, t.block_id, t.heading, t.folder,
+           t.depth, t.parent_line, t.parent_block_id,
            CASE WHEN json_extract(n.properties, '$.kanban-plugin') IS NOT NULL
                 THEN 1 ELSE 0 END AS is_kanban_task,
            n.kanban_done_lanes

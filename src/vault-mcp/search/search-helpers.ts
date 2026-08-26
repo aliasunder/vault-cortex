@@ -179,6 +179,8 @@ export const rowToTaskEntry = (row: TaskRow): TaskEntry => ({
   depends_on: parseStringArray(row.depends_on),
   tags: parseStringArray(row.tags),
   block_id: row.block_id,
+  depth: row.depth,
+  parent_block_id: row.parent_block_id,
   is_kanban_task: Boolean(row.is_kanban_task),
   lane: row.is_kanban_task ? row.heading : null,
   done_lanes: row.kanban_done_lanes
