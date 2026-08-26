@@ -35,8 +35,9 @@ const describeDisplacedLeadingContent = ({
   return `The ${bytes} bytes of pre-existing content above the note's first heading are now nested under the inserted heading. To add a section above the first heading without pulling existing content into it, use operation "insert_before" with heading "${firstHeading.text}" (H${firstHeading.level}).`
 }
 
-/** Enriches the static protectedPaths with the file-configured daily notes
- *  folder when PROTECTED_PATHS was not explicitly set. */
+/** Enriches the static protectedPaths with the resolved daily notes folder
+ *  (env → .obsidian/daily-notes.json → fallback) when PROTECTED_PATHS was
+ *  not explicitly set. */
 export const resolveEffectiveProtectedPaths = async (
   config: VaultConfig,
   vaultPath: string,
@@ -56,14 +57,14 @@ export const resolveEffectiveProtectedPaths = async (
 
 /** Human-readable protected-path list for tool descriptions. Lists the
  *  statically configured paths and, when PROTECTED_PATHS was not overridden,
- *  notes that the daily notes folder from the vault config is also protected. */
+ *  notes that the resolved daily notes folder is also protected. */
 const describeProtectedPaths = (config: VaultConfig): string => {
   const staticList = config.protectedPaths
     .map((protectedPath) => protectedPath + "/")
     .join(", ")
   const dailyNotesSuffix = config.protectedPathsOverridden
     ? ""
-    : ", and the daily notes folder from .obsidian/daily-notes.json if different"
+    : ", and the resolved daily notes folder (DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else Daily Notes) if not already listed"
   return staticList + dailyNotesSuffix
 }
 
