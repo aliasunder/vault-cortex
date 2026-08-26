@@ -1368,5 +1368,22 @@ describe("task-updater", () => {
         ),
       ).rejects.toThrow("description cannot be empty")
     })
+
+    it("errors on whitespace-only add_subtask", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "walk-dog",
+            addSubtask: "   ",
+          },
+          logger,
+        ),
+      ).rejects.toThrow("add_subtask cannot be empty")
+    })
   })
 })

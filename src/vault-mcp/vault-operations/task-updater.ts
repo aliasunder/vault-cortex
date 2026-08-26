@@ -514,6 +514,10 @@ const updateTask = async (
     throw new Error("description cannot be empty")
   }
 
+  if (addSubtask !== undefined && !addSubtask.trim()) {
+    throw new Error("add_subtask cannot be empty")
+  }
+
   const { fullPath } = await readNoteForUpdate(vaultPath, path)
 
   return withExclusiveFileLock(fullPath, async () => {
