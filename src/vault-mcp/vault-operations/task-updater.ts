@@ -172,15 +172,25 @@ const detectDoneLane = (
 }
 
 /** Extracts the human-readable description from a task line, stripping
- *  the checkbox prefix and trailing metadata (both emoji and Dataview
- *  formats). */
+ *  the checkbox prefix, trailing block_id, and metadata (both emoji and
+ *  Dataview formats). */
 const extractDescription = (taskLine: string): string => {
   const match = /\[.\] *(.*)$/.exec(taskLine)
   if (!match) return taskLine
   const body = match[1] ?? ""
-  const firstSignifier = body.search(tasks.FIRST_METADATA_SIGNIFIER_RE)
+  // Strip block_id before metadata search — a bare `^id` with no metadata
+  // signifiers would otherwise bleed into the description.
+  const blockLinkMatch = tasks.BLOCK_LINK_RE.exec(body)
+  const bodyWithoutBlock = blockLinkMatch
+    ? body.slice(0, blockLinkMatch.index)
+    : body
+  const firstSignifier = bodyWithoutBlock.search(
+    tasks.FIRST_METADATA_SIGNIFIER_RE,
+  )
   const description =
-    firstSignifier === -1 ? body : body.slice(0, firstSignifier)
+    firstSignifier === -1
+      ? bodyWithoutBlock
+      : bodyWithoutBlock.slice(0, firstSignifier)
   return description.trim()
 }
 

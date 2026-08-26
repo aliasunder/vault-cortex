@@ -768,12 +768,19 @@ const updateTaskLineDate = (params: {
   )
   const laterFields = DATE_FIELD_INFO.slice(fieldIndex + 1)
   for (const laterField of laterFields) {
-    if (laterField.inlineRegex.test(stripped)) {
-      const laterMatch = laterField.inlineRegex.exec(stripped)
-      if (laterMatch) {
-        const insertAt = laterMatch.index
-        return `${stripped.slice(0, insertAt)}${dateText} ${stripped.slice(insertAt)}`
-      }
+    const laterMatch = laterField.inlineRegex.exec(stripped)
+    if (laterMatch) {
+      const insertAt = laterMatch.index
+      return `${stripped.slice(0, insertAt)}${dateText} ${stripped.slice(insertAt)}`
+    }
+  }
+
+  // Check for task_id/depends_on fields that follow dates in the canonical
+  // ordering — insert before them to preserve field sequence.
+  for (const nonDateRe of [TASK_ID_INLINE_RE, DEPENDS_ON_INLINE_RE]) {
+    const nonDateMatch = nonDateRe.exec(stripped)
+    if (nonDateMatch) {
+      return `${stripped.slice(0, nonDateMatch.index)}${dateText} ${stripped.slice(nonDateMatch.index)}`
     }
   }
 
