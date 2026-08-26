@@ -189,16 +189,18 @@ const collapseBlankRuns = (body: string): string =>
  *  searching at or after `fromLine`. The match must be unique by default:
  *  throws a not-found error on no match, or an ambiguous error on more than
  *  one — unless `firstMatch` allows taking the first. `role` labels the error
- *  messages ("start"/"end") and notes the end anchor's restricted search. */
+ *  messages ("start"/"end") and notes the end anchor's restricted search;
+ *  omit it for a single-anchor tool where the qualifier would be misleading. */
 const resolveAnchorLine = (params: {
   lines: readonly string[]
   anchor: string
   fromLine: number
   firstMatch: boolean | undefined
   path: string
-  role: "start" | "end"
+  role?: "start" | "end"
 }): number => {
   const { lines, anchor, fromLine, firstMatch, path, role } = params
+  const anchorLabel = role ? `${role} anchor` : "anchor"
   const matchingLineIndices = lines.flatMap((line, index) =>
     index >= fromLine && line.includes(anchor) ? [index] : [],
   )
@@ -206,18 +208,18 @@ const resolveAnchorLine = (params: {
   const regionSuffix = role === "end" ? " at or after the start anchor" : ""
   if (matchingLineIndices.length === 0) {
     throw new Error(
-      `${role} anchor not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`,
+      `${anchorLabel} not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`,
     )
   }
   if (matchingLineIndices.length > 1 && !firstMatch) {
     throw new Error(
-      `ambiguous ${role} anchor in "${path}": "${truncateForMessage(anchor)}" matches ${matchingLineIndices.length} lines${regionSuffix}`,
+      `ambiguous ${anchorLabel} in "${path}": "${truncateForMessage(anchor)}" matches ${matchingLineIndices.length} lines${regionSuffix}`,
     )
   }
   const matchedIndex = matchingLineIndices[0]
   if (matchedIndex === undefined) {
     throw new Error(
-      `${role} anchor not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`,
+      `${anchorLabel} not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`,
     )
   }
   return matchedIndex
@@ -609,7 +611,6 @@ const insertAtAnchor = async (
       fromLine: 0,
       firstMatch,
       path,
-      role: "start",
     })
 
     const contentLines = content.split("\n")

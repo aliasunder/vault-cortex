@@ -3909,7 +3909,7 @@ after
         },
         logger,
       ),
-    ).rejects.toThrow('start anchor not found in "shopping.md"')
+    ).rejects.toThrow('anchor not found in "shopping.md"')
   })
 
   it("throws on ambiguous anchor", async () => {
@@ -3933,7 +3933,7 @@ duplicate
         },
         logger,
       ),
-    ).rejects.toThrow("ambiguous start anchor")
+    ).rejects.toThrow("ambiguous anchor")
   })
 
   it("uses first match when first_match is set", async () => {

@@ -501,7 +501,7 @@ describe("anchor errors", () => {
     })
     expectToolError(
       result,
-      'start anchor not found in "Projects/alpha.md": "this anchor does not exist anywhere in the file"',
+      'anchor not found in "Projects/alpha.md": "this anchor does not exist anywhere in the file"',
     )
   })
 })

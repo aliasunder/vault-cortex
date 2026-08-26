@@ -35,6 +35,7 @@ const describeDisplacedLeadingContent = ({
 
 export const registerVaultCrudTools = ({
   registerTool,
+  isToolEnabled,
   whenToolEnabledText,
   vaultPath,
   search,
@@ -646,7 +647,7 @@ Example: vault_delete_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | A
 Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes from the start anchor line through the end anchor line.
 
 When to use: Removing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.
-Prefer vault_replace_in_note for small in-place edits (this tool only deletes).${whenToolEnabledText("vault_replace_span", " Prefer vault_replace_span to replace a block in one atomic step.")} To replace a block without vault_replace_span, delete it here, then vault_patch_note to add the new content.
+Prefer vault_replace_in_note for small in-place edits (this tool only deletes).${isToolEnabled(TOOL_NAMES.VAULT_REPLACE_SPAN) ? " Prefer vault_replace_span to replace a block in one atomic step." : ""} To replace a block, ${isToolEnabled(TOOL_NAMES.VAULT_REPLACE_SPAN) ? "use vault_replace_span, or " : ""}delete it here, then vault_patch_note to add the new content.
 
 Parameters:
 - start_anchor + end_anchor define a line range, not a text range — each anchor locates a full line, and entire lines are removed (never cuts mid-line). Omit end_anchor for a single-line delete.
@@ -835,7 +836,7 @@ Parameters:
 Errors:
 - "note not found" — verify path with vault_list_notes
 - "anchor not found" — fragment not on any line; verify with vault_read_note
-- "ambiguous start anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
+- "ambiguous anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not editable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
