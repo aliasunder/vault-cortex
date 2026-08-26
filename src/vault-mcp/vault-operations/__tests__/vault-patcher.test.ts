@@ -3458,8 +3458,16 @@ after
     const updated = await readTestNote("seam.md")
     // The leading/trailing blank lines in content stack with surrounding blanks,
     // but collapseBlankRuns prevents 3+ consecutive blanks.
-    expect(updated).not.toMatch(/\n{4,}/)
-    expect(updated).toContain("new content")
+    expect(updated).toBe(`---
+title: Seam
+---
+
+before
+
+new content
+
+after
+`)
   })
 
   it("preserves frontmatter during replacement", async () => {
@@ -3474,7 +3482,18 @@ after
       logger,
     )
     const updated = await readTestNote("tracker.md")
-    expect(updated).toMatch(/^---\ntitle: Tracker\n---/)
+    expect(updated).toBe(`---
+title: Tracker
+---
+
+## History
+
+| Date | Company | Status |
+| --- | --- | --- |
+| 2026-05-01 | Acme Corp | Updated |
+| 2026-05-02 | Beta Inc | Interviewing |
+| 2026-05-03 | Gamma LLC | Rejected |
+`)
   })
 
   it("throws when start anchor is not found", async () => {
@@ -3505,7 +3524,9 @@ after
         },
         logger,
       ),
-    ).rejects.toThrow("at or after the start anchor")
+    ).rejects.toThrow(
+      'end anchor not found in "tracker.md" at or after the start anchor: "| 2026-05-01 |"',
+    )
   })
 
   it("throws on ambiguous start anchor", async () => {
@@ -3528,7 +3549,9 @@ duplicate line
         },
         logger,
       ),
-    ).rejects.toThrow("ambiguous start anchor")
+    ).rejects.toThrow(
+      'ambiguous start anchor in "ambiguous.md": "duplicate line" matches 2 lines',
+    )
   })
 
   it("uses first match when first_match is set on ambiguous anchor", async () => {
@@ -3552,9 +3575,76 @@ duplicate line beta
       logger,
     )
     const updated = await readTestNote("first.md")
-    expect(updated).toContain("replaced first")
-    expect(updated).toContain("unique middle")
-    expect(updated).toContain("duplicate line beta")
+    expect(updated).toBe(`---
+title: First
+---
+
+replaced first
+unique middle
+duplicate line beta
+`)
+  })
+
+  it("throws on ambiguous end anchor", async () => {
+    const content = `---
+title: EndAmbig
+---
+
+unique start
+repeated end
+other content
+repeated end
+`
+    await writeTestNote("endambig.md", content)
+    await expect(
+      replaceSpan(
+        {
+          vaultPath: vault,
+          path: "endambig.md",
+          startAnchor: "unique start",
+          endAnchor: "repeated end",
+          content: "replacement",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'ambiguous end anchor in "endambig.md": "repeated end" matches 2 lines at or after the start anchor',
+    )
+  })
+
+  it("uses first match when first_match is set on ambiguous end anchor", async () => {
+    const content = `---
+title: EndFirst
+---
+
+unique start
+repeated end alpha
+middle line
+repeated end beta
+trailing
+`
+    await writeTestNote("endfirst.md", content)
+    await replaceSpan(
+      {
+        vaultPath: vault,
+        path: "endfirst.md",
+        startAnchor: "unique start",
+        endAnchor: "repeated end",
+        content: "replaced block",
+        firstMatch: true,
+      },
+      logger,
+    )
+    const updated = await readTestNote("endfirst.md")
+    expect(updated).toBe(`---
+title: EndFirst
+---
+
+replaced block
+middle line
+repeated end beta
+trailing
+`)
   })
 
   it("throws when the note does not exist", async () => {
@@ -3864,7 +3954,17 @@ second line
       logger,
     )
     const updated = await readTestNote("shopping.md")
-    expect(updated).toMatch(/^---\ntitle: Shopping\n---/)
+    expect(updated).toBe(`---
+title: Shopping
+---
+
+## Items
+
+- Apples
+- Added item
+- Bananas
+- Cherries
+`)
   })
 
   it("does not collapse blank lines (insertion never creates gaps)", async () => {
@@ -3893,7 +3993,19 @@ after
     // Content "\nnew content\n" splits to ["", "new content", ""].
     // The trailing empty line stacks with the existing blank line before "after",
     // creating a 3-newline run — insert deliberately does NOT collapse it.
-    expect(updated).toContain("anchor line\n\nnew content\n\n\nafter")
+    expect(updated).toBe(`---
+title: Blanks
+---
+
+before
+
+anchor line
+
+new content
+
+
+after
+`)
   })
 
   it("throws when anchor is not found", async () => {
@@ -3933,7 +4045,9 @@ duplicate
         },
         logger,
       ),
-    ).rejects.toThrow("ambiguous anchor")
+    ).rejects.toThrow(
+      'ambiguous anchor in "dupes.md": "duplicate" matches 2 lines',
+    )
   })
 
   it("uses first match when first_match is set", async () => {
