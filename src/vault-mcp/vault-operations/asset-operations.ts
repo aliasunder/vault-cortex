@@ -359,7 +359,7 @@ const normalizeExtension = (extension: string): string => {
   return lowered.startsWith(".") ? lowered : `.${lowered}`
 }
 
-export type AssetListing = Readonly<{
+type AssetListing = Readonly<{
   assets: readonly Readonly<{
     path: string
     extension: string

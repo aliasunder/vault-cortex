@@ -53,6 +53,10 @@ jobs:
 
       - run: npm run lint
 
+      - run: npm run markdownlint
+
+      - run: npm run knip
+
       - run: npm test
 
       # sst.config.ts is part of the build's typecheck; its globals come from

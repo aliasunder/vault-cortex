@@ -212,4 +212,4 @@ const killHealthServer = (pidFile: string): void => {
 }
 
 export { drivePty, createPtyWorkDir, seedEnv, killHealthServer }
-export type { PtyPrompt, PtyOptions, PtyResult }
+export type { PtyPrompt }

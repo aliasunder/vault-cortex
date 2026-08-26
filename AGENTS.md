@@ -735,6 +735,17 @@ continue }` over `if/else if` chains — each branch is
   against the codebase first; curated exceptions over blanket bans;
   never adopt a rule that fights an established idiom; a justified
   `eslint-disable` + why-comment beats weakening the rule.
+- **knip** detects unused exports, types, dependencies, and files.
+  Runs in the pre-commit hook (after `tsc`, before `lint-staged`) and
+  in CI. Config in `knip.json`. When knip flags an export, remove
+  `export` rather than adding a knip ignore comment — the export was
+  genuinely dead.
+- **markdownlint** (`markdownlint-cli2`) enforces markdown structure
+  rules (blank lines around fences, fenced code language, no bare
+  URLs). Runs in lint-staged with `--fix` on staged `.md` files
+  (before Prettier) and in CI without `--fix`. Config in
+  `.markdownlint-cli2.jsonc`. Disabled rules and ignores documented
+  in the config file.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload. Working is the floor, not the bar — if
