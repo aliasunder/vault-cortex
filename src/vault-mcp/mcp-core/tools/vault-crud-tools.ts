@@ -745,7 +745,7 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
-      description: `Permanently delete a markdown note — removed from disk directly (no trash, no undo). After deletion, links to it from other notes become broken (detectable via vault_get_backlinks). Protected paths (${config.protectedPaths.map((protectedPath) => protectedPath + "/").join(", ")}, and the daily notes folder from .obsidian/daily-notes.json if different) are refused.
+      description: `Permanently delete a markdown note — removed from disk directly (no trash, no undo). After deletion, links to it from other notes become broken (detectable via vault_get_backlinks). Protected paths (${config.protectedPaths.map((protectedPath) => protectedPath + "/").join(", ")}${config.protectedPathsOverridden ? "" : ", and the daily notes folder from .obsidian/daily-notes.json if different"}) are refused.
 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also remove "Archive/2024" (and "Archive") if deleting the note empties them.
@@ -820,7 +820,7 @@ Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.m
 Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md", prune_empty_folders: true }) — also remove "Inbox" if the move empties it.
 
 When to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.
-Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink. To only change a note's body or properties, use vault_patch_note or vault_update_properties. Protected paths (${config.protectedPaths.map((protectedPath) => protectedPath + "/").join(", ")}, and the daily notes folder from .obsidian/daily-notes.json if different) cannot be moved.
+Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink. To only change a note's body or properties, use vault_patch_note or vault_update_properties. Protected paths (${config.protectedPaths.map((protectedPath) => protectedPath + "/").join(", ")}${config.protectedPathsOverridden ? "" : ", and the daily notes folder from .obsidian/daily-notes.json if different"}) cannot be moved.
 
 Errors:
 - "destination exists: …" — a note already lives at new_path; this tool never overwrites. Pick a free path or delete the existing note first.
