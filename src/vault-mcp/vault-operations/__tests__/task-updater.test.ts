@@ -1103,7 +1103,7 @@ describe("task-updater", () => {
       const newCardIndex = archiveSection.indexOf("Archived card")
       expect(completeIndex).toBeGreaterThan(-1)
       expect(newCardIndex).toBeGreaterThan(-1)
-      expect(newCardIndex).toBeLessThan(completeIndex)
+      expect(newCardIndex).toBeGreaterThan(completeIndex)
     })
   })
 

@@ -362,10 +362,15 @@ const createTask = async (
         )
       }
       insertAt = targetHeading.bodyStartLine
-      // Skip past the **Complete** marker if present
-      const firstBodyLine = resultLines[insertAt]?.trim()
-      if (firstBodyLine === "**Complete**") {
-        insertAt++
+      // Skip blank lines and the **Complete** marker if present —
+      // mirrors extractDoneLanes' scan: first non-blank line only.
+      for (let scanLine = insertAt; scanLine < resultLines.length; scanLine++) {
+        const trimmed = resultLines[scanLine]?.trim()
+        if (!trimmed) continue
+        if (trimmed === "**Complete**") {
+          insertAt = scanLine + 1
+        }
+        break
       }
       resolvedHeading = heading
     } else if (isKanbanBoard) {
