@@ -4008,6 +4008,40 @@ after
 `)
   })
 
+  it("preserves 3+ consecutive blank lines inside content (no collapse on insert)", async () => {
+    const note = `---
+title: Internal
+---
+
+anchor line
+trailing
+`
+    await writeTestNote("internal.md", note)
+    await insertAtAnchor(
+      {
+        vaultPath: vault,
+        path: "internal.md",
+        anchor: "anchor line",
+        position: "after",
+        content: "para one\n\n\n\npara two",
+      },
+      logger,
+    )
+    const updated = await readTestNote("internal.md")
+    expect(updated).toBe(`---
+title: Internal
+---
+
+anchor line
+para one
+
+
+
+para two
+trailing
+`)
+  })
+
   it("throws when anchor is not found", async () => {
     await writeTestNote("shopping.md", LIST_NOTE)
     await expect(
