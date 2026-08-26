@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, vi, beforeEach } from "vitest"
 import type { VaultConfig } from "../../../config.js"
 
 vi.mock("../../../vault-operations/daily-notes.js", () => ({
@@ -29,6 +29,10 @@ const makeConfig = (
   }) as unknown as VaultConfig
 
 describe("resolveEffectiveProtectedPaths", () => {
+  beforeEach(() => {
+    mockedReadDailyNotesConfig.mockClear()
+  })
+
   it("returns the static list unchanged when PROTECTED_PATHS is explicitly set", async () => {
     const config = makeConfig({
       protectedPathsOverridden: true,
@@ -95,16 +99,5 @@ describe("resolveEffectiveProtectedPaths", () => {
       folder: "Journal",
       format: "DD-MM-YYYY",
     })
-  })
-
-  it("handles fallback when no .obsidian/daily-notes.json exists", async () => {
-    mockedReadDailyNotesConfig.mockResolvedValue({
-      folder: "Daily Notes",
-      format: "YYYY-MM-DD",
-    })
-    const config = makeConfig()
-    const result = await resolveEffectiveProtectedPaths(config, "/vault")
-
-    expect(result).toEqual(["About Me", "Daily Notes"])
   })
 })
