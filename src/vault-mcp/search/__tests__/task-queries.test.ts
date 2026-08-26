@@ -1316,24 +1316,17 @@ describe("comment block exclusion", () => {
     )
 
     const result = index.listTasks({ sortBy: "position" }, logger)
-    expect(result.total).toBe(3)
-
-    const parentTask = result.tasks.find((task) => task.block_id === "parent")
-    expect(parentTask).toBeDefined()
-    expect(parentTask!.depth).toBe(0)
-    expect(parentTask!.parent_block_id).toBeNull()
-
-    const childTask = result.tasks.find((task) => task.block_id === "child")
-    expect(childTask).toBeDefined()
-    expect(childTask!.depth).toBe(1)
-    expect(childTask!.parent_block_id).toBe("parent")
-
-    const grandchildTask = result.tasks.find(
-      (task) => task.block_id === "grandchild",
-    )
-    expect(grandchildTask).toBeDefined()
-    expect(grandchildTask!.depth).toBe(2)
-    expect(grandchildTask!.parent_block_id).toBe("child")
+    expect(
+      result.tasks.map((entry) => ({
+        block_id: entry.block_id,
+        depth: entry.depth,
+        parent_block_id: entry.parent_block_id,
+      })),
+    ).toEqual([
+      { block_id: "parent", depth: 0, parent_block_id: null },
+      { block_id: "child", depth: 1, parent_block_id: "parent" },
+      { block_id: "grandchild", depth: 2, parent_block_id: "child" },
+    ])
   })
 
   it("parent_block_id is null when the parent has no block_id", () => {
@@ -1350,10 +1343,16 @@ describe("comment block exclusion", () => {
     )
 
     const result = index.listTasks({ sortBy: "position" }, logger)
-    const childTask = result.tasks.find((task) => task.block_id === "child")
-    expect(childTask).toBeDefined()
-    expect(childTask!.depth).toBe(1)
-    expect(childTask!.parent_block_id).toBeNull()
+    expect(
+      result.tasks.map((entry) => ({
+        block_id: entry.block_id,
+        depth: entry.depth,
+        parent_block_id: entry.parent_block_id,
+      })),
+    ).toEqual([
+      { block_id: null, depth: 0, parent_block_id: null },
+      { block_id: "child", depth: 1, parent_block_id: null },
+    ])
   })
 
   it("heading boundary resets parent tracking in the index", () => {
@@ -1380,10 +1379,17 @@ describe("comment block exclusion", () => {
     )
 
     const result = index.listTasks({ sortBy: "position" }, logger)
-    const taskB = result.tasks.find((task) => task.block_id === "task-b")
-    expect(taskB).toBeDefined()
-    expect(taskB!.depth).toBe(0)
-    expect(taskB!.parent_block_id).toBeNull()
+    expect(
+      result.tasks.map((entry) => ({
+        block_id: entry.block_id,
+        depth: entry.depth,
+        parent_block_id: entry.parent_block_id,
+      })),
+    ).toEqual([
+      { block_id: "task-a", depth: 0, parent_block_id: null },
+      { block_id: "sub-a", depth: 1, parent_block_id: "task-a" },
+      { block_id: "task-b", depth: 0, parent_block_id: null },
+    ])
   })
 
   // ── top_level_only filter ──────────────────────────────────────

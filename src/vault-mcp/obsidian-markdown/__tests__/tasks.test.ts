@@ -1536,21 +1536,20 @@ describe("task line mutations", () => {
       const builtLine = tasks.buildTaskLine(params, EMOJI_CONFIG)
       const noteContent = `---\ntitle: Test\n---\n\n${builtLine}\n`
       const parsed = tasks.extractTasks(noteContent)
-      expect(parsed).toHaveLength(1)
-      const parsedTask = parsed[0]
-      expect(parsedTask).toBeDefined()
-      expect(parsedTask!.description).toBe("Round-trip test")
-      expect(parsedTask!.blockId).toBe("round-trip")
-      expect(parsedTask!.priority).toBe("highest")
-      expect(parsedTask!.createdDate).toBe("2026-08-25")
-      expect(parsedTask!.startDate).toBe("2026-09-01")
-      expect(parsedTask!.scheduledDate).toBe("2026-09-10")
-      expect(parsedTask!.dueDate).toBe("2026-09-15")
-      expect(parsedTask!.taskId).toBe("rt-001")
-      expect(parsedTask!.dependsOn).toEqual(["dep-a"])
-      expect(parsedTask!.status).toBe("todo")
-      expect(parsedTask!.depth).toBe(0)
-      expect(parsedTask!.parentLine).toBeNull()
+      expect(parsed).toEqual([
+        task({
+          line: 5,
+          description: "Round-trip test",
+          blockId: "round-trip",
+          priority: "highest",
+          createdDate: "2026-08-25",
+          startDate: "2026-09-01",
+          scheduledDate: "2026-09-10",
+          dueDate: "2026-09-15",
+          taskId: "rt-001",
+          dependsOn: ["dep-a"],
+        }),
+      ])
     })
 
     it("round-trips dataview format", () => {
@@ -1572,12 +1571,16 @@ describe("task line mutations", () => {
       const parsed = tasks.extractTasks(
         `---\ntitle: Test\n---\n\n${builtLine}\n`,
       )
-      expect(parsed).toHaveLength(1)
-      expect(parsed[0]!.description).toBe("DV round-trip")
-      expect(parsed[0]!.dueDate).toBe("2026-09-01")
-      expect(parsed[0]!.createdDate).toBe("2026-08-25")
-      expect(parsed[0]!.priority).toBe("medium")
-      expect(parsed[0]!.blockId).toBe("dv-rt")
+      expect(parsed).toEqual([
+        task({
+          line: 5,
+          description: "DV round-trip",
+          dueDate: "2026-09-01",
+          createdDate: "2026-08-25",
+          priority: "medium",
+          blockId: "dv-rt",
+        }),
+      ])
     })
   })
 
@@ -1588,11 +1591,22 @@ describe("task line mutations", () => {
       const content =
         "---\ntitle: Test\n---\n\n- [ ] Task A ^a\n- [ ] Task B ^b\n"
       const parsed = tasks.extractTasks(content)
-      expect(parsed).toHaveLength(2)
-      expect(parsed[0]!.depth).toBe(0)
-      expect(parsed[0]!.parentLine).toBeNull()
-      expect(parsed[1]!.depth).toBe(0)
-      expect(parsed[1]!.parentLine).toBeNull()
+      expect(parsed).toEqual([
+        task({
+          line: 5,
+          description: "Task A",
+          blockId: "a",
+          depth: 0,
+          parentLine: null,
+        }),
+        task({
+          line: 6,
+          description: "Task B",
+          blockId: "b",
+          depth: 0,
+          parentLine: null,
+        }),
+      ])
     })
 
     it("assigns depth 1 and parent to indented sub-tasks", () => {
@@ -1606,11 +1620,22 @@ describe("task line mutations", () => {
           "  - [ ] Child ^child",
         ].join("\n") + "\n"
       const parsed = tasks.extractTasks(content)
-      expect(parsed).toHaveLength(2)
-      expect(parsed[0]!.depth).toBe(0)
-      expect(parsed[0]!.parentLine).toBeNull()
-      expect(parsed[1]!.depth).toBe(1)
-      expect(parsed[1]!.parentLine).toBe(parsed[0]!.line)
+      expect(parsed).toEqual([
+        task({
+          line: 5,
+          description: "Parent",
+          blockId: "parent",
+          depth: 0,
+          parentLine: null,
+        }),
+        task({
+          line: 6,
+          description: "Child",
+          blockId: "child",
+          depth: 1,
+          parentLine: 5,
+        }),
+      ])
     })
 
     it("tracks depth 2 for deeply nested tasks", () => {
@@ -1625,12 +1650,29 @@ describe("task line mutations", () => {
           "    - [ ] Level 2 ^l2",
         ].join("\n") + "\n"
       const parsed = tasks.extractTasks(content)
-      expect(parsed).toHaveLength(3)
-      expect(parsed[0]!.depth).toBe(0)
-      expect(parsed[1]!.depth).toBe(1)
-      expect(parsed[1]!.parentLine).toBe(parsed[0]!.line)
-      expect(parsed[2]!.depth).toBe(2)
-      expect(parsed[2]!.parentLine).toBe(parsed[1]!.line)
+      expect(parsed).toEqual([
+        task({
+          line: 5,
+          description: "Root",
+          blockId: "root",
+          depth: 0,
+          parentLine: null,
+        }),
+        task({
+          line: 6,
+          description: "Level 1",
+          blockId: "l1",
+          depth: 1,
+          parentLine: 5,
+        }),
+        task({
+          line: 7,
+          description: "Level 2",
+          blockId: "l2",
+          depth: 2,
+          parentLine: 6,
+        }),
+      ])
     })
 
     it("correctly pops the stack for sibling tasks after children", () => {
@@ -1645,10 +1687,29 @@ describe("task line mutations", () => {
           "- [ ] Parent B ^pb",
         ].join("\n") + "\n"
       const parsed = tasks.extractTasks(content)
-      expect(parsed).toHaveLength(3)
-      expect(parsed[2]!.description).toBe("Parent B")
-      expect(parsed[2]!.depth).toBe(0)
-      expect(parsed[2]!.parentLine).toBeNull()
+      expect(parsed).toEqual([
+        task({
+          line: 5,
+          description: "Parent A",
+          blockId: "pa",
+          depth: 0,
+          parentLine: null,
+        }),
+        task({
+          line: 6,
+          description: "Child of A",
+          blockId: "ca",
+          depth: 1,
+          parentLine: 5,
+        }),
+        task({
+          line: 7,
+          description: "Parent B",
+          blockId: "pb",
+          depth: 0,
+          parentLine: null,
+        }),
+      ])
     })
 
     it("resets the indent stack at heading boundaries", () => {
@@ -1665,10 +1726,32 @@ describe("task line mutations", () => {
           "- [ ] Task B ^b",
         ].join("\n") + "\n"
       const parsed = tasks.extractTasks(content)
-      const taskB = parsed.find((parsedTask) => parsedTask.blockId === "b")
-      expect(taskB).toBeDefined()
-      expect(taskB!.depth).toBe(0)
-      expect(taskB!.parentLine).toBeNull()
+      expect(parsed).toEqual([
+        task({
+          line: 6,
+          description: "Task A",
+          blockId: "a",
+          heading: "Active",
+          depth: 0,
+          parentLine: null,
+        }),
+        task({
+          line: 7,
+          description: "Sub A",
+          blockId: "sa",
+          heading: "Active",
+          depth: 1,
+          parentLine: 6,
+        }),
+        task({
+          line: 9,
+          description: "Task B",
+          blockId: "b",
+          heading: "Up Next",
+          depth: 0,
+          parentLine: null,
+        }),
+      ])
     })
 
     it("handles non-task lines between parent and child", () => {
@@ -1683,10 +1766,22 @@ describe("task line mutations", () => {
           "  - [ ] Child ^child",
         ].join("\n") + "\n"
       const parsed = tasks.extractTasks(content)
-      expect(parsed).toHaveLength(2)
-      const child = parsed.find((parsedTask) => parsedTask.blockId === "child")
-      expect(child!.depth).toBe(1)
-      expect(child!.parentLine).toBe(parsed[0]!.line)
+      expect(parsed).toEqual([
+        task({
+          line: 5,
+          description: "Parent",
+          blockId: "parent",
+          depth: 0,
+          parentLine: null,
+        }),
+        task({
+          line: 7,
+          description: "Child",
+          blockId: "child",
+          depth: 1,
+          parentLine: 5,
+        }),
+      ])
     })
 
     it("handles blockquote-prefixed tasks at depth 0", () => {
@@ -1695,9 +1790,15 @@ describe("task line mutations", () => {
           "\n",
         ) + "\n"
       const parsed = tasks.extractTasks(content)
-      expect(parsed).toHaveLength(1)
-      expect(parsed[0]!.depth).toBe(0)
-      expect(parsed[0]!.parentLine).toBeNull()
+      expect(parsed).toEqual([
+        task({
+          line: 5,
+          description: "Blockquoted task",
+          blockId: "bq",
+          depth: 0,
+          parentLine: null,
+        }),
+      ])
     })
   })
 })

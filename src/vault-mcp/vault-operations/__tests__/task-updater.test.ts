@@ -809,10 +809,16 @@ describe("task-updater", () => {
         logger,
       )
 
-      expect(result.block_id).toBe("new-task")
-      expect(result.description).toBe("New task")
+      expect(result).toMatchObject({
+        path: "tasks.md",
+        description: "New task",
+        block_id: "new-task",
+        heading: null,
+      })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain(`- [ ] New task ➕ ${today()} ^new-task`)
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] New task ➕ ${today()} ^new-task\n`,
+      )
     })
 
     it("creates a task under a specific heading on a Kanban board", async () => {
@@ -830,16 +836,19 @@ describe("task-updater", () => {
         logger,
       )
 
-      expect(result.heading).toBe("Up Next")
+      expect(result).toMatchObject({
+        path: "board.md",
+        description: "Board task",
+        block_id: "board-task",
+        heading: "Up Next",
+      })
       const content = await readTestNote(vault, "board.md")
-      expect(content).toContain("Board task")
-      expect(content).toContain("^board-task")
-      // Task is placed in the Up Next section, before the existing card
-      const upNextIndex = content.indexOf("## Up Next")
-      const boardTaskIndex = content.indexOf("Board task")
-      const doneIndex = content.indexOf("## Done")
-      expect(boardTaskIndex).toBeGreaterThan(upNextIndex)
-      expect(boardTaskIndex).toBeLessThan(doneIndex)
+      // Task inserted at the top of the Up Next lane, before the existing card
+      const upNextSection =
+        content.split("## Up Next")[1]?.split("## ")[0] ?? ""
+      expect(upNextSection).toBe(
+        `\n- [ ] Board task ➕ ${today()} ^board-task\n\n- [ ] Planned task ⏫ ➕ 2026-07-03 ^planned-task\n\n`,
+      )
     })
 
     it("creates a task with priority and dates", async () => {
@@ -861,8 +870,8 @@ describe("task-updater", () => {
       )
 
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain(
-        `- [ ] Dated task ⏫ ➕ ${today()} 🛫 2026-09-01 ⏳ 2026-09-10 📅 2026-09-15 ^dated`,
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] Dated task ⏫ ➕ ${today()} 🛫 2026-09-01 ⏳ 2026-09-10 📅 2026-09-15 ^dated\n`,
       )
     })
 
@@ -882,7 +891,9 @@ describe("task-updater", () => {
       )
 
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain(`  - [ ] Child task ➕ ${today()} ^child`)
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n  - [ ] Child task ➕ ${today()} ^child\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n`,
+      )
     })
 
     it("creates a task with subtask checklist items", async () => {
@@ -901,10 +912,9 @@ describe("task-updater", () => {
       )
 
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain("- [ ] Multi-stage task")
-      expect(content).toContain("  - [ ] Stage 1")
-      expect(content).toContain("  - [ ] Stage 2")
-      expect(content).toContain("  - [ ] Stage 3")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] Multi-stage task ➕ ${today()} ^multi-stage\n  - [ ] Stage 1\n  - [ ] Stage 2\n  - [ ] Stage 3\n`,
+      )
     })
 
     it("errors on duplicate block_id", async () => {
@@ -993,6 +1003,108 @@ describe("task-updater", () => {
         ),
       ).rejects.toThrow("parent task not found")
     })
+
+    it("creates a sub-task under a parent identified by line number", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "Line child",
+          blockId: "line-child",
+          parent: 6,
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n  - [ ] Line child ➕ ${today()} ^line-child\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n`,
+      )
+    })
+
+    it("errors when parent block_id and heading are both provided", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "board.md", KANBAN_BOARD)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Conflicting",
+            blockId: "conflicting",
+            parent: "active-task",
+            heading: "Up Next",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        "parent and heading are mutually exclusive when parent is a block_id",
+      )
+    })
+
+    it("errors when parent line number does not point to a task", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Bad line parent",
+            blockId: "bad-line",
+            parent: 1,
+          },
+          logger,
+        ),
+      ).rejects.toThrow("parent task not found: line 1")
+    })
+
+    it("errors on empty description", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "   ",
+            blockId: "empty-desc",
+          },
+          logger,
+        ),
+      ).rejects.toThrow("description is empty")
+    })
+
+    it("skips past **Complete** marker when inserting under a heading", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "board.md", KANBAN_WITH_COMPLETE_MARKER)
+
+      await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "board.md",
+          description: "Archived card",
+          blockId: "archived-card",
+          heading: "Archive",
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "board.md")
+      // New card should appear after **Complete**, not before it
+      const archiveSection = content.split("## Archive")[1] ?? ""
+      const completeIndex = archiveSection.indexOf("**Complete**")
+      const newCardIndex = archiveSection.indexOf("Archived card")
+      expect(completeIndex).toBeGreaterThan(-1)
+      expect(newCardIndex).toBeGreaterThan(-1)
+      expect(newCardIndex).toBeLessThan(completeIndex)
+    })
   })
 
   // ── updateTask expansion ──────────────────────────────────────
@@ -1012,10 +1124,16 @@ describe("task-updater", () => {
         logger,
       )
 
-      expect(result.description).toBe("Walk the cat")
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 6,
+        description: "Walk the cat",
+        changes: ["description: Walk the dog → Walk the cat"],
+      })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain("- [ ] Walk the cat ➕ 2026-07-02 ^walk-dog")
-      expect(content).not.toContain("Walk the dog")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the cat ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
+      )
     })
 
     it("sets a due date on a task", async () => {
@@ -1033,7 +1151,9 @@ describe("task-updater", () => {
       )
 
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain("📅 2026-09-15 ^walk-dog")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 📅 2026-09-15 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
+      )
     })
 
     it("clears a date field with null", async () => {
@@ -1052,8 +1172,9 @@ describe("task-updater", () => {
       )
 
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain("- [ ] Task ➕ 2026-07-01 ^my-task")
-      expect(content).not.toContain("📅")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ^my-task\n",
+      )
     })
 
     it("adds a subtask to a parent task", async () => {
@@ -1070,9 +1191,16 @@ describe("task-updater", () => {
         logger,
       )
 
-      expect(result.changes).toContain("subtask added: Bring treats")
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 6,
+        description: "Walk the dog",
+        changes: ["subtask added: Bring treats"],
+      })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain("  - [ ] Bring treats")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n  - [ ] Bring treats\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
+      )
     })
 
     it("composes add_subtask with status change", async () => {
@@ -1090,11 +1218,16 @@ describe("task-updater", () => {
         logger,
       )
 
-      expect(result.changes).toContain("status: todo → in_progress")
-      expect(result.changes).toContain("subtask added: First stage")
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 6,
+        description: "Walk the dog",
+        changes: ["status: todo → in_progress", "subtask added: First stage"],
+      })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain("- [/] Walk the dog")
-      expect(content).toContain("  - [ ] First stage")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [/] Walk the dog ➕ 2026-07-02 ^walk-dog\n  - [ ] First stage\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
+      )
     })
 
     it("assigns a block_id to a task without one", async () => {
@@ -1112,8 +1245,8 @@ describe("task-updater", () => {
       )
 
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain(
-        "- [ ] Buy groceries ➕ 2026-07-01 ^buy-groceries",
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01 ^buy-groceries\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
       )
     })
 
@@ -1132,8 +1265,9 @@ describe("task-updater", () => {
       )
 
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toContain("^walk-cat")
-      expect(content).not.toContain("^walk-dog")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-cat\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
+      )
     })
 
     it("completes a sub-task in place without lane-moving", async () => {
@@ -1152,7 +1286,7 @@ describe("task-updater", () => {
         logger,
       )
 
-      await taskMutations.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "board.md",
@@ -1162,11 +1296,13 @@ describe("task-updater", () => {
         logger,
       )
 
+      expect(result.changes).toEqual(["status: todo → done"])
       const content = await readTestNote(vault, "board.md")
-      // Sub-task should be completed in place (under Active, not moved to Done)
-      expect(content).toContain("## Active")
-      expect(content).toMatch(/Active[\s\S]*\[x\] Sub-stage/)
-      // Should NOT appear under Done
+      // Sub-task completed in place under Active, not moved to Done
+      const activeSection = content.split("## Active")[1]?.split("## ")[0] ?? ""
+      expect(activeSection).toContain(
+        `[x] Sub-stage ➕ ${today()} ✅ ${today()} ^sub-stage`,
+      )
       const doneSection = content.split("## Done")[1] ?? ""
       expect(doneSection).not.toContain("Sub-stage")
     })
@@ -1214,6 +1350,23 @@ describe("task-updater", () => {
           logger,
         ),
       ).rejects.toThrow("invalid date")
+    })
+
+    it("errors on empty description in update", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "walk-dog",
+            description: "   ",
+          },
+          logger,
+        ),
+      ).rejects.toThrow("description cannot be empty")
     })
   })
 })
