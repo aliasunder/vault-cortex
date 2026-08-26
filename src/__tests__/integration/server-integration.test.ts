@@ -62,9 +62,10 @@ describe("default config", () => {
   })
 
   describe("surface", () => {
-    it("lists 30 tools", async () => {
+    it("lists 31 tools", async () => {
       const names = await toolNames(client)
       expect(names).toEqual([
+        "vault_create_task",
         "vault_delete_memory",
         "vault_delete_note",
         "vault_delete_span",
@@ -996,9 +997,9 @@ describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory",
     }
   })
 
-  it("lists 27 tools with expected survivors", async () => {
+  it("lists 28 tools with expected survivors", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(27)
+    expect(names).toHaveLength(28)
     expect(names).not.toContain("vault_delete_note")
     expect(names).not.toContain("vault_move_note")
     expect(names).not.toContain("vault_delete_memory")
@@ -1060,9 +1061,9 @@ describe("DISABLED_TOOLS=vault_update_memory", () => {
     }
   })
 
-  it("lists 29 tools", async () => {
+  it("lists 30 tools", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(29)
+    expect(names).toHaveLength(30)
     expect(names).not.toContain("vault_update_memory")
     expect(names).toContain("vault_get_memory")
   })
@@ -1096,9 +1097,9 @@ describe("MEMORY_ENABLED=false", () => {
     }
   })
 
-  it("lists 25 tools — no memory group", async () => {
+  it("lists 26 tools — no memory group", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(25)
+    expect(names).toHaveLength(26)
     expect(names).not.toContain("vault_get_memory")
     expect(names).not.toContain("vault_list_memory_files")
     expect(names).not.toContain("vault_memory_recall")
@@ -1135,9 +1136,9 @@ describe("FILE_TOOLS_ENABLED=false", () => {
     }
   })
 
-  it("lists 28 tools — no asset tools", async () => {
+  it("lists 29 tools — no asset tools", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(28)
+    expect(names).toHaveLength(29)
     expect(names).not.toContain("vault_read_file")
     expect(names).not.toContain("vault_list_files")
     expect(names).toContain("vault_read_note")

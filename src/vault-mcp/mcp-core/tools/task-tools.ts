@@ -1,4 +1,4 @@
-/** Task tool registrations — task listing (query) and task updating (mutation). */
+/** Task tool registrations — task listing (query), creation, and updating (mutation). */
 
 import { z } from "zod"
 import type { TaskEntry } from "../../search/search-index.js"
@@ -36,26 +36,26 @@ Example: vault_list_tasks({ due: { before: "2026-07-04" } }) — overdue triage;
 Example: vault_list_tasks({ path: "Code Projects/vault-cortex/TASKS.md", heading: ["Active", "Up Next", "Waiting On"], sort_by: "position" }) — actionable Kanban lanes in board order; position is the natural sort for boards (file path then line number, preserving card arrangement)
 Example: vault_list_tasks({ folder: "Code Projects/vault-cortex" }) — all open tasks across a project tree (TASKS.md + task-notes/ subdirectories); folder is a recursive prefix match
 Example: vault_list_tasks({ status: "done", done: { after: "2026-06-26" } }) — what got completed this week
-Example: vault_list_tasks({ status: ["todo", "in_progress"] }) — explicit equivalent of "not_done"
-Example: vault_list_tasks({ priority: ["highest", "high"], sort_by: "priority" }) — most urgent open work first
+Example: vault_list_tasks({ top_level_only: true, path: "TASKS.md" }) — board cards only, excluding checklist sub-items
 
 When to use: Any vault-wide task triage question — "what's overdue?", "what's open per project?", "what did I finish this week?" — in one call instead of per-board reads.
 Prefer vault_read_note (heading mode) to read one specific board lane verbatim. Prefer vault_search for full-text queries over note content.
 
 Parameters:
-- status: a single value or an array of values, OR-combined (default "not_done"). Values: "not_done" (todo + in_progress, excludes done AND cancelled), "todo", "in_progress", "done", "cancelled", "all". Virtual values expand in arrays: ["not_done", "done"] matches todo + in_progress + done. Checkbox chars map to statuses the way the Tasks plugin maps them: " " todo, "/" in_progress, "x"/"X" done, "-" cancelled, any other char todo.
+- status: a single value or an array of values, OR-combined (default "not_done"). Values: "not_done" (todo + in_progress, excludes done AND cancelled), "todo", "in_progress", "done", "cancelled", "all". Virtual values expand in arrays: ["not_done", "done"] matches todo + in_progress + done.
 - due / scheduled / start / done / created / cancelled: date filters, each { before, on, after } in YYYY-MM-DD — before/after are exclusive, on is exact. A date filter only matches tasks that HAVE that date.
 - priority: array of "highest" | "high" | "medium" | "low" | "lowest" | "none", OR-combined ("none" = tasks with no priority signifier).
-- folder: recursive note-path prefix — includes all notes under the folder and its subdirectories (e.g. "Code Projects/vault-cortex" matches TASKS.md and task-notes/*.md). Use path for a single board file. tag: bare inline-task-tag name; a parent tag matches children ("errand" matches "errand/groceries"). heading: exact heading text or array of headings, case-sensitive, OR-combined (e.g. ["Active", "Up Next"] returns tasks under either heading — useful for querying multiple Kanban lanes at once). path: one note, must end in ".md".
-- sort_by: "due" (default) | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime" | "position". Date sorts put dateless tasks last in both directions and cascade through related dates when the primary is absent — due falls through to scheduled → start → created; scheduled, start, and created cascade similarly through the remaining date fields. Each cascade step uses its own natural direction (due/scheduled ascending, start/created descending), so a task with no due date but a created date sorts newest-first rather than inheriting due's ascending order. An explicit sort_direction overrides all cascade steps uniformly. "done" does not cascade — it sorts by done date alone, with a modified-time tiebreaker for undated tasks. Fully dateless tasks tie-break by note modified time (most recent first), then file position. Priority sorts highest→lowest with unprioritized between medium and low. "position" sorts by file path then line number — the natural order for Kanban boards where card position IS priority.
-- limit: max results (default 50). The total field always reports the full match count, so "50 of 338" is distinguishable from "all 50".
+- folder: recursive note-path prefix. tag: bare inline-task-tag name; a parent tag matches children. heading: exact heading text or array of headings, case-sensitive, OR-combined. path: one note, must end in ".md".
+- top_level_only: boolean (default false). When true, only top-level tasks (depth 0) are returned — excludes indented sub-tasks and checklist items.
+- sort_by: "due" (default) | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime" | "position". "position" sorts by file path then line number — the natural order for Kanban boards.
+- limit: max results (default 50). The total field always reports the full match count.
 
 Errors:
 - A malformed or calendar-invalid date filter throws with remediation text ("Use YYYY-MM-DD")
 - path without the ".md" extension is rejected
-- No matches returns { total: 0, tasks: [] }, not an error — don't use as an existence check
+- No matches returns { total: 0, tasks: [] }, not an error
 
-Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line number), status, status_char (raw checkbox character, for custom-status vaults), description (inline #tags kept in the text), folder (the note's full parent folder), heading (nearest heading above the task — on a Kanban board this is the lane name, null-omitted above the first heading), lane (the Kanban lane name — only present when is_kanban_task is true, same value as heading but semantically explicit), done_lanes (headings marked with the Kanban plugin's **Complete** marker — only present for Kanban boards${whenToolEnabledText("vault_update_task", "; use to determine the done lane for vault_update_task")}), plus whichever metadata the task has: created/scheduled/start/due/done/cancelled dates, priority, recurrence (rule text — parsed, never executed), on_completion, task_id, depends_on, tags (bare inline tag names), block_id, is_kanban_task (true when the task's parent note has kanban-plugin frontmatter — present only when true, omitted for regular tasks; when true, heading carries the Kanban lane name and completing the task requires a lane move${whenToolEnabledText("vault_update_task", " via vault_update_task")}, not just a checkbox toggle). Null fields, false booleans, and empty arrays are omitted to keep responses lean.`,
+Returns: JSON { total, tasks }. Each task carries: path, line, status, status_char, description, folder, heading, lane, done_lanes, depth (0 for top-level, 1+ for sub-tasks — omitted when 0), parent_block_id (block_id of the parent task — omitted for top-level tasks or when the parent has no block_id), plus whichever metadata the task has: created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, depends_on, tags, block_id, is_kanban_task. Null fields, false booleans, and empty arrays are omitted to keep responses lean.`,
       inputSchema: {
         status: z
           .union([
@@ -129,6 +129,12 @@ Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line
           .min(1)
           .optional()
           .describe('Restrict to one note (vault-relative path ending ".md")'),
+        top_level_only: z
+          .boolean()
+          .optional()
+          .describe(
+            "When true, only top-level tasks (depth 0) are returned — excludes indented sub-tasks and checklist items. Default false.",
+          ),
         limit: z.number().optional().describe("Max results (default 50)"),
         sort_by: z
           .enum([
@@ -167,6 +173,7 @@ Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line
         tag,
         heading,
         path,
+        top_level_only,
         limit,
         sort_by,
         sort_direction,
@@ -190,6 +197,7 @@ Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line
         tag,
         heading,
         path,
+        topLevelOnly: top_level_only,
         limit,
         sortBy: sort_by,
         sortDirection: sort_direction,
@@ -211,6 +219,7 @@ Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line
               tag,
               heading,
               path,
+              topLevelOnly: top_level_only,
               limit,
               sortBy: sort_by,
               sortDirection: sort_direction,
@@ -230,41 +239,237 @@ Returns: JSON { total, tasks }. Each task carries: path, line (1-based file line
       )
     },
   )
+
+  // ── vault_create_task ──────────────────────────────────────────
+
+  registerTool(
+    TOOL_NAMES.VAULT_CREATE_TASK,
+    {
+      title: "Create Task",
+      description: `Create a correctly-formatted task card in one call — description, target heading/lane, dates, priority, block_id, and optional checklist sub-items. The card is always created as [ ] (todo) with ➕ today auto-stamped; starting work is ${whenToolEnabledText("vault_update_task", "vault_update_task's")} job. Both emoji and Dataview field formats are supported.
+
+Example: vault_create_task({ path: "TASKS.md", description: "Fix login bug", block_id: "fix-login", heading: "Active", priority: "high", due: "2026-09-15" })
+Example: vault_create_task({ path: "TASKS.md", description: "Ship the feature", block_id: "ship-feature", heading: "Up Next", subtasks: ["Design", "Implement", "Test"] }) — card with checklist stages
+Example: vault_create_task({ path: "TASKS.md", description: "Sub-bug", block_id: "sub-bug", parent: "fix-login", due: "2026-09-01" }) — full sub-task under a parent (identified by block_id)
+Example: vault_create_task({ path: "TASKS.md", description: "Quick fix", block_id: "quick-fix", parent: 42 }) — sub-task under a parent identified by line number
+
+When to use: Creating a new task card on a board or in a note. Guarantees correct field ordering (description → priority → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id) so the card round-trips through vault_list_tasks with all fields intact. For lightweight checklist items under an existing card (no metadata), use ${whenToolEnabledText("vault_update_task", "vault_update_task's add_subtask param")} instead.
+
+Parameters:
+- path (required): vault-relative path to the note (must end in ".md"). The note must already exist.
+- description (required): the task text (before metadata fields).
+- block_id (required): the ^block-id for stable identification — letters, digits, and hyphens only. Must be unique within the note.
+- heading: target heading/lane. Required on Kanban boards (notes with kanban-plugin frontmatter); optional on regular notes (omit to append at end of body).
+- parent: block_id (string) or line number (number) of an existing task to nest under as a sub-task. Mutually exclusive with heading when parent is a block_id.
+- priority: "highest" | "high" | "medium" | "low" | "lowest".
+- due / scheduled / start: YYYY-MM-DD dates (calendar-validated).
+- task_id: Tasks plugin 🆔 identifier for dependency chains.
+- depends_on: string array of Tasks plugin ⛔ dependency IDs.
+- subtasks: string array of checklist item descriptions — created as indented [ ] lines under the card (no metadata, no block_ids). For full sub-tasks with their own dates/priority/block_id, use a separate vault_create_task call with the parent param.
+- format: "emoji" (default) or "dataview" — overrides the auto-detected Tasks plugin format.
+
+Errors:
+- "note not found" — path does not exist
+- "heading required for Kanban boards" — kanban-plugin note without heading
+- "heading not found: ...; available: ..." — heading doesn't match
+- "parent task not found" — parent block_id or line doesn't resolve to a task
+- "parent and heading are mutually exclusive" — both provided with a block_id parent
+- "block_id already exists" — collision with an existing block_id in the note
+- "block_id contains invalid characters" — not matching [a-zA-Z0-9-]+
+- "description is empty" — required, non-empty
+- "invalid date" — a date param fails calendar validation
+
+Returns: JSON { path, line, description, block_id, heading, changes }.`,
+      inputSchema: {
+        path: z
+          .string()
+          .min(1)
+          .describe(
+            'Vault-relative path to the note (must end in ".md"). The note must already exist.',
+          ),
+        description: z
+          .string()
+          .min(1)
+          .describe("The task text (before metadata fields)."),
+        block_id: z
+          .string()
+          .min(1)
+          .describe(
+            "The ^block-id for stable identification — letters, digits, and hyphens only ([a-zA-Z0-9-]+). Must be unique within the note.",
+          ),
+        heading: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Target heading/lane. Required on Kanban boards; optional on regular notes (omit to append at end of body).",
+          ),
+        parent: z
+          .union([z.string().min(1), z.number().int().min(1)])
+          .optional()
+          .describe(
+            "block_id (string) or line number (number) of an existing task to nest under. Mutually exclusive with heading when parent is a block_id.",
+          ),
+        priority: z
+          .enum(["highest", "high", "medium", "low", "lowest"])
+          .optional()
+          .describe("Task priority level."),
+        due: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Due date in YYYY-MM-DD format."),
+        scheduled: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Scheduled date in YYYY-MM-DD format."),
+        start: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Start date in YYYY-MM-DD format."),
+        task_id: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Tasks plugin 🆔 identifier for dependency chains."),
+        depends_on: z
+          .array(z.string().min(1))
+          .optional()
+          .describe("Tasks plugin ⛔ dependency IDs."),
+        subtasks: z
+          .array(z.string().min(1))
+          .optional()
+          .describe(
+            "Checklist item descriptions — created as indented [ ] lines under the card (no metadata). For full sub-tasks with dates/priority/block_id, use a separate vault_create_task with parent.",
+          ),
+        format: z
+          .enum(["emoji", "dataview"])
+          .optional()
+          .describe(
+            "Field format. Default: auto-detected from .obsidian/ config, falling back to emoji.",
+          ),
+      },
+    },
+    async (
+      {
+        path,
+        description,
+        block_id,
+        heading,
+        parent,
+        priority,
+        due,
+        scheduled,
+        start,
+        task_id,
+        depends_on,
+        subtasks,
+        format,
+      },
+      extra,
+    ) => {
+      const reqLogger = sessionLogger.child({
+        requestId: extra.requestId,
+        tool: TOOL_NAMES.VAULT_CREATE_TASK,
+      })
+      reqLogger.info("tool_call", {
+        path,
+        description,
+        blockId: block_id,
+        heading,
+        parent,
+        priority,
+        due,
+        scheduled,
+        start,
+        taskId: task_id,
+        dependsOn: depends_on,
+        subtaskCount: subtasks?.length,
+        format,
+      })
+      return safeHandler(
+        reqLogger,
+        async () =>
+          taskMutations.createTask(
+            {
+              vaultPath,
+              path,
+              description,
+              blockId: block_id,
+              heading,
+              parent,
+              priority,
+              due,
+              scheduled,
+              start,
+              taskId: task_id,
+              dependsOn: depends_on,
+              subtasks,
+              format,
+            },
+            reqLogger,
+          ),
+        (result) => {
+          reqLogger.info("tool_result", {
+            path: result.path,
+            line: result.line,
+            blockId: result.block_id,
+            heading: result.heading,
+            changes: result.changes,
+          })
+          return JSON.stringify(result)
+        },
+      )
+    },
+  )
+
   // ── vault_update_task ───────────────────────────────────────────
 
   registerTool(
     TOOL_NAMES.VAULT_UPDATE_TASK,
     {
       title: "Update Task",
-      description: `Update a task's status, priority, or Kanban lane in a single atomic call. Multiple mutations compose — status + priority + lane move all apply in one write cycle.
+      description: `Update a task's status, priority, description, dates, dependencies, block_id, or Kanban lane in a single atomic call. Multiple mutations compose — status + priority + description + dates + add_subtask all apply in one write cycle.
 
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "done" }) — complete a task; on a Kanban board, auto-moves to the done lane
-Example: vault_update_task({ path: "TASKS.md", line: 42, priority: "high" }) — set priority
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "in_progress", lane: "Active" }) — start working and move to Active
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", lane: "Up Next" }) — lane move without status change
-Example: vault_update_task({ path: "TASKS.md", line: 15, priority: "none" }) — remove priority
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", description: "Updated task name", due: "2026-10-01" }) — change description and set due date
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", due: null }) — clear a date field
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "in_progress", add_subtask: "Stage 1" }) — start working and add a checklist stage
+Example: vault_update_task({ path: "TASKS.md", line: 42, assign_block_id: "my-task" }) — add a block_id to a task that lacks one
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", task_id: "abc123" }) — set a Tasks plugin 🆔 identifier
 
-When to use: Any task state change — completing, starting, re-prioritizing, or moving between Kanban lanes. Use vault_list_tasks first to get identification fields (path + block_id or line). For Kanban boards with multiple done lanes, check done_lanes from vault_list_tasks to know which to pass.
+When to use: Any task mutation — completing, starting, re-prioritizing, editing text, setting/clearing dates, adding checklist items, assigning block_ids, or moving between Kanban lanes. Use vault_list_tasks first to get identification fields (path + block_id or line). For creating a new task, use ${whenToolEnabledText("vault_create_task", "vault_create_task")} instead.
 
 Parameters:
+- path (required): vault-relative path to the note (must end in ".md").
 - Exactly one of block_id or line is required to identify the task.
-- At least one of status, priority, or lane is required (the mutation).
-- status changes the checkbox and manages dates: "done" appends ✅ date, "cancelled" appends ❌ date, "todo"/"in_progress" removes completion dates. On a Kanban board, "done" without an explicit lane auto-detects the done lane (via **Complete** marker, falling back to "Done" heading).
-- lane is only valid on notes with kanban-plugin frontmatter (is_kanban_task in vault_list_tasks).
-- format overrides the auto-detected Tasks plugin write format ("emoji" or "dataview"). When omitted, reads the Tasks plugin config from .obsidian/; defaults to emoji if .obsidian/ is not synced to the server. Both formats are always recognized for reading — only the write format is configurable.
+- At least one mutation is required. All mutations compose in one atomic write:
+  - status: "todo" | "in_progress" | "done" | "cancelled". Manages checkbox and done/cancelled dates. On a Kanban board, "done" auto-moves to the done lane (sub-tasks stay in place).
+  - priority: "highest" | "high" | "medium" | "low" | "lowest" | "none". "none" removes the priority field.
+  - description: replaces the task text. Metadata fields and block_id are preserved.
+  - due / scheduled / start / created: YYYY-MM-DD sets the date; null clears it.
+  - task_id: string sets the Tasks plugin 🆔; null clears it.
+  - depends_on: string array sets the Tasks plugin ⛔; null clears it.
+  - add_subtask: string — appends an indented [ ] checklist item under the task. For full sub-tasks with their own metadata, use ${whenToolEnabledText("vault_create_task", "vault_create_task with the parent param")}.
+  - assign_block_id: adds or replaces the ^block-id on the task line. Letters, digits, and hyphens only; must be unique within the note.
+  - lane: target Kanban lane heading. Only valid on Kanban boards. Not valid on sub-tasks.
+- format: "emoji" or "dataview" — overrides the auto-detected Tasks plugin format.
 
 Errors:
 - "note not found" — path does not exist
-- "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not editable, matching Obsidian
-- "no task at line N" — line doesn't contain a task checkbox
 - "block_id not found" — no task line ends with ^block_id
-- "at least one mutation required" — none of status, priority, or lane provided
+- "no task at line N" — line doesn't contain a task checkbox
+- "at least one mutation required" — no mutation params provided
+- "cannot lane-move a sub-task" — explicit lane on an indented task
 - "lane requires a Kanban board" — lane on a note without kanban-plugin frontmatter
 - "heading not found" — target lane doesn't exist; lists available headings
-- "multiple done lanes detected" — pass lane explicitly; check done_lanes from vault_list_tasks
-- "no done lane detected" — no **Complete** marker and no "Done" heading; pass lane explicitly
+- "block_id already exists" / "block_id contains invalid characters" — assign_block_id validation
+- "invalid date" — a date param fails calendar validation
+- "description cannot be empty" — empty description
 
-Returns: JSON { path, line, description, changes } — line is the final 1-based position (may shift after a lane move), description is a short excerpt, changes lists what was applied.`,
+Returns: JSON { path, line, description, changes } — line is the final 1-based position, description is the current text, changes lists what was applied.`,
       inputSchema: {
         path: z
           .string()
@@ -291,28 +496,106 @@ Returns: JSON { path, line, description, changes } — line is the final 1-based
           .enum(["todo", "in_progress", "done", "cancelled"])
           .optional()
           .describe(
-            'Target status. "done" appends ✅ date and auto-moves to done lane on Kanban boards. "cancelled" appends ❌ date.',
+            'Target status. "done" appends ✅ date and auto-moves to done lane on Kanban boards (sub-tasks stay in place). "cancelled" appends ❌ date.',
           ),
         priority: z
           .enum(["highest", "high", "medium", "low", "lowest", "none"])
           .optional()
-          .describe('Target priority. "none" removes the priority emoji.'),
+          .describe('Target priority. "none" removes the priority field.'),
+        description: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "New task description text. Replaces the existing description; metadata fields and block_id are preserved.",
+          ),
+        due: z
+          .string()
+          .min(1)
+          .nullable()
+          .optional()
+          .describe("Due date (YYYY-MM-DD) to set, or null to clear."),
+        scheduled: z
+          .string()
+          .min(1)
+          .nullable()
+          .optional()
+          .describe("Scheduled date (YYYY-MM-DD) to set, or null to clear."),
+        start: z
+          .string()
+          .min(1)
+          .nullable()
+          .optional()
+          .describe("Start date (YYYY-MM-DD) to set, or null to clear."),
+        created: z
+          .string()
+          .min(1)
+          .nullable()
+          .optional()
+          .describe(
+            "Created date (YYYY-MM-DD) to set or clear. Typically auto-stamped; use for corrections.",
+          ),
+        task_id: z
+          .string()
+          .min(1)
+          .nullable()
+          .optional()
+          .describe("Tasks plugin 🆔 identifier to set, or null to clear."),
+        depends_on: z
+          .array(z.string().min(1))
+          .nullable()
+          .optional()
+          .describe("Tasks plugin ⛔ dependency IDs to set, or null to clear."),
+        add_subtask: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Checklist item to append as an indented [ ] line under the task. Composes with other mutations. For full sub-tasks with metadata, use vault_create_task with parent.",
+          ),
+        assign_block_id: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Add or replace the ^block-id on the task line. Letters, digits, and hyphens only; must be unique within the note.",
+          ),
         lane: z
           .string()
           .min(1)
           .optional()
           .describe(
-            "Target Kanban lane heading for a lane move. Only valid on Kanban boards.",
+            "Target Kanban lane heading for a lane move. Only valid on Kanban boards. Not valid on sub-tasks.",
           ),
         format: z
           .enum(["emoji", "dataview"])
           .optional()
           .describe(
-            "Field format for new metadata (done dates, priority). Overrides the auto-detected Tasks plugin config. Default: auto-detected from .obsidian/ config, falling back to emoji.",
+            "Field format for new metadata. Overrides the auto-detected Tasks plugin config. Default: auto-detected from .obsidian/ config, falling back to emoji.",
           ),
       },
     },
-    async ({ path, block_id, line, status, priority, lane, format }, extra) => {
+    async (
+      {
+        path,
+        block_id,
+        line,
+        status,
+        priority,
+        description,
+        due,
+        scheduled,
+        start,
+        created,
+        task_id,
+        depends_on,
+        add_subtask,
+        assign_block_id,
+        lane,
+        format,
+      },
+      extra,
+    ) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_UPDATE_TASK,
@@ -323,6 +606,15 @@ Returns: JSON { path, line, description, changes } — line is the final 1-based
         line,
         status,
         priority,
+        description,
+        due,
+        scheduled,
+        start,
+        created,
+        taskId: task_id,
+        dependsOn: depends_on,
+        addSubtask: add_subtask,
+        assignBlockId: assign_block_id,
         lane,
         format,
       })
@@ -337,6 +629,15 @@ Returns: JSON { path, line, description, changes } — line is the final 1-based
               line,
               status,
               priority,
+              description,
+              due,
+              scheduled,
+              start,
+              created,
+              taskId: task_id,
+              dependsOn: depends_on,
+              addSubtask: add_subtask,
+              assignBlockId: assign_block_id,
               lane,
               format,
             },
