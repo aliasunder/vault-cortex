@@ -103,6 +103,33 @@ describe("path traversal blocked", () => {
     expectToolError(result, "path traversal blocked")
   })
 
+  it("vault_replace_span rejects path traversal", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_replace_span",
+      args: {
+        path: "../outside.md",
+        start_anchor: "anything",
+        content: "replaced",
+      },
+    })
+    expectToolError(result, "path traversal blocked")
+  })
+
+  it("vault_insert_at_anchor rejects path traversal", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_insert_at_anchor",
+      args: {
+        path: "../outside.md",
+        anchor: "anything",
+        position: "after",
+        content: "inserted",
+      },
+    })
+    expectToolError(result, "path traversal blocked")
+  })
+
   it("vault_update_properties rejects path traversal", async () => {
     const result = await callTool({
       client,
@@ -188,6 +215,33 @@ describe("hidden path blocked", () => {
       client,
       name: "vault_delete_span",
       args: { path: ".hidden/note.md", start_anchor: "anything" },
+    })
+    expectToolError(result, "hidden path blocked")
+  })
+
+  it("vault_replace_span rejects hidden paths", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_replace_span",
+      args: {
+        path: ".hidden/note.md",
+        start_anchor: "anything",
+        content: "replaced",
+      },
+    })
+    expectToolError(result, "hidden path blocked")
+  })
+
+  it("vault_insert_at_anchor rejects hidden paths", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_insert_at_anchor",
+      args: {
+        path: ".hidden/note.md",
+        anchor: "anything",
+        position: "after",
+        content: "inserted",
+      },
     })
     expectToolError(result, "hidden path blocked")
   })
@@ -283,6 +337,33 @@ describe("note not found", () => {
       args: { path: "gone.md", start_anchor: "anything" },
     })
     expectToolError(result, 'note not found: "gone.md"')
+  })
+
+  it("vault_replace_span for a nonexistent path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_replace_span",
+      args: {
+        path: "vanished.md",
+        start_anchor: "anything",
+        content: "replacement",
+      },
+    })
+    expectToolError(result, 'note not found: "vanished.md"')
+  })
+
+  it("vault_insert_at_anchor for a nonexistent path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_insert_at_anchor",
+      args: {
+        path: "nowhere.md",
+        anchor: "anything",
+        position: "after",
+        content: "inserted",
+      },
+    })
+    expectToolError(result, 'note not found: "nowhere.md"')
   })
 })
 
@@ -383,6 +464,39 @@ describe("anchor errors", () => {
       args: {
         path: "Projects/alpha.md",
         start_anchor: "this anchor does not exist anywhere in the file",
+      },
+    })
+    expectToolError(
+      result,
+      'start anchor not found in "Projects/alpha.md": "this anchor does not exist anywhere in the file"',
+    )
+  })
+
+  it("vault_replace_span with a nonexistent anchor", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_replace_span",
+      args: {
+        path: "Projects/alpha.md",
+        start_anchor: "this anchor does not exist anywhere in the file",
+        content: "replacement content",
+      },
+    })
+    expectToolError(
+      result,
+      'start anchor not found in "Projects/alpha.md": "this anchor does not exist anywhere in the file"',
+    )
+  })
+
+  it("vault_insert_at_anchor with a nonexistent anchor", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_insert_at_anchor",
+      args: {
+        path: "Projects/alpha.md",
+        anchor: "this anchor does not exist anywhere in the file",
+        position: "after",
+        content: "inserted content",
       },
     })
     expectToolError(
@@ -541,6 +655,39 @@ describe("path extension errors", () => {
       client,
       name: "vault_delete_span",
       args: { path: "Projects/alpha", start_anchor: "anything" },
+    })
+    expectToolError(
+      result,
+      'path must end in ".md" (received "Projects/alpha")',
+    )
+  })
+
+  it("vault_replace_span rejects paths without .md extension", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_replace_span",
+      args: {
+        path: "Projects/alpha",
+        start_anchor: "anything",
+        content: "replaced",
+      },
+    })
+    expectToolError(
+      result,
+      'path must end in ".md" (received "Projects/alpha")',
+    )
+  })
+
+  it("vault_insert_at_anchor rejects paths without .md extension", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_insert_at_anchor",
+      args: {
+        path: "Projects/alpha",
+        anchor: "anything",
+        position: "after",
+        content: "inserted",
+      },
     })
     expectToolError(
       result,

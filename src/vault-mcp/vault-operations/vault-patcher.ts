@@ -489,9 +489,157 @@ const deleteSpan = async (
   })
 }
 
+/** Replaces a contiguous block of whole lines identified by anchor substrings
+ *  with new content — same anchor semantics as `deleteSpan`, but splices in
+ *  replacement content instead of just removing. */
+const replaceSpan = async (
+  params: {
+    vaultPath: string
+    path: string
+    startAnchor: string
+    endAnchor?: string | undefined
+    content: string
+    firstMatch?: boolean | undefined
+  },
+  logger: Logger,
+): Promise<string> => {
+  const { path, startAnchor, endAnchor, content, firstMatch } = params
+
+  if (startAnchor.length === 0) {
+    throw new Error("startAnchor cannot be empty")
+  }
+  if (endAnchor !== undefined && endAnchor.length === 0) {
+    throw new Error("endAnchor cannot be empty")
+  }
+  if (content.length === 0) {
+    throw new Error("content cannot be empty")
+  }
+  assertNoControlCharacters(content, "content")
+
+  const lockPath = resolveSafePath(params.vaultPath, path)
+  return withExclusiveFileLock(lockPath, async () => {
+    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
+      params.vaultPath,
+      path,
+    )
+
+    const startLine = resolveAnchorLine({
+      lines,
+      anchor: startAnchor,
+      fromLine: 0,
+      firstMatch,
+      path,
+      role: "start",
+    })
+    const endLine =
+      endAnchor === undefined
+        ? startLine
+        : resolveAnchorLine({
+            lines,
+            anchor: endAnchor,
+            fromLine: startLine,
+            firstMatch,
+            path,
+            role: "end",
+          })
+
+    const replacedLines = lines.slice(startLine, endLine + 1)
+    const contentLines = content.split("\n")
+    const updatedLines = [
+      ...lines.slice(0, startLine),
+      ...contentLines,
+      ...lines.slice(endLine + 1),
+    ]
+    const normalizedBody = collapseBlankRuns(updatedLines.join("\n"))
+    const afterBytes = await writePatchedNote(
+      fullPath,
+      data,
+      normalizedBody.split("\n"),
+    )
+
+    logger.info("replaced span", {
+      path,
+      startAnchor: truncateForMessage(startAnchor),
+      endAnchor: endAnchor ? truncateForMessage(endAnchor) : undefined,
+      replacedLines: replacedLines.length,
+      insertedLines: contentLines.length,
+      beforeBytes,
+      afterBytes,
+    })
+    const replacedWord = replacedLines.length === 1 ? "line" : "lines"
+    const insertedWord = contentLines.length === 1 ? "line" : "lines"
+    return `Replaced ${replacedLines.length} ${replacedWord} with ${contentLines.length} ${insertedWord} in ${path}`
+  })
+}
+
+/** Inserts content before or after a specific line identified by a short
+ *  anchor substring — same resolution as `deleteSpan`, but adds content
+ *  without removing the anchor line. */
+const insertAtAnchor = async (
+  params: {
+    vaultPath: string
+    path: string
+    anchor: string
+    position: "before" | "after"
+    content: string
+    firstMatch?: boolean | undefined
+  },
+  logger: Logger,
+): Promise<string> => {
+  const { path, anchor, position, content, firstMatch } = params
+
+  if (anchor.length === 0) {
+    throw new Error("anchor cannot be empty")
+  }
+  if (content.length === 0) {
+    throw new Error("content cannot be empty")
+  }
+  assertNoControlCharacters(content, "content")
+
+  const lockPath = resolveSafePath(params.vaultPath, path)
+  return withExclusiveFileLock(lockPath, async () => {
+    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
+      params.vaultPath,
+      path,
+    )
+
+    const anchorLine = resolveAnchorLine({
+      lines,
+      anchor,
+      fromLine: 0,
+      firstMatch,
+      path,
+      role: "start",
+    })
+
+    const contentLines = content.split("\n")
+    const insertIndex = position === "before" ? anchorLine : anchorLine + 1
+    const updatedLines = [
+      ...lines.slice(0, insertIndex),
+      ...contentLines,
+      ...lines.slice(insertIndex),
+    ]
+
+    const afterBytes = await writePatchedNote(fullPath, data, updatedLines)
+
+    logger.info("inserted at anchor", {
+      path,
+      anchor: truncateForMessage(anchor),
+      position,
+      insertedLines: contentLines.length,
+      beforeBytes,
+      afterBytes,
+    })
+    const lineWord = contentLines.length === 1 ? "line" : "lines"
+    return `Inserted ${contentLines.length} ${lineWord} ${position} anchor in ${path}`
+  })
+}
+
 export const vaultPatcher = {
   patchNote,
   replaceInNote,
   deleteSpan,
+  replaceSpan,
+  insertAtAnchor,
   findTrailingCommentBlockStart,
 }

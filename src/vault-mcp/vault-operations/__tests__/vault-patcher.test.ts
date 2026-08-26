@@ -5,8 +5,14 @@ import { tmpdir } from "node:os"
 import { vaultPatcher } from "../vault-patcher.js"
 import { logger } from "../../../logger.js"
 
-const { patchNote, replaceInNote, deleteSpan, findTrailingCommentBlockStart } =
-  vaultPatcher
+const {
+  patchNote,
+  replaceInNote,
+  deleteSpan,
+  replaceSpan,
+  insertAtAnchor,
+  findTrailingCommentBlockStart,
+} = vaultPatcher
 
 let vault: string
 
@@ -3281,6 +3287,786 @@ describe("concurrent writes (exclusive lock)", () => {
   })
 })
 
+describe("replaceSpan", () => {
+  const TABLE_NOTE = `---
+title: Tracker
+---
+
+## History
+
+| Date | Company | Status |
+| --- | --- | --- |
+| 2026-05-01 | Acme Corp | Applied |
+| 2026-05-02 | Beta Inc | Interviewing |
+| 2026-05-03 | Gamma LLC | Rejected |
+`
+
+  it("replaces a single line identified by start_anchor", async () => {
+    await writeTestNote("tracker.md", TABLE_NOTE)
+    const result = await replaceSpan(
+      {
+        vaultPath: vault,
+        path: "tracker.md",
+        startAnchor: "| 2026-05-02 |",
+        content: "| 2026-05-02 | Beta Inc | Offer received |",
+      },
+      logger,
+    )
+    const updated = await readTestNote("tracker.md")
+    expect(result).toBe("Replaced 1 line with 1 line in tracker.md")
+    expect(updated).toBe(`---
+title: Tracker
+---
+
+## History
+
+| Date | Company | Status |
+| --- | --- | --- |
+| 2026-05-01 | Acme Corp | Applied |
+| 2026-05-02 | Beta Inc | Offer received |
+| 2026-05-03 | Gamma LLC | Rejected |
+`)
+  })
+
+  it("replaces a multi-line block from start through end anchor", async () => {
+    const content = `---
+title: Plan
+---
+
+Before paragraph.
+
+> [!warning] Stale
+> Old content line one
+> Old content line two
+> remove after launch
+
+After paragraph.
+`
+    await writeTestNote("plan.md", content)
+    const result = await replaceSpan(
+      {
+        vaultPath: vault,
+        path: "plan.md",
+        startAnchor: "> [!warning] Stale",
+        endAnchor: "remove after launch",
+        content: "> [!info] Current\n> Updated for v2.",
+      },
+      logger,
+    )
+    const updated = await readTestNote("plan.md")
+    expect(result).toBe("Replaced 4 lines with 2 lines in plan.md")
+    expect(updated).toBe(`---
+title: Plan
+---
+
+Before paragraph.
+
+> [!info] Current
+> Updated for v2.
+
+After paragraph.
+`)
+  })
+
+  it("replaces with more lines than removed (expansion)", async () => {
+    const content = `---
+title: Test
+---
+
+line before
+single target line
+line after
+`
+    await writeTestNote("expand.md", content)
+    await replaceSpan(
+      {
+        vaultPath: vault,
+        path: "expand.md",
+        startAnchor: "single target",
+        content: "expanded line 1\nexpanded line 2\nexpanded line 3",
+      },
+      logger,
+    )
+    const updated = await readTestNote("expand.md")
+    expect(updated).toBe(`---
+title: Test
+---
+
+line before
+expanded line 1
+expanded line 2
+expanded line 3
+line after
+`)
+  })
+
+  it("treats start and end anchors on the same line as a single-line replace", async () => {
+    const content = `---
+title: Single
+---
+
+keep before
+alpha middle omega
+keep after
+`
+    await writeTestNote("single.md", content)
+    const result = await replaceSpan(
+      {
+        vaultPath: vault,
+        path: "single.md",
+        startAnchor: "alpha",
+        endAnchor: "omega",
+        content: "replaced line",
+      },
+      logger,
+    )
+    const updated = await readTestNote("single.md")
+    expect(result).toBe("Replaced 1 line with 1 line in single.md")
+    expect(updated).toBe(`---
+title: Single
+---
+
+keep before
+replaced line
+keep after
+`)
+  })
+
+  it("collapses 3+ blank-line runs created by the replacement", async () => {
+    const content = `---
+title: Seam
+---
+
+before
+
+old block line 1
+old block line 2
+
+after
+`
+    await writeTestNote("seam.md", content)
+    await replaceSpan(
+      {
+        vaultPath: vault,
+        path: "seam.md",
+        startAnchor: "old block line 1",
+        endAnchor: "old block line 2",
+        content: "\nnew content\n",
+      },
+      logger,
+    )
+    const updated = await readTestNote("seam.md")
+    // The leading/trailing blank lines in content stack with surrounding blanks,
+    // but collapseBlankRuns prevents 3+ consecutive blanks.
+    expect(updated).not.toMatch(/\n{4,}/)
+    expect(updated).toContain("new content")
+  })
+
+  it("preserves frontmatter during replacement", async () => {
+    await writeTestNote("tracker.md", TABLE_NOTE)
+    await replaceSpan(
+      {
+        vaultPath: vault,
+        path: "tracker.md",
+        startAnchor: "| 2026-05-01 |",
+        content: "| 2026-05-01 | Acme Corp | Updated |",
+      },
+      logger,
+    )
+    const updated = await readTestNote("tracker.md")
+    expect(updated).toMatch(/^---\ntitle: Tracker\n---/)
+  })
+
+  it("throws when start anchor is not found", async () => {
+    await writeTestNote("tracker.md", TABLE_NOTE)
+    await expect(
+      replaceSpan(
+        {
+          vaultPath: vault,
+          path: "tracker.md",
+          startAnchor: "nonexistent anchor",
+          content: "replacement",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('start anchor not found in "tracker.md"')
+  })
+
+  it("throws when end anchor is not found at or after start", async () => {
+    await writeTestNote("tracker.md", TABLE_NOTE)
+    await expect(
+      replaceSpan(
+        {
+          vaultPath: vault,
+          path: "tracker.md",
+          startAnchor: "| 2026-05-03 |",
+          endAnchor: "| 2026-05-01 |",
+          content: "replacement",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("at or after the start anchor")
+  })
+
+  it("throws on ambiguous start anchor", async () => {
+    const content = `---
+title: Ambiguous
+---
+
+duplicate line
+other content
+duplicate line
+`
+    await writeTestNote("ambiguous.md", content)
+    await expect(
+      replaceSpan(
+        {
+          vaultPath: vault,
+          path: "ambiguous.md",
+          startAnchor: "duplicate line",
+          content: "replacement",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("ambiguous start anchor")
+  })
+
+  it("uses first match when first_match is set on ambiguous anchor", async () => {
+    const content = `---
+title: First
+---
+
+duplicate line alpha
+unique middle
+duplicate line beta
+`
+    await writeTestNote("first.md", content)
+    await replaceSpan(
+      {
+        vaultPath: vault,
+        path: "first.md",
+        startAnchor: "duplicate line",
+        content: "replaced first",
+        firstMatch: true,
+      },
+      logger,
+    )
+    const updated = await readTestNote("first.md")
+    expect(updated).toContain("replaced first")
+    expect(updated).toContain("unique middle")
+    expect(updated).toContain("duplicate line beta")
+  })
+
+  it("throws when the note does not exist", async () => {
+    await expect(
+      replaceSpan(
+        {
+          vaultPath: vault,
+          path: "missing.md",
+          startAnchor: "anything",
+          content: "replacement",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('note not found: "missing.md"')
+  })
+
+  it("throws when content is empty", async () => {
+    await writeTestNote("tracker.md", TABLE_NOTE)
+    await expect(
+      replaceSpan(
+        {
+          vaultPath: vault,
+          path: "tracker.md",
+          startAnchor: "| 2026-05-01 |",
+          content: "",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("content cannot be empty")
+  })
+
+  it("throws when startAnchor is empty", async () => {
+    await writeTestNote("tracker.md", TABLE_NOTE)
+    await expect(
+      replaceSpan(
+        {
+          vaultPath: vault,
+          path: "tracker.md",
+          startAnchor: "",
+          content: "replacement",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("startAnchor cannot be empty")
+  })
+
+  it("throws when endAnchor is empty string", async () => {
+    await writeTestNote("tracker.md", TABLE_NOTE)
+    await expect(
+      replaceSpan(
+        {
+          vaultPath: vault,
+          path: "tracker.md",
+          startAnchor: "| 2026-05-01 |",
+          endAnchor: "",
+          content: "replacement",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("endAnchor cannot be empty")
+  })
+
+  it("throws on path without .md extension", async () => {
+    await expect(
+      replaceSpan(
+        {
+          vaultPath: vault,
+          path: "tracker",
+          startAnchor: "anything",
+          content: "replacement",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('path must end in ".md"')
+  })
+
+  it("rejects concurrent writes on the same file", async () => {
+    const content = `---
+title: Concurrent
+---
+
+line one
+line two
+`
+    await writeTestNote("concurrent.md", content)
+    const [first, second] = await Promise.allSettled([
+      replaceSpan(
+        {
+          vaultPath: vault,
+          path: "concurrent.md",
+          startAnchor: "line one",
+          content: "replaced one",
+        },
+        logger,
+      ),
+      replaceSpan(
+        {
+          vaultPath: vault,
+          path: "concurrent.md",
+          startAnchor: "line two",
+          content: "replaced two",
+        },
+        logger,
+      ),
+    ])
+    expect(first.status).toBe("fulfilled")
+    expect(second).toEqual(
+      expect.objectContaining({
+        status: "rejected",
+        reason: expect.objectContaining({
+          message: "concurrent write in progress",
+        }),
+      }),
+    )
+  })
+})
+
+describe("insertAtAnchor", () => {
+  const LIST_NOTE = `---
+title: Shopping
+---
+
+## Items
+
+- Apples
+- Bananas
+- Cherries
+`
+
+  it("inserts a line after the anchor line", async () => {
+    await writeTestNote("shopping.md", LIST_NOTE)
+    const result = await insertAtAnchor(
+      {
+        vaultPath: vault,
+        path: "shopping.md",
+        anchor: "- Bananas",
+        position: "after",
+        content: "- Blueberries",
+      },
+      logger,
+    )
+    const updated = await readTestNote("shopping.md")
+    expect(result).toBe("Inserted 1 line after anchor in shopping.md")
+    expect(updated).toBe(`---
+title: Shopping
+---
+
+## Items
+
+- Apples
+- Bananas
+- Blueberries
+- Cherries
+`)
+  })
+
+  it("inserts a line before the anchor line", async () => {
+    await writeTestNote("shopping.md", LIST_NOTE)
+    const result = await insertAtAnchor(
+      {
+        vaultPath: vault,
+        path: "shopping.md",
+        anchor: "- Bananas",
+        position: "before",
+        content: "- Avocados",
+      },
+      logger,
+    )
+    const updated = await readTestNote("shopping.md")
+    expect(result).toBe("Inserted 1 line before anchor in shopping.md")
+    expect(updated).toBe(`---
+title: Shopping
+---
+
+## Items
+
+- Apples
+- Avocados
+- Bananas
+- Cherries
+`)
+  })
+
+  it("inserts multiple lines after the anchor", async () => {
+    await writeTestNote("shopping.md", LIST_NOTE)
+    await insertAtAnchor(
+      {
+        vaultPath: vault,
+        path: "shopping.md",
+        anchor: "- Cherries",
+        position: "after",
+        content: "- Dates\n- Elderberries\n- Figs",
+      },
+      logger,
+    )
+    const updated = await readTestNote("shopping.md")
+    expect(updated).toBe(`---
+title: Shopping
+---
+
+## Items
+
+- Apples
+- Bananas
+- Cherries
+- Dates
+- Elderberries
+- Figs
+`)
+  })
+
+  it("inserts multiple lines before the anchor", async () => {
+    await writeTestNote("shopping.md", LIST_NOTE)
+    await insertAtAnchor(
+      {
+        vaultPath: vault,
+        path: "shopping.md",
+        anchor: "- Apples",
+        position: "before",
+        content: "**Priority items:**\n",
+      },
+      logger,
+    )
+    const updated = await readTestNote("shopping.md")
+    expect(updated).toBe(`---
+title: Shopping
+---
+
+## Items
+
+**Priority items:**
+
+- Apples
+- Bananas
+- Cherries
+`)
+  })
+
+  it("inserts after the last line in the body", async () => {
+    const content = `---
+title: Short
+---
+
+only line
+`
+    await writeTestNote("short.md", content)
+    await insertAtAnchor(
+      {
+        vaultPath: vault,
+        path: "short.md",
+        anchor: "only line",
+        position: "after",
+        content: "new last line",
+      },
+      logger,
+    )
+    const updated = await readTestNote("short.md")
+    expect(updated).toBe(`---
+title: Short
+---
+
+only line
+new last line
+`)
+  })
+
+  it("inserts before the first line of the body", async () => {
+    const content = `---
+title: Short
+---
+
+first line
+second line
+`
+    await writeTestNote("short.md", content)
+    await insertAtAnchor(
+      {
+        vaultPath: vault,
+        path: "short.md",
+        anchor: "first line",
+        position: "before",
+        content: "new first line",
+      },
+      logger,
+    )
+    const updated = await readTestNote("short.md")
+    expect(updated).toBe(`---
+title: Short
+---
+
+new first line
+first line
+second line
+`)
+  })
+
+  it("preserves frontmatter during insertion", async () => {
+    await writeTestNote("shopping.md", LIST_NOTE)
+    await insertAtAnchor(
+      {
+        vaultPath: vault,
+        path: "shopping.md",
+        anchor: "- Apples",
+        position: "after",
+        content: "- Added item",
+      },
+      logger,
+    )
+    const updated = await readTestNote("shopping.md")
+    expect(updated).toMatch(/^---\ntitle: Shopping\n---/)
+  })
+
+  it("does not collapse blank lines (insertion never creates gaps)", async () => {
+    const content = `---
+title: Blanks
+---
+
+before
+
+anchor line
+
+after
+`
+    await writeTestNote("blanks.md", content)
+    await insertAtAnchor(
+      {
+        vaultPath: vault,
+        path: "blanks.md",
+        anchor: "anchor line",
+        position: "after",
+        content: "\nnew content\n",
+      },
+      logger,
+    )
+    const updated = await readTestNote("blanks.md")
+    // Content "\nnew content\n" splits to ["", "new content", ""].
+    // The trailing empty line stacks with the existing blank line before "after",
+    // creating a 3-newline run — insert deliberately does NOT collapse it.
+    expect(updated).toContain("anchor line\n\nnew content\n\n\nafter")
+  })
+
+  it("throws when anchor is not found", async () => {
+    await writeTestNote("shopping.md", LIST_NOTE)
+    await expect(
+      insertAtAnchor(
+        {
+          vaultPath: vault,
+          path: "shopping.md",
+          anchor: "nonexistent",
+          position: "after",
+          content: "new line",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('start anchor not found in "shopping.md"')
+  })
+
+  it("throws on ambiguous anchor", async () => {
+    const content = `---
+title: Dupes
+---
+
+duplicate
+other
+duplicate
+`
+    await writeTestNote("dupes.md", content)
+    await expect(
+      insertAtAnchor(
+        {
+          vaultPath: vault,
+          path: "dupes.md",
+          anchor: "duplicate",
+          position: "after",
+          content: "new line",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("ambiguous start anchor")
+  })
+
+  it("uses first match when first_match is set", async () => {
+    const content = `---
+title: Dupes
+---
+
+duplicate alpha
+middle
+duplicate beta
+`
+    await writeTestNote("dupes.md", content)
+    await insertAtAnchor(
+      {
+        vaultPath: vault,
+        path: "dupes.md",
+        anchor: "duplicate",
+        position: "after",
+        content: "inserted after first",
+        firstMatch: true,
+      },
+      logger,
+    )
+    const updated = await readTestNote("dupes.md")
+    expect(updated).toBe(`---
+title: Dupes
+---
+
+duplicate alpha
+inserted after first
+middle
+duplicate beta
+`)
+  })
+
+  it("throws when the note does not exist", async () => {
+    await expect(
+      insertAtAnchor(
+        {
+          vaultPath: vault,
+          path: "missing.md",
+          anchor: "anything",
+          position: "after",
+          content: "new line",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('note not found: "missing.md"')
+  })
+
+  it("throws when content is empty", async () => {
+    await writeTestNote("shopping.md", LIST_NOTE)
+    await expect(
+      insertAtAnchor(
+        {
+          vaultPath: vault,
+          path: "shopping.md",
+          anchor: "- Apples",
+          position: "after",
+          content: "",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("content cannot be empty")
+  })
+
+  it("throws when anchor is empty", async () => {
+    await writeTestNote("shopping.md", LIST_NOTE)
+    await expect(
+      insertAtAnchor(
+        {
+          vaultPath: vault,
+          path: "shopping.md",
+          anchor: "",
+          position: "after",
+          content: "new line",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("anchor cannot be empty")
+  })
+
+  it("throws on path without .md extension", async () => {
+    await expect(
+      insertAtAnchor(
+        {
+          vaultPath: vault,
+          path: "shopping",
+          anchor: "anything",
+          position: "after",
+          content: "new line",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('path must end in ".md"')
+  })
+
+  it("rejects concurrent writes on the same file", async () => {
+    await writeTestNote("shopping.md", LIST_NOTE)
+    const [first, second] = await Promise.allSettled([
+      insertAtAnchor(
+        {
+          vaultPath: vault,
+          path: "shopping.md",
+          anchor: "- Apples",
+          position: "after",
+          content: "first insert",
+        },
+        logger,
+      ),
+      insertAtAnchor(
+        {
+          vaultPath: vault,
+          path: "shopping.md",
+          anchor: "- Bananas",
+          position: "after",
+          content: "second insert",
+        },
+        logger,
+      ),
+    ])
+    expect(first.status).toBe("fulfilled")
+    expect(second).toEqual(
+      expect.objectContaining({
+        status: "rejected",
+        reason: expect.objectContaining({
+          message: "concurrent write in progress",
+        }),
+      }),
+    )
+  })
+})
+
 describe("hidden paths", () => {
   // The note exists on disk so a removed guard would make the operations
   // succeed — the tests then fail because the edit went through, never via
@@ -3329,6 +4115,43 @@ describe("hidden paths", () => {
     await expect(
       deleteSpan(
         { vaultPath: vault, path: HIDDEN_NOTE, startAnchor: "Body line." },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
+    )
+    expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
+  })
+
+  it("replaceSpan rejects a note inside a hidden folder and leaves it unchanged", async () => {
+    await writeTestNote(HIDDEN_NOTE, HIDDEN_CONTENT)
+    await expect(
+      replaceSpan(
+        {
+          vaultPath: vault,
+          path: HIDDEN_NOTE,
+          startAnchor: "Body line.",
+          content: "replaced",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
+    )
+    expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
+  })
+
+  it("insertAtAnchor rejects a note inside a hidden folder and leaves it unchanged", async () => {
+    await writeTestNote(HIDDEN_NOTE, HIDDEN_CONTENT)
+    await expect(
+      insertAtAnchor(
+        {
+          vaultPath: vault,
+          path: HIDDEN_NOTE,
+          anchor: "Body line.",
+          position: "after",
+          content: "injected",
+        },
         logger,
       ),
     ).rejects.toThrow(

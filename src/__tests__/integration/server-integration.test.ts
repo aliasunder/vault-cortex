@@ -62,7 +62,7 @@ describe("default config", () => {
   })
 
   describe("surface", () => {
-    it("lists 30 tools", async () => {
+    it("lists 32 tools", async () => {
       const names = await toolNames(client)
       expect(names).toEqual([
         "vault_delete_memory",
@@ -73,6 +73,7 @@ describe("default config", () => {
         "vault_get_daily_note",
         "vault_get_memory",
         "vault_get_outgoing_links",
+        "vault_insert_at_anchor",
         "vault_list_files",
         "vault_list_memory_files",
         "vault_list_notes",
@@ -87,6 +88,7 @@ describe("default config", () => {
         "vault_read_note",
         "vault_recent_notes",
         "vault_replace_in_note",
+        "vault_replace_span",
         "vault_search",
         "vault_search_by_folder",
         "vault_search_by_property",
@@ -422,7 +424,7 @@ describe("default config", () => {
   })
 
   describe("write chain", () => {
-    it("write → patch → replace → delete_span → update_properties → move → delete", async () => {
+    it("write → patch → replace → delete_span → replace_span → insert_at_anchor → update_properties → move → delete", async () => {
       // write
       const writeResult = await callTool({
         client,
@@ -495,6 +497,45 @@ describe("default config", () => {
       expect(textContent(afterSpan)).not.toContain("Removable line")
       expect(textContent(afterSpan)).toContain("Replaced line.")
 
+      // replace_span — verify anchor-based replacement
+      const replaceSpanResult = await callTool({
+        client,
+        name: "vault_replace_span",
+        args: {
+          path: "Scratch/test-write.md",
+          start_anchor: "Replaced line",
+          content: "Span-replaced line.",
+        },
+      })
+      expect(replaceSpanResult.isError).not.toBe(true)
+      const afterReplaceSpan = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Scratch/test-write.md" },
+      })
+      expect(textContent(afterReplaceSpan)).toContain("Span-replaced line.")
+      expect(textContent(afterReplaceSpan)).not.toContain("Replaced line.")
+
+      // insert_at_anchor — verify anchor-based insertion
+      const insertResult = await callTool({
+        client,
+        name: "vault_insert_at_anchor",
+        args: {
+          path: "Scratch/test-write.md",
+          anchor: "Span-replaced line",
+          position: "after",
+          content: "Inserted line.",
+        },
+      })
+      expect(insertResult.isError).not.toBe(true)
+      const afterInsert = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Scratch/test-write.md" },
+      })
+      expect(textContent(afterInsert)).toContain("Inserted line.")
+      expect(textContent(afterInsert)).toContain("Span-replaced line.")
+
       // update_properties — verify frontmatter merged
       const propsResult = await callTool({
         client,
@@ -533,7 +574,7 @@ describe("default config", () => {
         name: "vault_read_note",
         args: { path: "Scratch/test-moved.md" },
       })
-      expect(textContent(afterMoveNew)).toContain("Replaced line.")
+      expect(textContent(afterMoveNew)).toContain("Span-replaced line.")
 
       // delete — verify the note is gone
       const deleteResult = await callTool({
@@ -938,6 +979,8 @@ describe("READONLY_MODE=true", () => {
     expect(names).not.toContain("vault_patch_note")
     expect(names).not.toContain("vault_replace_in_note")
     expect(names).not.toContain("vault_delete_span")
+    expect(names).not.toContain("vault_replace_span")
+    expect(names).not.toContain("vault_insert_at_anchor")
     expect(names).not.toContain("vault_delete_note")
     expect(names).not.toContain("vault_move_note")
     expect(names).not.toContain("vault_update_properties")
@@ -996,9 +1039,9 @@ describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory",
     }
   })
 
-  it("lists 27 tools with expected survivors", async () => {
+  it("lists 29 tools with expected survivors", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(27)
+    expect(names).toHaveLength(29)
     expect(names).not.toContain("vault_delete_note")
     expect(names).not.toContain("vault_move_note")
     expect(names).not.toContain("vault_delete_memory")
@@ -1060,9 +1103,9 @@ describe("DISABLED_TOOLS=vault_update_memory", () => {
     }
   })
 
-  it("lists 29 tools", async () => {
+  it("lists 31 tools", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(29)
+    expect(names).toHaveLength(31)
     expect(names).not.toContain("vault_update_memory")
     expect(names).toContain("vault_get_memory")
   })
@@ -1096,9 +1139,9 @@ describe("MEMORY_ENABLED=false", () => {
     }
   })
 
-  it("lists 25 tools — no memory group", async () => {
+  it("lists 27 tools — no memory group", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(25)
+    expect(names).toHaveLength(27)
     expect(names).not.toContain("vault_get_memory")
     expect(names).not.toContain("vault_list_memory_files")
     expect(names).not.toContain("vault_memory_recall")
@@ -1135,9 +1178,9 @@ describe("FILE_TOOLS_ENABLED=false", () => {
     }
   })
 
-  it("lists 28 tools — no asset tools", async () => {
+  it("lists 30 tools — no asset tools", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(28)
+    expect(names).toHaveLength(30)
     expect(names).not.toContain("vault_read_file")
     expect(names).not.toContain("vault_list_files")
     expect(names).toContain("vault_read_note")
