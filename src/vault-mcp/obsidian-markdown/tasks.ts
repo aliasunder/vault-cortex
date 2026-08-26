@@ -462,7 +462,6 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
   type IndentEntry = {
     indent: number
     fileLine: number
-    blockId: string | null
   }
   const indentStack: IndentEntry[] = []
   let lastHeadingLine = -1
@@ -529,7 +528,7 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
     const parentLine = parentEntry?.fileLine ?? null
 
     const fileLine = bodyStartLine + lineIndex + 1
-    indentStack.push({ indent: taskIndent, fileLine, blockId })
+    indentStack.push({ indent: taskIndent, fileLine })
 
     extractedTasks.push({
       line: fileLine,
