@@ -77,11 +77,11 @@ describe("resolveEffectiveProtectedPaths", () => {
     })
     const config = makeConfig({
       dailyNotesFolder: "Journal",
-      protectedPaths: ["About Me", "Journal"],
+      protectedPaths: ["About Me", "Archive", "Journal"],
     })
     const result = await resolveEffectiveProtectedPaths(config, "/vault")
 
-    expect(result).toEqual(["About Me", "Journal"])
+    expect(result).toEqual(["About Me", "Archive", "Journal"])
   })
 
   it("passes env settings through to readDailyNotesConfig", async () => {
