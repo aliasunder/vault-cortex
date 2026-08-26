@@ -35,7 +35,6 @@ const describeDisplacedLeadingContent = ({
 
 export const registerVaultCrudTools = ({
   registerTool,
-  isToolEnabled,
   whenToolEnabledText,
   vaultPath,
   search,
@@ -647,7 +646,7 @@ Example: vault_delete_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | A
 Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes from the start anchor line through the end anchor line.
 
 When to use: Removing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.
-Prefer vault_replace_in_note for small in-place edits (this tool only deletes).${isToolEnabled(TOOL_NAMES.VAULT_REPLACE_SPAN) ? " Prefer vault_replace_span to replace a block in one atomic step." : ""} To replace a block, ${isToolEnabled(TOOL_NAMES.VAULT_REPLACE_SPAN) ? "use vault_replace_span, or " : ""}delete it here, then vault_patch_note to add the new content.
+Prefer vault_replace_in_note for small in-place edits (this tool only deletes).${whenToolEnabledText("vault_replace_span", " Prefer vault_replace_span to replace a block in one atomic step.")} To replace a block, ${whenToolEnabledText("vault_replace_span", "use vault_replace_span, or ")}delete it here, then vault_patch_note to add the new content.
 
 Parameters:
 - start_anchor + end_anchor define a line range, not a text range — each anchor locates a full line, and entire lines are removed (never cuts mid-line). Omit end_anchor for a single-line delete.
