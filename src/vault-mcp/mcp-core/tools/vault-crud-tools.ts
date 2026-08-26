@@ -48,8 +48,8 @@ export const resolveEffectiveProtectedPaths = async (
     folder: config.dailyNotesFolder,
     format: config.dailyNotesFormat,
   })
-  const dailyFolder = dailyNotesConfig.folder
-  if (config.protectedPaths.includes(dailyFolder)) {
+  const dailyFolder = dailyNotesConfig.folder.trim()
+  if (!dailyFolder || config.protectedPaths.includes(dailyFolder)) {
     return config.protectedPaths
   }
   return [...config.protectedPaths, dailyFolder]
