@@ -313,6 +313,16 @@ describe("loadConfig", () => {
         loadConfig({ PROTECTED_PATHS: "Secrets,../escape" }),
       ).toThrow("path traversal")
     })
+
+    it("sets protectedPathsOverridden to true when explicitly set", () => {
+      const config = loadConfig({ PROTECTED_PATHS: "Secrets,Archive" })
+      expect(config.protectedPathsOverridden).toBe(true)
+    })
+
+    it("sets protectedPathsOverridden to false when using defaults", () => {
+      const config = loadConfig({})
+      expect(config.protectedPathsOverridden).toBe(false)
+    })
   })
 
   describe("ORPHAN_EXCLUDE_FOLDERS (comma-separated)", () => {

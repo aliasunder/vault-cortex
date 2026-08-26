@@ -128,6 +128,9 @@ export type VaultConfig = Readonly<{
    *  Per-field precedence: env setting → daily-notes.json → fallback
    *  ("YYYY-MM-DD"). Set via DAILY_NOTES_FORMAT. */
   dailyNotesFormat?: string | undefined
+  /** When true, PROTECTED_PATHS was set explicitly — the user owns the list
+   *  and the dynamic daily-notes-folder enrichment is skipped. */
+  protectedPathsOverridden: boolean
   protectedPaths: readonly string[]
   orphanExcludeFolders: readonly string[]
   serviceDocumentationUrl: string
@@ -189,6 +192,7 @@ export const loadConfig = (
   const dailyNotesFolderOrDefault = dailyNotesFolder ?? "Daily Notes"
 
   const protectedPathsRaw = env.PROTECTED_PATHS?.trim()
+  const protectedPathsOverridden = Boolean(protectedPathsRaw)
   const protectedPaths = protectedPathsRaw
     ? splitCommaSeparatedValues(protectedPathsRaw).map((folder) =>
         vaultFolderName.parse(folder),
@@ -325,6 +329,7 @@ export const loadConfig = (
     memoryDir,
     dailyNotesFolder,
     dailyNotesFormat,
+    protectedPathsOverridden,
     protectedPaths,
     orphanExcludeFolders,
     serviceDocumentationUrl,

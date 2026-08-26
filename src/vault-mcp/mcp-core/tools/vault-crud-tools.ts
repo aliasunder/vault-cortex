@@ -1,11 +1,13 @@
 /** Vault CRUD tool registrations — read, write, patch, replace, delete, move. */
 
 import { z } from "zod"
+import type { VaultConfig } from "../../config.js"
 import {
   vaultFs,
   toVaultRelativePath,
 } from "../../vault-operations/vault-filesystem.js"
 import { noteMover } from "../../vault-operations/note-mover.js"
+import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import { vaultPatcher } from "../../vault-operations/vault-patcher.js"
 import type { DisplacedLeadingContent } from "../../vault-operations/vault-patcher.js"
 import { pageTextByLines } from "../../obsidian-markdown/lines.js"
@@ -31,6 +33,25 @@ const describeDisplacedLeadingContent = ({
     return `The note's entire pre-existing body (${bytes} bytes) is now nested under the inserted heading — the note has no other headings to end the new section. To add a section below existing content instead, use operation "append".`
   }
   return `The ${bytes} bytes of pre-existing content above the note's first heading are now nested under the inserted heading. To add a section above the first heading without pulling existing content into it, use operation "insert_before" with heading "${firstHeading.text}" (H${firstHeading.level}).`
+}
+
+/** Enriches the static protectedPaths with the file-configured daily notes
+ *  folder when PROTECTED_PATHS was not explicitly set. */
+export const resolveEffectiveProtectedPaths = async (
+  config: VaultConfig,
+  vaultPath: string,
+): Promise<readonly string[]> => {
+  if (config.protectedPathsOverridden) return config.protectedPaths
+
+  const dailyNotesConfig = await readDailyNotesConfig(vaultPath, {
+    folder: config.dailyNotesFolder,
+    format: config.dailyNotesFormat,
+  })
+  const dailyFolder = dailyNotesConfig.folder
+  if (config.protectedPaths.includes(dailyFolder)) {
+    return config.protectedPaths
+  }
+  return [...config.protectedPaths, dailyFolder]
 }
 
 export const registerVaultCrudTools = ({
@@ -724,7 +745,7 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
-      description: `Permanently delete a markdown note — removed from disk directly (no trash, no undo). After deletion, links to it from other notes become broken (detectable via vault_get_backlinks). Protected paths (${config.protectedPaths.map((protectedPath) => protectedPath + "/").join(", ")}) are refused.
+      description: `Permanently delete a markdown note — removed from disk directly (no trash, no undo). After deletion, links to it from other notes become broken (detectable via vault_get_backlinks). Protected paths (${config.protectedPaths.map((protectedPath) => protectedPath + "/").join(", ")}, and the daily notes folder from .obsidian/daily-notes.json if different) are refused.
 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also remove "Archive/2024" (and "Archive") if deleting the note empties them.
@@ -765,16 +786,16 @@ Returns: Confirmation message, noting how many empty folders were pruned when an
       reqLogger.info("tool_call", { path, pruneEmptyFolders })
       return safeHandler(
         reqLogger,
-        () =>
-          vaultFs.deleteNote(
-            {
-              vaultPath,
-              path,
-              protectedPaths: config.protectedPaths,
-              pruneEmptyFolders,
-            },
+        async () => {
+          const protectedPaths = await resolveEffectiveProtectedPaths(
+            config,
+            vaultPath,
+          )
+          return vaultFs.deleteNote(
+            { vaultPath, path, protectedPaths, pruneEmptyFolders },
             reqLogger,
-          ),
+          )
+        },
         ({ prunedEmptyFolders }) => {
           reqLogger.info("tool_result", {
             outcome: "deleted",
@@ -799,7 +820,7 @@ Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.m
 Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md", prune_empty_folders: true }) — also remove "Inbox" if the move empties it.
 
 When to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.
-Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink. To only change a note's body or properties, use vault_patch_note or vault_update_properties. Protected paths (${config.protectedPaths.map((protectedPath) => protectedPath + "/").join(", ")}) cannot be moved.
+Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink. To only change a note's body or properties, use vault_patch_note or vault_update_properties. Protected paths (${config.protectedPaths.map((protectedPath) => protectedPath + "/").join(", ")}, and the daily notes folder from .obsidian/daily-notes.json if different) cannot be moved.
 
 Errors:
 - "destination exists: …" — a note already lives at new_path; this tool never overwrites. Pick a free path or delete the existing note first.
@@ -862,16 +883,18 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
             { path: normalizedOldPath },
             reqLogger,
           )
-          const [allNotePaths, allAssetPaths] = await Promise.all([
-            vaultFs.listNotes({ vaultPath }, reqLogger),
-            vaultFs.listAssets({ vaultPath }, reqLogger),
-          ])
+          const [allNotePaths, allAssetPaths, protectedPaths] =
+            await Promise.all([
+              vaultFs.listNotes({ vaultPath }, reqLogger),
+              vaultFs.listAssets({ vaultPath }, reqLogger),
+              resolveEffectiveProtectedPaths(config, vaultPath),
+            ])
           return noteMover.moveNote(
             {
               vaultPath,
               oldPath: normalizedOldPath,
               newPath: normalizedNewPath,
-              protectedPaths: config.protectedPaths,
+              protectedPaths,
               backlinkSources: backlinks.map((backlink) => backlink.path),
               allNotePaths,
               allAssetPaths,
