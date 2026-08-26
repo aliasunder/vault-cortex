@@ -267,7 +267,7 @@ server's firewall — the proxy receives traffic directly, so your server
 stays reachable from the internet, whereas a tunnel needs no inbound ports
 at all once port 8000 is closed:
 
-```text
+```caddy
 vault.yourdomain.com {
     reverse_proxy localhost:8000
 }
