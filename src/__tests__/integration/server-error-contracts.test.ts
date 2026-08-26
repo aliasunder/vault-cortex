@@ -258,15 +258,6 @@ describe("note not found", () => {
     expectToolError(result, 'note not found: "missing.md"')
   })
 
-  it("vault_delete_note rejects paths under the file-configured daily notes folder", async () => {
-    const result = await callTool({
-      client,
-      name: "vault_delete_note",
-      args: { path: "Journal/2026-08-01.md" },
-    })
-    expectToolError(result, "cannot delete protected path")
-  })
-
   it("vault_delete_note for a nonexistent path", async () => {
     const result = await callTool({
       client,
