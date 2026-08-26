@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime } from "luxon"
-import { taskUpdater } from "../task-updater.js"
+import { taskMutations } from "../task-updater.js"
 import { logger } from "../../../logger.js"
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -149,7 +149,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         { vaultPath: vault, path: "tasks.md", line: 5, status: "done" },
         logger,
       )
@@ -170,7 +170,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         { vaultPath: vault, path: "tasks.md", line: 5, status: "in_progress" },
         logger,
       )
@@ -191,7 +191,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         { vaultPath: vault, path: "tasks.md", line: 7, status: "todo" },
         logger,
       )
@@ -212,7 +212,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         { vaultPath: vault, path: "tasks.md", line: 5, status: "cancelled" },
         logger,
       )
@@ -233,7 +233,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -259,7 +259,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         { vaultPath: vault, path: "tasks.md", line: 6, status: "in_progress" },
         logger,
       )
@@ -284,7 +284,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", PRIORITY_NOTE)
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -310,7 +310,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", PRIORITY_NOTE)
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -336,7 +336,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", PRIORITY_NOTE)
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -362,7 +362,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", PRIORITY_NOTE)
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -392,7 +392,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_BOARD)
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "board.md",
@@ -419,7 +419,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_WITH_SUBITEMS)
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "board.md",
@@ -446,7 +446,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_WITH_COMPLETE_MARKER)
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "board.md",
@@ -472,7 +472,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_BOARD)
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "board.md",
@@ -504,7 +504,7 @@ describe("task-updater", () => {
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
       await expect(
-        taskUpdater.updateTask(
+        taskMutations.updateTask(
           {
             vaultPath: vault,
             path: "tasks.md",
@@ -524,7 +524,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_BOARD)
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "board.md",
@@ -552,7 +552,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -583,7 +583,7 @@ describe("task-updater", () => {
       const vault = await createVault()
 
       await expect(
-        taskUpdater.updateTask(
+        taskMutations.updateTask(
           {
             vaultPath: vault,
             path: "missing.md",
@@ -600,7 +600,7 @@ describe("task-updater", () => {
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
       await expect(
-        taskUpdater.updateTask(
+        taskMutations.updateTask(
           {
             vaultPath: vault,
             path: "tasks.md",
@@ -617,7 +617,7 @@ describe("task-updater", () => {
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
       await expect(
-        taskUpdater.updateTask(
+        taskMutations.updateTask(
           { vaultPath: vault, path: "tasks.md", line: 1, status: "done" },
           logger,
         ),
@@ -629,13 +629,11 @@ describe("task-updater", () => {
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
       await expect(
-        taskUpdater.updateTask(
+        taskMutations.updateTask(
           { vaultPath: vault, path: "tasks.md", line: 5 },
           logger,
         ),
-      ).rejects.toThrow(
-        "at least one mutation (status, priority, or lane) is required",
-      )
+      ).rejects.toThrow("at least one mutation")
     })
 
     it("throws when target heading not found", async () => {
@@ -643,7 +641,7 @@ describe("task-updater", () => {
       await writeTestNote(vault, "board.md", KANBAN_BOARD)
 
       await expect(
-        taskUpdater.updateTask(
+        taskMutations.updateTask(
           {
             vaultPath: vault,
             path: "board.md",
@@ -660,7 +658,7 @@ describe("task-updater", () => {
       await writeTestNote(vault, "board.md", KANBAN_MULTIPLE_DONE_LANES)
 
       await expect(
-        taskUpdater.updateTask(
+        taskMutations.updateTask(
           {
             vaultPath: vault,
             path: "board.md",
@@ -677,7 +675,7 @@ describe("task-updater", () => {
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
       await expect(
-        taskUpdater.updateTask(
+        taskMutations.updateTask(
           {
             vaultPath: vault,
             path: "tasks.md",
@@ -695,7 +693,7 @@ describe("task-updater", () => {
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
       await expect(
-        taskUpdater.updateTask(
+        taskMutations.updateTask(
           { vaultPath: vault, path: "tasks.md", status: "done" },
           logger,
         ),
@@ -707,7 +705,7 @@ describe("task-updater", () => {
       await writeTestNote(vault, "board.md", KANBAN_NO_DONE_LANE)
 
       await expect(
-        taskUpdater.updateTask(
+        taskMutations.updateTask(
           {
             vaultPath: vault,
             path: "board.md",
@@ -728,7 +726,7 @@ describe("task-updater", () => {
       await writeTestNote(vault, "board.md", KANBAN_BOARD)
       const contentBefore = await readTestNote(vault, "board.md")
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "board.md",
@@ -747,7 +745,7 @@ describe("task-updater", () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
-      const result = await taskUpdater.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -778,7 +776,7 @@ describe("task-updater", () => {
       // succeed — the test then fails on the mutation, not a missing file.
       await writeTestNote(vault, ".trash/tasks.md", SIMPLE_NOTE)
       await expect(
-        taskUpdater.updateTask(
+        taskMutations.updateTask(
           {
             vaultPath: vault,
             path: ".trash/tasks.md",
@@ -791,6 +789,431 @@ describe("task-updater", () => {
         'hidden path blocked: ".trash/tasks.md" targets a hidden file or folder',
       )
       expect(await readTestNote(vault, ".trash/tasks.md")).toBe(SIMPLE_NOTE)
+    })
+  })
+
+  // ── createTask ─────────────────────────────────────────────────
+
+  describe("createTask", () => {
+    it("creates a simple task appended to end of body", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "New task",
+          blockId: "new-task",
+        },
+        logger,
+      )
+
+      expect(result.block_id).toBe("new-task")
+      expect(result.description).toBe("New task")
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toContain(`- [ ] New task ➕ ${today()} ^new-task`)
+    })
+
+    it("creates a task under a specific heading on a Kanban board", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "board.md", KANBAN_BOARD)
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "board.md",
+          description: "Board task",
+          blockId: "board-task",
+          heading: "Up Next",
+        },
+        logger,
+      )
+
+      expect(result.heading).toBe("Up Next")
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toContain("Board task")
+      expect(content).toContain("^board-task")
+      // Task is placed in the Up Next section, before the existing card
+      const upNextIndex = content.indexOf("## Up Next")
+      const boardTaskIndex = content.indexOf("Board task")
+      const doneIndex = content.indexOf("## Done")
+      expect(boardTaskIndex).toBeGreaterThan(upNextIndex)
+      expect(boardTaskIndex).toBeLessThan(doneIndex)
+    })
+
+    it("creates a task with priority and dates", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "Dated task",
+          blockId: "dated",
+          priority: "high",
+          due: "2026-09-15",
+          scheduled: "2026-09-10",
+          start: "2026-09-01",
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toContain(
+        `- [ ] Dated task ⏫ ➕ ${today()} 🛫 2026-09-01 ⏳ 2026-09-10 📅 2026-09-15 ^dated`,
+      )
+    })
+
+    it("creates a sub-task under a parent identified by block_id", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "Child task",
+          blockId: "child",
+          parent: "walk-dog",
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toContain(`  - [ ] Child task ➕ ${today()} ^child`)
+    })
+
+    it("creates a task with subtask checklist items", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "Multi-stage task",
+          blockId: "multi-stage",
+          subtasks: ["Stage 1", "Stage 2", "Stage 3"],
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toContain("- [ ] Multi-stage task")
+      expect(content).toContain("  - [ ] Stage 1")
+      expect(content).toContain("  - [ ] Stage 2")
+      expect(content).toContain("  - [ ] Stage 3")
+    })
+
+    it("errors on duplicate block_id", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Duplicate",
+            blockId: "walk-dog",
+          },
+          logger,
+        ),
+      ).rejects.toThrow('block_id "walk-dog" already exists')
+    })
+
+    it("errors on invalid block_id characters", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Bad id",
+            blockId: "bad id!",
+          },
+          logger,
+        ),
+      ).rejects.toThrow("contains invalid characters")
+    })
+
+    it("errors when heading is missing on a Kanban board", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "board.md", KANBAN_BOARD)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "No heading",
+            blockId: "no-heading",
+          },
+          logger,
+        ),
+      ).rejects.toThrow("heading required for Kanban boards")
+    })
+
+    it("errors on invalid date", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Bad date",
+            blockId: "bad-date",
+            due: "2026-02-30",
+          },
+          logger,
+        ),
+      ).rejects.toThrow('invalid date: due "2026-02-30"')
+    })
+
+    it("errors when parent not found", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Orphan",
+            blockId: "orphan",
+            parent: "nonexistent",
+          },
+          logger,
+        ),
+      ).rejects.toThrow("parent task not found")
+    })
+  })
+
+  // ── updateTask expansion ──────────────────────────────────────
+
+  describe("updateTask expansion", () => {
+    it("replaces a task description preserving metadata", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "walk-dog",
+          description: "Walk the cat",
+        },
+        logger,
+      )
+
+      expect(result.description).toBe("Walk the cat")
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toContain("- [ ] Walk the cat ➕ 2026-07-02 ^walk-dog")
+      expect(content).not.toContain("Walk the dog")
+    })
+
+    it("sets a due date on a task", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "walk-dog",
+          due: "2026-09-15",
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toContain("📅 2026-09-15 ^walk-dog")
+    })
+
+    it("clears a date field with null", async () => {
+      const vault = await createVault()
+      const noteWithDue = `---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 📅 2026-09-01 ^my-task\n`
+      await writeTestNote(vault, "tasks.md", noteWithDue)
+
+      await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "my-task",
+          due: null,
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toContain("- [ ] Task ➕ 2026-07-01 ^my-task")
+      expect(content).not.toContain("📅")
+    })
+
+    it("adds a subtask to a parent task", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "walk-dog",
+          addSubtask: "Bring treats",
+        },
+        logger,
+      )
+
+      expect(result.changes).toContain("subtask added: Bring treats")
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toContain("  - [ ] Bring treats")
+    })
+
+    it("composes add_subtask with status change", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "walk-dog",
+          status: "in_progress",
+          addSubtask: "First stage",
+        },
+        logger,
+      )
+
+      expect(result.changes).toContain("status: todo → in_progress")
+      expect(result.changes).toContain("subtask added: First stage")
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toContain("- [/] Walk the dog")
+      expect(content).toContain("  - [ ] First stage")
+    })
+
+    it("assigns a block_id to a task without one", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          line: 5,
+          assignBlockId: "buy-groceries",
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toContain(
+        "- [ ] Buy groceries ➕ 2026-07-01 ^buy-groceries",
+      )
+    })
+
+    it("replaces an existing block_id", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "walk-dog",
+          assignBlockId: "walk-cat",
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toContain("^walk-cat")
+      expect(content).not.toContain("^walk-dog")
+    })
+
+    it("completes a sub-task in place without lane-moving", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "board.md", KANBAN_WITH_SUBITEMS)
+
+      // Create a sub-task first so we have one to complete
+      await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "board.md",
+          description: "Sub-stage",
+          blockId: "sub-stage",
+          parent: "parent",
+        },
+        logger,
+      )
+
+      await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "sub-stage",
+          status: "done",
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "board.md")
+      // Sub-task should be completed in place (under Active, not moved to Done)
+      expect(content).toContain("## Active")
+      expect(content).toMatch(/Active[\s\S]*\[x\] Sub-stage/)
+      // Should NOT appear under Done
+      const doneSection = content.split("## Done")[1] ?? ""
+      expect(doneSection).not.toContain("Sub-stage")
+    })
+
+    it("errors when explicit lane is set on a sub-task", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "board.md", KANBAN_WITH_SUBITEMS)
+
+      await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "board.md",
+          description: "Sub for lane test",
+          blockId: "sub-lane-test",
+          parent: "parent",
+        },
+        logger,
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "sub-lane-test",
+            lane: "Done",
+          },
+          logger,
+        ),
+      ).rejects.toThrow("cannot lane-move a sub-task")
+    })
+
+    it("errors on invalid date in update", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "walk-dog",
+            due: "not-a-date",
+          },
+          logger,
+        ),
+      ).rejects.toThrow("invalid date")
     })
   })
 })
