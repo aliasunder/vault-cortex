@@ -26,7 +26,7 @@ type Operation = "append" | "prepend" | "replace" | "insert_before"
 
 /** The note's first heading before a patch — enough for a caller to name it as
  *  a placement target. */
-export type PatchedNoteFirstHeading = Readonly<{
+type PatchedNoteFirstHeading = Readonly<{
   text: string
   level: number
 }>
@@ -43,7 +43,7 @@ export type DisplacedLeadingContent = Readonly<{
 
 /** A completed patch: the confirmation line, plus displacement facts when the
  *  write nested pre-existing content inside a newly inserted heading. */
-export type PatchNoteResult = Readonly<{
+type PatchNoteResult = Readonly<{
   message: string
   displacedLeadingContent: DisplacedLeadingContent | null
 }>

@@ -1,0 +1,18 @@
+{
+  "config": {
+    "MD013": false,
+    "MD024": false,
+    "MD033": false,
+    "MD012": false,
+    "MD025": false,
+    "MD041": false,
+    "MD060": false,
+  },
+  "ignores": [
+    "CHANGELOG.md",
+    "DOCKERHUB.md",
+    "src/__tests__/**",
+    "templates/**",
+  ],
+  "gitignore": true,
+}

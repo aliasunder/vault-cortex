@@ -26,6 +26,7 @@ to get started.
    typechecks `sst.config.ts` against.
 
 3. **Run the checks:**
+
    ```bash
    npm test
    npm run lint
@@ -133,9 +134,11 @@ truth. Key points:
    `refactor/`, `chore/`)
 2. **Keep PRs focused** — one logical change per PR
 3. **Run the full check suite** before pushing:
+
    ```bash
    npm run prettier:check && npm run lint && npm test && npm run build
    ```
+
 4. **Fill out the PR template** — the checklist mirrors CI
 5. **Required checks must pass** — the `main` ruleset requires all eight;
    each blocks the merge and the finding details are in its job log:

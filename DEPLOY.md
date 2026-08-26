@@ -234,7 +234,7 @@ GitHub Actions runs lint/test/build plus security scans (secret detection, image
 | `dockerhub-description.yml` | Reusable (`workflow_call`)       | Syncs `DOCKERHUB.md` to the Docker Hub repository description via `peter-evans/dockerhub-description`. Called by both release workflows after `deploy` — keeps the Hub listing in sync on every release.                                                                                                                                                 |
 
 > **Why two release paths?** GitHub prevents a tag pushed by `GITHUB_TOKEN` from inside a workflow from triggering other workflows. So `manual_release.yml` has to do its own deploy + release inline instead of relying on `auto_release.yml` firing. `auto_release.yml` still exists for the laptop path — when you push a tag from your terminal, your user account is the actor and the trigger fires normally.
-
+>
 > **MCP Registry publishing is automatic.** Both release paths call `publish-registry.yml`, so the [official MCP Registry](https://registry.modelcontextprotocol.io/) entry tracks every release — no manual `mcp-publisher publish`. It authenticates with [GitHub OIDC](https://modelcontextprotocol.io/registry/github-actions) and needs **no secret**: the registry authorizes the `io.github.<owner>/*` namespace from the OIDC token's repo owner, so a fork publishing `io.github.<your-user>/...` works out of the box (unlike the AWS OIDC role below, which you must provision).
 
 ### GitHub OIDC setup (for forkers)
@@ -452,7 +452,7 @@ curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up --auth-key=<YOUR_AUTH_KEY> --hostname=vault-cortex --advertise-tags=tag:server --reset
 ```
 
-Use a **reusable, non-expiring** auth key from https://login.tailscale.com/admin/settings/keys with tag `tag:server`. The `--reset` flag clears any prior registration state. Do NOT use `--ssh` (that replaces OpenSSH with Tailscale SSH — we want standard SSH over the Tailscale network).
+Use a **reusable, non-expiring** auth key from <https://login.tailscale.com/admin/settings/keys> with tag `tag:server`. The `--reset` flag clears any prior registration state. Do NOT use `--ssh` (that replaces OpenSSH with Tailscale SSH — we want standard SSH over the Tailscale network).
 
 **2. Verify Tailscale SSH** from your laptop:
 
@@ -472,7 +472,7 @@ This blocks port 22 on the Lightsail firewall (non-routable CIDR — same mechan
 
 **4. Update local dev** — add to `~/.config/vault-cortex/.env`:
 
-```
+```bash
 LIGHTSAIL_SSH_HOST=vault-cortex
 ```
 
@@ -494,7 +494,8 @@ The deploy workflow supports optional Tailscale connectivity for SSH steps. Gate
 **Tailscale admin setup:**
 
 1. Create an OAuth client at Tailscale admin → Settings → Trust Credentials → +Credential → OAuth → Continue — scopes: Devices Core (Read + Write) + Auth Keys (Write), tag: `tag:ci`
-2. Add tag owners and ACL grants in https://login.tailscale.com/admin/acls:
+2. Add tag owners and ACL grants in <https://login.tailscale.com/admin/acls>:
+
    ```json
    {
      "tagOwners": {
@@ -693,17 +694,22 @@ curl https://<api-gateway-url>/healthz
 If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, port 8000 is blocked — but `cloudflared` isn't running on the new VM yet. Recovery:
 
 1. Temporarily open both ports and disable tunnel routing:
+
    ```bash
    SSH_CIDRS=0.0.0.0/0 ORIGIN_URL= MCP_PORT_CIDRS=0.0.0.0/0 npx sst deploy
    ```
+
 2. SSH in via public IP, install Tailscale (see [SSH Hardening](#ssh-hardening-with-tailscale-optional))
 3. Install `cloudflared` and register with the existing tunnel token:
+
    ```bash
    sudo apt-get update && sudo apt-get install -y cloudflared
    sudo cloudflared service install <TUNNEL_TOKEN>
    ```
+
 4. Verify the tunnel: `curl https://<subdomain>.<yourdomain>/healthz`
 5. Re-harden (drop `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` if the tunnel hostname is not locked with a service token):
+
    ```bash
    SSH_CIDRS=none ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true npx sst deploy
    ```

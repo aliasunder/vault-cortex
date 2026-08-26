@@ -7,14 +7,14 @@ import type { Prompts, SelectOption } from "../prompts.js"
  */
 export type ScriptedAnswer = string | boolean | string[]
 
-export type MultiselectCall = { message: string; options: SelectOption[] }
-export type ConfirmCall = { message: string; initialValue: boolean }
-export type SelectCall = {
+type MultiselectCall = { message: string; options: SelectOption[] }
+type ConfirmCall = { message: string; initialValue: boolean }
+type SelectCall = {
   message: string
   options: SelectOption[]
   initialValue: string
 }
-export type TextCall = {
+type TextCall = {
   message: string
   defaultValue: string | undefined
   placeholder: string | undefined
