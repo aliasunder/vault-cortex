@@ -746,6 +746,8 @@ Errors:
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
 
+Obsidian syntax: content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block in content.
+
 Returns: Confirmation with line counts (lines replaced and lines inserted).`,
       inputSchema: {
         path: z
@@ -837,6 +839,8 @@ Errors:
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not editable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
+
+Obsidian syntax: content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block in content.
 
 Returns: Confirmation with the number of lines inserted and the position (before/after).`,
       inputSchema: {
