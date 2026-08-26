@@ -462,6 +462,110 @@ describe("task errors", () => {
     })
     expectToolError(result, 'block_id "nonexistent-block-id" not found')
   })
+
+  it("vault_create_task with duplicate block_id", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/alpha.md",
+        description: "Duplicate",
+        block_id: "alpha-task-1",
+        heading: "Tasks",
+      },
+    })
+    expectToolError(result, 'block_id "alpha-task-1" already exists')
+  })
+
+  it("vault_create_task with invalid block_id characters", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/alpha.md",
+        description: "Bad id",
+        block_id: "bad id!",
+      },
+    })
+    expectToolError(result, "contains invalid characters")
+  })
+
+  it("vault_create_task on nonexistent note", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "nonexistent.md",
+        description: "Ghost",
+        block_id: "ghost",
+      },
+    })
+    expectToolError(result, "note not found")
+  })
+
+  it("vault_create_task on Kanban board without heading", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/board.md",
+        description: "No heading",
+        block_id: "no-heading",
+      },
+    })
+    expectToolError(result, "heading required for Kanban boards")
+  })
+
+  it("vault_create_task with invalid date", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/alpha.md",
+        description: "Bad date",
+        block_id: "bad-date",
+        due: "2026-02-30",
+      },
+    })
+    expectToolError(result, "invalid date")
+  })
+
+  it("vault_update_task with invalid date", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/alpha.md",
+        block_id: "alpha-task-1",
+        due: "not-a-date",
+      },
+    })
+    expectToolError(result, "invalid date")
+  })
+
+  it("vault_update_task — cannot lane-move a sub-task", async () => {
+    // First create a sub-task on the board
+    await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/board.md",
+        description: "Sub for error test",
+        block_id: "sub-error-test",
+        parent: "board-active-1",
+      },
+    })
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/board.md",
+        block_id: "sub-error-test",
+        lane: "Done",
+      },
+    })
+    expectToolError(result, "cannot lane-move a sub-task")
+  })
 })
 
 // ── Path extension errors ────────────────────────────────────

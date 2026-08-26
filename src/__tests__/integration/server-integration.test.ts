@@ -388,6 +388,88 @@ describe("default config", () => {
       expect(text).toContain("alpha-task-2")
     })
 
+    it("vault_create_task — creates a card and verifies via readback", async () => {
+      const createResult = await callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "Projects/alpha.md",
+          description: "Integration test task",
+          block_id: "integ-test-task",
+          heading: "Tasks",
+          priority: "medium",
+        },
+      })
+      expect(createResult.isError).not.toBe(true)
+      const createJson = JSON.parse(textContent(createResult))
+      expect(createJson.block_id).toBe("integ-test-task")
+      expect(createJson.description).toBe("Integration test task")
+      expect(createJson.heading).toBe("Tasks")
+
+      // Verify the created task is in the file via vault_read_note
+      const readback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/alpha.md", heading: "Tasks" },
+      })
+      const readbackText = textContent(readback)
+      expect(readbackText).toContain("Integration test task")
+      expect(readbackText).toContain("^integ-test-task")
+      expect(readbackText).toContain("🔼")
+    })
+
+    it("vault_list_tasks — top_level_only excludes sub-tasks", async () => {
+      const allResult = await callTool({
+        client,
+        name: "vault_list_tasks",
+        args: {
+          path: "Projects/board.md",
+          status: "all",
+          sort_by: "position",
+        },
+      })
+      const allJson = JSON.parse(textContent(allResult))
+      const allCount = allJson.total
+
+      const topOnlyResult = await callTool({
+        client,
+        name: "vault_list_tasks",
+        args: {
+          path: "Projects/board.md",
+          status: "all",
+          sort_by: "position",
+          top_level_only: true,
+        },
+      })
+      const topOnlyJson = JSON.parse(textContent(topOnlyResult))
+
+      // Board has sub-tasks under the in-progress card — top_level_only
+      // should return fewer tasks than the unfiltered query
+      expect(topOnlyJson.total).toBeLessThan(allCount)
+      // All returned tasks should have depth 0 (omitted = 0)
+      for (const task of topOnlyJson.tasks) {
+        expect(task.depth).toBeUndefined()
+      }
+    })
+
+    it("vault_update_task — description edit preserves metadata", async () => {
+      const result = await callTool({
+        client,
+        name: "vault_update_task",
+        args: {
+          path: "Projects/alpha.md",
+          block_id: "alpha-task-2",
+          description: "Renamed second task",
+        },
+      })
+      expect(result.isError).not.toBe(true)
+      const json = JSON.parse(textContent(result))
+      expect(json.description).toBe("Renamed second task")
+      expect(json.changes).toContain(
+        "description: Second task → Renamed second task",
+      )
+    })
+
     it("vault_update_task — verify priority applied", async () => {
       const result = await callTool({
         client,
