@@ -172,7 +172,7 @@ src/
         tool-helpers.ts                # Shared ToolRegistrationContext type + safeHandler/safeHandlerContent + describeTextWindow
         vault-crud-tools.ts            # 9 tools: read, write, patch, replace, delete, move
         search-tools.ts                # 11 tools: search, tags, properties, graph queries
-        task-tools.ts                  # 2 tools: list-tasks, update-task
+        task-tools.ts                  # 3 tools: list-tasks, create-task, update-task
         memory-tools.ts                # 5 tools: get/update/list/delete memory + memory recall
         daily-note-tools.ts            # 1 tool: get daily note
         asset-tools.ts                 # 2 tools: read-file, list-files

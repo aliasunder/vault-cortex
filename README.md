@@ -277,38 +277,39 @@ See [ARCHITECTURE.md → Files](./ARCHITECTURE.md#files) for the image pipeline 
 
 ## Tools
 
-| Category        | Tool                         | Description                                                                            |
-| --------------- | ---------------------------- | -------------------------------------------------------------------------------------- |
-| **Vault CRUD**  | `vault_read_note`            | Read a note — full body, properties, outline, or a section                             |
-|                 | `vault_write_note`           | Create a note (fails if it already exists; set `overwrite` to replace)                 |
-|                 | `vault_patch_note`           | Heading-targeted edit (append, prepend, replace with `include_children` guard, insert) |
-|                 | `vault_replace_in_note`      | Find-and-replace text in a note (first match or `replace_all_occurrences`)             |
-|                 | `vault_delete_span`          | Delete a block of lines by short anchors, no full re-quote                             |
-|                 | `vault_list_notes`           | List notes with optional glob/folder filter                                            |
-|                 | `vault_delete_note`          | Delete a note (protected paths enforced)                                               |
-|                 | `vault_move_note`            | Move or rename a note, rewriting links across the vault                                |
-| **Search**      | `vault_search`               | Hybrid search with tag/folder/property/date filters                                    |
-|                 | `vault_search_by_tag`        | Find notes by tag (exact or prefix match)                                              |
-|                 | `vault_search_by_folder`     | Browse notes in a folder with metadata                                                 |
-|                 | `vault_recent_notes`         | Recently modified or created notes                                                     |
-|                 | `vault_list_tags`            | All tags with usage counts                                                             |
-| **Tasks**       | `vault_list_tasks`           | Vault-wide task index — Kanban-aware, 6 date fields, priority, folder/heading scope    |
-|                 | `vault_update_task`          | One-call status, priority, and lane changes — auto-detects done lanes on Kanban boards |
-| **Memory**      | `vault_get_memory`           | Read structured memory (file, section, or all)                                         |
-|                 | `vault_update_memory`        | Append a dated entry to a memory section                                               |
-|                 | `vault_delete_memory`        | Remove a specific memory entry by date                                                 |
-|                 | `vault_list_memory_files`    | Discover memory files, their sections, and each file's entry policy                    |
-|                 | `vault_memory_recall`        | Entry-granular hybrid recall of a topic across memory files, oldest-first              |
-| **Properties**  | `vault_list_property_keys`   | All property keys with sample values                                                   |
-|                 | `vault_list_property_values` | Distinct values for a property key                                                     |
-|                 | `vault_search_by_property`   | Find notes by property key-value                                                       |
-|                 | `vault_update_properties`    | Add or update properties without touching the body                                     |
-| **Links**       | `vault_get_backlinks`        | Notes linking to a given path                                                          |
-|                 | `vault_get_outgoing_links`   | Links from a given note                                                                |
-|                 | `vault_find_orphans`         | Notes with no incoming links                                                           |
-| **Files**       | `vault_read_file`            | Read a non-markdown file — images delivered as images, canvases as readable outlines   |
-|                 | `vault_list_files`           | Browse the vault's non-markdown files with sizes and per-extension counts              |
-| **Daily Notes** | `vault_get_daily_note`       | Today's (or any date's) daily note                                                     |
+| Category        | Tool                         | Description                                                                               |
+| --------------- | ---------------------------- | ----------------------------------------------------------------------------------------- |
+| **Vault CRUD**  | `vault_read_note`            | Read a note — full body, properties, outline, or a section                                |
+|                 | `vault_write_note`           | Create a note (fails if it already exists; set `overwrite` to replace)                    |
+|                 | `vault_patch_note`           | Heading-targeted edit (append, prepend, replace with `include_children` guard, insert)    |
+|                 | `vault_replace_in_note`      | Find-and-replace text in a note (first match or `replace_all_occurrences`)                |
+|                 | `vault_delete_span`          | Delete a block of lines by short anchors, no full re-quote                                |
+|                 | `vault_list_notes`           | List notes with optional glob/folder filter                                               |
+|                 | `vault_delete_note`          | Delete a note (protected paths enforced)                                                  |
+|                 | `vault_move_note`            | Move or rename a note, rewriting links across the vault                                   |
+| **Search**      | `vault_search`               | Hybrid search with tag/folder/property/date filters                                       |
+|                 | `vault_search_by_tag`        | Find notes by tag (exact or prefix match)                                                 |
+|                 | `vault_search_by_folder`     | Browse notes in a folder with metadata                                                    |
+|                 | `vault_recent_notes`         | Recently modified or created notes                                                        |
+|                 | `vault_list_tags`            | All tags with usage counts                                                                |
+| **Tasks**       | `vault_list_tasks`           | Vault-wide task index with sub-task depth — Kanban-aware, date/priority/heading filters   |
+|                 | `vault_create_task`          | Create a correctly-formatted task card — dates, priority, sub-tasks, block_id in one call |
+|                 | `vault_update_task`          | Edit description, dates, status, priority, lanes, sub-tasks, block_id — all compose       |
+| **Memory**      | `vault_get_memory`           | Read structured memory (file, section, or all)                                            |
+|                 | `vault_update_memory`        | Append a dated entry to a memory section                                                  |
+|                 | `vault_delete_memory`        | Remove a specific memory entry by date                                                    |
+|                 | `vault_list_memory_files`    | Discover memory files, their sections, and each file's entry policy                       |
+|                 | `vault_memory_recall`        | Entry-granular hybrid recall of a topic across memory files, oldest-first                 |
+| **Properties**  | `vault_list_property_keys`   | All property keys with sample values                                                      |
+|                 | `vault_list_property_values` | Distinct values for a property key                                                        |
+|                 | `vault_search_by_property`   | Find notes by property key-value                                                          |
+|                 | `vault_update_properties`    | Add or update properties without touching the body                                        |
+| **Links**       | `vault_get_backlinks`        | Notes linking to a given path                                                             |
+|                 | `vault_get_outgoing_links`   | Links from a given note                                                                   |
+|                 | `vault_find_orphans`         | Notes with no incoming links                                                              |
+| **Files**       | `vault_read_file`            | Read a non-markdown file — images delivered as images, canvases as readable outlines      |
+|                 | `vault_list_files`           | Browse the vault's non-markdown files with sizes and per-extension counts                 |
+| **Daily Notes** | `vault_get_daily_note`       | Today's (or any date's) daily note                                                        |
 
 ---
 
