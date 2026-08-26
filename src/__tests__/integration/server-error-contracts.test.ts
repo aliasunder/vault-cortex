@@ -552,7 +552,7 @@ describe("task errors", () => {
         path: "Projects/board.md",
         description: "Sub for error test",
         block_id: "sub-error-test",
-        parent: "board-active-1",
+        parent_task: "board-active-1",
       },
     })
     const result = await callTool({

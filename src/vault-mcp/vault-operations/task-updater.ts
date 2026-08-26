@@ -31,7 +31,7 @@ export type CreateTaskParams = {
   description: string
   blockId: string
   heading?: string | undefined
-  parent?: string | number | undefined
+  parentTask?: string | number | undefined
   priority?: TaskPriority | undefined
   due?: string | undefined
   scheduled?: string | undefined
@@ -233,7 +233,7 @@ const createTask = async (
     description,
     blockId,
     heading,
-    parent,
+    parentTask,
     priority,
     due,
     scheduled,
@@ -254,7 +254,7 @@ const createTask = async (
   if (start) validateDate(start, "start")
 
   // Parent (block_id) and heading are mutually exclusive
-  if (parent && typeof parent === "string" && heading) {
+  if (parentTask && typeof parentTask === "string" && heading) {
     throw new Error(
       "parent and heading are mutually exclusive when parent is a block_id",
     )
@@ -301,17 +301,17 @@ const createTask = async (
     let indent = ""
     let resolvedHeading: string | null
 
-    if (parent !== undefined) {
+    if (parentTask !== undefined) {
       // Sub-task under a parent
       let parentLineIndex: number
-      if (typeof parent === "string") {
-        const foundIndex = tasks.findTaskByBlockId(bodyLines, parent)
+      if (typeof parentTask === "string") {
+        const foundIndex = tasks.findTaskByBlockId(bodyLines, parentTask)
         if (foundIndex === null) {
-          throw new Error(`parent task not found: block_id "${parent}"`)
+          throw new Error(`parent task not found: block_id "${parentTask}"`)
         }
         parentLineIndex = foundIndex
       } else {
-        parentLineIndex = parent - 1 - bodyStartLine
+        parentLineIndex = parentTask - 1 - bodyStartLine
         const parentLineText = bodyLines[parentLineIndex]
         if (
           parentLineIndex < 0 ||
@@ -319,7 +319,7 @@ const createTask = async (
           !parentLineText ||
           !tasks.isTaskLine(parentLineText)
         ) {
-          throw new Error(`parent task not found: line ${parent}`)
+          throw new Error(`parent task not found: line ${parentTask}`)
         }
       }
 

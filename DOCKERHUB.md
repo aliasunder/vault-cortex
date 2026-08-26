@@ -81,7 +81,7 @@ See [ARCHITECTURE.md → Files](https://github.com/aliasunder/vault-cortex/blob/
 ## Tools
 
 | Category | Tool | Description |
-| --------------- | ---------------------------- | -------------------------------------------------------------------------------------- |
+| --------------- | ---------------------------- | ----------------------------------------------------------------------------------------- |
 | **Vault CRUD** | `vault_read_note` | Read a note — full body, properties, outline, or a section |
 |  | `vault_write_note` | Create a note (fails if it already exists; set `overwrite` to replace) |
 |  | `vault_patch_note` | Heading-targeted edit (append, prepend, replace with `include_children` guard, insert) |
