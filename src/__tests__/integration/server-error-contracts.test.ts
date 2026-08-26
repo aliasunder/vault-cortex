@@ -543,7 +543,7 @@ describe("task errors", () => {
     expectToolError(result, "invalid date")
   })
 
-  it("vault_update_task — cannot lane-move a sub-task", async () => {
+  it("vault_update_task — cannot move a sub-task to a heading", async () => {
     // First create a sub-task on the board
     await callTool({
       client,
@@ -561,10 +561,10 @@ describe("task errors", () => {
       args: {
         path: "Projects/board.md",
         block_id: "sub-error-test",
-        lane: "Done",
+        heading: "Done",
       },
     })
-    expectToolError(result, "cannot lane-move a sub-task")
+    expectToolError(result, "cannot move a sub-task to a heading")
   })
 })
 

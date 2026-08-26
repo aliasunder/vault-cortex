@@ -385,9 +385,9 @@ describe("task-updater", () => {
     })
   })
 
-  // ── Lane moves ────────────────────────────────────────────────
+  // ── Heading moves ─────────────────────────────────────────────
 
-  describe("lane moves", () => {
+  describe("heading moves", () => {
     it("moves a task between Kanban headings", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_BOARD)
@@ -397,7 +397,7 @@ describe("task-updater", () => {
           vaultPath: vault,
           path: "board.md",
           blockId: "planned-task",
-          lane: "Active",
+          heading: "Active",
         },
         logger,
       )
@@ -406,7 +406,7 @@ describe("task-updater", () => {
         path: "board.md",
         line: 7,
         description: "Planned task",
-        changes: ["lane: Up Next → Active"],
+        changes: ["heading: Up Next → Active"],
       })
       const content = await readTestNote(vault, "board.md")
       const activeSection = content.split("## Active")[1]?.split("## ")[0] ?? ""
@@ -424,7 +424,7 @@ describe("task-updater", () => {
           vaultPath: vault,
           path: "board.md",
           blockId: "parent",
-          lane: "Done",
+          heading: "Done",
         },
         logger,
       )
@@ -433,7 +433,7 @@ describe("task-updater", () => {
         path: "board.md",
         line: 9,
         description: "Parent task",
-        changes: ["lane: Active → Done"],
+        changes: ["heading: Active → Done"],
       })
       const content = await readTestNote(vault, "board.md")
       const doneSection = content.split("## Done")[1] ?? ""
@@ -458,13 +458,13 @@ describe("task-updater", () => {
 
       expect(result).toEqual({
         path: "board.md",
-        line: 9,
+        line: 11,
         description: "Task A",
-        changes: ["status: todo → done", "lane: Active → Archive"],
+        changes: ["status: todo → done", "heading: Active → Archive"],
       })
       const content = await readTestNote(vault, "board.md")
       expect(content).toBe(
-        `---\nkanban-plugin: board\n---\n\n## Active\n\n\n## Archive\n- [x] Task A ➕ 2026-07-01 ✅ ${today()} ^task-a\n\n**Complete**\n- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10\n`,
+        `---\nkanban-plugin: board\n---\n\n## Active\n\n\n## Archive\n\n**Complete**\n- [x] Task A ➕ 2026-07-01 ✅ ${today()} ^task-a\n- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10\n`,
       )
     })
 
@@ -486,7 +486,7 @@ describe("task-updater", () => {
         path: "board.md",
         line: 15,
         description: "In-progress task",
-        changes: ["status: in_progress → done", "lane: Active → Done"],
+        changes: ["status: in_progress → done", "heading: Active → Done"],
       })
       const content = await readTestNote(vault, "board.md")
       const doneSection = content.split("## Done")[1]?.split("%%")[0] ?? ""
@@ -495,25 +495,47 @@ describe("task-updater", () => {
       )
       expect(result.changes).toEqual([
         "status: in_progress → done",
-        "lane: Active → Done",
+        "heading: Active → Done",
       ])
     })
 
-    it("rejects lane move on non-Kanban note", async () => {
+    it("moves a task between headings in a non-Kanban note", async () => {
       const vault = await createVault()
-      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+      const noteWithHeadings = `---
+title: Tasks
+---
 
-      await expect(
-        taskMutations.updateTask(
-          {
-            vaultPath: vault,
-            path: "tasks.md",
-            line: 5,
-            lane: "Done",
-          },
-          logger,
-        ),
-      ).rejects.toThrow("lane requires a Kanban board")
+## TODO
+
+- [ ] Task to move ➕ 2026-07-01 ^move-me
+
+## Done
+
+- [x] Already done ➕ 2026-06-01 ✅ 2026-06-15
+`
+      await writeTestNote(vault, "tasks.md", noteWithHeadings)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "move-me",
+          heading: "Done",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "Task to move",
+        changes: ["heading: TODO → Done"],
+      })
+      const content = await readTestNote(vault, "tasks.md")
+      const doneSection = content.split("## Done")[1] ?? ""
+      expect(doneSection).toContain("Task to move")
+      const todoSection = content.split("## TODO")[1]?.split("## Done")[0] ?? ""
+      expect(todoSection).not.toContain("Task to move")
     })
   })
 
@@ -530,7 +552,7 @@ describe("task-updater", () => {
           path: "board.md",
           blockId: "planned-task",
           status: "done",
-          lane: "Done",
+          heading: "Done",
         },
         logger,
       )
@@ -539,7 +561,7 @@ describe("task-updater", () => {
         path: "board.md",
         line: 15,
         description: "Planned task",
-        changes: ["status: todo → done", "lane: Up Next → Done"],
+        changes: ["status: todo → done", "heading: Up Next → Done"],
       })
       const content = await readTestNote(vault, "board.md")
       const doneSection = content.split("## Done")[1]?.split("%%")[0] ?? ""
@@ -646,14 +668,14 @@ describe("task-updater", () => {
             vaultPath: vault,
             path: "board.md",
             blockId: "active-task",
-            lane: "Nonexistent",
+            heading: "Nonexistent",
           },
           logger,
         ),
       ).rejects.toThrow('heading "Nonexistent" not found')
     })
 
-    it("throws when multiple done lanes and no explicit lane", async () => {
+    it("throws when multiple done lanes and no explicit heading", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_MULTIPLE_DONE_LANES)
 
@@ -721,7 +743,7 @@ describe("task-updater", () => {
   // ── No-op and override ──────────────────────────────────────────
 
   describe("edge cases", () => {
-    it("no-op when task is already in the target lane", async () => {
+    it("no-op when task is already in the target heading", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_BOARD)
       const contentBefore = await readTestNote(vault, "board.md")
@@ -731,7 +753,7 @@ describe("task-updater", () => {
           vaultPath: vault,
           path: "board.md",
           blockId: "active-task",
-          lane: "Active",
+          heading: "Active",
         },
         logger,
       )
@@ -843,7 +865,7 @@ describe("task-updater", () => {
         heading: "Up Next",
       })
       const content = await readTestNote(vault, "board.md")
-      // Task inserted at the top of the Up Next lane, before the existing card
+      // Task inserted at the top of Up Next, before the existing card
       const upNextSection =
         content.split("## Up Next")[1]?.split("## ")[0] ?? ""
       expect(upNextSection).toBe(
@@ -1270,7 +1292,7 @@ describe("task-updater", () => {
       )
     })
 
-    it("completes a sub-task in place without lane-moving", async () => {
+    it("completes a sub-task in place without heading-moving", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_WITH_SUBITEMS)
 
@@ -1307,7 +1329,7 @@ describe("task-updater", () => {
       expect(doneSection).not.toContain("Sub-stage")
     })
 
-    it("errors when explicit lane is set on a sub-task", async () => {
+    it("errors when explicit heading is set on a sub-task", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_WITH_SUBITEMS)
 
@@ -1315,8 +1337,8 @@ describe("task-updater", () => {
         {
           vaultPath: vault,
           path: "board.md",
-          description: "Sub for lane test",
-          blockId: "sub-lane-test",
+          description: "Sub for heading test",
+          blockId: "sub-heading-test",
           parentTask: "parent",
         },
         logger,
@@ -1327,12 +1349,12 @@ describe("task-updater", () => {
           {
             vaultPath: vault,
             path: "board.md",
-            blockId: "sub-lane-test",
-            lane: "Done",
+            blockId: "sub-heading-test",
+            heading: "Done",
           },
           logger,
         ),
-      ).rejects.toThrow("cannot lane-move a sub-task")
+      ).rejects.toThrow("cannot move a sub-task to a heading")
     })
 
     it("errors on invalid date in update", async () => {

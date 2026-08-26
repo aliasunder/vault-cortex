@@ -58,7 +58,7 @@ export type UpdateTaskParams = {
   line?: number | undefined
   status?: TaskStatus | undefined
   priority?: TaskPriority | "none" | undefined
-  lane?: string | undefined
+  heading?: string | undefined
   description?: string | undefined
   due?: string | null | undefined
   scheduled?: string | null | undefined
@@ -441,7 +441,7 @@ const createTask = async (
 
 /** Applies mutations to a task line within a single atomic
  *  read-modify-write cycle. Composes status, priority, description,
- *  dates, task_id, depends_on, assign_block_id, lane moves, and
+ *  dates, task_id, depends_on, assign_block_id, heading moves, and
  *  add_subtask — all in one write. */
 const updateTask = async (
   params: UpdateTaskParams,
@@ -454,7 +454,7 @@ const updateTask = async (
     line,
     status,
     priority,
-    lane,
+    heading: targetHeadingParam,
     format,
     description: newDescription,
     due,
@@ -480,7 +480,7 @@ const updateTask = async (
   const hasMutation =
     status !== undefined ||
     priority !== undefined ||
-    lane !== undefined ||
+    targetHeadingParam !== undefined ||
     newDescription !== undefined ||
     due !== undefined ||
     scheduled !== undefined ||
@@ -492,7 +492,7 @@ const updateTask = async (
     newBlockId !== undefined
   if (!hasMutation) {
     throw new Error(
-      "at least one mutation (status, priority, lane, description, due, scheduled, start, created, task_id, depends_on, add_subtask, or assign_block_id) is required",
+      "at least one mutation (status, priority, heading, description, due, scheduled, start, created, task_id, depends_on, add_subtask, or assign_block_id) is required",
     )
   }
 
@@ -565,17 +565,10 @@ const updateTask = async (
     const isKanbanBoard = Boolean(parsed.data["kanban-plugin"])
     const isSubtask = tasks.getTaskIndent(originalTaskLine) > 0
 
-    // Validate lane param requires a Kanban board
-    if (lane && !isKanbanBoard) {
+    // Sub-task guard: explicit heading on a sub-task is an error
+    if (targetHeadingParam && isSubtask) {
       throw new Error(
-        "lane requires a Kanban board (note must have kanban-plugin frontmatter)",
-      )
-    }
-
-    // Sub-task guard: explicit lane on a sub-task is an error
-    if (lane && isSubtask) {
-      throw new Error(
-        "cannot lane-move a sub-task — the parent's lane determines placement",
+        "cannot move a sub-task to a heading — the parent's heading determines placement",
       )
     }
 
@@ -676,8 +669,8 @@ const updateTask = async (
       changes.push(`block_id assigned: ${newBlockId}`)
     }
 
-    // Determine lane move target — skipped for sub-tasks
-    let targetLane = lane
+    // Determine heading move target — skipped for sub-tasks
+    let targetLane = targetHeadingParam
     if (!targetLane && status === "done" && isKanbanBoard && !isSubtask) {
       targetLane = detectDoneLane(bodyLines, headings)
     }
@@ -729,18 +722,29 @@ const updateTask = async (
         // at the heading's body start. The marker sits between the heading
         // and the first list item — inserting before it would break
         // done-lane detection on subsequent reads.
-        const insertLine = updatedTargetHeading.bodyStartLine
-        const firstBodyLine = resultLines[insertLine]?.trim()
-        const insertAt =
-          firstBodyLine === "**Complete**" ? insertLine + 1 : insertLine
+        // Skip blank lines and the **Complete** marker if present —
+        // mirrors extractDoneLanes' scan: first non-blank line only.
+        let insertAt = updatedTargetHeading.bodyStartLine
+        for (
+          let scanLine = insertAt;
+          scanLine < resultLines.length;
+          scanLine++
+        ) {
+          const trimmed = resultLines[scanLine]?.trim()
+          if (!trimmed) continue
+          if (trimmed === "**Complete**") {
+            insertAt = scanLine + 1
+          }
+          break
+        }
         resultLines.splice(insertAt, 0, ...taskBlock)
         taskLineIndex = insertAt
 
-        changes.push(`lane: ${currentLane} → ${targetLane}`)
+        changes.push(`heading: ${currentLane} → ${targetLane}`)
       }
     }
 
-    // 8. add_subtask — appended after all parent-line mutations and lane move
+    // 8. add_subtask — appended after all parent-line mutations and heading move
     if (addSubtask) {
       const parentIndent = tasks.getTaskIndent(resultLines[taskLineIndex] ?? "")
       const blockEnd = findTaskBlockEnd(resultLines, taskLineIndex)

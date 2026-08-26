@@ -430,16 +430,17 @@ Returns: JSON { path, line, description, block_id, heading, changes }.`,
     TOOL_NAMES.VAULT_UPDATE_TASK,
     {
       title: "Update Task",
-      description: `Update a task's status, priority, description, dates, dependencies, block_id, or Kanban lane in a single atomic call. Multiple mutations compose — status + priority + description + dates + add_subtask all apply in one write cycle.
+      description: `Update a task's status, priority, description, dates, dependencies, block_id, or heading placement in a single atomic call. Multiple mutations compose — status + priority + description + dates + add_subtask all apply in one write cycle.
 
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "done" }) — complete a task; on a Kanban board, auto-moves to the done lane
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Done" }) — move a task to a different heading/lane
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", description: "Updated task name", due: "2026-10-01" }) — change description and set due date
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", due: null }) — clear a date field
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "in_progress", add_subtask: "Stage 1" }) — start working and add a checklist stage
 Example: vault_update_task({ path: "TASKS.md", line: 42, assign_block_id: "my-task" }) — add a block_id to a task that lacks one
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", task_id: "abc123" }) — set a Tasks plugin 🆔 identifier
 
-When to use: Any task mutation — completing, starting, re-prioritizing, editing text, setting/clearing dates, adding checklist items, assigning block_ids, or moving between Kanban lanes. Use vault_list_tasks first to get identification fields (path + block_id or line). For creating a new task, use ${whenToolEnabledText("vault_create_task", "vault_create_task")} instead.
+When to use: Any task mutation — completing, starting, re-prioritizing, editing text, setting/clearing dates, adding checklist items, assigning block_ids, or moving between headings. Use vault_list_tasks first to get identification fields (path + block_id or line). For creating a new task, use ${whenToolEnabledText("vault_create_task", "vault_create_task")} instead.
 
 Parameters:
 - path (required): vault-relative path to the note (must end in ".md").
@@ -453,7 +454,7 @@ Parameters:
   - depends_on: string array sets the Tasks plugin ⛔; null clears it.
   - add_subtask: string — appends an indented [ ] checklist item under the task. For full sub-tasks with their own metadata, use ${whenToolEnabledText("vault_create_task", "vault_create_task with parent_task")}.
   - assign_block_id: adds or replaces the ^block-id on the task line. Letters, digits, and hyphens only; must be unique within the note.
-  - lane: target Kanban lane heading. Only valid on Kanban boards. Not valid on sub-tasks.
+  - heading: target heading to move the task to. On Kanban boards this is a lane move; works on any note with headings. Not valid on sub-tasks.
 - format: "emoji" or "dataview" — overrides the auto-detected Tasks plugin format.
 
 Errors:
@@ -461,9 +462,8 @@ Errors:
 - "block_id not found" — no task line ends with ^block_id
 - "no task at line N" — line doesn't contain a task checkbox
 - "at least one mutation required" — no mutation params provided
-- "cannot lane-move a sub-task" — explicit lane on an indented task
-- "lane requires a Kanban board" — lane on a note without kanban-plugin frontmatter
-- "heading not found" — target lane doesn't exist; lists available headings
+- "cannot move a sub-task to a heading" — explicit heading on an indented task
+- "heading not found" — target heading doesn't exist; lists available headings
 - "block_id already exists" / "block_id contains invalid characters" — assign_block_id validation
 - "invalid date" — a date param fails calendar validation
 - "description cannot be empty" — empty description
@@ -559,12 +559,12 @@ Returns: JSON { path, line, description, changes } — line is the final 1-based
           .describe(
             "Add or replace the ^block-id on the task line. Letters, digits, and hyphens only; must be unique within the note.",
           ),
-        lane: z
+        heading: z
           .string()
           .min(1)
           .optional()
           .describe(
-            "Target Kanban lane heading for a lane move. Only valid on Kanban boards. Not valid on sub-tasks.",
+            "Target heading to move the task to. On Kanban boards this is a lane move; works on any note with headings. Not valid on sub-tasks.",
           ),
         format: z
           .enum(["emoji", "dataview"])
@@ -590,7 +590,7 @@ Returns: JSON { path, line, description, changes } — line is the final 1-based
         depends_on,
         add_subtask,
         assign_block_id,
-        lane,
+        heading,
         format,
       },
       extra,
@@ -613,7 +613,7 @@ Returns: JSON { path, line, description, changes } — line is the final 1-based
         dependsOn: depends_on,
         hasSubtask: Boolean(add_subtask),
         assignBlockId: assign_block_id,
-        lane,
+        heading,
         format,
       })
       return safeHandler(
@@ -636,7 +636,7 @@ Returns: JSON { path, line, description, changes } — line is the final 1-based
               dependsOn: depends_on,
               addSubtask: add_subtask,
               assignBlockId: assign_block_id,
-              lane,
+              heading,
               format,
             },
             reqLogger,
