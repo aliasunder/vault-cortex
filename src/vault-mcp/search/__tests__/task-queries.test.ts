@@ -111,7 +111,6 @@ describe("task indexing lifecycle", () => {
       depth: 0,
       parent_block_id: null,
       is_kanban_task: true,
-      lane: "Active",
       done_lanes: null,
     }
     expect(fixLoginTask).toEqual(expectedEntry)
@@ -154,7 +153,6 @@ describe("task indexing lifecycle", () => {
       depth: 0,
       parent_block_id: null,
       is_kanban_task: false,
-      lane: null,
       done_lanes: null,
     }
     expect(result.tasks).toEqual([expectedEntry])
@@ -187,7 +185,7 @@ describe("task indexing lifecycle", () => {
     const result = index.listTasks({ status: "all" }, logger)
     const taskA = result.tasks.find((entry) => entry.description === "Task A")
     expect(taskA?.is_kanban_task).toBe(true)
-    expect(taskA?.lane).toBe("Active")
+    expect(taskA?.heading).toBe("Active")
     expect(taskA?.done_lanes).toEqual(["Done"])
   })
 

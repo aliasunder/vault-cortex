@@ -227,7 +227,6 @@ export type TaskEntry = {
   depth: number
   parent_block_id: string | null
   is_kanban_task: boolean
-  lane: string | null
   done_lanes: string[] | null
 }
 

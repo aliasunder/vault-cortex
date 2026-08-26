@@ -55,7 +55,7 @@ Errors:
 - path without the ".md" extension is rejected
 - No matches returns { total: 0, tasks: [] }, not an error
 
-Returns: JSON { total, tasks }. Each task carries: path, line, status, status_char, description, folder, heading, lane, done_lanes, depth (0 for top-level, 1+ for sub-tasks — omitted when 0), parent_block_id (block_id of the parent task — omitted for top-level tasks or when the parent has no block_id), plus whichever metadata the task has: created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, depends_on, tags, block_id, is_kanban_task. Null fields, false booleans, and empty arrays are omitted to keep responses lean.`,
+Returns: JSON { total, tasks }. Each task carries: path, line, status, status_char, description, folder, heading, done_lanes, depth (0 for top-level, 1+ for sub-tasks — omitted when 0), parent_block_id (block_id of the parent task — omitted for top-level tasks or when the parent has no block_id), plus whichever metadata the task has: created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, depends_on, tags, block_id, is_kanban_task. Null fields, false booleans, and empty arrays are omitted to keep responses lean.`,
       inputSchema: {
         status: z
           .union([
@@ -246,7 +246,7 @@ Returns: JSON { total, tasks }. Each task carries: path, line, status, status_ch
     TOOL_NAMES.VAULT_CREATE_TASK,
     {
       title: "Create Task",
-      description: `Create a correctly-formatted task card in one call — description, target heading/lane, dates, priority, block_id, and optional checklist sub-items. The card is always created as [ ] (todo) with ➕ today auto-stamped; starting work is ${whenToolEnabledText("vault_update_task", "vault_update_task's")} job. Both emoji and Dataview field formats are supported.
+      description: `Create a correctly-formatted task card in one call — description, target heading, dates, priority, block_id, and optional checklist sub-items. The card is always created as [ ] (todo) with ➕ today auto-stamped; starting work is ${whenToolEnabledText("vault_update_task", "vault_update_task's")} job. Both emoji and Dataview field formats are supported.
 
 Example: vault_create_task({ path: "TASKS.md", description: "Fix login bug", block_id: "fix-login", heading: "Active", priority: "high", due: "2026-09-15" })
 Example: vault_create_task({ path: "TASKS.md", description: "Ship the feature", block_id: "ship-feature", heading: "Up Next", subtasks: ["Design", "Implement", "Test"] }) — card with checklist stages
@@ -259,7 +259,7 @@ Parameters:
 - path (required): vault-relative path to the note (must end in ".md"). The note must already exist.
 - description (required): the task text (before metadata fields).
 - block_id (required): the ^block-id for stable identification — letters, digits, and hyphens only. Must be unique within the note.
-- heading: target heading/lane. Required on Kanban boards (notes with kanban-plugin frontmatter); optional on regular notes (omit to append at end of body).
+- heading: target heading. Required on Kanban boards (notes with kanban-plugin frontmatter); optional on regular notes (omit to append at end of body).
 - parent_task: block_id (string) or line number (number) of an existing task to nest under as a sub-task. Mutually exclusive with heading when parent_task is a block_id.
 - priority: "highest" | "high" | "medium" | "low" | "lowest".
 - due / scheduled / start: YYYY-MM-DD dates (calendar-validated).
@@ -302,7 +302,7 @@ Returns: JSON { path, line, description, block_id, heading, changes }.`,
           .min(1)
           .optional()
           .describe(
-            "Target heading/lane. Required on Kanban boards; optional on regular notes (omit to append at end of body).",
+            "Target heading. Required on Kanban boards; optional on regular notes (omit to append at end of body).",
           ),
         parent_task: z
           .union([z.string().min(1), z.number().int().min(1)])
@@ -433,7 +433,7 @@ Returns: JSON { path, line, description, block_id, heading, changes }.`,
       description: `Update a task's status, priority, description, dates, dependencies, block_id, or heading placement in a single atomic call. Multiple mutations compose — status + priority + description + dates + add_subtask all apply in one write cycle.
 
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "done" }) — complete a task; on a Kanban board, auto-moves to the done lane
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Done" }) — move a task to a different heading/lane
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Done" }) — move a task to a different heading
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", description: "Updated task name", due: "2026-10-01" }) — change description and set due date
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", due: null }) — clear a date field
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "in_progress", add_subtask: "Stage 1" }) — start working and add a checklist stage

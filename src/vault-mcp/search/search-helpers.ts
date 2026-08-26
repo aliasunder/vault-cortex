@@ -182,7 +182,6 @@ export const rowToTaskEntry = (row: TaskRow): TaskEntry => ({
   depth: row.depth,
   parent_block_id: row.parent_block_id,
   is_kanban_task: Boolean(row.is_kanban_task),
-  lane: row.is_kanban_task ? row.heading : null,
   done_lanes: row.kanban_done_lanes
     ? parseStringArray(row.kanban_done_lanes)
     : null,

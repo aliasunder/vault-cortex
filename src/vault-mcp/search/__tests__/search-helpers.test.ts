@@ -257,12 +257,11 @@ describe("rowToTaskEntry", () => {
       depth: 0,
       parent_block_id: null,
       is_kanban_task: false,
-      lane: null,
       done_lanes: null,
     })
   })
 
-  it("maps lane and done_lanes for Kanban tasks", () => {
+  it("maps done_lanes for Kanban tasks", () => {
     const entry = rowToTaskEntry(
       makeTaskRow({
         is_kanban_task: 1,
@@ -270,14 +269,12 @@ describe("rowToTaskEntry", () => {
         kanban_done_lanes: JSON.stringify(["Done"]),
       }),
     )
-    expect(entry.lane).toBe("Active")
     expect(entry.done_lanes).toEqual(["Done"])
     expect(entry.is_kanban_task).toBe(true)
   })
 
-  it("sets lane to null for non-Kanban tasks", () => {
+  it("sets done_lanes to null for non-Kanban tasks", () => {
     const entry = rowToTaskEntry(makeTaskRow({ is_kanban_task: 0 }))
-    expect(entry.lane).toBeNull()
     expect(entry.done_lanes).toBeNull()
   })
 
