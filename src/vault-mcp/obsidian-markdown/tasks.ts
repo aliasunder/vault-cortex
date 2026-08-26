@@ -669,6 +669,19 @@ const formatPriority = (
     ? `[priority:: ${priority}]`
     : emojiForPriority(priority)
 
+/** Formats a task ID (🆔) in the configured format. */
+const formatTaskId = (taskId: string, format: "emoji" | "dataview"): string =>
+  format === "dataview" ? `[id:: ${taskId}]` : `🆔 ${taskId}`
+
+/** Formats a depends-on list (⛔) in the configured format. */
+const formatDependsOn = (
+  dependsOn: readonly string[],
+  format: "emoji" | "dataview",
+): string => {
+  const idList = dependsOn.join(",")
+  return format === "dataview" ? `[dependsOn:: ${idList}]` : `⛔ ${idList}`
+}
+
 // ── Date field keys and their format/strip data ──────────────────
 //
 // Each settable date field has an emoji signifier, a Dataview key, and a
@@ -795,9 +808,7 @@ const updateTaskLineTaskId = (
 ): string => {
   const stripped = stripField(taskLine, TASK_ID_INLINE_RE)
   if (taskId === null) return stripped
-  const formatted =
-    config.taskFormat === "dataview" ? `[id:: ${taskId}]` : `🆔 ${taskId}`
-  return insertBeforeBlockId(stripped, formatted)
+  return insertBeforeBlockId(stripped, formatTaskId(taskId, config.taskFormat))
 }
 
 /** Sets or clears the Tasks-plugin `⛔` / `[dependsOn:: ]` field. */
@@ -808,12 +819,10 @@ const updateTaskLineDependsOn = (
 ): string => {
   const stripped = stripField(taskLine, DEPENDS_ON_INLINE_RE)
   if (dependsOn === null || dependsOn.length === 0) return stripped
-  const idList = dependsOn.join(",")
-  const formatted =
-    config.taskFormat === "dataview"
-      ? `[dependsOn:: ${idList}]`
-      : `⛔ ${idList}`
-  return insertBeforeBlockId(stripped, formatted)
+  return insertBeforeBlockId(
+    stripped,
+    formatDependsOn(dependsOn, config.taskFormat),
+  )
 }
 
 /** Replaces the description text on a task line — everything between the
@@ -911,19 +920,10 @@ const buildTaskLine = (
     parts.push(formatDateField("due", params.due, config.taskFormat))
   }
   if (params.taskId) {
-    const formatted =
-      config.taskFormat === "dataview"
-        ? `[id:: ${params.taskId}]`
-        : `🆔 ${params.taskId}`
-    parts.push(formatted)
+    parts.push(formatTaskId(params.taskId, config.taskFormat))
   }
   if (params.dependsOn && params.dependsOn.length > 0) {
-    const idList = params.dependsOn.join(",")
-    const formatted =
-      config.taskFormat === "dataview"
-        ? `[dependsOn:: ${idList}]`
-        : `⛔ ${idList}`
-    parts.push(formatted)
+    parts.push(formatDependsOn(params.dependsOn, config.taskFormat))
   }
 
   parts.push(`^${params.blockId}`)
@@ -1101,6 +1101,7 @@ export const tasks = {
   buildTaskLine,
   formatDateField,
   findTaskByBlockId,
+  findBodyStartLine,
   extractDoneLanes,
   FIRST_METADATA_SIGNIFIER_RE,
   BLOCK_LINK_RE,

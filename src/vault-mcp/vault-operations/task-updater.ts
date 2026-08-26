@@ -268,15 +268,7 @@ const createTask = async (
     const bodyLines = splitIntoLines(parsed.content)
     const headings = parseHeadings(bodyLines)
 
-    const allFileLines = splitIntoLines(fileContent)
-    const hasFrontmatter = allFileLines[0] === "---"
-    const closingDelimiterIndex = hasFrontmatter
-      ? allFileLines.findIndex(
-          (fileLine, index) => index > 0 && fileLine === "---",
-        )
-      : -1
-    const bodyStartLine =
-      closingDelimiterIndex === -1 ? 0 : closingDelimiterIndex + 1
+    const bodyStartLine = tasks.findBodyStartLine(splitIntoLines(fileContent))
 
     // Validate block_id grammar and uniqueness
     validateBlockId(blockId, bodyLines)
@@ -527,18 +519,9 @@ const updateTask = async (
     const bodyLines = splitIntoLines(parsed.content)
     const headings = parseHeadings(bodyLines)
 
-    // Compute the frontmatter offset: number of lines before the body
-    // starts (frontmatter delimiters + content). extractTasks uses the
-    // same formula: file_line = bodyStartLine + bodyLineIndex + 1.
-    const allFileLines = splitIntoLines(fileContent)
-    const hasFrontmatter = allFileLines[0] === "---"
-    const closingDelimiterIndex = hasFrontmatter
-      ? allFileLines.findIndex(
-          (fileLine, index) => index > 0 && fileLine === "---",
-        )
-      : -1
-    const bodyStartLine =
-      closingDelimiterIndex === -1 ? 0 : closingDelimiterIndex + 1
+    // Frontmatter offset — extractTasks uses the same formula:
+    // file_line = bodyStartLine + bodyLineIndex + 1.
+    const bodyStartLine = tasks.findBodyStartLine(splitIntoLines(fileContent))
 
     // Locate the task line (0-based index into bodyLines)
     let taskLineIndex: number

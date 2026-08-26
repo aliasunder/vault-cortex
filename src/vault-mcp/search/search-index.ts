@@ -1457,12 +1457,14 @@ export const createSearchIndex = (
       insertFtsStmt.run(note.path, note.title, note.content, metadataText)
 
       deleteTasksStmt.run(note.path)
-      // Build a line→blockId lookup so each child can resolve its parent's
+      // Line→blockId lookup so each child can resolve its parent's
       // block_id from the same extraction batch (no second pass needed).
-      const blockIdByLine = new Map<number, string | null>()
-      for (const extractedTask of extractedTasks) {
-        blockIdByLine.set(extractedTask.line, extractedTask.blockId)
-      }
+      const blockIdByLine = new Map(
+        extractedTasks.map((extractedTask) => [
+          extractedTask.line,
+          extractedTask.blockId,
+        ]),
+      )
       for (const extractedTask of extractedTasks) {
         const parentBlockId =
           extractedTask.parentLine !== null
