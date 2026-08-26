@@ -36,6 +36,8 @@ const task = (overrides: Partial<ParsedTask>): ParsedTask => ({
   tags: [],
   blockId: null,
   heading: null,
+  depth: 0,
+  parentLine: null,
   ...overrides,
 })
 
@@ -1195,6 +1197,507 @@ describe("task line mutations", () => {
       const headings = parseHeadings(bodyLines)
       const result = tasks.extractDoneLanes(bodyLines, headings)
       expect(result).toEqual([])
+    })
+  })
+
+  // ── getTaskIndent ──────────────────────────────────────────────
+
+  describe("getTaskIndent", () => {
+    it("returns 0 for a top-level task", () => {
+      expect(tasks.getTaskIndent("- [ ] Top level")).toBe(0)
+    })
+
+    it("returns 2 for a 2-space indented sub-task", () => {
+      expect(tasks.getTaskIndent("  - [ ] Sub-task")).toBe(2)
+    })
+
+    it("returns 4 for a 4-space indented sub-task", () => {
+      expect(tasks.getTaskIndent("    - [ ] Deep sub-task")).toBe(4)
+    })
+
+    it("returns tab width for tab-indented sub-task", () => {
+      expect(tasks.getTaskIndent("\t- [ ] Tab sub-task")).toBe(1)
+    })
+
+    it("strips blockquote markers before measuring", () => {
+      expect(tasks.getTaskIndent("> - [ ] Blockquoted top")).toBe(0)
+    })
+
+    it("strips nested blockquote markers", () => {
+      expect(tasks.getTaskIndent("> > - [ ] Nested blockquote")).toBe(0)
+    })
+
+    it("measures indent after blockquote markers", () => {
+      expect(tasks.getTaskIndent(">   - [ ] Indented in blockquote")).toBe(2)
+    })
+  })
+
+  // ── replaceTaskLineDescription ────────────────────────────────
+
+  describe("replaceTaskLineDescription", () => {
+    it("replaces description before metadata signifiers", () => {
+      const line = "- [ ] Old description ⏫ ➕ 2026-08-01 ^my-task"
+      const result = tasks.replaceTaskLineDescription(line, "New description")
+      expect(result).toBe("- [ ] New description ⏫ ➕ 2026-08-01 ^my-task")
+    })
+
+    it("replaces description when only a block_id follows", () => {
+      const line = "- [ ] Old text ^my-task"
+      const result = tasks.replaceTaskLineDescription(line, "Updated text")
+      expect(result).toBe("- [ ] Updated text ^my-task")
+    })
+
+    it("replaces description on a bare task (no metadata, no block_id)", () => {
+      const line = "- [ ] Just a task"
+      const result = tasks.replaceTaskLineDescription(line, "New name")
+      expect(result).toBe("- [ ] New name")
+    })
+
+    it("preserves indentation on sub-tasks", () => {
+      const line = "  - [ ] Sub-task description ➕ 2026-08-01"
+      const result = tasks.replaceTaskLineDescription(line, "Updated sub")
+      expect(result).toBe("  - [ ] Updated sub ➕ 2026-08-01")
+    })
+
+    it("preserves checkbox status", () => {
+      const line = "- [x] Done task ✅ 2026-08-01 ^done"
+      const result = tasks.replaceTaskLineDescription(line, "Still done")
+      expect(result).toBe("- [x] Still done ✅ 2026-08-01 ^done")
+    })
+  })
+
+  // ── assignBlockId ─────────────────────────────────────────────
+
+  describe("assignBlockId", () => {
+    it("adds a block_id to a task without one", () => {
+      const line = "- [ ] My task ➕ 2026-08-01"
+      expect(tasks.assignBlockId(line, "my-task")).toBe(
+        "- [ ] My task ➕ 2026-08-01 ^my-task",
+      )
+    })
+
+    it("replaces an existing block_id", () => {
+      const line = "- [ ] My task ➕ 2026-08-01 ^old-id"
+      expect(tasks.assignBlockId(line, "new-id")).toBe(
+        "- [ ] My task ➕ 2026-08-01 ^new-id",
+      )
+    })
+  })
+
+  // ── formatDateField ───────────────────────────────────────────
+
+  describe("formatDateField", () => {
+    it("formats created date in emoji format", () => {
+      expect(tasks.formatDateField("created", "2026-08-25", "emoji")).toBe(
+        "➕ 2026-08-25",
+      )
+    })
+
+    it("formats due date in dataview format", () => {
+      expect(tasks.formatDateField("due", "2026-09-01", "dataview")).toBe(
+        "[due:: 2026-09-01]",
+      )
+    })
+
+    it("formats done date in emoji format", () => {
+      expect(tasks.formatDateField("done", "2026-08-25", "emoji")).toBe(
+        "✅ 2026-08-25",
+      )
+    })
+
+    it("formats scheduled in dataview format", () => {
+      expect(tasks.formatDateField("scheduled", "2026-09-15", "dataview")).toBe(
+        "[scheduled:: 2026-09-15]",
+      )
+    })
+
+    it("formats start in emoji format", () => {
+      expect(tasks.formatDateField("start", "2026-10-01", "emoji")).toBe(
+        "🛫 2026-10-01",
+      )
+    })
+
+    it("formats cancelled in dataview format", () => {
+      expect(tasks.formatDateField("cancelled", "2026-08-25", "dataview")).toBe(
+        "[cancelled:: 2026-08-25]",
+      )
+    })
+  })
+
+  // ── updateTaskLineDate ────────────────────────────────────────
+
+  describe("updateTaskLineDate", () => {
+    it("sets a due date on a task without one (emoji)", () => {
+      const line = "- [ ] My task ➕ 2026-08-01 ^my-task"
+      const result = tasks.updateTaskLineDate({
+        taskLine: line,
+        field: "due",
+        date: "2026-09-15",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 📅 2026-09-15 ^my-task")
+    })
+
+    it("replaces an existing due date", () => {
+      const line = "- [ ] My task ➕ 2026-08-01 📅 2026-09-01 ^my-task"
+      const result = tasks.updateTaskLineDate({
+        taskLine: line,
+        field: "due",
+        date: "2026-10-01",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 📅 2026-10-01 ^my-task")
+    })
+
+    it("clears a due date", () => {
+      const line = "- [ ] My task ➕ 2026-08-01 📅 2026-09-01 ^my-task"
+      const result = tasks.updateTaskLineDate({
+        taskLine: line,
+        field: "due",
+        date: null,
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 ^my-task")
+    })
+
+    it("sets a scheduled date in dataview format", () => {
+      const line = "- [ ] My task [created:: 2026-08-01] ^my-task"
+      const result = tasks.updateTaskLineDate({
+        taskLine: line,
+        field: "scheduled",
+        date: "2026-09-10",
+        config: {
+          taskFormat: "dataview",
+          setDoneDate: true,
+          setCancelledDate: true,
+        },
+      })
+      expect(result).toBe(
+        "- [ ] My task [created:: 2026-08-01] [scheduled:: 2026-09-10] ^my-task",
+      )
+    })
+
+    it("inserts a start date before scheduled when both exist", () => {
+      const line = "- [ ] My task ➕ 2026-08-01 ⏳ 2026-09-10 ^my-task"
+      const result = tasks.updateTaskLineDate({
+        taskLine: line,
+        field: "start",
+        date: "2026-08-15",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] My task ➕ 2026-08-01 🛫 2026-08-15 ⏳ 2026-09-10 ^my-task",
+      )
+    })
+
+    it("clears a created date", () => {
+      const line = "- [ ] My task ➕ 2026-08-01 📅 2026-09-01 ^my-task"
+      const result = tasks.updateTaskLineDate({
+        taskLine: line,
+        field: "created",
+        date: null,
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task 📅 2026-09-01 ^my-task")
+    })
+  })
+
+  // ── updateTaskLineTaskId ──────────────────────────────────────
+
+  describe("updateTaskLineTaskId", () => {
+    it("sets a task ID (emoji format)", () => {
+      const line = "- [ ] My task ➕ 2026-08-01 ^my-task"
+      const result = tasks.updateTaskLineTaskId(line, "abc123", EMOJI_CONFIG)
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 🆔 abc123 ^my-task")
+    })
+
+    it("clears a task ID", () => {
+      const line = "- [ ] My task 🆔 abc123 ➕ 2026-08-01 ^my-task"
+      const result = tasks.updateTaskLineTaskId(line, null, EMOJI_CONFIG)
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 ^my-task")
+    })
+
+    it("sets a task ID (dataview format)", () => {
+      const line = "- [ ] My task [created:: 2026-08-01] ^my-task"
+      const result = tasks.updateTaskLineTaskId(line, "xyz789", {
+        taskFormat: "dataview",
+        setDoneDate: true,
+        setCancelledDate: true,
+      })
+      expect(result).toBe(
+        "- [ ] My task [created:: 2026-08-01] [id:: xyz789] ^my-task",
+      )
+    })
+  })
+
+  // ── updateTaskLineDependsOn ───────────────────────────────────
+
+  describe("updateTaskLineDependsOn", () => {
+    it("sets depends-on (emoji format)", () => {
+      const line = "- [ ] My task ➕ 2026-08-01 ^my-task"
+      const result = tasks.updateTaskLineDependsOn(
+        line,
+        ["abc123", "def456"],
+        EMOJI_CONFIG,
+      )
+      expect(result).toBe(
+        "- [ ] My task ➕ 2026-08-01 ⛔ abc123,def456 ^my-task",
+      )
+    })
+
+    it("clears depends-on", () => {
+      const line = "- [ ] My task ⛔ abc123 ➕ 2026-08-01 ^my-task"
+      const result = tasks.updateTaskLineDependsOn(line, null, EMOJI_CONFIG)
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 ^my-task")
+    })
+
+    it("clears depends-on with empty array", () => {
+      const line = "- [ ] My task ⛔ abc123 ➕ 2026-08-01 ^my-task"
+      const result = tasks.updateTaskLineDependsOn(line, [], EMOJI_CONFIG)
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 ^my-task")
+    })
+  })
+
+  // ── buildTaskLine + extractTasks round-trip ───────────────────
+
+  describe("buildTaskLine", () => {
+    it("builds a minimal task line", () => {
+      const line = tasks.buildTaskLine(
+        {
+          description: "Buy groceries",
+          blockId: "buy-groceries",
+          created: "2026-08-25",
+        },
+        EMOJI_CONFIG,
+      )
+      expect(line).toBe("- [ ] Buy groceries ➕ 2026-08-25 ^buy-groceries")
+    })
+
+    it("builds a task with all fields (emoji)", () => {
+      const line = tasks.buildTaskLine(
+        {
+          description: "Ship the feature",
+          blockId: "ship-feature",
+          priority: "high",
+          created: "2026-08-25",
+          start: "2026-09-01",
+          scheduled: "2026-09-10",
+          due: "2026-09-15",
+          taskId: "abc123",
+          dependsOn: ["dep1", "dep2"],
+        },
+        EMOJI_CONFIG,
+      )
+      expect(line).toBe(
+        "- [ ] Ship the feature ⏫ ➕ 2026-08-25 🛫 2026-09-01 ⏳ 2026-09-10 📅 2026-09-15 🆔 abc123 ⛔ dep1,dep2 ^ship-feature",
+      )
+    })
+
+    it("builds a task in dataview format", () => {
+      const line = tasks.buildTaskLine(
+        {
+          description: "Dataview task",
+          blockId: "dv-task",
+          created: "2026-08-25",
+          due: "2026-09-01",
+        },
+        { taskFormat: "dataview", setDoneDate: true, setCancelledDate: true },
+      )
+      expect(line).toBe(
+        "- [ ] Dataview task [created:: 2026-08-25] [due:: 2026-09-01] ^dv-task",
+      )
+    })
+
+    it("builds an indented sub-task", () => {
+      const line = tasks.buildTaskLine(
+        {
+          description: "Sub-task",
+          blockId: "sub",
+          created: "2026-08-25",
+          indent: "  ",
+        },
+        EMOJI_CONFIG,
+      )
+      expect(line).toBe("  - [ ] Sub-task ➕ 2026-08-25 ^sub")
+    })
+
+    it("round-trips through extractTasks with all fields intact", () => {
+      const params = {
+        description: "Round-trip test",
+        blockId: "round-trip",
+        priority: "highest" as const,
+        created: "2026-08-25",
+        start: "2026-09-01",
+        scheduled: "2026-09-10",
+        due: "2026-09-15",
+        taskId: "rt-001",
+        dependsOn: ["dep-a"],
+      }
+      const builtLine = tasks.buildTaskLine(params, EMOJI_CONFIG)
+      const noteContent = `---\ntitle: Test\n---\n\n${builtLine}\n`
+      const parsed = tasks.extractTasks(noteContent)
+      expect(parsed).toHaveLength(1)
+      const parsedTask = parsed[0]
+      expect(parsedTask).toBeDefined()
+      expect(parsedTask!.description).toBe("Round-trip test")
+      expect(parsedTask!.blockId).toBe("round-trip")
+      expect(parsedTask!.priority).toBe("highest")
+      expect(parsedTask!.createdDate).toBe("2026-08-25")
+      expect(parsedTask!.startDate).toBe("2026-09-01")
+      expect(parsedTask!.scheduledDate).toBe("2026-09-10")
+      expect(parsedTask!.dueDate).toBe("2026-09-15")
+      expect(parsedTask!.taskId).toBe("rt-001")
+      expect(parsedTask!.dependsOn).toEqual(["dep-a"])
+      expect(parsedTask!.status).toBe("todo")
+      expect(parsedTask!.depth).toBe(0)
+      expect(parsedTask!.parentLine).toBeNull()
+    })
+
+    it("round-trips dataview format", () => {
+      const dvConfig = {
+        taskFormat: "dataview" as const,
+        setDoneDate: true,
+        setCancelledDate: true,
+      }
+      const builtLine = tasks.buildTaskLine(
+        {
+          description: "DV round-trip",
+          blockId: "dv-rt",
+          created: "2026-08-25",
+          due: "2026-09-01",
+          priority: "medium",
+        },
+        dvConfig,
+      )
+      const parsed = tasks.extractTasks(
+        `---\ntitle: Test\n---\n\n${builtLine}\n`,
+      )
+      expect(parsed).toHaveLength(1)
+      expect(parsed[0]!.description).toBe("DV round-trip")
+      expect(parsed[0]!.dueDate).toBe("2026-09-01")
+      expect(parsed[0]!.createdDate).toBe("2026-08-25")
+      expect(parsed[0]!.priority).toBe("medium")
+      expect(parsed[0]!.blockId).toBe("dv-rt")
+    })
+  })
+
+  // ── Depth and parent tracking in extractTasks ─────────────────
+
+  describe("depth and parent tracking", () => {
+    it("assigns depth 0 and null parent to top-level tasks", () => {
+      const content =
+        "---\ntitle: Test\n---\n\n- [ ] Task A ^a\n- [ ] Task B ^b\n"
+      const parsed = tasks.extractTasks(content)
+      expect(parsed).toHaveLength(2)
+      expect(parsed[0]!.depth).toBe(0)
+      expect(parsed[0]!.parentLine).toBeNull()
+      expect(parsed[1]!.depth).toBe(0)
+      expect(parsed[1]!.parentLine).toBeNull()
+    })
+
+    it("assigns depth 1 and parent to indented sub-tasks", () => {
+      const content =
+        [
+          "---",
+          "title: Test",
+          "---",
+          "",
+          "- [ ] Parent ^parent",
+          "  - [ ] Child ^child",
+        ].join("\n") + "\n"
+      const parsed = tasks.extractTasks(content)
+      expect(parsed).toHaveLength(2)
+      expect(parsed[0]!.depth).toBe(0)
+      expect(parsed[0]!.parentLine).toBeNull()
+      expect(parsed[1]!.depth).toBe(1)
+      expect(parsed[1]!.parentLine).toBe(parsed[0]!.line)
+    })
+
+    it("tracks depth 2 for deeply nested tasks", () => {
+      const content =
+        [
+          "---",
+          "title: Test",
+          "---",
+          "",
+          "- [ ] Root ^root",
+          "  - [ ] Level 1 ^l1",
+          "    - [ ] Level 2 ^l2",
+        ].join("\n") + "\n"
+      const parsed = tasks.extractTasks(content)
+      expect(parsed).toHaveLength(3)
+      expect(parsed[0]!.depth).toBe(0)
+      expect(parsed[1]!.depth).toBe(1)
+      expect(parsed[1]!.parentLine).toBe(parsed[0]!.line)
+      expect(parsed[2]!.depth).toBe(2)
+      expect(parsed[2]!.parentLine).toBe(parsed[1]!.line)
+    })
+
+    it("correctly pops the stack for sibling tasks after children", () => {
+      const content =
+        [
+          "---",
+          "title: Test",
+          "---",
+          "",
+          "- [ ] Parent A ^pa",
+          "  - [ ] Child of A ^ca",
+          "- [ ] Parent B ^pb",
+        ].join("\n") + "\n"
+      const parsed = tasks.extractTasks(content)
+      expect(parsed).toHaveLength(3)
+      expect(parsed[2]!.description).toBe("Parent B")
+      expect(parsed[2]!.depth).toBe(0)
+      expect(parsed[2]!.parentLine).toBeNull()
+    })
+
+    it("resets the indent stack at heading boundaries", () => {
+      const content =
+        [
+          "---",
+          "title: Test",
+          "---",
+          "",
+          "## Active",
+          "- [ ] Task A ^a",
+          "  - [ ] Sub A ^sa",
+          "## Up Next",
+          "- [ ] Task B ^b",
+        ].join("\n") + "\n"
+      const parsed = tasks.extractTasks(content)
+      const taskB = parsed.find((parsedTask) => parsedTask.blockId === "b")
+      expect(taskB).toBeDefined()
+      expect(taskB!.depth).toBe(0)
+      expect(taskB!.parentLine).toBeNull()
+    })
+
+    it("handles non-task lines between parent and child", () => {
+      const content =
+        [
+          "---",
+          "title: Test",
+          "---",
+          "",
+          "- [ ] Parent ^parent",
+          "  - Not a task line",
+          "  - [ ] Child ^child",
+        ].join("\n") + "\n"
+      const parsed = tasks.extractTasks(content)
+      expect(parsed).toHaveLength(2)
+      const child = parsed.find((parsedTask) => parsedTask.blockId === "child")
+      expect(child!.depth).toBe(1)
+      expect(child!.parentLine).toBe(parsed[0]!.line)
+    })
+
+    it("handles blockquote-prefixed tasks at depth 0", () => {
+      const content =
+        ["---", "title: Test", "---", "", "> - [ ] Blockquoted task ^bq"].join(
+          "\n",
+        ) + "\n"
+      const parsed = tasks.extractTasks(content)
+      expect(parsed).toHaveLength(1)
+      expect(parsed[0]!.depth).toBe(0)
+      expect(parsed[0]!.parentLine).toBeNull()
     })
   })
 })
