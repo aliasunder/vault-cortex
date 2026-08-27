@@ -125,6 +125,11 @@ const HASHTAG_FROM_END_RE = /(^|\s)#[^ !@#$%^&*(),.?":{}|<>]+$/
 
 /** The allowed characters in a single 🆔 / `id::` task ID. */
 const TASK_ID = /[a-zA-Z0-9_-]+/
+/** Whole-string form of TASK_ID, for validating an id before it is written —
+ *  anything else lands on the line as prose the parser never reads back. */
+const TASK_ID_WHOLE_RE = new RegExp(`^${TASK_ID.source}$`)
+const isTaskId = (candidate: string): boolean =>
+  TASK_ID_WHOLE_RE.test(candidate)
 /** A comma-separated sequence of task IDs, as accepted after ⛔ / `dependsOn::`. */
 const TASK_ID_SEQUENCE = new RegExp(
   `${TASK_ID.source}( *, *${TASK_ID.source} *)*`,
@@ -1172,6 +1177,7 @@ const extractDoneLanes = (
 
 export const tasks = {
   extractTasks,
+  isTaskId,
   charForStatus,
   statusForChar,
   emojiForPriority,

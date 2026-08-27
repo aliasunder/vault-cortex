@@ -1106,6 +1106,50 @@ title: Tasks
       )
     })
 
+    it("rejects a whitespace-only depends_on entry on create", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Blocked task",
+            blockId: "blocked",
+            dependsOn: ["dep-a", " "],
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        'dependsOn entry " " contains invalid characters (allowed: letters, digits, hyphens, underscores)',
+      )
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(SIMPLE_NOTE)
+    })
+
+    it("rejects a task_id outside the plugin's id grammar on create", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Keyed task",
+            blockId: "keyed",
+            taskId: "has space",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        'taskId "has space" contains invalid characters (allowed: letters, digits, hyphens, underscores)',
+      )
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(SIMPLE_NOTE)
+    })
+
     it("errors when parentBlockId and parentLine are both provided", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
@@ -1625,6 +1669,61 @@ title: Tasks
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Fix crash 📅 2026-01-01 #urgent ^fix-bug\n",
+      )
+    })
+
+    it("rejects a whitespace-only depends_on entry on update", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "walk-dog",
+            dependsOn: [" "],
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        'dependsOn entry " " contains invalid characters (allowed: letters, digits, hyphens, underscores)',
+      )
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(SIMPLE_NOTE)
+    })
+
+    it("moves a task with existing checklist items to a heading and appends add_subtasks under it in the same call", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "board.md",
+        "---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Parent task ➕ 2026-07-01 ^parent\n  - [x] First stage\n  - [ ] Second stage\n\n## Done\n\n- [x] Old done\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "parent",
+          heading: "Done",
+          addSubtasks: ["Third stage"],
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "parent",
+        path: "board.md",
+        line: 9,
+        description: "Parent task",
+        heading: "Done",
+        subtasks: [{ line: 12, description: "Third stage" }],
+        changes: ["heading: Active → Done", "subtasks: 2 → 3"],
+      })
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(
+        "---\nkanban-plugin: board\n---\n\n## Active\n\n\n## Done\n- [ ] Parent task ➕ 2026-07-01 ^parent\n  - [x] First stage\n  - [ ] Second stage\n  - [ ] Third stage\n\n- [x] Old done\n",
       )
     })
 

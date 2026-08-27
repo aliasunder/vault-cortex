@@ -450,6 +450,50 @@ describe("memory errors", () => {
 // ── Task errors ──────────────────────────────────────────────
 
 describe("task errors", () => {
+  it("vault_update_task done on a board with two Complete-marked lanes and no heading", async () => {
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: {
+        path: "Projects/two-done-lanes.md",
+        properties: { "kanban-plugin": "board" },
+        body: "## Active\n\n- [ ] Task A ^two-done-a\n\n## Done\n\n**Complete**\n\n## Archived\n\n**Complete**\n",
+      },
+    })
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/two-done-lanes.md",
+        block_id: "two-done-a",
+        status: "done",
+      },
+    })
+    expectToolError(result, "multiple done lanes detected")
+  })
+
+  it("vault_update_task done on a board with no Complete marker and no Done heading", async () => {
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: {
+        path: "Projects/no-done-lane.md",
+        properties: { "kanban-plugin": "board" },
+        body: "## Active\n\n- [ ] Task A ^no-done-a\n\n## Backlog\n\n- [ ] Task B\n",
+      },
+    })
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/no-done-lane.md",
+        block_id: "no-done-a",
+        status: "done",
+      },
+    })
+    expectToolError(result, "no done lane detected")
+  })
+
   it("vault_update_task with a nonexistent block_id", async () => {
     const result = await callTool({
       client,

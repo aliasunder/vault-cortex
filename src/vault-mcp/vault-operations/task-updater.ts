@@ -240,6 +240,31 @@ const validateBlockId = (
   }
 }
 
+/** Rejects a task_id or depends_on entry the parser could not read back —
+ *  an id outside the plugin's grammar is written as prose, so the call
+ *  would report success while the field silently never exists. */
+const assertTaskIdGrammar = ({
+  taskId,
+  dependsOn,
+}: {
+  taskId: string | null | undefined
+  dependsOn: readonly string[] | null | undefined
+}): void => {
+  if (taskId && !tasks.isTaskId(taskId)) {
+    throw new Error(
+      `taskId "${taskId}" contains invalid characters (allowed: letters, digits, hyphens, underscores)`,
+    )
+  }
+  const invalidDependency = dependsOn?.find(
+    (dependencyId) => !tasks.isTaskId(dependencyId),
+  )
+  if (invalidDependency !== undefined) {
+    throw new Error(
+      `dependsOn entry "${invalidDependency}" contains invalid characters (allowed: letters, digits, hyphens, underscores)`,
+    )
+  }
+}
+
 /** Validates a date string is a real calendar date. */
 const validateDate = (date: string, fieldName: string): void => {
   if (!DateTime.fromFormat(date, "yyyy-MM-dd").isValid) {
@@ -324,6 +349,7 @@ const createTask = async (
   if (dependsOn !== undefined && dependsOn.length === 0) {
     throw new Error("dependsOn cannot be empty")
   }
+  assertTaskIdGrammar({ taskId, dependsOn })
   if (subtasks?.some((subtaskText) => !subtaskText.trim())) {
     throw new Error("subtasks cannot contain an empty item")
   }
@@ -597,6 +623,7 @@ const updateTask = async (
   if (Array.isArray(dependsOn) && dependsOn.length === 0) {
     throw new Error("dependsOn cannot be empty (use null to clear)")
   }
+  assertTaskIdGrammar({ taskId, dependsOn })
 
   const { fullPath } = await readNoteForUpdate(vaultPath, path)
 
