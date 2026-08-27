@@ -160,7 +160,7 @@
         },
         {
           "name": "PROTECTED_PATHS",
-          "description": "Comma-separated vault folder names blocked from vault_delete_note. Default: MEMORY_DIR and \"Daily Notes\"."
+          "description": "Comma-separated vault folder names blocked from vault_delete_note and vault_move_note. Default: MEMORY_DIR plus the daily notes folder, read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json (default Daily Notes). When set, overrides the default entirely."
         },
         {
           "name": "ORPHAN_EXCLUDE_FOLDERS",
