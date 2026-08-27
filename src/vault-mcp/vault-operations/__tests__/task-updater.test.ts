@@ -954,7 +954,7 @@ title: Tasks
           path: "tasks.md",
           description: "Child task",
           blockId: "child",
-          parentTask: "walk-dog",
+          parentBlockId: "walk-dog",
         },
         logger,
       )
@@ -1066,7 +1066,7 @@ title: Tasks
             path: "tasks.md",
             description: "Orphan",
             blockId: "orphan",
-            parentTask: "nonexistent",
+            parentBlockId: "nonexistent",
           },
           logger,
         ),
@@ -1083,7 +1083,7 @@ title: Tasks
           path: "tasks.md",
           description: "Line child",
           blockId: "line-child",
-          parentTask: 6,
+          parentLine: 6,
         },
         logger,
       )
@@ -1092,6 +1092,27 @@ title: Tasks
       expect(content).toBe(
         `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n  - [ ] Line child ➕ ${today()} ^line-child\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n`,
       )
+    })
+
+    it("errors when parentBlockId and parentLine are both provided", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Two locators",
+            blockId: "two-locators",
+            parentBlockId: "walk-dog",
+            parentLine: 6,
+          },
+          logger,
+        ),
+      ).rejects.toThrow("parentBlockId and parentLine are mutually exclusive")
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(SIMPLE_NOTE)
     })
 
     it("errors when parent block_id and heading are both provided", async () => {
@@ -1105,12 +1126,12 @@ title: Tasks
             path: "board.md",
             description: "Conflicting",
             blockId: "conflicting",
-            parentTask: "active-task",
+            parentBlockId: "active-task",
             heading: "Up Next",
           },
           logger,
         ),
-      ).rejects.toThrow("parentTask and heading are mutually exclusive")
+      ).rejects.toThrow("parent and heading are mutually exclusive")
     })
 
     it("errors when parent line number and heading are both provided", async () => {
@@ -1124,12 +1145,12 @@ title: Tasks
             path: "board.md",
             description: "Conflicting",
             blockId: "conflicting",
-            parentTask: 7,
+            parentLine: 7,
             heading: "Up Next",
           },
           logger,
         ),
-      ).rejects.toThrow("parentTask and heading are mutually exclusive")
+      ).rejects.toThrow("parent and heading are mutually exclusive")
       const content = await readTestNote(vault, "board.md")
       expect(content).toBe(KANBAN_BOARD)
     })
@@ -1185,7 +1206,7 @@ title: Tasks
             path: "tasks.md",
             description: "Bad line parent",
             blockId: "bad-line",
-            parentTask: 1,
+            parentLine: 1,
           },
           logger,
         ),
@@ -1645,7 +1666,7 @@ title: Tasks
           path: "board.md",
           description: "Sub-stage",
           blockId: "sub-stage",
-          parentTask: "parent",
+          parentBlockId: "parent",
         },
         logger,
       )
@@ -1681,7 +1702,7 @@ title: Tasks
           path: "board.md",
           description: "Sub for heading test",
           blockId: "sub-heading-test",
-          parentTask: "parent",
+          parentBlockId: "parent",
         },
         logger,
       )

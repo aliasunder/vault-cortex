@@ -28,7 +28,8 @@ type CreateTaskParams = {
   description: string
   blockId: string
   heading?: string | undefined
-  parentTask?: string | number | undefined
+  parentBlockId?: string | undefined
+  parentLine?: number | undefined
   priority?: TaskPriority | undefined
   due?: string | undefined
   scheduled?: string | undefined
@@ -197,6 +198,34 @@ const validateDate = (date: string, fieldName: string): void => {
   }
 }
 
+type ParentLocator =
+  { kind: "blockId"; blockId: string } | { kind: "line"; line: number }
+
+/** Returns the parent's body-line index; throws when the locator resolves to nothing or to a non-task line. */
+const findParentLineIndex = ({
+  locator,
+  bodyLines,
+  bodyStartLine,
+}: {
+  locator: ParentLocator
+  bodyLines: string[]
+  bodyStartLine: number
+}): number => {
+  if (locator.kind === "blockId") {
+    const foundIndex = tasks.findTaskByBlockId(bodyLines, locator.blockId)
+    if (foundIndex === null) {
+      throw new Error(`parent task not found: blockId "${locator.blockId}"`)
+    }
+    return foundIndex
+  }
+  const parentLineIndex = locator.line - 1 - bodyStartLine
+  const parentLineText = bodyLines[parentLineIndex]
+  if (!parentLineText || !tasks.isTaskLine(parentLineText)) {
+    throw new Error(`parent task not found: line ${locator.line}`)
+  }
+  return parentLineIndex
+}
+
 // ── createTask ──────────────────────────────────────────────────
 
 const createTask = async (
@@ -209,7 +238,8 @@ const createTask = async (
     description,
     blockId,
     heading,
-    parentTask,
+    parentBlockId,
+    parentLine,
     priority,
     due,
     scheduled,
@@ -229,10 +259,18 @@ const createTask = async (
   if (scheduled) validateDate(scheduled, "scheduled")
   if (start) validateDate(start, "start")
 
+  if (parentBlockId && parentLine) {
+    throw new Error("parentBlockId and parentLine are mutually exclusive")
+  }
+  const parentLocator: ParentLocator | undefined = parentBlockId
+    ? { kind: "blockId", blockId: parentBlockId }
+    : parentLine
+      ? { kind: "line", line: parentLine }
+      : undefined
   // A sub-task lives wherever its parent lives — a heading has nothing to
-  // place, so the two locators are exclusive in both parent_task forms.
-  if (parentTask !== undefined && heading) {
-    throw new Error("parentTask and heading are mutually exclusive")
+  // place, so a parent locator and a heading are exclusive.
+  if (parentLocator && heading) {
+    throw new Error("parent and heading are mutually exclusive")
   }
   if (dependsOn !== undefined && dependsOn.length === 0) {
     throw new Error("dependsOn cannot be empty")
@@ -282,27 +320,13 @@ const createTask = async (
     let indent = ""
     let resolvedHeading: string | undefined
 
-    if (parentTask !== undefined) {
+    if (parentLocator) {
       // Sub-task under a parent
-      let parentLineIndex: number
-      if (typeof parentTask === "string") {
-        const foundIndex = tasks.findTaskByBlockId(bodyLines, parentTask)
-        if (foundIndex === null) {
-          throw new Error(`parent task not found: blockId "${parentTask}"`)
-        }
-        parentLineIndex = foundIndex
-      } else {
-        parentLineIndex = parentTask - 1 - bodyStartLine
-        const parentLineText = bodyLines[parentLineIndex]
-        if (
-          parentLineIndex < 0 ||
-          parentLineIndex >= bodyLines.length ||
-          !parentLineText ||
-          !tasks.isTaskLine(parentLineText)
-        ) {
-          throw new Error(`parent task not found: line ${parentTask}`)
-        }
-      }
+      const parentLineIndex = findParentLineIndex({
+        locator: parentLocator,
+        bodyLines,
+        bodyStartLine,
+      })
 
       // Match existing children's indent, or parent + 2 spaces
       const parentLine = bodyLines[parentLineIndex]

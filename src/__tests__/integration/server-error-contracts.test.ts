@@ -552,7 +552,7 @@ describe("task errors", () => {
         path: "Projects/board.md",
         description: "Sub for error test",
         block_id: "sub-error-test",
-        parent_task: "board-active-1",
+        parent_block_id: "board-active-1",
       },
     })
     const result = await callTool({
@@ -567,7 +567,25 @@ describe("task errors", () => {
     expectToolError(result, "cannot move a sub-task to a heading")
   })
 
-  it("vault_create_task with a line-number parent_task and a heading", async () => {
+  it("vault_create_task with both parent_block_id and parent_line", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/board.md",
+        description: "Two parent locators",
+        block_id: "two-parent-locators",
+        parent_block_id: "board-active-1",
+        parent_line: 11,
+      },
+    })
+    expectToolError(
+      result,
+      "parentBlockId and parentLine are mutually exclusive",
+    )
+  })
+
+  it("vault_create_task with a parent_line and a heading", async () => {
     const result = await callTool({
       client,
       name: "vault_create_task",
@@ -575,11 +593,11 @@ describe("task errors", () => {
         path: "Projects/board.md",
         description: "Conflicting locators",
         block_id: "conflicting-locators",
-        parent_task: 11,
+        parent_line: 11,
         heading: "Up Next",
       },
     })
-    expectToolError(result, "parentTask and heading are mutually exclusive")
+    expectToolError(result, "parent and heading are mutually exclusive")
   })
 
   it("vault_update_task with neither block_id nor line", async () => {

@@ -246,8 +246,8 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
 
 Example: vault_create_task({ path: "TASKS.md", description: "Fix login bug", block_id: "fix-login", heading: "Active", priority: "high", due: "2026-09-15" })
 Example: vault_create_task({ path: "TASKS.md", description: "Ship the feature", block_id: "ship-feature", heading: "Up Next", subtasks: ["Design", "Implement", "Test"] }) — card with checklist stages
-Example: vault_create_task({ path: "TASKS.md", description: "Sub-bug", block_id: "sub-bug", parent_task: "fix-login", due: "2026-09-01" }) — full sub-task under a parent (identified by block_id)
-Example: vault_create_task({ path: "TASKS.md", description: "Quick fix", block_id: "quick-fix", parent_task: 42 }) — sub-task under a parent identified by line number
+Example: vault_create_task({ path: "TASKS.md", description: "Sub-bug", block_id: "sub-bug", parent_block_id: "fix-login", due: "2026-09-01" }) — full sub-task under a parent identified by block_id
+Example: vault_create_task({ path: "TASKS.md", description: "Quick fix", block_id: "quick-fix", parent_line: 42 }) — sub-task under a parent identified by line number
 
 When to use: Creating a new task card on a board or in a note. Guarantees correct field ordering (description → priority → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id)${whenToolEnabledText("vault_list_tasks", " so the card round-trips through vault_list_tasks with all fields intact")}.${whenToolEnabledText("vault_update_task", " For lightweight checklist items under an existing card (no metadata), use vault_update_task's add_subtasks param instead.")}
 
@@ -256,20 +256,21 @@ Parameters:
 - description (required): the task text (before metadata fields).
 - block_id (required): the ^block-id for stable identification — letters, digits, and hyphens only. Must be unique within the note.
 - heading: target heading. Required on Kanban boards (notes with kanban-plugin frontmatter); optional on regular notes (omit to append at end of body).
-- parent_task: block_id (string) or line number (number) of an existing task to nest under as a sub-task. Mutually exclusive with heading — a sub-task lives wherever its parent lives.
+- parent_block_id / parent_line: the existing task to nest under as a sub-task, identified by its ^block-id or its 1-based line number — the same pair vault_update_task uses (block_id / line). Pass at most one. Either is mutually exclusive with heading — a sub-task lives wherever its parent lives.
 - priority: "highest" | "high" | "medium" | "low" | "lowest". Omit for normal priority (the plugin ranks "no signifier" between medium and low).
 - due / scheduled / start: YYYY-MM-DD dates (calendar-validated). Omit a date rather than guessing — an absent 📅 means "no deadline".
 - task_id: Tasks plugin 🆔 identifier for dependency chains.
 - depends_on: non-empty string array of Tasks plugin ⛔ dependency IDs (🆔 values of other tasks).
-- subtasks: string array of checklist item descriptions — created as indented [ ] lines under the card (no metadata, no block_ids). For full sub-tasks with their own dates, priority, and block_id, make a separate vault_create_task call with parent_task.
+- subtasks: string array of checklist item descriptions — created as indented [ ] lines under the card (no metadata, no block_ids). For full sub-tasks with their own dates, priority, and block_id, make a separate vault_create_task call with parent_block_id.
 - format: "emoji" or "dataview" — overrides the auto-detected Tasks plugin format (emoji when no plugin config is present).
 
 Errors:
 - "note not found" — path does not exist
 - "heading required for Kanban boards" — kanban-plugin note without heading
 - "heading "X" not found; available: ..." — no heading matches; the error lists the note's headings
-- "parent task not found" — parent_task doesn't resolve to a task (message names the blockId or line tried)
-- "parentTask and heading are mutually exclusive" — both parent_task and heading were passed; drop one
+- "parent task not found" — parent_block_id or parent_line doesn't resolve to a task (message names the blockId or line tried)
+- "parentBlockId and parentLine are mutually exclusive" — both parent_block_id and parent_line were passed; drop one
+- "parent and heading are mutually exclusive" — a parent (parent_block_id or parent_line) and heading were both passed; drop one
 - "blockId ... already exists in this note" — pick a block_id not yet used in the note
 - "blockId ... contains invalid characters" — block_id must match [a-zA-Z0-9-]+
 - "description is empty" / "dependsOn cannot be empty" / "subtasks cannot contain an empty item" — whitespace-only description, an empty depends_on array, or a whitespace-only checklist item
@@ -301,11 +302,20 @@ Returns: JSON { path, line, description, block_id, heading, changes } — line i
           .describe(
             "Target heading. Required on Kanban boards; optional on regular notes (omit to append at end of body).",
           ),
-        parent_task: z
-          .union([z.string().min(1), z.number().int().min(1)])
+        parent_block_id: z
+          .string()
+          .min(1)
           .optional()
           .describe(
-            "block_id (string) or line number (number) of an existing task to nest under. Mutually exclusive with heading.",
+            "^block-id (without the ^) of an existing task to nest under as a sub-task. Mutually exclusive with parent_line and heading.",
+          ),
+        parent_line: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe(
+            "1-based line number of an existing task to nest under as a sub-task. Mutually exclusive with parent_block_id and heading. Fragile if the file changed since the line was read.",
           ),
         priority: z
           .enum(["highest", "high", "medium", "low", "lowest"])
@@ -353,7 +363,7 @@ Returns: JSON { path, line, description, block_id, heading, changes } — line i
           .min(1)
           .optional()
           .describe(
-            "Checklist item descriptions — created as indented [ ] lines under the card (no metadata). For full sub-tasks with dates, priority, and block_id, make a separate call with parent_task.",
+            "Checklist item descriptions — created as indented [ ] lines under the card (no metadata). For full sub-tasks with dates, priority, and block_id, make a separate call with parent_block_id.",
           ),
         format: z
           .enum(["emoji", "dataview"])
@@ -369,7 +379,8 @@ Returns: JSON { path, line, description, block_id, heading, changes } — line i
         description,
         block_id,
         heading,
-        parent_task,
+        parent_block_id,
+        parent_line,
         priority,
         due,
         scheduled,
@@ -389,7 +400,8 @@ Returns: JSON { path, line, description, block_id, heading, changes } — line i
         path,
         blockId: block_id,
         heading,
-        parentTask: parent_task,
+        parentBlockId: parent_block_id,
+        parentLine: parent_line,
         priority,
         due,
         scheduled,
@@ -409,7 +421,8 @@ Returns: JSON { path, line, description, block_id, heading, changes } — line i
               description,
               blockId: block_id,
               heading,
-              parentTask: parent_task,
+              parentBlockId: parent_block_id,
+              parentLine: parent_line,
               priority,
               due,
               scheduled,
@@ -463,7 +476,7 @@ Parameters:
   - due / scheduled / start / created: YYYY-MM-DD sets the date; null clears it.
   - task_id: string sets the Tasks plugin 🆔; null clears it.
   - depends_on: non-empty string array sets the Tasks plugin ⛔; null clears it.
-  - add_subtasks: non-empty string array — appends one indented [ ] checklist item per entry under the task; existing checklist items are kept.${whenToolEnabledText("vault_create_task", " For full sub-tasks with their own metadata, use vault_create_task with parent_task.")}
+  - add_subtasks: non-empty string array — appends one indented [ ] checklist item per entry under the task; existing checklist items are kept.${whenToolEnabledText("vault_create_task", " For full sub-tasks with their own metadata, use vault_create_task with parent_block_id.")}
   - assign_block_id: adds or replaces the ^block-id on the task line. Letters, digits, and hyphens only; must be unique within the note.
   - heading: target heading to move the task to. On Kanban boards this is a lane move; works on any note with headings. Not valid on sub-tasks.
   - Clearing is always explicit null — omitting a field leaves it untouched.
@@ -568,7 +581,7 @@ Returns: JSON { path, line, description, block_id, heading, changes } — line i
           .min(1)
           .optional()
           .describe(
-            `Checklist items to append, one indented [ ] line each, under the task's existing items — never replaces them. Can be combined with any other change.${whenToolEnabledText("vault_create_task", " For full sub-tasks with metadata, use vault_create_task with parent_task.")}`,
+            `Checklist items to append, one indented [ ] line each, under the task's existing items — never replaces them. Can be combined with any other change.${whenToolEnabledText("vault_create_task", " For full sub-tasks with metadata, use vault_create_task with parent_block_id.")}`,
           ),
         assign_block_id: z
           .string()
