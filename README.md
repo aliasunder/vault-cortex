@@ -483,7 +483,7 @@ PUBLIC_URL=http://localhost:8000 MCP_AUTH_TOKEN=local-dev-token VAULT_PATH=~/Vau
 npm test
 
 # Full check suite
-npm run prettier:check && npm run lint && npm test && npm run build
+npm run prettier:check && npm run lint && npm run markdownlint && npm run knip && npm test && npm run build
 ```
 
 `npm test` includes integration tests that boot a real server and call every

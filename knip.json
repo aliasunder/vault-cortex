@@ -1,0 +1,5 @@
+{
+  "entry": ["cli/src/bin.ts"],
+  "project": ["src/**/*.ts", "cli/src/**/*.ts", "scripts/**/*.ts"],
+  "ignoreBinaries": ["optipng"]
+}

@@ -6,7 +6,7 @@ export type SelectOption = {
   hint?: string
 }
 
-export type Spinner = {
+type Spinner = {
   start: (message: string) => void
   stop: (message: string) => void
 }

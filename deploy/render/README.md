@@ -42,10 +42,13 @@ your computer — once, before you click the button.
 1. **Open a terminal.** macOS: **Applications → Utilities → Terminal**.
    Windows: search the Start menu for **Terminal** (or **PowerShell**).
 2. **Check that Node.js is installed** (version 20.12 or later):
+
    ```bash
    node -v
    ```
+
    If Node.js is missing, install it from [nodejs.org](https://nodejs.org/).
+
 3. **Paste this line and press Enter:**
 
    ```bash

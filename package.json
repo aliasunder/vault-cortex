@@ -61,8 +61,11 @@
     "deploy:dev": "npm run deploy && npm run docker:publish && npm run lightsail:up",
     "prettier": "prettier --write .",
     "prettier:check": "prettier --check .",
+    "knip": "knip",
     "lint": "eslint .",
     "lint:fix": "eslint --fix .",
+    "markdownlint": "markdownlint-cli2 \"**/*.md\"",
+    "markdownlint:fix": "markdownlint-cli2 --fix \"**/*.md\"",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
@@ -73,7 +76,11 @@
     "render:social-preview": "puppeteer browsers install chrome && tsx scripts/render-social-preview.ts"
   },
   "lint-staged": {
-    "*.{json,md}": "prettier --write",
+    "*.json": "prettier --write",
+    "*.md": [
+      "markdownlint-cli2 --fix",
+      "prettier --write"
+    ],
     "*.ts": [
       "eslint --fix",
       "prettier --write"
@@ -121,7 +128,9 @@
     "eslint-config-prettier": "10.1.8",
     "husky": "9.1.7",
     "jiti": "2.7.0",
+    "knip": "6.32.3",
     "lint-staged": "17.3.0",
+    "markdownlint-cli2": "0.23.2",
     "node-pty": "1.1.0",
     "prettier": "3.9.6",
     "puppeteer": "25.8.0",

@@ -25,7 +25,7 @@ import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
-export type CreateTaskParams = {
+type CreateTaskParams = {
   vaultPath: string
   path: string
   description: string
@@ -42,7 +42,7 @@ export type CreateTaskParams = {
   format?: "emoji" | "dataview" | undefined
 }
 
-export type CreateTaskResult = {
+type CreateTaskResult = {
   path: string
   line: number
   description: string
@@ -51,7 +51,7 @@ export type CreateTaskResult = {
   changes: string[]
 }
 
-export type UpdateTaskParams = {
+type UpdateTaskParams = {
   vaultPath: string
   path: string
   blockId?: string | undefined
@@ -71,7 +71,7 @@ export type UpdateTaskParams = {
   format?: "emoji" | "dataview" | undefined
 }
 
-export type UpdateTaskResult = {
+type UpdateTaskResult = {
   path: string
   line: number
   description: string

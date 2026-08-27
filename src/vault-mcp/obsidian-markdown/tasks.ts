@@ -1106,4 +1106,4 @@ export const tasks = {
   BLOCK_LINK_RE,
 }
 
-export type { DateFieldKey, BuildTaskLineParams }
+export type { DateFieldKey }
