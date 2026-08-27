@@ -81,7 +81,9 @@ export type ParsedTask = Readonly<{
    *  heading — on a Kanban board this is the lane. */
   heading: string | null
   /** Nesting depth: 0 for top-level tasks, 1+ for sub-tasks. Derived from
-   *  structural indentation relative to ancestor task lines. */
+   *  structural indentation relative to ancestor task lines; a plain list
+   *  item at a task's indent ends its scope, so a task nested under a
+   *  non-task bullet is top-level. */
   depth: number
   /** 1-based file line number of the parent task, or null for top-level
    *  tasks. The index resolves it to the parent's block_id; the wire shape
@@ -97,6 +99,11 @@ export type ParsedTask = Readonly<{
  *  character. Captures: [1] status character, [2] everything after the
  *  checkbox. Anchored and non-global — safe for .exec(). */
 const TASK_LINE_RE = /^[\s\t>]*(?:[-*+]|[0-9]+[.)]) +\[(.)\] *(.*)$/u
+
+/** Matches any list item — the same prefix and marker grammar as
+ *  TASK_LINE_RE without the checkbox. A non-task item at a task's indent
+ *  ends that task's list, so it must close the task's sub-task scope too. */
+const LIST_ITEM_RE = /^[\s\t>]*(?:[-*+]|[0-9]+[.)]) /u
 
 /** Matches a trailing block link ` ^block-id` at the very end of the line.
  *  Captures the ID without the caret (group 1). The plugin strips this before
@@ -473,6 +480,29 @@ const findBodyStartLine = (lines: readonly string[]): number => {
  *  fence and comment state machines. Each task carries the text of the nearest
  *  heading above it (its Kanban lane on a board), or null before the first
  *  heading. */
+/** One open task on the extraction indent stack: its structural indent and
+ *  1-based file line. */
+type IndentEntry = {
+  indent: number
+  fileLine: number
+}
+
+/** Pops every stack entry at the same or deeper indent than a new list item —
+ *  those are siblings or cousins of the item, not its ancestors. Mutates the
+ *  stack: it is the extraction loop's sequential parser state. */
+const popClosedAncestors = (
+  indentStack: IndentEntry[],
+  itemIndent: number,
+): void => {
+  while (indentStack.length > 0) {
+    const topEntry = indentStack.at(-1)
+    const topEntryIsAncestor =
+      topEntry !== undefined && topEntry.indent < itemIndent
+    if (topEntryIsAncestor) return
+    indentStack.pop()
+  }
+}
+
 const extractTasks = (rawContent: string): ParsedTask[] => {
   const allLines = splitIntoLines(rawContent)
   const bodyStartLine = findBodyStartLine(allLines)
@@ -481,15 +511,11 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
 
   const extractedTasks: ParsedTask[] = []
 
-  // Indent stack for parent-child tracking — each entry is a task's indent
-  // level and 1-based file line:
+  // Indent stack for parent-child tracking:
   // - deeper indent than the stack top → the task is a child
-  // - equal or shallower → ancestors are popped until the top is a parent
+  // - equal or shallower (task or plain list item) → ancestors are popped
+  //   until the top is a parent
   // - a heading clears the stack (children can't span headings)
-  type IndentEntry = {
-    indent: number
-    fileLine: number
-  }
   const indentStack: IndentEntry[] = []
 
   // Fence and comment scans are inherently sequential — both thread mutable
@@ -522,7 +548,15 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
     }
 
     const taskLineMatch = TASK_LINE_RE.exec(lineText)
-    if (!taskLineMatch) continue
+    if (!taskLineMatch) {
+      // A plain list item at a task's indent (or shallower) is that task's
+      // sibling, so tasks nested under it belong to it, not to the earlier
+      // task — pop the ancestors it closes. It is never a parent itself.
+      if (LIST_ITEM_RE.test(lineText)) {
+        popClosedAncestors(indentStack, getTaskIndent(lineText))
+      }
+      continue
+    }
 
     const statusChar = matchedText(taskLineMatch, 1)
     // The block link sits at the absolute end of the line — strip it before
@@ -539,15 +573,7 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
     )
 
     const taskIndent = getTaskIndent(lineText)
-    // Pop ancestors that are at the same or deeper indent — they're siblings
-    // or cousins, not parents
-    while (indentStack.length > 0) {
-      const topEntry = indentStack.at(-1)
-      const topEntryIsParent =
-        topEntry !== undefined && topEntry.indent < taskIndent
-      if (topEntryIsParent) break
-      indentStack.pop()
-    }
+    popClosedAncestors(indentStack, taskIndent)
     const parentEntry = indentStack.at(-1)
     const depth = indentStack.length
     const parentLine = parentEntry?.fileLine ?? null

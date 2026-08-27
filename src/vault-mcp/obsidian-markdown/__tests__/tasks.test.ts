@@ -1806,6 +1806,66 @@ describe("task line mutations", () => {
       ])
     })
 
+    it("does not attach a task nested under a plain bullet to an earlier task", () => {
+      const content =
+        [
+          "- [ ] Earlier task ^earlier",
+          "- Agenda",
+          "  - [ ] Call dentist ^call-dentist",
+          "  - [ ] Book flights ^book-flights",
+        ].join("\n") + "\n"
+      const parsed = tasks.extractTasks(content)
+      expect(parsed).toEqual([
+        task({
+          line: 1,
+          description: "Earlier task",
+          blockId: "earlier",
+          depth: 0,
+          parentLine: null,
+        }),
+        task({
+          line: 3,
+          description: "Call dentist",
+          blockId: "call-dentist",
+          depth: 0,
+          parentLine: null,
+        }),
+        task({
+          line: 4,
+          description: "Book flights",
+          blockId: "book-flights",
+          depth: 0,
+          parentLine: null,
+        }),
+      ])
+    })
+
+    it("keeps a task's sub-tasks when a deeper plain bullet sits between them", () => {
+      const content =
+        [
+          "- [ ] Parent ^parent",
+          "    - note under the parent",
+          "  - [ ] Child ^child",
+        ].join("\n") + "\n"
+      const parsed = tasks.extractTasks(content)
+      expect(parsed).toEqual([
+        task({
+          line: 1,
+          description: "Parent",
+          blockId: "parent",
+          depth: 0,
+          parentLine: null,
+        }),
+        task({
+          line: 3,
+          description: "Child",
+          blockId: "child",
+          depth: 1,
+          parentLine: 1,
+        }),
+      ])
+    })
+
     it("assigns depth 1 and parent to indented sub-tasks", () => {
       const content =
         [

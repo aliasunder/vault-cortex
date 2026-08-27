@@ -146,10 +146,12 @@ kanban-plugin: board
 ## Done
 `
 
-/** A checklist item indented under a non-task bullet: raw indent says
- *  sub-task, the parser's depth (task ancestors only) says top-level. */
+/** A checklist item indented under a non-task bullet, with a task above the
+ *  bullet: raw indent says sub-task, the parser says top-level — the plain
+ *  bullet closes the earlier task's scope. */
 const TASK_UNDER_PLAIN_BULLET = `## Active
 
+- [ ] Earlier task ^earlier
 - Agenda
   - [ ] Call dentist ^call-dentist
 
@@ -2090,6 +2092,7 @@ title: Tasks
       const content = await readTestNote(vault, "agenda.md")
       expect(content).toBe(`## Active
 
+- [ ] Earlier task ^earlier
 - Agenda
 
 ## Done
