@@ -1302,7 +1302,7 @@ title: Tasks
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
-      await taskMutations.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -1312,6 +1312,13 @@ title: Tasks
         logger,
       )
 
+      expect(result).toEqual({
+        block_id: "walk-dog",
+        path: "tasks.md",
+        line: 6,
+        description: "Walk the dog",
+        changes: ["due: (none) → 2026-09-15"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 📅 2026-09-15 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
@@ -1323,7 +1330,7 @@ title: Tasks
       const noteWithDue = `---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 📅 2026-09-01 ^my-task\n`
       await writeTestNote(vault, "tasks.md", noteWithDue)
 
-      await taskMutations.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -1333,6 +1340,13 @@ title: Tasks
         logger,
       )
 
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Task",
+        block_id: "my-task",
+        changes: ["due: 2026-09-01 → (none)"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ^my-task\n",
@@ -1688,7 +1702,7 @@ title: Tasks
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
-      await taskMutations.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -1698,6 +1712,13 @@ title: Tasks
         logger,
       )
 
+      expect(result).toEqual({
+        block_id: "walk-cat",
+        path: "tasks.md",
+        line: 6,
+        description: "Walk the dog",
+        changes: ["block_id: walk-dog → walk-cat"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-cat\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
