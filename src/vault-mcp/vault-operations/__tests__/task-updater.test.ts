@@ -905,7 +905,7 @@ title: Tasks
 
       expect(result).toEqual({
         path: "board.md",
-        line: 13,
+        line: 12,
         description: "Board task",
         block_id: "board-task",
         heading: "Up Next",
