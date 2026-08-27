@@ -225,6 +225,39 @@ const resolveAnchorLine = (params: {
   return matchedIndex
 }
 
+/** Resolves the inclusive line range of a span: `startAnchor` locates the
+ *  first line; `endAnchor`, when given, locates the last line at or after it —
+ *  omitted, the span is just the start line. */
+const resolveSpanLines = (params: {
+  lines: readonly string[]
+  startAnchor: string
+  endAnchor: string | undefined
+  firstMatch: boolean | undefined
+  path: string
+}): { startLine: number; endLine: number } => {
+  const { lines, startAnchor, endAnchor, firstMatch, path } = params
+  const startLine = resolveAnchorLine({
+    lines,
+    anchor: startAnchor,
+    fromLine: 0,
+    firstMatch,
+    path,
+    role: "start",
+  })
+  if (endAnchor === undefined) {
+    return { startLine, endLine: startLine }
+  }
+  const endLine = resolveAnchorLine({
+    lines,
+    anchor: endAnchor,
+    fromLine: startLine,
+    firstMatch,
+    path,
+    role: "end",
+  })
+  return { startLine, endLine }
+}
+
 // ── Exported functions ──────────────────────────────────────────
 
 /** Heading-targeted patch: append, prepend, replace, or insert_before. */
@@ -444,33 +477,16 @@ const deleteSpan = async (
       path,
     )
 
-    const startLine = resolveAnchorLine({
+    const { startLine, endLine } = resolveSpanLines({
       lines,
-      anchor: startAnchor,
-      fromLine: 0,
+      startAnchor,
+      endAnchor,
       firstMatch,
       path,
-      role: "start",
     })
-    // Omitting end_anchor deletes just the start line; otherwise the span runs
-    // through the end anchor's line, searched at or after the start.
-    const endLine =
-      endAnchor === undefined
-        ? startLine
-        : resolveAnchorLine({
-            lines,
-            anchor: endAnchor,
-            fromLine: startLine,
-            firstMatch,
-            path,
-            role: "end",
-          })
 
     const removedLines = lines.slice(startLine, endLine + 1)
-    const remainingLines = [
-      ...lines.slice(0, startLine),
-      ...lines.slice(endLine + 1),
-    ]
+    const remainingLines = lines.toSpliced(startLine, removedLines.length)
     const normalizedBody = collapseBlankRuns(remainingLines.join("\n"))
     const afterBytes = await writePatchedNote(
       fullPath,
@@ -525,33 +541,21 @@ const replaceSpan = async (
       path,
     )
 
-    const startLine = resolveAnchorLine({
+    const { startLine, endLine } = resolveSpanLines({
       lines,
-      anchor: startAnchor,
-      fromLine: 0,
+      startAnchor,
+      endAnchor,
       firstMatch,
       path,
-      role: "start",
     })
-    const endLine =
-      endAnchor === undefined
-        ? startLine
-        : resolveAnchorLine({
-            lines,
-            anchor: endAnchor,
-            fromLine: startLine,
-            firstMatch,
-            path,
-            role: "end",
-          })
 
-    const replacedLines = lines.slice(startLine, endLine + 1)
+    const replacedLineCount = endLine - startLine + 1
     const contentLines = content.split("\n")
-    const updatedLines = [
-      ...lines.slice(0, startLine),
+    const updatedLines = lines.toSpliced(
+      startLine,
+      replacedLineCount,
       ...contentLines,
-      ...lines.slice(endLine + 1),
-    ]
+    )
     const normalizedBody = collapseBlankRuns(updatedLines.join("\n"))
     const afterBytes = await writePatchedNote(
       fullPath,
@@ -563,14 +567,14 @@ const replaceSpan = async (
       path,
       startAnchor: truncateForMessage(startAnchor),
       endAnchor: endAnchor ? truncateForMessage(endAnchor) : undefined,
-      replacedLines: replacedLines.length,
+      replacedLines: replacedLineCount,
       insertedLines: contentLines.length,
       beforeBytes,
       afterBytes,
     })
-    const replacedWord = replacedLines.length === 1 ? "line" : "lines"
+    const replacedWord = replacedLineCount === 1 ? "line" : "lines"
     const insertedWord = contentLines.length === 1 ? "line" : "lines"
-    return `Replaced ${replacedLines.length} ${replacedWord} with ${contentLines.length} ${insertedWord} in ${path}`
+    return `Replaced ${replacedLineCount} ${replacedWord} with ${contentLines.length} ${insertedWord} in ${path}`
   })
 }
 
@@ -615,11 +619,7 @@ const insertAtAnchor = async (
 
     const contentLines = content.split("\n")
     const insertIndex = position === "before" ? anchorLine : anchorLine + 1
-    const updatedLines = [
-      ...lines.slice(0, insertIndex),
-      ...contentLines,
-      ...lines.slice(insertIndex),
-    ]
+    const updatedLines = lines.toSpliced(insertIndex, 0, ...contentLines)
 
     const afterBytes = await writePatchedNote(fullPath, data, updatedLines)
 
