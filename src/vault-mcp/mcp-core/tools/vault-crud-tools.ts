@@ -471,7 +471,7 @@ Operations:
 - replace: replace section body (heading preserved; requires heading; errors if the target has child headings unless include_children is set)
 - insert_before: insert content above the heading line (requires heading)
 
-Heading-targeted ops keep the matched heading and write content verbatim — don't begin content with the target heading (it's rejected to avoid a duplicate).
+Heading-targeted ops keep the matched heading and write content verbatim — don't begin content with the target heading (it's rejected to avoid a duplicate). No separator is added around the content — end it with a newline to leave a blank line after the inserted block.
 
 Limitation: A no-heading prepend inserts at body line 0. If the note has content above its first heading and your content starts with a heading, that content becomes the new section's body. The write still succeeds and the confirmation says so — use insert_before on the first heading to place a section above it instead.
 
@@ -493,7 +493,7 @@ Errors:
 Obsidian syntax: Content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block. Inserting heading-level content (## New Section) changes the note's structure — future heading-targeted ops may resolve differently.
 Table rows: send only the data row ("| cell1 | cell2 |"), not the header or separator — duplicating them splits the table.
 
-Returns: Confirmation message. A no-heading prepend that nested existing content under an inserted heading adds a sentence naming the content's size and the call that would have avoided it.`,
+Returns: Confirmation message — "Applied <operation> to <path> → <target>", where target is the matched heading (e.g. "## Active") or "file body" for a no-heading append/prepend. A no-heading prepend that nested existing content under an inserted heading adds a sentence naming the content's size and the call that would have avoided it.`,
       inputSchema: {
         path: z
           .string()
@@ -510,7 +510,7 @@ Returns: Confirmation message. A no-heading prepend that nested existing content
           .string()
           .min(1)
           .describe(
-            "Markdown content to insert. Must not begin with the target heading text (it would duplicate the heading, which is kept automatically).",
+            "Markdown content to insert, written verbatim with no separator added — end it with a newline to leave a blank line after the inserted block. Must not begin with the target heading text (it would duplicate the heading, which is kept automatically).",
           ),
         heading: z
           .string()
