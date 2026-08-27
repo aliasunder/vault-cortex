@@ -39,6 +39,11 @@ const splitCommaSeparatedValues = (raw: string): string[] =>
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0)
 
+/** Parses a comma-separated env value as vault folder names, rejecting
+ *  absolute paths and path traversal. */
+const parseVaultFolderList = (raw: string): string[] =>
+  splitCommaSeparatedValues(raw).map((folder) => vaultFolderName.parse(folder))
+
 /** Validates a DAILY_NOTES_FORMAT value by probe-rendering a fixed date.
  *  Structural checks only — structurally unsafe results (traversal,
  *  separators, empty) are rejected. Warns when the format contains
@@ -187,9 +192,7 @@ export const loadConfig = (
 
   const protectedPathsRaw = env.PROTECTED_PATHS?.trim()
   const protectedPathsOverride = protectedPathsRaw
-    ? splitCommaSeparatedValues(protectedPathsRaw).map((folder) =>
-        vaultFolderName.parse(folder),
-      )
+    ? parseVaultFolderList(protectedPathsRaw)
     : null
 
   // The orphan default tracks the env-configured daily notes folder only
@@ -197,10 +200,9 @@ export const loadConfig = (
   // synchronous env parsing; the file is read lazily at call time).
   const dailyNotesFolderOrDefault = dailyNotesFolder ?? "Daily Notes"
 
-  const orphanExcludeFolders = env.ORPHAN_EXCLUDE_FOLDERS?.trim()
-    ? splitCommaSeparatedValues(env.ORPHAN_EXCLUDE_FOLDERS.trim()).map(
-        (folder) => vaultFolderName.parse(folder),
-      )
+  const orphanExcludeFoldersRaw = env.ORPHAN_EXCLUDE_FOLDERS?.trim()
+  const orphanExcludeFolders = orphanExcludeFoldersRaw
+    ? parseVaultFolderList(orphanExcludeFoldersRaw)
     : [dailyNotesFolderOrDefault, "Templates", memoryDir]
 
   const serviceDocumentationUrl = env.SERVICE_DOCUMENTATION_URL?.trim()
