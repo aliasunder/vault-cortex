@@ -205,7 +205,7 @@ const findTaskBlockEnd = (
 
 /** Indent for a new checklist item under a task: the first existing child's
  *  leading whitespace, or the parent's indent + 2 spaces. */
-const childIndentFor = ({
+const subtaskIndentUnder = ({
   lines,
   parentLineIndex,
 }: {
@@ -228,7 +228,7 @@ const childIndentFor = ({
  *  the marker sits between the heading and the first list item, and a task
  *  inserted above it would break done-lane detection on later reads. Blank
  *  lines are skipped first, mirroring extractDoneLanes' scan. */
-const insertIndexUnderHeading = ({
+const taskInsertIndexUnderHeading = ({
   lines,
   heading,
 }: {
@@ -245,7 +245,7 @@ const insertIndexUnderHeading = ({
     : heading.bodyStartLine
 }
 
-type CreatePlacement = {
+type NewTaskPlacement = {
   /** Body index the new task line is inserted at. */
   insertAt: number
   /** Leading whitespace for the task line ("" for a top-level task). */
@@ -256,7 +256,7 @@ type CreatePlacement = {
 
 /** Where a created task goes: under its parent's block, under a named
  *  heading, or at the end of the body. Kanban boards require a heading. */
-const resolveCreatePlacement = ({
+const resolveNewTaskPlacement = ({
   bodyLines,
   bodyStartLine,
   headings,
@@ -270,7 +270,7 @@ const resolveCreatePlacement = ({
   parentLocator: ParentLocator | undefined
   heading: string | undefined
   isKanbanBoard: boolean
-}): CreatePlacement => {
+}): NewTaskPlacement => {
   if (parentLocator) {
     const parentLineIndex = findParentLineIndex({
       locator: parentLocator,
@@ -282,7 +282,7 @@ const resolveCreatePlacement = ({
     )
     return {
       insertAt: findTaskBlockEnd(bodyLines, parentLineIndex),
-      indent: childIndentFor({ lines: bodyLines, parentLineIndex }),
+      indent: subtaskIndentUnder({ lines: bodyLines, parentLineIndex }),
       heading: nearestHeading?.text,
     }
   }
@@ -299,7 +299,7 @@ const resolveCreatePlacement = ({
       )
     }
     return {
-      insertAt: insertIndexUnderHeading({
+      insertAt: taskInsertIndexUnderHeading({
         lines: bodyLines,
         heading: targetHeading,
       }),
@@ -317,6 +317,154 @@ const resolveCreatePlacement = ({
     insertAt: bodyLines.length,
     indent: "",
     heading: headings.at(-1)?.text,
+  }
+}
+
+/** Today's calendar date for a completion stamp; Luxon's null case is
+ *  unreachable for a valid `now()`, so it throws rather than degrading. */
+const todayIsoDate = (): string => {
+  const today = DateTime.now().toISODate()
+  if (today === null) {
+    throw new Error("failed to determine today's date")
+  }
+  return today
+}
+
+/** One in-line edit to a task line and the `changes` entry that describes it. */
+type LineEdit = {
+  apply: (taskLine: string) => string
+  change: string
+}
+
+/** Body index of the task an update names — by block id, or by 1-based file
+ *  line. Callers guarantee exactly one identifier is set. */
+const locateTaskLine = ({
+  bodyLines,
+  bodyStartLine,
+  blockId,
+  line,
+  path,
+}: {
+  bodyLines: readonly string[]
+  bodyStartLine: number
+  blockId: string | undefined
+  line: number | undefined
+  path: string
+}): number => {
+  if (blockId) {
+    const foundIndex = tasks.findTaskByBlockId(bodyLines, blockId)
+    if (foundIndex === null) {
+      throw new Error(`blockId "${blockId}" not found in "${path}"`)
+    }
+    return foundIndex
+  }
+  if (!line) {
+    throw new Error("exactly one of blockId or line is required")
+  }
+  const taskLineIndex = line - 1 - bodyStartLine
+  const taskLineText = bodyLines[taskLineIndex]
+  if (taskLineIndex < 0 || !taskLineText || !tasks.isTaskLine(taskLineText)) {
+    throw new Error(`no task at line ${line}`)
+  }
+  return taskLineIndex
+}
+
+/** Moves a task line and its indented sub-items under another heading.
+ *  Returns the lines unchanged, with no `change`, when the task already
+ *  sits under that heading. */
+const moveTaskBlock = ({
+  lines,
+  taskLineIndex,
+  targetLane,
+  headings,
+}: {
+  lines: readonly string[]
+  taskLineIndex: number
+  targetLane: string
+  headings: readonly HeadingInfo[]
+}): { lines: readonly string[]; taskLineIndex: number; change?: string } => {
+  const targetHeading = headings.find((heading) => heading.text === targetLane)
+  if (!targetHeading) {
+    const availableHeadings = headings.map((heading) => heading.text).join(", ")
+    throw new Error(
+      `heading "${targetLane}" not found; available: ${availableHeadings}`,
+    )
+  }
+
+  const currentHeading = headings.findLast(
+    (heading) => heading.startLine < taskLineIndex,
+  )
+  const currentLane = currentHeading?.text ?? "(before first heading)"
+  if (currentLane === targetLane) return { lines, taskLineIndex }
+
+  const taskBlockEnd = findTaskBlockEnd(lines, taskLineIndex)
+  const taskBlock = lines.slice(taskLineIndex, taskBlockEnd)
+  const linesWithoutBlock = lines.toSpliced(
+    taskLineIndex,
+    taskBlockEnd - taskLineIndex,
+  )
+
+  // Heading positions shift once the block is gone — re-parse before placing
+  const headingAfterRemoval = parseHeadings(linesWithoutBlock).find(
+    (heading) => heading.text === targetLane,
+  )
+  if (!headingAfterRemoval) {
+    throw new Error(`heading "${targetLane}" not found after line removal`)
+  }
+  const insertAt = taskInsertIndexUnderHeading({
+    lines: linesWithoutBlock,
+    heading: headingAfterRemoval,
+  })
+  return {
+    lines: linesWithoutBlock.toSpliced(insertAt, 0, ...taskBlock),
+    taskLineIndex: insertAt,
+    change: formatChange({
+      field: "heading",
+      before: currentLane,
+      after: targetLane,
+    }),
+  }
+}
+
+/** Appends checklist items under a task, after its existing sub-items. */
+const appendSubtasks = ({
+  lines,
+  taskLineIndex,
+  descriptions,
+  bodyStartLine,
+}: {
+  lines: readonly string[]
+  taskLineIndex: number
+  descriptions: readonly string[]
+  bodyStartLine: number
+}): {
+  lines: readonly string[]
+  subtaskPositions: SubtaskPosition[]
+  change: string
+} => {
+  const blockEnd = findTaskBlockEnd(lines, taskLineIndex)
+  const subtaskIndent = subtaskIndentUnder({
+    lines,
+    parentLineIndex: taskLineIndex,
+  })
+  const subtaskLines = descriptions.map(
+    (subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`,
+  )
+  const existingSubtaskCount = lines
+    .slice(taskLineIndex + 1, blockEnd)
+    .filter((blockLine) => tasks.isTaskLine(blockLine)).length
+  return {
+    lines: lines.toSpliced(blockEnd, 0, ...subtaskLines),
+    subtaskPositions: subtaskPositionsFrom({
+      bodyStartLine,
+      firstBodyIndex: blockEnd,
+      descriptions,
+    }),
+    change: formatChange({
+      field: "subtasks",
+      before: existingSubtaskCount,
+      after: existingSubtaskCount + descriptions.length,
+    }),
   }
 }
 
@@ -407,7 +555,7 @@ type ParentLocator =
 
 /** The parent locator a create call named, or undefined for a top-level task.
  *  Callers reject the both-given case before this runs. */
-const parentLocatorFrom = ({
+const parentTaskLocatorFrom = ({
   parentBlockId,
   parentLine,
 }: {
@@ -483,7 +631,7 @@ const createTask = async (
   if (parentBlockId && parentLine) {
     throw new Error("parentBlockId and parentLine are mutually exclusive")
   }
-  const parentLocator = parentLocatorFrom({ parentBlockId, parentLine })
+  const parentLocator = parentTaskLocatorFrom({ parentBlockId, parentLine })
   // A sub-task lives wherever its parent lives — a heading has nothing to
   // place, so a parent locator and a heading are exclusive.
   if (parentLocator && heading) {
@@ -525,10 +673,7 @@ const createTask = async (
       setCancelledDate: pluginConfig.setCancelledDate,
     }
 
-    const today = DateTime.now().toISODate()
-    if (today === null) {
-      throw new Error("failed to determine today's date")
-    }
+    const today = todayIsoDate()
 
     // Every field is new on create, so each entry reads "(none) → value".
     const metadataFields: ReadonlyArray<{
@@ -553,7 +698,7 @@ const createTask = async (
       insertAt,
       indent,
       heading: resolvedHeading,
-    } = resolveCreatePlacement({
+    } = resolveNewTaskPlacement({
       bodyLines,
       bodyStartLine,
       headings,
@@ -748,32 +893,13 @@ const updateTask = async (
     // file_line = bodyStartLine + bodyLineIndex + 1.
     const bodyStartLine = tasks.findBodyStartLine(splitIntoLines(fileContent))
 
-    // Locate the task line (0-based index into bodyLines)
-    let taskLineIndex: number
-    if (blockId) {
-      const foundIndex = tasks.findTaskByBlockId(bodyLines, blockId)
-      if (foundIndex === null) {
-        throw new Error(`blockId "${blockId}" not found in "${path}"`)
-      }
-      taskLineIndex = foundIndex
-    } else {
-      // line is guaranteed defined here: the identifier validation
-      // above ensures exactly one of blockId/line is set.
-      if (!line) {
-        throw new Error("exactly one of blockId or line is required")
-      }
-      taskLineIndex = line - 1 - bodyStartLine
-      const taskLineText = bodyLines[taskLineIndex]
-      if (
-        taskLineIndex < 0 ||
-        taskLineIndex >= bodyLines.length ||
-        !taskLineText ||
-        !tasks.isTaskLine(taskLineText)
-      ) {
-        throw new Error(`no task at line ${line}`)
-      }
-    }
-
+    const taskLineIndex = locateTaskLine({
+      bodyLines,
+      bodyStartLine,
+      blockId,
+      line,
+      path,
+    })
     const originalTaskLine = bodyLines[taskLineIndex]
     if (!originalTaskLine) {
       throw new Error(`task line index ${taskLineIndex} out of bounds`)
@@ -801,14 +927,10 @@ const updateTask = async (
         "cannot move a sub-task to a heading — the parent's heading determines placement",
       )
     }
-
-    // Validate assign_block_id
     if (newBlockId) {
       validateBlockId(newBlockId, bodyLines, taskLineIndex)
     }
 
-    // Apply in-line mutations
-    let mutatedLine = originalTaskLine
     // Resolve format config: explicit param > plugin config > emoji default
     const pluginConfig = await readTaskFormatConfig(vaultPath)
     const formatConfig = {
@@ -817,247 +939,171 @@ const updateTask = async (
       setCancelledDate: pluginConfig.setCancelledDate,
     }
 
-    const changes: string[] = []
+    // In-line edits, in the order they are applied to the task line. Each
+    // carries its own `changes` entry; description's after-value is read
+    // through the parser so tags match the result's `description`.
+    const lineEdits: LineEdit[] = [
+      ...(newDescription !== undefined
+        ? [
+            {
+              apply: (taskLine: string) =>
+                tasks.replaceTaskLineDescription({ taskLine, newDescription }),
+              change: formatChange({
+                field: "description",
+                before: taskBefore.description,
+                after: tasks.describeTaskLine(
+                  tasks.replaceTaskLineDescription({
+                    taskLine: originalTaskLine,
+                    newDescription,
+                  }),
+                ),
+              }),
+            },
+          ]
+        : []),
+      ...(status
+        ? [
+            {
+              apply: (taskLine: string) =>
+                tasks.updateTaskLineStatus({
+                  taskLine,
+                  newStatus: status,
+                  today: todayIsoDate(),
+                  config: formatConfig,
+                }),
+              change: formatChange({
+                field: "status",
+                before: taskBefore.status,
+                after: status,
+              }),
+            },
+          ]
+        : []),
+      ...(priority !== undefined
+        ? [
+            {
+              apply: (taskLine: string) =>
+                tasks.updateTaskLinePriority({
+                  taskLine,
+                  newPriority: priority,
+                  config: formatConfig,
+                }),
+              change: formatChange({
+                field: "priority",
+                before: taskBefore.priority,
+                after: priority,
+              }),
+            },
+          ]
+        : []),
+      ...dateParams.flatMap(({ field, value }) =>
+        value === undefined
+          ? []
+          : [
+              {
+                apply: (taskLine: string) =>
+                  tasks.updateTaskLineDate({
+                    taskLine,
+                    field,
+                    date: value,
+                    config: formatConfig,
+                  }),
+                change: formatChange({
+                  field,
+                  before: taskBefore[`${field}Date`],
+                  after: value,
+                }),
+              },
+            ],
+      ),
+      ...(taskId !== undefined
+        ? [
+            {
+              apply: (taskLine: string) =>
+                tasks.updateTaskLineTaskId({
+                  taskLine,
+                  taskId,
+                  config: formatConfig,
+                }),
+              change: formatChange({
+                field: "task_id",
+                before: taskBefore.taskId,
+                after: taskId,
+              }),
+            },
+          ]
+        : []),
+      ...(dependsOn !== undefined
+        ? [
+            {
+              apply: (taskLine: string) =>
+                tasks.updateTaskLineDependsOn({
+                  taskLine,
+                  dependsOn,
+                  config: formatConfig,
+                }),
+              change: formatChange({
+                field: "depends_on",
+                before: formatDependsOn(taskBefore.dependsOn),
+                after: formatDependsOn(dependsOn),
+              }),
+            },
+          ]
+        : []),
+      ...(newBlockId
+        ? [
+            {
+              apply: (taskLine: string) =>
+                tasks.assignBlockId({ taskLine, blockId: newBlockId }),
+              change: formatChange({
+                field: "block_id",
+                before: taskBefore.blockId,
+                after: newBlockId,
+              }),
+            },
+          ]
+        : []),
+    ]
+    const mutatedLine = lineEdits.reduce(
+      (taskLine, edit) => edit.apply(taskLine),
+      originalTaskLine,
+    )
+    const lineChanges = lineEdits.map((edit) => edit.change)
 
-    // 1. Description replacement
-    if (newDescription !== undefined) {
-      const oldDescription = tasks.describeTaskLine(mutatedLine)
-      mutatedLine = tasks.replaceTaskLineDescription({
-        taskLine: mutatedLine,
-        newDescription,
-      })
-      // Both sides read the parser's view (tags re-appended), matching the
-      // result's `description`.
-      changes.push(
-        formatChange({
-          field: "description",
-          before: oldDescription,
-          after: tasks.describeTaskLine(mutatedLine),
-        }),
-      )
-    }
+    // Heading move — an explicit heading, or the done lane when completing
+    // a top-level card on a Kanban board.
+    const autoDoneLane =
+      !targetHeadingParam && status === "done" && isKanbanBoard && !isSubtask
+    const targetLane = autoDoneLane
+      ? detectDoneLane(bodyLines, headings)
+      : targetHeadingParam
+    const linesWithEdits = bodyLines.with(taskLineIndex, mutatedLine)
+    const moved = targetLane
+      ? moveTaskBlock({
+          lines: linesWithEdits,
+          taskLineIndex,
+          targetLane,
+          headings,
+        })
+      : { lines: linesWithEdits, taskLineIndex, change: undefined }
 
-    // 2. Status change
-    if (status) {
-      const today = DateTime.now().toISODate()
-      if (today === null) {
-        throw new Error("failed to determine today's date")
-      }
-      const checkboxMatch = /\[(.)]/.exec(originalTaskLine)
-      const oldStatus = tasks.statusForChar(checkboxMatch?.[1] ?? " ")
-      mutatedLine = tasks.updateTaskLineStatus({
-        taskLine: mutatedLine,
-        newStatus: status,
-        today,
-        config: formatConfig,
-      })
-      changes.push(
-        formatChange({ field: "status", before: oldStatus, after: status }),
-      )
-    }
+    // Checklist items go after every parent-line edit and the move, so they
+    // land under the card's final position.
+    const withSubtasks = addSubtasks
+      ? appendSubtasks({
+          lines: moved.lines,
+          taskLineIndex: moved.taskLineIndex,
+          descriptions: addSubtasks,
+          bodyStartLine,
+        })
+      : { lines: moved.lines, subtaskPositions: undefined, change: undefined }
 
-    // 3. Priority set/clear
-    if (priority !== undefined) {
-      mutatedLine = tasks.updateTaskLinePriority({
-        taskLine: mutatedLine,
-        newPriority: priority,
-        config: formatConfig,
-      })
-      changes.push(
-        formatChange({
-          field: "priority",
-          before: taskBefore.priority,
-          after: priority,
-        }),
-      )
-    }
-
-    // 4. Date field set/clear
-    for (const { field, value } of dateParams) {
-      if (value === undefined) continue
-      mutatedLine = tasks.updateTaskLineDate({
-        taskLine: mutatedLine,
-        field,
-        date: value,
-        config: formatConfig,
-      })
-      changes.push(
-        formatChange({
-          field,
-          before: taskBefore[`${field}Date`],
-          after: value,
-        }),
-      )
-    }
-
-    // 5. task_id set/clear
-    if (taskId !== undefined) {
-      mutatedLine = tasks.updateTaskLineTaskId({
-        taskLine: mutatedLine,
-        taskId,
-        config: formatConfig,
-      })
-      changes.push(
-        formatChange({
-          field: "task_id",
-          before: taskBefore.taskId,
-          after: taskId,
-        }),
-      )
-    }
-
-    // 6. depends_on set/clear
-    if (dependsOn !== undefined) {
-      mutatedLine = tasks.updateTaskLineDependsOn({
-        taskLine: mutatedLine,
-        dependsOn,
-        config: formatConfig,
-      })
-      changes.push(
-        formatChange({
-          field: "depends_on",
-          before: formatDependsOn(taskBefore.dependsOn),
-          after: formatDependsOn(dependsOn),
-        }),
-      )
-    }
-
-    // 7. assign_block_id
-    if (newBlockId) {
-      mutatedLine = tasks.assignBlockId({
-        taskLine: mutatedLine,
-        blockId: newBlockId,
-      })
-      changes.push(
-        formatChange({
-          field: "block_id",
-          before: taskBefore.blockId,
-          after: newBlockId,
-        }),
-      )
-    }
-
-    // Determine heading move target — skipped for sub-tasks
-    let targetLane = targetHeadingParam
-    if (!targetLane && status === "done" && isKanbanBoard && !isSubtask) {
-      targetLane = detectDoneLane(bodyLines, headings)
-    }
-
-    // Apply lane move
-    const resultLines = [...bodyLines]
-    resultLines[taskLineIndex] = mutatedLine
-
-    if (targetLane) {
-      const targetHeading = headings.find(
-        (heading) => heading.text === targetLane,
-      )
-      if (!targetHeading) {
-        const availableHeadings = headings
-          .map((heading) => heading.text)
-          .join(", ")
-        throw new Error(
-          `heading "${targetLane}" not found; available: ${availableHeadings}`,
-        )
-      }
-
-      // Find the current lane (nearest heading above the task)
-      const currentHeading = headings.findLast(
-        (heading) => heading.startLine < taskLineIndex,
-      )
-      const currentLane = currentHeading?.text ?? "(before first heading)"
-
-      // Only move if the task isn't already in the target lane
-      if (currentLane !== targetLane) {
-        // Collect the task block (task line + indented sub-items)
-        const taskBlockEnd = findTaskBlockEnd(resultLines, taskLineIndex)
-        const taskBlock = resultLines.slice(taskLineIndex, taskBlockEnd)
-
-        // Remove the task block from its current position
-        resultLines.splice(taskLineIndex, taskBlockEnd - taskLineIndex)
-
-        // Re-parse headings after removal (indices shifted)
-        const updatedHeadings = parseHeadings(resultLines)
-        const updatedTargetHeading = updatedHeadings.find(
-          (heading) => heading.text === targetLane,
-        )
-        if (!updatedTargetHeading) {
-          throw new Error(
-            `heading "${targetLane}" not found after line removal`,
-          )
-        }
-
-        // Insert after the **Complete** marker when the lane has one,
-        // otherwise at the heading's body start. The marker sits between
-        // the heading and the first list item — inserting before it would
-        // break done-lane detection on subsequent reads. Blank lines are
-        // skipped first, mirroring extractDoneLanes' scan (first non-blank
-        // line only).
-        let insertAt = updatedTargetHeading.bodyStartLine
-        for (
-          let scanLine = insertAt;
-          scanLine < resultLines.length;
-          scanLine++
-        ) {
-          const trimmed = resultLines[scanLine]?.trim()
-          if (!trimmed) continue
-          if (trimmed === "**Complete**") {
-            insertAt = scanLine + 1
-          }
-          break
-        }
-        resultLines.splice(insertAt, 0, ...taskBlock)
-        taskLineIndex = insertAt
-
-        changes.push(
-          formatChange({
-            field: "heading",
-            before: currentLane,
-            after: targetLane,
-          }),
-        )
-      }
-    }
-
-    // 8. add_subtasks — appended after all parent-line mutations and heading move
-    // Assigned inside the branch below; stays undefined when nothing was added.
-    let subtaskPositions: SubtaskPosition[] | undefined
-    if (addSubtasks) {
-      const parentIndent = tasks.getTaskIndent(resultLines[taskLineIndex] ?? "")
-      const blockEnd = findTaskBlockEnd(resultLines, taskLineIndex)
-
-      // Match existing children's indent, or parent + 2 spaces
-      const firstChildIndex = taskLineIndex + 1
-      const hasExistingChildren = firstChildIndex < blockEnd
-      const firstChild = hasExistingChildren
-        ? resultLines[firstChildIndex]
-        : undefined
-      const firstChildIndent = firstChild?.trim()
-        ? firstChild.match(/^(\s*)/)?.[0]
-        : undefined
-      const subtaskIndent = firstChildIndent ?? " ".repeat(parentIndent + 2)
-
-      const subtaskLines = addSubtasks.map(
-        (subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`,
-      )
-      const existingSubtaskCount = resultLines
-        .slice(firstChildIndex, blockEnd)
-        .filter((blockLine) => tasks.isTaskLine(blockLine)).length
-      resultLines.splice(blockEnd, 0, ...subtaskLines)
-      subtaskPositions = subtaskPositionsFrom({
-        bodyStartLine,
-        firstBodyIndex: blockEnd,
-        descriptions: addSubtasks,
-      })
-      changes.push(
-        formatChange({
-          field: "subtasks",
-          before: existingSubtaskCount,
-          after: existingSubtaskCount + addSubtasks.length,
-        }),
-      )
-    }
-
-    const finalTaskIndex = taskLineIndex
+    const resultLines = withSubtasks.lines
+    const finalTaskIndex = moved.taskLineIndex
+    const changes = [...lineChanges, moved.change, withSubtasks.change].filter(
+      (change) => change !== undefined,
+    )
+    const subtaskPositions = withSubtasks.subtaskPositions
 
     // Write atomically
     const serialized = stringifyNote(resultLines.join("\n"), parsed.data)
