@@ -82,6 +82,15 @@ const DESTRUCTIVE_WRITE_ANNOTATIONS: ToolAnnotations = {
   openWorldHint: false,
 }
 
+/** Write tools that only add lines to a note — never overwrite or remove
+ *  existing content — where a replay duplicates the addition. */
+const ADDITIVE_WRITE_ANNOTATIONS: ToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+}
+
 export const TOOL_REGISTRY: readonly RegistryEntry[] = [
   {
     name: TOOL_NAMES.VAULT_READ_NOTE,
@@ -121,7 +130,7 @@ export const TOOL_REGISTRY: readonly RegistryEntry[] = [
   {
     name: TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
     group: "vault-crud",
-    annotations: DESTRUCTIVE_WRITE_ANNOTATIONS,
+    annotations: ADDITIVE_WRITE_ANNOTATIONS,
   },
   {
     name: TOOL_NAMES.VAULT_DELETE_NOTE,
@@ -250,12 +259,7 @@ export const TOOL_REGISTRY: readonly RegistryEntry[] = [
   {
     name: TOOL_NAMES.VAULT_CREATE_TASK,
     group: "task",
-    annotations: {
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: false,
-      openWorldHint: false,
-    },
+    annotations: ADDITIVE_WRITE_ANNOTATIONS,
   },
   {
     name: TOOL_NAMES.VAULT_UPDATE_TASK,

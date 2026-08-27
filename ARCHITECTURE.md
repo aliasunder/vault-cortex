@@ -144,7 +144,7 @@ Group modules register through a gated wrapper that skips disabled names and inj
 | `vault_replace_in_note`   | `path, old_text, new_text, replace_all_occurrences?`                              | destructiveHint |
 | `vault_delete_span`       | `path, start_anchor, end_anchor?, first_match?`                                   | destructiveHint |
 | `vault_replace_span`      | `path, start_anchor, end_anchor?, content, first_match?`                          | destructiveHint |
-| `vault_insert_at_anchor`  | `path, anchor, position, content, first_match?`                                   | destructiveHint |
+| `vault_insert_at_anchor`  | `path, anchor, position, content, first_match?`                                   | !destructiveHint |
 | `vault_list_notes`        | `folder?, glob?`                                                                  | readOnlyHint    |
 | `vault_delete_note`       | `path, prune_empty_folders?`                                                      | destructiveHint |
 | `vault_move_note`         | `old_path, new_path, prune_empty_folders?`                                        | destructiveHint |

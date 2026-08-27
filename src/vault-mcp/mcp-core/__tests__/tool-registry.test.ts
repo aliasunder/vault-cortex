@@ -69,6 +69,28 @@ describe("TOOL_REGISTRY", () => {
     })
   })
 
+  it("vault_insert_at_anchor is an additive, non-idempotent write", () => {
+    expect(
+      TOOL_REGISTRY_BY_NAME.get("vault_insert_at_anchor")?.annotations,
+    ).toEqual({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    })
+  })
+
+  it("vault_replace_span is a destructive, non-idempotent write", () => {
+    expect(
+      TOOL_REGISTRY_BY_NAME.get("vault_replace_span")?.annotations,
+    ).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false,
+    })
+  })
+
   it("vault_update_task is a destructive, non-idempotent write", () => {
     expect(TOOL_REGISTRY_BY_NAME.get("vault_update_task")?.annotations).toEqual(
       {
