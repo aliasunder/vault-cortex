@@ -86,6 +86,21 @@
 
 
 
+
+## [0.45.0] — 2026-08-27
+
+### Features
+
+- Add vault_replace_span and vault_insert_at_anchor tools (#495)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.44.0
+
+### Maintenance
+
+- Bump umm-actually to v0.3.13 (#499)
+
 ## [0.44.0] — 2026-08-27
 
 ### ⚠ BREAKING CHANGES
