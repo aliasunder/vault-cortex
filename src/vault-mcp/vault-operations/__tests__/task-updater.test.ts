@@ -1134,6 +1134,26 @@ title: Tasks
       expect(content).toBe(KANBAN_BOARD)
     })
 
+    it("errors when a subtasks item is whitespace-only", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Ship",
+            blockId: "ship",
+            subtasks: ["Design", "   "],
+          },
+          logger,
+        ),
+      ).rejects.toThrow("subtasks cannot contain an empty item")
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(SIMPLE_NOTE)
+    })
+
     it("errors when depends_on is an empty array", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)

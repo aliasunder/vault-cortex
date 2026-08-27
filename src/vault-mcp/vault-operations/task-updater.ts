@@ -237,6 +237,9 @@ const createTask = async (
   if (dependsOn !== undefined && dependsOn.length === 0) {
     throw new Error("depends_on cannot be empty")
   }
+  if (subtasks?.some((subtaskText) => !subtaskText.trim())) {
+    throw new Error("subtasks cannot contain an empty item")
+  }
 
   const { fullPath } = await readNoteForUpdate(vaultPath, path)
 
