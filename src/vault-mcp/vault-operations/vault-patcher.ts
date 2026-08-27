@@ -1,4 +1,5 @@
-/** Surgical note editing — heading-targeted patches and find-and-replace. */
+/** Surgical note editing — heading-targeted patches, find-and-replace, and
+ *  anchor-targeted line spans (delete, replace, insert). */
 
 import { readFile } from "node:fs/promises"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
@@ -189,16 +190,18 @@ const collapseBlankRuns = (body: string): string =>
  *  searching at or after `fromLine`. The match must be unique by default:
  *  throws a not-found error on no match, or an ambiguous error on more than
  *  one — unless `firstMatch` allows taking the first. `role` labels the error
- *  messages ("start"/"end") and notes the end anchor's restricted search. */
+ *  messages ("start"/"end") and notes the end anchor's restricted search;
+ *  omit it for a single-anchor tool where the qualifier would be misleading. */
 const resolveAnchorLine = (params: {
   lines: readonly string[]
   anchor: string
   fromLine: number
   firstMatch: boolean | undefined
   path: string
-  role: "start" | "end"
+  role?: "start" | "end"
 }): number => {
   const { lines, anchor, fromLine, firstMatch, path, role } = params
+  const anchorLabel = role ? `${role} anchor` : "anchor"
   const matchingLineIndices = lines.flatMap((line, index) =>
     index >= fromLine && line.includes(anchor) ? [index] : [],
   )
@@ -206,21 +209,54 @@ const resolveAnchorLine = (params: {
   const regionSuffix = role === "end" ? " at or after the start anchor" : ""
   if (matchingLineIndices.length === 0) {
     throw new Error(
-      `${role} anchor not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`,
+      `${anchorLabel} not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`,
     )
   }
   if (matchingLineIndices.length > 1 && !firstMatch) {
     throw new Error(
-      `ambiguous ${role} anchor in "${path}": "${truncateForMessage(anchor)}" matches ${matchingLineIndices.length} lines${regionSuffix}`,
+      `ambiguous ${anchorLabel} in "${path}": "${truncateForMessage(anchor)}" matches ${matchingLineIndices.length} lines${regionSuffix}`,
     )
   }
   const matchedIndex = matchingLineIndices[0]
   if (matchedIndex === undefined) {
     throw new Error(
-      `${role} anchor not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`,
+      `${anchorLabel} not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`,
     )
   }
   return matchedIndex
+}
+
+/** Resolves the inclusive line range of a span: `startAnchor` locates the
+ *  first line; `endAnchor`, when given, locates the last line at or after it —
+ *  omitted, the span is just the start line. */
+const resolveSpanLines = (params: {
+  lines: readonly string[]
+  startAnchor: string
+  endAnchor: string | undefined
+  firstMatch: boolean | undefined
+  path: string
+}): { startLine: number; endLine: number } => {
+  const { lines, startAnchor, endAnchor, firstMatch, path } = params
+  const startLine = resolveAnchorLine({
+    lines,
+    anchor: startAnchor,
+    fromLine: 0,
+    firstMatch,
+    path,
+    role: "start",
+  })
+  if (endAnchor === undefined) {
+    return { startLine, endLine: startLine }
+  }
+  const endLine = resolveAnchorLine({
+    lines,
+    anchor: endAnchor,
+    fromLine: startLine,
+    firstMatch,
+    path,
+    role: "end",
+  })
+  return { startLine, endLine }
 }
 
 // ── Exported functions ──────────────────────────────────────────
@@ -442,33 +478,16 @@ const deleteSpan = async (
       path,
     )
 
-    const startLine = resolveAnchorLine({
+    const { startLine, endLine } = resolveSpanLines({
       lines,
-      anchor: startAnchor,
-      fromLine: 0,
+      startAnchor,
+      endAnchor,
       firstMatch,
       path,
-      role: "start",
     })
-    // Omitting end_anchor deletes just the start line; otherwise the span runs
-    // through the end anchor's line, searched at or after the start.
-    const endLine =
-      endAnchor === undefined
-        ? startLine
-        : resolveAnchorLine({
-            lines,
-            anchor: endAnchor,
-            fromLine: startLine,
-            firstMatch,
-            path,
-            role: "end",
-          })
 
     const removedLines = lines.slice(startLine, endLine + 1)
-    const remainingLines = [
-      ...lines.slice(0, startLine),
-      ...lines.slice(endLine + 1),
-    ]
+    const remainingLines = lines.toSpliced(startLine, removedLines.length)
     const normalizedBody = collapseBlankRuns(remainingLines.join("\n"))
     const afterBytes = await writePatchedNote(
       fullPath,
@@ -489,9 +508,140 @@ const deleteSpan = async (
   })
 }
 
+/** Replaces a contiguous block of whole lines identified by anchor substrings
+ *  with new content — same anchor semantics as `deleteSpan`, but splices in
+ *  replacement content instead of just removing. */
+const replaceSpan = async (
+  params: {
+    vaultPath: string
+    path: string
+    startAnchor: string
+    endAnchor?: string | undefined
+    content: string
+    firstMatch?: boolean | undefined
+  },
+  logger: Logger,
+): Promise<string> => {
+  const { path, startAnchor, endAnchor, content, firstMatch } = params
+
+  if (startAnchor.length === 0) {
+    throw new Error("startAnchor cannot be empty")
+  }
+  if (endAnchor !== undefined && endAnchor.length === 0) {
+    throw new Error("endAnchor cannot be empty")
+  }
+  if (content.length === 0) {
+    throw new Error("content cannot be empty")
+  }
+  assertNoControlCharacters(content, "content")
+
+  const lockPath = resolveSafePath(params.vaultPath, path)
+  return withExclusiveFileLock(lockPath, async () => {
+    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
+      params.vaultPath,
+      path,
+    )
+
+    const { startLine, endLine } = resolveSpanLines({
+      lines,
+      startAnchor,
+      endAnchor,
+      firstMatch,
+      path,
+    })
+
+    const replacedLineCount = endLine - startLine + 1
+    const contentLines = content.split("\n")
+    const updatedLines = lines.toSpliced(
+      startLine,
+      replacedLineCount,
+      ...contentLines,
+    )
+    const normalizedBody = collapseBlankRuns(updatedLines.join("\n"))
+    const afterBytes = await writePatchedNote(
+      fullPath,
+      data,
+      normalizedBody.split("\n"),
+    )
+
+    logger.info("replaced span", {
+      path,
+      startAnchor: truncateForMessage(startAnchor),
+      endAnchor: endAnchor ? truncateForMessage(endAnchor) : undefined,
+      replacedLines: replacedLineCount,
+      insertedLines: contentLines.length,
+      beforeBytes,
+      afterBytes,
+    })
+    const replacedWord = replacedLineCount === 1 ? "line" : "lines"
+    const insertedWord = contentLines.length === 1 ? "line" : "lines"
+    return `Replaced ${replacedLineCount} ${replacedWord} with ${contentLines.length} ${insertedWord} in ${path}`
+  })
+}
+
+/** Inserts content before or after a specific line identified by a short
+ *  anchor substring — same resolution as `deleteSpan`, but adds content
+ *  without removing the anchor line. */
+const insertAtAnchor = async (
+  params: {
+    vaultPath: string
+    path: string
+    anchor: string
+    position: "before" | "after"
+    content: string
+    firstMatch?: boolean | undefined
+  },
+  logger: Logger,
+): Promise<string> => {
+  const { path, anchor, position, content, firstMatch } = params
+
+  if (anchor.length === 0) {
+    throw new Error("anchor cannot be empty")
+  }
+  if (content.length === 0) {
+    throw new Error("content cannot be empty")
+  }
+  assertNoControlCharacters(content, "content")
+
+  const lockPath = resolveSafePath(params.vaultPath, path)
+  return withExclusiveFileLock(lockPath, async () => {
+    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
+      params.vaultPath,
+      path,
+    )
+
+    const anchorLine = resolveAnchorLine({
+      lines,
+      anchor,
+      fromLine: 0,
+      firstMatch,
+      path,
+    })
+
+    const contentLines = content.split("\n")
+    const insertIndex = position === "before" ? anchorLine : anchorLine + 1
+    const updatedLines = lines.toSpliced(insertIndex, 0, ...contentLines)
+
+    const afterBytes = await writePatchedNote(fullPath, data, updatedLines)
+
+    logger.info("inserted at anchor", {
+      path,
+      anchor: truncateForMessage(anchor),
+      position,
+      insertedLines: contentLines.length,
+      beforeBytes,
+      afterBytes,
+    })
+    const lineWord = contentLines.length === 1 ? "line" : "lines"
+    return `Inserted ${contentLines.length} ${lineWord} ${position} anchor in ${path}`
+  })
+}
+
 export const vaultPatcher = {
   patchNote,
   replaceInNote,
   deleteSpan,
+  replaceSpan,
+  insertAtAnchor,
   findTrailingCommentBlockStart,
 }

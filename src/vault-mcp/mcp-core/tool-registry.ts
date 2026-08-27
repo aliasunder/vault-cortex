@@ -14,6 +14,8 @@ export const TOOL_NAMES = {
   VAULT_PATCH_NOTE: "vault_patch_note",
   VAULT_REPLACE_IN_NOTE: "vault_replace_in_note",
   VAULT_DELETE_SPAN: "vault_delete_span",
+  VAULT_REPLACE_SPAN: "vault_replace_span",
+  VAULT_INSERT_AT_ANCHOR: "vault_insert_at_anchor",
   VAULT_DELETE_NOTE: "vault_delete_note",
   VAULT_MOVE_NOTE: "vault_move_note",
   VAULT_UPDATE_PROPERTIES: "vault_update_properties",
@@ -80,6 +82,15 @@ const DESTRUCTIVE_WRITE_ANNOTATIONS: ToolAnnotations = {
   openWorldHint: false,
 }
 
+/** Write tools that only add lines to a note — never overwrite or remove
+ *  existing content — where a replay duplicates the addition. */
+const ADDITIVE_WRITE_ANNOTATIONS: ToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+}
+
 export const TOOL_REGISTRY: readonly RegistryEntry[] = [
   {
     name: TOOL_NAMES.VAULT_READ_NOTE,
@@ -110,6 +121,16 @@ export const TOOL_REGISTRY: readonly RegistryEntry[] = [
     name: TOOL_NAMES.VAULT_DELETE_SPAN,
     group: "vault-crud",
     annotations: DESTRUCTIVE_WRITE_ANNOTATIONS,
+  },
+  {
+    name: TOOL_NAMES.VAULT_REPLACE_SPAN,
+    group: "vault-crud",
+    annotations: DESTRUCTIVE_WRITE_ANNOTATIONS,
+  },
+  {
+    name: TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
+    group: "vault-crud",
+    annotations: ADDITIVE_WRITE_ANNOTATIONS,
   },
   {
     name: TOOL_NAMES.VAULT_DELETE_NOTE,
@@ -238,12 +259,7 @@ export const TOOL_REGISTRY: readonly RegistryEntry[] = [
   {
     name: TOOL_NAMES.VAULT_CREATE_TASK,
     group: "task",
-    annotations: {
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: false,
-      openWorldHint: false,
-    },
+    annotations: ADDITIVE_WRITE_ANNOTATIONS,
   },
   {
     name: TOOL_NAMES.VAULT_UPDATE_TASK,

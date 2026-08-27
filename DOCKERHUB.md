@@ -87,6 +87,8 @@ See [ARCHITECTURE.md → Files](https://github.com/aliasunder/vault-cortex/blob/
 |  | `vault_patch_note` | Heading-targeted edit (append, prepend, replace with `include_children` guard, insert) |
 |  | `vault_replace_in_note` | Find-and-replace text in a note (first match or `replace_all_occurrences`) |
 |  | `vault_delete_span` | Delete a block of lines by short anchors, no full re-quote |
+|  | `vault_replace_span` | Replace a block of lines by short anchors with new content |
+|  | `vault_insert_at_anchor` | Insert content before or after a line identified by a short anchor |
 |  | `vault_list_notes` | List notes with optional glob/folder filter |
 |  | `vault_delete_note` | Delete a note (protected paths enforced) |
 |  | `vault_move_note` | Move or rename a note, rewriting links across the vault |
