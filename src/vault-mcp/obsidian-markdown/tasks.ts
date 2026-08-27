@@ -1007,8 +1007,8 @@ const buildTaskLine = (
 }
 
 /** Stamps or strips a completion-style date field on a task line.
- *  When stamping is enabled, replaces an existing field or inserts before
- *  the block ID; when disabled, strips any existing field. */
+ *  When stamping is enabled, replaces an existing field or appends it
+ *  to the metadata tail; when disabled, strips any existing field. */
 const applyCompletionDate = (params: {
   taskLine: string
   shouldStamp: boolean
