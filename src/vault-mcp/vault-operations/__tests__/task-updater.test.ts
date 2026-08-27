@@ -301,7 +301,7 @@ describe("task-updater", () => {
         path: "tasks.md",
         line: 5,
         description: "No priority task",
-        changes: ["priority: high"],
+        changes: ["priority: (none) → high"],
       })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
@@ -328,7 +328,7 @@ describe("task-updater", () => {
         path: "tasks.md",
         line: 6,
         description: "Has priority",
-        changes: ["priority: highest"],
+        changes: ["priority: high → highest"],
       })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
@@ -355,7 +355,7 @@ describe("task-updater", () => {
         path: "tasks.md",
         line: 6,
         description: "Has priority",
-        changes: ["priority: removed"],
+        changes: ["priority: high → (none)"],
       })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
@@ -382,7 +382,7 @@ describe("task-updater", () => {
         path: "tasks.md",
         line: 7,
         description: "Plain task without dates",
-        changes: ["priority: low"],
+        changes: ["priority: (none) → low"],
       })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
@@ -608,7 +608,7 @@ title: Tasks
         path: "tasks.md",
         line: 6,
         description: "Walk the dog",
-        changes: ["status: todo → in_progress", "priority: highest"],
+        changes: ["status: todo → in_progress", "priority: (none) → highest"],
       })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
@@ -855,7 +855,7 @@ title: Tasks
         line: 9,
         description: "New task",
         block_id: "new-task",
-        changes: [`created: ${today()}`],
+        changes: [`created: (none) → ${today()}`],
       })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
@@ -884,7 +884,7 @@ title: Tasks
         description: "Appended",
         block_id: "appended",
         heading: "Later",
-        changes: [`created: ${today()}`],
+        changes: [`created: (none) → ${today()}`],
       })
     })
 
@@ -909,7 +909,7 @@ title: Tasks
         description: "Board task",
         block_id: "board-task",
         heading: "Up Next",
-        changes: [`created: ${today()}`],
+        changes: [`created: (none) → ${today()}`],
       })
       const content = await readTestNote(vault, "board.md")
       // Task inserted at the top of Up Next, before the existing card
@@ -969,7 +969,7 @@ title: Tasks
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
-      await taskMutations.createTask(
+      const result = await taskMutations.createTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -980,6 +980,18 @@ title: Tasks
         logger,
       )
 
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "Multi-stage task",
+        block_id: "multi-stage",
+        subtasks: [
+          { line: 10, description: "Stage 1" },
+          { line: 11, description: "Stage 2" },
+          { line: 12, description: "Stage 3" },
+        ],
+        changes: [`created: (none) → ${today()}`, "subtasks: 0 → 3"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] Multi-stage task ➕ ${today()} ^multi-stage\n  - [ ] Stage 1\n  - [ ] Stage 2\n  - [ ] Stage 3\n`,
@@ -1350,7 +1362,7 @@ title: Tasks
         line: 5,
         description: "Task",
         block_id: "my-task",
-        changes: ["created: 2026-06-15"],
+        changes: ["created: 2026-07-01 → 2026-06-15"],
       })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
@@ -1381,7 +1393,7 @@ title: Tasks
         line: 5,
         description: "Task",
         block_id: "my-task",
-        changes: ["created: removed"],
+        changes: ["created: 2026-07-01 → (none)"],
       })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Task ^my-task\n")
@@ -1410,7 +1422,7 @@ title: Tasks
         line: 5,
         description: "Task",
         block_id: "my-task",
-        changes: ["task_id: abc123"],
+        changes: ["task_id: (none) → abc123"],
       })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
@@ -1441,7 +1453,7 @@ title: Tasks
         line: 5,
         description: "Task",
         block_id: "my-task",
-        changes: ["task_id: removed"],
+        changes: ["task_id: abc123 → (none)"],
       })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
@@ -1472,7 +1484,7 @@ title: Tasks
         line: 5,
         description: "Task",
         block_id: "my-task",
-        changes: ["depends_on: dep-a,dep-b"],
+        changes: ["depends_on: (none) → dep-a,dep-b"],
       })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
@@ -1503,7 +1515,7 @@ title: Tasks
         line: 5,
         description: "Task",
         block_id: "my-task",
-        changes: ["depends_on: removed"],
+        changes: ["depends_on: dep-a,dep-b → (none)"],
       })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
@@ -1530,7 +1542,8 @@ title: Tasks
         path: "tasks.md",
         line: 6,
         description: "Walk the dog",
-        changes: ["subtasks added: 1"],
+        subtasks: [{ line: 7, description: "Bring treats" }],
+        changes: ["subtasks: 0 → 1"],
       })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
@@ -1558,11 +1571,47 @@ title: Tasks
         path: "tasks.md",
         line: 6,
         description: "Walk the dog",
-        changes: ["status: todo → in_progress", "subtasks added: 2"],
+        subtasks: [
+          { line: 7, description: "First stage" },
+          { line: 8, description: "Second stage" },
+        ],
+        changes: ["status: todo → in_progress", "subtasks: 0 → 2"],
       })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [/] Walk the dog ➕ 2026-07-02 ^walk-dog\n  - [ ] First stage\n  - [ ] Second stage\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
+      )
+    })
+
+    it("appends add_subtasks after existing checklist items and reports the count before → after", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n  - [x] Find the leash\n  - [ ] Bring treats\n- [ ] Buy groceries ➕ 2026-07-01\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "walk-dog",
+          addSubtasks: ["Lock the door"],
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "walk-dog",
+        path: "tasks.md",
+        line: 5,
+        description: "Walk the dog",
+        subtasks: [{ line: 8, description: "Lock the door" }],
+        changes: ["subtasks: 2 → 3"],
+      })
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n  - [x] Find the leash\n  - [ ] Bring treats\n  - [ ] Lock the door\n- [ ] Buy groceries ➕ 2026-07-01\n",
       )
     })
 
@@ -1585,7 +1634,7 @@ title: Tasks
         line: 5,
         description: "Buy groceries",
         block_id: "buy-groceries",
-        changes: ["block_id assigned: buy-groceries"],
+        changes: ["block_id: (none) → buy-groceries"],
       })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
@@ -1612,7 +1661,7 @@ title: Tasks
         line: 6,
         description: "Walk the dog",
         block_id: "walk-dog",
-        changes: ["priority: low"],
+        changes: ["priority: (none) → low"],
       })
     })
 

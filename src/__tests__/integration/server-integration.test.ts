@@ -409,7 +409,10 @@ describe("default config", () => {
         description: "Integration test task",
         block_id: "integ-test-task",
         heading: "Tasks",
-        changes: [`created: ${DateTime.now().toISODate()}`, "priority: medium"],
+        changes: [
+          `created: (none) → ${DateTime.now().toISODate()}`,
+          "priority: (none) → medium",
+        ],
       })
 
       // Verify the created task is in the file via vault_read_note

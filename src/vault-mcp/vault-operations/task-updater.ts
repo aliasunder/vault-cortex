@@ -40,12 +40,20 @@ type CreateTaskParams = {
   format?: "emoji" | "dataview" | undefined
 }
 
+/** Where a checklist item written by this call landed — the handle for a
+ *  follow-up update, since checklist items carry no block id. */
+type SubtaskPosition = {
+  line: number
+  description: string
+}
+
 type CreateTaskResult = {
   path: string
   line: number
   description: string
   block_id: string
   heading?: string | undefined
+  subtasks?: SubtaskPosition[] | undefined
   changes: string[]
 }
 
@@ -75,7 +83,48 @@ type UpdateTaskResult = {
   description: string
   block_id?: string | undefined
   heading?: string | undefined
+  subtasks?: SubtaskPosition[] | undefined
   changes: string[]
+}
+
+const ABSENT_VALUE = "(none)"
+
+/** One grammar for every `changes` entry: `field: before → after`, with
+ *  "(none)" standing in for an absent value on either side. */
+const formatChange = ({
+  field,
+  before,
+  after,
+}: {
+  field: string
+  before: string | number | null | undefined
+  after: string | number | null | undefined
+}): string => {
+  return `${field}: ${before ?? ABSENT_VALUE} → ${after ?? ABSENT_VALUE}`
+}
+
+/** Joins a dependency list for a `changes` entry; an empty list is absent. */
+const formatDependsOn = (
+  dependsOn: readonly string[] | null | undefined,
+): string | null => {
+  if (!dependsOn || dependsOn.length === 0) return null
+  return dependsOn.join(",")
+}
+
+/** 1-based file positions of checklist lines written starting at a body index. */
+const subtaskPositionsFrom = ({
+  bodyStartLine,
+  firstBodyIndex,
+  descriptions,
+}: {
+  bodyStartLine: number
+  firstBodyIndex: number
+  descriptions: readonly string[]
+}): SubtaskPosition[] => {
+  return descriptions.map((description, offset) => ({
+    line: bodyStartLine + firstBodyIndex + offset + 1,
+    description,
+  }))
 }
 
 // ── Shared constants ────────────────────────────────────────────
@@ -305,14 +354,24 @@ const createTask = async (
       throw new Error("failed to determine today's date")
     }
 
-    const changes: string[] = [`created: ${today}`]
-    if (priority) changes.push(`priority: ${priority}`)
-    if (due) changes.push(`due: ${due}`)
-    if (scheduled) changes.push(`scheduled: ${scheduled}`)
-    if (start) changes.push(`start: ${start}`)
-    if (taskId) changes.push(`task_id: ${taskId}`)
-    if (dependsOn && dependsOn.length > 0)
-      changes.push(`depends_on: ${dependsOn.join(",")}`)
+    // Every field is new on create, so each entry reads "(none) → value".
+    const metadataFields: ReadonlyArray<{
+      field: string
+      value: string | null | undefined
+    }> = [
+      { field: "created", value: today },
+      { field: "priority", value: priority },
+      { field: "due", value: due },
+      { field: "scheduled", value: scheduled },
+      { field: "start", value: start },
+      { field: "task_id", value: taskId },
+      { field: "depends_on", value: formatDependsOn(dependsOn) },
+    ]
+    const changes: string[] = metadataFields
+      .filter(({ value }) => Boolean(value))
+      .map(({ field, value }) =>
+        formatChange({ field, before: null, after: value }),
+      )
 
     // Determine insertion point and indent
     const resultLines = [...bodyLines]
@@ -411,10 +470,21 @@ const createTask = async (
       for (const subtaskText of subtasks) {
         linesToInsert.push(`${subtaskIndent}- [ ] ${subtaskText}`)
       }
-      changes.push(`subtasks: ${subtasks.length}`)
+      changes.push(
+        formatChange({ field: "subtasks", before: 0, after: subtasks.length }),
+      )
     }
 
     resultLines.splice(insertAt, 0, ...linesToInsert)
+
+    // Checklist lines follow the card line, so the first one sits at insertAt + 1
+    const subtaskPositions = subtasks?.length
+      ? subtaskPositionsFrom({
+          bodyStartLine,
+          firstBodyIndex: insertAt + 1,
+          descriptions: subtasks,
+        })
+      : undefined
 
     // Write atomically
     const serialized = stringifyNote(resultLines.join("\n"), parsed.data)
@@ -436,6 +506,7 @@ const createTask = async (
       description,
       block_id: blockId,
       heading: resolvedHeading,
+      subtasks: subtaskPositions,
       changes,
     }
   })
@@ -573,6 +644,13 @@ const updateTask = async (
     }
     const isKanbanBoard = Boolean(parsed.data["kanban-plugin"])
     const isSubtask = tasks.getTaskIndent(originalTaskLine) > 0
+    // Prior field values, so every `changes` entry can state before → after.
+    const [taskBefore] = tasks.extractTasks(originalTaskLine)
+    if (!taskBefore) {
+      throw new Error(
+        `task line index ${taskLineIndex} does not parse as a task`,
+      )
+    }
 
     // A sub-task's placement is its parent's — an explicit heading has
     // nothing to move.
@@ -606,7 +684,13 @@ const updateTask = async (
         mutatedLine,
         newDescription,
       )
-      changes.push(`description: ${oldDescription} → ${newDescription}`)
+      changes.push(
+        formatChange({
+          field: "description",
+          before: oldDescription,
+          after: newDescription,
+        }),
+      )
     }
 
     // 2. Status change
@@ -623,7 +707,9 @@ const updateTask = async (
         today,
         config: formatConfig,
       })
-      changes.push(`status: ${oldStatus} → ${status}`)
+      changes.push(
+        formatChange({ field: "status", before: oldStatus, after: status }),
+      )
     }
 
     // 3. Priority set/clear
@@ -634,7 +720,11 @@ const updateTask = async (
         formatConfig,
       )
       changes.push(
-        priority === null ? "priority: removed" : `priority: ${priority}`,
+        formatChange({
+          field: "priority",
+          before: taskBefore.priority,
+          after: priority,
+        }),
       )
     }
 
@@ -647,7 +737,13 @@ const updateTask = async (
         date: value,
         config: formatConfig,
       })
-      changes.push(value === null ? `${field}: removed` : `${field}: ${value}`)
+      changes.push(
+        formatChange({
+          field,
+          before: taskBefore[`${field}Date`],
+          after: value,
+        }),
+      )
     }
 
     // 5. task_id set/clear
@@ -657,7 +753,13 @@ const updateTask = async (
         taskId,
         formatConfig,
       )
-      changes.push(taskId === null ? "task_id: removed" : `task_id: ${taskId}`)
+      changes.push(
+        formatChange({
+          field: "task_id",
+          before: taskBefore.taskId,
+          after: taskId,
+        }),
+      )
     }
 
     // 6. depends_on set/clear
@@ -668,16 +770,24 @@ const updateTask = async (
         formatConfig,
       )
       changes.push(
-        dependsOn === null
-          ? "depends_on: removed"
-          : `depends_on: ${dependsOn.join(",")}`,
+        formatChange({
+          field: "depends_on",
+          before: formatDependsOn(taskBefore.dependsOn),
+          after: formatDependsOn(dependsOn),
+        }),
       )
     }
 
     // 7. assign_block_id
     if (newBlockId) {
       mutatedLine = tasks.assignBlockId(mutatedLine, newBlockId)
-      changes.push(`block_id assigned: ${newBlockId}`)
+      changes.push(
+        formatChange({
+          field: "block_id",
+          before: taskBefore.blockId,
+          after: newBlockId,
+        }),
+      )
     }
 
     // Determine heading move target — skipped for sub-tasks
@@ -751,11 +861,19 @@ const updateTask = async (
         resultLines.splice(insertAt, 0, ...taskBlock)
         taskLineIndex = insertAt
 
-        changes.push(`heading: ${currentLane} → ${targetLane}`)
+        changes.push(
+          formatChange({
+            field: "heading",
+            before: currentLane,
+            after: targetLane,
+          }),
+        )
       }
     }
 
     // 8. add_subtasks — appended after all parent-line mutations and heading move
+    // Assigned inside the branch below; stays undefined when nothing was added.
+    let subtaskPositions: SubtaskPosition[] | undefined
     if (addSubtasks) {
       const parentIndent = tasks.getTaskIndent(resultLines[taskLineIndex] ?? "")
       const blockEnd = findTaskBlockEnd(resultLines, taskLineIndex)
@@ -775,8 +893,22 @@ const updateTask = async (
       const subtaskLines = addSubtasks.map(
         (subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`,
       )
+      const existingSubtaskCount = resultLines
+        .slice(firstChildIndex, blockEnd)
+        .filter((blockLine) => tasks.isTaskLine(blockLine)).length
       resultLines.splice(blockEnd, 0, ...subtaskLines)
-      changes.push(`subtasks added: ${addSubtasks.length}`)
+      subtaskPositions = subtaskPositionsFrom({
+        bodyStartLine,
+        firstBodyIndex: blockEnd,
+        descriptions: addSubtasks,
+      })
+      changes.push(
+        formatChange({
+          field: "subtasks",
+          before: existingSubtaskCount,
+          after: existingSubtaskCount + addSubtasks.length,
+        }),
+      )
     }
 
     const finalTaskIndex = taskLineIndex
@@ -804,6 +936,7 @@ const updateTask = async (
       description: tasks.describeTaskLine(finalTaskLine),
       block_id: finalBlockId,
       heading: finalHeading?.text,
+      subtasks: subtaskPositions,
       changes,
     }
   })

@@ -277,7 +277,7 @@ Errors:
 - "invalid date" — a date param fails calendar validation
 - "concurrent write in progress" — another write to this note is in flight; retry
 
-Returns: JSON { path, line, description, block_id, heading, changes } — line is the new card's 1-based position; heading is the nearest heading above the new task (omitted when the note has none); changes lists the fields written.`,
+Returns: JSON { path, line, description, block_id, heading, subtasks, changes } — line is the new card's 1-based position; heading is the nearest heading above the new task (omitted when the note has none); subtasks lists each checklist item written as { line, description } (omitted when none) — checklist items carry no block_id, so line is the handle for a follow-up update; changes lists every field written as "field: before → after", with "(none)" for an absent value.`,
       inputSchema: {
         path: z
           .string()
@@ -495,7 +495,7 @@ Errors:
 - "description cannot be empty" / "dependsOn cannot be empty" / "addSubtasks cannot be empty" / "addSubtasks cannot contain an empty item" — whitespace-only text or an empty array (use null to clear depends_on)
 - "concurrent write in progress" — another write to this note is in flight; retry
 
-Returns: JSON { path, line, description, block_id, heading, changes } — line is the final 1-based position; description is the current text; block_id and heading reflect the task after the update (block_id is omitted when the task has none, heading when the task sits above the first heading); changes lists what was applied.`,
+Returns: JSON { path, line, description, block_id, heading, subtasks, changes } — line is the final 1-based position; description is the current text; block_id and heading reflect the task after the update (block_id is omitted when the task has none, heading when the task sits above the first heading); subtasks lists each checklist item added by add_subtasks as { line, description } (omitted when none were added) — checklist items carry no block_id, so line is the handle for a follow-up update; changes lists every field applied as "field: before → after", with "(none)" for an absent value (for subtasks the two sides are checklist-item counts).`,
       inputSchema: {
         path: z
           .string()
