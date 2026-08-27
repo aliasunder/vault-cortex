@@ -3303,7 +3303,7 @@ title: Tracker
 
   it("replaces a single line identified by start_anchor", async () => {
     await writeTestNote("tracker.md", TABLE_NOTE)
-    const result = await replaceSpan(
+    const replaceMessage = await replaceSpan(
       {
         vaultPath: vault,
         path: "tracker.md",
@@ -3312,9 +3312,9 @@ title: Tracker
       },
       logger,
     )
-    const updated = await readTestNote("tracker.md")
-    expect(result).toBe("Replaced 1 line with 1 line in tracker.md")
-    expect(updated).toBe(`---
+    const updatedNote = await readTestNote("tracker.md")
+    expect(replaceMessage).toBe("Replaced 1 line with 1 line in tracker.md")
+    expect(updatedNote).toBe(`---
 title: Tracker
 ---
 
@@ -3329,7 +3329,7 @@ title: Tracker
   })
 
   it("replaces a multi-line block from start through end anchor", async () => {
-    const content = `---
+    const noteContent = `---
 title: Plan
 ---
 
@@ -3342,8 +3342,8 @@ Before paragraph.
 
 After paragraph.
 `
-    await writeTestNote("plan.md", content)
-    const result = await replaceSpan(
+    await writeTestNote("plan.md", noteContent)
+    const replaceMessage = await replaceSpan(
       {
         vaultPath: vault,
         path: "plan.md",
@@ -3353,9 +3353,9 @@ After paragraph.
       },
       logger,
     )
-    const updated = await readTestNote("plan.md")
-    expect(result).toBe("Replaced 4 lines with 2 lines in plan.md")
-    expect(updated).toBe(`---
+    const updatedNote = await readTestNote("plan.md")
+    expect(replaceMessage).toBe("Replaced 4 lines with 2 lines in plan.md")
+    expect(updatedNote).toBe(`---
 title: Plan
 ---
 
@@ -3369,7 +3369,7 @@ After paragraph.
   })
 
   it("replaces with more lines than removed (expansion)", async () => {
-    const content = `---
+    const noteContent = `---
 title: Test
 ---
 
@@ -3377,7 +3377,7 @@ line before
 single target line
 line after
 `
-    await writeTestNote("expand.md", content)
+    await writeTestNote("expand.md", noteContent)
     await replaceSpan(
       {
         vaultPath: vault,
@@ -3387,8 +3387,8 @@ line after
       },
       logger,
     )
-    const updated = await readTestNote("expand.md")
-    expect(updated).toBe(`---
+    const updatedNote = await readTestNote("expand.md")
+    expect(updatedNote).toBe(`---
 title: Test
 ---
 
@@ -3401,7 +3401,7 @@ line after
   })
 
   it("treats start and end anchors on the same line as a single-line replace", async () => {
-    const content = `---
+    const noteContent = `---
 title: Single
 ---
 
@@ -3409,8 +3409,8 @@ keep before
 alpha middle omega
 keep after
 `
-    await writeTestNote("single.md", content)
-    const result = await replaceSpan(
+    await writeTestNote("single.md", noteContent)
+    const replaceMessage = await replaceSpan(
       {
         vaultPath: vault,
         path: "single.md",
@@ -3420,9 +3420,9 @@ keep after
       },
       logger,
     )
-    const updated = await readTestNote("single.md")
-    expect(result).toBe("Replaced 1 line with 1 line in single.md")
-    expect(updated).toBe(`---
+    const updatedNote = await readTestNote("single.md")
+    expect(replaceMessage).toBe("Replaced 1 line with 1 line in single.md")
+    expect(updatedNote).toBe(`---
 title: Single
 ---
 
@@ -3433,7 +3433,7 @@ keep after
   })
 
   it("collapses 3+ blank-line runs created by the replacement", async () => {
-    const content = `---
+    const noteContent = `---
 title: Seam
 ---
 
@@ -3444,7 +3444,7 @@ old block line 2
 
 after
 `
-    await writeTestNote("seam.md", content)
+    await writeTestNote("seam.md", noteContent)
     await replaceSpan(
       {
         vaultPath: vault,
@@ -3455,10 +3455,10 @@ after
       },
       logger,
     )
-    const updated = await readTestNote("seam.md")
+    const updatedNote = await readTestNote("seam.md")
     // The leading/trailing blank lines in content stack with surrounding blanks,
     // but collapseBlankRuns prevents 3+ consecutive blanks.
-    expect(updated).toBe(`---
+    expect(updatedNote).toBe(`---
 title: Seam
 ---
 
@@ -3481,8 +3481,8 @@ after
       },
       logger,
     )
-    const updated = await readTestNote("tracker.md")
-    expect(updated).toBe(`---
+    const updatedNote = await readTestNote("tracker.md")
+    expect(updatedNote).toBe(`---
 title: Tracker
 ---
 
@@ -3530,7 +3530,7 @@ title: Tracker
   })
 
   it("throws on ambiguous start anchor", async () => {
-    const content = `---
+    const noteContent = `---
 title: Ambiguous
 ---
 
@@ -3538,7 +3538,7 @@ duplicate line
 other content
 duplicate line
 `
-    await writeTestNote("ambiguous.md", content)
+    await writeTestNote("ambiguous.md", noteContent)
     await expect(
       replaceSpan(
         {
@@ -3555,7 +3555,7 @@ duplicate line
   })
 
   it("uses first match when first_match is set on ambiguous anchor", async () => {
-    const content = `---
+    const noteContent = `---
 title: First
 ---
 
@@ -3563,7 +3563,7 @@ duplicate line alpha
 unique middle
 duplicate line beta
 `
-    await writeTestNote("first.md", content)
+    await writeTestNote("first.md", noteContent)
     await replaceSpan(
       {
         vaultPath: vault,
@@ -3574,8 +3574,8 @@ duplicate line beta
       },
       logger,
     )
-    const updated = await readTestNote("first.md")
-    expect(updated).toBe(`---
+    const updatedNote = await readTestNote("first.md")
+    expect(updatedNote).toBe(`---
 title: First
 ---
 
@@ -3586,7 +3586,7 @@ duplicate line beta
   })
 
   it("throws on ambiguous end anchor", async () => {
-    const content = `---
+    const noteContent = `---
 title: EndAmbig
 ---
 
@@ -3595,7 +3595,7 @@ repeated end
 other content
 repeated end
 `
-    await writeTestNote("endambig.md", content)
+    await writeTestNote("endambig.md", noteContent)
     await expect(
       replaceSpan(
         {
@@ -3613,7 +3613,7 @@ repeated end
   })
 
   it("uses first match when first_match is set on ambiguous end anchor", async () => {
-    const content = `---
+    const noteContent = `---
 title: EndFirst
 ---
 
@@ -3623,7 +3623,7 @@ middle line
 repeated end beta
 trailing
 `
-    await writeTestNote("endfirst.md", content)
+    await writeTestNote("endfirst.md", noteContent)
     await replaceSpan(
       {
         vaultPath: vault,
@@ -3635,8 +3635,8 @@ trailing
       },
       logger,
     )
-    const updated = await readTestNote("endfirst.md")
-    expect(updated).toBe(`---
+    const updatedNote = await readTestNote("endfirst.md")
+    expect(updatedNote).toBe(`---
 title: EndFirst
 ---
 
@@ -3722,14 +3722,14 @@ trailing
   })
 
   it("rejects concurrent writes on the same file", async () => {
-    const content = `---
+    const noteContent = `---
 title: Concurrent
 ---
 
 line one
 line two
 `
-    await writeTestNote("concurrent.md", content)
+    await writeTestNote("concurrent.md", noteContent)
     const [first, second] = await Promise.allSettled([
       replaceSpan(
         {
@@ -3776,7 +3776,7 @@ title: Shopping
 
   it("inserts a line after the anchor line", async () => {
     await writeTestNote("shopping.md", LIST_NOTE)
-    const result = await insertAtAnchor(
+    const insertMessage = await insertAtAnchor(
       {
         vaultPath: vault,
         path: "shopping.md",
@@ -3786,9 +3786,9 @@ title: Shopping
       },
       logger,
     )
-    const updated = await readTestNote("shopping.md")
-    expect(result).toBe("Inserted 1 line after anchor in shopping.md")
-    expect(updated).toBe(`---
+    const updatedNote = await readTestNote("shopping.md")
+    expect(insertMessage).toBe("Inserted 1 line after anchor in shopping.md")
+    expect(updatedNote).toBe(`---
 title: Shopping
 ---
 
@@ -3803,7 +3803,7 @@ title: Shopping
 
   it("inserts a line before the anchor line", async () => {
     await writeTestNote("shopping.md", LIST_NOTE)
-    const result = await insertAtAnchor(
+    const insertMessage = await insertAtAnchor(
       {
         vaultPath: vault,
         path: "shopping.md",
@@ -3813,9 +3813,9 @@ title: Shopping
       },
       logger,
     )
-    const updated = await readTestNote("shopping.md")
-    expect(result).toBe("Inserted 1 line before anchor in shopping.md")
-    expect(updated).toBe(`---
+    const updatedNote = await readTestNote("shopping.md")
+    expect(insertMessage).toBe("Inserted 1 line before anchor in shopping.md")
+    expect(updatedNote).toBe(`---
 title: Shopping
 ---
 
@@ -3840,8 +3840,8 @@ title: Shopping
       },
       logger,
     )
-    const updated = await readTestNote("shopping.md")
-    expect(updated).toBe(`---
+    const updatedNote = await readTestNote("shopping.md")
+    expect(updatedNote).toBe(`---
 title: Shopping
 ---
 
@@ -3868,8 +3868,8 @@ title: Shopping
       },
       logger,
     )
-    const updated = await readTestNote("shopping.md")
-    expect(updated).toBe(`---
+    const updatedNote = await readTestNote("shopping.md")
+    expect(updatedNote).toBe(`---
 title: Shopping
 ---
 
@@ -3884,13 +3884,13 @@ title: Shopping
   })
 
   it("inserts after the last line in the body", async () => {
-    const content = `---
+    const noteContent = `---
 title: Short
 ---
 
 only line
 `
-    await writeTestNote("short.md", content)
+    await writeTestNote("short.md", noteContent)
     await insertAtAnchor(
       {
         vaultPath: vault,
@@ -3901,8 +3901,8 @@ only line
       },
       logger,
     )
-    const updated = await readTestNote("short.md")
-    expect(updated).toBe(`---
+    const updatedNote = await readTestNote("short.md")
+    expect(updatedNote).toBe(`---
 title: Short
 ---
 
@@ -3912,14 +3912,14 @@ new last line
   })
 
   it("inserts before the first line of the body", async () => {
-    const content = `---
+    const noteContent = `---
 title: Short
 ---
 
 first line
 second line
 `
-    await writeTestNote("short.md", content)
+    await writeTestNote("short.md", noteContent)
     await insertAtAnchor(
       {
         vaultPath: vault,
@@ -3930,8 +3930,8 @@ second line
       },
       logger,
     )
-    const updated = await readTestNote("short.md")
-    expect(updated).toBe(`---
+    const updatedNote = await readTestNote("short.md")
+    expect(updatedNote).toBe(`---
 title: Short
 ---
 
@@ -3953,8 +3953,8 @@ second line
       },
       logger,
     )
-    const updated = await readTestNote("shopping.md")
-    expect(updated).toBe(`---
+    const updatedNote = await readTestNote("shopping.md")
+    expect(updatedNote).toBe(`---
 title: Shopping
 ---
 
@@ -3968,7 +3968,7 @@ title: Shopping
   })
 
   it("does not collapse blank lines (insertion never creates gaps)", async () => {
-    const content = `---
+    const noteContent = `---
 title: Blanks
 ---
 
@@ -3978,7 +3978,7 @@ anchor line
 
 after
 `
-    await writeTestNote("blanks.md", content)
+    await writeTestNote("blanks.md", noteContent)
     await insertAtAnchor(
       {
         vaultPath: vault,
@@ -3989,11 +3989,11 @@ after
       },
       logger,
     )
-    const updated = await readTestNote("blanks.md")
+    const updatedNote = await readTestNote("blanks.md")
     // Content "\nnew content\n" splits to ["", "new content", ""].
     // The trailing empty line stacks with the existing blank line before "after",
     // creating a 3-newline run — insert deliberately does NOT collapse it.
-    expect(updated).toBe(`---
+    expect(updatedNote).toBe(`---
 title: Blanks
 ---
 
@@ -4009,14 +4009,14 @@ after
   })
 
   it("preserves 3+ consecutive blank lines inside content (no collapse on insert)", async () => {
-    const note = `---
+    const noteContent = `---
 title: Internal
 ---
 
 anchor line
 trailing
 `
-    await writeTestNote("internal.md", note)
+    await writeTestNote("internal.md", noteContent)
     await insertAtAnchor(
       {
         vaultPath: vault,
@@ -4027,8 +4027,8 @@ trailing
       },
       logger,
     )
-    const updated = await readTestNote("internal.md")
-    expect(updated).toBe(`---
+    const updatedNote = await readTestNote("internal.md")
+    expect(updatedNote).toBe(`---
 title: Internal
 ---
 
@@ -4059,7 +4059,7 @@ trailing
   })
 
   it("throws on ambiguous anchor", async () => {
-    const content = `---
+    const noteContent = `---
 title: Dupes
 ---
 
@@ -4067,7 +4067,7 @@ duplicate
 other
 duplicate
 `
-    await writeTestNote("dupes.md", content)
+    await writeTestNote("dupes.md", noteContent)
     await expect(
       insertAtAnchor(
         {
@@ -4085,7 +4085,7 @@ duplicate
   })
 
   it("uses first match when first_match is set", async () => {
-    const content = `---
+    const noteContent = `---
 title: Dupes
 ---
 
@@ -4093,7 +4093,7 @@ duplicate alpha
 middle
 duplicate beta
 `
-    await writeTestNote("dupes.md", content)
+    await writeTestNote("dupes.md", noteContent)
     await insertAtAnchor(
       {
         vaultPath: vault,
@@ -4105,8 +4105,8 @@ duplicate beta
       },
       logger,
     )
-    const updated = await readTestNote("dupes.md")
-    expect(updated).toBe(`---
+    const updatedNote = await readTestNote("dupes.md")
+    expect(updatedNote).toBe(`---
 title: Dupes
 ---
 

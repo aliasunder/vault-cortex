@@ -807,9 +807,9 @@ Returns: Confirmation with line counts (lines replaced and lines inserted).`,
             },
             reqLogger,
           ),
-        (msg) => {
+        (confirmation) => {
           reqLogger.info("tool_result", { outcome: "span_replaced" })
-          return msg
+          return confirmation
         },
       )
     },
@@ -897,9 +897,9 @@ Returns: Confirmation with the number of lines inserted and the position (before
             },
             reqLogger,
           ),
-        (msg) => {
+        (confirmation) => {
           reqLogger.info("tool_result", { outcome: "inserted_at_anchor" })
-          return msg
+          return confirmation
         },
       )
     },
