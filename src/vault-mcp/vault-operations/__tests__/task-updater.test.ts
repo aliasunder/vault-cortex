@@ -850,12 +850,13 @@ title: Tasks
         logger,
       )
 
-      expect(result).toMatchObject({
+      expect(result).toEqual({
         path: "tasks.md",
+        line: 9,
         description: "New task",
         block_id: "new-task",
+        changes: [`created: ${today()}`],
       })
-      expect(result.heading).toBeUndefined()
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] New task ➕ ${today()} ^new-task\n`,
@@ -877,11 +878,13 @@ title: Tasks
         logger,
       )
 
-      expect(result).toMatchObject({
+      expect(result).toEqual({
         path: "board.md",
+        line: 12,
         description: "Board task",
         block_id: "board-task",
         heading: "Up Next",
+        changes: [`created: ${today()}`],
       })
       const content = await readTestNote(vault, "board.md")
       // Task inserted at the top of Up Next, before the existing card
@@ -1276,7 +1279,13 @@ title: Tasks
         logger,
       )
 
-      expect(result.changes).toEqual(["created: 2026-06-15"])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Task",
+        block_id: "my-task",
+        changes: ["created: 2026-06-15"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-06-15 ^my-task\n",
@@ -1301,7 +1310,13 @@ title: Tasks
         logger,
       )
 
-      expect(result.changes).toEqual(["created: removed"])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Task",
+        block_id: "my-task",
+        changes: ["created: removed"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Task ^my-task\n")
     })
@@ -1324,7 +1339,13 @@ title: Tasks
         logger,
       )
 
-      expect(result.changes).toEqual(["task_id: abc123"])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Task",
+        block_id: "my-task",
+        changes: ["task_id: abc123"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 🆔 abc123 ^my-task\n",
@@ -1349,7 +1370,13 @@ title: Tasks
         logger,
       )
 
-      expect(result.changes).toEqual(["task_id: removed"])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Task",
+        block_id: "my-task",
+        changes: ["task_id: removed"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ⛔ dep-a,dep-b ^my-task\n",
@@ -1374,7 +1401,13 @@ title: Tasks
         logger,
       )
 
-      expect(result.changes).toEqual(["depends_on: dep-a,dep-b"])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Task",
+        block_id: "my-task",
+        changes: ["depends_on: dep-a,dep-b"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ⛔ dep-a,dep-b ^my-task\n",
@@ -1399,7 +1432,13 @@ title: Tasks
         logger,
       )
 
-      expect(result.changes).toEqual(["depends_on: removed"])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Task",
+        block_id: "my-task",
+        changes: ["depends_on: removed"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 🆔 abc123 ^my-task\n",

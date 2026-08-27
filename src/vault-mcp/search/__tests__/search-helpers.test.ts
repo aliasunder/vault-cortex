@@ -259,8 +259,23 @@ describe("rowToTaskEntry", () => {
         kanban_done_lanes: JSON.stringify(["Done"]),
       }),
     )
-    expect(entry.done_lanes).toEqual(["Done"])
-    expect(entry.is_kanban_task).toBe(true)
+    expect(entry).toEqual({
+      path: "Projects/Alpha/tasks.md",
+      line: 5,
+      status: "todo",
+      status_char: " ",
+      description: "Fix the bug",
+      heading: "Active",
+      folder: "Projects/Alpha",
+      created: "2024-01-01",
+      due: "2024-03-01",
+      task_id: "abc123",
+      depends_on: ["def456"],
+      tags: ["bug"],
+      depth: 0,
+      is_kanban_task: true,
+      done_lanes: ["Done"],
+    })
   })
 
   it("omits done_lanes for non-Kanban tasks", () => {

@@ -402,9 +402,15 @@ describe("default config", () => {
       })
       expect(createResult.isError).not.toBe(true)
       const createJson = JSON.parse(textContent(createResult))
-      expect(createJson.block_id).toBe("integ-test-task")
-      expect(createJson.description).toBe("Integration test task")
-      expect(createJson.heading).toBe("Tasks")
+      // Inserted at the top of the Tasks section: line 18 of the fixture
+      expect(createJson).toEqual({
+        path: "Projects/alpha.md",
+        line: 18,
+        description: "Integration test task",
+        block_id: "integ-test-task",
+        heading: "Tasks",
+        changes: [`created: ${DateTime.now().toISODate()}`, "priority: medium"],
+      })
 
       // Verify the created task is in the file via vault_read_note
       const readback = await callTool({

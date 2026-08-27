@@ -162,9 +162,20 @@ describe("task indexing lifecycle", () => {
 
     const result = index.listTasks({ status: "all" }, logger)
     const taskA = result.tasks.find((entry) => entry.description === "Task A")
-    expect(taskA?.is_kanban_task).toBe(true)
-    expect(taskA?.heading).toBe("Active")
-    expect(taskA?.done_lanes).toEqual(["Done"])
+    expect(taskA).toEqual({
+      path: "board.md",
+      line: 6,
+      status: "todo",
+      status_char: " ",
+      description: "Task A",
+      heading: "Active",
+      folder: "",
+      depends_on: [],
+      tags: [],
+      depth: 0,
+      is_kanban_task: true,
+      done_lanes: ["Done"],
+    })
   })
 
   it("stores the full parent folder, not just the first path segment", () => {
