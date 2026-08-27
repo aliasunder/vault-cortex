@@ -2820,6 +2820,22 @@ type: note
 `)
   })
 
+  it("does not match an anchor that appears only in frontmatter", async () => {
+    const content = `---
+title: "- [ ] Task A"
+---
+
+- [ ] Task B
+`
+    await writeTestNote("note.md", content)
+    await expect(
+      deleteSpan(
+        { vaultPath: vault, path: "note.md", startAnchor: "- [ ] Task A" },
+        logger,
+      ),
+    ).rejects.toThrow('start anchor not found in "note.md": "- [ ] Task A"')
+  })
+
   it("does not disturb a trailing kanban:settings block", async () => {
     await writeTestNote("board.md", NOTE_KANBAN)
     await deleteSpan(
@@ -3496,6 +3512,44 @@ title: Tracker
 `)
   })
 
+  it("does not match an anchor that appears only in frontmatter", async () => {
+    const content = `---
+title: "| 2026-05-01 |"
+---
+
+body line
+`
+    await writeTestNote("fm.md", content)
+    await expect(
+      replaceSpan(
+        {
+          vaultPath: vault,
+          path: "fm.md",
+          startAnchor: "| 2026-05-01 |",
+          content: "x",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('start anchor not found in "fm.md": "| 2026-05-01 |"')
+  })
+
+  it("rejects content containing a control character", async () => {
+    await writeTestNote("tracker.md", TABLE_NOTE)
+    await expect(
+      replaceSpan(
+        {
+          vaultPath: vault,
+          path: "tracker.md",
+          startAnchor: "| 2026-05-01 |",
+          content: "new\x00content",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      "content contains a control character (U+0000 at position 3) — control characters other than tab, LF, and CR are not allowed",
+    )
+  })
+
   it("throws when start anchor is not found", async () => {
     await writeTestNote("tracker.md", TABLE_NOTE)
     await expect(
@@ -3965,6 +4019,46 @@ title: Shopping
 - Bananas
 - Cherries
 `)
+  })
+
+  it("does not match an anchor that appears only in frontmatter", async () => {
+    const content = `---
+title: "- Apples"
+---
+
+body line
+`
+    await writeTestNote("fm.md", content)
+    await expect(
+      insertAtAnchor(
+        {
+          vaultPath: vault,
+          path: "fm.md",
+          anchor: "- Apples",
+          position: "after",
+          content: "x",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('anchor not found in "fm.md": "- Apples"')
+  })
+
+  it("rejects content containing a control character", async () => {
+    await writeTestNote("shopping.md", LIST_NOTE)
+    await expect(
+      insertAtAnchor(
+        {
+          vaultPath: vault,
+          path: "shopping.md",
+          anchor: "- Apples",
+          position: "after",
+          content: "new\x00content",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      "content contains a control character (U+0000 at position 3) — control characters other than tab, LF, and CR are not allowed",
+    )
   })
 
   it("does not collapse blank lines (insertion never creates gaps)", async () => {

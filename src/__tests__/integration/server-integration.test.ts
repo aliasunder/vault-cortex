@@ -39,7 +39,7 @@ const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string =>
     )
     .join("\n")
 
-// ── Default config (30 tools, 3 prompts) ──────────────────────
+// ── Default config (33 tools, 3 prompts) ──────────────────────
 
 describe("default config", () => {
   let client: Client
@@ -1127,7 +1127,7 @@ describe("READONLY_MODE=true", () => {
   })
 })
 
-// ── DISABLED_TOOLS (selective, 27 tools) ──────────────────────
+// ── DISABLED_TOOLS (selective, 30 tools) ──────────────────────
 
 describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory", () => {
   let client: Client
@@ -1227,7 +1227,7 @@ describe("DISABLED_TOOLS=vault_update_memory", () => {
   })
 })
 
-// ── MEMORY_ENABLED=false (25 tools, 2 prompts) ───────────────
+// ── MEMORY_ENABLED=false (28 tools, 2 prompts) ───────────────
 
 describe("MEMORY_ENABLED=false", () => {
   let client: Client
@@ -1266,7 +1266,7 @@ describe("MEMORY_ENABLED=false", () => {
   })
 })
 
-// ── FILE_TOOLS_ENABLED=false (28 tools) ──────────────────────
+// ── FILE_TOOLS_ENABLED=false (31 tools) ──────────────────────
 
 describe("FILE_TOOLS_ENABLED=false", () => {
   let client: Client
