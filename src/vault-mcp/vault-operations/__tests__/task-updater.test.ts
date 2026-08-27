@@ -1499,7 +1499,7 @@ title: Tasks
           vaultPath: vault,
           path: "tasks.md",
           blockId: "walk-dog",
-          addSubtask: "Bring treats",
+          addSubtasks: ["Bring treats"],
         },
         logger,
       )
@@ -1509,7 +1509,7 @@ title: Tasks
         path: "tasks.md",
         line: 6,
         description: "Walk the dog",
-        changes: ["subtask added: Bring treats"],
+        changes: ["subtasks added: 1"],
       })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
@@ -1517,7 +1517,7 @@ title: Tasks
       )
     })
 
-    it("composes add_subtask with status change", async () => {
+    it("composes add_subtasks with status change", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
@@ -1527,7 +1527,7 @@ title: Tasks
           path: "tasks.md",
           blockId: "walk-dog",
           status: "in_progress",
-          addSubtask: "First stage",
+          addSubtasks: ["First stage", "Second stage"],
         },
         logger,
       )
@@ -1537,11 +1537,11 @@ title: Tasks
         path: "tasks.md",
         line: 6,
         description: "Walk the dog",
-        changes: ["status: todo → in_progress", "subtask added: First stage"],
+        changes: ["status: todo → in_progress", "subtasks added: 2"],
       })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
-        "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [/] Walk the dog ➕ 2026-07-02 ^walk-dog\n  - [ ] First stage\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
+        "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [/] Walk the dog ➕ 2026-07-02 ^walk-dog\n  - [ ] First stage\n  - [ ] Second stage\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
       )
     })
 
@@ -1733,7 +1733,7 @@ title: Tasks
       ).rejects.toThrow("description cannot be empty")
     })
 
-    it("errors on whitespace-only add_subtask", async () => {
+    it("errors on a whitespace-only add_subtasks item", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
@@ -1743,11 +1743,11 @@ title: Tasks
             vaultPath: vault,
             path: "tasks.md",
             blockId: "walk-dog",
-            addSubtask: "   ",
+            addSubtasks: ["Real stage", "   "],
           },
           logger,
         ),
-      ).rejects.toThrow("add_subtask cannot be empty")
+      ).rejects.toThrow("add_subtasks cannot contain an empty item")
     })
   })
 })

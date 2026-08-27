@@ -294,11 +294,11 @@ The extension-to-representation routing above is implemented by the `vault-opera
 
 ### Tasks
 
-| Tool                | Input                                                                                                                                                                    | Annotation       |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------- |
-| `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, top_level_only?, sort_by?, sort_direction?, limit?`          | readOnlyHint     |
-| `vault_create_task` | `path, description, block_id, heading?, parent_task?, priority?, due?, scheduled?, start?, task_id?, depends_on?, subtasks?, format?`                                    | !destructiveHint |
-| `vault_update_task` | `path, block_id?, line?, status?, priority?, description?, due?, scheduled?, start?, created?, task_id?, depends_on?, add_subtask?, assign_block_id?, heading?, format?` | destructiveHint  |
+| Tool                | Input                                                                                                                                                                     | Annotation       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, top_level_only?, sort_by?, sort_direction?, limit?`           | readOnlyHint     |
+| `vault_create_task` | `path, description, block_id, heading?, parent_task?, priority?, due?, scheduled?, start?, task_id?, depends_on?, subtasks?, format?`                                     | !destructiveHint |
+| `vault_update_task` | `path, block_id?, line?, status?, priority?, description?, due?, scheduled?, start?, created?, task_id?, depends_on?, add_subtasks?, assign_block_id?, heading?, format?` | destructiveHint  |
 
 A `tasks` table in the same SQLite database stores every checkbox task line, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a reimplementation of the [Tasks plugin](https://publish.obsidian.md/tasks/)'s own parser:
 
@@ -333,7 +333,7 @@ Three design choices shape the query surface:
 - **Status** — toggles the checkbox character and stamps or strips done/cancelled dates. `status: "done"` on a top-level Kanban task without an explicit `heading` auto-detects the done lane.
 - **Dates** — set or clear due, scheduled, start, and created at their position in the field ordering.
 - **Heading moves** — `heading` moves the task and its indented sub-items to another section; on a Kanban board that is a lane move, but any note with headings works. A sub-task (depth > 0) never moves: an explicit `heading` is rejected, and `status: "done"` changes its checkbox in place.
-- **`add_subtask`** — appends a checklist item under the task.
+- **`add_subtasks`** — appends checklist items under the task's existing ones.
 
 ## MCP Prompts
 

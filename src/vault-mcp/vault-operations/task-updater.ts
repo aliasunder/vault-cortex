@@ -63,7 +63,7 @@ type UpdateTaskParams = {
   created?: string | null | undefined
   taskId?: string | null | undefined
   dependsOn?: string[] | null | undefined
-  addSubtask?: string | undefined
+  addSubtasks?: string[] | undefined
   assignBlockId?: string | undefined
   format?: "emoji" | "dataview" | undefined
 }
@@ -441,7 +441,7 @@ const updateTask = async (
     created,
     taskId,
     dependsOn,
-    addSubtask,
+    addSubtasks,
     assignBlockId: newBlockId,
   } = params
 
@@ -466,11 +466,11 @@ const updateTask = async (
     created !== undefined ||
     taskId !== undefined ||
     dependsOn !== undefined ||
-    addSubtask !== undefined ||
+    addSubtasks !== undefined ||
     newBlockId !== undefined
   if (!hasMutation) {
     throw new Error(
-      "at least one mutation (status, priority, heading, description, due, scheduled, start, created, task_id, depends_on, add_subtask, or assign_block_id) is required",
+      "at least one mutation (status, priority, heading, description, due, scheduled, start, created, task_id, depends_on, add_subtasks, or assign_block_id) is required",
     )
   }
 
@@ -492,8 +492,11 @@ const updateTask = async (
     throw new Error("description cannot be empty")
   }
 
-  if (addSubtask !== undefined && !addSubtask.trim()) {
-    throw new Error("add_subtask cannot be empty")
+  if (addSubtasks !== undefined && addSubtasks.length === 0) {
+    throw new Error("add_subtasks cannot be empty")
+  }
+  if (addSubtasks?.some((subtaskText) => !subtaskText.trim())) {
+    throw new Error("add_subtasks cannot contain an empty item")
   }
 
   if (Array.isArray(dependsOn) && dependsOn.length === 0) {
@@ -728,8 +731,8 @@ const updateTask = async (
       }
     }
 
-    // 8. add_subtask — appended after all parent-line mutations and heading move
-    if (addSubtask) {
+    // 8. add_subtasks — appended after all parent-line mutations and heading move
+    if (addSubtasks) {
       const parentIndent = tasks.getTaskIndent(resultLines[taskLineIndex] ?? "")
       const blockEnd = findTaskBlockEnd(resultLines, taskLineIndex)
 
@@ -745,9 +748,11 @@ const updateTask = async (
         subtaskIndent = " ".repeat(parentIndent + 2)
       }
 
-      const subtaskLine = `${subtaskIndent}- [ ] ${addSubtask}`
-      resultLines.splice(blockEnd, 0, subtaskLine)
-      changes.push(`subtask added: ${addSubtask}`)
+      const subtaskLines = addSubtasks.map(
+        (subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`,
+      )
+      resultLines.splice(blockEnd, 0, ...subtaskLines)
+      changes.push(`subtasks added: ${addSubtasks.length}`)
     }
 
     const finalTaskIndex = taskLineIndex

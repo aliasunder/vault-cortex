@@ -249,7 +249,7 @@ Example: vault_create_task({ path: "TASKS.md", description: "Ship the feature", 
 Example: vault_create_task({ path: "TASKS.md", description: "Sub-bug", block_id: "sub-bug", parent_task: "fix-login", due: "2026-09-01" }) — full sub-task under a parent (identified by block_id)
 Example: vault_create_task({ path: "TASKS.md", description: "Quick fix", block_id: "quick-fix", parent_task: 42 }) — sub-task under a parent identified by line number
 
-When to use: Creating a new task card on a board or in a note. Guarantees correct field ordering (description → priority → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id)${whenToolEnabledText("vault_list_tasks", " so the card round-trips through vault_list_tasks with all fields intact")}.${whenToolEnabledText("vault_update_task", " For lightweight checklist items under an existing card (no metadata), use vault_update_task's add_subtask param instead.")}
+When to use: Creating a new task card on a board or in a note. Guarantees correct field ordering (description → priority → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id)${whenToolEnabledText("vault_list_tasks", " so the card round-trips through vault_list_tasks with all fields intact")}.${whenToolEnabledText("vault_update_task", " For lightweight checklist items under an existing card (no metadata), use vault_update_task's add_subtasks param instead.")}
 
 Parameters:
 - path (required): vault-relative path to the note (must end in ".md"). The note must already exist.
@@ -441,13 +441,13 @@ Returns: JSON { path, line, description, block_id, heading, changes } — line i
     TOOL_NAMES.VAULT_UPDATE_TASK,
     {
       title: "Update Task",
-      description: `Update a task's status, priority, description, dates, dependencies, block_id, or heading placement in one call. Any combination of these can change together — every field passed is written in a single edit.
+      description: `Update a task's status, priority, description, dates, dependencies, block_id, checklist items, or heading placement in one call. Any combination of these can change together — every field passed is written in a single edit.
 
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "done" }) — complete a task; on a Kanban board, auto-moves to the done lane
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Done" }) — move a task to a different heading
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", description: "Updated task name", due: "2026-10-01" }) — change description and set due date
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", due: null }) — clear a date field
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "in_progress", add_subtask: "Stage 1" }) — start working and add a checklist stage
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "in_progress", add_subtasks: ["Design", "Implement", "Test"] }) — start working and add checklist stages
 Example: vault_update_task({ path: "TASKS.md", line: 42, assign_block_id: "my-task" }) — add a block_id to a task that lacks one
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", task_id: "abc123" }) — set a Tasks plugin 🆔 identifier
 
@@ -463,7 +463,7 @@ Parameters:
   - due / scheduled / start / created: YYYY-MM-DD sets the date; null clears it.
   - task_id: string sets the Tasks plugin 🆔; null clears it.
   - depends_on: non-empty string array sets the Tasks plugin ⛔; null clears it.
-  - add_subtask: string — appends an indented [ ] checklist item under the task.${whenToolEnabledText("vault_create_task", " For full sub-tasks with their own metadata, use vault_create_task with parent_task.")}
+  - add_subtasks: non-empty string array — appends one indented [ ] checklist item per entry under the task; existing checklist items are kept.${whenToolEnabledText("vault_create_task", " For full sub-tasks with their own metadata, use vault_create_task with parent_task.")}
   - assign_block_id: adds or replaces the ^block-id on the task line. Letters, digits, and hyphens only; must be unique within the note.
   - heading: target heading to move the task to. On Kanban boards this is a lane move; works on any note with headings. Not valid on sub-tasks.
   - Clearing is always explicit null — omitting a field leaves it untouched.
@@ -479,7 +479,7 @@ Errors:
 - "heading "X" not found; available: ..." — target heading doesn't exist; the error lists the note's headings
 - "block_id already exists" / "block_id contains invalid characters" — assign_block_id validation
 - "invalid date" — a date param fails calendar validation
-- "description cannot be empty" / "add_subtask cannot be empty" / "depends_on cannot be empty" — whitespace-only text or an empty array (use null to clear depends_on)
+- "description cannot be empty" / "depends_on cannot be empty" / "add_subtasks cannot be empty" / "add_subtasks cannot contain an empty item" — whitespace-only text or an empty array (use null to clear depends_on)
 - "concurrent write in progress" — another write to this note is in flight; retry
 
 Returns: JSON { path, line, description, block_id, heading, changes } — line is the final 1-based position; description is the current text; block_id and heading reflect the task after the update (block_id is omitted when the task has none, heading when the task sits above the first heading); changes lists what was applied.`,
@@ -563,12 +563,12 @@ Returns: JSON { path, line, description, block_id, heading, changes } — line i
           .describe(
             "Tasks plugin ⛔ dependency IDs to set (non-empty), or null to clear.",
           ),
-        add_subtask: z
-          .string()
+        add_subtasks: z
+          .array(z.string().min(1))
           .min(1)
           .optional()
           .describe(
-            `Checklist item to append as an indented [ ] line under the task. Can be combined with any other change.${whenToolEnabledText("vault_create_task", " For full sub-tasks with metadata, use vault_create_task with parent_task.")}`,
+            `Checklist items to append, one indented [ ] line each, under the task's existing items — never replaces them. Can be combined with any other change.${whenToolEnabledText("vault_create_task", " For full sub-tasks with metadata, use vault_create_task with parent_task.")}`,
           ),
         assign_block_id: z
           .string()
@@ -606,7 +606,7 @@ Returns: JSON { path, line, description, block_id, heading, changes } — line i
         created,
         task_id,
         depends_on,
-        add_subtask,
+        add_subtasks,
         assign_block_id,
         heading,
         format,
@@ -629,7 +629,7 @@ Returns: JSON { path, line, description, block_id, heading, changes } — line i
         created,
         taskId: task_id,
         dependsOn: depends_on,
-        hasSubtask: Boolean(add_subtask),
+        subtaskCount: add_subtasks?.length,
         assignBlockId: assign_block_id,
         heading,
         format,
@@ -652,7 +652,7 @@ Returns: JSON { path, line, description, block_id, heading, changes } — line i
               created,
               taskId: task_id,
               dependsOn: depends_on,
-              addSubtask: add_subtask,
+              addSubtasks: add_subtasks,
               assignBlockId: assign_block_id,
               heading,
               format,
