@@ -242,7 +242,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
     TOOL_NAMES.VAULT_CREATE_TASK,
     {
       title: "Create Task",
-      description: `Create a correctly-formatted task card in one call — description, target heading, dates, priority, block_id, and optional checklist sub-items. The card is always created as [ ] (todo) with ➕ today auto-stamped; starting work is ${whenToolEnabledText("vault_update_task", "vault_update_task's")} job. Metadata is written in the format the vault's Tasks plugin is configured for (emoji unless the plugin config says Dataview).
+      description: `Create a correctly-formatted task in one call — description, target heading, dates, priority, block_id, and optional checklist sub-items. The task is always created as [ ] (todo) with ➕ today auto-stamped; starting work is ${whenToolEnabledText("vault_update_task", "vault_update_task's")} job. Metadata is written in the format the vault's Tasks plugin is configured for (emoji unless the plugin config says Dataview).
 
 Example: vault_create_task({ path: "TASKS.md", description: "Fix login bug", block_id: "fix-login", heading: "Active", priority: "high", due: "2026-09-15" })
 Example: vault_create_task({ path: "TASKS.md", description: "Ship the feature", block_id: "ship-feature", heading: "Up Next", subtasks: ["Design", "Implement", "Test"] }) — card with checklist stages

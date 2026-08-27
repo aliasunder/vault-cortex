@@ -1467,10 +1467,9 @@ export const createSearchIndex = (
         ]),
       )
       for (const extractedTask of extractedTasks) {
+        const { parentLine } = extractedTask
         const parentBlockId =
-          extractedTask.parentLine !== null
-            ? (blockIdByLine.get(extractedTask.parentLine) ?? null)
-            : null
+          parentLine === null ? null : (blockIdByLine.get(parentLine) ?? null)
         insertTaskStmt.run({
           notePath: note.path,
           line: extractedTask.line,
