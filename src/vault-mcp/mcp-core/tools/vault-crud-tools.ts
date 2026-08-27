@@ -60,7 +60,7 @@ const describeProtectedPaths = (config: VaultConfig): string => {
       .map((protectedPath) => protectedPath + "/")
       .join(", ")
   }
-  return `${config.memoryDir}/ and the daily notes folder (DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else Daily Notes)`
+  return `${config.memoryDir}/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/)`
 }
 
 export const registerVaultCrudTools = ({
