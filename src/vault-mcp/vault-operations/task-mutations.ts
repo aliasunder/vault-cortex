@@ -178,7 +178,9 @@ const findTaskBlockEnd = (
   const taskLine = lines[taskLineIndex]
   if (!taskLine) return taskLineIndex + 1
 
-  const taskIndent = taskLine.match(/^(\s*)/)?.[0].length ?? 0
+  // Structural indent — blockquote markers stripped, the same measure the
+  // parser uses for depth, so a quoted card's block matches its sub-tasks.
+  const taskIndent = tasks.getTaskIndent(taskLine)
   let endIndex = taskLineIndex + 1
 
   while (endIndex < lines.length) {
@@ -188,7 +190,7 @@ const findTaskBlockEnd = (
       endIndex++
       continue
     }
-    const lineIndent = line.match(/^(\s*)/)?.[0].length ?? 0
+    const lineIndent = tasks.getTaskIndent(line)
     if (lineIndent <= taskIndent) break
     endIndex++
   }
@@ -203,8 +205,13 @@ const findTaskBlockEnd = (
   return endIndex
 }
 
-/** Indent for a new checklist item under a task: the first existing child's
- *  leading whitespace, or the parent's indent + 2 spaces. */
+/** Matches everything before a line's list marker — blockquote markers and
+ *  indentation — the same prefix class the task-line grammar accepts. */
+const LIST_ITEM_PREFIX_RE = /^[\s>]*/u
+
+/** Prefix for a new checklist item under a task: the first existing child's
+ *  prefix, or the parent's prefix + 2 spaces. Carrying the prefix rather than
+ *  a space count keeps a quoted card's children inside the blockquote. */
 const subtaskIndentUnder = ({
   lines,
   parentLineIndex,
@@ -212,15 +219,16 @@ const subtaskIndentUnder = ({
   lines: readonly string[]
   parentLineIndex: number
 }): string => {
-  const parentIndent = tasks.getTaskIndent(lines[parentLineIndex] ?? "")
+  const parentPrefix =
+    LIST_ITEM_PREFIX_RE.exec(lines[parentLineIndex] ?? "")?.[0] ?? ""
   const blockEnd = findTaskBlockEnd(lines, parentLineIndex)
   const firstChildIndex = parentLineIndex + 1
   const hasExistingChildren = firstChildIndex < blockEnd
   const firstChild = hasExistingChildren ? lines[firstChildIndex] : undefined
-  const firstChildIndent = firstChild?.trim()
-    ? firstChild.match(/^(\s*)/)?.[0]
+  const firstChildPrefix = firstChild?.trim()
+    ? LIST_ITEM_PREFIX_RE.exec(firstChild)?.[0]
     : undefined
-  return firstChildIndent ?? " ".repeat(parentIndent + 2)
+  return firstChildPrefix ?? `${parentPrefix}  `
 }
 
 /** Body index where a task inserted under a heading goes: the heading's
@@ -538,12 +546,12 @@ const assertTaskIdGrammar = ({
   }
 }
 
-/** Validates a date string is a real calendar date. */
 /** Matches CR/LF anywhere in a string — a task is one file line, so a line
  *  break in its text would split the metadata onto a line the parser never
  *  reads as part of the task. */
 const TASK_TEXT_LINE_BREAK_PATTERN = /[\r\n]/
 
+/** Validates a date string is a real calendar date. */
 const validateDate = (date: string, fieldName: string): void => {
   if (!DateTime.fromFormat(date, "yyyy-MM-dd").isValid) {
     throw new Error(`invalid date: ${fieldName} "${date}" (use YYYY-MM-DD)`)

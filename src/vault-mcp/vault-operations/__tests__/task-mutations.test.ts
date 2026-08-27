@@ -132,6 +132,20 @@ kanban-plugin: board
 - [x] Old done
 `
 
+/** A card inside a blockquote with a quoted checklist item — the parser
+ *  strips `>` before measuring depth, so Stage 1 is the card's child. */
+const QUOTED_BOARD = `---
+kanban-plugin: board
+---
+
+## Active
+
+> - [ ] Quoted parent ➕ 2026-07-01 ^quoted-parent
+>   - [ ] Stage 1
+
+## Done
+`
+
 /** A checklist item indented under a non-task bullet: raw indent says
  *  sub-task, the parser's depth (task ancestors only) says top-level. */
 const TASK_UNDER_PLAIN_BULLET = `## Active
@@ -2080,6 +2094,66 @@ title: Tasks
 
 ## Done
   - [ ] Call dentist ^call-dentist
+`)
+    })
+
+    it("moves a blockquoted card together with its quoted checklist", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "board.md", QUOTED_BOARD)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "quoted-parent",
+          heading: "Done",
+        },
+        logger,
+      )
+
+      expect(result.changes).toEqual(["heading: Active → Done"])
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(`---
+kanban-plugin: board
+---
+
+## Active
+
+
+## Done
+> - [ ] Quoted parent ➕ 2026-07-01 ^quoted-parent
+>   - [ ] Stage 1
+`)
+    })
+
+    it("writes an added checklist item inside the card's blockquote", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "board.md", QUOTED_BOARD)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "quoted-parent",
+          addSubtasks: ["Stage 2"],
+        },
+        logger,
+      )
+
+      expect(result.changes).toEqual(["subtasks: 1 → 2"])
+      expect(result.subtasks).toEqual([{ line: 9, description: "Stage 2" }])
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(`---
+kanban-plugin: board
+---
+
+## Active
+
+> - [ ] Quoted parent ➕ 2026-07-01 ^quoted-parent
+>   - [ ] Stage 1
+>   - [ ] Stage 2
+
+## Done
 `)
     })
   })
