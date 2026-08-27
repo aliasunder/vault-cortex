@@ -1043,57 +1043,30 @@ const buildTaskLine = (
   params: BuildTaskLineParams,
   config: TaskFormatConfig,
 ): string => {
-  const prefix = params.indent ?? ""
-  const parts: string[] = [`${prefix}- [ ] ${params.description}`]
-
-  if (params.priority) {
-    parts.push(formatPriority(params.priority, config.taskFormat))
-  }
-
-  parts.push(
-    formatDateField({
-      field: "created",
-      date: params.created,
-      format: config.taskFormat,
-    }),
+  const format = config.taskFormat
+  const optionalDates: ReadonlyArray<{
+    field: DateFieldKey
+    date: string | undefined
+  }> = [
+    { field: "start", date: params.start },
+    { field: "scheduled", date: params.scheduled },
+    { field: "due", date: params.due },
+  ]
+  const optionalDateFields = optionalDates.flatMap(({ field, date }) =>
+    date ? [formatDateField({ field, date, format })] : [],
   )
 
-  if (params.start) {
-    parts.push(
-      formatDateField({
-        field: "start",
-        date: params.start,
-        format: config.taskFormat,
-      }),
-    )
-  }
-  if (params.scheduled) {
-    parts.push(
-      formatDateField({
-        field: "scheduled",
-        date: params.scheduled,
-        format: config.taskFormat,
-      }),
-    )
-  }
-  if (params.due) {
-    parts.push(
-      formatDateField({
-        field: "due",
-        date: params.due,
-        format: config.taskFormat,
-      }),
-    )
-  }
-  if (params.taskId) {
-    parts.push(formatTaskId(params.taskId, config.taskFormat))
-  }
-  if (params.dependsOn && params.dependsOn.length > 0) {
-    parts.push(formatDependsOn(params.dependsOn, config.taskFormat))
-  }
-
-  parts.push(`^${params.blockId}`)
-
+  const parts = [
+    `${params.indent ?? ""}- [ ] ${params.description}`,
+    ...(params.priority ? [formatPriority(params.priority, format)] : []),
+    formatDateField({ field: "created", date: params.created, format }),
+    ...optionalDateFields,
+    ...(params.taskId ? [formatTaskId(params.taskId, format)] : []),
+    ...(params.dependsOn?.length
+      ? [formatDependsOn(params.dependsOn, format)]
+      : []),
+    `^${params.blockId}`,
+  ]
   return parts.join(" ")
 }
 
@@ -1236,31 +1209,17 @@ const extractDoneLanes = (
   bodyLines: readonly string[],
   headings: readonly HeadingInfo[],
 ): string[] => {
-  const doneLanes: string[] = []
-
-  for (const heading of headings) {
-    // Scan the body of this heading for a Complete marker before the
-    // first list item. Skip blank lines.
-    for (
-      let lineIndex = heading.bodyStartLine;
-      lineIndex < heading.bodyEndLine;
-      lineIndex++
-    ) {
-      const trimmed = bodyLines[lineIndex]?.trim()
-      if (trimmed === undefined) break
-      if (!trimmed) continue
-
-      if (trimmed === COMPLETE_MARKER) {
-        doneLanes.push(heading.text)
-      }
-
-      // Stop at the first non-blank line regardless — the marker must
-      // be the very first content paragraph after the heading.
-      break
-    }
+  // The marker must be the very first content paragraph after the heading —
+  // blank lines are skipped, anything else means the lane has no marker.
+  const startsWithCompleteMarker = (heading: HeadingInfo): boolean => {
+    const firstContentLine = bodyLines
+      .slice(heading.bodyStartLine, heading.bodyEndLine)
+      .find((line) => line.trim() !== "")
+    return firstContentLine?.trim() === COMPLETE_MARKER
   }
-
-  return doneLanes
+  return headings
+    .filter(startsWithCompleteMarker)
+    .map((heading) => heading.text)
 }
 
 // ── Public surface ──────────────────────────────────────────────
