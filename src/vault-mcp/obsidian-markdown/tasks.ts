@@ -797,15 +797,15 @@ const updateTaskLineDate = (params: {
   ]
 
   return mapMetadataTail(params.taskLine, (metadata) => {
-    const stripped = stripField(metadata, fieldInfo.inlineRegex)
-    if (params.date === null) return stripped
+    const metadataWithoutDate = stripField(metadata, fieldInfo.inlineRegex)
+    if (params.date === null) return metadataWithoutDate
     const dateText = formatDateField({
       field: params.field,
       date: params.date,
       format: params.config.taskFormat,
     })
     return insertFieldBefore({
-      metadata: stripped,
+      metadata: metadataWithoutDate,
       fieldText: dateText,
       laterFieldRegexes,
     })
@@ -824,10 +824,10 @@ const updateTaskLineTaskId = ({
   config: TaskFormatConfig
 }): string => {
   return mapMetadataTail(taskLine, (metadata) => {
-    const stripped = stripField(metadata, TASK_ID_INLINE_RE)
-    if (taskId === null) return stripped
+    const metadataWithoutTaskId = stripField(metadata, TASK_ID_INLINE_RE)
+    if (taskId === null) return metadataWithoutTaskId
     return insertFieldBefore({
-      metadata: stripped,
+      metadata: metadataWithoutTaskId,
       fieldText: formatTaskId(taskId, config.taskFormat),
       laterFieldRegexes: [DEPENDS_ON_INLINE_RE],
     })
@@ -845,10 +845,12 @@ const updateTaskLineDependsOn = ({
   config: TaskFormatConfig
 }): string => {
   return mapMetadataTail(taskLine, (metadata) => {
-    const stripped = stripField(metadata, DEPENDS_ON_INLINE_RE)
-    if (dependsOn === null || dependsOn.length === 0) return stripped
+    const metadataWithoutDependsOn = stripField(metadata, DEPENDS_ON_INLINE_RE)
+    if (dependsOn === null || dependsOn.length === 0) {
+      return metadataWithoutDependsOn
+    }
     return appendField({
-      metadata: stripped,
+      metadata: metadataWithoutDependsOn,
       fieldText: formatDependsOn(dependsOn, config.taskFormat),
     })
   })
