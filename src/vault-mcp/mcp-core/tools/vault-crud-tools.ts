@@ -646,12 +646,13 @@ Example: vault_delete_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | A
 Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes from the start anchor line through the end anchor line.
 
 When to use: Removing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.
-Prefer vault_replace_in_note for small in-place edits (this tool only deletes).${whenToolEnabledText("vault_replace_span", " Prefer vault_replace_span to replace a block in one atomic step.")} To replace a block, ${whenToolEnabledText("vault_replace_span", "use vault_replace_span, or ")}delete it here, then vault_patch_note to add the new content.
+Prefer vault_replace_in_note for small in-place edits (this tool only deletes). To replace a block, ${whenToolEnabledText("vault_replace_span", "prefer vault_replace_span (one atomic step); otherwise ")}delete it here, then vault_patch_note to add the new content.
 
 Parameters:
 - start_anchor + end_anchor define a line range, not a text range — each anchor locates a full line, and entire lines are removed (never cuts mid-line). Omit end_anchor for a single-line delete.
 - end_anchor is searched at or after the start line, so the span can never run backward. If both match the same line, only that one line is deleted.
-- first_match applies to both anchors independently — when an anchor matches multiple lines, takes the first instead of erroring. Blank-line runs left by the deletion are collapsed automatically.
+- first_match applies to both anchors independently — when an anchor matches multiple lines, takes the first instead of erroring.
+- Blank-line runs left by the deletion are collapsed to a single blank line.
 
 Errors:
 - "note not found" — verify path with vault_list_notes
@@ -724,19 +725,20 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
     TOOL_NAMES.VAULT_REPLACE_SPAN,
     {
       title: "Replace Span",
-      description: `Replace a contiguous block of whole lines in a note's body, identified by short anchor substrings — same anchor semantics as vault_delete_span, but replaces the matched lines with new content instead of removing them. Case-sensitive matching. Properties are preserved; operates on the body only.
+      description: `Replace a contiguous block of whole lines in a note's body with new content, identified by short anchor substrings instead of the block's full text.${whenToolEnabledText("vault_delete_span", " Same anchor semantics as vault_delete_span.")} Case-sensitive matching. Properties are preserved; operates on the body only.
 
 Example: vault_replace_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme", content: "| 2024-03-02 | Acme Corp | Updated |" }) — replaces the one table row whose line contains that fragment.
 Example: vault_replace_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch", content: "> [!info] Current\\n> Updated for v2." }) — replaces the callout block with a new one.
 
 When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.
-Prefer vault_replace_in_note for small in-place text changes (typos, renaming). Prefer vault_delete_span when removing without replacement.
+Prefer vault_replace_in_note for small in-place text changes (typos, renaming).${whenToolEnabledText("vault_delete_span", " Prefer vault_delete_span when removing without replacement.")}
 
 Parameters:
 - start_anchor + end_anchor define a line range, not a text range — each anchor locates a full line, and entire lines are replaced (never cuts mid-line). Omit end_anchor for a single-line replace.
 - end_anchor is searched at or after the start line, so the span can never run backward. If both match the same line, only that one line is replaced.
-- content replaces the entire matched span. Must be non-empty — use vault_delete_span to delete without replacement.
-- first_match applies to both anchors independently — when an anchor matches multiple lines, takes the first instead of erroring. Blank-line runs left by the replacement are collapsed automatically.
+- content replaces the entire matched span and must be non-empty. A trailing newline adds a blank line after the new block.
+- first_match applies to both anchors independently — when an anchor matches multiple lines, takes the first instead of erroring.
+- Blank-line runs left by the replacement are collapsed to a single blank line.
 
 Errors:
 - "note not found" — verify path with vault_list_notes
@@ -746,9 +748,9 @@ Errors:
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
 
-Obsidian syntax: content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block in content.
+Obsidian syntax: content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block.
 
-Returns: Confirmation with line counts (lines replaced and lines inserted).`,
+Returns: Confirmation message "Replaced <N> lines with <M> lines in <path>" — N counts the lines the span covered, M the lines content supplied.`,
       inputSchema: {
         path: z
           .string()
@@ -773,7 +775,7 @@ Returns: Confirmation with line counts (lines replaced and lines inserted).`,
           .string()
           .min(1)
           .describe(
-            "Replacement content (one or more lines). Must be non-empty — use vault_delete_span to delete without replacement.",
+            `Replacement content (one or more lines) — replaces every line of the matched span. Must be non-empty${whenToolEnabledText("vault_delete_span", "; use vault_delete_span to delete without replacement")}.`,
           ),
         first_match: z
           .boolean()
@@ -819,10 +821,10 @@ Returns: Confirmation with line counts (lines replaced and lines inserted).`,
     TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
     {
       title: "Insert at Anchor",
-      description: `Insert content before or after a specific line identified by a short anchor substring. Uses the same anchor resolution as vault_delete_span — case-sensitive, ambiguity-is-error, with a first_match escape hatch. Properties are preserved; operates on the body only.
+      description: `Insert content as whole lines before or after a specific line identified by a short anchor substring. Case-sensitive matching; an anchor matching more than one line is an error unless first_match is set.${whenToolEnabledText("vault_delete_span", " Same anchor resolution as vault_delete_span.")} Properties are preserved; operates on the body only.
 
-Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", position: "before", content: "---\\n" }) — inserts a horizontal rule above the Phase 2 heading.
 Example: vault_insert_at_anchor({ path: "Tracker.md", anchor: "| 2024-03-02 | Acme", position: "after", content: "| 2024-03-03 | Beta Corp | New entry |" }) — inserts a new table row after the matched row.
+Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", position: "before", content: "> [!note] Phase 1 must close before this starts.\\n" }) — inserts a callout and a blank line above the Phase 2 heading.
 
 When to use: Adding content at a precise location identified by a nearby line's text, without needing to know the heading structure. Good for inserting rows into tables, adding items into lists at a specific position, or placing content relative to a known landmark line.
 Prefer vault_patch_note for heading-targeted inserts (append/prepend to a section).${whenToolEnabledText("vault_replace_span", " Prefer vault_replace_span when replacing a block rather than inserting next to it.")}
@@ -830,6 +832,7 @@ Prefer vault_patch_note for heading-targeted inserts (append/prepend to a sectio
 Parameters:
 - anchor locates a full line — the content is inserted as whole lines before or after it (never splits a line).
 - position: "before" inserts above the anchor line; "after" inserts below it.
+- content is inserted verbatim — blank lines inside it are kept, and a trailing newline adds a blank line after the inserted block.
 - first_match: when the anchor matches multiple lines, takes the first instead of erroring.
 
 Errors:
@@ -840,9 +843,9 @@ Errors:
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
 
-Obsidian syntax: content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block in content.
+Obsidian syntax: content is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag, [[ = wikilink, %% = comment block.
 
-Returns: Confirmation with the number of lines inserted and the position (before/after).`,
+Returns: Confirmation message "Inserted <N> lines <before|after> anchor in <path>" — N counts the lines content supplied.`,
       inputSchema: {
         path: z
           .string()
@@ -854,16 +857,18 @@ Returns: Confirmation with the number of lines inserted and the position (before
           .string()
           .min(1)
           .describe(
-            "Short, unique substring on the line to insert before or after (case-sensitive). Pick a brief fragment.",
+            "Short, unique substring on the line to insert next to (case-sensitive). Pick a brief fragment — do not paste the whole line.",
           ),
         position: z
           .enum(["before", "after"])
-          .describe("Insert content before or after the anchor line."),
+          .describe(
+            '"before" places the content on the lines above the anchor line; "after" places it on the lines below. The anchor line itself is never changed.',
+          ),
         content: z
           .string()
           .min(1)
           .describe(
-            "Content to insert (one or more lines). Inserted as whole lines before or after the anchor line.",
+            "Content to insert (one or more lines), inserted verbatim as whole lines — blank lines are kept, and a trailing newline adds a blank line after the block.",
           ),
         first_match: z
           .boolean()
