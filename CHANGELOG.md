@@ -85,6 +85,25 @@
 
 
 
+
+## [0.44.0] — 2026-08-27
+
+### ⚠ BREAKING CHANGES
+
+- `vault_update_task` renames `lane` to `heading` and clears `priority` with `null` instead of `"none"`.
+
+### Features
+
+- Vault_create_task + vault_update_task expansion (task CRUD family) (#494)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.43.0
+
+### Maintenance
+
+- **deps:** Bump umm-actually to v0.3.12 (#498)
+
 ## [0.43.0] — 2026-08-27
 
 ### Features
