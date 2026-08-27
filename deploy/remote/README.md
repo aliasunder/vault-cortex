@@ -236,7 +236,7 @@ AWS API Gateway gives you an HTTPS address immediately — no domain, no
 certificate to manage (it handles TLS in front of your server). You get an
 HTTPS URL like:
 
-```
+```text
 https://<id>.execute-api.<region>.amazonaws.com
 ```
 
@@ -267,7 +267,7 @@ server's firewall — the proxy receives traffic directly, so your server
 stays reachable from the internet, whereas a tunnel needs no inbound ports
 at all once port 8000 is closed:
 
-```
+```caddy
 vault.yourdomain.com {
     reverse_proxy localhost:8000
 }
