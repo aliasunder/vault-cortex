@@ -470,7 +470,6 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
     fileLine: number
   }
   const indentStack: IndentEntry[] = []
-  let lastHeadingLine = -1
 
   // Fence and comment scans are inherently sequential — both thread mutable
   // state across the loop (same pattern as classifyLines).
@@ -494,12 +493,11 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
     if (commentResult.lineIsComment) continue
 
     // Reset indent stack at heading boundaries — sub-tasks can't span headings
-    const currentHeading = headings.find(
+    const lineStartsHeading = headings.some(
       (heading) => heading.startLine === lineIndex,
     )
-    if (currentHeading && lineIndex !== lastHeadingLine) {
+    if (lineStartsHeading) {
       indentStack.length = 0
-      lastHeadingLine = lineIndex
     }
 
     const taskLineMatch = TASK_LINE_RE.exec(lineText)
@@ -523,12 +521,13 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
     // Pop ancestors that are at the same or deeper indent — they're siblings
     // or cousins, not parents
     while (indentStack.length > 0) {
-      const topEntry = indentStack[indentStack.length - 1]
-      if (topEntry && topEntry.indent < taskIndent) break
+      const topEntry = indentStack.at(-1)
+      const topEntryIsParent =
+        topEntry !== undefined && topEntry.indent < taskIndent
+      if (topEntryIsParent) break
       indentStack.pop()
     }
-    const parentEntry =
-      indentStack.length > 0 ? indentStack[indentStack.length - 1] : undefined
+    const parentEntry = indentStack.at(-1)
     const depth = indentStack.length
     const parentLine = parentEntry?.fileLine ?? null
 
