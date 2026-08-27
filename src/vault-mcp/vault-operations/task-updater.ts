@@ -47,7 +47,7 @@ type CreateTaskResult = {
   line: number
   description: string
   block_id: string
-  heading: string | null
+  heading?: string | undefined
   changes: string[]
 }
 
@@ -57,7 +57,7 @@ type UpdateTaskParams = {
   blockId?: string | undefined
   line?: number | undefined
   status?: TaskStatus | undefined
-  priority?: TaskPriority | "none" | undefined
+  priority?: TaskPriority | null | undefined
   heading?: string | undefined
   description?: string | undefined
   due?: string | null | undefined
@@ -75,6 +75,8 @@ type UpdateTaskResult = {
   path: string
   line: number
   description: string
+  block_id?: string | undefined
+  heading?: string | undefined
   changes: string[]
 }
 
@@ -253,11 +255,13 @@ const createTask = async (
   if (scheduled) validateDate(scheduled, "scheduled")
   if (start) validateDate(start, "start")
 
-  // Parent (block_id) and heading are mutually exclusive
-  if (parentTask && typeof parentTask === "string" && heading) {
-    throw new Error(
-      "parent and heading are mutually exclusive when parent is a block_id",
-    )
+  // A sub-task lives wherever its parent lives — a heading has nothing to
+  // place, so the two locators are exclusive in both parent_task forms.
+  if (parentTask !== undefined && heading) {
+    throw new Error("parent_task and heading are mutually exclusive")
+  }
+  if (dependsOn !== undefined && dependsOn.length === 0) {
+    throw new Error("depends_on cannot be empty")
   }
 
   const { fullPath } = await readNoteForUpdate(vaultPath, path)
@@ -299,7 +303,7 @@ const createTask = async (
     const resultLines = [...bodyLines]
     let insertAt: number
     let indent = ""
-    let resolvedHeading: string | null
+    let resolvedHeading: string | undefined
 
     if (parentTask !== undefined) {
       // Sub-task under a parent
@@ -347,7 +351,7 @@ const createTask = async (
       const nearestHeading = headings.findLast(
         (headingInfo) => headingInfo.startLine < parentLineIndex,
       )
-      resolvedHeading = nearestHeading?.text ?? null
+      resolvedHeading = nearestHeading?.text
     } else if (heading) {
       // Insert under a specific heading
       const targetHeading = headings.find(
@@ -380,7 +384,7 @@ const createTask = async (
     } else {
       // Append to end of body
       insertAt = resultLines.length
-      resolvedHeading = null
+      resolvedHeading = undefined
     }
 
     // Build the task line
@@ -470,10 +474,10 @@ const updateTask = async (
   // Validation: exactly one identifier
   const identifierCount = (blockId ? 1 : 0) + (line ? 1 : 0)
   if (identifierCount === 0) {
-    throw new Error("exactly one of blockId or line is required")
+    throw new Error("exactly one of block_id or line is required")
   }
   if (identifierCount > 1) {
-    throw new Error("blockId and line are mutually exclusive")
+    throw new Error("block_id and line are mutually exclusive")
   }
 
   // Validation: at least one mutation
@@ -518,6 +522,10 @@ const updateTask = async (
     throw new Error("add_subtask cannot be empty")
   }
 
+  if (Array.isArray(dependsOn) && dependsOn.length === 0) {
+    throw new Error("depends_on cannot be empty (use null to clear)")
+  }
+
   const { fullPath } = await readNoteForUpdate(vaultPath, path)
 
   return withExclusiveFileLock(fullPath, async () => {
@@ -544,7 +552,7 @@ const updateTask = async (
       // line is guaranteed defined here: the identifier validation
       // above ensures exactly one of blockId/line is set.
       if (!line) {
-        throw new Error("exactly one of blockId or line is required")
+        throw new Error("exactly one of block_id or line is required")
       }
       taskLineIndex = line - 1 - bodyStartLine
       const taskLineText = bodyLines[taskLineIndex]
@@ -616,15 +624,16 @@ const updateTask = async (
       changes.push(`status: ${oldStatus} → ${status}`)
     }
 
-    // 3. Priority change
-    if (priority) {
-      const newPriority = priority === "none" ? null : priority
+    // 3. Priority set/clear
+    if (priority !== undefined) {
       mutatedLine = tasks.updateTaskLinePriority(
         mutatedLine,
-        newPriority,
+        priority,
         formatConfig,
       )
-      changes.push(`priority: ${priority === "none" ? "removed" : priority}`)
+      changes.push(
+        priority === null ? "priority: removed" : `priority: ${priority}`,
+      )
     }
 
     // 4. Date field set/clear
@@ -657,7 +666,7 @@ const updateTask = async (
         formatConfig,
       )
       changes.push(
-        dependsOn === null || dependsOn.length === 0
+        dependsOn === null
           ? "depends_on: removed"
           : `depends_on: ${dependsOn.join(",")}`,
       )
@@ -773,6 +782,11 @@ const updateTask = async (
     await atomicWriteFile(fullPath, serialized)
 
     const finalLine = bodyStartLine + finalTaskIndex + 1
+    const finalTaskLine = resultLines[finalTaskIndex] ?? mutatedLine
+    const finalBlockId = tasks.BLOCK_LINK_RE.exec(finalTaskLine)?.[1]
+    const finalHeading = parseHeadings(resultLines).findLast(
+      (heading) => heading.startLine < finalTaskIndex,
+    )
 
     logger.info("task updated", {
       path,
@@ -783,9 +797,9 @@ const updateTask = async (
     return {
       path,
       line: finalLine,
-      description: extractDescription(
-        resultLines[finalTaskIndex] ?? mutatedLine,
-      ),
+      description: extractDescription(finalTaskLine),
+      block_id: finalBlockId,
+      heading: finalHeading?.text,
       changes,
     }
   })

@@ -251,7 +251,7 @@ export const TOOL_REGISTRY: readonly RegistryEntry[] = [
     annotations: {
       readOnlyHint: false,
       // Status and priority changes remove existing signifiers, not just add
-      // them: reopening a task strips its ✅/❌ date, `priority: "none"` strips
+      // them: reopening a task strips its ✅/❌ date, `priority: null` strips
       // the priority marker, and a done/cancelled flip strips the other's date
       // (see updateTaskLineStatus / updateTaskLinePriority). Those are
       // user-authored fields the call cannot restore, so the update is

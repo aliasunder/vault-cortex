@@ -1275,11 +1275,12 @@ describe("vault_list_tasks handler", () => {
       "- [ ] Open card ➕ 2026-06-20 📅 2026-07-01",
       "- [x] Done card ✅ 2026-06-28",
     ].join("\n"),
+    filePath = "Projects/board.md",
   ): RegisterToolCall => {
     const searchIndex = createSearchIndex(":memory:")
     searchIndex.upsertNote(
       {
-        filePath: "Projects/board.md",
+        filePath,
         rawContent,
         fileStat: { mtimeMs: 1000, size: 100 },
       },
@@ -1302,7 +1303,7 @@ describe("vault_list_tasks handler", () => {
     return call
   }
 
-  it("returns { total, tasks } with null and empty fields omitted", async () => {
+  it("returns { total, tasks } with absent metadata omitted and structural fields present", async () => {
     const [, , handler] = registerWithTaskIndex()
     const result = (await handler({}, mockExtra)) as {
       content: Array<{ text: string }>
@@ -1324,7 +1325,35 @@ describe("vault_list_tasks handler", () => {
       folder: "Projects",
       created: "2026-06-20",
       due: "2026-07-01",
+      depends_on: [],
+      tags: [],
+      depth: 0,
+      is_kanban_task: false,
     })
+  })
+
+  it("returns folder as an empty string for a task in a root-level note", async () => {
+    const [, , handler] = registerWithTaskIndex("- [ ] Root errand", "inbox.md")
+    const result = (await handler({}, mockExtra)) as {
+      content: Array<{ text: string }>
+    }
+    const payload = JSON.parse(result.content[0]?.text ?? "") as {
+      tasks: Array<Record<string, unknown>>
+    }
+    expect(payload.tasks).toEqual([
+      {
+        path: "inbox.md",
+        line: 1,
+        status: "todo",
+        status_char: " ",
+        description: "Root errand",
+        folder: "",
+        depends_on: [],
+        tags: [],
+        depth: 0,
+        is_kanban_task: false,
+      },
+    ])
   })
 
   it("keeps non-empty tags and depends_on arrays in the response", async () => {
@@ -1337,8 +1366,8 @@ describe("vault_list_tasks handler", () => {
     const payload = JSON.parse(result.content[0]?.text ?? "") as {
       tasks: Array<Record<string, unknown>>
     }
-    // The whole-object match proves the empty/null-field filter drops only
-    // null fields and empty arrays — populated arrays survive intact.
+    // The whole-object match pins the wire shape: parsed arrays survive
+    // intact and no absent-metadata key leaks through as null.
     expect(payload.tasks).toEqual([
       {
         path: "Projects/board.md",
@@ -1349,6 +1378,8 @@ describe("vault_list_tasks handler", () => {
         folder: "Projects",
         depends_on: ["dep-1", "dep-2"],
         tags: ["errand"],
+        depth: 0,
+        is_kanban_task: false,
       },
     ])
   })

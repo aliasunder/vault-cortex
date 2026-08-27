@@ -96,22 +96,13 @@ describe("task indexing lifecycle", () => {
       heading: "Active",
       folder: "Projects",
       created: "2026-06-20",
-      scheduled: null,
-      start: null,
       due: "2026-07-01",
-      done: null,
-      cancelled: null,
       priority: "high",
-      recurrence: null,
-      on_completion: null,
-      task_id: null,
       depends_on: [],
       tags: [],
       block_id: "fix-login",
       depth: 0,
-      parent_block_id: null,
       is_kanban_task: true,
-      done_lanes: null,
     }
     expect(fixLoginTask).toEqual(expectedEntry)
   })
@@ -135,25 +126,12 @@ describe("task indexing lifecycle", () => {
       status: "todo",
       status_char: " ",
       description: "Tagged and blocked #home #home/kitchen",
-      heading: null,
       folder: "",
-      created: null,
-      scheduled: null,
-      start: null,
-      due: null,
-      done: null,
-      cancelled: null,
-      priority: null,
-      recurrence: null,
-      on_completion: null,
       task_id: "own-id",
       depends_on: ["id-1", "id-2"],
       tags: ["home", "home/kitchen"],
-      block_id: null,
       depth: 0,
-      parent_block_id: null,
       is_kanban_task: false,
-      done_lanes: null,
     }
     expect(result.tasks).toEqual([expectedEntry])
   })
@@ -1321,13 +1299,13 @@ describe("comment block exclusion", () => {
         parent_block_id: entry.parent_block_id,
       })),
     ).toEqual([
-      { block_id: "parent", depth: 0, parent_block_id: null },
+      { block_id: "parent", depth: 0 },
       { block_id: "child", depth: 1, parent_block_id: "parent" },
       { block_id: "grandchild", depth: 2, parent_block_id: "child" },
     ])
   })
 
-  it("parent_block_id is null when the parent has no block_id", () => {
+  it("parent_block_id is omitted when the parent has no block_id", () => {
     const index = createTestIndex()
     index.upsertNote(
       {
@@ -1347,10 +1325,7 @@ describe("comment block exclusion", () => {
         depth: entry.depth,
         parent_block_id: entry.parent_block_id,
       })),
-    ).toEqual([
-      { block_id: null, depth: 0, parent_block_id: null },
-      { block_id: "child", depth: 1, parent_block_id: null },
-    ])
+    ).toEqual([{ depth: 0 }, { block_id: "child", depth: 1 }])
   })
 
   it("heading boundary resets parent tracking in the index", () => {
@@ -1384,9 +1359,9 @@ describe("comment block exclusion", () => {
         parent_block_id: entry.parent_block_id,
       })),
     ).toEqual([
-      { block_id: "task-a", depth: 0, parent_block_id: null },
+      { block_id: "task-a", depth: 0 },
       { block_id: "sub-a", depth: 1, parent_block_id: "task-a" },
-      { block_id: "task-b", depth: 0, parent_block_id: null },
+      { block_id: "task-b", depth: 0 },
     ])
   })
 

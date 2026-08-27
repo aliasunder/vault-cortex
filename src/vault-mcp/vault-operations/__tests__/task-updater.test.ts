@@ -244,6 +244,7 @@ describe("task-updater", () => {
       )
 
       expect(result).toEqual({
+        block_id: "walk-dog",
         path: "tasks.md",
         line: 6,
         description: "Walk the dog",
@@ -265,6 +266,7 @@ describe("task-updater", () => {
       )
 
       expect(result).toEqual({
+        block_id: "walk-dog",
         path: "tasks.md",
         line: 6,
         description: "Walk the dog",
@@ -295,6 +297,7 @@ describe("task-updater", () => {
       )
 
       expect(result).toEqual({
+        block_id: "no-pri",
         path: "tasks.md",
         line: 5,
         description: "No priority task",
@@ -321,6 +324,7 @@ describe("task-updater", () => {
       )
 
       expect(result).toEqual({
+        block_id: "has-pri",
         path: "tasks.md",
         line: 6,
         description: "Has priority",
@@ -332,7 +336,7 @@ describe("task-updater", () => {
       )
     })
 
-    it("removes priority with 'none'", async () => {
+    it("removes priority with null", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", PRIORITY_NOTE)
 
@@ -341,12 +345,13 @@ describe("task-updater", () => {
           vaultPath: vault,
           path: "tasks.md",
           blockId: "has-pri",
-          priority: "none",
+          priority: null,
         },
         logger,
       )
 
       expect(result).toEqual({
+        block_id: "has-pri",
         path: "tasks.md",
         line: 6,
         description: "Has priority",
@@ -373,6 +378,7 @@ describe("task-updater", () => {
       )
 
       expect(result).toEqual({
+        block_id: "plain-task",
         path: "tasks.md",
         line: 7,
         description: "Plain task without dates",
@@ -403,6 +409,8 @@ describe("task-updater", () => {
       )
 
       expect(result).toEqual({
+        block_id: "planned-task",
+        heading: "Active",
         path: "board.md",
         line: 7,
         description: "Planned task",
@@ -430,6 +438,8 @@ describe("task-updater", () => {
       )
 
       expect(result).toEqual({
+        block_id: "parent",
+        heading: "Done",
         path: "board.md",
         line: 9,
         description: "Parent task",
@@ -457,6 +467,8 @@ describe("task-updater", () => {
       )
 
       expect(result).toEqual({
+        block_id: "task-a",
+        heading: "Archive",
         path: "board.md",
         line: 11,
         description: "Task A",
@@ -483,6 +495,8 @@ describe("task-updater", () => {
       )
 
       expect(result).toEqual({
+        block_id: "active-task",
+        heading: "Done",
         path: "board.md",
         line: 15,
         description: "In-progress task",
@@ -526,6 +540,8 @@ title: Tasks
       )
 
       expect(result).toEqual({
+        block_id: "move-me",
+        heading: "Done",
         path: "tasks.md",
         line: 9,
         description: "Task to move",
@@ -558,6 +574,8 @@ title: Tasks
       )
 
       expect(result).toEqual({
+        block_id: "planned-task",
+        heading: "Done",
         path: "board.md",
         line: 15,
         description: "Planned task",
@@ -586,6 +604,7 @@ title: Tasks
       )
 
       expect(result).toEqual({
+        block_id: "walk-dog",
         path: "tasks.md",
         line: 6,
         description: "Walk the dog",
@@ -707,7 +726,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("blockId and line are mutually exclusive")
+      ).rejects.toThrow("block_id and line are mutually exclusive")
     })
 
     it("no identifier provided is rejected", async () => {
@@ -719,7 +738,7 @@ title: Tasks
           { vaultPath: vault, path: "tasks.md", status: "done" },
           logger,
         ),
-      ).rejects.toThrow("exactly one of blockId or line is required")
+      ).rejects.toThrow("exactly one of block_id or line is required")
     })
 
     it("throws when no done lane exists for auto-completion", async () => {
@@ -835,8 +854,8 @@ title: Tasks
         path: "tasks.md",
         description: "New task",
         block_id: "new-task",
-        heading: null,
       })
+      expect(result.heading).toBeUndefined()
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] New task ➕ ${today()} ^new-task\n`,
@@ -1063,9 +1082,48 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow(
-        "parent and heading are mutually exclusive when parent is a block_id",
-      )
+      ).rejects.toThrow("parent_task and heading are mutually exclusive")
+    })
+
+    it("errors when parent line number and heading are both provided", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "board.md", KANBAN_BOARD)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Conflicting",
+            blockId: "conflicting",
+            parentTask: 7,
+            heading: "Up Next",
+          },
+          logger,
+        ),
+      ).rejects.toThrow("parent_task and heading are mutually exclusive")
+      const content = await readTestNote(vault, "board.md")
+      expect(content).toBe(KANBAN_BOARD)
+    })
+
+    it("errors when depends_on is an empty array", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "No deps",
+            blockId: "no-deps",
+            dependsOn: [],
+          },
+          logger,
+        ),
+      ).rejects.toThrow("depends_on cannot be empty")
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(SIMPLE_NOTE)
     })
 
     it("errors when parent line number does not point to a task", async () => {
@@ -1147,6 +1205,7 @@ title: Tasks
       )
 
       expect(result).toEqual({
+        block_id: "walk-dog",
         path: "tasks.md",
         line: 6,
         description: "Walk the cat",
@@ -1214,6 +1273,7 @@ title: Tasks
       )
 
       expect(result).toEqual({
+        block_id: "walk-dog",
         path: "tasks.md",
         line: 6,
         description: "Walk the dog",
@@ -1241,6 +1301,7 @@ title: Tasks
       )
 
       expect(result).toEqual({
+        block_id: "walk-dog",
         path: "tasks.md",
         line: 6,
         description: "Walk the dog",
@@ -1256,7 +1317,7 @@ title: Tasks
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
-      await taskMutations.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -1266,10 +1327,59 @@ title: Tasks
         logger,
       )
 
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Buy groceries",
+        block_id: "buy-groceries",
+        changes: ["block_id assigned: buy-groceries"],
+      })
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01 ^buy-groceries\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n",
       )
+    })
+
+    it("omits heading from the result when the task sits above any heading", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "walk-dog",
+          priority: "low",
+        },
+        logger,
+      )
+
+      expect(JSON.parse(JSON.stringify(result))).toEqual({
+        path: "tasks.md",
+        line: 6,
+        description: "Walk the dog",
+        block_id: "walk-dog",
+        changes: ["priority: low"],
+      })
+    })
+
+    it("rejects an empty depends_on array (null is the clear idiom)", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "walk-dog",
+            dependsOn: [],
+          },
+          logger,
+        ),
+      ).rejects.toThrow("depends_on cannot be empty (use null to clear)")
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(SIMPLE_NOTE)
     })
 
     it("replaces an existing block_id", async () => {

@@ -566,6 +566,44 @@ describe("task errors", () => {
     })
     expectToolError(result, "cannot move a sub-task to a heading")
   })
+
+  it("vault_create_task with a line-number parent_task and a heading", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/board.md",
+        description: "Conflicting locators",
+        block_id: "conflicting-locators",
+        parent_task: 11,
+        heading: "Up Next",
+      },
+    })
+    expectToolError(result, "parent_task and heading are mutually exclusive")
+  })
+
+  it("vault_update_task with neither block_id nor line", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: { path: "Projects/alpha.md", status: "done" },
+    })
+    expectToolError(result, "exactly one of block_id or line is required")
+  })
+
+  it("vault_update_task with both block_id and line", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/alpha.md",
+        block_id: "alpha-task-1",
+        line: 19,
+        status: "done",
+      },
+    })
+    expectToolError(result, "block_id and line are mutually exclusive")
+  })
 })
 
 // ── Path extension errors ────────────────────────────────────

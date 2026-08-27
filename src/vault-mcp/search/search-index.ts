@@ -202,32 +202,34 @@ export type TaskRow = {
 
 /** One task on the wire — snake_case multi-word fields match the JSON
  *  response shape. Every entry carries its attribution (path, folder,
- *  heading, line) so a client never needs a follow-up read to locate it. */
+ *  line) so a client never needs a follow-up read to locate it. Metadata
+ *  the task doesn't have is omitted, never null: optional fields hold
+ *  undefined, which JSON.stringify drops. */
 export type TaskEntry = {
   path: string
   line: number
   status: TaskStatus
   status_char: string
   description: string
-  heading: string | null
+  heading?: string | undefined
   folder: string
-  created: string | null
-  scheduled: string | null
-  start: string | null
-  due: string | null
-  done: string | null
-  cancelled: string | null
-  priority: TaskPriority | null
-  recurrence: string | null
-  on_completion: string | null
-  task_id: string | null
+  created?: string | undefined
+  scheduled?: string | undefined
+  start?: string | undefined
+  due?: string | undefined
+  done?: string | undefined
+  cancelled?: string | undefined
+  priority?: TaskPriority | undefined
+  recurrence?: string | undefined
+  on_completion?: string | undefined
+  task_id?: string | undefined
   depends_on: string[]
   tags: string[]
-  block_id: string | null
+  block_id?: string | undefined
   depth: number
-  parent_block_id: string | null
+  parent_block_id?: string | undefined
   is_kanban_task: boolean
-  done_lanes: string[] | null
+  done_lanes?: string[] | undefined
 }
 
 /** Status filter vocabulary for listTasks. "not_done" (the default) covers

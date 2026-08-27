@@ -446,9 +446,9 @@ describe("default config", () => {
       // Board has sub-tasks under the in-progress card — top_level_only
       // should return fewer tasks than the unfiltered query
       expect(topOnlyJson.total).toBeLessThan(allCount)
-      // All returned tasks should have depth 0 (omitted = 0)
       for (const task of topOnlyJson.tasks) {
-        expect(task.depth).toBeUndefined()
+        expect(task.depth).toBe(0)
+        expect(task.is_kanban_task).toBe(true)
       }
     })
 
@@ -464,10 +464,16 @@ describe("default config", () => {
       })
       expect(result.isError).not.toBe(true)
       const json = JSON.parse(textContent(result))
-      expect(json.description).toBe("Renamed second task")
-      expect(json.changes).toContain(
-        "description: Second task → Renamed second task",
-      )
+      // Line 22, not the fixture's 21: the vault_create_task case above
+      // inserted a card at the top of the same Tasks section.
+      expect(json).toEqual({
+        path: "Projects/alpha.md",
+        line: 22,
+        description: "Renamed second task",
+        block_id: "alpha-task-2",
+        heading: "Tasks",
+        changes: ["description: Second task → Renamed second task"],
+      })
     })
 
     it("vault_update_task — verify priority applied", async () => {

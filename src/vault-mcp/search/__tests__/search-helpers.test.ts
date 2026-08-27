@@ -231,7 +231,7 @@ describe("rowToMetadata", () => {
 // ── rowToTaskEntry ───────────────────────────────────────────────
 
 describe("rowToTaskEntry", () => {
-  it("maps a complete TaskRow to TaskEntry with parsed JSON columns", () => {
+  it("maps a TaskRow to TaskEntry, parsing JSON columns and dropping NULL metadata", () => {
     const entry = rowToTaskEntry(makeTaskRow())
     expect(entry).toEqual({
       path: "Projects/Alpha/tasks.md",
@@ -242,22 +242,12 @@ describe("rowToTaskEntry", () => {
       heading: "Tasks",
       folder: "Projects/Alpha",
       created: "2024-01-01",
-      scheduled: null,
-      start: null,
       due: "2024-03-01",
-      done: null,
-      cancelled: null,
-      priority: null,
-      recurrence: null,
-      on_completion: null,
       task_id: "abc123",
       depends_on: ["def456"],
       tags: ["bug"],
-      block_id: null,
       depth: 0,
-      parent_block_id: null,
       is_kanban_task: false,
-      done_lanes: null,
     })
   })
 
@@ -273,9 +263,9 @@ describe("rowToTaskEntry", () => {
     expect(entry.is_kanban_task).toBe(true)
   })
 
-  it("sets done_lanes to null for non-Kanban tasks", () => {
+  it("omits done_lanes for non-Kanban tasks", () => {
     const entry = rowToTaskEntry(makeTaskRow({ is_kanban_task: 0 }))
-    expect(entry.done_lanes).toBeNull()
+    expect(entry.done_lanes).toBeUndefined()
   })
 
   it("renames note_path to path", () => {

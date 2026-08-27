@@ -156,7 +156,12 @@ export const rowToMetadata = (row: NoteRow): NoteMetadata => ({
     : null,
 })
 
-/** Maps a tasks-table row to its wire shape: note_path becomes path, and the
+/** SQLite yields NULL for absent columns; the wire omits them instead. */
+const orUndefined = <Value>(value: Value | null): Value | undefined =>
+  value ?? undefined
+
+/** Maps a tasks-table row to its wire shape: note_path becomes path, NULL
+ *  metadata columns become undefined (omitted on serialization), and the
  *  JSON-encoded depends_on/tags columns are parsed back into arrays. */
 export const rowToTaskEntry = (row: TaskRow): TaskEntry => ({
   path: row.note_path,
@@ -164,27 +169,27 @@ export const rowToTaskEntry = (row: TaskRow): TaskEntry => ({
   status: row.status,
   status_char: row.status_char,
   description: row.description,
-  heading: row.heading,
+  heading: orUndefined(row.heading),
   folder: row.folder,
-  created: row.created,
-  scheduled: row.scheduled,
-  start: row.start,
-  due: row.due,
-  done: row.done,
-  cancelled: row.cancelled,
-  priority: row.priority,
-  recurrence: row.recurrence,
-  on_completion: row.on_completion,
-  task_id: row.task_id,
+  created: orUndefined(row.created),
+  scheduled: orUndefined(row.scheduled),
+  start: orUndefined(row.start),
+  due: orUndefined(row.due),
+  done: orUndefined(row.done),
+  cancelled: orUndefined(row.cancelled),
+  priority: orUndefined(row.priority),
+  recurrence: orUndefined(row.recurrence),
+  on_completion: orUndefined(row.on_completion),
+  task_id: orUndefined(row.task_id),
   depends_on: parseStringArray(row.depends_on),
   tags: parseStringArray(row.tags),
-  block_id: row.block_id,
+  block_id: orUndefined(row.block_id),
   depth: row.depth,
-  parent_block_id: row.parent_block_id,
+  parent_block_id: orUndefined(row.parent_block_id),
   is_kanban_task: Boolean(row.is_kanban_task),
   done_lanes: row.kanban_done_lanes
     ? parseStringArray(row.kanban_done_lanes)
-    : null,
+    : undefined,
 })
 
 /** Builds a SearchResult from a NoteRow and caller-provided snippet + score.
