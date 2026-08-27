@@ -9,7 +9,10 @@ import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
-import { parseHeadings } from "../obsidian-markdown/headings.js"
+import {
+  parseHeadings,
+  type HeadingInfo,
+} from "../obsidian-markdown/headings.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { tasks } from "../obsidian-markdown/tasks.js"
 import type {
@@ -200,6 +203,123 @@ const findTaskBlockEnd = (
   return endIndex
 }
 
+/** Indent for a new checklist item under a task: the first existing child's
+ *  leading whitespace, or the parent's indent + 2 spaces. */
+const childIndentFor = ({
+  lines,
+  parentLineIndex,
+}: {
+  lines: readonly string[]
+  parentLineIndex: number
+}): string => {
+  const parentIndent = tasks.getTaskIndent(lines[parentLineIndex] ?? "")
+  const blockEnd = findTaskBlockEnd(lines, parentLineIndex)
+  const firstChildIndex = parentLineIndex + 1
+  const hasExistingChildren = firstChildIndex < blockEnd
+  const firstChild = hasExistingChildren ? lines[firstChildIndex] : undefined
+  const firstChildIndent = firstChild?.trim()
+    ? firstChild.match(/^(\s*)/)?.[0]
+    : undefined
+  return firstChildIndent ?? " ".repeat(parentIndent + 2)
+}
+
+/** Body index where a task inserted under a heading goes: the heading's
+ *  body start, or just past a `**Complete**` marker when the lane has one —
+ *  the marker sits between the heading and the first list item, and a task
+ *  inserted above it would break done-lane detection on later reads. Blank
+ *  lines are skipped first, mirroring extractDoneLanes' scan. */
+const insertIndexUnderHeading = ({
+  lines,
+  heading,
+}: {
+  lines: readonly string[]
+  heading: HeadingInfo
+}): number => {
+  const firstContentIndex = lines.findIndex(
+    (line, index) => index >= heading.bodyStartLine && line.trim() !== "",
+  )
+  if (firstContentIndex === -1) return heading.bodyStartLine
+  const firstContent = lines[firstContentIndex]?.trim()
+  return firstContent === "**Complete**"
+    ? firstContentIndex + 1
+    : heading.bodyStartLine
+}
+
+type CreatePlacement = {
+  /** Body index the new task line is inserted at. */
+  insertAt: number
+  /** Leading whitespace for the task line ("" for a top-level task). */
+  indent: string
+  /** The heading the task lands under, if the note has one there. */
+  heading: string | undefined
+}
+
+/** Where a created task goes: under its parent's block, under a named
+ *  heading, or at the end of the body. Kanban boards require a heading. */
+const resolveCreatePlacement = ({
+  bodyLines,
+  bodyStartLine,
+  headings,
+  parentLocator,
+  heading,
+  isKanbanBoard,
+}: {
+  bodyLines: readonly string[]
+  bodyStartLine: number
+  headings: readonly HeadingInfo[]
+  parentLocator: ParentLocator | undefined
+  heading: string | undefined
+  isKanbanBoard: boolean
+}): CreatePlacement => {
+  if (parentLocator) {
+    const parentLineIndex = findParentLineIndex({
+      locator: parentLocator,
+      bodyLines,
+      bodyStartLine,
+    })
+    const nearestHeading = headings.findLast(
+      (headingInfo) => headingInfo.startLine < parentLineIndex,
+    )
+    return {
+      insertAt: findTaskBlockEnd(bodyLines, parentLineIndex),
+      indent: childIndentFor({ lines: bodyLines, parentLineIndex }),
+      heading: nearestHeading?.text,
+    }
+  }
+  if (heading) {
+    const targetHeading = headings.find(
+      (headingInfo) => headingInfo.text === heading,
+    )
+    if (!targetHeading) {
+      const availableHeadings = headings
+        .map((headingInfo) => headingInfo.text)
+        .join(", ")
+      throw new Error(
+        `heading "${heading}" not found; available: ${availableHeadings}`,
+      )
+    }
+    return {
+      insertAt: insertIndexUnderHeading({
+        lines: bodyLines,
+        heading: targetHeading,
+      }),
+      indent: "",
+      heading,
+    }
+  }
+  if (isKanbanBoard) {
+    throw new Error(
+      "heading required for Kanban boards (note has kanban-plugin frontmatter)",
+    )
+  }
+  // End of body — under the note's last heading, if any
+  return {
+    insertAt: bodyLines.length,
+    indent: "",
+    heading: headings.at(-1)?.text,
+  }
+}
+
 /** Detects the done lane for auto-completion: checks for **Complete**
  *  markers first, falls back to a heading named "Done". */
 const detectDoneLane = (
@@ -306,7 +426,7 @@ const findParentLineIndex = ({
   bodyStartLine,
 }: {
   locator: ParentLocator
-  bodyLines: string[]
+  bodyLines: readonly string[]
   bodyStartLine: number
 }): number => {
   if (locator.kind === "blockId") {
@@ -423,86 +543,25 @@ const createTask = async (
       { field: "task_id", value: taskId },
       { field: "depends_on", value: formatDependsOn(dependsOn) },
     ]
-    const changes: string[] = metadataFields
+    const metadataChanges = metadataFields
       .filter(({ value }) => Boolean(value))
       .map(({ field, value }) =>
         formatChange({ field, before: null, after: value }),
       )
 
-    // Determine insertion point and indent
-    const resultLines = [...bodyLines]
-    let insertAt: number
-    let indent = ""
-    let resolvedHeading: string | undefined
+    const {
+      insertAt,
+      indent,
+      heading: resolvedHeading,
+    } = resolveCreatePlacement({
+      bodyLines,
+      bodyStartLine,
+      headings,
+      parentLocator,
+      heading,
+      isKanbanBoard,
+    })
 
-    if (parentLocator) {
-      // Sub-task under a parent
-      const parentLineIndex = findParentLineIndex({
-        locator: parentLocator,
-        bodyLines,
-        bodyStartLine,
-      })
-
-      // Match existing children's indent, or parent + 2 spaces
-      const parentLineText = bodyLines[parentLineIndex]
-      if (!parentLineText) throw new Error("parent line out of bounds")
-      const parentIndent = tasks.getTaskIndent(parentLineText)
-      const blockEnd = findTaskBlockEnd(resultLines, parentLineIndex)
-
-      const firstChildIndex = parentLineIndex + 1
-      if (firstChildIndex < blockEnd) {
-        const firstChild = bodyLines[firstChildIndex]
-        if (firstChild && firstChild.trim()) {
-          const childIndent = firstChild.match(/^(\s*)/)?.[0] ?? ""
-          indent = childIndent
-        } else {
-          indent = " ".repeat(parentIndent + 2)
-        }
-      } else {
-        indent = " ".repeat(parentIndent + 2)
-      }
-
-      insertAt = blockEnd
-      const nearestHeading = headings.findLast(
-        (headingInfo) => headingInfo.startLine < parentLineIndex,
-      )
-      resolvedHeading = nearestHeading?.text
-    } else if (heading) {
-      // Insert under a specific heading
-      const targetHeading = headings.find(
-        (headingInfo) => headingInfo.text === heading,
-      )
-      if (!targetHeading) {
-        const availableHeadings = headings
-          .map((headingInfo) => headingInfo.text)
-          .join(", ")
-        throw new Error(
-          `heading "${heading}" not found; available: ${availableHeadings}`,
-        )
-      }
-      insertAt = targetHeading.bodyStartLine
-      // Skip blank lines and the **Complete** marker if present —
-      // mirrors extractDoneLanes' scan: first non-blank line only.
-      for (let scanLine = insertAt; scanLine < resultLines.length; scanLine++) {
-        const trimmed = resultLines[scanLine]?.trim()
-        if (!trimmed) continue
-        if (trimmed === "**Complete**") {
-          insertAt = scanLine + 1
-        }
-        break
-      }
-      resolvedHeading = heading
-    } else if (isKanbanBoard) {
-      throw new Error(
-        "heading required for Kanban boards (note has kanban-plugin frontmatter)",
-      )
-    } else {
-      // Append to end of body — under the note's last heading, if any
-      insertAt = resultLines.length
-      resolvedHeading = headings.at(-1)?.text
-    }
-
-    // Build the task line
     const taskLine = tasks.buildTaskLine(
       {
         description,
@@ -519,19 +578,28 @@ const createTask = async (
       formatConfig,
     )
 
-    // Build sub-task lines
-    const linesToInsert = [taskLine]
-    if (subtasks && subtasks.length > 0) {
-      const subtaskIndent = indent ? `${indent}  ` : "  "
-      for (const subtaskText of subtasks) {
-        linesToInsert.push(`${subtaskIndent}- [ ] ${subtaskText}`)
-      }
-      changes.push(
-        formatChange({ field: "subtasks", before: 0, after: subtasks.length }),
-      )
-    }
+    const subtaskIndent = `${indent}  `
+    const subtaskLines = (subtasks ?? []).map(
+      (subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`,
+    )
+    const changes =
+      subtaskLines.length > 0
+        ? [
+            ...metadataChanges,
+            formatChange({
+              field: "subtasks",
+              before: 0,
+              after: subtaskLines.length,
+            }),
+          ]
+        : metadataChanges
 
-    resultLines.splice(insertAt, 0, ...linesToInsert)
+    const resultLines = bodyLines.toSpliced(
+      insertAt,
+      0,
+      taskLine,
+      ...subtaskLines,
+    )
 
     // Checklist lines follow the card line, so the first one sits at insertAt + 1
     const subtaskPositions = subtasks?.length
