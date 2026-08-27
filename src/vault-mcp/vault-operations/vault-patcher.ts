@@ -1,4 +1,5 @@
-/** Surgical note editing — heading-targeted patches and find-and-replace. */
+/** Surgical note editing — heading-targeted patches, find-and-replace, and
+ *  anchor-targeted line spans (delete, replace, insert). */
 
 import { readFile } from "node:fs/promises"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
