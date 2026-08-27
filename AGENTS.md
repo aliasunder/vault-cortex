@@ -159,7 +159,7 @@ src/
       note-mover.ts                    # Move/rename a note + rewrite every vault-wide link to it
       memory-store.ts                  # About Me/ heading-aware read/append/delete
       daily-notes.ts                   # Daily note config reader + path resolver (env settings > daily-notes.json)
-      task-updater.ts                  # Task state mutations (status, priority, lane moves)
+      task-mutations.ts                # Task create + state mutations (status, priority, heading moves, sub-tasks)
       task-format-config.ts            # Tasks-plugin format config reader (emoji vs Dataview)
       asset-operations.ts              # Asset read dispatch + browsing (image fit, canvas linearize/raw, extension filter, statted slice)
     mcp-core/                          # MCP protocol surface
@@ -295,7 +295,7 @@ Two rules keep this honest:
   operations live together only when they share a layer: asset read + browse
   are both filesystem work, so `asset-operations.ts` holds both. Task list
   (a SQL query — lives with the queries in `search/`) and task update (a file
-  mutation — `task-updater.ts`) stay apart, and so do note search and note
+  mutation — `task-mutations.ts`) stay apart, and so do note search and note
   mutations. A topic-symmetric "one module per domain" grouping that crosses
   layers is the smell, not the goal — each file answers for one layer's view
   of its domain.

@@ -3,13 +3,13 @@ import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime } from "luxon"
-import { taskMutations } from "../task-updater.js"
+import { taskMutations } from "../task-mutations.js"
 import { logger } from "../../../logger.js"
 
 // ── Helpers ─────────────────────────────────────────────────────
 
 const createVault = async (): Promise<string> => {
-  const vaultPath = await mkdtemp(join(tmpdir(), "task-updater-test-"))
+  const vaultPath = await mkdtemp(join(tmpdir(), "task-mutations-test-"))
   onTestFinished(async () => rm(vaultPath, { recursive: true }))
   return vaultPath
 }
@@ -143,7 +143,7 @@ title: Priority
 
 // ── Status changes ──────────────────────────────────────────────
 
-describe("task-updater", () => {
+describe("task-mutations", () => {
   describe("status changes", () => {
     it("completes a simple non-Kanban task — checkbox and done date", async () => {
       const vault = await createVault()

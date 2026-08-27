@@ -4,7 +4,7 @@ import { z } from "zod"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { safeHandler, dateFilterSchema } from "./tool-helpers.js"
-import { taskMutations } from "../../vault-operations/task-updater.js"
+import { taskMutations } from "../../vault-operations/task-mutations.js"
 
 export const registerTaskTools = ({
   registerTool,

@@ -4,7 +4,7 @@
       "content": "Vault Cortex is a remote MCP (Model Context Protocol) server that exposes an Obsidian vault over HTTPS — vault CRUD, hybrid search, task management, structured memory, link-graph queries, and non-markdown file reading (images, PDFs, canvases, data files), plus user-initiated prompts. It runs headless in Docker, working directly with .md files on disk using its own Obsidian-parity parsers and search index. README.md is the authoritative feature description and ARCHITECTURE.md the authoritative design document — derive capability details, defaults, and security specifics from those and the code rather than restating them. The repo also ships a CLI (cli/, published as the vault-cortex npm package) that scaffolds a deployment: npx vault-cortex@latest init."
     },
     {
-      "content": "The codebase is organized into four internal layers under src/vault-mcp/: (1) obsidian-markdown/ — pure Obsidian/Markdown parsers with no I/O (links, lines/fences, frontmatter, callouts, headings, tasks, memory entries, canvas, plaintext). (2) vault-operations/ — filesystem I/O for vault content (vault-filesystem, vault-patcher, note-mover, memory-store, daily-notes, task-updater, task-format-config, asset-operations). (3) search/ — the SQLite FTS5 + sqlite-vec index, embedding pipeline, and chokidar file watcher. (4) mcp-core/ — the MCP protocol surface: streamable-http transport, tool group modules under mcp-core/tools/, and prompt group modules under mcp-core/prompts/. Authentication lives in src/vault-mcp/oauth/ (OAuth 2.1) and src/functions/authorizer.ts (AWS Lambda, path-aware). Infrastructure-as-code (sst.config.ts) is specific to the AWS reference deployment and should not be documented as the primary deployment path."
+      "content": "The codebase is organized into four internal layers under src/vault-mcp/: (1) obsidian-markdown/ — pure Obsidian/Markdown parsers with no I/O (links, lines/fences, frontmatter, callouts, headings, tasks, memory entries, canvas, plaintext). (2) vault-operations/ — filesystem I/O for vault content (vault-filesystem, vault-patcher, note-mover, memory-store, daily-notes, task-mutations, task-format-config, asset-operations). (3) search/ — the SQLite FTS5 + sqlite-vec index, embedding pipeline, and chokidar file watcher. (4) mcp-core/ — the MCP protocol surface: streamable-http transport, tool group modules under mcp-core/tools/, and prompt group modules under mcp-core/prompts/. Authentication lives in src/vault-mcp/oauth/ (OAuth 2.1) and src/functions/authorizer.ts (AWS Lambda, path-aware). Infrastructure-as-code (sst.config.ts) is specific to the AWS reference deployment and should not be documented as the primary deployment path."
     }
   ],
   "pages": [
@@ -45,7 +45,7 @@
     },
     {
       "title": "Vault Operations",
-      "purpose": "The filesystem I/O layer in vault-operations/: vault-filesystem.ts (base primitives including atomic writes and path safety), vault-patcher.ts, note-mover.ts, memory-store.ts, daily-notes.ts, task-updater.ts, task-format-config.ts, and asset-operations.ts (the use-case behind vault_read_file and vault_list_files). Derive the safety mechanisms (locking modes, TOCTOU guards, protected paths) from ARCHITECTURE.md's Data integrity section.",
+      "purpose": "The filesystem I/O layer in vault-operations/: vault-filesystem.ts (base primitives including atomic writes and path safety), vault-patcher.ts, note-mover.ts, memory-store.ts, daily-notes.ts, task-mutations.ts, task-format-config.ts, and asset-operations.ts (the use-case behind vault_read_file and vault_list_files). Derive the safety mechanisms (locking modes, TOCTOU guards, protected paths) from ARCHITECTURE.md's Data integrity section.",
       "parent": "Architecture"
     },
     {
@@ -60,7 +60,7 @@
     },
     {
       "title": "Task Management",
-      "purpose": "The Tasks-plugin domain across layers: the task-line grammar in obsidian-markdown/tasks.ts (emoji and Dataview inline-field formats, read and write), task-updater.ts mutations, task-format-config.ts (the user's Tasks-plugin format configuration), the tasks table in the search index, and the task tools under mcp-core/tools/. Derive status, priority, and date-signifier specifics from the source at index time.",
+      "purpose": "The Tasks-plugin domain across layers: the task-line grammar in obsidian-markdown/tasks.ts (emoji and Dataview inline-field formats, read and write), task-mutations.ts mutations, task-format-config.ts (the user's Tasks-plugin format configuration), the tasks table in the search index, and the task tools under mcp-core/tools/. Derive status, priority, and date-signifier specifics from the source at index time.",
       "parent": "Architecture"
     },
     {
