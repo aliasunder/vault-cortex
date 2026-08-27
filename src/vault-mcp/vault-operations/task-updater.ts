@@ -388,9 +388,9 @@ const createTask = async (
       })
 
       // Match existing children's indent, or parent + 2 spaces
-      const parentLine = bodyLines[parentLineIndex]
-      if (!parentLine) throw new Error("parent line out of bounds")
-      const parentIndent = tasks.getTaskIndent(parentLine)
+      const parentLineText = bodyLines[parentLineIndex]
+      if (!parentLineText) throw new Error("parent line out of bounds")
+      const parentIndent = tasks.getTaskIndent(parentLineText)
       const blockEnd = findTaskBlockEnd(resultLines, parentLineIndex)
 
       const firstChildIndex = parentLineIndex + 1
