@@ -463,10 +463,10 @@ Parameters:
   - due / scheduled / start / created: YYYY-MM-DD sets the date; null clears it.
   - task_id: string sets the Tasks plugin 🆔; null clears it.
   - depends_on: non-empty string array sets the Tasks plugin ⛔; null clears it.
-  - Clearing is always explicit null — omitting a field leaves it untouched.
   - add_subtask: string — appends an indented [ ] checklist item under the task. For full sub-tasks with their own metadata, use ${whenToolEnabledText("vault_create_task", "vault_create_task with parent_task")}.
   - assign_block_id: adds or replaces the ^block-id on the task line. Letters, digits, and hyphens only; must be unique within the note.
   - heading: target heading to move the task to. On Kanban boards this is a lane move; works on any note with headings. Not valid on sub-tasks.
+  - Clearing is always explicit null — omitting a field leaves it untouched.
 - format: "emoji" or "dataview" — overrides the auto-detected Tasks plugin format.
 
 Errors:
