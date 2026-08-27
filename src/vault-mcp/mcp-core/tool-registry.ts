@@ -35,6 +35,7 @@ export const TOOL_NAMES = {
   VAULT_DELETE_MEMORY: "vault_delete_memory",
   VAULT_GET_DAILY_NOTE: "vault_get_daily_note",
   VAULT_LIST_TASKS: "vault_list_tasks",
+  VAULT_CREATE_TASK: "vault_create_task",
   VAULT_UPDATE_TASK: "vault_update_task",
   VAULT_READ_FILE: "vault_read_file",
   VAULT_LIST_FILES: "vault_list_files",
@@ -235,12 +236,22 @@ export const TOOL_REGISTRY: readonly RegistryEntry[] = [
     annotations: READ_ONLY_ANNOTATIONS,
   },
   {
+    name: TOOL_NAMES.VAULT_CREATE_TASK,
+    group: "task",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+  {
     name: TOOL_NAMES.VAULT_UPDATE_TASK,
     group: "task",
     annotations: {
       readOnlyHint: false,
       // Status and priority changes remove existing signifiers, not just add
-      // them: reopening a task strips its ✅/❌ date, `priority: "none"` strips
+      // them: reopening a task strips its ✅/❌ date, `priority: null` strips
       // the priority marker, and a done/cancelled flip strips the other's date
       // (see updateTaskLineStatus / updateTaskLinePriority). Those are
       // user-authored fields the call cannot restore, so the update is

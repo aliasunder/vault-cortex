@@ -450,6 +450,50 @@ describe("memory errors", () => {
 // ── Task errors ──────────────────────────────────────────────
 
 describe("task errors", () => {
+  it("vault_update_task done on a board with two Complete-marked lanes and no heading", async () => {
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: {
+        path: "Projects/two-done-lanes.md",
+        properties: { "kanban-plugin": "board" },
+        body: "## Active\n\n- [ ] Task A ^two-done-a\n\n## Done\n\n**Complete**\n\n## Archived\n\n**Complete**\n",
+      },
+    })
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/two-done-lanes.md",
+        block_id: "two-done-a",
+        status: "done",
+      },
+    })
+    expectToolError(result, "multiple done lanes detected")
+  })
+
+  it("vault_update_task done on a board with no Complete marker and no Done heading", async () => {
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: {
+        path: "Projects/no-done-lane.md",
+        properties: { "kanban-plugin": "board" },
+        body: "## Active\n\n- [ ] Task A ^no-done-a\n\n## Backlog\n\n- [ ] Task B\n",
+      },
+    })
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/no-done-lane.md",
+        block_id: "no-done-a",
+        status: "done",
+      },
+    })
+    expectToolError(result, "no done lane detected")
+  })
+
   it("vault_update_task with a nonexistent block_id", async () => {
     const result = await callTool({
       client,
@@ -460,7 +504,194 @@ describe("task errors", () => {
         status: "done",
       },
     })
-    expectToolError(result, 'block_id "nonexistent-block-id" not found')
+    expectToolError(result, 'blockId "nonexistent-block-id" not found')
+  })
+
+  it("vault_create_task with duplicate block_id", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/alpha.md",
+        description: "Duplicate",
+        block_id: "alpha-task-1",
+        heading: "Tasks",
+      },
+    })
+    expectToolError(result, 'blockId "alpha-task-1" already exists')
+  })
+
+  it("vault_create_task with invalid block_id characters", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/alpha.md",
+        description: "Bad id",
+        block_id: "bad id!",
+      },
+    })
+    expectToolError(result, "contains invalid characters")
+  })
+
+  it("vault_create_task on nonexistent note", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "nonexistent.md",
+        description: "Ghost",
+        block_id: "ghost",
+      },
+    })
+    expectToolError(result, "note not found")
+  })
+
+  it("vault_create_task on Kanban board without heading", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/board.md",
+        description: "No heading",
+        block_id: "no-heading",
+      },
+    })
+    expectToolError(result, "heading required for Kanban boards")
+  })
+
+  it("vault_create_task with invalid date", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/alpha.md",
+        description: "Bad date",
+        block_id: "bad-date",
+        due: "2026-02-30",
+      },
+    })
+    expectToolError(result, "invalid date")
+  })
+
+  it("vault_update_task with invalid date", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/alpha.md",
+        block_id: "alpha-task-1",
+        due: "not-a-date",
+      },
+    })
+    expectToolError(result, "invalid date")
+  })
+
+  it("vault_update_task — cannot move a sub-task to a heading", async () => {
+    // First create a sub-task on the board
+    await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/board.md",
+        description: "Sub for error test",
+        block_id: "sub-error-test",
+        parent_block_id: "board-active-1",
+      },
+    })
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/board.md",
+        block_id: "sub-error-test",
+        heading: "Done",
+      },
+    })
+    expectToolError(result, "cannot move a sub-task to a heading")
+  })
+
+  it("vault_create_task — description must be a single line", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/board.md",
+        description: "Line one\nLine two",
+        block_id: "two-line-card",
+        heading: "Active",
+      },
+    })
+    expectToolError(result, "description must be a single line")
+  })
+
+  it("vault_update_task — add_subtasks items must be a single line", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/board.md",
+        block_id: "board-active-1",
+        add_subtasks: ["Design", "Implement\nTest"],
+      },
+    })
+    expectToolError(result, "addSubtasks items must be a single line")
+  })
+
+  it("vault_create_task with both parent_block_id and parent_line", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/board.md",
+        description: "Two parent locators",
+        block_id: "two-parent-locators",
+        parent_block_id: "board-active-1",
+        parent_line: 11,
+      },
+    })
+    expectToolError(
+      result,
+      "parentBlockId and parentLine are mutually exclusive",
+    )
+  })
+
+  it("vault_create_task with a parent_line and a heading", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/board.md",
+        description: "Conflicting locators",
+        block_id: "conflicting-locators",
+        parent_line: 11,
+        heading: "Up Next",
+      },
+    })
+    expectToolError(result, "parent and heading are mutually exclusive")
+  })
+
+  it("vault_update_task with neither block_id nor line", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: { path: "Projects/alpha.md", status: "done" },
+    })
+    expectToolError(result, "exactly one of blockId or line is required")
+  })
+
+  it("vault_update_task with both block_id and line", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/alpha.md",
+        block_id: "alpha-task-1",
+        line: 19,
+        status: "done",
+      },
+    })
+    expectToolError(result, "blockId and line are mutually exclusive")
   })
 })
 

@@ -193,37 +193,43 @@ export type TaskRow = {
   block_id: string | null
   heading: string | null
   folder: string
+  depth: number
+  parent_line: number | null
+  parent_block_id: string | null
   is_kanban_task: number
   kanban_done_lanes: string | null
 }
 
 /** One task on the wire — snake_case multi-word fields match the JSON
  *  response shape. Every entry carries its attribution (path, folder,
- *  heading, line) so a client never needs a follow-up read to locate it. */
+ *  line) so a client never needs a follow-up read to locate it. Metadata
+ *  the task doesn't have is omitted, never null: optional fields hold
+ *  undefined, which JSON.stringify drops. */
 export type TaskEntry = {
   path: string
   line: number
   status: TaskStatus
   status_char: string
   description: string
-  heading: string | null
+  heading?: string | undefined
   folder: string
-  created: string | null
-  scheduled: string | null
-  start: string | null
-  due: string | null
-  done: string | null
-  cancelled: string | null
-  priority: TaskPriority | null
-  recurrence: string | null
-  on_completion: string | null
-  task_id: string | null
+  created?: string | undefined
+  scheduled?: string | undefined
+  start?: string | undefined
+  due?: string | undefined
+  done?: string | undefined
+  cancelled?: string | undefined
+  priority?: TaskPriority | undefined
+  recurrence?: string | undefined
+  on_completion?: string | undefined
+  task_id?: string | undefined
   depends_on: string[]
   tags: string[]
-  block_id: string | null
+  block_id?: string | undefined
+  depth: number
+  parent_block_id?: string | undefined
   is_kanban_task: boolean
-  lane: string | null
-  done_lanes: string[] | null
+  done_lanes?: string[] | undefined
 }
 
 /** Status filter vocabulary for listTasks. "not_done" (the default) covers
@@ -555,6 +561,21 @@ export const createSearchIndex = (
     db.exec(`ALTER TABLE notes ADD COLUMN kanban_done_lanes TEXT`)
   }
 
+  // Same idempotent migration for tasks: depth/parent columns for sub-task
+  // tracking.
+  const taskColumns = db
+    .prepare<unknown[], { name: string }>(`PRAGMA table_info(tasks)`)
+    .all()
+  if (!taskColumns.some((column) => column.name === "depth")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN depth INTEGER NOT NULL DEFAULT 0`)
+  }
+  if (!taskColumns.some((column) => column.name === "parent_line")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN parent_line INTEGER`)
+  }
+  if (!taskColumns.some((column) => column.name === "parent_block_id")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN parent_block_id TEXT`)
+  }
+
   // Same idempotent migration for non_md_files.bytes: a warm database from
   // before the column existed would fail the upsert. Nullable — NULL means
   // "not yet statted"; the startup rebuild backfills every row.
@@ -582,11 +603,11 @@ export const createSearchIndex = (
     INSERT INTO tasks (note_path, line, status_char, status, description,
       created, scheduled, start, due, done, cancelled,
       priority, recurrence, on_completion, task_id, depends_on, tags,
-      block_id, heading, folder)
+      block_id, heading, folder, depth, parent_line, parent_block_id)
     VALUES (@notePath, @line, @statusChar, @status, @description,
       @created, @scheduled, @start, @due, @done, @cancelled,
       @priority, @recurrence, @onCompletion, @taskId, @dependsOn, @tags,
-      @blockId, @heading, @folder)
+      @blockId, @heading, @folder, @depth, @parentLine, @parentBlockId)
   `)
   const deleteLinksStmt = db.prepare(`DELETE FROM links WHERE source = ?`)
   const insertLinkStmt = db.prepare(
@@ -1437,7 +1458,18 @@ export const createSearchIndex = (
       insertFtsStmt.run(note.path, note.title, note.content, metadataText)
 
       deleteTasksStmt.run(note.path)
+      // Line→blockId lookup so each child can resolve its parent's
+      // block_id from the same extraction batch (no second pass needed).
+      const blockIdByLine = new Map(
+        extractedTasks.map((extractedTask) => [
+          extractedTask.line,
+          extractedTask.blockId,
+        ]),
+      )
       for (const extractedTask of extractedTasks) {
+        const { parentLine } = extractedTask
+        const parentBlockId =
+          parentLine === null ? null : (blockIdByLine.get(parentLine) ?? null)
         insertTaskStmt.run({
           notePath: note.path,
           line: extractedTask.line,
@@ -1459,6 +1491,9 @@ export const createSearchIndex = (
           blockId: extractedTask.blockId,
           heading: extractedTask.heading,
           folder: taskFolder,
+          depth: extractedTask.depth,
+          parentLine: extractedTask.parentLine,
+          parentBlockId,
         })
       }
 

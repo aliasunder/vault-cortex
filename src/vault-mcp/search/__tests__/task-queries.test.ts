@@ -96,21 +96,13 @@ describe("task indexing lifecycle", () => {
       heading: "Active",
       folder: "Projects",
       created: "2026-06-20",
-      scheduled: null,
-      start: null,
       due: "2026-07-01",
-      done: null,
-      cancelled: null,
       priority: "high",
-      recurrence: null,
-      on_completion: null,
-      task_id: null,
       depends_on: [],
       tags: [],
       block_id: "fix-login",
+      depth: 0,
       is_kanban_task: true,
-      lane: "Active",
-      done_lanes: null,
     }
     expect(fixLoginTask).toEqual(expectedEntry)
   })
@@ -134,24 +126,12 @@ describe("task indexing lifecycle", () => {
       status: "todo",
       status_char: " ",
       description: "Tagged and blocked #home #home/kitchen",
-      heading: null,
       folder: "",
-      created: null,
-      scheduled: null,
-      start: null,
-      due: null,
-      done: null,
-      cancelled: null,
-      priority: null,
-      recurrence: null,
-      on_completion: null,
       task_id: "own-id",
       depends_on: ["id-1", "id-2"],
       tags: ["home", "home/kitchen"],
-      block_id: null,
+      depth: 0,
       is_kanban_task: false,
-      lane: null,
-      done_lanes: null,
     }
     expect(result.tasks).toEqual([expectedEntry])
   })
@@ -182,9 +162,20 @@ describe("task indexing lifecycle", () => {
 
     const result = index.listTasks({ status: "all" }, logger)
     const taskA = result.tasks.find((entry) => entry.description === "Task A")
-    expect(taskA?.is_kanban_task).toBe(true)
-    expect(taskA?.lane).toBe("Active")
-    expect(taskA?.done_lanes).toEqual(["Done"])
+    expect(taskA).toEqual({
+      path: "board.md",
+      line: 6,
+      status: "todo",
+      status_char: " ",
+      description: "Task A",
+      heading: "Active",
+      folder: "",
+      depends_on: [],
+      tags: [],
+      depth: 0,
+      is_kanban_task: true,
+      done_lanes: ["Done"],
+    })
   })
 
   it("stores the full parent folder, not just the first path segment", () => {
@@ -1292,5 +1283,142 @@ describe("comment block exclusion", () => {
       "Visible task",
       "Also visible",
     ])
+  })
+
+  // ── Depth and parent tracking through the index ────────────────
+
+  it("indexes depth and parent_block_id for nested tasks", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "tasks.md",
+        rawContent: [
+          "- [ ] Parent task ^parent",
+          "  - [ ] Child task ^child",
+          "    - [ ] Grandchild ^grandchild",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = index.listTasks({ sortBy: "position" }, logger)
+    expect(
+      result.tasks.map((entry) => ({
+        block_id: entry.block_id,
+        depth: entry.depth,
+        parent_block_id: entry.parent_block_id,
+      })),
+    ).toEqual([
+      { block_id: "parent", depth: 0 },
+      { block_id: "child", depth: 1, parent_block_id: "parent" },
+      { block_id: "grandchild", depth: 2, parent_block_id: "child" },
+    ])
+  })
+
+  it("parent_block_id is omitted when the parent has no block_id", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "tasks.md",
+        rawContent: ["- [ ] Parent without id", "  - [ ] Child ^child"].join(
+          "\n",
+        ),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = index.listTasks({ sortBy: "position" }, logger)
+    expect(
+      result.tasks.map((entry) => ({
+        block_id: entry.block_id,
+        depth: entry.depth,
+        parent_block_id: entry.parent_block_id,
+      })),
+    ).toEqual([{ depth: 0 }, { block_id: "child", depth: 1 }])
+  })
+
+  it("heading boundary resets parent tracking in the index", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "board.md",
+        rawContent: [
+          "---",
+          "kanban-plugin: board",
+          "---",
+          "## Active",
+          "",
+          "- [ ] Task A ^task-a",
+          "  - [ ] Sub-A ^sub-a",
+          "",
+          "## Up Next",
+          "",
+          "- [ ] Task B ^task-b",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = index.listTasks({ sortBy: "position" }, logger)
+    expect(
+      result.tasks.map((entry) => ({
+        block_id: entry.block_id,
+        depth: entry.depth,
+        parent_block_id: entry.parent_block_id,
+      })),
+    ).toEqual([
+      { block_id: "task-a", depth: 0 },
+      { block_id: "sub-a", depth: 1, parent_block_id: "task-a" },
+      { block_id: "task-b", depth: 0 },
+    ])
+  })
+
+  // ── top_level_only filter ──────────────────────────────────────
+
+  it("top_level_only: true excludes sub-tasks", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "tasks.md",
+        rawContent: [
+          "- [ ] Top-level A ^top-a",
+          "  - [ ] Sub of A ^sub-a",
+          "- [ ] Top-level B ^top-b",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const allTasks = index.listTasks({ sortBy: "position" }, logger)
+    expect(allTasks.total).toBe(3)
+
+    const topOnly = index.listTasks(
+      { topLevelOnly: true, sortBy: "position" },
+      logger,
+    )
+    expect(topOnly.total).toBe(2)
+    expect(topOnly.tasks.map((task) => task.block_id)).toEqual([
+      "top-a",
+      "top-b",
+    ])
+  })
+
+  it("top_level_only: false (default) includes sub-tasks", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "tasks.md",
+        rawContent: ["- [ ] Parent ^parent", "  - [ ] Child ^child"].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = index.listTasks({ sortBy: "position" }, logger)
+    expect(result.total).toBe(2)
   })
 })

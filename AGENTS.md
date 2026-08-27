@@ -159,7 +159,7 @@ src/
       note-mover.ts                    # Move/rename a note + rewrite every vault-wide link to it
       memory-store.ts                  # About Me/ heading-aware read/append/delete
       daily-notes.ts                   # Daily note config reader + path resolver (env settings > daily-notes.json)
-      task-updater.ts                  # Task state mutations (status, priority, lane moves)
+      task-mutations.ts                # Task create + state mutations (status, priority, heading moves, sub-tasks)
       task-format-config.ts            # Tasks-plugin format config reader (emoji vs Dataview)
       asset-operations.ts              # Asset read dispatch + browsing (image fit, canvas linearize/raw, extension filter, statted slice)
     mcp-core/                          # MCP protocol surface
@@ -172,7 +172,7 @@ src/
         tool-helpers.ts                # Shared ToolRegistrationContext type + safeHandler/safeHandlerContent + describeTextWindow
         vault-crud-tools.ts            # 9 tools: read, write, patch, replace, delete, move
         search-tools.ts                # 11 tools: search, tags, properties, graph queries
-        task-tools.ts                  # 2 tools: list-tasks, update-task
+        task-tools.ts                  # 3 tools: list-tasks, create-task, update-task
         memory-tools.ts                # 5 tools: get/update/list/delete memory + memory recall
         daily-note-tools.ts            # 1 tool: get daily note
         asset-tools.ts                 # 2 tools: read-file, list-files
@@ -295,7 +295,7 @@ Two rules keep this honest:
   operations live together only when they share a layer: asset read + browse
   are both filesystem work, so `asset-operations.ts` holds both. Task list
   (a SQL query — lives with the queries in `search/`) and task update (a file
-  mutation — `task-updater.ts`) stay apart, and so do note search and note
+  mutation — `task-mutations.ts`) stay apart, and so do note search and note
   mutations. A topic-symmetric "one module per domain" grouping that crosses
   layers is the smell, not the goal — each file answers for one layer's view
   of its domain.
