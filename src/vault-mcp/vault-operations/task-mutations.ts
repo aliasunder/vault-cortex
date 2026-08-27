@@ -707,10 +707,10 @@ const updateTask = async (
     // 1. Description replacement
     if (newDescription !== undefined) {
       const oldDescription = tasks.describeTaskLine(mutatedLine)
-      mutatedLine = tasks.replaceTaskLineDescription(
-        mutatedLine,
+      mutatedLine = tasks.replaceTaskLineDescription({
+        taskLine: mutatedLine,
         newDescription,
-      )
+      })
       // Both sides read the parser's view (tags re-appended), matching the
       // result's `description`.
       changes.push(
@@ -743,11 +743,11 @@ const updateTask = async (
 
     // 3. Priority set/clear
     if (priority !== undefined) {
-      mutatedLine = tasks.updateTaskLinePriority(
-        mutatedLine,
-        priority,
-        formatConfig,
-      )
+      mutatedLine = tasks.updateTaskLinePriority({
+        taskLine: mutatedLine,
+        newPriority: priority,
+        config: formatConfig,
+      })
       changes.push(
         formatChange({
           field: "priority",
@@ -777,11 +777,11 @@ const updateTask = async (
 
     // 5. task_id set/clear
     if (taskId !== undefined) {
-      mutatedLine = tasks.updateTaskLineTaskId(
-        mutatedLine,
+      mutatedLine = tasks.updateTaskLineTaskId({
+        taskLine: mutatedLine,
         taskId,
-        formatConfig,
-      )
+        config: formatConfig,
+      })
       changes.push(
         formatChange({
           field: "task_id",
@@ -793,11 +793,11 @@ const updateTask = async (
 
     // 6. depends_on set/clear
     if (dependsOn !== undefined) {
-      mutatedLine = tasks.updateTaskLineDependsOn(
-        mutatedLine,
+      mutatedLine = tasks.updateTaskLineDependsOn({
+        taskLine: mutatedLine,
         dependsOn,
-        formatConfig,
-      )
+        config: formatConfig,
+      })
       changes.push(
         formatChange({
           field: "depends_on",
@@ -809,7 +809,10 @@ const updateTask = async (
 
     // 7. assign_block_id
     if (newBlockId) {
-      mutatedLine = tasks.assignBlockId(mutatedLine, newBlockId)
+      mutatedLine = tasks.assignBlockId({
+        taskLine: mutatedLine,
+        blockId: newBlockId,
+      })
       changes.push(
         formatChange({
           field: "block_id",

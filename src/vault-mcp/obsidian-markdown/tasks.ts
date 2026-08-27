@@ -138,7 +138,13 @@ const TASK_ID_SEQUENCE = new RegExp(
 /** Builds an emoji field regex: signifier + optional VS16 (U+FE0F, matched
  *  via escape so no invisible character hides in this source) + spaces +
  *  value, anchored to line end (see block comment above). */
-const emojiField = (symbols: string, valuePattern: string): RegExp =>
+const emojiField = ({
+  symbols,
+  valuePattern,
+}: {
+  symbols: string
+  valuePattern: string
+}): RegExp =>
   new RegExp(
     valuePattern === ""
       ? `${symbols}\\uFE0F?$`
@@ -165,38 +171,41 @@ const DATE_FIELDS: ReadonlyArray<{
 }> = [
   {
     key: "done",
-    emoji: emojiField("✅", DATE_VALUE),
+    emoji: emojiField({ symbols: "✅", valuePattern: DATE_VALUE }),
     dataview: dataviewField(`completion:: *${DATE_VALUE}`),
   },
   {
     key: "cancelled",
-    emoji: emojiField("❌", DATE_VALUE),
+    emoji: emojiField({ symbols: "❌", valuePattern: DATE_VALUE }),
     dataview: dataviewField(`cancelled:: *${DATE_VALUE}`),
   },
   {
     key: "due",
-    emoji: emojiField("(?:📅|📆|🗓)", DATE_VALUE),
+    emoji: emojiField({ symbols: "(?:📅|📆|🗓)", valuePattern: DATE_VALUE }),
     dataview: dataviewField(`due:: *${DATE_VALUE}`),
   },
   {
     key: "scheduled",
-    emoji: emojiField("(?:⏳|⌛)", DATE_VALUE),
+    emoji: emojiField({ symbols: "(?:⏳|⌛)", valuePattern: DATE_VALUE }),
     dataview: dataviewField(`scheduled:: *${DATE_VALUE}`),
   },
   {
     key: "start",
-    emoji: emojiField("🛫", DATE_VALUE),
+    emoji: emojiField({ symbols: "🛫", valuePattern: DATE_VALUE }),
     dataview: dataviewField(`start:: *${DATE_VALUE}`),
   },
   {
     key: "created",
-    emoji: emojiField("➕", DATE_VALUE),
+    emoji: emojiField({ symbols: "➕", valuePattern: DATE_VALUE }),
     dataview: dataviewField(`created:: *${DATE_VALUE}`),
   },
 ]
 
 /** Emoji priority signifier, anchored to line end. Captures the emoji. */
-const EMOJI_PRIORITY_RE = emojiField("(🔺|⏫|🔼|🔽|⏬)", "")
+const EMOJI_PRIORITY_RE = emojiField({
+  symbols: "(🔺|⏫|🔼|🔽|⏬)",
+  valuePattern: "",
+})
 /** Dataview priority field, anchored to line end. Captures the level word
  *  (lowercase only, matching the plugin's regex; `highest` before `high` so
  *  the longer word wins). */
@@ -204,16 +213,28 @@ const DATAVIEW_PRIORITY_RE = dataviewField(
   "priority:: *(highest|high|medium|low|lowest)",
 )
 /** Recurrence rule text after 🔁 — letters, digits, commas, spaces, `!`. */
-const EMOJI_RECURRENCE_RE = emojiField("🔁", "([a-zA-Z0-9, !]+)")
+const EMOJI_RECURRENCE_RE = emojiField({
+  symbols: "🔁",
+  valuePattern: "([a-zA-Z0-9, !]+)",
+})
 const DATAVIEW_RECURRENCE_RE = dataviewField("repeat:: *([a-zA-Z0-9, !]+)")
 /** On-completion action word after 🏁 (the plugin accepts delete/keep). */
-const EMOJI_ON_COMPLETION_RE = emojiField("🏁", "([a-zA-Z]+)")
+const EMOJI_ON_COMPLETION_RE = emojiField({
+  symbols: "🏁",
+  valuePattern: "([a-zA-Z]+)",
+})
 const DATAVIEW_ON_COMPLETION_RE = dataviewField("onCompletion:: *([a-zA-Z]+)")
 /** The task's own ID after 🆔. */
-const EMOJI_ID_RE = emojiField("🆔", `(${TASK_ID.source})`)
+const EMOJI_ID_RE = emojiField({
+  symbols: "🆔",
+  valuePattern: `(${TASK_ID.source})`,
+})
 const DATAVIEW_ID_RE = dataviewField(`id:: *(${TASK_ID.source})`)
 /** Comma-separated IDs this task depends on, after ⛔. */
-const EMOJI_DEPENDS_ON_RE = emojiField("⛔", `(${TASK_ID_SEQUENCE.source})`)
+const EMOJI_DEPENDS_ON_RE = emojiField({
+  symbols: "⛔",
+  valuePattern: `(${TASK_ID_SEQUENCE.source})`,
+})
 const DATAVIEW_DEPENDS_ON_RE = dataviewField(
   `dependsOn:: *(${TASK_ID_SEQUENCE.source})`,
 )
@@ -629,8 +650,13 @@ const isTaskLine = (line: string): boolean => TASK_LINE_RE.test(line)
 
 /** Replaces the checkbox character in a task line, e.g. `[/]` → `[x]`.
  *  Returns the line unchanged if it's not a task line. */
-const replaceCheckboxChar = (taskLine: string, newChar: string): string =>
-  taskLine.replace(/\[.\]/, `[${newChar}]`)
+const replaceCheckboxChar = ({
+  taskLine,
+  newChar,
+}: {
+  taskLine: string
+  newChar: string
+}): string => taskLine.replace(/\[.\]/, `[${newChar}]`)
 
 /** Removes a matched regex from the line and collapses any resulting
  *  double spaces. Preserves leading indentation. */
@@ -730,11 +756,15 @@ const DATE_FIELD_INFO: ReadonlyArray<{
 ]
 
 /** Formats a date field in the configured format. */
-const formatDateField = (
-  field: DateFieldKey,
-  date: string,
-  format: "emoji" | "dataview",
-): string => {
+const formatDateField = ({
+  field,
+  date,
+  format,
+}: {
+  field: DateFieldKey
+  date: string
+  format: "emoji" | "dataview"
+}): string => {
   const info = DATE_FIELD_INFO.find((entry) => entry.key === field)
   if (!info) throw new Error(`unknown date field: ${field}`)
   return format === "dataview"
@@ -769,43 +799,58 @@ const updateTaskLineDate = (params: {
   return mapMetadataTail(params.taskLine, (metadata) => {
     const stripped = stripField(metadata, fieldInfo.inlineRegex)
     if (params.date === null) return stripped
-    const dateText = formatDateField(
-      params.field,
-      params.date,
-      params.config.taskFormat,
-    )
-    return insertFieldBefore(stripped, dateText, laterFieldRegexes)
+    const dateText = formatDateField({
+      field: params.field,
+      date: params.date,
+      format: params.config.taskFormat,
+    })
+    return insertFieldBefore({
+      metadata: stripped,
+      fieldText: dateText,
+      laterFieldRegexes,
+    })
   })
 }
 
 /** Sets or clears the Tasks-plugin `🆔` / `[id:: ]` field on a task line.
  *  A new id goes ahead of an existing depends_on, matching the create order. */
-const updateTaskLineTaskId = (
-  taskLine: string,
-  taskId: string | null,
-  config: TaskFormatConfig,
-): string => {
+const updateTaskLineTaskId = ({
+  taskLine,
+  taskId,
+  config,
+}: {
+  taskLine: string
+  taskId: string | null
+  config: TaskFormatConfig
+}): string => {
   return mapMetadataTail(taskLine, (metadata) => {
     const stripped = stripField(metadata, TASK_ID_INLINE_RE)
     if (taskId === null) return stripped
-    return insertFieldBefore(
-      stripped,
-      formatTaskId(taskId, config.taskFormat),
-      [DEPENDS_ON_INLINE_RE],
-    )
+    return insertFieldBefore({
+      metadata: stripped,
+      fieldText: formatTaskId(taskId, config.taskFormat),
+      laterFieldRegexes: [DEPENDS_ON_INLINE_RE],
+    })
   })
 }
 
 /** Sets or clears the Tasks-plugin `⛔` / `[dependsOn:: ]` field. */
-const updateTaskLineDependsOn = (
-  taskLine: string,
-  dependsOn: readonly string[] | null,
-  config: TaskFormatConfig,
-): string => {
+const updateTaskLineDependsOn = ({
+  taskLine,
+  dependsOn,
+  config,
+}: {
+  taskLine: string
+  dependsOn: readonly string[] | null
+  config: TaskFormatConfig
+}): string => {
   return mapMetadataTail(taskLine, (metadata) => {
     const stripped = stripField(metadata, DEPENDS_ON_INLINE_RE)
     if (dependsOn === null || dependsOn.length === 0) return stripped
-    return appendField(stripped, formatDependsOn(dependsOn, config.taskFormat))
+    return appendField({
+      metadata: stripped,
+      fieldText: formatDependsOn(dependsOn, config.taskFormat),
+    })
   })
 }
 
@@ -891,23 +936,32 @@ const mapMetadataTail = (
 }
 
 /** Appends a field to the end of a metadata tail. */
-const appendField = (metadata: string, fieldText: string): string =>
-  [metadata, fieldText].filter(Boolean).join(" ")
+const appendField = ({
+  metadata,
+  fieldText,
+}: {
+  metadata: string
+  fieldText: string
+}): string => [metadata, fieldText].filter(Boolean).join(" ")
 
 /** Inserts a field ahead of the first later-ordered field present in the
  *  metadata tail, or appends it when none of them is. */
-const insertFieldBefore = (
-  metadata: string,
-  fieldText: string,
-  laterFieldRegexes: readonly RegExp[],
-): string => {
+const insertFieldBefore = ({
+  metadata,
+  fieldText,
+  laterFieldRegexes,
+}: {
+  metadata: string
+  fieldText: string
+  laterFieldRegexes: readonly RegExp[]
+}): string => {
   for (const laterFieldRegex of laterFieldRegexes) {
     const laterMatch = laterFieldRegex.exec(metadata)
     if (laterMatch) {
       return `${metadata.slice(0, laterMatch.index)}${fieldText} ${metadata.slice(laterMatch.index)}`
     }
   }
-  return appendField(metadata, fieldText)
+  return appendField({ metadata, fieldText })
 }
 
 /** The description the parser sees for a task line — metadata stripped
@@ -925,17 +979,26 @@ const describeTaskLine = (taskLine: string): string => {
 
 /** Replaces the description text on a task line — everything before the
  *  metadata tail. Metadata fields, block_id, and indentation are preserved. */
-const replaceTaskLineDescription = (
-  taskLine: string,
-  newDescription: string,
-): string => {
+const replaceTaskLineDescription = ({
+  taskLine,
+  newDescription,
+}: {
+  taskLine: string
+  newDescription: string
+}): string => {
   const parts = splitTaskLine(taskLine)
   if (!parts) return taskLine
   return joinTaskLine({ ...parts, description: newDescription })
 }
 
 /** Adds or replaces a `^block-id` at the end of a task line. */
-const assignBlockId = (taskLine: string, blockId: string): string => {
+const assignBlockId = ({
+  taskLine,
+  blockId,
+}: {
+  taskLine: string
+  blockId: string
+}): string => {
   const existingMatch = BLOCK_LINK_RE.exec(taskLine)
   if (existingMatch) {
     return `${taskLine.slice(0, existingMatch.index)} ^${blockId}`
@@ -985,18 +1048,40 @@ const buildTaskLine = (
     parts.push(formatPriority(params.priority, config.taskFormat))
   }
 
-  parts.push(formatDateField("created", params.created, config.taskFormat))
+  parts.push(
+    formatDateField({
+      field: "created",
+      date: params.created,
+      format: config.taskFormat,
+    }),
+  )
 
   if (params.start) {
-    parts.push(formatDateField("start", params.start, config.taskFormat))
+    parts.push(
+      formatDateField({
+        field: "start",
+        date: params.start,
+        format: config.taskFormat,
+      }),
+    )
   }
   if (params.scheduled) {
     parts.push(
-      formatDateField("scheduled", params.scheduled, config.taskFormat),
+      formatDateField({
+        field: "scheduled",
+        date: params.scheduled,
+        format: config.taskFormat,
+      }),
     )
   }
   if (params.due) {
-    parts.push(formatDateField("due", params.due, config.taskFormat))
+    parts.push(
+      formatDateField({
+        field: "due",
+        date: params.due,
+        format: config.taskFormat,
+      }),
+    )
   }
   if (params.taskId) {
     parts.push(formatTaskId(params.taskId, config.taskFormat))
@@ -1023,7 +1108,7 @@ const applyCompletionDate = (params: {
     if (!params.shouldStamp) return stripField(metadata, params.dateRegex)
     return params.dateRegex.test(metadata)
       ? metadata.replace(params.dateRegex, params.dateField)
-      : appendField(metadata, params.dateField)
+      : appendField({ metadata, fieldText: params.dateField })
   })
 }
 
@@ -1037,10 +1122,10 @@ const updateTaskLineStatus = (params: {
   today: string
   config: TaskFormatConfig
 }): string => {
-  const withNewCheckbox = replaceCheckboxChar(
-    params.taskLine,
-    charForStatus(params.newStatus),
-  )
+  const withNewCheckbox = replaceCheckboxChar({
+    taskLine: params.taskLine,
+    newChar: charForStatus(params.newStatus),
+  })
 
   const stripMetadataField = (taskLine: string, regex: RegExp): string =>
     mapMetadataTail(taskLine, (metadata) => stripField(metadata, regex))
@@ -1076,11 +1161,15 @@ const updateTaskLineStatus = (params: {
  *
  *  Insertion position: after the description, before the first metadata
  *  signifier. If no signifiers exist, before the block ID or at end. */
-const updateTaskLinePriority = (
-  taskLine: string,
-  newPriority: TaskPriority | null,
-  config: TaskFormatConfig,
-): string => {
+const updateTaskLinePriority = ({
+  taskLine,
+  newPriority,
+  config,
+}: {
+  taskLine: string
+  newPriority: TaskPriority | null
+  config: TaskFormatConfig
+}): string => {
   const parts = splitTaskLine(taskLine)
   if (!parts) return taskLine
   // Only the metadata tail can hold a priority field — a priority emoji
