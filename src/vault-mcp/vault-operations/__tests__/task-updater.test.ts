@@ -1597,6 +1597,37 @@ title: Tasks
       )
     })
 
+    it("reports both sides of a description change with the line's tags, matching the result description", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix bug 📅 2026-01-01 #urgent ^fix-bug\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "fix-bug",
+          description: "Fix crash",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "fix-bug",
+        path: "tasks.md",
+        line: 5,
+        description: "Fix crash #urgent",
+        changes: ["description: Fix bug #urgent → Fix crash #urgent"],
+      })
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix crash 📅 2026-01-01 #urgent ^fix-bug\n",
+      )
+    })
+
     it("appends add_subtasks after existing checklist items and reports the count before → after", async () => {
       const vault = await createVault()
       await writeTestNote(

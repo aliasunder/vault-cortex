@@ -684,11 +684,13 @@ const updateTask = async (
         mutatedLine,
         newDescription,
       )
+      // Both sides read the parser's view (tags re-appended), matching the
+      // result's `description`.
       changes.push(
         formatChange({
           field: "description",
           before: oldDescription,
-          after: newDescription,
+          after: tasks.describeTaskLine(mutatedLine),
         }),
       )
     }

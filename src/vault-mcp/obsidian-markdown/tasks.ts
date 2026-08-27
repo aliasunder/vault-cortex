@@ -628,18 +628,6 @@ const isTaskLine = (line: string): boolean => TASK_LINE_RE.test(line)
 const replaceCheckboxChar = (taskLine: string, newChar: string): string =>
   taskLine.replace(/\[.\]/, `[${newChar}]`)
 
-/** Inserts text just before the trailing `^block-id`, or at the end of
- *  the line if there's no block link. */
-const insertBeforeBlockId = (taskLine: string, text: string): string => {
-  const blockLinkMatch = BLOCK_LINK_RE.exec(taskLine)
-  if (!blockLinkMatch) return `${taskLine} ${text}`
-  // BLOCK_LINK_RE matches ` ^id` (leading space included), so insertAt
-  // points at the space. Insert ` text` before that space, keeping one
-  // space between the inserted text and the block link.
-  const insertAt = blockLinkMatch.index
-  return `${taskLine.slice(0, insertAt)} ${text}${taskLine.slice(insertAt)}`
-}
-
 /** Removes a matched regex from the line and collapses any resulting
  *  double spaces. Preserves leading indentation. */
 const stripField = (taskLine: string, regex: RegExp): string =>
@@ -762,50 +750,46 @@ const updateTaskLineDate = (params: {
   const fieldInfo = DATE_FIELD_INFO.find((entry) => entry.key === params.field)
   if (!fieldInfo) throw new Error(`unknown date field: ${params.field}`)
 
-  const stripped = stripField(params.taskLine, fieldInfo.inlineRegex)
-  if (params.date === null) return stripped
-
-  const dateText = formatDateField(
-    params.field,
-    params.date,
-    params.config.taskFormat,
-  )
-
-  // Insert before the first later date field in the ordering; when none is
-  // present, fall through to the task_id/depends_on check below.
+  // Later fields in the canonical order: the remaining dates, then
+  // task_id and depends_on — a new date is inserted ahead of the first one
+  // present so the line keeps the order the create path writes.
   const fieldIndex = DATE_FIELD_INFO.findIndex(
     (entry) => entry.key === params.field,
   )
-  const laterFields = DATE_FIELD_INFO.slice(fieldIndex + 1)
-  for (const laterField of laterFields) {
-    const laterMatch = laterField.inlineRegex.exec(stripped)
-    if (laterMatch) {
-      const insertAt = laterMatch.index
-      return `${stripped.slice(0, insertAt)}${dateText} ${stripped.slice(insertAt)}`
-    }
-  }
+  const laterFieldRegexes = [
+    ...DATE_FIELD_INFO.slice(fieldIndex + 1).map((entry) => entry.inlineRegex),
+    TASK_ID_INLINE_RE,
+    DEPENDS_ON_INLINE_RE,
+  ]
 
-  // Check for task_id/depends_on fields that follow dates in the canonical
-  // ordering — insert before them to preserve field sequence.
-  for (const nonDateRe of [TASK_ID_INLINE_RE, DEPENDS_ON_INLINE_RE]) {
-    const nonDateMatch = nonDateRe.exec(stripped)
-    if (nonDateMatch) {
-      return `${stripped.slice(0, nonDateMatch.index)}${dateText} ${stripped.slice(nonDateMatch.index)}`
-    }
-  }
-
-  return insertBeforeBlockId(stripped, dateText)
+  return mapMetadataTail(params.taskLine, (metadata) => {
+    const stripped = stripField(metadata, fieldInfo.inlineRegex)
+    if (params.date === null) return stripped
+    const dateText = formatDateField(
+      params.field,
+      params.date,
+      params.config.taskFormat,
+    )
+    return insertFieldBefore(stripped, dateText, laterFieldRegexes)
+  })
 }
 
-/** Sets or clears the Tasks-plugin `🆔` / `[id:: ]` field on a task line. */
+/** Sets or clears the Tasks-plugin `🆔` / `[id:: ]` field on a task line.
+ *  A new id goes ahead of an existing depends_on, matching the create order. */
 const updateTaskLineTaskId = (
   taskLine: string,
   taskId: string | null,
   config: TaskFormatConfig,
 ): string => {
-  const stripped = stripField(taskLine, TASK_ID_INLINE_RE)
-  if (taskId === null) return stripped
-  return insertBeforeBlockId(stripped, formatTaskId(taskId, config.taskFormat))
+  return mapMetadataTail(taskLine, (metadata) => {
+    const stripped = stripField(metadata, TASK_ID_INLINE_RE)
+    if (taskId === null) return stripped
+    return insertFieldBefore(
+      stripped,
+      formatTaskId(taskId, config.taskFormat),
+      [DEPENDS_ON_INLINE_RE],
+    )
+  })
 }
 
 /** Sets or clears the Tasks-plugin `⛔` / `[dependsOn:: ]` field. */
@@ -814,12 +798,11 @@ const updateTaskLineDependsOn = (
   dependsOn: readonly string[] | null,
   config: TaskFormatConfig,
 ): string => {
-  const stripped = stripField(taskLine, DEPENDS_ON_INLINE_RE)
-  if (dependsOn === null || dependsOn.length === 0) return stripped
-  return insertBeforeBlockId(
-    stripped,
-    formatDependsOn(dependsOn, config.taskFormat),
-  )
+  return mapMetadataTail(taskLine, (metadata) => {
+    const stripped = stripField(metadata, DEPENDS_ON_INLINE_RE)
+    if (dependsOn === null || dependsOn.length === 0) return stripped
+    return appendField(stripped, formatDependsOn(dependsOn, config.taskFormat))
+  })
 }
 
 /** Global twin of FIRST_METADATA_SIGNIFIER_RE for matchAll — kept separate
@@ -888,6 +871,39 @@ const joinTaskLine = ({
 }: TaskLineParts): string => {
   const body = [description.trim(), metadata.trim()].filter(Boolean).join(" ")
   return `${prefix}${body}${blockLink}`
+}
+
+/** Applies a field mutation to the metadata tail only — field-like text
+ *  inside the description ("Trip on 📅 2026-09-15, then relax") is prose to
+ *  the parser and must never be matched by a strip or replace. Returns the
+ *  line unchanged when it is not a task line. */
+const mapMetadataTail = (
+  taskLine: string,
+  transform: (metadata: string) => string,
+): string => {
+  const parts = splitTaskLine(taskLine)
+  if (!parts) return taskLine
+  return joinTaskLine({ ...parts, metadata: transform(parts.metadata) })
+}
+
+/** Appends a field to the end of a metadata tail. */
+const appendField = (metadata: string, fieldText: string): string =>
+  [metadata, fieldText].filter(Boolean).join(" ")
+
+/** Inserts a field ahead of the first later-ordered field present in the
+ *  metadata tail, or appends it when none of them is. */
+const insertFieldBefore = (
+  metadata: string,
+  fieldText: string,
+  laterFieldRegexes: readonly RegExp[],
+): string => {
+  for (const laterFieldRegex of laterFieldRegexes) {
+    const laterMatch = laterFieldRegex.exec(metadata)
+    if (laterMatch) {
+      return `${metadata.slice(0, laterMatch.index)}${fieldText} ${metadata.slice(laterMatch.index)}`
+    }
+  }
+  return appendField(metadata, fieldText)
 }
 
 /** The description the parser sees for a task line — metadata stripped
@@ -999,11 +1015,12 @@ const applyCompletionDate = (params: {
   dateField: string
   dateRegex: RegExp
 }): string => {
-  if (!params.shouldStamp) return stripField(params.taskLine, params.dateRegex)
-
-  return params.dateRegex.test(params.taskLine)
-    ? params.taskLine.replace(params.dateRegex, params.dateField)
-    : insertBeforeBlockId(params.taskLine, params.dateField)
+  return mapMetadataTail(params.taskLine, (metadata) => {
+    if (!params.shouldStamp) return stripField(metadata, params.dateRegex)
+    return params.dateRegex.test(metadata)
+      ? metadata.replace(params.dateRegex, params.dateField)
+      : appendField(metadata, params.dateField)
+  })
 }
 
 /** Updates the status-related fields of a task line: checkbox character
@@ -1021,9 +1038,12 @@ const updateTaskLineStatus = (params: {
     charForStatus(params.newStatus),
   )
 
+  const stripMetadataField = (taskLine: string, regex: RegExp): string =>
+    mapMetadataTail(taskLine, (metadata) => stripField(metadata, regex))
+
   if (params.newStatus === "done") {
     return applyCompletionDate({
-      taskLine: stripField(withNewCheckbox, CANCELLED_DATE_INLINE_RE),
+      taskLine: stripMetadataField(withNewCheckbox, CANCELLED_DATE_INLINE_RE),
       shouldStamp: params.config.setDoneDate,
       dateField: formatDoneDate(params.today, params.config.taskFormat),
       dateRegex: DONE_DATE_INLINE_RE,
@@ -1032,7 +1052,7 @@ const updateTaskLineStatus = (params: {
 
   if (params.newStatus === "cancelled") {
     return applyCompletionDate({
-      taskLine: stripField(withNewCheckbox, DONE_DATE_INLINE_RE),
+      taskLine: stripMetadataField(withNewCheckbox, DONE_DATE_INLINE_RE),
       shouldStamp: params.config.setCancelledDate,
       dateField: formatCancelledDate(params.today, params.config.taskFormat),
       dateRegex: CANCELLED_DATE_INLINE_RE,
@@ -1040,8 +1060,8 @@ const updateTaskLineStatus = (params: {
   }
 
   // todo / in_progress — strip both completion dates
-  return stripField(
-    stripField(withNewCheckbox, DONE_DATE_INLINE_RE),
+  return stripMetadataField(
+    stripMetadataField(withNewCheckbox, DONE_DATE_INLINE_RE),
     CANCELLED_DATE_INLINE_RE,
   )
 }

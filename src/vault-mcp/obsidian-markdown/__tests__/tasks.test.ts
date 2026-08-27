@@ -841,6 +841,19 @@ describe("task line mutations", () => {
   })
 
   describe("updateTaskLineStatus", () => {
+    it("un-completing strips only the real done date, never a date-like phrase in the description", () => {
+      const result = tasks.updateTaskLineStatus({
+        taskLine:
+          "- [x] Shipped ✅ 2026-07-01 in the notes ➕ 2026-07-01 ✅ 2026-07-12",
+        newStatus: "todo",
+        today: "2026-07-13",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] Shipped ✅ 2026-07-01 in the notes ➕ 2026-07-01",
+      )
+    })
+
     it("marks a todo task as done with a done date", () => {
       const result = tasks.updateTaskLineStatus({
         taskLine: "- [ ] Fix the bug ➕ 2026-07-01",
@@ -1387,6 +1400,33 @@ describe("task line mutations", () => {
   // ── updateTaskLineDate ────────────────────────────────────────
 
   describe("updateTaskLineDate", () => {
+    it("leaves a date-like phrase in the description alone when setting a due date", () => {
+      const line = "- [ ] Trip on 📅 2026-09-15, then relax ➕ 2026-08-01 ^trip"
+      const result = tasks.updateTaskLineDate({
+        taskLine: line,
+        field: "due",
+        date: "2026-09-20",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] Trip on 📅 2026-09-15, then relax ➕ 2026-08-01 📅 2026-09-20 ^trip",
+      )
+    })
+
+    it("clears only the real due date, never a date-like phrase in the description", () => {
+      const line =
+        "- [ ] Trip on 📅 2026-09-15, file taxes ➕ 2026-08-01 📅 2026-09-20 ^trip"
+      const result = tasks.updateTaskLineDate({
+        taskLine: line,
+        field: "due",
+        date: null,
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] Trip on 📅 2026-09-15, file taxes ➕ 2026-08-01 ^trip",
+      )
+    })
+
     it("sets a due date on a task without one (emoji)", () => {
       const line = "- [ ] My task ➕ 2026-08-01 ^my-task"
       const result = tasks.updateTaskLineDate({
@@ -1475,6 +1515,23 @@ describe("task line mutations", () => {
       const line = "- [ ] My task 🆔 abc123 ➕ 2026-08-01 ^my-task"
       const result = tasks.updateTaskLineTaskId(line, null, EMOJI_CONFIG)
       expect(result).toBe("- [ ] My task ➕ 2026-08-01 ^my-task")
+    })
+
+    it("inserts a new task ID ahead of an existing depends_on field", () => {
+      const line = "- [ ] My task ➕ 2026-08-01 ⛔ dep-a ^my-task"
+      const result = tasks.updateTaskLineTaskId(line, "abc123", EMOJI_CONFIG)
+      expect(result).toBe(
+        "- [ ] My task ➕ 2026-08-01 🆔 abc123 ⛔ dep-a ^my-task",
+      )
+    })
+
+    it("leaves an id-like phrase in the description alone", () => {
+      const line =
+        "- [ ] Ticket 🆔 old-ref in the description ➕ 2026-08-01 ^my-task"
+      const result = tasks.updateTaskLineTaskId(line, "abc123", EMOJI_CONFIG)
+      expect(result).toBe(
+        "- [ ] Ticket 🆔 old-ref in the description ➕ 2026-08-01 🆔 abc123 ^my-task",
+      )
     })
 
     it("sets a task ID (dataview format)", () => {
