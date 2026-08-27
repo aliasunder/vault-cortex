@@ -20,7 +20,7 @@ import { logger, type Logger } from "../../../../logger.js"
 // A captured registerPrompt(name, config, handler) call. The handler arity
 // varies: vault-orientation is (extra) =>, the others are (args, extra) =>.
 // Both params are optional so a single capture type covers both shapes.
-export type PromptConfig = {
+type PromptConfig = {
   title?: string
   description?: string
   argsSchema?: Record<string, unknown>
@@ -29,7 +29,7 @@ export type PromptResult = {
   messages: Array<{ role: string; content: { type: string; text: string } }>
 }
 export type PromptExtra = { requestId?: string }
-export type PromptHandler = (
+type PromptHandler = (
   argsOrExtra?: Record<string, unknown> | PromptExtra,
   extra?: PromptExtra,
 ) => Promise<PromptResult>
@@ -75,7 +75,7 @@ export const JUNE_16_MIDDAY_MS = DateTime.fromISO(
 
 // Indexed notes in distinct folders so folder derivation, tags, property
 // keys, and recent-notes all have something to surface.
-export const FIXTURE_NOTES: ReadonlyArray<{
+const FIXTURE_NOTES: ReadonlyArray<{
   path: string
   content: string
   mtime: number
@@ -92,9 +92,9 @@ export const FIXTURE_NOTES: ReadonlyArray<{
   },
 ]
 
-export const PRINCIPLES_MD = `---\ntitle: Principles\ntype: profile\ntags:\n  - memory\n  - principles\n---\n\n# Principles\n\n## Decision heuristics (newest first)\n- **2026-05-06**: Secrets invisible at every layer\n- **2026-04-22**: Earlier heuristic worth keeping\n`
+const PRINCIPLES_MD = `---\ntitle: Principles\ntype: profile\ntags:\n  - memory\n  - principles\n---\n\n# Principles\n\n## Decision heuristics (newest first)\n- **2026-05-06**: Secrets invisible at every layer\n- **2026-04-22**: Earlier heuristic worth keeping\n`
 
-export const OPINIONS_MD = `---\ntitle: Opinions\ntype: profile\ntags:\n  - memory\n  - opinions\n---\n\n# Opinions\n\n## Tools and workflows (newest first)\n- **2026-05-07**: Research current docs before configuring\n`
+const OPINIONS_MD = `---\ntitle: Opinions\ntype: profile\ntags:\n  - memory\n  - opinions\n---\n\n# Opinions\n\n## Tools and workflows (newest first)\n- **2026-05-07**: Research current docs before configuring\n`
 
 // ── Harnesses ───────────────────────────────────────────────────
 

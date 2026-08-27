@@ -18,11 +18,11 @@ export type PromptRegistrationContext = ToolAvailability & {
 
 /** Matches a positive integer with no leading zero — the wire format for the
  *  optional max_chars prompt argument (MCP prompt args arrive as strings). */
-export const POSITIVE_INT_REGEX = /^[1-9]\d*$/
+const POSITIVE_INT_REGEX = /^[1-9]\d*$/
 
 /** Shared description for the optional max_chars argument on content-embedding
  *  prompts. Omitted by default, which embeds the full content. */
-export const MAX_CHARS_DESCRIPTION =
+const MAX_CHARS_DESCRIPTION =
   "Optional cap on embedded content length (characters); omit for full content"
 
 /** Reusable Zod schema for the max_chars prompt argument — shared by

@@ -50,7 +50,7 @@ export type ToolName = (typeof TOOL_NAMES)[keyof typeof TOOL_NAMES]
 export type ToolGroup =
   "vault-crud" | "search" | "memory" | "daily-note" | "task" | "asset"
 
-export type ToolAnnotations = {
+type ToolAnnotations = {
   readOnlyHint: boolean
   destructiveHint: boolean
   idempotentHint: boolean

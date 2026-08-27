@@ -4,7 +4,7 @@ Vault Cortex is a remote MCP server that exposes an Obsidian vault over HTTPS
 via the Model Context Protocol. Any MCP client — Claude Desktop, Claude Code,
 Cursor, OpenCode — can read, write, and search your vault from anywhere.
 
-**Contents**
+## Contents
 
 - [Why This Exists](#why-this-exists)
 - [Capabilities](#capabilities)

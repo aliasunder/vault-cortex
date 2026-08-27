@@ -131,20 +131,28 @@ for localhost.
 - **`401`, or the client reports the token "has no expiration time" / "needs a JWT."**
   Do **not** build a JWT or switch to OAuth — the raw token is the correct format. The cause is one of:
   1. **Token mismatch** — the token in the client config isn't byte-for-byte equal to the one the container booted with. Compare them literally (watch for quotes/trailing whitespace in `.env`). Check what the container actually has:
+
      ```bash
      docker exec vault-cortex printenv MCP_AUTH_TOKEN
      ```
+
      If it differs from `.env`, you edited `.env` after starting — recreate: `docker compose up -d --force-recreate`.
+
   2. **Stale image** — you're running a build from before the static-token fix (v0.15.5). Refresh and recreate, then confirm the version:
+
      ```bash
      docker compose pull && docker compose up -d --force-recreate
      docker exec vault-cortex node -p "require('/app/package.json').version"   # must be >= 0.15.5
      ```
+
 - **`no matching manifest for linux/arm64/v8` (Apple Silicon).** You have an old single-arch image cached locally. Pull the current multi-arch `:latest`:
+
   ```bash
   docker compose pull && docker compose up -d --force-recreate
   ```
+
   If it persists, remove the stale image first: `docker rmi ghcr.io/aliasunder/vault-cortex:latest`, then pull again.
+
 - **healthz fails.** See the causes listed in Step 3.
 
 ## Managing the server
