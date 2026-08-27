@@ -487,20 +487,15 @@ type IndentEntry = {
   fileLine: number
 }
 
-/** Pops every stack entry at the same or deeper indent than a new list item —
- *  those are siblings or cousins of the item, not its ancestors. Mutates the
- *  stack: it is the extraction loop's sequential parser state. */
-const popClosedAncestors = (
-  indentStack: IndentEntry[],
+/** The open tasks that are ancestors of a new list item: every stack entry
+ *  at a shallower indent. Entries at the same or deeper indent are siblings or
+ *  cousins of the item, so they are dropped. Stack indents strictly increase,
+ *  so the ancestors are always a prefix of the stack. */
+const ancestorsOf = (
+  indentStack: readonly IndentEntry[],
   itemIndent: number,
-): void => {
-  while (indentStack.length > 0) {
-    const topEntry = indentStack.at(-1)
-    const topEntryIsAncestor =
-      topEntry !== undefined && topEntry.indent < itemIndent
-    if (topEntryIsAncestor) return
-    indentStack.pop()
-  }
+): readonly IndentEntry[] => {
+  return indentStack.filter((entry) => entry.indent < itemIndent)
 }
 
 const extractTasks = (rawContent: string): ParsedTask[] => {
@@ -513,10 +508,12 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
 
   // Indent stack for parent-child tracking:
   // - deeper indent than the stack top → the task is a child
-  // - equal or shallower (task or plain list item) → ancestors are popped
-  //   until the top is a parent
+  // - equal or shallower (task or plain list item) → the closed entries are
+  //   dropped until the top is a parent
   // - a heading clears the stack (children can't span headings)
-  const indentStack: IndentEntry[] = []
+  // Sequential parser state, like the fence and comment scans below — each
+  // step assigns a new stack, never mutates the current one.
+  let indentStack: readonly IndentEntry[] = []
 
   // Fence and comment scans are inherently sequential — both thread mutable
   // state across the loop (same pattern as classifyLines).
@@ -544,16 +541,16 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
       (heading) => heading.startLine === lineIndex,
     )
     if (lineStartsHeading) {
-      indentStack.length = 0
+      indentStack = []
     }
 
     const taskLineMatch = TASK_LINE_RE.exec(lineText)
     if (!taskLineMatch) {
       // A plain list item at a task's indent (or shallower) is that task's
       // sibling, so tasks nested under it belong to it, not to the earlier
-      // task — pop the ancestors it closes. It is never a parent itself.
+      // task — drop the entries it closes. It is never a parent itself.
       if (LIST_ITEM_RE.test(lineText)) {
-        popClosedAncestors(indentStack, getTaskIndent(lineText))
+        indentStack = ancestorsOf(indentStack, getTaskIndent(lineText))
       }
       continue
     }
@@ -573,13 +570,13 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
     )
 
     const taskIndent = getTaskIndent(lineText)
-    popClosedAncestors(indentStack, taskIndent)
-    const parentEntry = indentStack.at(-1)
-    const depth = indentStack.length
+    const ancestors = ancestorsOf(indentStack, taskIndent)
+    const parentEntry = ancestors.at(-1)
+    const depth = ancestors.length
     const parentLine = parentEntry?.fileLine ?? null
 
     const fileLine = bodyStartLine + lineIndex + 1
-    indentStack.push({ indent: taskIndent, fileLine })
+    indentStack = [...ancestors, { indent: taskIndent, fileLine }]
 
     extractedTasks.push({
       line: fileLine,
