@@ -611,6 +611,33 @@ describe("task errors", () => {
     expectToolError(result, "cannot move a sub-task to a heading")
   })
 
+  it("vault_create_task — description must be a single line", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/board.md",
+        description: "Line one\nLine two",
+        block_id: "two-line-card",
+        heading: "Active",
+      },
+    })
+    expectToolError(result, "description must be a single line")
+  })
+
+  it("vault_update_task — add_subtasks items must be a single line", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/board.md",
+        block_id: "board-active-1",
+        add_subtasks: ["Design", "Implement\nTest"],
+      },
+    })
+    expectToolError(result, "addSubtasks items must be a single line")
+  })
+
   it("vault_create_task with both parent_block_id and parent_line", async () => {
     const result = await callTool({
       client,

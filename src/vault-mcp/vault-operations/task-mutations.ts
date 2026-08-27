@@ -266,6 +266,11 @@ const assertTaskIdGrammar = ({
 }
 
 /** Validates a date string is a real calendar date. */
+/** Matches CR/LF anywhere in a string — a task is one file line, so a line
+ *  break in its text would split the metadata onto a line the parser never
+ *  reads as part of the task. */
+const TASK_TEXT_LINE_BREAK_PATTERN = /[\r\n]/
+
 const validateDate = (date: string, fieldName: string): void => {
   if (!DateTime.fromFormat(date, "yyyy-MM-dd").isValid) {
     throw new Error(`invalid date: ${fieldName} "${date}" (use YYYY-MM-DD)`)
@@ -327,6 +332,9 @@ const createTask = async (
   if (!description.trim()) {
     throw new Error("description is empty")
   }
+  if (TASK_TEXT_LINE_BREAK_PATTERN.test(description)) {
+    throw new Error("description must be a single line")
+  }
 
   // Validate dates
   if (due) validateDate(due, "due")
@@ -352,6 +360,13 @@ const createTask = async (
   assertTaskIdGrammar({ taskId, dependsOn })
   if (subtasks?.some((subtaskText) => !subtaskText.trim())) {
     throw new Error("subtasks cannot contain an empty item")
+  }
+  if (
+    subtasks?.some((subtaskText) =>
+      TASK_TEXT_LINE_BREAK_PATTERN.test(subtaskText),
+    )
+  ) {
+    throw new Error("subtasks items must be a single line")
   }
 
   const { fullPath } = await readNoteForUpdate(vaultPath, path)
@@ -612,12 +627,25 @@ const updateTask = async (
   if (newDescription !== undefined && !newDescription.trim()) {
     throw new Error("description cannot be empty")
   }
+  if (
+    newDescription !== undefined &&
+    TASK_TEXT_LINE_BREAK_PATTERN.test(newDescription)
+  ) {
+    throw new Error("description must be a single line")
+  }
 
   if (addSubtasks !== undefined && addSubtasks.length === 0) {
     throw new Error("addSubtasks cannot be empty")
   }
   if (addSubtasks?.some((subtaskText) => !subtaskText.trim())) {
     throw new Error("addSubtasks cannot contain an empty item")
+  }
+  if (
+    addSubtasks?.some((subtaskText) =>
+      TASK_TEXT_LINE_BREAK_PATTERN.test(subtaskText),
+    )
+  ) {
+    throw new Error("addSubtasks items must be a single line")
   }
 
   if (Array.isArray(dependsOn) && dependsOn.length === 0) {
@@ -670,14 +698,20 @@ const updateTask = async (
       throw new Error(`task line index ${taskLineIndex} out of bounds`)
     }
     const isKanbanBoard = Boolean(parsed.data["kanban-plugin"])
-    const isSubtask = tasks.getTaskIndent(originalTaskLine) > 0
     // Prior field values, so every `changes` entry can state before → after.
-    const [taskBefore] = tasks.extractTasks(originalTaskLine)
+    // Parsed from the whole note so `depth` counts task ancestors the way
+    // the index does — raw indentation would call a checklist item under a
+    // plain bullet a sub-task while the index lists it as top-level.
+    const taskFileLine = bodyStartLine + taskLineIndex + 1
+    const taskBefore = tasks
+      .extractTasks(fileContent)
+      .find((task) => task.line === taskFileLine)
     if (!taskBefore) {
       throw new Error(
         `task line index ${taskLineIndex} does not parse as a task`,
       )
     }
+    const isSubtask = taskBefore.depth > 0
 
     // A sub-task's placement is its parent's — an explicit heading has
     // nothing to move.

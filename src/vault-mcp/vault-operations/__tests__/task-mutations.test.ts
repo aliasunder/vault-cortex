@@ -132,6 +132,16 @@ kanban-plugin: board
 - [x] Old done
 `
 
+/** A checklist item indented under a non-task bullet: raw indent says
+ *  sub-task, the parser's depth (task ancestors only) says top-level. */
+const TASK_UNDER_PLAIN_BULLET = `## Active
+
+- Agenda
+  - [ ] Call dentist ^call-dentist
+
+## Done
+`
+
 const PRIORITY_NOTE = `---
 title: Priority
 ---
@@ -1231,6 +1241,45 @@ title: Tasks
       expect(content).toBe(SIMPLE_NOTE)
     })
 
+    it("errors when the description contains a line break", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Line one\nLine two",
+            blockId: "two-lines",
+          },
+          logger,
+        ),
+      ).rejects.toThrow("description must be a single line")
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(SIMPLE_NOTE)
+    })
+
+    it("errors when a subtasks item contains a line break", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Ship",
+            blockId: "ship",
+            subtasks: ["Design", "Implement\r\nTest"],
+          },
+          logger,
+        ),
+      ).rejects.toThrow("subtasks items must be a single line")
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(SIMPLE_NOTE)
+    })
+
     it("errors when depends_on is an empty array", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
@@ -1969,6 +2018,69 @@ title: Tasks
           logger,
         ),
       ).rejects.toThrow("addSubtasks cannot contain an empty item")
+    })
+
+    it("errors when the new description contains a line break", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "walk-dog",
+            description: "Walk the dog\nthen feed it",
+          },
+          logger,
+        ),
+      ).rejects.toThrow("description must be a single line")
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(SIMPLE_NOTE)
+    })
+
+    it("errors when an add_subtasks item contains a line break", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "walk-dog",
+            addSubtasks: ["Real stage", "Split\nstage"],
+          },
+          logger,
+        ),
+      ).rejects.toThrow("addSubtasks items must be a single line")
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(SIMPLE_NOTE)
+    })
+
+    it("moves a task nested under a plain bullet — top-level to the parser — to a heading", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "agenda.md", TASK_UNDER_PLAIN_BULLET)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "agenda.md",
+          blockId: "call-dentist",
+          heading: "Done",
+        },
+        logger,
+      )
+
+      expect(result.changes).toEqual(["heading: Active → Done"])
+      const content = await readTestNote(vault, "agenda.md")
+      expect(content).toBe(`## Active
+
+- Agenda
+
+## Done
+  - [ ] Call dentist ^call-dentist
+`)
     })
   })
 })

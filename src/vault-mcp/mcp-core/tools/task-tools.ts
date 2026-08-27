@@ -274,6 +274,7 @@ Errors:
 - "blockId ... already exists in this note" — pick a block_id not yet used in the note
 - "blockId ... contains invalid characters" — block_id must match [a-zA-Z0-9-]+
 - "description is empty" / "dependsOn cannot be empty" / "subtasks cannot contain an empty item" — whitespace-only description, an empty depends_on array, or a whitespace-only checklist item
+- "description must be a single line" / "subtasks items must be a single line" — a task is one file line; a line break in the text would split its metadata onto a line the parser never reads
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
 - "invalid date" — a date param fails calendar validation
 - "concurrent write in progress" — another write to this note is in flight; retry
@@ -489,13 +490,14 @@ Errors:
 - "blockId ... not found" — no task line in the note ends with ^block_id
 - "no task at line N" — line doesn't contain a task checkbox
 - "at least one mutation" — no change params provided
-- "cannot move a sub-task to a heading" — explicit heading on an indented task
+- "cannot move a sub-task to a heading" — explicit heading on a task nested under another task (depth > 0${whenToolEnabledText("vault_list_tasks", " in vault_list_tasks")})
 - "heading "X" not found; available: ..." — target heading doesn't exist; the error lists the note's headings
 - "multiple done lanes detected" — status "done" on a Kanban board with more than one **Complete**-marked lane; pass heading to pick the lane
 - "no done lane detected" — status "done" on a Kanban board with no **Complete** marker and no "Done" heading; pass heading explicitly
 - "blockId ... already exists" / "blockId ... contains invalid characters" — assign_block_id must be unique in the note and match [a-zA-Z0-9-]+
 - "invalid date" — a date param fails calendar validation
 - "description cannot be empty" / "dependsOn cannot be empty" / "addSubtasks cannot be empty" / "addSubtasks cannot contain an empty item" — whitespace-only text or an empty array (use null to clear depends_on)
+- "description must be a single line" / "addSubtasks items must be a single line" — a task is one file line; a line break in the text would split its metadata onto a line the parser never reads
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
 - "concurrent write in progress" — another write to this note is in flight; retry
 
