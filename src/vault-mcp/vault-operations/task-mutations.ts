@@ -133,25 +133,30 @@ const BLOCK_ID_RE = /^[a-zA-Z0-9-]+$/
 
 // ── Internal helpers ────────────────────────────────────────────
 
-/** Reads a note for task mutation, returning frontmatter + body lines. */
-const readNoteForUpdate = async (
-  vaultPath: string,
-  path: string,
-): Promise<{
-  fullPath: string
-  data: Record<string, unknown>
-  lines: string[]
-}> => {
+/** Resolves a note path for mutation — `.md` extension + vault-root safety.
+ *  No I/O: the note is read once, inside the file lock. */
+const resolveNotePath = ({
+  vaultPath,
+  path,
+}: {
+  vaultPath: string
+  path: string
+}): string => {
   assertPathHasExtension(path, ".md")
-  const fullPath = resolveSafePath(vaultPath, path)
+  return resolveSafePath(vaultPath, path)
+}
+
+/** Reads the note's raw content; a missing note surfaces as "note not found"
+ *  with the vault-relative path the caller passed. */
+const readNoteContent = async ({
+  fullPath,
+  path,
+}: {
+  fullPath: string
+  path: string
+}): Promise<string> => {
   try {
-    const fileContent = await readFile(fullPath, "utf8")
-    const parsed = parseNote(fileContent)
-    return {
-      fullPath,
-      data: parsed.data,
-      lines: splitIntoLines(parsed.content),
-    }
+    return await readFile(fullPath, "utf8")
   } catch (err) {
     if (isErrnoException(err, "ENOENT")) {
       throw new Error(`note not found: "${path}"`, { cause: err })
@@ -379,10 +384,10 @@ const createTask = async (
     throw new Error("subtasks items must be a single line")
   }
 
-  const { fullPath } = await readNoteForUpdate(vaultPath, path)
+  const fullPath = resolveNotePath({ vaultPath, path })
 
   return withExclusiveFileLock(fullPath, async () => {
-    const fileContent = await readFile(fullPath, "utf8")
+    const fileContent = await readNoteContent({ fullPath, path })
     const parsed = parseNote(fileContent)
     const bodyLines = splitIntoLines(parsed.content)
     const headings = parseHeadings(bodyLines)
@@ -663,12 +668,10 @@ const updateTask = async (
   }
   assertTaskIdGrammar({ taskId, dependsOn })
 
-  const { fullPath } = await readNoteForUpdate(vaultPath, path)
+  const fullPath = resolveNotePath({ vaultPath, path })
 
   return withExclusiveFileLock(fullPath, async () => {
-    // Re-read inside the lock to guard against changes between the
-    // initial read and lock acquisition
-    const fileContent = await readFile(fullPath, "utf8")
+    const fileContent = await readNoteContent({ fullPath, path })
     const parsed = parseNote(fileContent)
     const bodyLines = splitIntoLines(parsed.content)
     const headings = parseHeadings(bodyLines)
