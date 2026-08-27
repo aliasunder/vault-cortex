@@ -154,7 +154,7 @@ Group modules register through a gated wrapper that skips disabled names and inj
 
 `vault_patch_note` supports 4 operations: `append`, `prepend`, `replace`, `insert_before` — heading-targeted with optional file-level mode. A no-heading `prepend` whose content starts with a heading reports back when it nested pre-existing leading content inside that heading. `vault_replace_in_note` does exact text find-and-replace in the note body. `vault_delete_span`, `vault_replace_span`, and `vault_insert_at_anchor` form the anchor-targeted edit triad — each locates lines by short anchor substrings instead of exact text. `vault_delete_span` removes the matched span, `vault_replace_span` swaps it with new content, and `vault_insert_at_anchor` inserts content before or after the anchor line without removing it.
 
-`vault_delete_note` refuses paths under folders listed in `PROTECTED_PATHS` (default: the memory dir + the daily notes folder — `DAILY_NOTES_FOLDER` or `Daily Notes/`) as a server-side guardrail; use `vault_delete_memory` for individual entries in memory files. `vault_update_properties` merges properties without touching the body — sets new keys, overwrites matching keys, deletes keys set to `null`.
+`vault_delete_note` refuses paths under protected folders as a server-side guardrail. The default protected set is the memory dir plus the daily notes folder, read at operation time from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`). `PROTECTED_PATHS` overrides the default entirely. Use `vault_delete_memory` for individual entries in memory files. `vault_update_properties` merges properties without touching the body — sets new keys, overwrites matching keys, deletes keys set to `null`.
 
 `vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it, mirroring Obsidian's built-in rename:
 
@@ -296,22 +296,46 @@ The extension-to-representation routing above is implemented by the `vault-opera
 
 ### Tasks
 
-| Tool                | Input                                                                                                                                          | Annotation      |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, sort_by?, sort_direction?, limit?` | readOnlyHint    |
-| `vault_update_task` | `path, block_id?, line?, status?, priority?, lane?, format?`                                                                                   | destructiveHint |
+| Tool                | Input                                                                                                                                                                     | Annotation       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, top_level_only?, sort_by?, sort_direction?, limit?`           | readOnlyHint     |
+| `vault_create_task` | `path, description, block_id, heading?, parent_block_id?, parent_line?, priority?, due?, scheduled?, start?, task_id?, depends_on?, subtasks?, format?`                   | !destructiveHint |
+| `vault_update_task` | `path, block_id?, line?, status?, priority?, description?, due?, scheduled?, start?, created?, task_id?, depends_on?, add_subtasks?, assign_block_id?, heading?, format?` | destructiveHint  |
 
-A `tasks` table in the same SQLite database stores every checkbox task line, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a faithful reimplementation of the [Tasks plugin](https://publish.obsidian.md/tasks/)'s own parser (right-to-left signifier stripping; both emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats; status, all six dates, priority, recurrence, dependencies, inline tags, block IDs). Unlike the plugin (which reads one configured format per vault), both formats are recognized in the same pass, so mixed-format vaults index uniformly. Task lines inside fenced code blocks and `%% %%` comments are skipped — the parser threads the same fence and comment state machines used by heading and link extraction (`lines.ts`).
+A `tasks` table in the same SQLite database stores every checkbox task line, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a reimplementation of the [Tasks plugin](https://publish.obsidian.md/tasks/)'s own parser:
 
-Each row carries its full attribution: note path, full parent folder, nearest heading (the Kanban lane on a board), and 1-based file line number — so no follow-up reads are needed to locate a task. Rows are replaced per note inside `upsertNote`, deleted in `removeNote`, and wiped on rebuild — the same lifecycle as the FTS rows.
+- **Right-to-left signifier stripping** — status, all six dates, priority, recurrence, dependencies, inline tags, block IDs.
+- **Both formats in one pass** — emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields are recognized together (the plugin reads one configured format per vault), so mixed-format vaults index uniformly.
+- **Fences and comments skipped** — task lines inside fenced code blocks and `%% %%` comments are ignored; the parser threads the same fence and comment state machines as heading and link extraction (`lines.ts`).
+- **Sub-task depth** — an indent stack during extraction gives each task a `depth` (0 for top-level, 1+ for sub-tasks) and a `parent_block_id` (the parent's block_id, when it has one). Blockquote markers are stripped before measuring indent; a plain list item at a task's indent closes that task's sub-task scope (a task nested under a non-task bullet is top-level); depth resets at heading boundaries.
 
-`vault_list_tasks` queries the table with structured filters (status, six date fields — due, scheduled, start, created, done, cancelled — each with before/on/after bounds, priority, folder/tag/heading/path scoping) and eight sort keys (`due`, `scheduled`, `start`, `created`, `done`, `priority`, `note_mtime`, `position`). Three design choices shape the query surface:
+Each row carries its attribution — note path, full parent folder, 1-based file line number, and the nearest heading when the task sits under one (the Kanban lane on a board) — so no follow-up reads are needed to locate a task. Rows are replaced per note inside `upsertNote`, deleted in `removeNote`, and wiped on rebuild — the same lifecycle as the FTS rows.
+
+`vault_list_tasks` queries the table with structured filters and sort keys:
+
+- **Filters** — status; six date fields (due, scheduled, start, created, done, cancelled), each with before/on/after bounds; priority; folder, tag, heading, and path scoping; `top_level_only`, which excludes sub-tasks from board reads.
+- **Sort keys** — `due`, `scheduled`, `start`, `created`, `done`, `priority`, `note_mtime`, `position`.
+
+Three design choices shape the query surface:
 
 - **Array params for status and heading** — both accept `string | string[]`, OR-combined. This collapses multi-lane Kanban queries (e.g. Active + Up Next + Waiting On) into a single call instead of N sequential reads.
 - **Date cascade sorting** — when the primary sort date is absent on a task, actionable date sorts fall back through the remaining fields in urgency order (due → scheduled → start → created), each using its own natural direction. (`done`, a terminal-state date, stands alone.) Tasks with sparse dates sort usably instead of clustering at the end.
-- **Kanban awareness** — each task carries an `is_kanban_task` flag, derived via `json_extract` on the parent note's `kanban-plugin` frontmatter (no schema changes). When true, `heading` carries the lane name (also surfaced as a `lane` alias field), and `sort_by: "position"` (file path then line number) preserves the board's card arrangement as the sort order. A `done_lanes` field (populated at index time by scanning for the Kanban plugin's `**Complete**` marker between headings and list items) tells agents which lane(s) represent task completion.
+- **Kanban awareness** — each task carries an `is_kanban_task` flag, derived via `json_extract` on the parent note's `kanban-plugin` frontmatter (no schema changes). When true, `heading` carries the lane name, and `sort_by: "position"` (file path then line number) preserves the board's card arrangement as the sort order. A `done_lanes` field (populated at index time by scanning for the Kanban plugin's `**Complete**` marker between headings and list items) tells agents which lane(s) represent task completion.
 
-`vault_update_task` applies status, priority, and/or lane mutations in a single atomic read-modify-write under one exclusive file lock. Status changes toggle the checkbox character and manage done/cancelled dates. Priority changes insert, replace, or remove the emoji signifier at the correct position. Lane moves splice the task block (task line plus indented sub-items) from its current heading to the target heading's body. When `status: "done"` is set on a Kanban board without an explicit `lane`, the tool auto-detects the done lane — first checking for `**Complete**`-marked lanes, then falling back to a heading named "Done". The task line mutations are pure string transforms in `obsidian-markdown/tasks.ts`; the I/O orchestration lives in `vault-operations/task-updater.ts`.
+`vault_create_task` builds a task line (description, priority, dates, `task_id`, `depends_on`, `block_id`) plus optional checklist sub-item lines. The line builder is a pure string transform in `obsidian-markdown/tasks.ts`; the I/O orchestration lives in `vault-operations/task-mutations.ts`:
+
+- **Field ordering is guaranteed** — description → priority → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id.
+- **Always `[ ]`** — creating a task is not starting it.
+- **Placement** — a heading (required on Kanban boards), a parent task (for sub-tasks; mutually exclusive with a heading), or end-of-body.
+
+`vault_update_task` applies status, priority, description, dates, task_id, depends_on, block_id assignment, heading moves, and sub-task additions in one atomic read-modify-write under one exclusive file lock:
+
+- **Mutations compose** — every field passed is applied in the same write cycle; clearing a field is always an explicit `null`.
+- **Line splitting follows the parser** — the description is everything before the metadata tail, and a signifier only opens the tail when everything after it parses as fields (a priority emoji used as prose stays in the description). Description edits, priority changes, and the returned `description` all use that boundary.
+- **Status** — toggles the checkbox character and stamps or strips done/cancelled dates. `status: "done"` on a top-level Kanban task without an explicit `heading` auto-detects the done lane.
+- **Dates** — set or clear due, scheduled, start, and created at their position in the field ordering.
+- **Heading moves** — `heading` moves the task and its indented sub-items to another section; on a Kanban board that is a lane move, but any note with headings works. A sub-task (depth > 0) never moves: an explicit `heading` is rejected, and `status: "done"` changes its checkbox in place.
+- **`add_subtasks`** — appends checklist items under the task's existing ones.
 
 ## MCP Prompts
 

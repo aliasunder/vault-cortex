@@ -156,7 +156,8 @@ export const rowToMetadata = (row: NoteRow): NoteMetadata => ({
     : null,
 })
 
-/** Maps a tasks-table row to its wire shape: note_path becomes path, and the
+/** Maps a tasks-table row to its wire shape: note_path becomes path, NULL
+ *  metadata columns become undefined (omitted on serialization), and the
  *  JSON-encoded depends_on/tags columns are parsed back into arrays. */
 export const rowToTaskEntry = (row: TaskRow): TaskEntry => ({
   path: row.note_path,
@@ -164,26 +165,27 @@ export const rowToTaskEntry = (row: TaskRow): TaskEntry => ({
   status: row.status,
   status_char: row.status_char,
   description: row.description,
-  heading: row.heading,
+  heading: row.heading ?? undefined,
   folder: row.folder,
-  created: row.created,
-  scheduled: row.scheduled,
-  start: row.start,
-  due: row.due,
-  done: row.done,
-  cancelled: row.cancelled,
-  priority: row.priority,
-  recurrence: row.recurrence,
-  on_completion: row.on_completion,
-  task_id: row.task_id,
+  created: row.created ?? undefined,
+  scheduled: row.scheduled ?? undefined,
+  start: row.start ?? undefined,
+  due: row.due ?? undefined,
+  done: row.done ?? undefined,
+  cancelled: row.cancelled ?? undefined,
+  priority: row.priority ?? undefined,
+  recurrence: row.recurrence ?? undefined,
+  on_completion: row.on_completion ?? undefined,
+  task_id: row.task_id ?? undefined,
   depends_on: parseStringArray(row.depends_on),
   tags: parseStringArray(row.tags),
-  block_id: row.block_id,
+  block_id: row.block_id ?? undefined,
+  depth: row.depth,
+  parent_block_id: row.parent_block_id ?? undefined,
   is_kanban_task: Boolean(row.is_kanban_task),
-  lane: row.is_kanban_task ? row.heading : null,
   done_lanes: row.kanban_done_lanes
     ? parseStringArray(row.kanban_done_lanes)
-    : null,
+    : undefined,
 })
 
 /** Builds a SearchResult from a NoteRow and caller-provided snippet + score.

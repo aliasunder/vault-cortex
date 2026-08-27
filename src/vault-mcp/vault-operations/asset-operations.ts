@@ -426,7 +426,7 @@ const buildAssetListing = async (
 
 /** The asset operations surface — one namespace for the grouped read/browse
  *  functionality, matching the folder's operation modules (noteMover,
- *  vaultPatcher, taskUpdater). */
+ *  vaultPatcher, taskMutations). */
 export const assetOperations = {
   readAssetContent,
   buildAssetListing,

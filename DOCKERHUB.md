@@ -81,7 +81,7 @@ See [ARCHITECTURE.md → Files](https://github.com/aliasunder/vault-cortex/blob/
 ## Tools
 
 | Category | Tool | Description |
-| --------------- | ---------------------------- | -------------------------------------------------------------------------------------- |
+| --------------- | ---------------------------- | --------------------------------------------------------------------------------------- |
 | **Vault CRUD** | `vault_read_note` | Read a note — full body, properties, outline, or a section |
 |  | `vault_write_note` | Create a note (fails if it already exists; set `overwrite` to replace) |
 |  | `vault_patch_note` | Heading-targeted edit (append, prepend, replace with `include_children` guard, insert) |
@@ -97,8 +97,9 @@ See [ARCHITECTURE.md → Files](https://github.com/aliasunder/vault-cortex/blob/
 |  | `vault_search_by_folder` | Browse notes in a folder with metadata |
 |  | `vault_recent_notes` | Recently modified or created notes |
 |  | `vault_list_tags` | All tags with usage counts |
-| **Tasks** | `vault_list_tasks` | Vault-wide task index — Kanban-aware, 6 date fields, priority, folder/heading scope |
-|  | `vault_update_task` | One-call status, priority, and lane changes — auto-detects done lanes on Kanban boards |
+| **Tasks** | `vault_list_tasks` | Vault-wide task index with sub-task depth — Kanban-aware, date/priority/heading filters |
+|  | `vault_create_task` | Create a correctly-formatted task — dates, priority, sub-tasks, block_id in one call |
+|  | `vault_update_task` | Edit description, dates, status, priority, heading, sub-tasks, block_id in one call |
 | **Memory** | `vault_get_memory` | Read structured memory (file, section, or all) |
 |  | `vault_update_memory` | Append a dated entry to a memory section |
 |  | `vault_delete_memory` | Remove a specific memory entry by date |
@@ -165,7 +166,7 @@ All settings are environment variables with sensible defaults. Remote deployment
 | `READONLY_MODE` | — | `false` | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — connected clients can read and search but never edit. |
 | `DISABLED_TOOLS` | — | — | Hide individual tools by name, comma-separated (e.g. `vault_delete_note,vault_move_note`). Names match the Name column in the [tools table](https://github.com/aliasunder/vault-cortex#tools). Subtractive only — it cannot re-enable a tool another setting hides. An unknown tool name stops the server at startup, so typos surface immediately. |
 | `MEMORY_DIR` | — | `About Me` | Vault folder for structured memory files |
-| `PROTECTED_PATHS` | — | `MEMORY_DIR, DAILY_NOTES_FOLDER` | Folders that `vault_delete_note` refuses to touch |
+| `PROTECTED_PATHS` | — | `MEMORY_DIR`, daily notes folder | Folders that `vault_delete_note` and `vault_move_note` refuse to touch. The default daily notes folder is read from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`). Overrides the default entirely when set. |
 | `ORPHAN_EXCLUDE_FOLDERS` | — | `DAILY_NOTES_FOLDER, Templates, MEMORY_DIR` | Folders excluded from orphan detection |
 | `DAILY_NOTES_FOLDER` | — | from vault config | Sets the folder your daily notes live in. When unset, read from the vault's `.obsidian/daily-notes.json`, falling back to `Daily Notes`. See [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes). |
 | `DAILY_NOTES_FORMAT` | — | from vault config | Sets the daily note filename format — same tokens as Obsidian's daily note date format setting. When unset, read from the vault's `.obsidian/daily-notes.json`, falling back to `YYYY-MM-DD`. See [Daily notes](https://github.com/aliasunder/vault-cortex#daily-notes). |
