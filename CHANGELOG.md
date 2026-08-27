@@ -84,6 +84,21 @@
 
 
 
+
+## [0.43.0] — 2026-08-27
+
+### Features
+
+- Protect file-configured daily notes folder from deletion and moves (#497)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.42.1
+
+### Maintenance
+
+- Add knip and markdownlint-cli2 as pre-commit hooks (#496)
+
 ## [0.42.1] — 2026-08-25
 
 ### Features
