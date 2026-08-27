@@ -676,7 +676,7 @@ Example: vault_delete_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | A
 Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes from the start anchor line through the end anchor line.
 
 When to use: Removing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.
-Prefer vault_replace_in_note for small in-place edits (this tool only deletes). To replace a block, ${whenToolEnabledText("vault_replace_span", "prefer vault_replace_span (one atomic step); otherwise ")}delete it here, then vault_patch_note to add the new content.
+${whenToolEnabledText("vault_replace_in_note", "Prefer vault_replace_in_note for small in-place edits (this tool only deletes). ")}To replace a block, ${whenToolEnabledText("vault_replace_span", "prefer vault_replace_span (one atomic step); otherwise ")}delete it here${whenToolEnabledText("vault_patch_note", ", then vault_patch_note to add the new content")}.
 
 Parameters:
 - start_anchor + end_anchor define a line range, not a text range — each anchor locates a full line, and entire lines are removed (never cuts mid-line). Omit end_anchor for a single-line delete.
@@ -761,7 +761,7 @@ Example: vault_replace_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | 
 Example: vault_replace_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch", content: "> [!info] Current\\n> Updated for v2." }) — replaces the callout block with a new one.
 
 When to use: Replacing a block you have already read — a table row, callout, or run of list items — where reproducing it exactly as old_text would be error-prone. Pick a short, unique fragment of the first line for start_anchor and, for a multi-line block, the last line for end_anchor.
-Prefer vault_replace_in_note for small in-place text changes (typos, renaming).${whenToolEnabledText("vault_delete_span", " Prefer vault_delete_span when removing without replacement.")}
+${whenToolEnabledText("vault_replace_in_note", "Prefer vault_replace_in_note for small in-place text changes (typos, renaming).")}${whenToolEnabledText("vault_delete_span", " Prefer vault_delete_span when removing without replacement.")}
 
 Parameters:
 - start_anchor + end_anchor define a line range, not a text range — each anchor locates a full line, and entire lines are replaced (never cuts mid-line). Omit end_anchor for a single-line replace.
@@ -857,7 +857,7 @@ Example: vault_insert_at_anchor({ path: "Tracker.md", anchor: "| 2024-03-02 | Ac
 Example: vault_insert_at_anchor({ path: "Notes/Plan.md", anchor: "## Phase 2", position: "before", content: "> [!note] Phase 1 must close before this starts.\\n" }) — inserts a callout and a blank line above the Phase 2 heading.
 
 When to use: Adding content at a precise location identified by a nearby line's text, without needing to know the heading structure. Good for inserting rows into tables, adding items into lists at a specific position, or placing content relative to a known landmark line.
-Prefer vault_patch_note for heading-targeted inserts (append/prepend to a section).${whenToolEnabledText("vault_replace_span", " Prefer vault_replace_span when replacing a block rather than inserting next to it.")}
+${whenToolEnabledText("vault_patch_note", "Prefer vault_patch_note for heading-targeted inserts (append/prepend to a section).")}${whenToolEnabledText("vault_replace_span", " Prefer vault_replace_span when replacing a block rather than inserting next to it.")}
 
 Parameters:
 - anchor locates a full line — the content is inserted as whole lines before or after it (never splits a line).
