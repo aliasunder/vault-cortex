@@ -280,6 +280,20 @@ const validateDate = (date: string, fieldName: string): void => {
 type ParentLocator =
   { kind: "blockId"; blockId: string } | { kind: "line"; line: number }
 
+/** The parent locator a create call named, or undefined for a top-level task.
+ *  Callers reject the both-given case before this runs. */
+const parentLocatorFrom = ({
+  parentBlockId,
+  parentLine,
+}: {
+  parentBlockId: string | undefined
+  parentLine: number | undefined
+}): ParentLocator | undefined => {
+  if (parentBlockId) return { kind: "blockId", blockId: parentBlockId }
+  if (parentLine) return { kind: "line", line: parentLine }
+  return undefined
+}
+
 /** Returns the parent's body-line index; throws when the locator resolves to nothing or to a non-task line. */
 const findParentLineIndex = ({
   locator,
@@ -344,11 +358,7 @@ const createTask = async (
   if (parentBlockId && parentLine) {
     throw new Error("parentBlockId and parentLine are mutually exclusive")
   }
-  const parentLocator: ParentLocator | undefined = parentBlockId
-    ? { kind: "blockId", blockId: parentBlockId }
-    : parentLine
-      ? { kind: "line", line: parentLine }
-      : undefined
+  const parentLocator = parentLocatorFrom({ parentBlockId, parentLine })
   // A sub-task lives wherever its parent lives — a heading has nothing to
   // place, so a parent locator and a heading are exclusive.
   if (parentLocator && heading) {
@@ -946,15 +956,14 @@ const updateTask = async (
 
       // Match existing children's indent, or parent + 2 spaces
       const firstChildIndex = taskLineIndex + 1
-      let subtaskIndent: string
-      if (firstChildIndex < blockEnd) {
-        const firstChild = resultLines[firstChildIndex]
-        subtaskIndent = firstChild?.trim()
-          ? (firstChild.match(/^(\s*)/)?.[0] ?? " ".repeat(parentIndent + 2))
-          : " ".repeat(parentIndent + 2)
-      } else {
-        subtaskIndent = " ".repeat(parentIndent + 2)
-      }
+      const hasExistingChildren = firstChildIndex < blockEnd
+      const firstChild = hasExistingChildren
+        ? resultLines[firstChildIndex]
+        : undefined
+      const firstChildIndent = firstChild?.trim()
+        ? firstChild.match(/^(\s*)/)?.[0]
+        : undefined
+      const subtaskIndent = firstChildIndent ?? " ".repeat(parentIndent + 2)
 
       const subtaskLines = addSubtasks.map(
         (subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`,
