@@ -824,34 +824,96 @@ const updateTaskLineDependsOn = (
   )
 }
 
-/** Replaces the description text on a task line — everything between the
- *  checkbox and the first metadata signifier. Metadata fields, block_id,
- *  and indentation are preserved. */
+/** Global twin of FIRST_METADATA_SIGNIFIER_RE for matchAll — kept separate
+ *  so the non-global regex never carries a lastIndex. */
+const METADATA_SIGNIFIER_CANDIDATES_RE = new RegExp(
+  FIRST_METADATA_SIGNIFIER_RE.source,
+  "gu",
+)
+
+/** Index in a task body (checkbox prefix and block link removed) where the
+ *  metadata tail begins, or -1 when the whole body is description. A
+ *  signifier starts the tail only when everything after it parses as pure
+ *  metadata — the parser strips from the right, so an emoji mid-sentence
+ *  ("Prefer 🔼 arrows in docs 📅 2026-09-15") stays description. Tags
+ *  interleaved with fields are metadata-tail residents, not description. */
+const findMetadataStart = (taskBody: string): number => {
+  for (const candidate of taskBody.matchAll(METADATA_SIGNIFIER_CANDIDATES_RE)) {
+    const tail = parseTaskMetadata(taskBody.slice(candidate.index))
+    const tailDescription = tail.description.replace(HASHTAG_RE, "").trim()
+    if (tailDescription === "") return candidate.index
+  }
+  return -1
+}
+
+type TaskLineParts = {
+  /** Indentation, list marker, and checkbox, e.g. `  - [ ] `. */
+  prefix: string
+  description: string
+  /** Metadata fields from the first real signifier on; "" when none. */
+  metadata: string
+  /** Trailing block link including its leading space; "" when none. */
+  blockLink: string
+}
+
+/** Splits a task line at the parser's description/metadata boundary.
+ *  Returns null when the line is not a task line. */
+const splitTaskLine = (taskLine: string): TaskLineParts | null => {
+  const checkboxMatch = /^([\s\t>]*(?:[-*+]|[0-9]+[.)]) +\[.\] *)/.exec(
+    taskLine,
+  )
+  const prefix = checkboxMatch?.[1]
+  if (!prefix) return null
+  const afterCheckbox = taskLine.slice(prefix.length)
+  const blockLinkMatch = BLOCK_LINK_RE.exec(afterCheckbox)
+  const blockLink = blockLinkMatch?.[0] ?? ""
+  const taskBody = blockLinkMatch
+    ? afterCheckbox.slice(0, blockLinkMatch.index)
+    : afterCheckbox
+  const metadataStart = findMetadataStart(taskBody)
+  if (metadataStart === -1) {
+    return { prefix, description: taskBody.trim(), metadata: "", blockLink }
+  }
+  return {
+    prefix,
+    description: taskBody.slice(0, metadataStart).trim(),
+    metadata: taskBody.slice(metadataStart).trim(),
+    blockLink,
+  }
+}
+
+const joinTaskLine = ({
+  prefix,
+  description,
+  metadata,
+  blockLink,
+}: TaskLineParts): string => {
+  const body = [description.trim(), metadata.trim()].filter(Boolean).join(" ")
+  return `${prefix}${body}${blockLink}`
+}
+
+/** The description the parser sees for a task line — metadata stripped
+ *  from the right, interleaved tags re-appended, block link removed. */
+const describeTaskLine = (taskLine: string): string => {
+  const taskLineMatch = TASK_LINE_RE.exec(taskLine)
+  if (!taskLineMatch) return taskLine
+  const bodyWithBlockLink = matchedText(taskLineMatch, 2)
+  const blockLinkMatch = BLOCK_LINK_RE.exec(bodyWithBlockLink)
+  const taskBody = blockLinkMatch
+    ? bodyWithBlockLink.slice(0, blockLinkMatch.index)
+    : bodyWithBlockLink
+  return parseTaskMetadata(taskBody).description
+}
+
+/** Replaces the description text on a task line — everything before the
+ *  metadata tail. Metadata fields, block_id, and indentation are preserved. */
 const replaceTaskLineDescription = (
   taskLine: string,
   newDescription: string,
 ): string => {
-  const checkboxMatch = /^([\s\t>]*(?:[-*+]|[0-9]+[.)]) +\[.\] *)/.exec(
-    taskLine,
-  )
-  if (!checkboxMatch) return taskLine
-  const prefix = checkboxMatch[1]
-  if (!prefix) return taskLine
-  const afterCheckbox = taskLine.slice(prefix.length)
-
-  const signifierMatch = FIRST_METADATA_SIGNIFIER_RE.exec(afterCheckbox)
-  if (signifierMatch) {
-    const metadataStart = signifierMatch.index
-    return `${prefix}${newDescription} ${afterCheckbox.slice(metadataStart)}`
-  }
-
-  // No metadata signifiers — check for a trailing block link
-  const blockLinkMatch = BLOCK_LINK_RE.exec(afterCheckbox)
-  if (blockLinkMatch) {
-    return `${prefix}${newDescription}${afterCheckbox.slice(blockLinkMatch.index)}`
-  }
-
-  return `${prefix}${newDescription}`
+  const parts = splitTaskLine(taskLine)
+  if (!parts) return taskLine
+  return joinTaskLine({ ...parts, description: newDescription })
 }
 
 /** Adds or replaces a `^block-id` at the end of a task line. */
@@ -997,28 +1059,35 @@ const updateTaskLinePriority = (
   newPriority: TaskPriority | null,
   config: TaskFormatConfig,
 ): string => {
-  const hasExistingPriority = PRIORITY_INLINE_RE.test(taskLine)
+  const parts = splitTaskLine(taskLine)
+  if (!parts) return taskLine
+  // Only the metadata tail can hold a priority field — a priority emoji
+  // inside the description is prose to the parser and must be left alone.
+  const hasExistingPriority = PRIORITY_INLINE_RE.test(parts.metadata)
 
   if (!newPriority) {
     if (!hasExistingPriority) return taskLine
-    return stripField(taskLine, PRIORITY_INLINE_RE)
+    return joinTaskLine({
+      ...parts,
+      metadata: stripField(parts.metadata, PRIORITY_INLINE_RE),
+    })
   }
 
   const priorityField = formatPriority(newPriority, config.taskFormat)
 
   if (hasExistingPriority) {
-    return taskLine.replace(PRIORITY_INLINE_RE, priorityField)
+    return joinTaskLine({
+      ...parts,
+      metadata: parts.metadata.replace(PRIORITY_INLINE_RE, priorityField),
+    })
   }
 
-  // Insert before the first metadata signifier (emoji or inline field)
-  // so priority lands at the end of the description, before dates.
-  const signifierMatch = FIRST_METADATA_SIGNIFIER_RE.exec(taskLine)
-  if (signifierMatch) {
-    const insertAt = signifierMatch.index
-    return `${taskLine.slice(0, insertAt)}${priorityField} ${taskLine.slice(insertAt)}`
-  }
-
-  return insertBeforeBlockId(taskLine, priorityField)
+  // Priority leads the metadata tail — right after the description,
+  // before dates.
+  return joinTaskLine({
+    ...parts,
+    metadata: [priorityField, parts.metadata].filter(Boolean).join(" "),
+  })
 }
 
 /** Finds the 0-based line index of a task whose line ends with
@@ -1095,6 +1164,7 @@ export const tasks = {
   updateTaskLineTaskId,
   updateTaskLineDependsOn,
   replaceTaskLineDescription,
+  describeTaskLine,
   assignBlockId,
   getTaskIndent,
   buildTaskLine,
@@ -1102,7 +1172,6 @@ export const tasks = {
   findTaskByBlockId,
   findBodyStartLine,
   extractDoneLanes,
-  FIRST_METADATA_SIGNIFIER_RE,
   BLOCK_LINK_RE,
 }
 

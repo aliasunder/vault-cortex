@@ -429,7 +429,8 @@ describe("default config", () => {
         },
       })
       const allJson = JSON.parse(textContent(allResult))
-      const allCount = allJson.total
+      // board.md fixture: 3 cards + 2 checklist items under the in-progress card
+      expect(allJson.total).toBe(5)
 
       const topOnlyResult = await callTool({
         client,
@@ -443,13 +444,24 @@ describe("default config", () => {
       })
       const topOnlyJson = JSON.parse(textContent(topOnlyResult))
 
-      // Board has sub-tasks under the in-progress card — top_level_only
-      // should return fewer tasks than the unfiltered query
-      expect(topOnlyJson.total).toBeLessThan(allCount)
-      for (const task of topOnlyJson.tasks) {
-        expect(task.depth).toBe(0)
-        expect(task.is_kanban_task).toBe(true)
-      }
+      expect(topOnlyJson.total).toBe(3)
+      expect(
+        topOnlyJson.tasks.map(
+          (task: {
+            description: string
+            depth: number
+            is_kanban_task: boolean
+          }) => ({
+            description: task.description,
+            depth: task.depth,
+            is_kanban_task: task.is_kanban_task,
+          }),
+        ),
+      ).toEqual([
+        { description: "In-progress feature", depth: 0, is_kanban_task: true },
+        { description: "Planned work", depth: 0, is_kanban_task: true },
+        { description: "Shipped item", depth: 0, is_kanban_task: true },
+      ])
     })
 
     it("vault_update_task — description edit preserves metadata", async () => {

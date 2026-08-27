@@ -1264,6 +1264,48 @@ describe("task line mutations", () => {
       const result = tasks.replaceTaskLineDescription(line, "Still done")
       expect(result).toBe("- [x] Still done ✅ 2026-08-01 ^done")
     })
+
+    it("treats a signifier emoji inside the description as prose", () => {
+      const line = "- [ ] Prefer 🔼 arrows in docs 📅 2026-09-15 ^x"
+      const result = tasks.replaceTaskLineDescription(line, "Prefers arrows")
+      expect(result).toBe("- [ ] Prefers arrows 📅 2026-09-15 ^x")
+    })
+
+    it("keeps tags interleaved with metadata in the tail", () => {
+      const line = "- [ ] Fix bug 📅 2026-01-01 #urgent"
+      const result = tasks.replaceTaskLineDescription(line, "Fix crash")
+      expect(result).toBe("- [ ] Fix crash 📅 2026-01-01 #urgent")
+    })
+
+    it("replaces the whole body when a signifier emoji is followed by prose only", () => {
+      const line = "- [ ] Prefer 🔼 arrows"
+      const result = tasks.replaceTaskLineDescription(line, "Prefers arrows")
+      expect(result).toBe("- [ ] Prefers arrows")
+    })
+  })
+
+  // ── describeTaskLine ──────────────────────────────────────────
+
+  describe("describeTaskLine", () => {
+    it("returns the parser's description with a mid-line emoji intact", () => {
+      expect(
+        tasks.describeTaskLine(
+          "- [ ] Prefer 🔼 arrows in docs 📅 2026-09-15 ^x",
+        ),
+      ).toBe("Prefer 🔼 arrows in docs")
+    })
+
+    it("re-appends tags interleaved with metadata", () => {
+      expect(
+        tasks.describeTaskLine("- [ ] Fix bug 📅 2026-01-01 #urgent"),
+      ).toBe("Fix bug #urgent")
+    })
+
+    it("strips a bare block link with no metadata", () => {
+      expect(tasks.describeTaskLine("- [ ] Walk the dog ^walk-dog")).toBe(
+        "Walk the dog",
+      )
+    })
   })
 
   // ── assignBlockId ─────────────────────────────────────────────

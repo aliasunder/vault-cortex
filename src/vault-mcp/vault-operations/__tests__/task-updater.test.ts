@@ -1258,6 +1258,154 @@ title: Tasks
       )
     })
 
+    it("sets created with a corrected date", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ^my-task\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "my-task",
+          created: "2026-06-15",
+        },
+        logger,
+      )
+
+      expect(result.changes).toEqual(["created: 2026-06-15"])
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-06-15 ^my-task\n",
+      )
+    })
+
+    it("clears created with null", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ^my-task\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "my-task",
+          created: null,
+        },
+        logger,
+      )
+
+      expect(result.changes).toEqual(["created: removed"])
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Task ^my-task\n")
+    })
+
+    it("sets task_id after the dates", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ^my-task\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "my-task",
+          taskId: "abc123",
+        },
+        logger,
+      )
+
+      expect(result.changes).toEqual(["task_id: abc123"])
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 🆔 abc123 ^my-task\n",
+      )
+    })
+
+    it("clears task_id with null", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 🆔 abc123 ⛔ dep-a,dep-b ^my-task\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "my-task",
+          taskId: null,
+        },
+        logger,
+      )
+
+      expect(result.changes).toEqual(["task_id: removed"])
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ⛔ dep-a,dep-b ^my-task\n",
+      )
+    })
+
+    it("sets depends_on as a comma-joined id list", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ^my-task\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "my-task",
+          dependsOn: ["dep-a", "dep-b"],
+        },
+        logger,
+      )
+
+      expect(result.changes).toEqual(["depends_on: dep-a,dep-b"])
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ⛔ dep-a,dep-b ^my-task\n",
+      )
+    })
+
+    it("clears depends_on with null", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 🆔 abc123 ⛔ dep-a,dep-b ^my-task\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "my-task",
+          dependsOn: null,
+        },
+        logger,
+      )
+
+      expect(result.changes).toEqual(["depends_on: removed"])
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 🆔 abc123 ^my-task\n",
+      )
+    })
+
     it("adds a subtask to a parent task", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)

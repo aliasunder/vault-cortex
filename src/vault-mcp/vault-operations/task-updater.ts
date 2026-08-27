@@ -173,29 +173,6 @@ const detectDoneLane = (
   throw new Error("no done lane detected")
 }
 
-/** Extracts the human-readable description from a task line, stripping
- *  the checkbox prefix, trailing block_id, and metadata (both emoji and
- *  Dataview formats). */
-const extractDescription = (taskLine: string): string => {
-  const match = /\[.\] *(.*)$/.exec(taskLine)
-  if (!match) return taskLine
-  const body = match[1] ?? ""
-  // Strip block_id before metadata search — a bare `^id` with no metadata
-  // signifiers would otherwise bleed into the description.
-  const blockLinkMatch = tasks.BLOCK_LINK_RE.exec(body)
-  const bodyWithoutBlock = blockLinkMatch
-    ? body.slice(0, blockLinkMatch.index)
-    : body
-  const firstSignifier = bodyWithoutBlock.search(
-    tasks.FIRST_METADATA_SIGNIFIER_RE,
-  )
-  const description =
-    firstSignifier === -1
-      ? bodyWithoutBlock
-      : bodyWithoutBlock.slice(0, firstSignifier)
-  return description.trim()
-}
-
 /** Validates a block_id: grammar check + uniqueness within the note. */
 const validateBlockId = (
   blockId: string,
@@ -599,7 +576,7 @@ const updateTask = async (
 
     // 1. Description replacement
     if (newDescription !== undefined) {
-      const oldDescription = extractDescription(mutatedLine)
+      const oldDescription = tasks.describeTaskLine(mutatedLine)
       mutatedLine = tasks.replaceTaskLineDescription(
         mutatedLine,
         newDescription,
@@ -797,7 +774,7 @@ const updateTask = async (
     return {
       path,
       line: finalLine,
-      description: extractDescription(finalTaskLine),
+      description: tasks.describeTaskLine(finalTaskLine),
       block_id: finalBlockId,
       heading: finalHeading?.text,
       changes,
