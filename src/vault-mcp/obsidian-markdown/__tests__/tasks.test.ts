@@ -1072,6 +1072,24 @@ describe("task line mutations", () => {
       expect(result).toBe("- [ ] Bare task 🔺")
     })
 
+    it("inserts priority after a description that uses a priority emoji as prose", () => {
+      const result = tasks.updateTaskLinePriority(
+        "- [ ] Prefer 🔼 arrows in docs 📅 2026-09-15",
+        "high",
+        EMOJI_CONFIG,
+      )
+      expect(result).toBe("- [ ] Prefer 🔼 arrows in docs ⏫ 📅 2026-09-15")
+    })
+
+    it("removes only the metadata priority, leaving a prose emoji intact", () => {
+      const result = tasks.updateTaskLinePriority(
+        "- [ ] Prefer 🔼 arrows in docs ⏫ 📅 2026-09-15",
+        null,
+        EMOJI_CONFIG,
+      )
+      expect(result).toBe("- [ ] Prefer 🔼 arrows in docs 📅 2026-09-15")
+    })
+
     it("strips a Dataview priority field", () => {
       const result = tasks.updateTaskLinePriority(
         "- [ ] Task [priority:: high] [created:: 2026-07-01]",
