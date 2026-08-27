@@ -128,10 +128,9 @@ export type VaultConfig = Readonly<{
    *  Per-field precedence: env setting → daily-notes.json → fallback
    *  ("YYYY-MM-DD"). Set via DAILY_NOTES_FORMAT. */
   dailyNotesFormat?: string | undefined
-  /** When true, PROTECTED_PATHS was set explicitly — the user owns the list
-   *  and the dynamic daily-notes-folder enrichment is skipped. */
-  protectedPathsOverridden: boolean
-  protectedPaths: readonly string[]
+  /** PROTECTED_PATHS as the user set it; null when unset, in which case the
+   *  protected set (memory dir + daily notes folder) is resolved per call. */
+  protectedPathsOverride: readonly string[] | null
   orphanExcludeFolders: readonly string[]
   serviceDocumentationUrl: string
   /** When true, the embedding pipeline is active — notes are chunked, embedded
@@ -186,18 +185,17 @@ export const loadConfig = (
     ? validateDailyNotesFormat(dailyNotesFormatRaw)
     : undefined
 
-  // Smart defaults track the env-configured daily notes folder (the
-  // vault's daily-notes.json can't cascade here — config load is
-  // synchronous env parsing; the file is read lazily at call time).
-  const dailyNotesFolderOrDefault = dailyNotesFolder ?? "Daily Notes"
-
   const protectedPathsRaw = env.PROTECTED_PATHS?.trim()
-  const protectedPathsOverridden = Boolean(protectedPathsRaw)
-  const protectedPaths = protectedPathsRaw
+  const protectedPathsOverride = protectedPathsRaw
     ? splitCommaSeparatedValues(protectedPathsRaw).map((folder) =>
         vaultFolderName.parse(folder),
       )
-    : [memoryDir, dailyNotesFolderOrDefault]
+    : null
+
+  // The orphan default tracks the env-configured daily notes folder only
+  // (the vault's daily-notes.json can't cascade here — config load is
+  // synchronous env parsing; the file is read lazily at call time).
+  const dailyNotesFolderOrDefault = dailyNotesFolder ?? "Daily Notes"
 
   const orphanExcludeFolders = env.ORPHAN_EXCLUDE_FOLDERS?.trim()
     ? splitCommaSeparatedValues(env.ORPHAN_EXCLUDE_FOLDERS.trim()).map(
@@ -329,8 +327,7 @@ export const loadConfig = (
     memoryDir,
     dailyNotesFolder,
     dailyNotesFormat,
-    protectedPathsOverridden,
-    protectedPaths,
+    protectedPathsOverride,
     orphanExcludeFolders,
     serviceDocumentationUrl,
     embeddingEnabled,

@@ -35,37 +35,32 @@ const describeDisplacedLeadingContent = ({
   return `The ${bytes} bytes of pre-existing content above the note's first heading are now nested under the inserted heading. To add a section above the first heading without pulling existing content into it, use operation "insert_before" with heading "${firstHeading.text}" (H${firstHeading.level}).`
 }
 
-/** Enriches the static protectedPaths with the resolved daily notes folder
- *  (env → .obsidian/daily-notes.json → fallback) when PROTECTED_PATHS was
- *  not explicitly set. */
+/** The user's PROTECTED_PATHS when set; otherwise the memory dir plus the
+ *  daily notes folder resolved now (env → .obsidian/daily-notes.json →
+ *  fallback), so a folder configured only in the vault is protected too. */
 export const resolveEffectiveProtectedPaths = async (
   config: VaultConfig,
   vaultPath: string,
 ): Promise<readonly string[]> => {
-  if (config.protectedPathsOverridden) return config.protectedPaths
+  if (config.protectedPathsOverride) return config.protectedPathsOverride
 
   const dailyNotesConfig = await readDailyNotesConfig(vaultPath, {
     folder: config.dailyNotesFolder,
     format: config.dailyNotesFormat,
   })
   const dailyFolder = dailyNotesConfig.folder.trim()
-  if (!dailyFolder || config.protectedPaths.includes(dailyFolder)) {
-    return config.protectedPaths
-  }
-  return [...config.protectedPaths, dailyFolder]
+  return dailyFolder ? [config.memoryDir, dailyFolder] : [config.memoryDir]
 }
 
-/** Human-readable protected-path list for tool descriptions. Lists the
- *  statically configured paths and, when PROTECTED_PATHS was not overridden,
- *  notes that the resolved daily notes folder is also protected. */
+/** Protected-path list for tool descriptions — the daily notes folder is
+ *  named by its sources because it is resolved per call, not at startup. */
 const describeProtectedPaths = (config: VaultConfig): string => {
-  const staticList = config.protectedPaths
-    .map((protectedPath) => protectedPath + "/")
-    .join(", ")
-  const dailyNotesSuffix = config.protectedPathsOverridden
-    ? ""
-    : ", and the resolved daily notes folder (DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else Daily Notes) if not already listed"
-  return staticList + dailyNotesSuffix
+  if (config.protectedPathsOverride) {
+    return config.protectedPathsOverride
+      .map((protectedPath) => protectedPath + "/")
+      .join(", ")
+  }
+  return `${config.memoryDir}/ and the daily notes folder (DAILY_NOTES_FOLDER, else .obsidian/daily-notes.json, else Daily Notes)`
 }
 
 export const registerVaultCrudTools = ({
