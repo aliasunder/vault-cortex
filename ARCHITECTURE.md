@@ -136,19 +136,19 @@ Group modules register through a gated wrapper that skips disabled names and inj
 
 ### Vault read/write
 
-| Tool                      | Input                                                                             | Annotation      |
-| ------------------------- | --------------------------------------------------------------------------------- | --------------- |
-| `vault_read_note`         | `path, properties_only?, outline?, heading?, heading_level?, start_line?, limit?` | readOnlyHint    |
-| `vault_write_note`        | `path, body, properties?, overwrite?`                                             | destructiveHint |
-| `vault_patch_note`        | `path, operation, content, heading?, heading_level?, include_children?`           | destructiveHint |
-| `vault_replace_in_note`   | `path, old_text, new_text, replace_all_occurrences?`                              | destructiveHint |
-| `vault_delete_span`       | `path, start_anchor, end_anchor?, first_match?`                                   | destructiveHint |
-| `vault_replace_span`      | `path, start_anchor, end_anchor?, content, first_match?`                          | destructiveHint |
+| Tool                      | Input                                                                             | Annotation       |
+| ------------------------- | --------------------------------------------------------------------------------- | ---------------- |
+| `vault_read_note`         | `path, properties_only?, outline?, heading?, heading_level?, start_line?, limit?` | readOnlyHint     |
+| `vault_write_note`        | `path, body, properties?, overwrite?`                                             | destructiveHint  |
+| `vault_patch_note`        | `path, operation, content, heading?, heading_level?, include_children?`           | destructiveHint  |
+| `vault_replace_in_note`   | `path, old_text, new_text, replace_all_occurrences?`                              | destructiveHint  |
+| `vault_delete_span`       | `path, start_anchor, end_anchor?, first_match?`                                   | destructiveHint  |
+| `vault_replace_span`      | `path, start_anchor, end_anchor?, content, first_match?`                          | destructiveHint  |
 | `vault_insert_at_anchor`  | `path, anchor, position, content, first_match?`                                   | !destructiveHint |
-| `vault_list_notes`        | `folder?, glob?`                                                                  | readOnlyHint    |
-| `vault_delete_note`       | `path, prune_empty_folders?`                                                      | destructiveHint |
-| `vault_move_note`         | `old_path, new_path, prune_empty_folders?`                                        | destructiveHint |
-| `vault_update_properties` | `path, properties`                                                                | destructiveHint |
+| `vault_list_notes`        | `folder?, glob?`                                                                  | readOnlyHint     |
+| `vault_delete_note`       | `path, prune_empty_folders?`                                                      | destructiveHint  |
+| `vault_move_note`         | `old_path, new_path, prune_empty_folders?`                                        | destructiveHint  |
+| `vault_update_properties` | `path, properties`                                                                | destructiveHint  |
 
 `vault_read_note` returns full content by default; optional `properties_only`, `outline`, or `heading` (with `heading_level` to disambiguate) modes return just the properties, the structure, or a single section — cheap partial reads for large notes. `outline` returns an object `{ leading_callout?, leading_content?, headings }` — the heading tree, any top-of-file callout (a `> [!type]` block), and any remaining body text above the first heading (the callout's own lines excluded, so the two never overlap). `start_line` and `limit` page the delivered rendition (full body or a heading section) by line range — the same idiom as `vault_read_file` paging; not available for JSON modes (outline, properties_only).
 
