@@ -84,7 +84,8 @@ export type ParsedTask = Readonly<{
    *  structural indentation relative to ancestor task lines. */
   depth: number
   /** 1-based file line number of the parent task, or null for top-level
-   *  tasks. Used internally for index joins — consumers use parentBlockId. */
+   *  tasks. The index resolves it to the parent's block_id; the wire shape
+   *  never carries the line itself. */
   parentLine: number | null
 }>
 
@@ -454,11 +455,11 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
 
   const extractedTasks: ParsedTask[] = []
 
-  // Indent stack for parent-child tracking: each entry records the indent
-  // level, 1-based file line, and block_id of a task. When a task line has
-  // deeper indent than the stack top, it's a child; when it's equal or
-  // shallower, ancestors are popped until the stack correctly reflects the
-  // nesting. Headings reset the stack (children can't span headings).
+  // Indent stack for parent-child tracking — each entry is a task's indent
+  // level and 1-based file line:
+  // - deeper indent than the stack top → the task is a child
+  // - equal or shallower → ancestors are popped until the top is a parent
+  // - a heading clears the stack (children can't span headings)
   type IndentEntry = {
     indent: number
     fileLine: number
@@ -513,7 +514,6 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
       (heading) => heading.startLine < lineIndex,
     )
 
-    // Compute depth and parent via indent stack
     const taskIndent = getTaskIndent(lineText)
     // Pop ancestors that are at the same or deeper indent — they're siblings
     // or cousins, not parents
@@ -693,8 +693,6 @@ const formatDependsOn = (
 type DateFieldKey =
   "created" | "start" | "scheduled" | "due" | "done" | "cancelled"
 
-/** Lookup from field key to emoji signifier, Dataview key, and inline
- *  strip regex. Ordered by the Tasks-plugin field convention. */
 const DATE_FIELD_INFO: ReadonlyArray<{
   key: DateFieldKey
   emoji: string
@@ -773,8 +771,8 @@ const updateTaskLineDate = (params: {
     params.config.taskFormat,
   )
 
-  // Find the first field that comes AFTER this one in the ordering
-  // and insert before it. If none found, insert before block_id or at end.
+  // Insert before the first later date field in the ordering; when none is
+  // present, fall through to the task_id/depends_on check below.
   const fieldIndex = DATE_FIELD_INFO.findIndex(
     (entry) => entry.key === params.field,
   )
@@ -832,11 +830,11 @@ const METADATA_SIGNIFIER_CANDIDATES_RE = new RegExp(
 )
 
 /** Index in a task body (checkbox prefix and block link removed) where the
- *  metadata tail begins, or -1 when the whole body is description. A
- *  signifier starts the tail only when everything after it parses as pure
- *  metadata — the parser strips from the right, so an emoji mid-sentence
- *  ("Prefer 🔼 arrows in docs 📅 2026-09-15") stays description. Tags
- *  interleaved with fields are metadata-tail residents, not description. */
+ *  metadata tail begins, or -1 when the whole body is description.
+ *  - A signifier opens the tail only when everything after it parses as
+ *    metadata — the parser strips from the right, so an emoji mid-sentence
+ *    ("Prefer 🔼 arrows in docs 📅 2026-09-15") stays in the description.
+ *  - Tags interleaved with fields belong to the tail, not the description. */
 const findMetadataStart = (taskBody: string): number => {
   for (const candidate of taskBody.matchAll(METADATA_SIGNIFIER_CANDIDATES_RE)) {
     const tail = parseTaskMetadata(taskBody.slice(candidate.index))

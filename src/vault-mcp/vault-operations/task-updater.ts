@@ -1,9 +1,6 @@
-/** Task mutations — surgical task-line creation and editing within a note.
- *
- *  Handles task creation, status changes, priority changes, date field
- *  management, description edits, sub-task operations, block_id assignment,
- *  and Kanban lane moves — all as atomic read-modify-write cycles under
- *  exclusive file locks. */
+/** Task mutations — create a task line, or edit one in place (fields,
+ *  block_id, checklist sub-items, heading placement). Every operation is a
+ *  single atomic read-modify-write under an exclusive file lock. */
 
 import { readFile } from "node:fs/promises"
 import { DateTime } from "luxon"
@@ -304,13 +301,12 @@ const createTask = async (
         }
       }
 
-      // Determine indent from existing children or parent + 2 spaces
+      // Match existing children's indent, or parent + 2 spaces
       const parentLine = bodyLines[parentLineIndex]
       if (!parentLine) throw new Error("parent line out of bounds")
       const parentIndent = tasks.getTaskIndent(parentLine)
       const blockEnd = findTaskBlockEnd(resultLines, parentLineIndex)
 
-      // Check if there are existing children to match their indent
       const firstChildIndex = parentLineIndex + 1
       if (firstChildIndex < blockEnd) {
         const firstChild = bodyLines[firstChildIndex]
@@ -359,9 +355,9 @@ const createTask = async (
         "heading required for Kanban boards (note has kanban-plugin frontmatter)",
       )
     } else {
-      // Append to end of body
+      // Append to end of body — under the note's last heading, if any
       insertAt = resultLines.length
-      resolvedHeading = undefined
+      resolvedHeading = headings.at(-1)?.text
     }
 
     // Build the task line
@@ -420,10 +416,8 @@ const createTask = async (
 
 // ── updateTask ──────────────────────────────────────────────────
 
-/** Applies mutations to a task line within a single atomic
- *  read-modify-write cycle. Composes status, priority, description,
- *  dates, task_id, depends_on, assign_block_id, heading moves, and
- *  add_subtask — all in one write. */
+/** Applies every requested mutation to a task line in one atomic
+ *  read-modify-write cycle. */
 const updateTask = async (
   params: UpdateTaskParams,
   logger: Logger,
@@ -550,7 +544,8 @@ const updateTask = async (
     const isKanbanBoard = Boolean(parsed.data["kanban-plugin"])
     const isSubtask = tasks.getTaskIndent(originalTaskLine) > 0
 
-    // Sub-task guard: explicit heading on a sub-task is an error
+    // A sub-task's placement is its parent's — an explicit heading has
+    // nothing to move.
     if (targetHeadingParam && isSubtask) {
       throw new Error(
         "cannot move a sub-task to a heading — the parent's heading determines placement",
@@ -704,12 +699,12 @@ const updateTask = async (
           )
         }
 
-        // Insert after the **Complete** marker if present, otherwise
-        // at the heading's body start. The marker sits between the heading
-        // and the first list item — inserting before it would break
-        // done-lane detection on subsequent reads.
-        // Skip blank lines and the **Complete** marker if present —
-        // mirrors extractDoneLanes' scan: first non-blank line only.
+        // Insert after the **Complete** marker when the lane has one,
+        // otherwise at the heading's body start. The marker sits between
+        // the heading and the first list item — inserting before it would
+        // break done-lane detection on subsequent reads. Blank lines are
+        // skipped first, mirroring extractDoneLanes' scan (first non-blank
+        // line only).
         let insertAt = updatedTargetHeading.bodyStartLine
         for (
           let scanLine = insertAt;

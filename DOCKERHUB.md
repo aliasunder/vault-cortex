@@ -97,7 +97,7 @@ See [ARCHITECTURE.md → Files](https://github.com/aliasunder/vault-cortex/blob/
 |  | `vault_list_tags` | All tags with usage counts |
 | **Tasks** | `vault_list_tasks` | Vault-wide task index with sub-task depth — Kanban-aware, date/priority/heading filters |
 |  | `vault_create_task` | Create a correctly-formatted task — dates, priority, sub-tasks, block_id in one call |
-|  | `vault_update_task` | Edit description, dates, status, priority, heading, sub-tasks, block_id — all compose |
+|  | `vault_update_task` | Edit description, dates, status, priority, heading, sub-tasks, block_id in one call |
 | **Memory** | `vault_get_memory` | Read structured memory (file, section, or all) |
 |  | `vault_update_memory` | Append a dated entry to a memory section |
 |  | `vault_delete_memory` | Remove a specific memory entry by date |

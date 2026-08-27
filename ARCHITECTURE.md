@@ -311,7 +311,7 @@ Each row carries its attribution — note path, full parent folder, 1-based file
 
 `vault_list_tasks` queries the table with structured filters and sort keys:
 
-- **Filters** — status; six date fields (due, scheduled, start, created, done, cancelled), each with before/on/after bounds; priority; folder, tag, heading, and path scoping.
+- **Filters** — status; six date fields (due, scheduled, start, created, done, cancelled), each with before/on/after bounds; priority; folder, tag, heading, and path scoping; `top_level_only`, which excludes sub-tasks from board reads.
 - **Sort keys** — `due`, `scheduled`, `start`, `created`, `done`, `priority`, `note_mtime`, `position`.
 
 Three design choices shape the query surface:
@@ -320,7 +320,7 @@ Three design choices shape the query surface:
 - **Date cascade sorting** — when the primary sort date is absent on a task, actionable date sorts fall back through the remaining fields in urgency order (due → scheduled → start → created), each using its own natural direction. (`done`, a terminal-state date, stands alone.) Tasks with sparse dates sort usably instead of clustering at the end.
 - **Kanban awareness** — each task carries an `is_kanban_task` flag, derived via `json_extract` on the parent note's `kanban-plugin` frontmatter (no schema changes). When true, `heading` carries the lane name, and `sort_by: "position"` (file path then line number) preserves the board's card arrangement as the sort order. A `done_lanes` field (populated at index time by scanning for the Kanban plugin's `**Complete**` marker between headings and list items) tells agents which lane(s) represent task completion.
 
-`vault_create_task` builds one task line — description, priority, dates, `block_id`, and optional checklist sub-items — with the line builder as a pure string transform in `obsidian-markdown/tasks.ts` and the I/O orchestration in `vault-operations/task-updater.ts`:
+`vault_create_task` builds a task line (description, priority, dates, `task_id`, `depends_on`, `block_id`) plus optional checklist sub-item lines. The line builder is a pure string transform in `obsidian-markdown/tasks.ts`; the I/O orchestration lives in `vault-operations/task-updater.ts`:
 
 - **Field ordering is guaranteed** — description → priority → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id.
 - **Always `[ ]`** — creating a task is not starting it.
@@ -329,12 +329,11 @@ Three design choices shape the query surface:
 `vault_update_task` applies status, priority, description, dates, task_id, depends_on, block_id assignment, heading moves, and sub-task additions in one atomic read-modify-write under one exclusive file lock:
 
 - **Mutations compose** — every field passed is applied in the same write cycle; clearing a field is always an explicit `null`.
-- **Line splitting follows the parser** — the description is everything before the metadata tail, where a signifier only opens the tail when everything after it parses as fields (a priority emoji used as prose stays description). Description edits, priority changes, and the returned `description` all use that boundary.
+- **Line splitting follows the parser** — the description is everything before the metadata tail, and a signifier only opens the tail when everything after it parses as fields (a priority emoji used as prose stays in the description). Description edits, priority changes, and the returned `description` all use that boundary.
 - **Status** — toggles the checkbox character and stamps or strips done/cancelled dates. `status: "done"` on a top-level Kanban task without an explicit `heading` auto-detects the done lane.
 - **Dates** — set or clear due, scheduled, start, and created at their position in the field ordering.
-- **Heading moves** — `heading` moves the task and its indented sub-items to another section; on a Kanban board that is a lane move, but any note with headings works. A sub-task (indented, depth > 0) never moves — its checkbox changes in place.
+- **Heading moves** — `heading` moves the task and its indented sub-items to another section; on a Kanban board that is a lane move, but any note with headings works. A sub-task (depth > 0) never moves: an explicit `heading` is rejected, and `status: "done"` changes its checkbox in place.
 - **`add_subtask`** — appends a checklist item under the task.
-- **`top_level_only`** on `vault_list_tasks` excludes sub-tasks from board reads.
 
 ## MCP Prompts
 

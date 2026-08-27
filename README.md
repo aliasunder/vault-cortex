@@ -252,7 +252,8 @@ Task metadata lives in plain markdown — scattered across files, encoded in emo
 The task layer handles this so agents don't have to:
 
 - **Find** — filter by status, six date fields (due, scheduled, start, created, done, cancelled), priority, folder, or Kanban lane. Each result carries its note path, line number, and nearest heading when the task sits under one (the lane on a Kanban board) — no follow-up reads needed to locate a task
-- **Update** — complete, reprioritize, and move tasks between Kanban lanes in a single call. Marking a task done auto-detects the done lane and stamps the completion date; reversing it removes the date. All three changes can happen at once
+- **Create** — add a correctly-formatted task in one call: description, priority, dates, block_id, and checklist sub-items, placed under a heading or nested under a parent task
+- **Update** — complete, reprioritize, edit the text, set or clear dates, add checklist items, and move tasks between headings in a single call. Marking a task done auto-detects the done lane and stamps the completion date; reversing it removes the date
 - **Both formats** — whichever format you use, [Tasks plugin](https://publish.obsidian.md/tasks/) emoji signifiers or [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, the server reads both and writes in the format your Tasks plugin is configured for
 
 See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks) for the indexing model, date cascade sorting, and Kanban lane detection.
@@ -294,7 +295,7 @@ See [ARCHITECTURE.md → Files](./ARCHITECTURE.md#files) for the image pipeline 
 |                 | `vault_list_tags`            | All tags with usage counts                                                              |
 | **Tasks**       | `vault_list_tasks`           | Vault-wide task index with sub-task depth — Kanban-aware, date/priority/heading filters |
 |                 | `vault_create_task`          | Create a correctly-formatted task — dates, priority, sub-tasks, block_id in one call    |
-|                 | `vault_update_task`          | Edit description, dates, status, priority, heading, sub-tasks, block_id — all compose   |
+|                 | `vault_update_task`          | Edit description, dates, status, priority, heading, sub-tasks, block_id in one call     |
 | **Memory**      | `vault_get_memory`           | Read structured memory (file, section, or all)                                          |
 |                 | `vault_update_memory`        | Append a dated entry to a memory section                                                |
 |                 | `vault_delete_memory`        | Remove a specific memory entry by date                                                  |

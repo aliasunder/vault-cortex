@@ -863,6 +863,31 @@ title: Tasks
       )
     })
 
+    it("reports the last heading when appending to a note that has headings", async () => {
+      const vault = await createVault()
+      const noteWithHeadings = `---\ntitle: Notes\n---\n\n## Ideas\n\n- [ ] First idea\n\n## Later\n\n- [ ] Someday\n`
+      await writeTestNote(vault, "notes.md", noteWithHeadings)
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "notes.md",
+          description: "Appended",
+          blockId: "appended",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "notes.md",
+        line: 13,
+        description: "Appended",
+        block_id: "appended",
+        heading: "Later",
+        changes: [`created: ${today()}`],
+      })
+    })
+
     it("creates a task under a specific heading on a Kanban board", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_BOARD)
@@ -880,7 +905,7 @@ title: Tasks
 
       expect(result).toEqual({
         path: "board.md",
-        line: 12,
+        line: 13,
         description: "Board task",
         block_id: "board-task",
         heading: "Up Next",

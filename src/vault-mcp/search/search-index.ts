@@ -561,8 +561,8 @@ export const createSearchIndex = (
     db.exec(`ALTER TABLE notes ADD COLUMN kanban_done_lanes TEXT`)
   }
 
-  // Same idempotent migration for tasks: depth/parent tracking for sub-task
-  // awareness (vault_create_task / vault_update_task sub-task support).
+  // Same idempotent migration for tasks: depth/parent columns for sub-task
+  // tracking.
   const taskColumns = db
     .prepare<unknown[], { name: string }>(`PRAGMA table_info(tasks)`)
     .all()
