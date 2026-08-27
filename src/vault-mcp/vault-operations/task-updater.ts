@@ -178,7 +178,7 @@ const validateBlockId = (
 ): void => {
   if (!BLOCK_ID_RE.test(blockId)) {
     throw new Error(
-      `block_id "${blockId}" contains invalid characters (allowed: letters, digits, hyphens)`,
+      `blockId "${blockId}" contains invalid characters (allowed: letters, digits, hyphens)`,
     )
   }
   const existingIndex = bodyLines.findIndex(
@@ -186,7 +186,7 @@ const validateBlockId = (
       index !== excludeLineIndex && bodyLine.endsWith(` ^${blockId}`),
   )
   if (existingIndex !== -1) {
-    throw new Error(`block_id "${blockId}" already exists in this note`)
+    throw new Error(`blockId "${blockId}" already exists in this note`)
   }
 }
 
@@ -232,10 +232,10 @@ const createTask = async (
   // A sub-task lives wherever its parent lives — a heading has nothing to
   // place, so the two locators are exclusive in both parent_task forms.
   if (parentTask !== undefined && heading) {
-    throw new Error("parent_task and heading are mutually exclusive")
+    throw new Error("parentTask and heading are mutually exclusive")
   }
   if (dependsOn !== undefined && dependsOn.length === 0) {
-    throw new Error("depends_on cannot be empty")
+    throw new Error("dependsOn cannot be empty")
   }
   if (subtasks?.some((subtaskText) => !subtaskText.trim())) {
     throw new Error("subtasks cannot contain an empty item")
@@ -288,7 +288,7 @@ const createTask = async (
       if (typeof parentTask === "string") {
         const foundIndex = tasks.findTaskByBlockId(bodyLines, parentTask)
         if (foundIndex === null) {
-          throw new Error(`parent task not found: block_id "${parentTask}"`)
+          throw new Error(`parent task not found: blockId "${parentTask}"`)
         }
         parentLineIndex = foundIndex
       } else {
@@ -448,10 +448,10 @@ const updateTask = async (
   // Validation: exactly one identifier
   const identifierCount = (blockId ? 1 : 0) + (line ? 1 : 0)
   if (identifierCount === 0) {
-    throw new Error("exactly one of block_id or line is required")
+    throw new Error("exactly one of blockId or line is required")
   }
   if (identifierCount > 1) {
-    throw new Error("block_id and line are mutually exclusive")
+    throw new Error("blockId and line are mutually exclusive")
   }
 
   // Validation: at least one mutation
@@ -470,7 +470,7 @@ const updateTask = async (
     newBlockId !== undefined
   if (!hasMutation) {
     throw new Error(
-      "at least one mutation (status, priority, heading, description, due, scheduled, start, created, task_id, depends_on, add_subtasks, or assign_block_id) is required",
+      "at least one mutation (status, priority, heading, description, due, scheduled, start, created, taskId, dependsOn, addSubtasks, or assignBlockId) is required",
     )
   }
 
@@ -493,14 +493,14 @@ const updateTask = async (
   }
 
   if (addSubtasks !== undefined && addSubtasks.length === 0) {
-    throw new Error("add_subtasks cannot be empty")
+    throw new Error("addSubtasks cannot be empty")
   }
   if (addSubtasks?.some((subtaskText) => !subtaskText.trim())) {
-    throw new Error("add_subtasks cannot contain an empty item")
+    throw new Error("addSubtasks cannot contain an empty item")
   }
 
   if (Array.isArray(dependsOn) && dependsOn.length === 0) {
-    throw new Error("depends_on cannot be empty (use null to clear)")
+    throw new Error("dependsOn cannot be empty (use null to clear)")
   }
 
   const { fullPath } = await readNoteForUpdate(vaultPath, path)
@@ -522,14 +522,14 @@ const updateTask = async (
     if (blockId) {
       const foundIndex = tasks.findTaskByBlockId(bodyLines, blockId)
       if (foundIndex === null) {
-        throw new Error(`block_id "${blockId}" not found in "${path}"`)
+        throw new Error(`blockId "${blockId}" not found in "${path}"`)
       }
       taskLineIndex = foundIndex
     } else {
       // line is guaranteed defined here: the identifier validation
       // above ensures exactly one of blockId/line is set.
       if (!line) {
-        throw new Error("exactly one of block_id or line is required")
+        throw new Error("exactly one of blockId or line is required")
       }
       taskLineIndex = line - 1 - bodyStartLine
       const taskLineText = bodyLines[taskLineIndex]

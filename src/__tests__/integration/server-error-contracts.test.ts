@@ -460,7 +460,7 @@ describe("task errors", () => {
         status: "done",
       },
     })
-    expectToolError(result, 'block_id "nonexistent-block-id" not found')
+    expectToolError(result, 'blockId "nonexistent-block-id" not found')
   })
 
   it("vault_create_task with duplicate block_id", async () => {
@@ -474,7 +474,7 @@ describe("task errors", () => {
         heading: "Tasks",
       },
     })
-    expectToolError(result, 'block_id "alpha-task-1" already exists')
+    expectToolError(result, 'blockId "alpha-task-1" already exists')
   })
 
   it("vault_create_task with invalid block_id characters", async () => {
@@ -579,7 +579,7 @@ describe("task errors", () => {
         heading: "Up Next",
       },
     })
-    expectToolError(result, "parent_task and heading are mutually exclusive")
+    expectToolError(result, "parentTask and heading are mutually exclusive")
   })
 
   it("vault_update_task with neither block_id nor line", async () => {
@@ -588,7 +588,7 @@ describe("task errors", () => {
       name: "vault_update_task",
       args: { path: "Projects/alpha.md", status: "done" },
     })
-    expectToolError(result, "exactly one of block_id or line is required")
+    expectToolError(result, "exactly one of blockId or line is required")
   })
 
   it("vault_update_task with both block_id and line", async () => {
@@ -602,7 +602,7 @@ describe("task errors", () => {
         status: "done",
       },
     })
-    expectToolError(result, "block_id and line are mutually exclusive")
+    expectToolError(result, "blockId and line are mutually exclusive")
   })
 })
 

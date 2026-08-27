@@ -650,7 +650,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow('block_id "nonexistent" not found')
+      ).rejects.toThrow('blockId "nonexistent" not found')
     })
 
     it("throws when line does not contain a task", async () => {
@@ -726,7 +726,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("block_id and line are mutually exclusive")
+      ).rejects.toThrow("blockId and line are mutually exclusive")
     })
 
     it("no identifier provided is rejected", async () => {
@@ -738,7 +738,7 @@ title: Tasks
           { vaultPath: vault, path: "tasks.md", status: "done" },
           logger,
         ),
-      ).rejects.toThrow("exactly one of block_id or line is required")
+      ).rejects.toThrow("exactly one of blockId or line is required")
     })
 
     it("throws when no done lane exists for auto-completion", async () => {
@@ -1000,7 +1000,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow('block_id "walk-dog" already exists')
+      ).rejects.toThrow('blockId "walk-dog" already exists')
     })
 
     it("errors on invalid block_id characters", async () => {
@@ -1110,7 +1110,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("parent_task and heading are mutually exclusive")
+      ).rejects.toThrow("parentTask and heading are mutually exclusive")
     })
 
     it("errors when parent line number and heading are both provided", async () => {
@@ -1129,7 +1129,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("parent_task and heading are mutually exclusive")
+      ).rejects.toThrow("parentTask and heading are mutually exclusive")
       const content = await readTestNote(vault, "board.md")
       expect(content).toBe(KANBAN_BOARD)
     })
@@ -1169,7 +1169,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("depends_on cannot be empty")
+      ).rejects.toThrow("dependsOn cannot be empty")
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -1609,7 +1609,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("depends_on cannot be empty (use null to clear)")
+      ).rejects.toThrow("dependsOn cannot be empty (use null to clear)")
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -1747,7 +1747,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("add_subtasks cannot contain an empty item")
+      ).rejects.toThrow("addSubtasks cannot contain an empty item")
     })
   })
 })

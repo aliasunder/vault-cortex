@@ -268,11 +268,11 @@ Errors:
 - "note not found" — path does not exist
 - "heading required for Kanban boards" — kanban-plugin note without heading
 - "heading "X" not found; available: ..." — no heading matches; the error lists the note's headings
-- "parent task not found" — parent_task block_id or line doesn't resolve to a task
-- "parent_task and heading are mutually exclusive" — both provided (either parent_task form)
-- "block_id already exists" — collision with an existing block_id in the note
-- "block_id contains invalid characters" — not matching [a-zA-Z0-9-]+
-- "description is empty" / "depends_on cannot be empty" / "subtasks cannot contain an empty item" — whitespace-only description, an empty depends_on array, or a whitespace-only checklist item
+- "parent task not found" — parent_task doesn't resolve to a task (message names the blockId or line tried)
+- "parentTask and heading are mutually exclusive" — both parent_task and heading were passed; drop one
+- "blockId ... already exists in this note" — pick a block_id not yet used in the note
+- "blockId ... contains invalid characters" — block_id must match [a-zA-Z0-9-]+
+- "description is empty" / "dependsOn cannot be empty" / "subtasks cannot contain an empty item" — whitespace-only description, an empty depends_on array, or a whitespace-only checklist item
 - "invalid date" — a date param fails calendar validation
 - "concurrent write in progress" — another write to this note is in flight; retry
 
@@ -471,15 +471,15 @@ Parameters:
 
 Errors:
 - "note not found" — path does not exist
-- "exactly one of block_id or line is required" / "block_id and line are mutually exclusive" — identifier validation
-- "block_id not found" — no task line ends with ^block_id
+- "exactly one of blockId or line is required" / "blockId and line are mutually exclusive" — pass exactly one of block_id or line
+- "blockId ... not found" — no task line in the note ends with ^block_id
 - "no task at line N" — line doesn't contain a task checkbox
 - "at least one mutation" — no change params provided
 - "cannot move a sub-task to a heading" — explicit heading on an indented task
 - "heading "X" not found; available: ..." — target heading doesn't exist; the error lists the note's headings
-- "block_id already exists" / "block_id contains invalid characters" — assign_block_id validation
+- "blockId ... already exists" / "blockId ... contains invalid characters" — assign_block_id must be unique in the note and match [a-zA-Z0-9-]+
 - "invalid date" — a date param fails calendar validation
-- "description cannot be empty" / "depends_on cannot be empty" / "add_subtasks cannot be empty" / "add_subtasks cannot contain an empty item" — whitespace-only text or an empty array (use null to clear depends_on)
+- "description cannot be empty" / "dependsOn cannot be empty" / "addSubtasks cannot be empty" / "addSubtasks cannot contain an empty item" — whitespace-only text or an empty array (use null to clear depends_on)
 - "concurrent write in progress" — another write to this note is in flight; retry
 
 Returns: JSON { path, line, description, block_id, heading, changes } — line is the final 1-based position; description is the current text; block_id and heading reflect the task after the update (block_id is omitted when the task has none, heading when the task sits above the first heading); changes lists what was applied.`,
