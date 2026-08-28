@@ -1,0 +1,30 @@
+#!/command/with-contenv sh
+# Runs as root whenever svc-vault-mcp exits ($1 is its exit code). Its one
+# job: turn a completed /setup sign-in into a normal boot.
+#
+# The setup server exits after writing the Sync token file, and only a
+# fresh boot can run the init chain (s6-rc never re-runs a oneshot), so the
+# container stops and the restart policy boots it again. The exit code is
+# 1, not 0: Railway's default "On Failure" policy treats 0 as finished and
+# leaves the container down. In every other case — a crash in either mode,
+# a `docker stop` — this script does nothing and s6 handles the service as
+# usual.
+#
+# s6 kills a finish script after 5 s (its timeout-finish default): keep this
+# to the exit-code write and the halt.
+set -eu
+
+[ "${SETUP_MODE:-}" = 1 ] || exit 0
+
+TOKEN_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/obsidian-headless/auth_token"
+[ -s "$TOKEN_FILE" ] || exit 0
+
+# halt stops every service, which runs this script once more for the
+# service it just stopped — the marker keeps that second run a no-op.
+HALT_MARKER=/run/vault-cortex-setup-halting
+[ ! -e "$HALT_MARKER" ] || exit 0
+: > "$HALT_MARKER"
+
+echo "[vault-cortex] Setup complete — restarting the container to start Obsidian Sync."
+printf '%s' 1 > /run/s6-linux-init-container-results/exitcode
+exec /run/s6/basedir/bin/halt

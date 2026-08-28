@@ -94,6 +94,7 @@
     "chokidar": "5.0.0",
     "env-var": "7.5.0",
     "express": "5.2.1",
+    "express-rate-limit": "8.6.2",
     "gray-matter": "4.0.3",
     "luxon": "3.7.2",
     "pdfjs-dist": "6.2.108",

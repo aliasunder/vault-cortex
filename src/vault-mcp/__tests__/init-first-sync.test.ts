@@ -62,6 +62,8 @@ type GateRun = {
 type GateRunOptions = {
   /** One `ob sync` exit code per attempt; the last entry repeats. */
   syncOutcomes: number[]
+  /** Run with SETUP_MODE=1 published by init-check-auth. */
+  setupMode?: boolean
   vaultName?: string
   memoryDir?: string
   memoryEnabled?: string
@@ -182,6 +184,7 @@ const runGateScript = (options: GateRunOptions): GateRun => {
       VAULT_PATH: vaultPath,
       OB_CALL_LOG: callLogPath,
       OB_SYNC_OUTCOMES: outcomesPath,
+      ...(options.setupMode ? { SETUP_MODE: "1" } : {}),
       ...(options.vaultName === undefined
         ? {}
         : { VAULT_NAME: options.vaultName }),
@@ -209,6 +212,23 @@ const runGateScript = (options: GateRunOptions): GateRun => {
 }
 
 describe("init-first-sync gate script", () => {
+  it("skips the first sync in setup mode, before the vault directory check", () => {
+    // No vault directory: without setup mode the cd fails and the script
+    // exits 1, so the exit 0 proves the guard ran first.
+    const run = runGateScript({
+      syncOutcomes: [0],
+      setupMode: true,
+      vaultExists: false,
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stdout).toBe(
+      "[obsidian-sync] Setup mode — skipping the first sync.\n",
+    )
+    expect(run.stderr).toBe("")
+  })
+
   it("exits 0 after a single attempt when the first sync succeeds", () => {
     const run = runGateScript({ syncOutcomes: [0], vaultName: "Test" })
 

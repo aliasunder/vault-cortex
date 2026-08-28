@@ -27,6 +27,8 @@
 #                          a remote vault that has nothing in it yet
 #   OB_STUB_SYNC_CONFIG_ONLY=1 — one-shot `sync` delivers only .obsidian/
 #                          settings, no notes
+#   OB_STUB_LOGIN_FAIL=1 — `login` exits 2, the real client's exit code when
+#                          the API rejects the stored token
 #
 # Test-only verbs (not real ob commands) that stand in for what continuous
 # sync does to the record while the container runs:
@@ -70,7 +72,14 @@ forget_local_files() {
 }
 
 case "${1:-}" in
-  login | sync-setup | sync-config)
+  login)
+    if [ "${OB_STUB_LOGIN_FAIL:-}" = "1" ]; then
+      echo "Login failed: stub rejecting the stored token (OB_STUB_LOGIN_FAIL=1)" >&2
+      exit 2
+    fi
+    exit 0
+    ;;
+  sync-setup | sync-config)
     exit 0
     ;;
   sync-record)

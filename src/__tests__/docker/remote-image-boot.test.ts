@@ -28,7 +28,10 @@ import {
 } from "vitest"
 import { callTool, textContent } from "../integration/test-harness.js"
 import {
+  FAKE_OBSIDIAN_ACCOUNT,
+  FAKE_OBSIDIAN_API_PORT,
   assertImagePresent,
+  containerExitCode,
   containerLogs,
   countSyncStateFiles,
   createClient,
@@ -41,6 +44,9 @@ import {
   readContainerFile,
   runContainer,
   seedSyncState,
+  seedSyncToken,
+  startContainer,
+  startFakeObsidianApiInContainer,
   waitForHealthz,
   waitForStopped,
 } from "./docker-harness.js"
@@ -1031,5 +1037,325 @@ describe("remote image boot — safety checks in the init chain stop the contain
     // itself, but init-first-sync announces each attempt, so no attempt
     // line proves no sync was ever started.
     expect(logs).not.toContain("First sync (attempt")
+  })
+})
+
+/** Where the Sync client keeps its token in the single-volume layout. */
+const SYNC_TOKEN_FILE = "/persist/config/obsidian-headless/auth_token"
+
+/** Setup-mode scenarios run single-volume with a named volume, so the token
+ *  the /setup page writes lands under /persist/config and survives the
+ *  container's own restart. */
+const setupModeEnv = (): Record<string, string> => {
+  const { OBSIDIAN_AUTH_TOKEN: _omitted, ...envWithoutToken } = BASE_ENV
+  return {
+    ...envWithoutToken,
+    STORAGE_ROOT: "/persist",
+    RAILWAY_PUBLIC_DOMAIN: "ci.example.test",
+    OBSIDIAN_API_URL: `http://127.0.0.1:${FAKE_OBSIDIAN_API_PORT}`,
+  }
+}
+
+const postSetupForm = (
+  port: number,
+  fields: Record<string, string>,
+): Promise<Response> =>
+  fetch(`http://127.0.0.1:${port}/setup`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(fields),
+  })
+
+describe("remote image boot — setup mode (no Sync token anywhere)", () => {
+  const name = uniqueName("setup-mode")
+  const volume = `${name}-persist`
+  let handle: ContainerHandle | undefined
+  let port = 0
+
+  beforeAll(async () => {
+    handle = await runContainer({
+      name,
+      image: IMAGE,
+      env: setupModeEnv(),
+      volumes: [`${volume}:/persist`],
+      publishPort: true,
+    })
+    port = await publishedPort(name)
+    await waitForHealthz({ name, port, deadlineMs: BOOT_DEADLINE_MS })
+  })
+
+  afterAll(async () => {
+    await handle?.cleanup()
+  })
+
+  it("answers /healthz with the setup marker instead of the full server's body", async () => {
+    const response = await fetch(`http://127.0.0.1:${port}/healthz`)
+    expect(await response.json()).toEqual({ ok: true, mode: "setup" })
+  })
+
+  it("answers every other path 503 with the derived setup URL", async () => {
+    const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    })
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({
+      error: "setup required",
+      setup_url: "https://ci.example.test/setup",
+    })
+  })
+
+  it("publishes SETUP_MODE and skips every init step without calling the Sync client", async () => {
+    const setupMode = await readContainerFile({
+      name,
+      path: "/run/s6/container_environment/SETUP_MODE",
+    })
+    const obCallsLogged = await pathExistsInContainer({
+      name,
+      path: "/persist/config/ob-calls.log",
+    })
+    const logs = await containerLogs(name)
+    expect({ setupMode, obCallsLogged }).toEqual({
+      setupMode: "1",
+      obCallsLogged: false,
+    })
+    expect(logs).toContain(
+      "[vault-cortex] No Obsidian Sync token yet — starting in setup mode.",
+    )
+    expect(logs).toContain(
+      "[vault-cortex] Sign in at https://ci.example.test/setup — you will need your MCP_AUTH_TOKEN.",
+    )
+    expect(logs).toContain("[obsidian-sync] Setup mode — skipping login.")
+    expect(logs).toContain("[obsidian-sync] Setup mode — skipping vault setup.")
+    expect(logs).toContain(
+      "[obsidian-sync] Setup mode — skipping the first sync.",
+    )
+  })
+
+  it("keeps svc-obsidian-sync up (idle) so the setup page can be served", async () => {
+    const status = await execInContainer(name, [
+      "/command/s6-svstat",
+      "-o",
+      "up",
+      "/run/service/svc-obsidian-sync",
+    ])
+    expect(status.stdout.trim()).toBe("true")
+  })
+
+  it("serves the sign-in page and rejects a wrong MCP token without contacting Obsidian", async () => {
+    const page = await fetch(`http://127.0.0.1:${port}/setup`)
+    expect(page.status).toBe(200)
+    expect(await page.text()).toContain("<h1>Connect Obsidian Sync</h1>")
+
+    const rejected = await postSetupForm(port, {
+      token: "not-the-token",
+      email: FAKE_OBSIDIAN_ACCOUNT.email,
+      password: FAKE_OBSIDIAN_ACCOUNT.password,
+    })
+    expect(rejected.status).toBe(401)
+    expect(await rejected.text()).toContain(
+      "That MCP token does not match this server.",
+    )
+  })
+
+  describe("after signing in on /setup", () => {
+    let restartedPort = 0
+
+    beforeAll(async () => {
+      await startFakeObsidianApiInContainer({
+        name,
+        vaultName: BASE_ENV.VAULT_NAME,
+      })
+      const response = await postSetupForm(port, {
+        token: FAKE_MCP_TOKEN,
+        email: FAKE_OBSIDIAN_ACCOUNT.email,
+        password: FAKE_OBSIDIAN_ACCOUNT.password,
+      })
+      const html = await response.text()
+      if (!html.includes("<h1>Setup complete</h1>")) {
+        throw new Error(`setup did not complete:\n${html}`)
+      }
+      // The setup server exits, the finish script halts the container.
+      await waitForStopped({ name, deadlineMs: STOP_DEADLINE_MS })
+    }, 60_000)
+
+    it("stops the container with exit code 1 after announcing the restart", async () => {
+      const exitCode = await containerExitCode(name)
+      const logs = await containerLogs(name)
+      expect(exitCode).toBe(1)
+      expect(logs).toContain(
+        "[vault-cortex] Setup complete — restarting the container to start Obsidian Sync.",
+      )
+    })
+
+    describe("on the next boot", () => {
+      beforeAll(async () => {
+        await startContainer(name)
+        restartedPort = await publishedPort(name)
+        await waitForHealthz({
+          name,
+          port: restartedPort,
+          deadlineMs: BOOT_DEADLINE_MS,
+        })
+      })
+
+      it("finds the token on the volume, mode 600, and runs the full Sync sequence", async () => {
+        const token = await readContainerFile({ name, path: SYNC_TOKEN_FILE })
+        const mode = await execInContainer(name, [
+          "stat",
+          "-c",
+          "%a",
+          SYNC_TOKEN_FILE,
+        ])
+        const callLog = await readContainerFile({
+          name,
+          path: "/persist/config/ob-calls.log",
+        })
+        const logs = await containerLogs(name)
+        expect({ token, mode: mode.stdout.trim(), callLog }).toEqual({
+          token: FAKE_OBSIDIAN_ACCOUNT.token,
+          mode: "600",
+          callLog: callLogOf(1),
+        })
+        expect(logs).toContain(
+          "[obsidian-sync] Auth token found on the volume.",
+        )
+      })
+
+      it("answers /healthz as the full server and serves the synced note over MCP", async () => {
+        const response = await fetch(
+          `http://127.0.0.1:${restartedPort}/healthz`,
+        )
+        expect(await response.json()).toEqual({ ok: true })
+        expect(await readSyncedNoteOverMcp(restartedPort)).toBe(
+          REMOTE_BOOT_NOTE,
+        )
+      })
+
+      it("answers /setup with the already-configured page and refuses a second sign-in", async () => {
+        const page = await fetch(`http://127.0.0.1:${restartedPort}/setup`)
+        const post = await postSetupForm(restartedPort, {
+          token: FAKE_MCP_TOKEN,
+          email: FAKE_OBSIDIAN_ACCOUNT.email,
+          password: FAKE_OBSIDIAN_ACCOUNT.password,
+        })
+        expect(page.status).toBe(200)
+        expect(await page.text()).toContain("<h1>Already set up</h1>")
+        expect(post.status).toBe(404)
+      })
+    })
+  })
+})
+
+describe("remote image boot — token file on the volume rejected by the Sync client", () => {
+  // The device signed in through /setup on an earlier boot; now `ob login`
+  // rejects the stored token. The boot must keep the file and land in
+  // setup mode with the notice — never delete the token or crash-loop.
+  const name = uniqueName("stale-file-token")
+  const volume = `${name}-persist`
+  let handle: ContainerHandle | undefined
+  let port = 0
+
+  beforeAll(async () => {
+    await seedSyncToken({
+      image: IMAGE,
+      volume,
+      mountPath: "/persist/config",
+      token: "fake-stale-sync-token",
+    })
+    handle = await runContainer({
+      name,
+      image: IMAGE,
+      env: { ...setupModeEnv(), OB_STUB_LOGIN_FAIL: "1" },
+      volumes: [`${volume}:/persist`],
+      publishPort: true,
+    })
+    port = await publishedPort(name)
+    await waitForHealthz({ name, port, deadlineMs: BOOT_DEADLINE_MS })
+  })
+
+  afterAll(async () => {
+    await handle?.cleanup()
+  })
+
+  it("tries the login once, then boots into setup mode with the reason published", async () => {
+    const callLog = await readContainerFile({
+      name,
+      path: "/persist/config/ob-calls.log",
+    })
+    const setupReason = await readContainerFile({
+      name,
+      path: "/run/s6/container_environment/SETUP_REASON",
+    })
+    const health = await (
+      await fetch(`http://127.0.0.1:${port}/healthz`)
+    ).json()
+    const logs = await containerLogs(name)
+    expect({ callLog, setupReason, health }).toEqual({
+      callLog: "login\n",
+      setupReason: "login-failed",
+      health: { ok: true, mode: "setup" },
+    })
+    expect(logs).toContain("[obsidian-sync] Auth token found on the volume.")
+    expect(logs).toContain(
+      "[obsidian-sync] WARNING: the saved Obsidian Sync login was rejected — starting in setup mode.",
+    )
+  })
+
+  it("keeps the rejected token file and tells the user on the sign-in page", async () => {
+    const token = await readContainerFile({ name, path: SYNC_TOKEN_FILE })
+    const html = await (await fetch(`http://127.0.0.1:${port}/setup`)).text()
+    expect(token).toBe("fake-stale-sync-token")
+    expect(html).toContain("Your saved Obsidian login stopped working")
+  })
+})
+
+describe("remote image boot — env var token wins over a token file on the volume", () => {
+  const name = uniqueName("env-over-file")
+  const volume = `${name}-persist`
+  let handle: ContainerHandle | undefined
+
+  beforeAll(async () => {
+    await seedSyncToken({
+      image: IMAGE,
+      volume,
+      mountPath: "/persist/config",
+      token: "fake-file-token",
+    })
+    handle = await runContainer({
+      name,
+      image: IMAGE,
+      env: {
+        ...BASE_ENV,
+        STORAGE_ROOT: "/persist",
+        RAILWAY_PUBLIC_DOMAIN: "ci.example.test",
+      },
+      volumes: [`${volume}:/persist`],
+      publishPort: true,
+    })
+    const port = await publishedPort(name)
+    await waitForHealthz({ name, port, deadlineMs: BOOT_DEADLINE_MS })
+  })
+
+  afterAll(async () => {
+    await handle?.cleanup()
+  })
+
+  it("boots normally on the env var without entering setup mode", async () => {
+    const setupModePublished = await pathExistsInContainer({
+      name,
+      path: "/run/s6/container_environment/SETUP_MODE",
+    })
+    const callLog = await readContainerFile({
+      name,
+      path: "/persist/config/ob-calls.log",
+    })
+    const logs = await containerLogs(name)
+    expect({ setupModePublished, callLog }).toEqual({
+      setupModePublished: false,
+      callLog: callLogOf(1),
+    })
+    expect(logs).toContain("[obsidian-sync] Auth token present.")
   })
 })

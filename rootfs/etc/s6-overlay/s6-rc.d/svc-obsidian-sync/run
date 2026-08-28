@@ -3,6 +3,15 @@
 # Drops privileges to the obsidian user before exec-ing the sync process.
 set -e
 
+# Setup mode (no Sync token yet): hold the service "up" without running the
+# client, so svc-vault-mcp — which waits for this service to start — can
+# serve the /setup page. The container restarts into a normal boot once the
+# page has written the token.
+if [ "${SETUP_MODE:-}" = 1 ]; then
+  echo "[obsidian-sync] Setup mode — Obsidian Sync starts after you sign in at ${PUBLIC_URL:-http://<your-server>:${PORT:-8000}}/setup."
+  exec sleep infinity
+fi
+
 VAULT_PATH="${VAULT_PATH:-/vault}"
 if [ ! -d "$VAULT_PATH" ]; then
   echo "[obsidian-sync] ERROR: VAULT_PATH='$VAULT_PATH' does not exist. Ensure the volume is mounted." >&2

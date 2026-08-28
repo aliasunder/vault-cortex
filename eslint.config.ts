@@ -140,6 +140,7 @@ export default defineConfig(
                 "**/search/**",
                 "**/mcp-core/**",
                 "**/oauth/**",
+                "**/setup/**",
                 "**/utils/**",
                 "**/logger.js",
               ],
@@ -195,10 +196,15 @@ export default defineConfig(
         {
           patterns: [
             {
-              group: ["**/search/**", "**/mcp-core/**", "**/oauth/**"],
+              group: [
+                "**/search/**",
+                "**/mcp-core/**",
+                "**/oauth/**",
+                "**/setup/**",
+              ],
               allowTypeImports: true,
               message:
-                "vault-operations/ builds on parsers and utils only — no runtime imports of search/, mcp-core/, or oauth/ (AGENTS.md → Module layering)",
+                "vault-operations/ builds on parsers and utils only — no runtime imports of search/, mcp-core/, oauth/, or setup/ (AGENTS.md → Module layering)",
             },
           ],
         },
@@ -220,6 +226,7 @@ export default defineConfig(
                 "**/vault-operations/**",
                 "**/mcp-core/**",
                 "**/oauth/**",
+                "**/setup/**",
               ],
               allowTypeImports: true,
               message:

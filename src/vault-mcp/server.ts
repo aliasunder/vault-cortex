@@ -12,6 +12,7 @@ import { startFileWatcher } from "./search/file-watcher.js"
 import { createOAuthProvider } from "./oauth/oauth-provider.js"
 import { createOAuthRoutes } from "./oauth/oauth-routes.js"
 import { createMcpRouter } from "./mcp-core/mcp-router.js"
+import { renderSetupPage } from "./setup/setup-page.js"
 import { loadConfig } from "./config.js"
 import type { VaultConfig } from "./config.js"
 import { logger } from "../logger.js"
@@ -142,6 +143,13 @@ const startServer = async (): Promise<void> => {
 
   app.get("/healthz", (_req: Request, res: Response) => {
     res.json({ ok: true })
+  })
+
+  // The :remote image serves the Sync sign-in page here while it has no
+  // token (setup/setup-server.ts); once configured, the same address says so
+  // instead of 404ing on a link from that flow or a guide.
+  app.get("/setup", (_req: Request, res: Response) => {
+    res.type("html").send(renderSetupPage({ kind: "configured" }))
   })
 
   app.use(

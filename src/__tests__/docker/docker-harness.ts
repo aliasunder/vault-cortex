@@ -239,6 +239,138 @@ export const seedSyncState = async ({
   ])
 }
 
+/** Seed a named config volume with a Sync token file at the path the Sync
+ *  client reads (`<config home>/obsidian-headless/auth_token`) — how a
+ *  scenario fakes a device whose token came from the /setup page on an
+ *  earlier boot. Runs `node` from the image under test with the entrypoint
+ *  bypassed. */
+export const seedSyncToken = async ({
+  image,
+  volume,
+  mountPath,
+  token,
+}: {
+  image: string
+  volume: string
+  /** Where the volume is mounted for the seeding run. */
+  mountPath: string
+  token: string
+}): Promise<void> => {
+  await dockerOrThrow([
+    "run",
+    "--rm",
+    "--pull=never",
+    "--entrypoint",
+    "node",
+    "-v",
+    `${volume}:${mountPath}`,
+    image,
+    "--no-warnings",
+    "-e",
+    `
+      const { mkdirSync, writeFileSync } = require("node:fs")
+      const { join } = require("node:path")
+      const tokenDir = join(process.argv[1], "obsidian-headless")
+      mkdirSync(tokenDir, { recursive: true, mode: 0o700 })
+      writeFileSync(join(tokenDir, "auth_token"), process.argv[2], { mode: 0o600 })
+    `,
+    mountPath,
+    token,
+  ])
+}
+
+/** Port the in-container stand-in for api.obsidian.md listens on; the
+ *  setup-mode scenarios point OBSIDIAN_API_URL at it. */
+export const FAKE_OBSIDIAN_API_PORT = 9797
+
+/** Credentials the stand-in accepts, and the token it hands out. Deliberately
+ *  low-entropy so secret scanners never flag them. */
+export const FAKE_OBSIDIAN_ACCOUNT = {
+  email: "ci@example.test",
+  password: "ci-password",
+  token: "fake-sync-token-from-setup-page",
+  name: "CI User",
+}
+
+/** Node one-liner for the stand-in: /user/signin answers the fake account's
+ *  token, /vault/list answers one unencrypted vault named by argv[1]. */
+const FAKE_OBSIDIAN_API_SCRIPT = `
+  const http = require("node:http")
+  const vaultName = process.argv[1]
+  const account = JSON.parse(process.argv[2])
+  http.createServer((request, response) => {
+    let body = ""
+    request.on("data", (chunk) => { body += chunk })
+    request.on("end", () => {
+      const parsed = JSON.parse(body || "{}")
+      response.setHeader("content-type", "application/json")
+      if (request.url === "/user/signin") {
+        const accepted = parsed.email === account.email && parsed.password === account.password
+        response.end(JSON.stringify(accepted
+          ? { token: account.token, name: account.name, email: account.email }
+          : { error: "Invalid email or password" }))
+        return
+      }
+      if (request.url === "/vault/list") {
+        response.end(JSON.stringify({ vaults: [{ id: "v1", name: vaultName, password: "srv" }], shared: [] }))
+        return
+      }
+      response.statusCode = 404
+      response.end("{}")
+    })
+  }).listen(${FAKE_OBSIDIAN_API_PORT}, "127.0.0.1")
+`
+
+/** Start the api.obsidian.md stand-in inside the container (detached) and
+ *  wait until it answers, so the setup server's sign-in call has somewhere
+ *  to go without any host networking assumptions. */
+export const startFakeObsidianApiInContainer = async ({
+  name,
+  vaultName,
+}: {
+  name: string
+  vaultName: string
+}): Promise<void> => {
+  await dockerOrThrow([
+    "exec",
+    "-d",
+    "--user",
+    "obsidian",
+    name,
+    "node",
+    "--no-warnings",
+    "-e",
+    FAKE_OBSIDIAN_API_SCRIPT,
+    vaultName,
+    JSON.stringify(FAKE_OBSIDIAN_ACCOUNT),
+  ])
+  const probeScript = `fetch("http://127.0.0.1:${FAKE_OBSIDIAN_API_PORT}/vault/list", { method: "POST", body: "{}" }).then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))`
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const probe = await execInContainer(name, ["node", "-e", probeScript])
+    if (probe.code === 0) return
+    await sleep(250)
+  }
+  throw new Error(`fake Obsidian API in ${name} did not start`)
+}
+
+/** The exit code Docker recorded for a stopped container. */
+export const containerExitCode = async (name: string): Promise<number> => {
+  const output = await dockerOrThrow([
+    "inspect",
+    "-f",
+    "{{.State.ExitCode}}",
+    name,
+  ])
+  return Number(output.trim())
+}
+
+/** `docker start` on a stopped container — the same container, the same
+ *  volumes, a fresh boot; how the tests stand in for a platform's restart
+ *  policy. */
+export const startContainer = async (name: string): Promise<void> => {
+  await dockerOrThrow(["start", name])
+}
+
 /** The named-volume half of a `name:/path` mount spec, or "" for a bind
  *  mount (absolute host path) — Docker treats a source without a leading
  *  slash as a volume name. */
