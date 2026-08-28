@@ -230,14 +230,16 @@ export const createSetupRoutes = ({
       })
       return
     }
+    // The try/catch covers the API call only — a filesystem error from
+    // completeSetup must not be formatted as an API failure.
+    let result: SignInResult
     try {
-      const result = await obsidianApi.signIn({
+      result = await obsidianApi.signIn({
         apiBaseUrl: obsidianApiBaseUrl,
         email,
         password,
         mfa: "",
       })
-      await completeSetup(result, res, requestLogger)
     } catch (error) {
       if (isMfaRequiredError(error)) {
         const requestId = storePendingSignIn(email, password)
@@ -248,7 +250,9 @@ export const createSetupRoutes = ({
         error: describeApiFailure(error),
       })
       sendSignInPage(req, res, { error: describeApiFailure(error) })
+      return
     }
+    await completeSetup(result, res, requestLogger)
   }
 
   const handleMfaForm = async (
@@ -265,14 +269,15 @@ export const createSetupRoutes = ({
       return
     }
     const mfa = formField(body, "mfa").trim()
+    // Scoped to the API call — same reason as handleSignInForm.
+    let result: SignInResult
     try {
-      const result = await obsidianApi.signIn({
+      result = await obsidianApi.signIn({
         apiBaseUrl: obsidianApiBaseUrl,
         email: pending.email,
         password: pending.password,
         mfa,
       })
-      await completeSetup(result, res, requestLogger)
     } catch (error) {
       requestLogger.warn("setup_signin_failed", {
         error: describeApiFailure(error),
@@ -294,7 +299,9 @@ export const createSetupRoutes = ({
         return
       }
       sendSignInPage(req, res, { error: describeApiFailure(error) })
+      return
     }
+    await completeSetup(result, res, requestLogger)
   }
 
   router.get("/setup", (req: Request, res: Response) => {
