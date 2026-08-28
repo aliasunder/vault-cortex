@@ -1,4 +1,5 @@
 import {
+  mkdir,
   mkdtemp,
   readdir,
   readFile,
@@ -63,6 +64,18 @@ describe("syncTokenStore.writeSyncToken", () => {
 
     expect(await readFile(tokenFilePath, "utf8")).toBe("new")
     expect(await readdir(join(tokenFilePath, ".."))).toEqual(["auth_token"])
+  })
+
+  it("tightens a pre-existing token directory to 0700", async () => {
+    const tokenFilePath = await tempTokenPath()
+    await mkdir(join(tokenFilePath, ".."), { recursive: true, mode: 0o755 })
+
+    await syncTokenStore.writeSyncToken(
+      { tokenFilePath, token: "tok-1" },
+      recordingLogger(),
+    )
+
+    expect(await permissionBits(join(tokenFilePath, ".."))).toBe(0o700)
   })
 
   it("tightens a leftover staging file's mode before it becomes the token", async () => {

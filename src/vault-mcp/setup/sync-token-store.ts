@@ -11,7 +11,11 @@ const writeSyncToken = async (
   { tokenFilePath, token }: { tokenFilePath: string; token: string },
   logger: Logger,
 ): Promise<void> => {
-  await mkdir(dirname(tokenFilePath), { recursive: true, mode: 0o700 })
+  const tokenDir = dirname(tokenFilePath)
+  await mkdir(tokenDir, { recursive: true, mode: 0o700 })
+  // mkdir's mode applies only when it creates the directory; an existing one
+  // keeps whatever mode it had, so set it explicitly.
+  await chmod(tokenDir, 0o700)
   // Write-then-rename: the boot chain reads the file as "non-empty means a
   // token exists", so a crash mid-write must not leave a truncated token
   // behind for `ob login` to reject.
