@@ -186,7 +186,9 @@ token the Sync client accepts:
 - **Gated by `MCP_AUTH_TOKEN` before any upstream call** — the token is
   checked (constant-time) before the server contacts Obsidian, so the
   endpoint cannot be used to relay password guesses against Obsidian
-  accounts from the server's address
+  accounts from the server's address. The two-factor step is tied to that
+  check by a random single-use id that only a token-checked sign-in
+  receives
 - **Rate-limited** — 5 requests per minute per client IP, the same budget
   as the OAuth endpoints
 - **Credentials are never stored or logged** — the Obsidian email and

@@ -82,16 +82,19 @@ export const createSetupRoutes = ({
   const pendingSignIns = new Map<string, PendingSignIn>()
 
   const storePendingSignIn = (email: string, password: string): string => {
-    const now = DateTime.now()
-    for (const [requestId, pending] of pendingSignIns) {
-      if (pending.expiresAt <= now) pendingSignIns.delete(requestId)
-    }
     const requestId = randomUUID()
     pendingSignIns.set(requestId, {
       email,
       password,
-      expiresAt: now.plus({ minutes: PENDING_SIGN_IN_TTL_MINUTES }),
+      expiresAt: DateTime.now().plus({ minutes: PENDING_SIGN_IN_TTL_MINUTES }),
     })
+    // Drop the credentials at the TTL even when no further request arrives;
+    // `expiresAt` stays the check for a code that comes in late. unref so an
+    // abandoned sign-in cannot hold the process open.
+    setTimeout(
+      () => pendingSignIns.delete(requestId),
+      PENDING_SIGN_IN_TTL_MINUTES * 60 * 1000,
+    ).unref()
     return requestId
   }
 
