@@ -165,7 +165,7 @@ describe("createErrorMiddleware", () => {
       method: "PUT",
       path: "/api",
     })
-    const err = { name: "Error", message: "no stack" } as Error
+    const err = new Error("no stack")
     delete (err as { stack?: string }).stack
 
     middleware(err, req, res, next)
