@@ -43,10 +43,34 @@ const recordingLogger = (sink: LogCall[]): Logger => {
 type ApiScript = {
   signIn?: (request: FakeApiRequest) => FakeApiResponse
   listVaults?: (request: FakeApiRequest) => FakeApiResponse
+  validateVaultKey?: (request: FakeApiRequest) => FakeApiResponse
 }
 
+// The vault password the harness sets, and the key hash Obsidian's Sync
+// client derives for it with this fixture's salt at encryption version 3 —
+// computed with the pinned CLI's derivation, so the fake API can accept
+// exactly the hash a correct derivation produces.
+const VAULT_PASSWORD = "correct horse battery"
+const WRONG_VAULT_PASSWORD = "wrong horse battery"
+const VAULT_SALT = "vault-salt-1"
+const VAULT_KEY_HASH =
+  "60aa76a8ebdc3bd3fff0670081c08bc8056407f765a1c7b0918cc7077639a398"
+
 const plainVault = (name: string) => ({ id: name, name, password: "srv" })
-const encryptedVault = (name: string) => ({ id: name, name, salt: "s" })
+const encryptedVault = (name: string) => ({
+  id: `${name}-id`,
+  name,
+  password: "",
+  salt: VAULT_SALT,
+  host: "sync-1.example.com",
+  encryption_version: 3,
+})
+
+/** Obsidian's answer to `/vault/access`: accepts the fixture's hash only. */
+const vaultAccessCheck = (request: FakeApiRequest): FakeApiResponse =>
+  request.body.keyhash === VAULT_KEY_HASH
+    ? { body: {} }
+    : { body: { error: "Wrong vault key, please try again." } }
 
 type Harness = {
   baseUrl: string
@@ -64,6 +88,7 @@ type Harness = {
 const startHarness = async ({
   api = {},
   vaultPasswordSet = false,
+  vaultPasswordWrong = false,
   savedLoginRejected = false,
   // Flags rather than optional values: an explicit `undefined` would take
   // the destructuring default and silently test the wrong thing.
@@ -72,11 +97,16 @@ const startHarness = async ({
 }: {
   api?: ApiScript
   vaultPasswordSet?: boolean
+  vaultPasswordWrong?: boolean
   savedLoginRejected?: boolean
   vaultNameUnset?: boolean
   publicUrlUnset?: boolean
 } = {}): Promise<Harness> => {
   const vaultName = vaultNameUnset ? undefined : "Notes"
+  const configuredVaultPassword = vaultPasswordWrong
+    ? WRONG_VAULT_PASSWORD
+    : VAULT_PASSWORD
+  const vaultPassword = vaultPasswordSet ? configuredVaultPassword : undefined
   const publicUrl = publicUrlUnset
     ? undefined
     : new URL("https://vault.example.com")
@@ -85,6 +115,9 @@ const startHarness = async ({
       return api.signIn(request)
     if (request.path === "/vault/list" && api.listVaults) {
       return api.listVaults(request)
+    }
+    if (request.path === "/vault/access" && api.validateVaultKey) {
+      return api.validateVaultKey(request)
     }
     return { status: 404, body: {} }
   })
@@ -102,7 +135,7 @@ const startHarness = async ({
       authToken: AUTH_TOKEN,
       publicUrl,
       vaultName,
-      vaultPasswordSet,
+      vaultPassword,
       tokenFilePath,
       obsidianApiBaseUrl: fakeApi.baseUrl,
       savedLoginRejected,
@@ -489,19 +522,133 @@ describe("POST /setup — vault pre-flight", () => {
     expect(existsSync(harness.tokenFilePath)).toBe(false)
   })
 
-  it("completes for an encrypted vault when VAULT_PASSWORD is set", async () => {
+  it("completes for an encrypted vault when Obsidian accepts the key derived from VAULT_PASSWORD", async () => {
     const harness = await startHarness({
       vaultPasswordSet: true,
       api: {
         signIn: () => ({ body: SIGNED_IN }),
         listVaults: () => ({ body: { vaults: [encryptedVault("Notes")] } }),
+        validateVaultKey: vaultAccessCheck,
       },
     })
 
     const html = await (await harness.postForm(CREDENTIALS)).text()
 
     expect(html).toContain("<h1>Setup complete</h1>")
-    expect(existsSync(harness.tokenFilePath)).toBe(true)
+    expect(await readFile(harness.tokenFilePath, "utf8")).toBe("sync-tok")
+    expect(harness.apiRequests.map((request) => request.path)).toEqual([
+      "/user/signin",
+      "/vault/list",
+      "/vault/access",
+    ])
+    expect(harness.apiRequests[2]?.body).toEqual({
+      token: "sync-tok",
+      vault_uid: "Notes-id",
+      keyhash: VAULT_KEY_HASH,
+      host: "sync-1.example.com",
+      encryption_version: 3,
+    })
+  })
+
+  it("blocks with Obsidian's own text when the vault rejects the key derived from VAULT_PASSWORD", async () => {
+    const harness = await startHarness({
+      vaultPasswordSet: true,
+      vaultPasswordWrong: true,
+      api: {
+        signIn: () => ({ body: SIGNED_IN }),
+        listVaults: () => ({ body: { vaults: [encryptedVault("Notes")] } }),
+        validateVaultKey: vaultAccessCheck,
+      },
+    })
+
+    const html = await (await harness.postForm(CREDENTIALS)).text()
+
+    expect(html).toContain(
+      "Obsidian did not accept <code>VAULT_PASSWORD</code> for the vault <code>Notes</code>: Wrong vault key, please try again.",
+    )
+    expect(existsSync(harness.tokenFilePath)).toBe(false)
+    expect(harness.onSetupComplete).not.toHaveBeenCalled()
+    expect(harness.logs.at(-1)).toEqual({
+      level: "warn",
+      message: "setup_blocked",
+      data: {
+        component: "setup-routes",
+        clientIp: "127.0.0.1",
+        problem: "vault-access-rejected",
+      },
+    })
+    const logged = JSON.stringify(harness.logs)
+    expect(logged).not.toContain(WRONG_VAULT_PASSWORD)
+    expect(logged).not.toContain(VAULT_SALT)
+    expect(logged).not.toContain("keyhash")
+    expect(html).not.toContain(WRONG_VAULT_PASSWORD)
+  })
+
+  it("completes anyway when the key check cannot reach Obsidian", async () => {
+    const harness = await startHarness({
+      vaultPasswordSet: true,
+      api: {
+        signIn: () => ({ body: SIGNED_IN }),
+        listVaults: () => ({ body: { vaults: [encryptedVault("Notes")] } }),
+        validateVaultKey: () => ({ status: 503, body: {} }),
+      },
+    })
+
+    const html = await (await harness.postForm(CREDENTIALS)).text()
+
+    expect(html).toContain("<h1>Setup complete</h1>")
+    expect(await readFile(harness.tokenFilePath, "utf8")).toBe("sync-tok")
+    expect(
+      harness.logs.filter(
+        (call) => call.message === "setup_vault_key_check_skipped",
+      ),
+    ).toEqual([
+      {
+        level: "warn",
+        message: "setup_vault_key_check_skipped",
+        data: {
+          component: "setup-routes",
+          clientIp: "127.0.0.1",
+          reason:
+            "Could not reach Obsidian's servers (Obsidian API answered HTTP 503).",
+        },
+      },
+    ])
+  })
+
+  it("completes anyway when the listing entry lacks the key material", async () => {
+    const { host: _host, ...vaultWithoutHost } = encryptedVault("Notes")
+    const harness = await startHarness({
+      vaultPasswordSet: true,
+      api: {
+        signIn: () => ({ body: SIGNED_IN }),
+        listVaults: () => ({ body: { vaults: [vaultWithoutHost] } }),
+        validateVaultKey: vaultAccessCheck,
+      },
+    })
+
+    const html = await (await harness.postForm(CREDENTIALS)).text()
+
+    expect(html).toContain("<h1>Setup complete</h1>")
+    expect(harness.apiRequests.map((request) => request.path)).toEqual([
+      "/user/signin",
+      "/vault/list",
+    ])
+    expect(
+      harness.logs.filter(
+        (call) => call.message === "setup_vault_key_check_skipped",
+      ),
+    ).toEqual([
+      {
+        level: "warn",
+        message: "setup_vault_key_check_skipped",
+        data: {
+          component: "setup-routes",
+          clientIp: "127.0.0.1",
+          reason: "listing entry lacks the key material",
+        },
+      },
+    ])
   })
 
   it("blocks when two vaults share VAULT_NAME", async () => {

@@ -36,7 +36,7 @@ const startSetupServer = (): void => {
     .default("https://api.obsidian.md")
     .asUrlString()
   const vaultName = env.get("VAULT_NAME").default("").asString().trim()
-  const vaultPasswordSet = Boolean(env.get("VAULT_PASSWORD").asString())
+  const vaultPassword = env.get("VAULT_PASSWORD").asString() || undefined
   const savedLoginRejected =
     env.get("SETUP_REASON").default("").asString() === "login-failed"
 
@@ -57,7 +57,7 @@ const startSetupServer = (): void => {
       authToken,
       publicUrl: publicUrl ?? undefined,
       vaultName: vaultName || undefined,
-      vaultPasswordSet,
+      vaultPassword,
       tokenFilePath,
       obsidianApiBaseUrl,
       savedLoginRejected,

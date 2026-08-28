@@ -201,7 +201,8 @@ src/
       setup-server.ts                  # Entry point svc-vault-mcp runs in setup mode (/setup + /healthz; every other path 503)
       setup-routes.ts                  # GET/POST /setup — MCP-token gate, sign-in + 2FA, vault pre-flight, token write, restart signal
       setup-page.ts                    # HTML for the flow (sign-in, 2FA, blocked, complete, already configured)
-      obsidian-api.ts                  # Obsidian's account API as the obsidian-headless CLI calls it (sign-in, vault list)
+      obsidian-api.ts                  # Obsidian's account API as the obsidian-headless CLI calls it (sign-in, vault list, vault key check)
+      vault-key.ts                     # Vault password → key hash, the derivation `ob sync-setup` uses (scrypt + HKDF; pure)
       sync-token-store.ts              # Writes the token where the Sync client reads it (dir 0700, file 0600)
 ```
 
@@ -1160,6 +1161,14 @@ re-verify each contract against the new source before merging:
 - Files delivered by `sync --continuous` are recorded in that same
   table as they arrive, and a file deleted locally has its row removed.
   The stub's `sync-record` and `sync-forget` verbs mirror the two.
+- The setup page's pre-flight (`src/vault-mcp/setup/`) repeats two calls
+  `ob sync-setup` makes and must keep matching them: `/vault/list` (an
+  end-to-end encrypted vault comes back with `password: ""`) and
+  `/vault/access` with the key hash — scrypt over the NFKC-normalized
+  password and salt (N 32768, r 8, p 1, 32 bytes), then HKDF-SHA256 with
+  info `ObsidianKeyHash` for versions 2 and 3, SHA-256 for version 0. The
+  vectors in `vault-key.test.ts` were produced by the pinned CLI's own
+  functions; recompute them on a bump.
 
 The remote-boot tests never run the real CLI — they run the stub
 (`src/__tests__/docker/fixtures/ob`), which imitates the behaviour listed

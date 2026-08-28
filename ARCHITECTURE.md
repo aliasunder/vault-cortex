@@ -861,12 +861,15 @@ running `get-sync-token` on their own computer:
    page, and every other path answers 503 with the setup URL.
 4. `POST /setup` checks `MCP_AUTH_TOKEN` first, signs in through Obsidian's
    account API (the same request `ob login` makes, two-factor included),
-   checks `VAULT_NAME` and `VAULT_PASSWORD` against the account's vault list
-   so a boot-breaking setting is reported on the page rather than in a
-   crash loop (the check is advisory: when the list cannot be fetched,
-   sign-in proceeds and the boot chain reports any problem as it does
-   today), and writes the token where the Sync client reads it
-   (directory 0700, file 0600).
+   checks `VAULT_NAME` against the account's vault list and, for an
+   end-to-end encrypted vault, that `VAULT_PASSWORD` is set and that
+   Obsidian accepts the key derived from it (the same `/vault/access`
+   check `ob sync-setup` makes) — so a boot-breaking setting is reported on
+   the page rather than in a crash loop. Only a definite answer blocks: a
+   missing name, no match, or Obsidian rejecting the key. When the list or
+   the key check cannot be reached, sign-in proceeds and the boot chain
+   reports any problem as it does today. It then writes the token where the
+   Sync client reads it (directory 0700, file 0600).
 5. The setup server exits; `svc-vault-mcp/finish` finds the token, writes
    exit code 1 to `/run/s6-linux-init-container-results/exitcode`, and halts.
    The restart policy boots the container again — a normal boot, with the

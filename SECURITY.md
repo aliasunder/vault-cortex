@@ -194,6 +194,10 @@ token the Sync client accepts:
   in memory for the code (5-minute expiry, single use) and are never
   rendered into a page. Log lines carry the error class and the API's
   error text only
+- **`VAULT_PASSWORD` leaves the server only as a key hash** — the page
+  checks the password by sending Obsidian the same derived hash the Sync
+  client sends (scrypt + HKDF over the vault's salt); the password, salt,
+  and hash are never logged or rendered
 - **Only the Sync token is written**, where the Sync client keeps its own
   copy (`<config home>/obsidian-headless/auth_token`, directory 0700,
   file 0600, owned by UID 1000) — the same file `ob login` writes

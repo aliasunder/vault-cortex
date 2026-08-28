@@ -109,6 +109,25 @@ describe("renderSetupPage — blocked", () => {
     expect(html).toContain("<code>VAULT_NAME</code> is not set")
   })
 
+  it("shows Obsidian's text and the VAULT_PASSWORD fix when the vault rejects the key", () => {
+    const html = renderSetupPage({
+      kind: "blocked",
+      accountEmail: "user@example.com",
+      problem: {
+        kind: "vault-access-rejected",
+        vaultName: "Notes",
+        apiMessage: "Wrong vault key, <try> again.",
+      },
+    })
+
+    expect(html).toContain(
+      "<p>Obsidian did not accept <code>VAULT_PASSWORD</code> for the vault <code>Notes</code>: Wrong vault key, &lt;try&gt; again.</p>",
+    )
+    expect(html).toContain(
+      "Fix <code>VAULT_PASSWORD</code> — the vault's encryption password — in your deployment's settings, redeploy, then sign in here again.",
+    )
+  })
+
   it("asks for a rename when two vaults share the name", () => {
     const html = renderSetupPage({
       kind: "blocked",

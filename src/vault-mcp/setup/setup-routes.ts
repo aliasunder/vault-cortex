@@ -10,12 +10,18 @@ import { DateTime } from "luxon"
 import { extractClientIp, safeEqual } from "../../auth.js"
 import type { Logger } from "../../logger.js"
 import {
+  ObsidianApiError,
   describeApiFailure,
   isMfaCodeError,
   isMfaRequiredError,
   obsidianApi,
 } from "./obsidian-api.js"
-import type { SignInResult } from "./obsidian-api.js"
+import type {
+  RemoteVault,
+  SignInResult,
+  VaultKeyMaterial,
+} from "./obsidian-api.js"
+import { deriveVaultKeyHash } from "./vault-key.js"
 import { renderSetupPage } from "./setup-page.js"
 import type { PreflightProblem } from "./setup-page.js"
 import { syncTokenStore } from "./sync-token-store.js"
@@ -26,7 +32,8 @@ type SetupRoutesOptions = {
    *  PUBLIC_URL is not set (a plain `docker run` without it). */
   publicUrl: URL | undefined
   vaultName: string | undefined
-  vaultPasswordSet: boolean
+  /** The vault's end-to-end encryption password; undefined when unset. */
+  vaultPassword: string | undefined
   /** The Sync client's credential file, `<config home>/obsidian-headless/auth_token`. */
   tokenFilePath: string
   obsidianApiBaseUrl: string
@@ -58,7 +65,7 @@ export const createSetupRoutes = ({
   authToken,
   publicUrl,
   vaultName,
-  vaultPasswordSet,
+  vaultPassword,
   tokenFilePath,
   obsidianApiBaseUrl,
   savedLoginRejected,
@@ -140,43 +147,107 @@ export const createSetupRoutes = ({
       )
   }
 
-  /** The deployment settings the next boot would fail on — checked before
-   *  the token is written, so the user fixes them from this page instead
-   *  of from a crash-looping container's logs. Advisory: when the vault
-   *  list cannot be fetched, sign-in proceeds and the boot chain reports
-   *  any problem, as it does without setup mode. */
-  const checkVaultSettings = async (
+  // The listing is advisory: if it cannot be fetched the token is still
+  // valid, so sign-in proceeds and the boot chain reports any problem.
+  const listAccountVaults = async (
     token: string,
     requestLogger: Logger,
-  ): Promise<PreflightProblem | undefined> => {
-    if (!vaultName) return { kind: "vault-name-unset" }
-    // The listing is advisory: if it cannot be fetched the token is still
-    // valid, so sign-in proceeds and the boot chain reports any problem.
+  ): Promise<RemoteVault[] | undefined> => {
     try {
-      const vaults = await obsidianApi.listVaults({
+      return await obsidianApi.listVaults({
         apiBaseUrl: obsidianApiBaseUrl,
         token,
       })
-      const matches = vaults.filter((vault) => vault.name === vaultName)
-      if (matches.length === 0) {
-        return {
-          kind: "vault-not-found",
-          vaultName,
-          vaultNames: vaults.map((vault) => vault.name),
-        }
-      }
-      if (matches.length > 1) return { kind: "vault-name-ambiguous", vaultName }
-      const [vault] = matches
-      if (vault?.encrypted && !vaultPasswordSet) {
-        return { kind: "password-missing", vaultName }
-      }
-      return undefined
     } catch (error) {
       requestLogger.warn("setup_vault_check_skipped", {
         error: describeApiFailure(error),
       })
       return undefined
     }
+  }
+
+  /** The check `ob sync-setup` would fail on next boot with a wrong
+   *  VAULT_PASSWORD. Only Obsidian's rejection blocks; a check that cannot
+   *  run is advisory like the listing. */
+  const checkVaultKey = async (
+    {
+      token,
+      password,
+      keyMaterial,
+      encryptedVaultName,
+    }: {
+      token: string
+      password: string
+      keyMaterial: VaultKeyMaterial | undefined
+      encryptedVaultName: string
+    },
+    requestLogger: Logger,
+  ): Promise<PreflightProblem | undefined> => {
+    if (!keyMaterial) {
+      requestLogger.warn("setup_vault_key_check_skipped", {
+        reason: "listing entry lacks the key material",
+      })
+      return undefined
+    }
+    const keyHash = await deriveVaultKeyHash({
+      password,
+      salt: keyMaterial.salt,
+      encryptionVersion: keyMaterial.encryptionVersion,
+    })
+    try {
+      await obsidianApi.validateVaultKey({
+        apiBaseUrl: obsidianApiBaseUrl,
+        token,
+        keyMaterial,
+        keyHash,
+      })
+      return undefined
+    } catch (error) {
+      if (error instanceof ObsidianApiError) {
+        return {
+          kind: "vault-access-rejected",
+          vaultName: encryptedVaultName,
+          apiMessage: error.message,
+        }
+      }
+      requestLogger.warn("setup_vault_key_check_skipped", {
+        reason: describeApiFailure(error),
+      })
+      return undefined
+    }
+  }
+
+  /** The deployment settings the next boot would fail on — checked before
+   *  the token is written, so the user fixes them from this page instead
+   *  of from a crash-looping container's logs. */
+  const checkVaultSettings = async (
+    token: string,
+    requestLogger: Logger,
+  ): Promise<PreflightProblem | undefined> => {
+    if (!vaultName) return { kind: "vault-name-unset" }
+    const vaults = await listAccountVaults(token, requestLogger)
+    if (!vaults) return undefined
+    const matches = vaults.filter((vault) => vault.name === vaultName)
+    if (matches.length === 0) {
+      return {
+        kind: "vault-not-found",
+        vaultName,
+        vaultNames: vaults.map((vault) => vault.name),
+      }
+    }
+    if (matches.length > 1) return { kind: "vault-name-ambiguous", vaultName }
+    const [vault] = matches
+    if (!vault?.encrypted) return undefined
+    if (!vaultPassword) return { kind: "password-missing", vaultName }
+    return checkVaultKey(
+      {
+        token,
+        password: vaultPassword,
+        keyMaterial: vault.keyMaterial,
+        encryptedVaultName: vaultName,
+      },
+      requestLogger,
+    )
   }
 
   const completeSetup = async (

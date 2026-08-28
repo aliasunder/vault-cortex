@@ -1,10 +1,13 @@
 /** Obsidian's account API, called the way the obsidian-headless CLI calls
- *  it: sign in (the `ob login` request) and list the account's vaults (the
- *  `ob sync-setup` lookup). The pinned CLI in obsidian-headless/ is the
- *  contract — re-verify both calls on every bump (AGENTS.md → Upgrading
- *  obsidian-headless). The npm CLI's get-sync-token command
- *  (cli/src/get-sync-token.ts) carries its own copy of the sign-in call; the
- *  two packages share no code. */
+ *  it: sign in (the `ob login` request), list the account's vaults, and
+ *  check a vault key (the two `ob sync-setup` calls). The pinned CLI in
+ *  obsidian-headless/ is the contract — re-verify every call on every bump
+ *  (AGENTS.md → Upgrading obsidian-headless). The npm CLI's get-sync-token
+ *  command (cli/src/get-sync-token.ts) carries its own copy of the sign-in
+ *  call; the two packages share no code. */
+
+import { isSupportedEncryptionVersion } from "./vault-key.js"
+import type { SupportedEncryptionVersion } from "./vault-key.js"
 
 const REQUEST_TIMEOUT_MS = 30_000
 
@@ -96,20 +99,43 @@ const signIn = async ({
   return { token: body.token, accountEmail: email }
 }
 
-type RemoteVault = {
-  name: string
-  /** End-to-end encrypted: the listing carries no usable `password` for the
-   *  vault, so `ob sync-setup` needs VAULT_PASSWORD. */
-  encrypted: boolean
+/** What `ob sync-setup` needs from the listing to check a vault password:
+ *  the salt the key is derived from, and the vault id, host, and scheme
+ *  version the access check is sent with. */
+export type VaultKeyMaterial = {
+  vaultId: string
+  salt: string
+  host: string
+  encryptionVersion: SupportedEncryptionVersion
+}
+
+export type RemoteVault =
+  | { name: string; encrypted: false }
+  /** End-to-end encrypted: `ob sync-setup` needs VAULT_PASSWORD. Key
+   *  material is absent when the listing entry lacks a field the check
+   *  needs. */
+  | { name: string; encrypted: true; keyMaterial: VaultKeyMaterial | undefined }
+
+const keyMaterialOf = (
+  entry: Record<string, unknown>,
+): VaultKeyMaterial | undefined => {
+  const { id, salt, host, encryption_version } = entry
+  if (typeof id !== "string" || typeof salt !== "string") return undefined
+  if (typeof host !== "string") return undefined
+  if (!isSupportedEncryptionVersion(encryption_version)) return undefined
+  return { vaultId: id, salt, host, encryptionVersion: encryption_version }
 }
 
 const remoteVaultsOf = (entries: unknown): RemoteVault[] => {
   if (!Array.isArray(entries)) return []
-  return entries.filter(isJsonObject).flatMap((entry) => {
+  return entries.filter(isJsonObject).flatMap((entry): RemoteVault[] => {
     if (typeof entry.name !== "string") return []
     // Same test as `ob sync-setup`: the API sends `password: ""` (not an
     // absent field) for an end-to-end encrypted vault.
-    return [{ name: entry.name, encrypted: !entry.password }]
+    if (entry.password) return [{ name: entry.name, encrypted: false }]
+    return [
+      { name: entry.name, encrypted: true, keyMaterial: keyMaterialOf(entry) },
+    ]
   })
 }
 
@@ -130,6 +156,34 @@ const listVaults = async ({
   return [...remoteVaultsOf(body.vaults), ...remoteVaultsOf(body.shared)]
 }
 
+/** The check `ob sync-setup` makes before it configures a vault: Obsidian
+ *  compares the key hash with the vault's. Rejection arrives as an
+ *  ObsidianApiError carrying the API's text; the hash is a verifier for
+ *  the vault password and is never logged. */
+const validateVaultKey = async ({
+  apiBaseUrl,
+  token,
+  keyMaterial,
+  keyHash,
+}: {
+  apiBaseUrl: string
+  token: string
+  keyMaterial: VaultKeyMaterial
+  keyHash: string
+}): Promise<void> => {
+  await postJson({
+    apiBaseUrl,
+    path: "/vault/access",
+    body: {
+      token,
+      vault_uid: keyMaterial.vaultId,
+      keyhash: keyHash,
+      host: keyMaterial.host,
+      encryption_version: keyMaterial.encryptionVersion,
+    },
+  })
+}
+
 /** Message for a failed call, safe to show the user: the API's own error
  *  text when it answered, otherwise a generic reachability line — no URLs
  *  or stack detail. */
@@ -144,4 +198,4 @@ export const describeApiFailure = (error: unknown): string => {
   return `Could not reach Obsidian's servers (${reason}).`
 }
 
-export const obsidianApi = { signIn, listVaults }
+export const obsidianApi = { signIn, listVaults, validateVaultKey }

@@ -12,6 +12,9 @@ export type PreflightProblem =
   | { kind: "vault-not-found"; vaultName: string; vaultNames: string[] }
   | { kind: "vault-name-ambiguous"; vaultName: string }
   | { kind: "password-missing"; vaultName: string }
+  /** Obsidian refused the key derived from VAULT_PASSWORD; `apiMessage` is
+   *  the API's own text, the same line `ob sync-setup` would print. */
+  | { kind: "vault-access-rejected"; vaultName: string; apiMessage: string }
 
 export type SetupView =
   | {
@@ -162,6 +165,9 @@ const problemCopy = (problem: PreflightProblem): string => {
     case "password-missing":
       return `<p>The vault <code>${escapeHtml(problem.vaultName)}</code> is end-to-end encrypted, and <code>VAULT_PASSWORD</code> is not set.</p>
   <p>Add <code>VAULT_PASSWORD</code> — the vault's encryption password — to your deployment's settings, redeploy, then sign in here again.</p>`
+    case "vault-access-rejected":
+      return `<p>Obsidian did not accept <code>VAULT_PASSWORD</code> for the vault <code>${escapeHtml(problem.vaultName)}</code>: ${escapeHtml(problem.apiMessage)}</p>
+  <p>Fix <code>VAULT_PASSWORD</code> — the vault's encryption password — in your deployment's settings, redeploy, then sign in here again.</p>`
   }
 }
 

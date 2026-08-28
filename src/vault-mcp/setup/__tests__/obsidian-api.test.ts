@@ -108,9 +108,18 @@ describe("obsidianApi.listVaults", () => {
             name: "Locked",
             password: "",
             salt: "s",
+            host: "sync-1.example.com",
             encryption_version: 3,
           },
           { id: "d", name: "Legacy", salt: "s" },
+          {
+            id: "e",
+            name: "Future",
+            password: "",
+            salt: "s",
+            host: "sync-1.example.com",
+            encryption_version: 4,
+          },
         ],
         shared: [{ id: "c", name: "Team", password: "x" }],
       },
@@ -122,11 +131,23 @@ describe("obsidianApi.listVaults", () => {
     })
 
     // "Locked" mirrors the live API: an end-to-end encrypted vault comes back
-    // with `password: ""`, not with the field missing.
+    // with `password: ""`, not with the field missing. "Legacy" and "Future"
+    // are encrypted but cannot be key-checked (missing host, unsupported
+    // version).
     expect(vaults).toEqual([
       { name: "Plain", encrypted: false },
-      { name: "Locked", encrypted: true },
-      { name: "Legacy", encrypted: true },
+      {
+        name: "Locked",
+        encrypted: true,
+        keyMaterial: {
+          vaultId: "b",
+          salt: "s",
+          host: "sync-1.example.com",
+          encryptionVersion: 3,
+        },
+      },
+      { name: "Legacy", encrypted: true, keyMaterial: undefined },
+      { name: "Future", encrypted: true, keyMaterial: undefined },
       { name: "Team", encrypted: false },
     ])
     expect(api.requests[0]?.path).toBe("/vault/list")
@@ -145,6 +166,54 @@ describe("obsidianApi.listVaults", () => {
     })
 
     expect(vaults).toEqual([])
+  })
+})
+
+describe("obsidianApi.validateVaultKey", () => {
+  const keyMaterial = {
+    vaultId: "vault-1",
+    salt: "s",
+    host: "sync-1.example.com",
+    encryptionVersion: 3,
+  } as const
+
+  it("posts the key hash with the vault's id, host, and version", async () => {
+    const api = await startApi(() => ({ body: {} }))
+
+    await obsidianApi.validateVaultKey({
+      apiBaseUrl: api.baseUrl,
+      token: "tok-1",
+      keyMaterial,
+      keyHash: "ab".repeat(32),
+    })
+
+    expect(api.requests.map((request) => request.path)).toEqual([
+      "/vault/access",
+    ])
+    expect(api.requests[0]?.body).toEqual({
+      token: "tok-1",
+      vault_uid: "vault-1",
+      keyhash: "ab".repeat(32),
+      host: "sync-1.example.com",
+      encryption_version: 3,
+    })
+  })
+
+  it("throws ObsidianApiError with the API's own text when the vault rejects the key", async () => {
+    const api = await startApi(() => ({
+      body: { error: "Wrong vault key, please try again." },
+    }))
+
+    await expect(
+      obsidianApi.validateVaultKey({
+        apiBaseUrl: api.baseUrl,
+        token: "tok-1",
+        keyMaterial,
+        keyHash: "ab".repeat(32),
+      }),
+    ).rejects.toThrow(
+      new ObsidianApiError("Wrong vault key, please try again."),
+    )
   })
 })
 
