@@ -141,7 +141,9 @@ export const createSetupRoutes = ({
 
   /** The deployment settings the next boot would fail on — checked before
    *  the token is written, so the user fixes them from this page instead
-   *  of from a crash-looping container's logs. */
+   *  of from a crash-looping container's logs. Advisory: when the vault
+   *  list cannot be fetched, sign-in proceeds and the boot chain reports
+   *  any problem, as it does without setup mode. */
   const checkVaultSettings = async (
     token: string,
     requestLogger: Logger,

@@ -863,7 +863,9 @@ running `get-sync-token` on their own computer:
    account API (the same request `ob login` makes, two-factor included),
    checks `VAULT_NAME` and `VAULT_PASSWORD` against the account's vault list
    so a boot-breaking setting is reported on the page rather than in a
-   crash loop, and writes the token where the Sync client reads it
+   crash loop (the check is advisory: when the list cannot be fetched,
+   sign-in proceeds and the boot chain reports any problem as it does
+   today), and writes the token where the Sync client reads it
    (directory 0700, file 0600).
 5. The setup server exits; `svc-vault-mcp/finish` finds the token, writes
    exit code 1 to `/run/s6-linux-init-container-results/exitcode`, and halts.
