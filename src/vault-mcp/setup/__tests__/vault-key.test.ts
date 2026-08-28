@@ -4,15 +4,20 @@ import {
   isSupportedEncryptionVersion,
 } from "../vault-key.js"
 
-// Expected values computed with the pinned obsidian-headless CLI's own
-// derivation for the same inputs; the test owns them so the module cannot
-// be its own oracle.
+// Made-up inputs, not a real account's.
 const PASSWORD = "correct horse battery"
 const SALT = "vault-salt-1"
+// Not secrets: the key hashes the pinned obsidian-headless CLI's own
+// derivation functions produce for the inputs above. The test owns the values
+// so the module under test cannot be its own oracle; recompute them from the
+// CLI on a version bump (AGENTS.md → Upgrading obsidian-headless).
+// PASSWORD + SALT at encryption version 3 (also the version 2 result):
 const KEY_HASH_V3 =
   "60aa76a8ebdc3bd3fff0670081c08bc8056407f765a1c7b0918cc7077639a398" // gitleaks:allow
+// PASSWORD + SALT at encryption version 0:
 const KEY_HASH_V0 =
   "70e71fbaf4e6016807c7d24edd32dce10c0c1f7491ccea42a848f7d078990490" // gitleaks:allow
+// "pässwörd" + "salt" at encryption version 3:
 const NON_ASCII_KEY_HASH_V3 =
   "8d8534f8d78a42c892f4edb0b0c9adbb3554954bfab6c09d708c93aa8e633f5a" // gitleaks:allow
 

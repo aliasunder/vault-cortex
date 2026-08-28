@@ -46,13 +46,15 @@ type ApiScript = {
   validateVaultKey?: (request: FakeApiRequest) => FakeApiResponse
 }
 
-// The vault password the harness sets, and the key hash Obsidian's Sync
-// client derives for it with this fixture's salt at encryption version 3 —
-// computed with the pinned CLI's derivation, so the fake API can accept
-// exactly the hash a correct derivation produces.
+// The vault password the harness sets and the salt its encrypted-vault
+// fixture carries — made-up values, not a real account's.
 const VAULT_PASSWORD = "correct horse battery"
 const WRONG_VAULT_PASSWORD = "wrong horse battery"
 const VAULT_SALT = "vault-salt-1"
+// Not a secret: the key hash the Sync client derives from VAULT_PASSWORD and
+// VAULT_SALT at encryption version 3 (scrypt + HKDF), produced by the pinned
+// CLI's own functions. The fake `/vault/access` accepts exactly this hash, so
+// the "correct password" test passes only when the derivation is right.
 const VAULT_KEY_HASH =
   "60aa76a8ebdc3bd3fff0670081c08bc8056407f765a1c7b0918cc7077639a398" // gitleaks:allow
 
