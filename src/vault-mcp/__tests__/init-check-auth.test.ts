@@ -30,6 +30,7 @@ type GateRun = {
   stderr: string
   /** Contents of the published SETUP_MODE file, or undefined when absent. */
   setupModePublished: string | undefined
+  setupReasonPublished: boolean
 }
 
 type GateRunOptions = {
@@ -40,6 +41,9 @@ type GateRunOptions = {
   xdgConfigHome?: boolean
   publicUrl?: string
   port?: string
+  /** Pre-seed SETUP_MODE=1 and SETUP_REASON in the container environment,
+   *  as s6-overlay does when a deployment's settings carry them. */
+  outsideSetupMode?: boolean
 }
 
 const runGateScript = (options: GateRunOptions): GateRun => {
@@ -52,6 +56,10 @@ const runGateScript = (options: GateRunOptions): GateRun => {
     : join(homeDir, ".config")
   const containerEnvDir = join(tempDir, "container_environment")
   mkdirSync(containerEnvDir, { recursive: true })
+  if (options.outsideSetupMode) {
+    writeFileSync(join(containerEnvDir, "SETUP_MODE"), "1")
+    writeFileSync(join(containerEnvDir, "SETUP_REASON"), "login-failed")
+  }
 
   if (options.fileToken !== undefined) {
     const tokenDir = join(configDir, "obsidian-headless")
@@ -84,6 +92,7 @@ const runGateScript = (options: GateRunOptions): GateRun => {
     setupModePublished: existsSync(setupModePath)
       ? readFileSync(setupModePath, "utf8")
       : undefined,
+    setupReasonPublished: existsSync(join(containerEnvDir, "SETUP_REASON")),
   }
 }
 
@@ -96,6 +105,7 @@ describe("init-check-auth script", () => {
       stdout: "[obsidian-sync] Auth token present.\n",
       stderr: "",
       setupModePublished: undefined,
+      setupReasonPublished: false,
     })
   })
 
@@ -107,6 +117,7 @@ describe("init-check-auth script", () => {
       stdout: "[obsidian-sync] Auth token found on the volume.\n",
       stderr: "",
       setupModePublished: undefined,
+      setupReasonPublished: false,
     })
   })
 
@@ -118,6 +129,7 @@ describe("init-check-auth script", () => {
       stdout: "[obsidian-sync] Auth token found on the volume.\n",
       stderr: "",
       setupModePublished: undefined,
+      setupReasonPublished: false,
     })
   })
 
@@ -140,6 +152,7 @@ describe("init-check-auth script", () => {
         "[vault-cortex] Sign in at https://vault.example.com/setup — you will need your MCP_AUTH_TOKEN.\n",
       stderr: "",
       setupModePublished: "1",
+      setupReasonPublished: false,
     })
   })
 
@@ -153,6 +166,22 @@ describe("init-check-auth script", () => {
         "[vault-cortex] Sign in at https://v.example/setup — you will need your MCP_AUTH_TOKEN.\n",
       stderr: "",
       setupModePublished: "1",
+      setupReasonPublished: false,
+    })
+  })
+
+  it("ignores SETUP_MODE and SETUP_REASON arriving from the outside environment", () => {
+    const run = runGateScript({
+      fileToken: "file-token",
+      outsideSetupMode: true,
+    })
+
+    expect(run).toEqual({
+      status: 0,
+      stdout: "[obsidian-sync] Auth token found on the volume.\n",
+      stderr: "",
+      setupModePublished: undefined,
+      setupReasonPublished: false,
     })
   })
 

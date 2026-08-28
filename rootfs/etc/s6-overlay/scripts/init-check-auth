@@ -7,6 +7,18 @@
 # page instead of stopping.
 set -eu
 
+# Published the way init-derive-env publishes derived vars: every later
+# with-contenv stage reads /run/s6/container_environment/SETUP_MODE when it
+# starts. The directory is overridable only so the script tests can run
+# this file under plain `sh`.
+CONTAINER_ENVIRONMENT_DIR="${CONTAINER_ENVIRONMENT_DIR:-/run/s6/container_environment}"
+
+# s6-overlay copies the container's outside environment into that directory
+# at init, so a SETUP_MODE or SETUP_REASON set in a deployment's settings
+# would be honoured by every later stage. Both are this chain's own
+# findings, decided below and by init-obsidian-login — never an input.
+rm -f "$CONTAINER_ENVIRONMENT_DIR/SETUP_MODE" "$CONTAINER_ENVIRONMENT_DIR/SETUP_REASON"
+
 if [ -n "${OBSIDIAN_AUTH_TOKEN:-}" ]; then
   echo "[obsidian-sync] Auth token present."
   exit 0
@@ -20,11 +32,6 @@ if [ -s "$TOKEN_FILE" ]; then
   exit 0
 fi
 
-# Published the way init-derive-env publishes derived vars: every later
-# with-contenv stage reads /run/s6/container_environment/SETUP_MODE when it
-# starts. The directory is overridable only so the script tests can run
-# this file under plain `sh`.
-CONTAINER_ENVIRONMENT_DIR="${CONTAINER_ENVIRONMENT_DIR:-/run/s6/container_environment}"
 printf '%s' 1 > "$CONTAINER_ENVIRONMENT_DIR/SETUP_MODE"
 echo "[vault-cortex] No Obsidian Sync token yet — starting in setup mode."
 echo "[vault-cortex] Sign in at ${PUBLIC_URL:-http://<your-server>:${PORT:-8000}}/setup — you will need your MCP_AUTH_TOKEN."
