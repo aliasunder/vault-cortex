@@ -180,7 +180,7 @@ export const createSetupRoutes = ({
   }
 
   const completeSetup = async (
-    { token, accountName }: SignInResult,
+    { token, accountEmail }: SignInResult,
     res: Response,
     requestLogger: Logger,
   ): Promise<void> => {
@@ -189,7 +189,7 @@ export const createSetupRoutes = ({
       requestLogger.warn("setup_blocked", { problem: problem.kind })
       res
         .type("html")
-        .send(renderSetupPage({ kind: "blocked", accountName, problem }))
+        .send(renderSetupPage({ kind: "blocked", accountEmail, problem }))
       return
     }
     await syncTokenStore.writeSyncToken({ tokenFilePath, token }, requestLogger)
@@ -207,7 +207,7 @@ export const createSetupRoutes = ({
     res.type("html").send(
       renderSetupPage({
         kind: "complete",
-        accountName,
+        accountEmail,
         mcpUrl: publicUrl ? new URL("/mcp", publicUrl).href : undefined,
       }),
     )

@@ -61,7 +61,7 @@ describe("renderSetupPage — blocked", () => {
   it("lists the account's vaults when VAULT_NAME matches none of them", () => {
     const html = renderSetupPage({
       kind: "blocked",
-      accountName: "Sample User",
+      accountEmail: "user@example.com",
       problem: {
         kind: "vault-not-found",
         vaultName: "Notes",
@@ -69,7 +69,7 @@ describe("renderSetupPage — blocked", () => {
       },
     })
 
-    expect(html).toContain("Signed in as <strong>Sample User</strong>.")
+    expect(html).toContain("Signed in as <strong>user@example.com</strong>.")
     expect(html).toContain("There is no vault named <code>Notes</code>")
     expect(html).toContain(
       "<ul><li><code>Work &lt;2026&gt;</code></li><li><code>Personal</code></li></ul>",
@@ -80,7 +80,7 @@ describe("renderSetupPage — blocked", () => {
   it("says the account has no vaults when the list is empty", () => {
     const html = renderSetupPage({
       kind: "blocked",
-      accountName: "Sample User",
+      accountEmail: "user@example.com",
       problem: { kind: "vault-not-found", vaultName: "Notes", vaultNames: [] },
     })
 
@@ -90,7 +90,7 @@ describe("renderSetupPage — blocked", () => {
   it("names VAULT_PASSWORD for an encrypted vault", () => {
     const html = renderSetupPage({
       kind: "blocked",
-      accountName: "Sample User",
+      accountEmail: "user@example.com",
       problem: { kind: "password-missing", vaultName: "Notes" },
     })
 
@@ -102,7 +102,7 @@ describe("renderSetupPage — blocked", () => {
   it("names VAULT_NAME when it is unset", () => {
     const html = renderSetupPage({
       kind: "blocked",
-      accountName: "Sample User",
+      accountEmail: "user@example.com",
       problem: { kind: "vault-name-unset" },
     })
 
@@ -112,7 +112,7 @@ describe("renderSetupPage — blocked", () => {
   it("asks for a rename when two vaults share the name", () => {
     const html = renderSetupPage({
       kind: "blocked",
-      accountName: "Sample User",
+      accountEmail: "user@example.com",
       problem: { kind: "vault-name-ambiguous", vaultName: "Notes" },
     })
 
@@ -124,11 +124,11 @@ describe("renderSetupPage — complete", () => {
   it("shows the account, polls /healthz, and names the MCP URL", () => {
     const html = renderSetupPage({
       kind: "complete",
-      accountName: "Sample User",
+      accountEmail: "user@example.com",
       mcpUrl: "https://vault.example.com/mcp",
     })
 
-    expect(html).toContain("Signed in as <strong>Sample User</strong>.")
+    expect(html).toContain("Signed in as <strong>user@example.com</strong>.")
     expect(html).toContain("fetch('/healthz',{cache:'no-store'})")
     expect(html).toContain("b.mode!=='setup'")
     expect(html).toContain(
@@ -140,7 +140,7 @@ describe("renderSetupPage — complete", () => {
   it("falls back to a relative /mcp hint without a public URL", () => {
     const html = renderSetupPage({
       kind: "complete",
-      accountName: "Sample User",
+      accountEmail: "user@example.com",
       mcpUrl: undefined,
     })
 

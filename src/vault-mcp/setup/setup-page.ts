@@ -23,10 +23,10 @@ export type SetupView =
       insecureTransport: boolean
     }
   | { kind: "mfa"; requestId: string; error?: string | undefined }
-  | { kind: "blocked"; accountName: string; problem: PreflightProblem }
+  | { kind: "blocked"; accountEmail: string; problem: PreflightProblem }
   | {
       kind: "complete"
-      accountName: string
+      accountEmail: string
       /** Where the MCP client connects once the server is up; undefined when
        *  PUBLIC_URL is not set. */
       mcpUrl: string | undefined
@@ -166,13 +166,13 @@ const problemCopy = (problem: PreflightProblem): string => {
 }
 
 const renderBlocked = ({
-  accountName,
+  accountEmail,
   problem,
 }: Extract<SetupView, { kind: "blocked" }>): string =>
   shell(
     "One more setting",
     `<h1>One more setting</h1>
-  <p>Signed in as <strong>${escapeHtml(accountName)}</strong>.</p>
+  <p>Signed in as <strong>${escapeHtml(accountEmail)}</strong>.</p>
   ${problemCopy(problem)}
   <p class="muted">Nothing was saved this time; the sign-in only takes a moment to repeat.</p>`,
   )
@@ -182,13 +182,13 @@ const renderBlocked = ({
 const COMPLETE_SCRIPT = `(function(){function ready(){document.getElementById('waiting').hidden=true;document.getElementById('ready').hidden=false}function poll(){fetch('/healthz',{cache:'no-store'}).then(function(r){return r.ok?r.json():null}).then(function(b){if(b&&b.mode!=='setup'){ready();return}setTimeout(poll,5000)}).catch(function(){setTimeout(poll,5000)})}setTimeout(poll,5000)})();`
 
 const renderComplete = ({
-  accountName,
+  accountEmail,
   mcpUrl,
 }: Extract<SetupView, { kind: "complete" }>): string =>
   shell(
     "Setup complete",
     `<h1>Setup complete</h1>
-  <p>Signed in as <strong>${escapeHtml(accountName)}</strong>. The server is restarting to download your vault and build its search index — a few minutes for a typical vault.</p>
+  <p>Signed in as <strong>${escapeHtml(accountEmail)}</strong>. The server is restarting to download your vault and build its search index — a few minutes for a typical vault.</p>
   <div id="waiting">
     <p><span class="spinner"></span>Waiting for the server… this page updates by itself.</p>
     <p class="muted">If it never does: the container stopped and nothing restarted it. Start it again (for a plain <code>docker run</code>: <code>docker start vault-cortex</code>), then refresh this page.</p>

@@ -257,7 +257,7 @@ describe("POST /setup — sign-in outcomes", () => {
     const html = await response.text()
 
     expect(response.status).toBe(200)
-    expect(html).toContain("Signed in as <strong>Sample User</strong>.")
+    expect(html).toContain("Signed in as <strong>user@example.com</strong>.")
     expect(html).toContain(
       "Connect your MCP client to <code>https://vault.example.com/mcp</code>",
     )

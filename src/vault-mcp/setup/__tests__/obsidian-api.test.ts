@@ -30,7 +30,7 @@ describe("obsidianApi.signIn", () => {
       mfa: "",
     })
 
-    expect(result).toEqual({ token: "tok-1", accountName: "Sample User" })
+    expect(result).toEqual({ token: "tok-1", accountEmail: "user@example.com" })
     expect(api.requests).toHaveLength(1)
     expect(api.requests[0]?.path).toBe("/user/signin")
     expect(api.requests[0]?.headers.origin).toBe("https://obsidian.md")
@@ -40,19 +40,6 @@ describe("obsidianApi.signIn", () => {
       password: "pw",
       mfa: "",
     })
-  })
-
-  it("falls back to the email as the account name when the API sends none", async () => {
-    const api = await startApi(() => ({ body: { token: "tok-1" } }))
-
-    const result = await obsidianApi.signIn({
-      apiBaseUrl: api.baseUrl,
-      email: "user@example.com",
-      password: "pw",
-      mfa: "",
-    })
-
-    expect(result.accountName).toBe("user@example.com")
   })
 
   it("throws ObsidianApiError with the API's own text when the body carries an error", async () => {
@@ -116,7 +103,14 @@ describe("obsidianApi.listVaults", () => {
       body: {
         vaults: [
           { id: "a", name: "Plain", password: "server-known", salt: "s" },
-          { id: "b", name: "Locked", salt: "s", encryption_version: 3 },
+          {
+            id: "b",
+            name: "Locked",
+            password: "",
+            salt: "s",
+            encryption_version: 3,
+          },
+          { id: "d", name: "Legacy", salt: "s" },
         ],
         shared: [{ id: "c", name: "Team", password: "x" }],
       },
@@ -127,9 +121,12 @@ describe("obsidianApi.listVaults", () => {
       token: "tok-1",
     })
 
+    // "Locked" mirrors the live API: an end-to-end encrypted vault comes back
+    // with `password: ""`, not with the field missing.
     expect(vaults).toEqual([
       { name: "Plain", encrypted: false },
       { name: "Locked", encrypted: true },
+      { name: "Legacy", encrypted: true },
       { name: "Team", encrypted: false },
     ])
     expect(api.requests[0]?.path).toBe("/vault/list")

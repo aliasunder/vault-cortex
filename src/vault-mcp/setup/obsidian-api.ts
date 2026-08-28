@@ -67,8 +67,8 @@ const postJson = async ({
 export type SignInResult = {
   /** The OBSIDIAN_AUTH_TOKEN value. */
   token: string
-  /** The account's display name, or the email when the API sends none. */
-  accountName: string
+  /** The email the user signed in with — shown back on the page. */
+  accountEmail: string
 }
 
 const signIn = async ({
@@ -93,14 +93,13 @@ const signIn = async ({
   if (typeof body.token !== "string" || !body.token) {
     throw new Error("Obsidian API sign-in response carries no token")
   }
-  const accountName = typeof body.name === "string" ? body.name : email
-  return { token: body.token, accountName }
+  return { token: body.token, accountEmail: email }
 }
 
 type RemoteVault = {
   name: string
-  /** End-to-end encrypted: the listing carries no `password` for the vault,
-   *  so `ob sync-setup` needs VAULT_PASSWORD. */
+  /** End-to-end encrypted: the listing carries no usable `password` for the
+   *  vault, so `ob sync-setup` needs VAULT_PASSWORD. */
   encrypted: boolean
 }
 
@@ -108,7 +107,9 @@ const remoteVaultsOf = (entries: unknown): RemoteVault[] => {
   if (!Array.isArray(entries)) return []
   return entries.filter(isJsonObject).flatMap((entry) => {
     if (typeof entry.name !== "string") return []
-    return [{ name: entry.name, encrypted: typeof entry.password !== "string" }]
+    // Same test as `ob sync-setup`: the API sends `password: ""` (not an
+    // absent field) for an end-to-end encrypted vault.
+    return [{ name: entry.name, encrypted: !entry.password }]
   })
 }
 
