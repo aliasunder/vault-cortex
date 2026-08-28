@@ -102,4 +102,12 @@ const startSetupServer = (): void => {
   })
 }
 
-startSetupServer()
+// A config failure (loadConfig, the env reads above) throws before listen;
+// log it the way server.ts does so the platform log carries one line the
+// operator can search for, not a bare stack.
+try {
+  startSetupServer()
+} catch (error) {
+  logger.error("failed to start setup server", { error: describeError(error) })
+  process.exit(1)
+}
