@@ -85,6 +85,10 @@ const startSetupServer = (): void => {
       res.status(500).json({ error: "internal server error" })
   })
 
+  // Express 5 reports a bind failure (EADDRINUSE, EACCES) through the
+  // callback's error argument — it registers the callback as the server's
+  // 'error' listener — so an unchecked callback would log "started" and
+  // leave a process that serves nothing.
   app.listen(port, host, (listenError?: Error) => {
     if (listenError) {
       logger.error("setup server failed to listen", {
