@@ -1,5 +1,6 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import { readFile, stat } from "node:fs/promises"
+import { request as httpRequest } from "node:http"
 import type { Server } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -208,6 +209,37 @@ describe("GET /setup", () => {
     const html = await (await fetch(`${harness.baseUrl}/setup`)).text()
 
     expect(html).toContain("Your saved Obsidian login stopped working")
+  })
+
+  it("warns about plain HTTP for a non-local host but not for any loopback form", async () => {
+    const harness = await startHarness()
+    // fetch() drops a caller-set Host header; node:http sends it as given.
+    const pageForHost = (host: string): Promise<string> =>
+      new Promise((resolve, reject) => {
+        const request = httpRequest(
+          `${harness.baseUrl}/setup`,
+          { headers: { host } },
+          (response) => {
+            const chunks: Buffer[] = []
+            response.on("data", (chunk: Buffer) => chunks.push(chunk))
+            response.on("end", () =>
+              resolve(Buffer.concat(chunks).toString("utf8")),
+            )
+          },
+        )
+        request.on("error", reject)
+        request.end()
+      })
+
+    const remote = await pageForHost("vault.example.com")
+    const ipv4 = await pageForHost("127.0.0.1:8000")
+    const ipv6 = await pageForHost("[::1]:8000")
+    const named = await pageForHost("localhost:8000")
+
+    expect(remote).toContain("This page is not using HTTPS")
+    expect(ipv4).not.toContain("This page is not using HTTPS")
+    expect(ipv6).not.toContain("This page is not using HTTPS")
+    expect(named).not.toContain("This page is not using HTTPS")
   })
 })
 
@@ -618,7 +650,42 @@ describe("POST /setup — vault pre-flight", () => {
     ])
   })
 
-  it("completes anyway when the listing entry lacks the key material", async () => {
+  it("blocks an encrypted vault whose encryption version is newer than the Sync client supports", async () => {
+    const harness = await startHarness({
+      vaultPasswordSet: true,
+      api: {
+        signIn: () => ({ body: SIGNED_IN }),
+        listVaults: () => ({
+          body: {
+            vaults: [{ ...encryptedVault("Notes"), encryption_version: 4 }],
+          },
+        }),
+        validateVaultKey: vaultAccessCheck,
+      },
+    })
+
+    const html = await (await harness.postForm(CREDENTIALS)).text()
+
+    expect(html).toContain(
+      "The vault <code>Notes</code> uses encryption version 4, which is newer than the Obsidian Sync client this server ships",
+    )
+    expect(existsSync(harness.tokenFilePath)).toBe(false)
+    expect(harness.apiRequests.map((request) => request.path)).toEqual([
+      "/user/signin",
+      "/vault/list",
+    ])
+    expect(harness.logs.at(-1)).toEqual({
+      level: "warn",
+      message: "setup_blocked",
+      data: {
+        component: "setup-routes",
+        clientIp: "127.0.0.1",
+        problem: "vault-key-underivable",
+      },
+    })
+  })
+
+  it("blocks an encrypted vault whose listing entry lacks the key material", async () => {
     const { host: _host, ...vaultWithoutHost } = encryptedVault("Notes")
     const harness = await startHarness({
       vaultPasswordSet: true,
@@ -631,25 +698,13 @@ describe("POST /setup — vault pre-flight", () => {
 
     const html = await (await harness.postForm(CREDENTIALS)).text()
 
-    expect(html).toContain("<h1>Setup complete</h1>")
+    expect(html).toContain(
+      "Obsidian's vault listing did not include what this server needs to check the password for <code>Notes</code>",
+    )
+    expect(existsSync(harness.tokenFilePath)).toBe(false)
     expect(harness.apiRequests.map((request) => request.path)).toEqual([
       "/user/signin",
       "/vault/list",
-    ])
-    expect(
-      harness.logs.filter(
-        (call) => call.message === "setup_vault_key_check_skipped",
-      ),
-    ).toEqual([
-      {
-        level: "warn",
-        message: "setup_vault_key_check_skipped",
-        data: {
-          component: "setup-routes",
-          clientIp: "127.0.0.1",
-          reason: "listing entry lacks the key material",
-        },
-      },
     ])
   })
 

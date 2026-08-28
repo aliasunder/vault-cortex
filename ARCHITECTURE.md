@@ -866,9 +866,10 @@ running `get-sync-token` on their own computer:
    Obsidian accepts the key derived from it (the same `/vault/access`
    check `ob sync-setup` makes) — so a boot-breaking setting is reported on
    the page rather than in a crash loop. Only a definite answer blocks: a
-   missing name, no match, or Obsidian rejecting the key. When the list or
-   the key check cannot be reached, sign-in proceeds and the boot chain
-   reports any problem as it does today. It then writes the token where the
+   missing name, no match, Obsidian rejecting the key, or a key this
+   server cannot derive (an encryption version newer than the pinned Sync
+   client). When the list or the key check cannot be reached, sign-in
+   proceeds and the boot chain reports any problem as it does today. It then writes the token where the
    Sync client reads it (directory 0700, file 0600).
 5. The setup server exits; `svc-vault-mcp/finish` finds the token, writes
    exit code 1 to `/run/s6-linux-init-container-results/exitcode`, and halts.

@@ -128,6 +128,40 @@ describe("renderSetupPage — blocked", () => {
     )
   })
 
+  it("names the newer encryption version when this server cannot derive the key", () => {
+    const html = renderSetupPage({
+      kind: "blocked",
+      accountEmail: "user@example.com",
+      problem: {
+        kind: "vault-key-underivable",
+        vaultName: "Notes",
+        encryptionVersion: 4,
+      },
+    })
+
+    expect(html).toContain(
+      "<p>The vault <code>Notes</code> uses encryption version 4, which is newer than the Obsidian Sync client this server ships, so syncing it would fail on the next start.</p>",
+    )
+    expect(html).toContain("Update the server to a newer release")
+  })
+
+  it("asks for a retry when the listing lacks what the key check needs", () => {
+    const html = renderSetupPage({
+      kind: "blocked",
+      accountEmail: "user@example.com",
+      problem: {
+        kind: "vault-key-underivable",
+        vaultName: "Notes",
+        encryptionVersion: undefined,
+      },
+    })
+
+    expect(html).toContain(
+      "<p>Obsidian's vault listing did not include what this server needs to check the password for <code>Notes</code>, so syncing it would fail on the next start.</p>",
+    )
+    expect(html).toContain("Try again in a few minutes.")
+  })
+
   it("asks for a rename when two vaults share the name", () => {
     const html = renderSetupPage({
       kind: "blocked",

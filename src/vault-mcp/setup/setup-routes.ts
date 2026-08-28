@@ -19,7 +19,7 @@ import {
 import type {
   RemoteVault,
   SignInResult,
-  VaultKeyMaterial,
+  VaultKeyStatus,
 } from "./obsidian-api.js"
 import { deriveVaultKeyHash } from "./vault-key.js"
 import { renderSetupPage } from "./setup-page.js"
@@ -126,10 +126,13 @@ export const createSetupRoutes = ({
     validate: false,
   })
 
+  // Express keeps the brackets on an IPv6 host, so `[::1]` is the loopback
+  // form a browser sends.
+  const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"])
+
   const isInsecureTransport = (req: Request): boolean => {
     if (req.secure) return false
-    const hostname = req.hostname
-    return hostname !== "localhost" && hostname !== "127.0.0.1"
+    return !LOOPBACK_HOSTNAMES.has(req.hostname)
   }
 
   const sendSignInPage = (
@@ -170,28 +173,38 @@ export const createSetupRoutes = ({
   }
 
   /** The check `ob sync-setup` would fail on next boot with a wrong
-   *  VAULT_PASSWORD. Only Obsidian's rejection blocks; a check that cannot
-   *  run is advisory like the listing. */
+   *  VAULT_PASSWORD. A key this server cannot derive blocks too — the next
+   *  boot cannot derive it either. Only a check that cannot reach Obsidian
+   *  is advisory, like the listing. */
   const checkVaultKey = async (
     {
       token,
       password,
-      keyMaterial,
+      key,
       encryptedVaultName,
     }: {
       token: string
       password: string
-      keyMaterial: VaultKeyMaterial | undefined
+      key: VaultKeyStatus
       encryptedVaultName: string
     },
     requestLogger: Logger,
   ): Promise<PreflightProblem | undefined> => {
-    if (!keyMaterial) {
-      requestLogger.warn("setup_vault_key_check_skipped", {
-        reason: "listing entry lacks the key material",
-      })
-      return undefined
+    if (key.kind === "unsupported-version") {
+      return {
+        kind: "vault-key-underivable",
+        vaultName: encryptedVaultName,
+        encryptionVersion: key.encryptionVersion,
+      }
     }
+    if (key.kind === "incomplete-listing") {
+      return {
+        kind: "vault-key-underivable",
+        vaultName: encryptedVaultName,
+        encryptionVersion: undefined,
+      }
+    }
+    const keyMaterial = key.material
     const keyHash = await deriveVaultKeyHash({
       password,
       salt: keyMaterial.salt,
@@ -246,7 +259,7 @@ export const createSetupRoutes = ({
       {
         token,
         password: vaultPassword,
-        keyMaterial: vault.keyMaterial,
+        key: vault.key,
         encryptedVaultName: vaultName,
       },
       requestLogger,

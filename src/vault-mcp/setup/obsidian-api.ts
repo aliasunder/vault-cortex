@@ -102,28 +102,49 @@ const signIn = async ({
 /** What `ob sync-setup` needs from the listing to check a vault password:
  *  the salt the key is derived from, and the vault id, host, and scheme
  *  version the access check is sent with. */
-export type VaultKeyMaterial = {
+type VaultKeyMaterial = {
   vaultId: string
   salt: string
   host: string
   encryptionVersion: SupportedEncryptionVersion
 }
 
+/** Whether this server can derive the vault's key at all — `ob sync-setup`
+ *  fails the same way on the next boot when it cannot. */
+export type VaultKeyStatus =
+  | { kind: "derivable"; material: VaultKeyMaterial }
+  /** The vault uses an encryption scheme newer than the pinned Sync client. */
+  | { kind: "unsupported-version"; encryptionVersion: number | undefined }
+  /** The listing entry lacks a field the check needs. */
+  | { kind: "incomplete-listing" }
+
 export type RemoteVault =
   | { name: string; encrypted: false }
-  /** End-to-end encrypted: `ob sync-setup` needs VAULT_PASSWORD. Key
-   *  material is absent when the listing entry lacks a field the check
-   *  needs. */
-  | { name: string; encrypted: true; keyMaterial: VaultKeyMaterial | undefined }
+  /** End-to-end encrypted: `ob sync-setup` needs VAULT_PASSWORD. */
+  | { name: string; encrypted: true; key: VaultKeyStatus }
 
-const keyMaterialOf = (
-  entry: Record<string, unknown>,
-): VaultKeyMaterial | undefined => {
+const keyStatusOf = (entry: Record<string, unknown>): VaultKeyStatus => {
   const { id, salt, host, encryption_version } = entry
-  if (typeof id !== "string" || typeof salt !== "string") return undefined
-  if (typeof host !== "string") return undefined
-  if (!isSupportedEncryptionVersion(encryption_version)) return undefined
-  return { vaultId: id, salt, host, encryptionVersion: encryption_version }
+  if (typeof id !== "string" || typeof salt !== "string") {
+    return { kind: "incomplete-listing" }
+  }
+  if (typeof host !== "string") return { kind: "incomplete-listing" }
+  if (!isSupportedEncryptionVersion(encryption_version)) {
+    return {
+      kind: "unsupported-version",
+      encryptionVersion:
+        typeof encryption_version === "number" ? encryption_version : undefined,
+    }
+  }
+  return {
+    kind: "derivable",
+    material: {
+      vaultId: id,
+      salt,
+      host,
+      encryptionVersion: encryption_version,
+    },
+  }
 }
 
 const remoteVaultsOf = (entries: unknown): RemoteVault[] => {
@@ -133,9 +154,7 @@ const remoteVaultsOf = (entries: unknown): RemoteVault[] => {
     // Same test as `ob sync-setup`: the API sends `password: ""` (not an
     // absent field) for an end-to-end encrypted vault.
     if (entry.password) return [{ name: entry.name, encrypted: false }]
-    return [
-      { name: entry.name, encrypted: true, keyMaterial: keyMaterialOf(entry) },
-    ]
+    return [{ name: entry.name, encrypted: true, key: keyStatusOf(entry) }]
   })
 }
 

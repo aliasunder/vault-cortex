@@ -15,6 +15,14 @@ export type PreflightProblem =
   /** Obsidian refused the key derived from VAULT_PASSWORD; `apiMessage` is
    *  the API's own text, the same line `ob sync-setup` would print. */
   | { kind: "vault-access-rejected"; vaultName: string; apiMessage: string }
+  /** This server cannot derive the vault's key: the vault's encryption
+   *  version is newer than the Sync client the image ships, or the listing
+   *  entry lacks a field the check needs (`encryptionVersion` undefined). */
+  | {
+      kind: "vault-key-underivable"
+      vaultName: string
+      encryptionVersion: number | undefined
+    }
 
 export type SetupView =
   | {
@@ -169,6 +177,12 @@ const problemCopy = (problem: PreflightProblem): string => {
     case "vault-access-rejected":
       return `<p>Obsidian did not accept <code>VAULT_PASSWORD</code> for the vault <code>${escapeHtml(problem.vaultName)}</code>: ${escapeHtml(problem.apiMessage)}</p>
   <p>Fix <code>VAULT_PASSWORD</code> — the vault's encryption password — in your deployment's settings, redeploy, then sign in here again.</p>`
+    case "vault-key-underivable":
+      return problem.encryptionVersion === undefined
+        ? `<p>Obsidian's vault listing did not include what this server needs to check the password for <code>${escapeHtml(problem.vaultName)}</code>, so syncing it would fail on the next start.</p>
+  <p>Try again in a few minutes. If it keeps happening, report it with the vault's Obsidian Sync settings.</p>`
+        : `<p>The vault <code>${escapeHtml(problem.vaultName)}</code> uses encryption version ${escapeHtml(String(problem.encryptionVersion))}, which is newer than the Obsidian Sync client this server ships, so syncing it would fail on the next start.</p>
+  <p>Update the server to a newer release, redeploy, then sign in here again.</p>`
   }
 }
 

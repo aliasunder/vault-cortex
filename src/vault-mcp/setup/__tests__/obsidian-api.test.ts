@@ -139,15 +139,22 @@ describe("obsidianApi.listVaults", () => {
       {
         name: "Locked",
         encrypted: true,
-        keyMaterial: {
-          vaultId: "b",
-          salt: "s",
-          host: "sync-1.example.com",
-          encryptionVersion: 3,
+        key: {
+          kind: "derivable",
+          material: {
+            vaultId: "b",
+            salt: "s",
+            host: "sync-1.example.com",
+            encryptionVersion: 3,
+          },
         },
       },
-      { name: "Legacy", encrypted: true, keyMaterial: undefined },
-      { name: "Future", encrypted: true, keyMaterial: undefined },
+      { name: "Legacy", encrypted: true, key: { kind: "incomplete-listing" } },
+      {
+        name: "Future",
+        encrypted: true,
+        key: { kind: "unsupported-version", encryptionVersion: 4 },
+      },
       { name: "Team", encrypted: false },
     ])
     expect(api.requests[0]?.path).toBe("/vault/list")
