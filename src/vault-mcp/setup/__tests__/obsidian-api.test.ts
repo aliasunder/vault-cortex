@@ -19,12 +19,12 @@ const startApi = async (
 describe("obsidianApi.signIn", () => {
   it("posts the credentials with the Origin header the API requires and returns the token", async () => {
     const api = await startApi(() => ({
-      body: { token: "tok-1", name: "Sample User", email: "t@example.com" },
+      body: { token: "tok-1", name: "Sample User", email: "user@example.com" },
     }))
 
     const result = await obsidianApi.signIn({
       apiBaseUrl: api.baseUrl,
-      email: "t@example.com",
+      email: "user@example.com",
       password: "pw",
       mfa: "",
     })
@@ -35,7 +35,7 @@ describe("obsidianApi.signIn", () => {
     expect(api.requests[0]?.headers.origin).toBe("https://obsidian.md")
     expect(api.requests[0]?.headers["content-type"]).toBe("application/json")
     expect(api.requests[0]?.body).toEqual({
-      email: "t@example.com",
+      email: "user@example.com",
       password: "pw",
       mfa: "",
     })
@@ -46,12 +46,12 @@ describe("obsidianApi.signIn", () => {
 
     const result = await obsidianApi.signIn({
       apiBaseUrl: api.baseUrl,
-      email: "t@example.com",
+      email: "user@example.com",
       password: "pw",
       mfa: "",
     })
 
-    expect(result.accountName).toBe("t@example.com")
+    expect(result.accountName).toBe("user@example.com")
   })
 
   it("throws ObsidianApiError with the API's own text when the body carries an error", async () => {
@@ -62,7 +62,7 @@ describe("obsidianApi.signIn", () => {
     await expect(
       obsidianApi.signIn({
         apiBaseUrl: api.baseUrl,
-        email: "t@example.com",
+        email: "user@example.com",
         password: "wrong",
         mfa: "",
       }),
@@ -75,7 +75,7 @@ describe("obsidianApi.signIn", () => {
     await expect(
       obsidianApi.signIn({
         apiBaseUrl: api.baseUrl,
-        email: "t@example.com",
+        email: "user@example.com",
         password: "pw",
         mfa: "",
       }),
@@ -88,7 +88,7 @@ describe("obsidianApi.signIn", () => {
     await expect(
       obsidianApi.signIn({
         apiBaseUrl: api.baseUrl,
-        email: "t@example.com",
+        email: "user@example.com",
         password: "pw",
         mfa: "",
       }),
@@ -101,7 +101,7 @@ describe("obsidianApi.signIn", () => {
     await expect(
       obsidianApi.signIn({
         apiBaseUrl: api.baseUrl,
-        email: "t@example.com",
+        email: "user@example.com",
         password: "pw",
         mfa: "",
       }),

@@ -18,7 +18,7 @@ const AUTH_TOKEN = "local-dev-token"
 const SIGNED_IN = {
   token: "sync-tok",
   name: "Sample User",
-  email: "t@example.com",
+  email: "user@example.com",
 }
 
 type LogCall = { level: string; message: string; data: Record<string, unknown> }
@@ -135,7 +135,7 @@ const startHarness = async ({
 
 const CREDENTIALS = {
   token: AUTH_TOKEN,
-  email: "t@example.com",
+  email: "user@example.com",
   password: "pw",
 }
 
@@ -258,7 +258,7 @@ describe("POST /setup — sign-in outcomes", () => {
       "/vault/list",
     ])
     expect(harness.apiRequests[0]?.body).toEqual({
-      email: "t@example.com",
+      email: "user@example.com",
       password: "pw",
       mfa: "",
     })
@@ -295,7 +295,7 @@ describe("POST /setup — sign-in outcomes", () => {
     await (await harness.postForm(CREDENTIALS)).text()
 
     const logged = JSON.stringify(harness.logs)
-    expect(logged).not.toContain("t@example.com")
+    expect(logged).not.toContain("user@example.com")
     expect(logged).not.toContain('"pw"')
   })
 
@@ -333,7 +333,7 @@ describe("POST /setup — two-factor round trip", () => {
     const requestId = REQUEST_ID_PATTERN.exec(mfaHtml)?.[1]
     if (!requestId) throw new Error("no request_id in the MFA page")
     expect(mfaHtml).not.toContain("pw")
-    expect(mfaHtml).not.toContain("t@example.com")
+    expect(mfaHtml).not.toContain("user@example.com")
 
     const secondResponse = await harness.postForm({
       request_id: requestId,
