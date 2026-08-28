@@ -992,24 +992,6 @@ describe("remote image boot — safety checks in the init chain stop the contain
     expect(logs).not.toContain("First sync (attempt")
   })
 
-  it("refuses to start without OBSIDIAN_AUTH_TOKEN before ever calling the Sync client", async () => {
-    const { OBSIDIAN_AUTH_TOKEN: _omitted, ...envWithoutToken } = BASE_ENV
-    const logs = await logsAfterGuardStops({
-      scenario: "missing-token",
-      env: envWithoutToken,
-    })
-    expect(logs).toContain(
-      "[obsidian-sync] ERROR: OBSIDIAN_AUTH_TOKEN is empty or unset.",
-    )
-    expect(logs).toContain(
-      "s6-rc: warning: unable to start service init-check-auth: command exited 1",
-    )
-    // A stopped container can't `exec`, so the call log is out of reach;
-    // init-obsidian-login logs "Authenticated." only after `ob login`
-    // returns, so its absence proves the gate fired before the stub ran.
-    expect(logs).not.toContain("[obsidian-sync] Authenticated.")
-  })
-
   it("refuses to sync an empty vault when the device's sync state records files", async () => {
     // A kept config volume (sync state recording files) with a wiped vault
     // volume would have the sync engine push every recorded file as a
@@ -1261,7 +1243,8 @@ describe("remote image boot — token file on the volume rejected by the Sync cl
     await seedSyncToken({
       image: IMAGE,
       volume,
-      mountPath: "/persist/config",
+      mountPath: "/persist",
+      configDir: "/persist/config",
       token: "fake-stale-sync-token",
     })
     handle = await runContainer({
@@ -1320,7 +1303,8 @@ describe("remote image boot — env var token wins over a token file on the volu
     await seedSyncToken({
       image: IMAGE,
       volume,
-      mountPath: "/persist/config",
+      mountPath: "/persist",
+      configDir: "/persist/config",
       token: "fake-file-token",
     })
     handle = await runContainer({

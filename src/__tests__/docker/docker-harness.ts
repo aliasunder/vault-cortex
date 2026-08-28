@@ -248,12 +248,16 @@ export const seedSyncToken = async ({
   image,
   volume,
   mountPath,
+  configDir,
   token,
 }: {
   image: string
   volume: string
-  /** Where the volume is mounted for the seeding run. */
+  /** Where the volume is mounted for the seeding run — the same path the
+   *  scenario mounts it at. */
   mountPath: string
+  /** The Sync client's config home inside that mount (XDG_CONFIG_HOME). */
+  configDir: string
   token: string
 }): Promise<void> => {
   await dockerOrThrow([
@@ -274,7 +278,7 @@ export const seedSyncToken = async ({
       mkdirSync(tokenDir, { recursive: true, mode: 0o700 })
       writeFileSync(join(tokenDir, "auth_token"), process.argv[2], { mode: 0o600 })
     `,
-    mountPath,
+    configDir,
     token,
   ])
 }
