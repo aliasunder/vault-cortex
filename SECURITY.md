@@ -13,9 +13,9 @@ notes below describe what the maintainer uses.
 - **Authentication and authorization** — OAuth 2.1 (Authorization Code + PKCE),
   JWT tokens (HS256), static bearer token fallback, Express middleware (defense
   in depth)
-- **Express server** — handles MCP protocol messages, OAuth flows, consent
-  page, and — on the `:remote` image, only until a working Sync token is on
-  the volume — the `/setup` sign-in page (see
+- **Express server** — handles MCP protocol messages, OAuth flows, and the
+  consent page. On the `:remote` image it also serves the `/setup` sign-in
+  page until a working Sync token is on the volume (see
   [Setup mode](#setup-mode-remote-image))
 - **SQLite** — FTS5 search index and OAuth token persistence. User-supplied
   search queries are parameterized, not interpolated
@@ -176,11 +176,12 @@ mechanism-level detail.
 
 ### Setup mode (remote image)
 
-When the `:remote` image starts without a working Obsidian Sync token —
-none set, or a saved one the Sync client rejects — it serves a `/setup`
-page where the owner signs in to Obsidian from the browser instead of
-running `get-sync-token` on their own computer. The surface exists only
-until a sign-in from this page has written a working token:
+When the `:remote` image starts without a working Obsidian Sync token, it
+serves a `/setup` page where the owner signs in to Obsidian from the
+browser instead of running `get-sync-token` on their own computer. A
+token is not working when none is set or when the Sync client rejects the
+saved one. The page exists only until a sign-in has written a token the
+Sync client accepts:
 
 - **Gated by `MCP_AUTH_TOKEN` before any upstream call** — the token is
   checked (constant-time) before the server contacts Obsidian, so the
