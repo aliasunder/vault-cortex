@@ -74,8 +74,13 @@ const startSetupServer = (): void => {
     res.status(503).json({ error: "setup required", setup_url: setupUrl })
   })
 
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    logger.error("unhandled_error", { error: `[${err.name}]: ${err.message}` })
+  app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+    logger.error("unhandled_error", {
+      method: req.method,
+      path: req.path,
+      error: describeError(err),
+      stack: err.stack,
+    })
     if (!res.headersSent)
       res.status(500).json({ error: "internal server error" })
   })

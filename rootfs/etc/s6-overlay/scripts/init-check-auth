@@ -3,10 +3,8 @@
 # Precedence mirrors the Sync client's own lookup (OBSIDIAN_AUTH_TOKEN, then
 # its credential file): env var → token file on the config volume → neither.
 #
-# With neither, the boot enters SETUP MODE instead of stopping: the later
-# init steps skip, the sync service idles, and the MCP service serves the
-# /setup sign-in page, which writes the token file. Once the file exists the
-# container restarts itself into a normal boot (svc-vault-mcp/finish).
+# With neither, publishes SETUP_MODE=1 so the boot serves the /setup sign-in
+# page instead of stopping.
 set -eu
 
 if [ -n "${OBSIDIAN_AUTH_TOKEN:-}" ]; then
