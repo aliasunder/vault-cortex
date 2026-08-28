@@ -19,7 +19,10 @@ CONTAINER_ENVIRONMENT_DIR="${CONTAINER_ENVIRONMENT_DIR:-/run/s6/container_enviro
 # findings, decided below and by init-obsidian-login — never an input.
 rm -f "$CONTAINER_ENVIRONMENT_DIR/SETUP_MODE" "$CONTAINER_ENVIRONMENT_DIR/SETUP_REASON"
 
-if [ -n "${OBSIDIAN_AUTH_TOKEN:-}" ]; then
+# Presence is decided on the value without whitespace: a variable holding
+# only a space (a placeholder left in a template) is no token, and would
+# otherwise skip setup mode and stop the boot at `ob login`.
+if [ -n "$(printf '%s' "${OBSIDIAN_AUTH_TOKEN:-}" | tr -d '[:space:]')" ]; then
   echo "[obsidian-sync] Auth token present."
   exit 0
 fi

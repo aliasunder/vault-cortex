@@ -9,6 +9,11 @@ import { createHash, hkdf, scrypt } from "node:crypto"
 /** Encryption scheme versions the pinned Sync client can derive a key for. */
 export type SupportedEncryptionVersion = 0 | 2 | 3
 
+/** The newest version the pinned Sync client supports — also what the vault
+ *  listing is asked for. A vault above it needs a newer client; a vault
+ *  below it that is still unsupported (version 1) does not. */
+export const NEWEST_SUPPORTED_ENCRYPTION_VERSION = 3
+
 export const isSupportedEncryptionVersion = (
   value: unknown,
 ): value is SupportedEncryptionVersion =>

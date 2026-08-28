@@ -6,15 +6,13 @@
  *  command (cli/src/get-sync-token.ts) carries its own copy of the sign-in
  *  call; the two packages share no code. */
 
-import { isSupportedEncryptionVersion } from "./vault-key.js"
+import {
+  NEWEST_SUPPORTED_ENCRYPTION_VERSION,
+  isSupportedEncryptionVersion,
+} from "./vault-key.js"
 import type { SupportedEncryptionVersion } from "./vault-key.js"
 
 const REQUEST_TIMEOUT_MS = 30_000
-
-/** Encryption scheme version the pinned Sync client supports — sent with
- *  the vault listing so each vault comes back with the key material that
- *  client understands. */
-const SUPPORTED_ENCRYPTION_VERSION = 3
 
 /** An error the API returned in its response body (HTTP 200 with an
  *  `error` field): a rejected password, a missing or wrong 2FA code. */
@@ -170,7 +168,12 @@ const listVaults = async ({
   const body = await postJson({
     apiBaseUrl,
     path: "/vault/list",
-    body: { token, supported_encryption_version: SUPPORTED_ENCRYPTION_VERSION },
+    // Sent so each vault comes back with the key material this client
+    // understands.
+    body: {
+      token,
+      supported_encryption_version: NEWEST_SUPPORTED_ENCRYPTION_VERSION,
+    },
   })
   return [...remoteVaultsOf(body.vaults), ...remoteVaultsOf(body.shared)]
 }

@@ -128,7 +128,7 @@ describe("renderSetupPage — blocked", () => {
     )
   })
 
-  it("names the newer encryption version when this server cannot derive the key", () => {
+  it("advises a server update for an encryption version above the Sync client's newest", () => {
     const html = renderSetupPage({
       kind: "blocked",
       accountEmail: "user@example.com",
@@ -140,9 +140,26 @@ describe("renderSetupPage — blocked", () => {
     })
 
     expect(html).toContain(
-      "<p>The vault <code>Notes</code> uses encryption version 4, which is newer than the Obsidian Sync client this server ships, so syncing it would fail on the next start.</p>",
+      "<p>The vault <code>Notes</code> uses encryption version 4, which the Obsidian Sync client this server ships does not support, so syncing it would fail on the next start.</p>\n  <p>Update the server to a newer release, redeploy, then sign in here again.</p>",
     )
-    expect(html).toContain("Update the server to a newer release")
+  })
+
+  it("does not call an unsupported older encryption version newer or advise an update", () => {
+    const html = renderSetupPage({
+      kind: "blocked",
+      accountEmail: "user@example.com",
+      problem: {
+        kind: "vault-key-underivable",
+        vaultName: "Notes",
+        encryptionVersion: 1,
+      },
+    })
+
+    expect(html).toContain(
+      "<p>The vault <code>Notes</code> uses encryption version 1, which the Obsidian Sync client this server ships does not support, so syncing it would fail on the next start.</p>\n  <p>Report it with the vault's Obsidian Sync settings.</p>",
+    )
+    expect(html).not.toContain("newer")
+    expect(html).not.toContain("Update the server")
   })
 
   it("asks for a retry when the listing lacks what the key check needs", () => {

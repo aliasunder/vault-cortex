@@ -667,7 +667,7 @@ describe("POST /setup — vault pre-flight", () => {
     const html = await (await harness.postForm(CREDENTIALS)).text()
 
     expect(html).toContain(
-      "The vault <code>Notes</code> uses encryption version 4, which is newer than the Obsidian Sync client this server ships",
+      "The vault <code>Notes</code> uses encryption version 4, which the Obsidian Sync client this server ships does not support",
     )
     expect(existsSync(harness.tokenFilePath)).toBe(false)
     expect(harness.apiRequests.map((request) => request.path)).toEqual([

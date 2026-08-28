@@ -109,6 +109,22 @@ describe("init-check-auth script", () => {
     })
   })
 
+  it("treats a whitespace-only env var token as no token", () => {
+    const run = runGateScript({
+      envToken: " \t",
+      publicUrl: "https://v.example",
+    })
+
+    expect(run).toEqual({
+      status: 0,
+      stdout:
+        "[vault-cortex] No Obsidian Sync token yet — starting in setup mode.\n[vault-cortex] Sign in at https://v.example/setup — you will need your MCP_AUTH_TOKEN.\n",
+      stderr: "",
+      setupModePublished: "1",
+      setupReasonPublished: false,
+    })
+  })
+
   it("accepts a token file under $HOME/.config without publishing setup mode", () => {
     const run = runGateScript({ fileToken: "file-token" })
 

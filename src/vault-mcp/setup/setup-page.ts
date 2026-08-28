@@ -4,6 +4,7 @@
  *  OAuth consent page. */
 
 import { escapeHtml } from "../../utils/escape-html.js"
+import { NEWEST_SUPPORTED_ENCRYPTION_VERSION } from "./vault-key.js"
 
 /** Why sign-in cannot finish: the deployment's own settings would make the
  *  next boot fail, so the token is not written until they are fixed. */
@@ -178,12 +179,24 @@ const problemCopy = (problem: PreflightProblem): string => {
       return `<p>Obsidian did not accept <code>VAULT_PASSWORD</code> for the vault <code>${escapeHtml(problem.vaultName)}</code>: ${escapeHtml(problem.apiMessage)}</p>
   <p>Fix <code>VAULT_PASSWORD</code> — the vault's encryption password — in your deployment's settings, redeploy, then sign in here again.</p>`
     case "vault-key-underivable":
-      return problem.encryptionVersion === undefined
-        ? `<p>Obsidian's vault listing did not include what this server needs to check the password for <code>${escapeHtml(problem.vaultName)}</code>, so syncing it would fail on the next start.</p>
-  <p>Try again in a few minutes. If it keeps happening, report it with the vault's Obsidian Sync settings.</p>`
-        : `<p>The vault <code>${escapeHtml(problem.vaultName)}</code> uses encryption version ${escapeHtml(String(problem.encryptionVersion))}, which is newer than the Obsidian Sync client this server ships, so syncing it would fail on the next start.</p>
-  <p>Update the server to a newer release, redeploy, then sign in here again.</p>`
+      return underivableKeyCopy(problem)
   }
+}
+
+const underivableKeyCopy = ({
+  vaultName,
+  encryptionVersion,
+}: Extract<PreflightProblem, { kind: "vault-key-underivable" }>): string => {
+  if (encryptionVersion === undefined) {
+    return `<p>Obsidian's vault listing did not include what this server needs to check the password for <code>${escapeHtml(vaultName)}</code>, so syncing it would fail on the next start.</p>
+  <p>Try again in a few minutes. If it keeps happening, report it with the vault's Obsidian Sync settings.</p>`
+  }
+  const remedy =
+    encryptionVersion > NEWEST_SUPPORTED_ENCRYPTION_VERSION
+      ? "Update the server to a newer release, redeploy, then sign in here again."
+      : "Report it with the vault's Obsidian Sync settings."
+  return `<p>The vault <code>${escapeHtml(vaultName)}</code> uses encryption version ${escapeHtml(String(encryptionVersion))}, which the Obsidian Sync client this server ships does not support, so syncing it would fail on the next start.</p>
+  <p>${remedy}</p>`
 }
 
 const renderBlocked = ({
