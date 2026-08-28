@@ -113,9 +113,12 @@ describe("init-check-auth script", () => {
   it("accepts a token file under XDG_CONFIG_HOME (single-volume layout)", () => {
     const run = runGateScript({ fileToken: "file-token", xdgConfigHome: true })
 
-    expect(run.status).toBe(0)
-    expect(run.stdout).toBe("[obsidian-sync] Auth token found on the volume.\n")
-    expect(run.setupModePublished).toBeUndefined()
+    expect(run).toEqual({
+      status: 0,
+      stdout: "[obsidian-sync] Auth token found on the volume.\n",
+      stderr: "",
+      setupModePublished: undefined,
+    })
   })
 
   it("reports the env var when both the env var and the file are present", () => {
@@ -143,8 +146,14 @@ describe("init-check-auth script", () => {
   it("treats an empty token file as no token", () => {
     const run = runGateScript({ fileToken: "", publicUrl: "https://v.example" })
 
-    expect(run.status).toBe(0)
-    expect(run.setupModePublished).toBe("1")
+    expect(run).toEqual({
+      status: 0,
+      stdout:
+        "[vault-cortex] No Obsidian Sync token yet — starting in setup mode.\n" +
+        "[vault-cortex] Sign in at https://v.example/setup — you will need your MCP_AUTH_TOKEN.\n",
+      stderr: "",
+      setupModePublished: "1",
+    })
   })
 
   it("names a placeholder host with the configured port when PUBLIC_URL is unset", () => {

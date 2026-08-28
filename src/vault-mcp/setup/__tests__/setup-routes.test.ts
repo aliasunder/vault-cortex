@@ -498,11 +498,9 @@ describe("POST /setup — vault pre-flight", () => {
 
     expect(html).toContain("<h1>Setup complete</h1>")
     expect(await readFile(harness.tokenFilePath, "utf8")).toBe("sync-tok")
-    expect(
-      harness.logs
-        .map((call) => call.message)
-        .includes("setup_vault_check_skipped"),
-    ).toBe(true)
+    expect(harness.logs.map((call) => call.message)).toContain(
+      "setup_vault_check_skipped",
+    )
   })
 
   it("omits the MCP URL from the completion page without a public URL", async () => {

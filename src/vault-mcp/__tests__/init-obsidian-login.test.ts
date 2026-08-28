@@ -144,25 +144,32 @@ describe("init-obsidian-login script", () => {
   it("logs in and exits 0 when the Sync client accepts the token", () => {
     const run = runLoginScript({ envToken: "env-token" })
 
-    expect(run.status).toBe(0)
-    expect(run.stdout).toBe(
-      "[obsidian-sync] Authenticating with Obsidian...\n[obsidian-sync] Authenticated.\n",
-    )
-    expect(run.stderr).toBe("")
-    expect(run.obCalls).toEqual(["login"])
-    expect(run.setupMode).toBeUndefined()
+    expect(run).toEqual({
+      status: 0,
+      stdout:
+        "[obsidian-sync] Authenticating with Obsidian...\n[obsidian-sync] Authenticated.\n",
+      stderr: "",
+      obCalls: ["login"],
+      tokenFile: undefined,
+      setupMode: undefined,
+      setupReason: undefined,
+    })
   })
 
   it("exits 1 with the get-sync-token hint when the env var token is rejected", () => {
     const run = runLoginScript({ envToken: "env-token", loginFails: true })
 
-    expect(run.status).toBe(1)
-    expect(run.stderr).toBe(
-      "[obsidian-sync] ERROR: login was rejected — the auth token may be\n" +
+    expect(run).toEqual({
+      status: 1,
+      stdout: "[obsidian-sync] Authenticating with Obsidian...\n",
+      stderr:
+        "[obsidian-sync] ERROR: login was rejected — the auth token may be\n" +
         "[obsidian-sync] stale. Generate a fresh one with get-sync-token.\n",
-    )
-    expect(run.setupMode).toBeUndefined()
-    expect(run.setupReason).toBeUndefined()
+      obCalls: ["login"],
+      tokenFile: undefined,
+      setupMode: undefined,
+      setupReason: undefined,
+    })
   })
 
   it("re-enters setup mode, keeping the token file, when the file token is rejected", () => {
@@ -172,22 +179,31 @@ describe("init-obsidian-login script", () => {
       publicUrl: "https://vault.example.com",
     })
 
-    expect(run.status).toBe(0)
-    expect(run.obCalls).toEqual(["login"])
-    expect(run.tokenFile).toBe(TOKEN_FILE_CONTENT)
-    expect(run.setupMode).toBe("1")
-    expect(run.setupReason).toBe("login-failed")
-    expect(run.stderr).toBe(
-      "[obsidian-sync] WARNING: the saved Obsidian Sync login was rejected — starting in setup mode.\n" +
+    expect(run).toEqual({
+      status: 0,
+      stdout: "[obsidian-sync] Authenticating with Obsidian...\n",
+      stderr:
+        "[obsidian-sync] WARNING: the saved Obsidian Sync login was rejected — starting in setup mode.\n" +
         "[obsidian-sync] Sign in again at https://vault.example.com/setup, or restart the container to retry the saved login.\n",
-    )
+      obCalls: ["login"],
+      tokenFile: TOKEN_FILE_CONTENT,
+      setupMode: "1",
+      setupReason: "login-failed",
+    })
   })
 
   it("leaves the token file alone when the file token is accepted", () => {
     const run = runLoginScript({ fileToken: true })
 
-    expect(run.status).toBe(0)
-    expect(run.tokenFile).toBe(TOKEN_FILE_CONTENT)
-    expect(run.setupMode).toBeUndefined()
+    expect(run).toEqual({
+      status: 0,
+      stdout:
+        "[obsidian-sync] Authenticating with Obsidian...\n[obsidian-sync] Authenticated.\n",
+      stderr: "",
+      obCalls: ["login"],
+      tokenFile: TOKEN_FILE_CONTENT,
+      setupMode: undefined,
+      setupReason: undefined,
+    })
   })
 })
