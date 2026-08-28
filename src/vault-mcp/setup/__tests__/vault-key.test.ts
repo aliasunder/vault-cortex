@@ -10,11 +10,11 @@ import {
 const PASSWORD = "correct horse battery"
 const SALT = "vault-salt-1"
 const KEY_HASH_V3 =
-  "60aa76a8ebdc3bd3fff0670081c08bc8056407f765a1c7b0918cc7077639a398"
+  "60aa76a8ebdc3bd3fff0670081c08bc8056407f765a1c7b0918cc7077639a398" // gitleaks:allow
 const KEY_HASH_V0 =
-  "70e71fbaf4e6016807c7d24edd32dce10c0c1f7491ccea42a848f7d078990490"
+  "70e71fbaf4e6016807c7d24edd32dce10c0c1f7491ccea42a848f7d078990490" // gitleaks:allow
 const NON_ASCII_KEY_HASH_V3 =
-  "8d8534f8d78a42c892f4edb0b0c9adbb3554954bfab6c09d708c93aa8e633f5a"
+  "8d8534f8d78a42c892f4edb0b0c9adbb3554954bfab6c09d708c93aa8e633f5a" // gitleaks:allow
 
 describe("deriveVaultKeyHash", () => {
   it("matches the Sync client's hash for encryption version 3", async () => {

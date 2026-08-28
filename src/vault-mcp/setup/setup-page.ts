@@ -44,6 +44,7 @@ const STYLE = `
   p{font-size:.9rem;line-height:1.5;margin-bottom:1rem;color:#d4d4d8}
   p.muted{color:#a1a1aa;font-size:.85rem}
   code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85rem;color:#fafafa;word-break:break-all}
+  a{color:#a5b4fc}
   ul{padding-left:1.25rem;margin-bottom:1rem;font-size:.9rem;line-height:1.5}
   .field{margin-bottom:1rem}
   .label{display:block;font-size:.75rem;color:#a1a1aa;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.25rem}
@@ -194,16 +195,16 @@ const renderComplete = ({
   shell(
     "Setup complete",
     `<h1>Setup complete</h1>
-  <p>Signed in as <strong>${escapeHtml(accountEmail)}</strong>. The server is restarting to download your vault and build its search index — a few minutes for a typical vault.</p>
   <div id="waiting">
+    <p>Signed in as <strong>${escapeHtml(accountEmail)}</strong>. The server is restarting to download your vault and build its search index — a few minutes for a typical vault.</p>
     <p><span class="spinner"></span>Waiting for the server… this page updates by itself.</p>
     <p class="muted">If it never does: the container stopped and nothing restarted it. Start it again (for a plain <code>docker run</code>: <code>docker start vault-cortex</code>), then refresh this page.</p>
   </div>
   <div id="ready" hidden>
-    <p>Your vault is ready.</p>
+    <p>Signed in as <strong>${escapeHtml(accountEmail)}</strong>. Your vault is ready.</p>
     ${
       mcpUrl
-        ? `<p>Connect your MCP client to <code>${escapeHtml(mcpUrl)}</code> and approve it with your <code>MCP_AUTH_TOKEN</code>.</p>`
+        ? `<p>Connect your MCP client to <a href="${escapeHtml(mcpUrl)}"><code>${escapeHtml(mcpUrl)}</code></a> and approve it with your <code>MCP_AUTH_TOKEN</code>.</p>`
         : `<p>Connect your MCP client to this server's <code>/mcp</code> address and approve it with your <code>MCP_AUTH_TOKEN</code>.</p>`
     }
   </div>

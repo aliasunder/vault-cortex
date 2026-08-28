@@ -147,11 +147,18 @@ describe("renderSetupPage — complete", () => {
       mcpUrl: "https://vault.example.com/mcp",
     })
 
-    expect(html).toContain("Signed in as <strong>user@example.com</strong>.")
+    // The restarting notice lives in the waiting block, so the ready block
+    // replaces it rather than stacking beneath it.
+    expect(html).toContain(
+      '<div id="waiting">\n    <p>Signed in as <strong>user@example.com</strong>. The server is restarting to download your vault',
+    )
+    expect(html).toContain(
+      '<div id="ready" hidden>\n    <p>Signed in as <strong>user@example.com</strong>. Your vault is ready.</p>',
+    )
     expect(html).toContain("fetch('/healthz',{cache:'no-store'})")
     expect(html).toContain("b.mode!=='setup'")
     expect(html).toContain(
-      "Connect your MCP client to <code>https://vault.example.com/mcp</code>",
+      'Connect your MCP client to <a href="https://vault.example.com/mcp"><code>https://vault.example.com/mcp</code></a>',
     )
     expect(html).toContain("<code>docker start vault-cortex</code>")
   })

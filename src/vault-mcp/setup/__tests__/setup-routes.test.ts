@@ -54,7 +54,7 @@ const VAULT_PASSWORD = "correct horse battery"
 const WRONG_VAULT_PASSWORD = "wrong horse battery"
 const VAULT_SALT = "vault-salt-1"
 const VAULT_KEY_HASH =
-  "60aa76a8ebdc3bd3fff0670081c08bc8056407f765a1c7b0918cc7077639a398"
+  "60aa76a8ebdc3bd3fff0670081c08bc8056407f765a1c7b0918cc7077639a398" // gitleaks:allow
 
 const plainVault = (name: string) => ({ id: name, name, password: "srv" })
 const encryptedVault = (name: string) => ({
@@ -292,7 +292,7 @@ describe("POST /setup — sign-in outcomes", () => {
     expect(response.status).toBe(200)
     expect(html).toContain("Signed in as <strong>user@example.com</strong>.")
     expect(html).toContain(
-      "Connect your MCP client to <code>https://vault.example.com/mcp</code>",
+      'Connect your MCP client to <a href="https://vault.example.com/mcp"><code>https://vault.example.com/mcp</code></a>',
     )
     expect(await readFile(harness.tokenFilePath, "utf8")).toBe("sync-tok")
     expect((await stat(harness.tokenFilePath)).mode & 0o777).toBe(0o600)
