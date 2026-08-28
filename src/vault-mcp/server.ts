@@ -32,7 +32,7 @@ export const createErrorMiddleware =
       clientIp: extractClientIp(req, trustForwardedHops),
       method: req.method,
       path: req.path,
-      error: `[${err.name}]: ${err.message}`,
+      error: describeError(err),
       stack: err.stack,
     })
     if (!res.headersSent) {
