@@ -4,9 +4,13 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { describe, expect, it, onTestFinished } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 import { freePort } from "../../../__tests__/integration/test-harness.js"
 import { startFakeObsidianApi } from "./fake-obsidian-api.js"
+
+// The entry point spawns npx + tsx; 15 s start timeout inside the tests
+// needs vitest's own timeout above that so the custom error fires first.
+vi.setConfig({ testTimeout: 20_000 })
 
 const SETUP_SERVER_ENTRY = fileURLToPath(
   new URL("../setup-server.ts", import.meta.url),
