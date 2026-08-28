@@ -1,6 +1,6 @@
 /** The /setup routes: sign the server in to Obsidian Sync from the browser
  *  and write the token where the Sync client reads it. Served only while
- *  the container has no token (setup mode). */
+ *  the container has no working token (setup mode). */
 
 import express, { Router } from "express"
 import type { NextFunction, Request, Response } from "express"
@@ -11,6 +11,7 @@ import { extractClientIp, safeEqual } from "../../auth.js"
 import type { Logger } from "../../logger.js"
 import {
   describeApiFailure,
+  isMfaCodeError,
   isMfaRequiredError,
   obsidianApi,
 } from "./obsidian-api.js"
@@ -194,8 +195,15 @@ export const createSetupRoutes = ({
     await syncTokenStore.writeSyncToken({ tokenFilePath, token }, requestLogger)
     requestLogger.info("setup_complete")
     // The process exits only after the page has left, so the browser has
-    // the polling script before the server goes away.
-    res.on("finish", onSetupComplete)
+    // the polling script before the server goes away. The token is on
+    // disk now, so the restart must also follow a browser that has gone:
+    // `close` fires after the page is delivered and on a dropped
+    // connection — possibly already, while the token was being written.
+    if (res.destroyed) {
+      onSetupComplete()
+      return
+    }
+    res.once("close", onSetupComplete)
     res.type("html").send(
       renderSetupPage({
         kind: "complete",
@@ -285,11 +293,9 @@ export const createSetupRoutes = ({
         error: describeApiFailure(error),
         mfaAttempt: true,
       })
-      // A wrong code keeps the sign-in alive for another try; anything
-      // else (a timeout, a rejected password) starts over.
-      const wrongCode =
-        error instanceof Error && error.message.includes("2FA code")
-      if (wrongCode) {
+      // A wrong or missing code keeps the sign-in alive for another try;
+      // anything else (a timeout, a rejected password) starts over.
+      if (isMfaCodeError(error)) {
         const requestId = storePendingSignIn(pending.email, pending.password)
         res.type("html").send(
           renderSetupPage({

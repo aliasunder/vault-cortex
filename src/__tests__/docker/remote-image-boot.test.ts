@@ -1292,6 +1292,24 @@ describe("remote image boot — token file on the volume rejected by the Sync cl
     expect(token).toBe("fake-stale-sync-token")
     expect(html).toContain("Your saved Obsidian login stopped working")
   })
+
+  it("restarts the setup server, not the container, when it dies before a sign-in", async () => {
+    // Killed, the way a crash looks to s6. The rejected token on the volume
+    // must not read as a completed sign-in: the finish script leaves the
+    // container up and s6 brings the page back.
+    await execInContainer(name, [
+      "/command/s6-svc",
+      "-k",
+      "/run/service/svc-vault-mcp",
+    ])
+    await waitForHealthz({ name, port, deadlineMs: BOOT_DEADLINE_MS })
+    const health = await (
+      await fetch(`http://127.0.0.1:${port}/healthz`)
+    ).json()
+    const logs = await containerLogs(name)
+    expect(health).toEqual({ ok: true, mode: "setup" })
+    expect(logs).not.toContain("[vault-cortex] Setup complete")
+  })
 })
 
 describe("remote image boot — env var token wins over a token file on the volume", () => {

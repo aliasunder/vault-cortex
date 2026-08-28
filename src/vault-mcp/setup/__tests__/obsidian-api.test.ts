@@ -2,6 +2,7 @@ import { describe, expect, it, onTestFinished } from "vitest"
 import {
   ObsidianApiError,
   describeApiFailure,
+  isMfaCodeError,
   isMfaRequiredError,
   obsidianApi,
 } from "../obsidian-api.js"
@@ -147,6 +148,22 @@ describe("obsidianApi.listVaults", () => {
     })
 
     expect(vaults).toEqual([])
+  })
+})
+
+describe("isMfaCodeError", () => {
+  it("is true for both the code prompt and a wrong code", () => {
+    expect(isMfaCodeError(new ObsidianApiError("2FA code is required"))).toBe(
+      true,
+    )
+    expect(isMfaCodeError(new ObsidianApiError("2FA code is incorrect"))).toBe(
+      true,
+    )
+  })
+
+  it("is false for other API errors and for non-API errors", () => {
+    expect(isMfaCodeError(new ObsidianApiError("Invalid password"))).toBe(false)
+    expect(isMfaCodeError(new Error("2FA code is incorrect"))).toBe(false)
   })
 })
 

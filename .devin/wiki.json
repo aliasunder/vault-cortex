@@ -108,7 +108,7 @@
     },
     {
       "title": "Container Image and Process Supervision",
-      "purpose": "The two-target Dockerfile that builds both images from one file. The local target is tini plus the MCP server. The remote target is s6-overlay supervising the obsidian-sync and MCP server processes. Also covers the rootfs/ filesystem overlay (s6 service definitions and init chain), the lockfile-pinned obsidian-headless/ package, runtime user handling (PUID/PGID), and setup mode — the sign-in page the image serves when it starts without a Sync token (src/vault-mcp/setup/) and the svc-vault-mcp finish script that restarts the container afterwards. Derive base-image and version specifics from the Dockerfile at index time.",
+      "purpose": "The two-target Dockerfile that builds both images from one file. The local target is tini plus the MCP server. The remote target is s6-overlay supervising the obsidian-sync and MCP server processes. Also covers the rootfs/ filesystem overlay (s6 service definitions and init chain), the lockfile-pinned obsidian-headless/ package, runtime user handling (PUID/PGID), and setup mode — the sign-in page the image serves when it starts without a working Sync token (src/vault-mcp/setup/) and the svc-vault-mcp finish script that stops the container after a sign-in so the platform's restart policy boots it again. Derive base-image and version specifics from the Dockerfile at index time.",
       "parent": "Deployment"
     },
     {

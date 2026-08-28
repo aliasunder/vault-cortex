@@ -2,7 +2,7 @@
 # Runs as root whenever svc-vault-mcp exits ($1 is its exit code). Its one
 # job: turn a completed /setup sign-in into a normal boot.
 #
-# The setup server exits after writing the Sync token file, and only a
+# The setup server exits 0 after writing the Sync token file, and only a
 # fresh boot can run the init chain (s6-rc never re-runs a oneshot), so the
 # container stops and the restart policy boots it again. The exit code is
 # 1, not 0: Railway's default "On Failure" policy treats 0 as finished and
@@ -15,6 +15,11 @@
 set -eu
 
 [ "${SETUP_MODE:-}" = 1 ] || exit 0
+
+# Only a clean exit is a completed sign-in. A crash (non-zero) or a signal
+# ($1 is 256) with a rejected token still on the volume must not halt: s6
+# restarts the service and the page comes back.
+[ "${1:-}" = 0 ] || exit 0
 
 TOKEN_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/obsidian-headless/auth_token"
 [ -s "$TOKEN_FILE" ] || exit 0

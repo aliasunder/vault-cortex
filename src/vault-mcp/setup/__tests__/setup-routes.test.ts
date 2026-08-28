@@ -8,6 +8,7 @@ import { DateTime } from "luxon"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 import type { Logger } from "../../../logger.js"
 import { createSetupRoutes } from "../setup-routes.js"
+import { syncTokenStore } from "../sync-token-store.js"
 import { startFakeObsidianApi } from "./fake-obsidian-api.js"
 import type { FakeApiRequest, FakeApiResponse } from "./fake-obsidian-api.js"
 
@@ -53,7 +54,11 @@ type Harness = {
   apiRequests: FakeApiRequest[]
   onSetupComplete: ReturnType<typeof vi.fn>
   logs: LogCall[]
-  postForm: (fields: Record<string, string>) => Promise<Response>
+  postForm: (
+    fields: Record<string, string>,
+    signal?: AbortSignal,
+  ) => Promise<Response>
+  openConnections: () => Promise<number>
 }
 
 const startHarness = async ({
@@ -124,11 +129,19 @@ const startHarness = async ({
     apiRequests: fakeApi.requests,
     onSetupComplete,
     logs,
-    postForm: (fields) =>
+    postForm: (fields, signal) =>
       fetch(`${baseUrl}/setup`, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams(fields),
+        signal: signal ?? null,
+      }),
+    openConnections: () =>
+      new Promise((resolve, reject) => {
+        server.getConnections((error, count) => {
+          if (error) reject(error)
+          else resolve(count)
+        })
       }),
   }
 }
@@ -262,6 +275,38 @@ describe("POST /setup — sign-in outcomes", () => {
       password: "pw",
       mfa: "",
     })
+  })
+
+  it("signals completion even when the browser disconnects while the token is written", async () => {
+    const harness = await startHarness({
+      api: {
+        signIn: () => ({ body: SIGNED_IN }),
+        listVaults: () => ({ body: { vaults: [plainVault("Notes")] } }),
+      },
+    })
+    const writeSyncToken = syncTokenStore.writeSyncToken
+    const abortController = new AbortController()
+    // Hold the token write until the browser's connection is gone, so the
+    // completion page can only ever be sent to a closed connection.
+    const writeSpy = vi
+      .spyOn(syncTokenStore, "writeSyncToken")
+      .mockImplementation(async (params, logger) => {
+        abortController.abort()
+        await vi.waitFor(async () =>
+          expect(await harness.openConnections()).toBe(0),
+        )
+        return writeSyncToken(params, logger)
+      })
+    onTestFinished(() => writeSpy.mockRestore())
+
+    await expect(
+      harness.postForm(CREDENTIALS, abortController.signal),
+    ).rejects.toThrow("This operation was aborted")
+
+    await vi.waitFor(() =>
+      expect(harness.onSetupComplete).toHaveBeenCalledTimes(1),
+    )
+    expect(await readFile(harness.tokenFilePath, "utf8")).toBe("sync-tok")
   })
 
   it("shows the API's error and writes nothing when the password is rejected", async () => {

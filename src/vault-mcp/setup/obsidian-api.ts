@@ -22,12 +22,16 @@ export class ObsidianApiError extends Error {
   }
 }
 
-/** A first sign-in without a code answers "2FA code …"; "2FA code is
- *  incorrect" is a wrong code, not a request for one. */
+/** The API's answers about the code itself all start "2FA code …" — a
+ *  first sign-in without one, or a wrong one. The email and password were
+ *  accepted, so the sign-in is worth another code. The wording is the
+ *  API's contract, read from the pinned CLI. */
+export const isMfaCodeError = (error: unknown): error is ObsidianApiError =>
+  error instanceof ObsidianApiError && error.message.includes("2FA code")
+
+/** "2FA code is incorrect" is a wrong code, not a request for one. */
 export const isMfaRequiredError = (error: unknown): boolean =>
-  error instanceof ObsidianApiError &&
-  error.message.includes("2FA code") &&
-  !error.message.includes("2FA code is incorrect")
+  isMfaCodeError(error) && !error.message.includes("2FA code is incorrect")
 
 const isJsonObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)

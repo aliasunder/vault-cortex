@@ -14,8 +14,9 @@ notes below describe what the maintainer uses.
   JWT tokens (HS256), static bearer token fallback, Express middleware (defense
   in depth)
 - **Express server** — handles MCP protocol messages, OAuth flows, consent
-  page, and — on the `:remote` image, only until a Sync token exists — the
-  `/setup` sign-in page (see [Setup mode](#setup-mode-remote-image))
+  page, and — on the `:remote` image, only until a working Sync token is on
+  the volume — the `/setup` sign-in page (see
+  [Setup mode](#setup-mode-remote-image))
 - **SQLite** — FTS5 search index and OAuth token persistence. User-supplied
   search queries are parameterized, not interpolated
 - **File system access** — vault reads and writes. Path traversal is blocked by
@@ -175,10 +176,11 @@ mechanism-level detail.
 
 ### Setup mode (remote image)
 
-When the `:remote` image starts without an Obsidian Sync token, it serves
-a `/setup` page where the owner signs in to Obsidian from the browser
-instead of running `get-sync-token` on their own computer. The surface
-exists only until a token is on the volume:
+When the `:remote` image starts without a working Obsidian Sync token —
+none set, or a saved one the Sync client rejects — it serves a `/setup`
+page where the owner signs in to Obsidian from the browser instead of
+running `get-sync-token` on their own computer. The surface exists only
+until a sign-in from this page has written a working token:
 
 - **Gated by `MCP_AUTH_TOKEN` before any upstream call** — the token is
   checked (constant-time) before the server contacts Obsidian, so the

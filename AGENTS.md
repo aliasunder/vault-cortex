@@ -197,7 +197,7 @@ src/
       oauth-provider.ts                # OAuthServerProvider — JWT tokens, SQLite persistence
       oauth-routes.ts                  # SDK auth router + consent form handler
       consent-page.ts                  # HTML consent page for OAuth authorization
-    setup/                             # Setup mode — browser sign-in to Obsidian Sync when the :remote image boots without a token
+    setup/                             # Setup mode — browser sign-in to Obsidian Sync when the :remote image boots without a working token
       setup-server.ts                  # Entry point svc-vault-mcp runs in setup mode (/setup + /healthz; every other path 503)
       setup-routes.ts                  # GET/POST /setup — MCP-token gate, sign-in + 2FA, vault pre-flight, token write, restart signal
       setup-page.ts                    # HTML for the flow (sign-in, 2FA, blocked, complete, already configured)
@@ -290,8 +290,8 @@ on**, not just its topic:
 - **`oauth/`** — the OAuth 2.1 server (distinct from the shared `src/auth.ts`
   token utilities).
 - **`setup/`** — the `:remote` image's setup mode: the sign-in page served
-  while no Obsidian Sync token exists, the Obsidian account API client, and
-  the token store. A sibling surface to `oauth/`, not a layer below it: it
+  while the container has no working Obsidian Sync token, the Obsidian
+  account API client, and the token store. A sibling surface to `oauth/`, not a layer below it: it
   builds on `config.ts`, `src/auth.ts`, and `utils/`, and nothing lower
   imports it (lint-enforced like `oauth/`). Its entry point
   (`setup-server.ts`) lives inside the folder — `svc-vault-mcp/run` picks it
