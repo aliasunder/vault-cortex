@@ -19,7 +19,7 @@ const startApi = async (
 describe("obsidianApi.signIn", () => {
   it("posts the credentials with the Origin header the API requires and returns the token", async () => {
     const api = await startApi(() => ({
-      body: { token: "tok-1", name: "Tanisha", email: "t@example.com" },
+      body: { token: "tok-1", name: "Sample User", email: "t@example.com" },
     }))
 
     const result = await obsidianApi.signIn({
@@ -29,7 +29,7 @@ describe("obsidianApi.signIn", () => {
       mfa: "",
     })
 
-    expect(result).toEqual({ token: "tok-1", accountName: "Tanisha" })
+    expect(result).toEqual({ token: "tok-1", accountName: "Sample User" })
     expect(api.requests).toHaveLength(1)
     expect(api.requests[0]?.path).toBe("/user/signin")
     expect(api.requests[0]?.headers.origin).toBe("https://obsidian.md")
@@ -96,7 +96,7 @@ describe("obsidianApi.signIn", () => {
   })
 
   it("throws when a 200 response carries no token", async () => {
-    const api = await startApi(() => ({ body: { name: "Tanisha" } }))
+    const api = await startApi(() => ({ body: { name: "Sample User" } }))
 
     await expect(
       obsidianApi.signIn({

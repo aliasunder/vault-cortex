@@ -15,7 +15,11 @@ import type { FakeApiRequest, FakeApiResponse } from "./fake-obsidian-api.js"
 // real key.
 const AUTH_TOKEN = "local-dev-token"
 
-const SIGNED_IN = { token: "sync-tok", name: "Tanisha", email: "t@example.com" }
+const SIGNED_IN = {
+  token: "sync-tok",
+  name: "Sample User",
+  email: "t@example.com",
+}
 
 type LogCall = { level: string; message: string; data: Record<string, unknown> }
 
@@ -240,7 +244,7 @@ describe("POST /setup — sign-in outcomes", () => {
     const html = await response.text()
 
     expect(response.status).toBe(200)
-    expect(html).toContain("Signed in as <strong>Tanisha</strong>.")
+    expect(html).toContain("Signed in as <strong>Sample User</strong>.")
     expect(html).toContain(
       "Connect your MCP client to <code>https://vault.example.com/mcp</code>",
     )
