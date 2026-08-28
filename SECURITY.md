@@ -179,9 +179,9 @@ mechanism-level detail.
 When the `:remote` image starts without a working Obsidian Sync token, it
 serves a `/setup` page where the owner signs in to Obsidian from the
 browser instead of running `get-sync-token` on their own computer. A
-token is not working when none is set or when the Sync client rejects the
-saved one. The page exists only until a sign-in has written a token the
-Sync client accepts:
+token is not working when no token is set, or when the Sync client
+rejects the saved one. The page exists only until a sign-in has written a
+token the Sync client accepts:
 
 - **Gated by `MCP_AUTH_TOKEN` before any upstream call** — the token is
   checked (constant-time) before the server contacts Obsidian, so the
