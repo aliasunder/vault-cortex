@@ -305,7 +305,7 @@ export default $config({
         }),
       // CloudWatch retention for the gateway access log (the authorizer's
       // log group below matches). SST defaults to 1 month, which caps how
-      // far back an auth audit can look; a year of these logs is a few MB.
+      // far back an auth audit can look; a year of them is about 100 MB.
       accessLog: { retention: "1 year" },
       transform: {
         api: { disableExecuteApiEndpoint },

@@ -182,7 +182,7 @@ Set `LOG_LEVEL` in `.env` to control the threshold (default: `info`).
 
 ### CloudWatch logs
 
-API Gateway and the Lambda authorizer log to CloudWatch, separately from the container. Both log groups keep 1 year (set in `sst.config.ts`; SST's default is 1 month). A year of these logs is a few MB, inside the CloudWatch free tier.
+API Gateway and the Lambda authorizer log to CloudWatch, separately from the container. Both log groups keep 1 year (set in `sst.config.ts`; SST's default is 1 month). A year of these logs is about 100 MB, inside the CloudWatch free tier.
 
 ```bash
 # Authorizer invocations (log group name is stage-specific; list to find it)
