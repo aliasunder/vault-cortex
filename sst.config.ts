@@ -339,7 +339,8 @@ export default $config({
           timeout: "5 seconds",
           memory: "128 MB",
         },
-        identitySources: ["$request.header.Authorization"],
+        // REPRO BRANCH — never merge. identitySources removed so tokenless
+        // /mcp requests reach the Lambda and its deny becomes a 403.
       },
     })
 
