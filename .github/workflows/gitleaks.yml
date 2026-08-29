@@ -36,14 +36,12 @@ jobs:
           grep " ${ASSET}$" "gitleaks_${GITLEAKS_VERSION}_checksums.txt" | sha256sum -c -
           tar -xzf "${ASSET}" -C /usr/local/bin gitleaks
 
-      # A PR scans only its own commits. `--all` would cover every branch on
-      # the remote, so an unmerged PR's findings (or its allowlist, which
-      # gitleaks reads from the checkout) would decide another PR's result.
-      - name: Scan pull request commits
+      # HEAD is the PR's merge commit, so its ancestry is main plus this PR
+      # and nothing from other branches. `--all` would let an unmerged PR's
+      # findings (or its allowlist, read from the checkout) decide this one.
+      - name: Scan main plus pull request commits
         if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: gitleaks detect --source . --log-opts="${BASE_SHA}..HEAD" --redact --verbose
+        run: gitleaks detect --source . --log-opts="HEAD" --redact --verbose
 
       - name: Scan full git history
         if: github.event_name == 'push'

@@ -150,8 +150,8 @@ truth. Key points:
      and boots it on a native runner for each architecture, then boots the
      remote image with a stubbed Sync client to run its init chain
      end-to-end (`npm run test:remote-boot`)
-   - `gitleaks` — secret detection over the PR's own commits (the push to
-     `main` rescans the full history)
+   - `gitleaks` — secret detection over `main` plus the PR's commits, so a
+     finding on `main` fails every open PR until it is cleaned up
    - `trivy-pr` — vulnerability scan of the Docker image built from your
      branch; a fixable CRITICAL/HIGH CVE fails it
 
