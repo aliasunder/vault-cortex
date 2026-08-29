@@ -303,6 +303,10 @@ export default $config({
             cert: customDomainCertArn,
           },
         }),
+      // CloudWatch retention for the gateway access log (the authorizer's
+      // log group below matches). SST defaults to 1 month, which caps how
+      // far back an auth audit can look; a year of these logs is a few MB.
+      accessLog: { retention: "1 year" },
       transform: {
         api: { disableExecuteApiEndpoint },
         stage: {
@@ -338,6 +342,7 @@ export default $config({
           runtime: "nodejs24.x",
           timeout: "5 seconds",
           memory: "128 MB",
+          logging: { retention: "1 year" },
         },
         identitySources: ["$request.header.Authorization"],
       },
