@@ -339,8 +339,11 @@ export default $config({
           timeout: "5 seconds",
           memory: "128 MB",
         },
-        // REPRO BRANCH — never merge. identitySources removed so tokenless
-        // /mcp requests reach the Lambda and its deny becomes a 403.
+        // REPRO BRANCH — never merge. An empty identity source (the May 8
+        // wiring) sends tokenless /mcp requests to the Lambda, whose deny
+        // becomes a 403. Omitting the key does not do this: SST defaults it
+        // to the Authorization header.
+        identitySources: [],
       },
     })
 
