@@ -78,17 +78,30 @@ export default $config({
     // A bare hostname or a non-http(s) scheme (whose origin is "null")
     // can never match a minted token, so it would 403 every client at
     // runtime — fail the deploy instead.
-    const publicUrlProtocol = publicUrlOverride
-      ? URL.parse(publicUrlOverride)?.protocol
+    const parsedPublicUrlOverride = publicUrlOverride
+      ? URL.parse(publicUrlOverride)
       : undefined
 
     const publicUrlIsHttp =
-      publicUrlProtocol === "https:" || publicUrlProtocol === "http:"
+      parsedPublicUrlOverride?.protocol === "https:" ||
+      parsedPublicUrlOverride?.protocol === "http:"
 
     if (publicUrlOverride && !publicUrlIsHttp) {
       throw new Error(
         "PUBLIC_URL must be an absolute http(s) URL, e.g. " +
           "https://mcp.example.com",
+      )
+    }
+
+    // Credentials in the URL would be minted into every token's `iss`
+    // claim and served by the discovery documents — fail the deploy.
+    const publicUrlHasCredentials = Boolean(
+      parsedPublicUrlOverride?.username || parsedPublicUrlOverride?.password,
+    )
+
+    if (publicUrlHasCredentials) {
+      throw new Error(
+        "PUBLIC_URL must not contain credentials (user:password@)",
       )
     }
 

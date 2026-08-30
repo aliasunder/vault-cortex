@@ -91,6 +91,13 @@ export const handler = async (
     logger.error("auth_failed: PUBLIC_URL is not a URL")
     return { isAuthorized: false }
   }
+  // Credentials in the URL would become part of the expected `iss`
+  // claim; the deploy validation rejects them, so a value carrying them
+  // here is misconfiguration — deny rather than compare against it.
+  if (serverUrl.username || serverUrl.password) {
+    logger.error("auth_failed: PUBLIC_URL contains credentials")
+    return { isAuthorized: false }
+  }
   const { issuer, audience } = tokenBindingForServer(serverUrl)
   const verified = verifyJwt({
     token,

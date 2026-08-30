@@ -174,6 +174,26 @@ describe("authorizer handler", () => {
     })
   })
 
+  it("denies when PUBLIC_URL contains credentials", async () => {
+    vi.stubEnv("PUBLIC_URL", "https://user:fake-secret@mcp.example.com")
+    recordedLogs.length = 0
+    onTestFinished(() => {
+      vi.stubEnv("PUBLIC_URL", PUBLIC_URL)
+    })
+    // A token bound to the credentialed URL would verify without the
+    // guard — the deny must come from the credentials check.
+    const token = accessToken({
+      iss: "https://user:fake-secret@mcp.example.com/",
+      aud: "https://mcp.example.com/mcp",
+    })
+    const result = await handler(protectedRequest(`Bearer ${token}`))
+    expect(result).toEqual({ isAuthorized: false })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "error",
+      message: "auth_failed: PUBLIC_URL contains credentials",
+    })
+  })
+
   it("denies when PUBLIC_URL is empty", async () => {
     vi.stubEnv("PUBLIC_URL", "")
     recordedLogs.length = 0

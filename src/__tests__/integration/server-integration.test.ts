@@ -1356,6 +1356,17 @@ describe("boot rejection", () => {
     expect(stderr).toContain("vault_fake_tool")
   }, 15_000)
 
+  it("PUBLIC_URL with embedded credentials exits with error", async () => {
+    const { exitCode, stderr } = await startServerExpectingFailure(
+      await freePort(),
+      { PUBLIC_URL: "https://user:fake-secret@127.0.0.1" },
+    )
+    expect(exitCode).toBe(1)
+    expect(stderr).toContain(
+      "PUBLIC_URL must not contain credentials (user:password@)",
+    )
+  }, 15_000)
+
   // Express 5 hands bind failures to the listen callback instead of
   // throwing; without the check the second server would log "server
   // started" and idle while the first one keeps answering the port.
