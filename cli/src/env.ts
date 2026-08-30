@@ -367,7 +367,8 @@ VAULT_PASSWORD=${answers.vaultPassword}`
 MCP_AUTH_TOKEN=${answers.mcpAuthToken}
 
 # Public URL that MCP clients use to reach this server.
-# Used as the OAuth issuer URL in discovery metadata.
+# Used as the OAuth issuer URL in discovery metadata and stamped on every
+# access token; changing it invalidates connected clients' tokens.
 PUBLIC_URL=${answers.publicUrl}
 
 ${obsidianTokenComment}
