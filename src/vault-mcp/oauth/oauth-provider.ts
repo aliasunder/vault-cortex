@@ -42,7 +42,7 @@ import { renderConsentPage } from "./consent-page.js"
 import type { Logger } from "../../logger.js"
 
 // 24 hours
-const ACCESS_TOKEN_TTL_S = 24 * 60 * 60
+const ACCESS_TOKEN_TTL_S = 6 * 60 * 60
 // 60 days. Sliding (inactivity) expiry — each use rotates the token
 // AND resets the countdown, so a daily user never sees it and a
 // dormant client re-auths after 60 days. Bounds the blast radius of

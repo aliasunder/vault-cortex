@@ -1341,13 +1341,13 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     const { db, dbPath } = await createKeyedStorageTest()
     seedRevokedToken(
       db,
-      "revoked-25h-ago",
-      DateTime.now().minus({ hours: 25 }).toUnixInteger(),
+      "revoked-7h-ago",
+      DateTime.now().minus({ hours: 7 }).toUnixInteger(),
     )
     seedRevokedToken(
       db,
-      "revoked-23h-ago",
-      DateTime.now().minus({ hours: 23 }).toUnixInteger(),
+      "revoked-5h-ago",
+      DateTime.now().minus({ hours: 5 }).toUnixInteger(),
     )
     const logs: LogCall[] = []
 
@@ -1358,14 +1358,14 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
       logger: recordingLogger(logs),
     })
 
-    expect(storedRevokedTokens(db)).toEqual(["revoked-23h-ago"])
+    expect(storedRevokedTokens(db)).toEqual(["revoked-5h-ago"])
     const purge = logs.find(
       (log) => log.message === "oauth_revoked_tokens_purged",
     )
     expect(purge).toEqual({
       level: "info",
       message: "oauth_revoked_tokens_purged",
-      data: { component: "oauth", purgedTokenCount: 1, maxAgeSeconds: 86_400 },
+      data: { component: "oauth", purgedTokenCount: 1, maxAgeSeconds: 21_600 },
     })
   })
 
@@ -1373,8 +1373,8 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     const { db, dbPath } = await createKeyedStorageTest()
     seedRevokedToken(
       db,
-      "revoked-23h-ago",
-      DateTime.now().minus({ hours: 23 }).toUnixInteger(),
+      "revoked-5h-ago",
+      DateTime.now().minus({ hours: 5 }).toUnixInteger(),
     )
     const logs: LogCall[] = []
 
@@ -1385,7 +1385,7 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
       logger: recordingLogger(logs),
     })
 
-    expect(storedRevokedTokens(db)).toEqual(["revoked-23h-ago"])
+    expect(storedRevokedTokens(db)).toEqual(["revoked-5h-ago"])
     expect(logs.map((log) => log.message)).not.toContain(
       "oauth_revoked_tokens_purged",
     )
@@ -1397,20 +1397,20 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     // revocation below can purge them.
     seedRevokedToken(
       db,
-      "revoked-26h-ago",
-      DateTime.now().minus({ hours: 26 }).toUnixInteger(),
+      "revoked-7h-ago",
+      DateTime.now().minus({ hours: 7 }).toUnixInteger(),
     )
     seedRevokedToken(
       db,
-      "revoked-23h-ago",
-      DateTime.now().minus({ hours: 23 }).toUnixInteger(),
+      "revoked-5h-ago",
+      DateTime.now().minus({ hours: 5 }).toUnixInteger(),
     )
     const { access_token: accessToken } = await issueTokens(oauth, client)
 
     await revokeToken(oauth, client, accessToken)
 
     expect(storedRevokedTokens(db)).toEqual(
-      [accessToken, "revoked-23h-ago"].sort(),
+      [accessToken, "revoked-5h-ago"].sort(),
     )
   })
 

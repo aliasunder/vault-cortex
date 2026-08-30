@@ -530,10 +530,10 @@ guarantees that hold in any deployment. The
 
 Two authentication methods, both validated at two layers:
 
-| Method                                | Used by                                                  | Token format                | Lifetime                                    |
-| ------------------------------------- | -------------------------------------------------------- | --------------------------- | ------------------------------------------- |
-| OAuth 2.1 (Authorization Code + PKCE) | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256)                 | 24h access, 60-day sliding refresh (SQLite) |
-| Static bearer token                   | Claude Code, MCP Inspector, curl                         | Raw string (MCP_AUTH_TOKEN) | No expiry                                   |
+| Method                                | Used by                                                  | Token format                | Lifetime                                   |
+| ------------------------------------- | -------------------------------------------------------- | --------------------------- | ------------------------------------------ |
+| OAuth 2.1 (Authorization Code + PKCE) | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256)                 | 6h access, 60-day sliding refresh (SQLite) |
+| Static bearer token                   | Claude Code, MCP Inspector, curl                         | Raw string (MCP_AUTH_TOKEN) | No expiry                                  |
 
 **Layer 1 — API Gateway Lambda authorizer** (`src/functions/authorizer.ts`):
 Attached to protected routes only. OAuth discovery paths (`/.well-known/*`,
@@ -626,7 +626,7 @@ sequenceDiagram
     E->>E: requireBearerAuth (verify JWT again)
     E-->>C: MCP response
 
-    Note over C,E: Silent Token Refresh (24h cycle)
+    Note over C,E: Silent Token Refresh (6h cycle)
     C->>E: POST /token (refresh_token)
     E->>DB: Consume old, store new refresh token
     E-->>C: {access_token: new JWT, refresh_token: new}
@@ -751,7 +751,7 @@ then redeploy both
 OAuth session:
 
 - existing access JWTs, signed with the old key, fail verification
-  immediately (without a rotation they live for 24 hours);
+  immediately (without a rotation they live for 6 hours);
 - every stored refresh token becomes unreachable, because rows are keyed
   under the old token;
 - each client goes back through the consent page on its next request.

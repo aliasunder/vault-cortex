@@ -369,7 +369,7 @@ To find your stage: `cat .sst/stage` (after your first deploy).
 >
 > - Nothing to do. Tokens issued before this release carry no audience; the server answers them with a 401 and each connected client refreshes silently on its next request. Refresh tokens are unaffected and nobody re-enters the token.
 > - The Lambda authorizer passes audience-less tokens through this release so that 401 can happen (a Lambda deny is a fixed 403 that MCP clients do not refresh on). A later release removes the pass-through; upgrade through this release first, or expect connected clients to be denied until each one's token timer refreshes it (at most one access-token lifetime) or you reconnect it.
-> - Changing `PUBLIC_URL` later invalidates every access token at the Lambda (403) — reconnect each client, or change it only when you can accept that.
+> - Changing `PUBLIC_URL` later invalidates every access token at the Lambda (403) — every connected client stays cut off until you reconnect it.
 >
 > **Upgrading from a release with `TRUST_FORWARDED_HEADER`:** that variable is no longer read, and the compose file now defaults `TRUST_FORWARDED_HOPS` to `1` (trust the gateway's `Forwarded` header). An `ORIGIN_URL` instance that ran `TRUST_FORWARDED_HEADER=false` behind a tunnel that admits any client must set the `TRUST_FORWARDED_HOPS=0` Variable **before** deploying this release, or the open tunnel starts being trusted. The server logs a warning at startup while the old variable is still set.
 
