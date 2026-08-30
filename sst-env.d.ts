@@ -10,18 +10,6 @@ declare module "sst" {
       type: "sst.sst.Secret"
       value: string
     }
-    OriginAccessClientId: {
-      type: "sst.sst.Secret"
-      value: string
-    }
-    OriginAccessClientSecret: {
-      type: "sst.sst.Secret"
-      value: string
-    }
-    PublicUrl: {
-      type: "sst.sst.Linkable"
-      value: string
-    }
     VaultCortexApi: {
       type: "sst.aws.ApiGatewayV2"
       url: string

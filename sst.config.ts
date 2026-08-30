@@ -354,18 +354,17 @@ export default $config({
       if (customDomain) return $output(`https://${customDomain}`)
       return api.url
     }
-    // Linked (not an env var) so the authorizer reads it the same way it
-    // reads the secret: Resource.PublicUrl.value.
-    const publicUrl = new sst.Linkable("PublicUrl", {
-      properties: { value: resolvePublicUrl() },
-    })
 
     const authorizer = api.addAuthorizer({
       name: "bearer-auth",
       lambda: {
         function: {
           handler: "src/functions/authorizer.handler",
-          link: [mcpAuthToken, publicUrl],
+          link: [mcpAuthToken],
+          // A plain value, not a secret, so it travels as an environment
+          // variable rather than a link: a link's generated types come from
+          // deployed state, which a PR's typecheck cannot reach.
+          environment: { PUBLIC_URL: resolvePublicUrl() },
           runtime: "nodejs24.x",
           timeout: "5 seconds",
           memory: "128 MB",

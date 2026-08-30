@@ -26,6 +26,7 @@
  */
 
 import { Resource } from "sst"
+import env from "env-var"
 import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda"
 import { safeEqual, parseBearer, tokenBindingForServer } from "../auth.js"
 import { verifyJwt } from "../jwt.js"
@@ -75,12 +76,12 @@ export const handler = async (
     return { isAuthorized: true }
   }
 
-  // The linked public URL is the same value Express mints tokens from, so
-  // a JWT minted for another deployment fails here even when the two
-  // share a secret.
-  const publicUrl = Resource.PublicUrl.value
+  // PUBLIC_URL is set on the function by sst.config.ts from the same
+  // inputs Express reads it from, so a JWT minted for another deployment
+  // fails here even when the two share a secret.
+  const publicUrl = env.get("PUBLIC_URL").asString()
   if (!publicUrl) {
-    logger.error("auth_failed: PublicUrl is empty")
+    logger.error("auth_failed: PUBLIC_URL is empty")
     return { isAuthorized: false }
   }
   const { issuer, audience } = tokenBindingForServer(new URL(publicUrl))

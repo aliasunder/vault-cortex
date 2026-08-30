@@ -11,9 +11,9 @@ const PUBLIC_URL = "https://mcp.example.com"
 vi.mock("sst", () => ({
   Resource: {
     McpAuthToken: { value: SECRET },
-    PublicUrl: { value: PUBLIC_URL },
   },
 }))
+vi.stubEnv("PUBLIC_URL", PUBLIC_URL)
 
 const { handler } = await import("../authorizer.js")
 
@@ -78,12 +78,10 @@ describe("authorizer handler", () => {
     expect(result).toEqual({ isAuthorized: false })
   })
 
-  it("denies when PublicUrl is empty", async () => {
-    const { Resource: resource } = await import("sst")
-    const savedValue = resource.PublicUrl.value
-    resource.PublicUrl.value = ""
+  it("denies when PUBLIC_URL is empty", async () => {
+    vi.stubEnv("PUBLIC_URL", "")
     onTestFinished(() => {
-      resource.PublicUrl.value = savedValue
+      vi.stubEnv("PUBLIC_URL", PUBLIC_URL)
     })
     // A valid JWT that would pass under normal conditions — the denial
     // must come from the empty-URL guard, not from token verification.
