@@ -124,15 +124,10 @@ const startServer = async (): Promise<void> => {
   })
 
   const serverUrl = new URL(publicUrl)
-  // The one place the MCP endpoint's resource identifier is built: the
-  // provider mints it as `aud`, the metadata advertises it, and the 401
-  // challenge points at it, so the three can never disagree.
-  const resourceUrl = new URL("/mcp", serverUrl)
   const oauthProvider = createOAuthProvider({
     authToken,
     dbPath: oauthDbPath,
-    issuerUrl: serverUrl,
-    resourceUrl,
+    serverUrl,
     logger,
   })
 
@@ -154,7 +149,6 @@ const startServer = async (): Promise<void> => {
     createOAuthRoutes({
       authToken,
       serverUrl,
-      resourceUrl,
       oauthProvider,
       serviceDocumentationUrl: config.serviceDocumentationUrl,
       trustForwardedHops: config.trustForwardedHops,
@@ -165,7 +159,7 @@ const startServer = async (): Promise<void> => {
     createMcpRouter({
       vaultPath,
       search,
-      resourceUrl,
+      serverUrl,
       provider: oauthProvider.provider,
       config,
     }),

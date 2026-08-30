@@ -17,16 +17,14 @@ import { TOOL_REGISTRY } from "./tool-registry.js"
 import type { ToolName } from "./tool-registry.js"
 import { createToolAvailability } from "./tool-availability.js"
 import { logger } from "../../logger.js"
-import { extractClientIp, headerAsString } from "../../auth.js"
+import { extractClientIp, headerAsString, mcpResourceUrl } from "../../auth.js"
 
 type McpRouterOptions = {
   vaultPath: string
   search: SearchIndex
   provider: OAuthServerProvider
   config: VaultConfig
-  /** The MCP endpoint's RFC 8707 resource identifier; the 401 challenge
-   *  points clients at its path-suffixed metadata document. */
-  resourceUrl: URL
+  serverUrl: URL
 }
 
 /**
@@ -119,7 +117,7 @@ export const createMcpRouter = ({
   search,
   provider,
   config,
-  resourceUrl,
+  serverUrl,
 }: McpRouterOptions): Router => {
   const router = Router()
   // MCP spec: a 401 MUST carry WWW-Authenticate with a resource_metadata
@@ -127,7 +125,9 @@ export const createMcpRouter = ({
   // pointed at the RFC 9728 path-suffixed URL for the /mcp resource.
   const bearerAuth = requireBearerAuth({
     verifier: provider,
-    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(resourceUrl),
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(
+      mcpResourceUrl(serverUrl),
+    ),
   })
   const transports = new Map<string, StreamableHTTPServerTransport>()
 

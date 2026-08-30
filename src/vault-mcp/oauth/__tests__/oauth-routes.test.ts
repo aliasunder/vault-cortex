@@ -43,10 +43,7 @@ const recordingLogger = (sink: LogCall[]): Logger => {
 // The documented local-dev placeholder (.gitleaks.toml allowlist, also used in
 // README/CONTRIBUTING) — allowlisted by the secret scanner, never a real key.
 const AUTH_TOKEN = "local-dev-token"
-const TEST_URLS = {
-  issuerUrl: new URL("http://localhost:8000"),
-  resourceUrl: new URL("http://localhost:8000/mcp"),
-}
+const TEST_URLS = { serverUrl: new URL("http://localhost:8000") }
 const REDIRECT_URI = "http://localhost:9999/callback"
 
 /** Pulls the hidden request_id out of the rendered consent HTML. */
@@ -82,7 +79,6 @@ describe("OAuth consent token submission", () => {
     const router = createOAuthRoutes({
       authToken: AUTH_TOKEN,
       serverUrl: new URL("http://localhost:8000"),
-      resourceUrl: new URL("http://localhost:8000/mcp"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
       trustForwardedHops: 0,
@@ -212,7 +208,6 @@ describe("OAuth consent body validation", () => {
     const router = createOAuthRoutes({
       authToken: AUTH_TOKEN,
       serverUrl: new URL("http://localhost:8000"),
-      resourceUrl: new URL("http://localhost:8000/mcp"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
       trustForwardedHops: 0,
@@ -274,7 +269,6 @@ describe("OAuth consent audit logging", () => {
     const router = createOAuthRoutes({
       authToken: AUTH_TOKEN,
       serverUrl: new URL("http://localhost:8000"),
-      resourceUrl: new URL("http://localhost:8000/mcp"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
       trustForwardedHops: 0,
@@ -442,7 +436,6 @@ describe("OAuth endpoint rate limiting", () => {
     const router = createOAuthRoutes({
       authToken: AUTH_TOKEN,
       serverUrl: new URL("http://localhost:8000"),
-      resourceUrl: new URL("http://localhost:8000/mcp"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
       // These tests simulate distinct clients through the Forwarded header,
@@ -594,7 +587,6 @@ describe("OAuth rate limiting when the Forwarded header is not trusted (default)
     const router = createOAuthRoutes({
       authToken: AUTH_TOKEN,
       serverUrl: new URL("http://localhost:8000"),
-      resourceUrl: new URL("http://localhost:8000/mcp"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
       trustForwardedHops: 0,
@@ -679,7 +671,6 @@ describe("OAuth protected resource metadata", () => {
     const router = createOAuthRoutes({
       authToken: AUTH_TOKEN,
       serverUrl: new URL("http://localhost:8000"),
-      resourceUrl: new URL("http://localhost:8000/mcp"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
       trustForwardedHops: 0,
@@ -830,7 +821,6 @@ describe("OAuth refresh over HTTP", () => {
     const router = createOAuthRoutes({
       authToken: AUTH_TOKEN,
       serverUrl: new URL("http://localhost:8000"),
-      resourceUrl: new URL("http://localhost:8000/mcp"),
       oauthProvider: oauth,
       serviceDocumentationUrl: "https://example.com",
       trustForwardedHops: 1,

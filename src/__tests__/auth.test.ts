@@ -2,9 +2,52 @@ import { describe, it, expect } from "vitest"
 import {
   canonicalResourceUri,
   extractClientIp,
+  mcpResourceUrl,
   safeEqual,
   parseBearer,
+  tokenBindingForServer,
 } from "../auth.js"
+
+describe("tokenBindingForServer", () => {
+  it("derives the issuer with a trailing slash and the audience without one", () => {
+    // The exact strings both verifiers compare against; a change to
+    // either derivation shows up here.
+    expect(tokenBindingForServer(new URL("https://mcp.example.com"))).toEqual({
+      issuer: "https://mcp.example.com/",
+      audience: "https://mcp.example.com/mcp",
+    })
+  })
+
+  it("keeps a non-default port in both claims", () => {
+    expect(tokenBindingForServer(new URL("http://127.0.0.1:8000"))).toEqual({
+      issuer: "http://127.0.0.1:8000/",
+      audience: "http://127.0.0.1:8000/mcp",
+    })
+  })
+
+  it("keeps a path prefix in the issuer but not in the audience", () => {
+    expect(
+      tokenBindingForServer(new URL("https://mcp.example.com/vault/")),
+    ).toEqual({
+      issuer: "https://mcp.example.com/vault/",
+      audience: "https://mcp.example.com/mcp",
+    })
+  })
+})
+
+describe("mcpResourceUrl", () => {
+  it("appends /mcp to the origin", () => {
+    expect(mcpResourceUrl(new URL("https://mcp.example.com")).href).toBe(
+      "https://mcp.example.com/mcp",
+    )
+  })
+
+  it("replaces a path prefix rather than nesting under it", () => {
+    expect(mcpResourceUrl(new URL("https://mcp.example.com/vault/")).href).toBe(
+      "https://mcp.example.com/mcp",
+    )
+  })
+})
 
 describe("canonicalResourceUri", () => {
   it("keeps a canonical URI unchanged", () => {

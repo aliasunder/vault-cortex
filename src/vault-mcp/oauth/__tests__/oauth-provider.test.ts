@@ -43,10 +43,7 @@ const recordingLogger = (sink: LogCall[]): Logger => {
 
 const AUTH_TOKEN = "test-static-token"
 const OTHER_AUTH_TOKEN = "rotated-static-token"
-const TEST_URLS = {
-  issuerUrl: new URL("http://localhost:8000"),
-  resourceUrl: new URL("http://localhost:8000/mcp"),
-}
+const TEST_URLS = { serverUrl: new URL("http://localhost:8000") }
 // The claim values the provider is expected to mint and check for
 // TEST_URLS — spelled out so a change to either derivation shows up here.
 const TEST_ISSUER = "http://localhost:8000/"

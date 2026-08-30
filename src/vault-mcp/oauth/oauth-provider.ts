@@ -32,7 +32,11 @@ import {
   InvalidTargetError,
   InvalidTokenError,
 } from "@modelcontextprotocol/sdk/server/auth/errors.js"
-import { canonicalResourceUri, safeEqual } from "../../auth.js"
+import {
+  canonicalResourceUri,
+  safeEqual,
+  tokenBindingForServer,
+} from "../../auth.js"
 import { signJwt, verifyJwt, type JwtPayload } from "../../jwt.js"
 import { renderConsentPage } from "./consent-page.js"
 import type { Logger } from "../../logger.js"
@@ -63,13 +67,10 @@ type StoredAuthCode = {
 type OAuthProviderOptions = {
   authToken: string
   dbPath: string
-  /** The authorization server's issuer URL — the same value the
-   *  metadata advertises — stamped on every access token as `iss`. */
-  issuerUrl: URL
-  /** The MCP endpoint's RFC 8707 resource identifier — the same value the
-   *  protected-resource metadata advertises — stamped on every access
-   *  token as `aud` and compared against a client's `resource` param. */
-  resourceUrl: URL
+  /** The deployment's public URL. Its issuer and MCP resource URI are
+   *  stamped on every access token as `iss` and `aud`, and a client's
+   *  `resource` param is compared against the latter. */
+  serverUrl: URL
   logger: Logger
 }
 
@@ -236,8 +237,7 @@ export type OAuthProvider = {
 export const createOAuthProvider = ({
   authToken,
   dbPath,
-  issuerUrl,
-  resourceUrl,
+  serverUrl,
   logger,
 }: OAuthProviderOptions): OAuthProvider => {
   const oauthLogger = logger.child({ component: "oauth" })
@@ -245,8 +245,7 @@ export const createOAuthProvider = ({
   const store = new SqliteClientsStore(db, oauthLogger)
   const pendingRequests = new Map<string, PendingAuthRequest>()
   const authCodes = new Map<string, StoredAuthCode>()
-  const issuer = issuerUrl.href
-  const audience = canonicalResourceUri(resourceUrl)
+  const { issuer, audience } = tokenBindingForServer(serverUrl)
 
   /** RFC 8707: a `resource` the client names must be this server. An
    *  absent `resource` is accepted — clients that predate the parameter

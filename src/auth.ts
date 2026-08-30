@@ -32,6 +32,28 @@ export const canonicalResourceUri = (resource: URL): string => {
   return `${resource.origin}${pathWithoutTrailingSlash}`
 }
 
+/** The MCP endpoint's URL for a deployment's public URL. Resolved as an
+ *  absolute path, so a path prefix on the public URL is not carried over. */
+export const mcpResourceUrl = (serverUrl: URL): URL =>
+  new URL("/mcp", serverUrl)
+
+export type TokenBinding = {
+  /** The `iss` claim: the issuer URL as the metadata advertises it. */
+  issuer: string
+  /** The `aud` claim: the MCP endpoint's canonical resource URI. */
+  audience: string
+}
+
+/**
+ * The claims that tie an access token to one deployment. Express mints
+ * them and the Lambda authorizer checks them, each from its own copy of
+ * PUBLIC_URL, so both must come from this one derivation.
+ */
+export const tokenBindingForServer = (serverUrl: URL): TokenBinding => ({
+  issuer: serverUrl.href,
+  audience: canonicalResourceUri(mcpResourceUrl(serverUrl)),
+})
+
 /** Extracts the token from an `Authorization: Bearer <token>` header. Case-insensitive prefix. */
 export const parseBearer = (header: string | undefined): string | null => {
   if (!header) return null

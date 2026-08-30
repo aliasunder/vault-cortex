@@ -27,7 +27,7 @@
 
 import { Resource } from "sst"
 import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda"
-import { canonicalResourceUri, safeEqual, parseBearer } from "../auth.js"
+import { safeEqual, parseBearer, tokenBindingForServer } from "../auth.js"
 import { verifyJwt } from "../jwt.js"
 import { logger as rootLogger } from "../logger.js"
 
@@ -75,20 +75,20 @@ export const handler = async (
     return { isAuthorized: true }
   }
 
-  // Issuer and audience are derived from the deployment's public URL the
-  // same way Express derives them from PUBLIC_URL, so a JWT minted for
-  // another deployment fails here even when the two share a secret.
+  // The linked public URL is the same value Express mints tokens from, so
+  // a JWT minted for another deployment fails here even when the two
+  // share a secret.
   const publicUrl = Resource.PublicUrl.value
   if (!publicUrl) {
     logger.error("auth_failed: PublicUrl is empty")
     return { isAuthorized: false }
   }
-  const serverUrl = new URL(publicUrl)
+  const { issuer, audience } = tokenBindingForServer(new URL(publicUrl))
   const verified = verifyJwt({
     token,
     secret,
-    expectedIssuer: serverUrl.href,
-    expectedAudience: canonicalResourceUri(new URL("/mcp", serverUrl)),
+    expectedIssuer: issuer,
+    expectedAudience: audience,
   })
   if (verified) {
     logger.info("auth_success", { method: "jwt" })
