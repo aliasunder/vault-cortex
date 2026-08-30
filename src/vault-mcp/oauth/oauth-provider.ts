@@ -41,7 +41,7 @@ import { signJwt, verifyJwt, type JwtPayload } from "../../jwt.js"
 import { renderConsentPage } from "./consent-page.js"
 import type { Logger } from "../../logger.js"
 
-// 24 hours
+// 6 hours
 const ACCESS_TOKEN_TTL_S = 6 * 60 * 60
 // 60 days. Sliding (inactivity) expiry — each use rotates the token
 // AND resets the countdown, so a daily user never sees it and a
