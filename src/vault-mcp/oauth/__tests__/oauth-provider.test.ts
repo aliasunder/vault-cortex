@@ -863,13 +863,32 @@ describe("OAuth token audience and issuer", () => {
     return { ...decoded }
   }
 
-  it("mints access tokens with this server's issuer and audience", async () => {
+  // Test-owned copy of the production TTL — a TTL change must fail here
+  // and be updated deliberately.
+  const ACCESS_TOKEN_TTL_S = 6 * 60 * 60
+
+  it("mints access tokens with exactly the bound claim set", async () => {
     const { oauth, client } = await setupAuditTest()
 
+    const issuedAtLowerBound = DateTime.now().toUnixInteger()
     const issued = await issueTokens(oauth, client)
+    const issuedAtUpperBound = DateTime.now().toUnixInteger()
     const payload = decodeJwtPayload(issued.access_token)
 
-    expect(payload).toMatchObject({ iss: TEST_ISSUER, aud: TEST_AUDIENCE })
+    expect(payload).toEqual({
+      sub: "test-client",
+      scope: "vault",
+      exp: expect.any(Number),
+      iss: TEST_ISSUER,
+      aud: TEST_AUDIENCE,
+    })
+    // Bounded rather than exact because the clock ticks during issuance.
+    expect(payload.exp).toBeGreaterThanOrEqual(
+      issuedAtLowerBound + ACCESS_TOKEN_TTL_S,
+    )
+    expect(payload.exp).toBeLessThanOrEqual(
+      issuedAtUpperBound + ACCESS_TOKEN_TTL_S,
+    )
   })
 
   it("keeps a subpath prefix in the minted issuer but not the audience", async () => {
@@ -880,7 +899,10 @@ describe("OAuth token audience and issuer", () => {
     const issued = await issueTokens(oauth, client)
     const payload = decodeJwtPayload(issued.access_token)
 
-    expect(payload).toMatchObject({
+    expect(payload).toEqual({
+      sub: "test-client",
+      scope: "vault",
+      exp: expect.any(Number),
       iss: "http://localhost:8000/vault/",
       aud: "http://localhost:8000/mcp",
     })
