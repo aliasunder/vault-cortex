@@ -12,6 +12,7 @@ import { tmpdir } from "node:os"
 import { createHmac } from "node:crypto"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
+import { InvalidTargetError } from "@modelcontextprotocol/sdk/server/auth/errors.js"
 import { signJwt } from "../../../jwt.js"
 import { createOAuthProvider } from "../oauth-provider.js"
 import type { OAuthProvider } from "../oauth-provider.js"
@@ -1054,7 +1055,9 @@ describe("OAuth resource parameter (RFC 8707)", () => {
         client,
         new URL("http://localhost:8000/other"),
       ),
-    ).rejects.toMatchObject({ errorCode: "invalid_target" })
+    ).rejects.toStrictEqual(
+      new InvalidTargetError("The resource parameter is not this server"),
+    )
   })
 
   it("rejects an authorization request for another server with invalid_target before rendering", async () => {
@@ -1079,7 +1082,9 @@ describe("OAuth resource parameter (RFC 8707)", () => {
         },
         res as never,
       ),
-    ).rejects.toMatchObject({ errorCode: "invalid_target" })
+    ).rejects.toStrictEqual(
+      new InvalidTargetError("The resource parameter is not this server"),
+    )
     expect(consent.sent).toBe(false)
     const rejected = logs.find(
       (log) => log.message === "oauth_resource_rejected",
@@ -1104,7 +1109,9 @@ describe("OAuth resource parameter (RFC 8707)", () => {
         undefined,
         new URL("https://other.example/mcp"),
       ),
-    ).rejects.toMatchObject({ errorCode: "invalid_target" })
+    ).rejects.toStrictEqual(
+      new InvalidTargetError("The resource parameter is not this server"),
+    )
 
     const issued = await oauth.provider.exchangeAuthorizationCode(
       client,
@@ -1127,7 +1134,9 @@ describe("OAuth resource parameter (RFC 8707)", () => {
         undefined,
         new URL("https://other.example/mcp"),
       ),
-    ).rejects.toMatchObject({ errorCode: "invalid_target" })
+    ).rejects.toStrictEqual(
+      new InvalidTargetError("The resource parameter is not this server"),
+    )
 
     const refreshed = await oauth.provider.exchangeRefreshToken(
       client,
