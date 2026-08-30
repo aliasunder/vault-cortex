@@ -635,6 +635,10 @@ sequenceDiagram
 **JWT payload:** `{ sub: clientId, scope: "vault", exp: <unix>, iss: "vault-cortex" }`
 Signed with HMAC-SHA256 using `MCP_AUTH_TOKEN` as the key. Both the Lambda
 authorizer and Express can verify independently — no shared state needed.
+`vault` is the server's only scope: a client that requests it gets it, and a
+client that requests no scope is granted it at authorization time, so the
+consent page, the access token, and every refresh carry the same value as the
+static token.
 
 **Token storage:** what each credential is and where it lives.
 
