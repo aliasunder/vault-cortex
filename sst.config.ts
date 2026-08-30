@@ -365,7 +365,8 @@ export default $config({
         // API Gateway answer tokenless requests with an automatic 401 — the
         // status MCP clients need to start the OAuth flow (that response has
         // no WWW-Authenticate, so clients use the RFC 9728 default discovery
-        // location). A Lambda deny is a fixed 403 they treat as a broken
+        // location, https://www.rfc-editor.org/rfc/rfc9728#section-3). A
+        // Lambda deny is a fixed 403 they treat as a broken
         // server. SST fills this field with a default when omitted.
         identitySources: ["$request.header.Authorization"],
       },
