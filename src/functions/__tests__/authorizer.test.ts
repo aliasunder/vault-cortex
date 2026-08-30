@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest"
+import { describe, it, expect, vi, onTestFinished } from "vitest"
 import { DateTime } from "luxon"
 import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda"
 import { signJwt } from "../../jwt.js"
@@ -75,6 +75,23 @@ describe("authorizer handler", () => {
 
   it("denies a malformed Authorization header", async () => {
     const result = await handler(protectedRequest("Basic abc"))
+    expect(result).toEqual({ isAuthorized: false })
+  })
+
+  it("denies when PublicUrl is empty", async () => {
+    const { Resource: resource } = await import("sst")
+    const savedValue = resource.PublicUrl.value
+    resource.PublicUrl.value = ""
+    onTestFinished(() => {
+      resource.PublicUrl.value = savedValue
+    })
+    // A valid JWT that would pass under normal conditions — the denial
+    // must come from the empty-URL guard, not from token verification.
+    const token = accessToken({
+      iss: "https://mcp.example.com/",
+      aud: "https://mcp.example.com/mcp",
+    })
+    const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: false })
   })
 })

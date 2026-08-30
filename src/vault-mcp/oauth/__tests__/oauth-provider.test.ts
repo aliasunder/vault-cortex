@@ -870,8 +870,7 @@ describe("OAuth token audience and issuer", () => {
     const issued = await issueTokens(oauth, client)
     const payload = decodeJwtPayload(issued.access_token)
 
-    expect(payload.iss).toBe(TEST_ISSUER)
-    expect(payload.aud).toBe(TEST_AUDIENCE)
+    expect(payload).toMatchObject({ iss: TEST_ISSUER, aud: TEST_AUDIENCE })
   })
 
   it("rejects a same-secret token minted for another audience", async () => {
