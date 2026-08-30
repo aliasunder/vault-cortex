@@ -115,6 +115,19 @@ describe("authorizer handler", () => {
     expect(result).toEqual({ isAuthorized: false })
   })
 
+  it("denies when PUBLIC_URL is not a URL", async () => {
+    vi.stubEnv("PUBLIC_URL", "mcp.example.com")
+    onTestFinished(() => {
+      vi.stubEnv("PUBLIC_URL", PUBLIC_URL)
+    })
+    const token = accessToken({
+      iss: "https://mcp.example.com/",
+      aud: "https://mcp.example.com/mcp",
+    })
+    const result = await handler(protectedRequest(`Bearer ${token}`))
+    expect(result).toEqual({ isAuthorized: false })
+  })
+
   it("denies when PUBLIC_URL is empty", async () => {
     vi.stubEnv("PUBLIC_URL", "")
     onTestFinished(() => {

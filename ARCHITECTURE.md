@@ -632,12 +632,14 @@ sequenceDiagram
     E-->>C: {access_token: new JWT, refresh_token: new}
 ```
 
-**JWT payload:** `{ sub: clientId, scope: "vault", exp: <unix>, iss: "<PUBLIC_URL>/", aud: "<PUBLIC_URL>/mcp" }`
+**JWT payload:** `{ sub: clientId, scope: "vault", exp: <unix>, iss: "<PUBLIC_URL>/", aud: "<scheme>://<host>[:port]/mcp" }`
 Signed with HMAC-SHA256 using `MCP_AUTH_TOKEN` as the key. Both the Lambda
 authorizer and Express can verify independently — no shared state needed.
 Each verifier also checks `iss` against the deployment's own issuer URL and
 `aud` against its MCP endpoint's canonical URI
-([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)), so a token minted by
+([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)) — the origin of
+`PUBLIC_URL` plus `/mcp`; a path prefix on `PUBLIC_URL` is not part of the
+audience. So a token minted by
 another deployment is rejected even when the two share a secret. The
 Lambda reads `PUBLIC_URL` from its function environment; Express reads it from the
 instance `.env`. One transitional exception: the Lambda still passes a token

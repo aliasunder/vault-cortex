@@ -993,6 +993,32 @@ describe("OAuth resource parameter (RFC 8707)", () => {
     expect(sent).toBe(true)
   })
 
+  it("accepts the root discovery document's resource identifier", async () => {
+    // The SDK's root /.well-known/oauth-protected-resource advertises the
+    // server URL itself; a client that discovers there sends it verbatim.
+    const { oauth, client } = await setupAuditTest()
+
+    const { sent } = await authorizeWithResource(
+      oauth,
+      client,
+      new URL("http://localhost:8000/"),
+    )
+
+    expect(sent).toBe(true)
+  })
+
+  it("rejects a resource on this server's host with any other path", async () => {
+    const { oauth, client } = await setupAuditTest()
+
+    await expect(
+      authorizeWithResource(
+        oauth,
+        client,
+        new URL("http://localhost:8000/other"),
+      ),
+    ).rejects.toMatchObject({ errorCode: "invalid_target" })
+  })
+
   it("rejects an authorization request for another server with invalid_target before rendering", async () => {
     const { logs, oauth, client } = await setupAuditTest()
     const consent = { sent: false }

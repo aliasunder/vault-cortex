@@ -84,7 +84,14 @@ export const handler = async (
     logger.error("auth_failed: PUBLIC_URL is empty")
     return { isAuthorized: false }
   }
-  const { issuer, audience } = tokenBindingForServer(new URL(publicUrl))
+  // A value that is not a URL must deny, not throw: a throw here is a
+  // gateway 500 with no auth_failed line to find.
+  const serverUrl = URL.parse(publicUrl)
+  if (!serverUrl) {
+    logger.error("auth_failed: PUBLIC_URL is not a URL")
+    return { isAuthorized: false }
+  }
+  const { issuer, audience } = tokenBindingForServer(serverUrl)
   const verified = verifyJwt({
     token,
     secret,

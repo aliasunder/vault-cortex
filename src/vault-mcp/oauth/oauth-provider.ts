@@ -250,8 +250,13 @@ export const createOAuthProvider = ({
   const pendingRequests = new Map<string, PendingAuthRequest>()
   const authCodes = new Map<string, StoredAuthCode>()
   const { issuer, audience } = tokenBindingForServer(serverUrl)
+  // The root discovery document (/.well-known/oauth-protected-resource,
+  // served by the SDK) advertises the server URL itself as its resource
+  // identifier, so a client that discovers there sends this value.
+  const rootResource = canonicalResourceUri(serverUrl)
 
-  /** RFC 8707: a `resource` the client names must be this server. An
+  /** RFC 8707: a `resource` the client names must be this server — either
+   *  identifier the server advertises, the MCP endpoint or the root. An
    *  absent `resource` is accepted — clients that predate the parameter
    *  still connect, and the token is bound to this server regardless.
    *  https://www.rfc-editor.org/rfc/rfc8707#section-2 */
@@ -260,7 +265,9 @@ export const createOAuthProvider = ({
     clientId: string,
   ): void => {
     if (!resource) return
-    if (canonicalResourceUri(resource) === audience) return
+    const requestedResource = canonicalResourceUri(resource)
+    if (requestedResource === audience) return
+    if (requestedResource === rootResource) return
     oauthLogger.warn("oauth_resource_rejected", {
       clientId,
       resource: resource.href,
