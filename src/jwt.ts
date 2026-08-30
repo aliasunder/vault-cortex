@@ -86,7 +86,10 @@ const isExpired = (claims: JwtBaseClaims): boolean => {
 
 /** The decoded payload of a token whose signature verifies under `secret`,
  *  with no claim checked yet; null when the signature or encoding is bad. */
-const signedPayload = (token: string, secret: string): unknown => {
+const payloadWithVerifiedSignature = (
+  token: string,
+  secret: string,
+): unknown => {
   // A valid JWT is exactly three base64url segments: header.payload.signature
   const parts = token.split(".")
   if (parts.length !== 3) return null
@@ -116,7 +119,7 @@ export const verifyJwt = ({
   expectedIssuer,
   expectedAudience,
 }: VerifyJwtOptions): JwtPayload | null => {
-  const decoded = signedPayload(token, secret)
+  const decoded = payloadWithVerifiedSignature(token, secret)
   if (!isJwtPayload(decoded)) return null
   if (isExpired(decoded)) return null
   if (decoded.iss !== expectedIssuer) return null
@@ -133,7 +136,7 @@ export const verifyUnboundJwt = ({
   token,
   secret,
 }: VerifyUnboundJwtOptions): JwtBaseClaims | null => {
-  const decoded = signedPayload(token, secret)
+  const decoded = payloadWithVerifiedSignature(token, secret)
   if (!isJwtBaseClaims(decoded)) return null
   if ("aud" in decoded) return null
   if (isExpired(decoded)) return null
