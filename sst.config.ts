@@ -367,9 +367,9 @@ export default $config({
         function: {
           handler: "src/functions/authorizer.handler",
           link: [mcpAuthToken],
-          // A plain value, not a secret, so it travels as an environment
-          // variable rather than a link: a link's generated types come from
-          // deployed state, which a PR's typecheck cannot reach.
+          // Not an `sst.Linkable`: SST generates a Linkable's
+          // `sst-env.d.ts` types from deployed state, which a PR's
+          // typecheck cannot reach.
           environment: { PUBLIC_URL: resolvePublicUrl() },
           runtime: "nodejs24.x",
           timeout: "5 seconds",
