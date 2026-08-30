@@ -340,27 +340,15 @@ export default $config({
       },
     })
 
-    // Lambda authorizer — validates Bearer tokens (static MCP_AUTH_TOKEN
-    // or JWT) on protected routes only. OAuth discovery paths are wired as
-    // separate unauthenticated routes below and never invoke the authorizer;
-    // its own open-path check is defense in depth in case that wiring
-    // changes. Express also validates in-process via requireBearerAuth.
-    //
-    // identitySources is the load-bearing detail: with the Authorization
-    // header registered as the identity source, API Gateway answers
-    // tokenless requests with an automatic 401 Unauthorized — without
-    // invoking the Lambda. MCP clients (Claude, etc.) require a 401 on the
-    // initial unauthenticated probe to enter the OAuth connect flow; they
-    // fall back to /.well-known/oauth-protected-resource discovery when no
-    // WWW-Authenticate header is present (RFC 9728 default location).
-    // A Lambda-authorizer deny, by contrast, is a fixed 403 Forbidden that
-    // HTTP APIs cannot customize — clients treat it as a broken server.
     const resolvePublicUrl = (): $util.Output<string> => {
       if (publicUrlOverride) return $output(publicUrlOverride)
       if (customDomain) return $output(`https://${customDomain}`)
       return api.url
     }
 
+    // Bearer-token validation on protected routes only; the OAuth discovery
+    // paths are separate unauthenticated routes below. Verification details:
+    // src/functions/authorizer.ts.
     const authorizer = api.addAuthorizer({
       name: "bearer-auth",
       lambda: {
@@ -373,6 +361,12 @@ export default $config({
           memory: "128 MB",
           logging: { retention: "1 year" },
         },
+        // Registering the Authorization header as the identity source makes
+        // API Gateway answer tokenless requests with an automatic 401 — the
+        // status MCP clients need to start the OAuth flow (that response has
+        // no WWW-Authenticate, so clients use the RFC 9728 default discovery
+        // location). A Lambda deny is a fixed 403 they treat as a broken
+        // server. SST fills this field with a default when omitted.
         identitySources: ["$request.header.Authorization"],
       },
     })
