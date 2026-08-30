@@ -5,7 +5,7 @@ import type { NextFunction, Request, Response } from "express"
 import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
 import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/metadata.js"
 import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
-import { extractClientIp, safeEqual } from "../../auth.js"
+import { canonicalResourceUri, extractClientIp, safeEqual } from "../../auth.js"
 import { renderConsentPage } from "./consent-page.js"
 import type { OAuthProvider } from "./oauth-provider.js"
 import type { Logger } from "../../logger.js"
@@ -13,6 +13,9 @@ import type { Logger } from "../../logger.js"
 type OAuthRoutesOptions = {
   authToken: string
   serverUrl: URL
+  /** The MCP endpoint's RFC 8707 resource identifier — the same value the
+   *  provider stamps as `aud`, so metadata and tokens can't disagree. */
+  resourceUrl: URL
   oauthProvider: OAuthProvider
   serviceDocumentationUrl: string
   /** How many trailing `for=` elements of the RFC 7239 Forwarded header
@@ -28,6 +31,7 @@ type OAuthRoutesOptions = {
 export const createOAuthRoutes = ({
   authToken,
   serverUrl,
+  resourceUrl,
   oauthProvider,
   serviceDocumentationUrl,
   trustForwardedHops,
@@ -87,7 +91,7 @@ export const createOAuthRoutes = ({
   // `resourceServerUrl` would move the route and break every client that
   // discovers via the root form.
   const mcpResourceMetadata: OAuthProtectedResourceMetadata = {
-    resource: new URL("/mcp", serverUrl).href,
+    resource: canonicalResourceUri(resourceUrl),
     authorization_servers: [serverUrl.href],
     scopes_supported: scopesSupported,
     resource_documentation: new URL(serviceDocumentationUrl).href,

@@ -632,9 +632,18 @@ sequenceDiagram
     E-->>C: {access_token: new JWT, refresh_token: new}
 ```
 
-**JWT payload:** `{ sub: clientId, scope: "vault", exp: <unix>, iss: "vault-cortex" }`
+**JWT payload:** `{ sub: clientId, scope: "vault", exp: <unix>, iss: "<PUBLIC_URL>/", aud: "<PUBLIC_URL>/mcp" }`
 Signed with HMAC-SHA256 using `MCP_AUTH_TOKEN` as the key. Both the Lambda
 authorizer and Express can verify independently — no shared state needed.
+Each verifier also checks `iss` against the deployment's own issuer URL and
+`aud` against its MCP endpoint's canonical URI
+([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)), so a token minted by
+another deployment is rejected even when the two share a secret. The
+Lambda reads `PUBLIC_URL` through an SST link; Express reads it from the
+instance `.env`. A client's `resource` parameter, when sent, must name this
+server's MCP endpoint (compared in canonical form, so a trailing slash is
+fine); a mismatch is answered with `invalid_target` before any code or
+refresh token is consumed. Clients that send no `resource` are accepted.
 
 **Token storage:** what each credential is and where it lives.
 

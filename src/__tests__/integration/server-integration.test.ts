@@ -1557,11 +1557,14 @@ describe("rotating MCP_AUTH_TOKEN", () => {
     await before.cleanup()
 
     // A fresh port: the first server's socket can linger after exit, and
-    // only the data directory needs to carry over.
+    // only the data directory needs to carry over. PUBLIC_URL stays on the
+    // first port so the old access token's audience still matches — its
+    // 401 below must come from the rotated key, not from a changed URL.
     const rotatedPort = await freePort()
     const after = await startServer(rotatedPort, {
       MCP_AUTH_TOKEN: TOKEN_B,
       INDEX_DB_PATH: indexDbPath,
+      PUBLIC_URL: `http://127.0.0.1:${port}`,
     })
     onTestFinished(() => after.cleanup())
 

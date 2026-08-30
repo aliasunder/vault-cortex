@@ -14,7 +14,20 @@ export type JwtPayload = {
   sub: string
   scope: string
   exp: number
+  /** The authorization server's issuer URL, as advertised in its metadata. */
   iss: string
+  /** The RFC 8707 resource identifier the token was minted for. */
+  aud: string
+}
+
+type VerifyJwtOptions = {
+  token: string
+  secret: string
+  /** The value `iss` must equal; a token from another issuer is rejected. */
+  expectedIssuer: string
+  /** The value `aud` must equal; a token minted for another server is
+   *  rejected even when it carries a valid signature under `secret`. */
+  expectedAudience: string
 }
 
 const b64url = (buf: Buffer): string => buf.toString("base64url")
@@ -43,11 +56,21 @@ const isJwtPayload = (value: unknown): value is JwtPayload => {
     "exp" in value &&
     typeof value.exp === "number" &&
     "iss" in value &&
-    typeof value.iss === "string"
+    typeof value.iss === "string" &&
+    "aud" in value &&
+    typeof value.aud === "string"
   )
 }
 
-export const verifyJwt = (token: string, secret: string): JwtPayload | null => {
+/** Returns the payload when the signature, expiry, issuer, and audience all
+ *  check out; null otherwise. Issuer and audience are compared as exact
+ *  strings — callers canonicalize before passing them in. */
+export const verifyJwt = ({
+  token,
+  secret,
+  expectedIssuer,
+  expectedAudience,
+}: VerifyJwtOptions): JwtPayload | null => {
   // A valid JWT is exactly three base64url segments: header.payload.signature
   const parts = token.split(".")
   if (parts.length !== 3) return null
@@ -71,6 +94,8 @@ export const verifyJwt = (token: string, secret: string): JwtPayload | null => {
     // dependency-free — a single epoch read doesn't justify the bundle weight.
     // eslint-disable-next-line no-restricted-syntax
     if (decoded.exp < Date.now() / 1000) return null
+    if (decoded.iss !== expectedIssuer) return null
+    if (decoded.aud !== expectedAudience) return null
     return decoded
   } catch {
     return null

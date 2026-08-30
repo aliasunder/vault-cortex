@@ -29,10 +29,11 @@ import type {
 import {
   InvalidGrantError,
   InvalidScopeError,
+  InvalidTargetError,
   InvalidTokenError,
 } from "@modelcontextprotocol/sdk/server/auth/errors.js"
-import { safeEqual } from "../../auth.js"
-import { signJwt, verifyJwt } from "../../jwt.js"
+import { canonicalResourceUri, safeEqual } from "../../auth.js"
+import { signJwt, verifyJwt, type JwtPayload } from "../../jwt.js"
 import { renderConsentPage } from "./consent-page.js"
 import type { Logger } from "../../logger.js"
 
@@ -62,6 +63,13 @@ type StoredAuthCode = {
 type OAuthProviderOptions = {
   authToken: string
   dbPath: string
+  /** The authorization server's issuer URL — the same value the
+   *  metadata advertises — stamped on every access token as `iss`. */
+  issuerUrl: URL
+  /** The MCP endpoint's RFC 8707 resource identifier — the same value the
+   *  protected-resource metadata advertises — stamped on every access
+   *  token as `aud` and compared against a client's `resource` param. */
+  resourceUrl: URL
   logger: Logger
 }
 
@@ -228,6 +236,8 @@ export type OAuthProvider = {
 export const createOAuthProvider = ({
   authToken,
   dbPath,
+  issuerUrl,
+  resourceUrl,
   logger,
 }: OAuthProviderOptions): OAuthProvider => {
   const oauthLogger = logger.child({ component: "oauth" })
@@ -235,6 +245,33 @@ export const createOAuthProvider = ({
   const store = new SqliteClientsStore(db, oauthLogger)
   const pendingRequests = new Map<string, PendingAuthRequest>()
   const authCodes = new Map<string, StoredAuthCode>()
+  const issuer = issuerUrl.href
+  const audience = canonicalResourceUri(resourceUrl)
+
+  /** RFC 8707: a `resource` the client names must be this server. An
+   *  absent `resource` is accepted — clients that predate the parameter
+   *  still connect, and the token is bound to this server regardless.
+   *  https://www.rfc-editor.org/rfc/rfc8707#section-2 */
+  const assertResourceIsThisServer = (
+    resource: URL | undefined,
+    clientId: string,
+  ): void => {
+    if (!resource) return
+    if (canonicalResourceUri(resource) === audience) return
+    oauthLogger.warn("oauth_resource_rejected", {
+      clientId,
+      resource: resource.href,
+    })
+    throw new InvalidTargetError("The resource parameter is not this server")
+  }
+
+  const verifyAccessJwt = (token: string): JwtPayload | null =>
+    verifyJwt({
+      token,
+      secret: authToken,
+      expectedIssuer: issuer,
+      expectedAudience: audience,
+    })
 
   /** Storage key for a refresh token: an HMAC of the token under the
    *  auth token. Rows are only reachable under the secret that wrote
@@ -293,7 +330,8 @@ export const createOAuthProvider = ({
         exp: DateTime.now()
           .plus({ seconds: ACCESS_TOKEN_TTL_S })
           .toUnixInteger(),
-        iss: "vault-cortex",
+        iss: issuer,
+        aud: audience,
       },
       authToken,
     )
@@ -358,6 +396,9 @@ export const createOAuthProvider = ({
       params: AuthorizationParams,
       res: Response,
     ): Promise<void> {
+      // Thrown before anything is sent, so the SDK's handler can still
+      // redirect the client with error=invalid_target.
+      assertResourceIsThisServer(params.resource, client.client_id)
       const requestId = randomUUID()
       pendingRequests.set(requestId, {
         client,
@@ -395,12 +436,15 @@ export const createOAuthProvider = ({
     },
 
     async exchangeAuthorizationCode(
-      _client: OAuthClientInformationFull,
+      client: OAuthClientInformationFull,
       authorizationCode: string,
       _codeVerifier?: string,
       _redirectUri?: string,
-      _resource?: URL,
+      resource?: URL,
     ): Promise<OAuthTokens> {
+      // Checked before the code is consumed: a wrong resource is a client
+      // configuration error, not a replay, so the code stays redeemable.
+      assertResourceIsThisServer(resource, client.client_id)
       const stored = authCodes.get(authorizationCode)
       if (!stored || stored.expiresAt < DateTime.now()) {
         oauthLogger.warn("oauth_code_exchange_failed", {
@@ -440,9 +484,12 @@ export const createOAuthProvider = ({
       client: OAuthClientInformationFull,
       refreshToken: string,
       scopes?: string[],
-      _resource?: URL,
+      resource?: URL,
     ): Promise<OAuthTokens> {
       const clientId = client.client_id
+      // Checked before the refresh token is consumed, for the same reason
+      // as the code exchange: a wrong resource must not burn the token.
+      assertResourceIsThisServer(resource, clientId)
       const stored = consumeRefreshToken({ token: refreshToken, clientId })
       if (!stored) {
         oauthLogger.warn("oauth_token_refresh_failed", {
@@ -510,7 +557,7 @@ export const createOAuthProvider = ({
         throw new InvalidTokenError("Token has been revoked")
       }
 
-      const payload = verifyJwt(token, authToken)
+      const payload = verifyAccessJwt(token)
       if (payload) {
         oauthLogger.debug("oauth_token_verified", {
           method: "jwt",
@@ -542,7 +589,7 @@ export const createOAuthProvider = ({
       const { changes: refreshTokensDeleted } = deleteRefreshTokenStmt.run(
         refreshTokenStorageKey(request.token),
       )
-      const isValidAccessToken = verifyJwt(request.token, authToken) !== null
+      const isValidAccessToken = verifyAccessJwt(request.token) !== null
       if (isValidAccessToken) {
         purgeExpiredRevokedTokens()
         insertRevokedTokenStmt.run(

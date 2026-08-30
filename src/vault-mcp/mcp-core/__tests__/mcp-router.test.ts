@@ -184,7 +184,7 @@ const setupHarness = async (
       search,
       provider,
       config,
-      serverUrl: new URL("http://localhost:8000"),
+      resourceUrl: new URL("http://localhost:8000/mcp"),
     }),
   )
 

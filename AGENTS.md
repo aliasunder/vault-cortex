@@ -1098,6 +1098,8 @@ own `it()`, and the failing-sync block boots once per sub-`describe`
 ## SST conventions
 
 - Secrets via `sst.Secret`, PascalCase names. Never hardcode.
+- Plain values a Lambda needs via `sst.Linkable` (`PublicUrl`), read as
+  `Resource.<Name>.value` like a secret — never `environment:` vars.
 - `$interpolate` for `Output<string>` composition.
 - Raw Pulumi `aws.*` for Lightsail (no SST component exists).
 - `sst.aws.ApiGatewayV2` + `routeUrl()` for HTTP proxy.
@@ -1105,15 +1107,19 @@ own `it()`, and the failing-sync block boots once per sub-`describe`
 
 ## Build pipeline gotcha
 
-`Resource.McpAuthToken` (used by `src/functions/authorizer.ts`) is
-typed via `sst-env.d.ts` at the project root, which SST writes when
-it runs the resource graph. The file is committed but auto-generated
-— on a fresh clone it may be stale, and `npm run build` can fail with
-`Property 'McpAuthToken' does not exist on type 'Resource'` until
-you've run `npx sst deploy` (or `sst dev`) once for your stage.
+`Resource.McpAuthToken` and `Resource.PublicUrl` (used by
+`src/functions/authorizer.ts`) are typed via `sst-env.d.ts` at the
+project root, which SST writes from the stage's deployed state. The file
+is committed but auto-generated — on a fresh clone it may be stale, and
+`npm run build` can fail with `Property 'McpAuthToken' does not exist on
+type 'Resource'` until you've run `npx sst deploy` (or `sst dev`) once
+for your stage.
 
-If you add or rename a secret in `sst.config.ts`, re-run `sst deploy`
-(or `sst dev`) to regenerate `sst-env.d.ts`.
+The generator reads deployed state, not the config: `sst diff` refreshes
+the file for links that already exist, but a link added in the same PR
+is absent until its first deploy. Add that entry by hand in the
+generated format (the next deploy rewrites the file identically), and
+re-run `sst deploy` (or `sst dev`) after renaming or removing one.
 
 `sst.config.ts` is typechecked by `npm run build:sst` (part of
 `npm run build`) through its own `tsconfig.sst.json`. It cannot share

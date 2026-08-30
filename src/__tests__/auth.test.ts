@@ -1,5 +1,48 @@
 import { describe, it, expect } from "vitest"
-import { extractClientIp, safeEqual, parseBearer } from "../auth.js"
+import {
+  canonicalResourceUri,
+  extractClientIp,
+  safeEqual,
+  parseBearer,
+} from "../auth.js"
+
+describe("canonicalResourceUri", () => {
+  it("keeps a canonical URI unchanged", () => {
+    expect(canonicalResourceUri(new URL("https://mcp.example.com/mcp"))).toBe(
+      "https://mcp.example.com/mcp",
+    )
+  })
+
+  it("drops a trailing slash", () => {
+    expect(canonicalResourceUri(new URL("https://mcp.example.com/mcp/"))).toBe(
+      "https://mcp.example.com/mcp",
+    )
+  })
+
+  it("drops the trailing slash of a bare origin", () => {
+    expect(canonicalResourceUri(new URL("https://mcp.example.com/"))).toBe(
+      "https://mcp.example.com",
+    )
+  })
+
+  it("lowercases the scheme and host and drops a default port", () => {
+    expect(
+      canonicalResourceUri(new URL("HTTPS://MCP.Example.COM:443/mcp")),
+    ).toBe("https://mcp.example.com/mcp")
+  })
+
+  it("keeps a non-default port", () => {
+    expect(canonicalResourceUri(new URL("http://127.0.0.1:8000/mcp"))).toBe(
+      "http://127.0.0.1:8000/mcp",
+    )
+  })
+
+  it("drops the query and fragment", () => {
+    expect(
+      canonicalResourceUri(new URL("https://mcp.example.com/mcp?x=1#frag")),
+    ).toBe("https://mcp.example.com/mcp")
+  })
+})
 
 describe("safeEqual", () => {
   it("returns true for equal strings", () => {

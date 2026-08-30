@@ -24,7 +24,9 @@ type McpRouterOptions = {
   search: SearchIndex
   provider: OAuthServerProvider
   config: VaultConfig
-  serverUrl: URL
+  /** The MCP endpoint's RFC 8707 resource identifier; the 401 challenge
+   *  points clients at its path-suffixed metadata document. */
+  resourceUrl: URL
 }
 
 /**
@@ -117,7 +119,7 @@ export const createMcpRouter = ({
   search,
   provider,
   config,
-  serverUrl,
+  resourceUrl,
 }: McpRouterOptions): Router => {
   const router = Router()
   // MCP spec: a 401 MUST carry WWW-Authenticate with a resource_metadata
@@ -125,9 +127,7 @@ export const createMcpRouter = ({
   // pointed at the RFC 9728 path-suffixed URL for the /mcp resource.
   const bearerAuth = requireBearerAuth({
     verifier: provider,
-    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(
-      new URL("/mcp", serverUrl),
-    ),
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(resourceUrl),
   })
   const transports = new Map<string, StreamableHTTPServerTransport>()
 

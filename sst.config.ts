@@ -68,6 +68,14 @@ export default $config({
     // certificate in the API's region covering the name (wildcard or exact).
     const customDomain = env("CUSTOM_DOMAIN").asString()
     const customDomainCertArn = env("CUSTOM_DOMAIN_CERT_ARN").asString()
+
+    // The URL clients reach the server at. Optional: when unset it is
+    // derived below from the custom domain or the gateway's own URL, so a
+    // first deploy needs no value. Set it to pin a hostname through a
+    // custom-domain cutover. Must match PUBLIC_URL in the instance .env —
+    // the Lambda authorizer checks each JWT's issuer and audience against
+    // this value, and Express mints them from that one.
+    const publicUrlOverride = env("PUBLIC_URL").asString()
     if (customDomain && !customDomainCertArn) {
       throw new Error(
         "CUSTOM_DOMAIN requires CUSTOM_DOMAIN_CERT_ARN — the ARN of an " +
@@ -333,12 +341,23 @@ export default $config({
     // WWW-Authenticate header is present (RFC 9728 default location).
     // A Lambda-authorizer deny, by contrast, is a fixed 403 Forbidden that
     // HTTP APIs cannot customize — clients treat it as a broken server.
+    const resolvePublicUrl = (): $util.Output<string> => {
+      if (publicUrlOverride) return $output(publicUrlOverride)
+      if (customDomain) return $output(`https://${customDomain}`)
+      return api.url
+    }
+    // Linked (not an env var) so the authorizer reads it the same way it
+    // reads the secret: Resource.PublicUrl.value.
+    const publicUrl = new sst.Linkable("PublicUrl", {
+      properties: { value: resolvePublicUrl() },
+    })
+
     const authorizer = api.addAuthorizer({
       name: "bearer-auth",
       lambda: {
         function: {
           handler: "src/functions/authorizer.handler",
-          link: [mcpAuthToken],
+          link: [mcpAuthToken, publicUrl],
           runtime: "nodejs24.x",
           timeout: "5 seconds",
           memory: "128 MB",

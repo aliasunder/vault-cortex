@@ -74,7 +74,33 @@ jobs:
           CUSTOM_DOMAIN: ${{ secrets.CUSTOM_DOMAIN }}
           CUSTOM_DOMAIN_CERT_ARN: ${{ secrets.CUSTOM_DOMAIN_CERT_ARN }}
           DISABLE_EXECUTE_API_ENDPOINT: ${{ vars.DISABLE_EXECUTE_API_ENDPOINT }}
+          PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
         run: npx sst deploy --stage "$SST_STAGE"
+
+      # Same rule as deploy.yml: the PUBLIC_URL secret when set, else the
+      # custom domain, else the gateway's own URL queried from AWS. Mirrors
+      # the derivation in sst.config.ts so both JWT verifiers agree.
+      - name: Resolve public URL
+        id: public-url
+        env:
+          PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
+          CUSTOM_DOMAIN: ${{ secrets.CUSTOM_DOMAIN }}
+        run: |
+          if [ -n "$PUBLIC_URL" ]; then
+            url="$PUBLIC_URL"
+          elif [ -n "$CUSTOM_DOMAIN" ]; then
+            url="https://$CUSTOM_DOMAIN"
+          else
+            url=$(aws apigatewayv2 get-apis \
+              --query "Items[?starts_with(Name, 'vault-cortex-${SST_STAGE}-VaultCortexApi')].ApiEndpoint | [0]" \
+              --output text)
+          fi
+          if [ -z "$url" ] || [ "$url" = "None" ]; then
+            echo "::error::could not resolve the public URL from PUBLIC_URL, CUSTOM_DOMAIN, or the API Gateway"
+            exit 1
+          fi
+          echo "::add-mask::$url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
 
       - name: Connect to Tailscale
         if: env.TAILSCALE_ENABLED == 'true'
@@ -198,7 +224,7 @@ jobs:
 
       - name: Write Lightsail .env from secrets
         env:
-          PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
+          PUBLIC_URL: ${{ steps.public-url.outputs.url }}
           MCP_AUTH_TOKEN: ${{ secrets.MCP_AUTH_TOKEN }}
           OBSIDIAN_AUTH_TOKEN: ${{ secrets.OBSIDIAN_AUTH_TOKEN }}
           VAULT_NAME: ${{ secrets.VAULT_NAME }}
@@ -288,5 +314,5 @@ jobs:
 
       - name: Healthcheck
         env:
-          PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
+          PUBLIC_URL: ${{ steps.public-url.outputs.url }}
         run: curl -fsS --retry 6 --retry-delay 5 "$PUBLIC_URL/healthz"
