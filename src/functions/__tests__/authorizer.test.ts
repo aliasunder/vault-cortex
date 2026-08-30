@@ -16,6 +16,28 @@ vi.mock("sst", () => ({
 }))
 vi.stubEnv("PUBLIC_URL", PUBLIC_URL)
 
+// Records every log message so a denial can be pinned to the guard that
+// produced it — the PUBLIC_URL guards are otherwise indistinguishable
+// from the outside (both return { isAuthorized: false }).
+type RecordedLog = { level: "info" | "warn" | "error"; message: string }
+const recordedLogs: RecordedLog[] = []
+vi.mock("../../logger.js", () => {
+  const recordingLogger = {
+    debug: () => {},
+    info: (message: string) => {
+      recordedLogs.push({ level: "info", message })
+    },
+    warn: (message: string) => {
+      recordedLogs.push({ level: "warn", message })
+    },
+    error: (message: string) => {
+      recordedLogs.push({ level: "error", message })
+    },
+    child: () => recordingLogger,
+  }
+  return { logger: recordingLogger }
+})
+
 const { handler } = await import("../authorizer.js")
 
 const protectedRequest = (
@@ -117,6 +139,7 @@ describe("authorizer handler", () => {
 
   it("denies when PUBLIC_URL is not a URL", async () => {
     vi.stubEnv("PUBLIC_URL", "mcp.example.com")
+    recordedLogs.length = 0
     onTestFinished(() => {
       vi.stubEnv("PUBLIC_URL", PUBLIC_URL)
     })
@@ -126,10 +149,16 @@ describe("authorizer handler", () => {
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: false })
+    // Pins the deny to the URL.parse guard, not the empty-string guard.
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "error",
+      message: "auth_failed: PUBLIC_URL is not a URL",
+    })
   })
 
   it("denies when PUBLIC_URL is empty", async () => {
     vi.stubEnv("PUBLIC_URL", "")
+    recordedLogs.length = 0
     onTestFinished(() => {
       vi.stubEnv("PUBLIC_URL", PUBLIC_URL)
     })
@@ -141,5 +170,11 @@ describe("authorizer handler", () => {
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: false })
+    // Pins the deny to the empty-string guard, not the URL.parse guard
+    // (URL.parse("") would also deny, with a different message).
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "error",
+      message: "auth_failed: PUBLIC_URL is empty",
+    })
   })
 })
