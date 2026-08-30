@@ -367,9 +367,9 @@ export default $config({
         function: {
           handler: "src/functions/authorizer.handler",
           link: [mcpAuthToken],
-          // Not an `sst.Linkable`: SST generates a Linkable's
-          // `sst-env.d.ts` types from deployed state, which a PR's
-          // typecheck cannot reach.
+          // Not an `sst.Linkable`: SST writes Linkable types
+          // (`sst-env.d.ts`) only at deploy, so a new Linkable does not
+          // typecheck before its first deploy.
           environment: { PUBLIC_URL: resolvePublicUrl() },
           runtime: "nodejs24.x",
           timeout: "5 seconds",
