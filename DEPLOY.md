@@ -366,7 +366,7 @@ To find your stage: `cat .sst/stage` (after your first deploy).
 | `DISABLE_EXECUTE_API_ENDPOINT`        | Optional. Requires the `CUSTOM_DOMAIN` secret. Set `true` once every client uses the custom domain: the gateway stops answering on its default `execute-api` hostname at the next deploy. If a CDN sits in front of the custom domain, set this to `true` before setting `TRUST_FORWARDED_HOPS=2`; the **Client-IP trust with ORIGIN_URL** callout under [Port 8000 Hardening](#port-8000-hardening-optional) explains why.                                                                         |
 
 > **Upgrading to the release that binds access tokens to `PUBLIC_URL`:** access tokens issued before it carry no audience claim, so the new Lambda authorizer rejects them. A Lambda deny is a fixed 403, which MCP clients do not treat as a signal to refresh (they refresh on 401), so each connected client keeps getting 403 until its own token timer runs out (at most 24 hours) and it refreshes silently, or until you reconnect it. Refresh tokens are unaffected; nobody re-enters the token. Expect the same after any later change to `PUBLIC_URL`.
-
+>
 > **Upgrading from a release with `TRUST_FORWARDED_HEADER`:** that variable is no longer read, and the compose file now defaults `TRUST_FORWARDED_HOPS` to `1` (trust the gateway's `Forwarded` header). An `ORIGIN_URL` instance that ran `TRUST_FORWARDED_HEADER=false` behind a tunnel that admits any client must set the `TRUST_FORWARDED_HOPS=0` Variable **before** deploying this release, or the open tunnel starts being trusted. The server logs a warning at startup while the old variable is still set.
 
 **Secrets** (Settings → Secrets and variables → Actions → Secrets tab):
