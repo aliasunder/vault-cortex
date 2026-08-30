@@ -1099,8 +1099,8 @@ own `it()`, and the failing-sync block boots once per sub-`describe`
 
 - Secrets via `sst.Secret`, PascalCase names. Never hardcode.
 - Plain configuration a Lambda needs (`PUBLIC_URL`) goes in the function's
-  `environment:`, read with `env-var`. Not a link: a link's generated types
-  come from deployed state, so a link added in a PR fails that PR's
+  `environment:`, read with `env-var`. Not an `sst.Linkable`: SST generates a
+  Linkable's `sst-env.d.ts` types from deployed state, so one added in a PR fails that PR's
   typecheck until it has been deployed once.
 - `$interpolate` for `Output<string>` composition.
 - Raw Pulumi `aws.*` for Lightsail (no SST component exists).
