@@ -11,7 +11,7 @@ import {
   tokenBindingForServer,
 } from "../../auth.js"
 import { renderConsentPage } from "./consent-page.js"
-import type { OAuthProvider } from "./oauth-provider.js"
+import { DEFAULT_SCOPE, type OAuthProvider } from "./oauth-provider.js"
 import type { Logger } from "../../logger.js"
 
 type OAuthRoutesOptions = {
@@ -80,7 +80,7 @@ export const createOAuthRoutes = ({
     validate: false as const,
   }
 
-  const scopesSupported = ["vault"]
+  const scopesSupported = [DEFAULT_SCOPE]
 
   // RFC 9728 §3.1: a metadata document's `resource` must equal the resource
   // identifier its well-known URL derives from, so this suffixed document

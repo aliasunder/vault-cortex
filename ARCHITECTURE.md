@@ -644,6 +644,10 @@ instance `.env`. A client's `resource` parameter, when sent, must name this
 server's MCP endpoint (compared in canonical form, so a trailing slash is
 fine); a mismatch is answered with `invalid_target` before any code or
 refresh token is consumed. Clients that send no `resource` are accepted.
+`vault` is the server's only scope: a client that requests it gets it, and a
+client that requests no scope is granted it at authorization time, so the
+consent page, the access token, and every refresh carry the same value as the
+static token.
 
 **Token storage:** what each credential is and where it lives.
 

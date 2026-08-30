@@ -50,6 +50,10 @@ const ACCESS_TOKEN_TTL_S = 24 * 60 * 60
 const REFRESH_TOKEN_TTL_S = 60 * 24 * 60 * 60
 // 10 minutes — OAuth spec recommends short auth code lifetimes.
 const AUTH_CODE_TTL_S = 10 * 60
+// The one scope the server grants; also what the static token carries
+// (see verifyAccessToken) and what the metadata advertises as
+// scopes_supported.
+export const DEFAULT_SCOPE = "vault" as const
 
 type PendingAuthRequest = {
   client: OAuthClientInformationFull
@@ -390,6 +394,10 @@ export const createOAuthProvider = ({
       return store
     },
 
+    /** A request that names no scope is granted the server's one scope.
+     *  The default is applied here, before the request is stored, so the
+     *  consent page, the code exchange, and every later refresh read the
+     *  same value. */
     async authorize(
       client: OAuthClientInformationFull,
       params: AuthorizationParams,
@@ -399,22 +407,28 @@ export const createOAuthProvider = ({
       // redirect the client with error=invalid_target.
       assertResourceIsThisServer(params.resource, client.client_id)
       const requestId = randomUUID()
+      // The SDK splits `scope=` into [""], so blank entries count as none.
+      const requestedScopes = (params.scopes ?? []).filter(
+        (scope) => scope !== "",
+      )
+      const scopes =
+        requestedScopes.length > 0 ? requestedScopes : [DEFAULT_SCOPE]
       pendingRequests.set(requestId, {
         client,
-        params,
+        params: { ...params, scopes },
         createdAt: DateTime.now(),
       })
 
       oauthLogger.info("oauth_authorize_started", {
         clientId: client.client_id,
         requestId,
-        scopes: params.scopes ?? [],
+        scopes,
       })
       res.type("html").send(
         renderConsentPage({
           clientName: client.client_name ?? client.client_id,
           clientId: client.client_id,
-          scopes: params.scopes ?? [],
+          scopes,
           requestId,
         }),
       )
@@ -546,7 +560,7 @@ export const createOAuthProvider = ({
         return {
           token,
           clientId: "static",
-          scopes: ["vault"],
+          scopes: [DEFAULT_SCOPE],
           expiresAt: DateTime.now().plus({ years: 10 }).toUnixInteger(),
         }
       }
