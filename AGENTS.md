@@ -1098,10 +1098,6 @@ own `it()`, and the failing-sync block boots once per sub-`describe`
 ## SST conventions
 
 - Secrets via `sst.Secret`, PascalCase names. Never hardcode.
-- Plain configuration a Lambda needs (`PUBLIC_URL`) goes in the function's
-  `environment:`, read with `env-var`. Not an `sst.Linkable`: SST writes
-  Linkable types (`sst-env.d.ts`) only at deploy, so a new Linkable does not
-  typecheck before its first deploy — in CI or anywhere else.
 - `$interpolate` for `Output<string>` composition.
 - Raw Pulumi `aws.*` for Lightsail (no SST component exists).
 - `sst.aws.ApiGatewayV2` + `routeUrl()` for HTTP proxy.
