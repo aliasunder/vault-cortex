@@ -960,6 +960,28 @@ describe("OAuth default scope", () => {
     const issued = await oauth.provider.exchangeAuthorizationCode(client, code)
     expect(issued.scope).toBe("read")
   })
+
+  it("grants vault when the scopes key is absent from the request", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+
+    // When the SDK receives no `scope` parameter at all, params.scopes is
+    // undefined — the ?? [] nullish guard in authorize handles this.
+    const { consentHtml, requestId } = await startAuthFlowWithScopes(
+      oauth,
+      client,
+      undefined,
+    )
+
+    const started = logs.find(
+      (log) => log.message === "oauth_authorize_started",
+    )
+    expect(started?.data.scopes).toEqual(["vault"])
+    expect(consentHtml).toContain("<li>vault</li>")
+
+    const code = oauth.approveRequest(requestId, testLogger)
+    const issued = await oauth.provider.exchangeAuthorizationCode(client, code)
+    expect(issued.scope).toBe("vault")
+  })
 })
 
 describe("OAuth refresh token storage keyed by the auth token", () => {
