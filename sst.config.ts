@@ -75,9 +75,9 @@ export default $config({
     // derives it, so a first deploy needs no value.
     const publicUrlOverride = env("PUBLIC_URL").asString()
 
-    // The authorizer derives the token issuer and audience from this value
-    // with `new URL` on every request, so a bare hostname or a non-http(s)
-    // scheme (whose origin is "null") must fail here, not there.
+    // A bare hostname or a non-http(s) scheme (whose origin is "null")
+    // can never match a minted token, so it would 403 every client at
+    // runtime — fail the deploy instead.
     const publicUrlProtocol = publicUrlOverride
       ? URL.parse(publicUrlOverride)?.protocol
       : undefined
@@ -162,10 +162,6 @@ export default $config({
     // Setup: ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy
     // CI:    store the public key as SSH_PUBKEY secret, private as SSH_PRIVATE_KEY.
     //
-    // To also SSH with your personal key, add it post-provision:
-    //   ssh -i ~/.ssh/vault-cortex ubuntu@<IP> \
-    //     "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub
-    //
     // GOTCHA #1: Changing the public key FORCES AN INSTANCE REPLACE.
     //            The VM is destroyed and recreated, wiping Docker
     //            volumes and /opt/vault-cortex. The StaticIp survives.
@@ -179,16 +175,16 @@ export default $config({
     })
 
     // ── Lightsail ─────────────────────────────────────────────────
-    // medium_3_0 = 2 vCPU, 4 GB RAM, 80 GB SSD, 4 TB transfer, $24/mo.
-    // Upgraded from small_3_0 for the second vCPU (concurrent ONNX
-    // inference) and page-cache headroom. small_3_0 (1 vCPU, 2 GB,
-    // $12/mo) handles semantic search fine for a typical vault.
-    // Downgrade path is a snapshot-based restore — see RECOVERY.md.
+    // medium_3_0 = 2 vCPU, 4 GB RAM, 80 GB SSD, 4 TB transfer, $24/mo —
+    // the second vCPU covers concurrent ONNX inference, and the RAM gives
+    // page-cache headroom. small_3_0 (1 vCPU, 2 GB, $12/mo) handles
+    // semantic search fine for a typical vault; moving between bundles is
+    // a snapshot-based restore — see RECOVERY.md.
     //
     // Auto-snapshot: daily disk-image backup retained 7 days by
     // Lightsail. Captures everything on the boot disk (Docker volumes,
-    // /opt/vault-cortex, /etc edits, ad-hoc apt installs). UTC time —
-    // 03:00 UTC = 23:00 ET. Restore path is in RECOVERY.md.
+    // /opt/vault-cortex, /etc edits, ad-hoc apt installs). snapshotTime
+    // is UTC. Restore path is in RECOVERY.md.
     //
     // protect + retainOnDelete are the IaC seatbelt. `protect` refuses
     // any Pulumi operation that would destroy or replace this resource;
@@ -366,10 +362,10 @@ export default $config({
         // Registering the Authorization header as the identity source makes
         // API Gateway answer tokenless requests with an automatic 401 — the
         // status MCP clients need to start the OAuth flow (that response has
-        // no WWW-Authenticate, so clients use the RFC 9728 default discovery
-        // location, https://www.rfc-editor.org/rfc/rfc9728#section-3). A
-        // Lambda deny is a fixed 403 they treat as a broken
-        // server. SST fills this field with a default when omitted.
+        // no WWW-Authenticate, so clients use the RFC 9728 default
+        // discovery location, https://www.rfc-editor.org/rfc/rfc9728#section-3).
+        // A Lambda deny is a fixed 403 they treat as a broken server.
+        // SST fills this field with a default when omitted.
         identitySources: ["$request.header.Authorization"],
       },
     })
