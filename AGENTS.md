@@ -1098,6 +1098,9 @@ own `it()`, and the failing-sync block boots once per sub-`describe`
 ## SST conventions
 
 - Secrets via `sst.Secret`, PascalCase names. Never hardcode.
+- Check the [SST v4 docs](https://sst.dev/docs/) before writing config you
+  haven't used in this repo (linking, secrets, outputs) — don't infer from
+  other IaC tools or older SST versions.
 - `$interpolate` for `Output<string>` composition.
 - Raw Pulumi `aws.*` for Lightsail (no SST component exists).
 - `sst.aws.ApiGatewayV2` + `routeUrl()` for HTTP proxy.
