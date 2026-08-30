@@ -109,8 +109,12 @@ jobs:
           elif [ -n "$CUSTOM_DOMAIN" ]; then
             url="https://$CUSTOM_DOMAIN"
           else
+            # Newest match wins: with removal "retain", an sst remove can
+            # leave an older API whose name matches the same prefix, and
+            # picking it would bind tokens to a gateway the Lambda no
+            # longer fronts.
             url=$(aws apigatewayv2 get-apis \
-              --query "Items[?starts_with(Name, 'vault-cortex-${SST_STAGE}-VaultCortexApi')].ApiEndpoint | [0]" \
+              --query "sort_by(Items[?starts_with(Name, 'vault-cortex-${SST_STAGE}-VaultCortexApi')], &CreatedDate)[-1].ApiEndpoint" \
               --output text)
           fi
           if [ -z "$url" ] || [ "$url" = "None" ]; then
