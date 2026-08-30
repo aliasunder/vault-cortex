@@ -76,11 +76,17 @@ export default $config({
     // the Lambda authorizer checks each JWT's issuer and audience against
     // this value, and Express mints them from that one.
     const publicUrlOverride = env("PUBLIC_URL").asString()
-    // The authorizer parses this value with `new URL` on every request,
-    // so a bare hostname must fail here, not there.
-    if (publicUrlOverride && !URL.canParse(publicUrlOverride)) {
+    // The authorizer derives the token issuer and audience from this value
+    // with `new URL` on every request, so a bare hostname or a non-http(s)
+    // scheme (whose origin is "null") must fail here, not there.
+    const publicUrlProtocol = publicUrlOverride
+      ? URL.parse(publicUrlOverride)?.protocol
+      : undefined
+    const publicUrlIsHttp =
+      publicUrlProtocol === "https:" || publicUrlProtocol === "http:"
+    if (publicUrlOverride && !publicUrlIsHttp) {
       throw new Error(
-        "PUBLIC_URL must be an absolute URL with a scheme, e.g. " +
+        "PUBLIC_URL must be an absolute http(s) URL, e.g. " +
           "https://mcp.example.com",
       )
     }
