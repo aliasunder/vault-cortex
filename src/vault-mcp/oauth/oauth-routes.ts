@@ -82,16 +82,19 @@ export const createOAuthRoutes = ({
 
   const scopesSupported = [DEFAULT_SCOPE]
 
-  // RFC 9728 §3.1: a metadata document's `resource` must equal the resource
-  // identifier its well-known URL derives from, so this suffixed document
-  // advertises <origin>/mcp rather than copying the root document. It is an
-  // additive second mount (before mcpAuthRouter, via the SDK's own
-  // metadataHandler so CORS/OPTIONS/405 behavior matches the root route)
-  // because the SDK registers only ONE metadata path — steering it via
-  // `resourceServerUrl` would move the route and break every client that
-  // discovers via the root form.
-  // Both values are the token binding the provider mints, taken from the
-  // same derivation so metadata and tokens can't disagree.
+  // A second, path-suffixed metadata mount, separate from the SDK's root
+  // document:
+  // - RFC 9728 §3.1: a metadata document's `resource` must equal the
+  //   resource identifier its well-known URL derives from — so this one
+  //   advertises the /mcp resource instead of copying the root document.
+  // - The SDK registers only ONE metadata path, so this is an additive
+  //   second mount; steering the SDK via `resourceServerUrl` would move
+  //   the route and break every client that discovers via the root form.
+  // - The SDK's own metadataHandler serves it, so CORS/OPTIONS/405
+  //   behavior matches the root route.
+
+  // The same derivation the provider mints tokens from, so metadata and
+  // tokens can't disagree.
   const { issuer, audience } = tokenBindingForServer(serverUrl)
   const mcpResourceMetadata: OAuthProtectedResourceMetadata = {
     resource: audience,

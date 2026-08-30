@@ -602,7 +602,9 @@ describe("verifyAccessToken", () => {
   })
 })
 
-const setupAuditTest = async (): Promise<{
+const setupAuditTest = async (
+  serverUrl = TEST_URLS.serverUrl,
+): Promise<{
   logs: LogCall[]
   testLogger: Logger
   oauth: OAuthProvider
@@ -614,7 +616,7 @@ const setupAuditTest = async (): Promise<{
   const logs: LogCall[] = []
   const testLogger = recordingLogger(logs)
   const oauth = createOAuthProvider({
-    ...TEST_URLS,
+    serverUrl,
     authToken: AUTH_TOKEN,
     dbPath,
     logger: testLogger,
@@ -868,6 +870,20 @@ describe("OAuth token audience and issuer", () => {
     const payload = decodeJwtPayload(issued.access_token)
 
     expect(payload).toMatchObject({ iss: TEST_ISSUER, aud: TEST_AUDIENCE })
+  })
+
+  it("keeps a subpath prefix in the minted issuer but not the audience", async () => {
+    const { oauth, client } = await setupAuditTest(
+      new URL("http://localhost:8000/vault/"),
+    )
+
+    const issued = await issueTokens(oauth, client)
+    const payload = decodeJwtPayload(issued.access_token)
+
+    expect(payload).toMatchObject({
+      iss: "http://localhost:8000/vault/",
+      aud: "http://localhost:8000/mcp",
+    })
   })
 
   it("rejects a same-secret token minted for another audience", async () => {

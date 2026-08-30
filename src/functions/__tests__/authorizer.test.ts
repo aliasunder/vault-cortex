@@ -100,6 +100,22 @@ describe("authorizer handler", () => {
     expect(result).toEqual({ isAuthorized: true })
   })
 
+  it("authorizes a JWT bound to a subpath deployment", async () => {
+    vi.stubEnv("PUBLIC_URL", "https://mcp.example.com/vault/")
+    onTestFinished(() => {
+      vi.stubEnv("PUBLIC_URL", PUBLIC_URL)
+    })
+    // Pins the derivation the bare-origin test cannot: the path prefix
+    // stays in `iss` but is dropped from `aud`. A hand-derived
+    // origin-based issuer would pass the bare-origin test and fail here.
+    const token = accessToken({
+      iss: "https://mcp.example.com/vault/",
+      aud: "https://mcp.example.com/mcp",
+    })
+    const result = await handler(protectedRequest(`Bearer ${token}`))
+    expect(result).toEqual({ isAuthorized: true })
+  })
+
   it("denies a same-secret JWT minted for another deployment", async () => {
     const token = accessToken({
       iss: "https://mcp.example.com/",
