@@ -275,13 +275,14 @@ export const createOAuthProvider = ({
     throw new InvalidTargetError("The resource parameter is not this server")
   }
 
-  const verifyAccessJwt = (token: string): JwtPayload | null =>
-    verifyJwt({
+  const verifyAccessJwt = (token: string): JwtPayload | null => {
+    return verifyJwt({
       token,
       secret: authToken,
       expectedIssuer: issuer,
       expectedAudience: audience,
     })
+  }
 
   /** Storage key for a refresh token: an HMAC of the token under the
    *  auth token. Rows are only reachable under the secret that wrote
