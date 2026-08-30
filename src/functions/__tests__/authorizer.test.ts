@@ -42,18 +42,19 @@ const { handler } = await import("../authorizer.js")
 
 const protectedRequest = (
   authorization: string,
-): APIGatewayRequestAuthorizerEventV2 =>
-  ({
+): APIGatewayRequestAuthorizerEventV2 => {
+  return {
     rawPath: "/mcp",
     headers: { authorization },
     requestContext: {
       requestId: "req-1",
       http: { sourceIp: "203.0.113.7" },
     },
-  }) as unknown as APIGatewayRequestAuthorizerEventV2
+  } as unknown as APIGatewayRequestAuthorizerEventV2
+}
 
-const accessToken = (claims: { iss: string; aud: string }): string =>
-  signJwt(
+const accessToken = (claims: { iss: string; aud: string }): string => {
+  return signJwt(
     {
       sub: "client-1",
       scope: "vault",
@@ -62,6 +63,7 @@ const accessToken = (claims: { iss: string; aud: string }): string =>
     },
     SECRET,
   )
+}
 
 /** An access token in the shape minted before tokens were bound to a
  *  server (literal issuer, no `aud`) — signed by hand because `signJwt`
