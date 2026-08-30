@@ -103,11 +103,12 @@ export const handler = async (
     return { isAuthorized: true }
   }
 
-  // A token minted before access tokens carried `aud` is let through to
-  // Express, which rejects it with a 401 so the client refreshes into a
-  // bound token. Denying it here would be a 403, which clients never
-  // recover from on their own. Transitional: earns its place only while
-  // pre-binding tokens are in flight.
+  // A token minted by a release before access tokens carried `aud` is
+  // let through to Express, which rejects it with a 401 so the client
+  // refreshes into a bound token. Denying it here would be a 403, which
+  // clients never recover from on their own. Only tokens minted before
+  // an upgrade can be unbound, so this path goes quiet within one
+  // access-token TTL of upgrading.
   const unbound = verifyUnboundJwt({ token, secret })
   if (unbound) {
     logger.info("auth_success", { method: "jwt-unbound" })

@@ -644,10 +644,12 @@ binding claims ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
   Lambda reads its function environment, Express the instance `.env` — so a
   token minted by another deployment is rejected even when the two share a
   secret.
-- Transitional: the Lambda passes a token that carries no `aud` at all (the
-  shape minted before binding) so that Express can reject it with a 401, the
+- The Lambda passes a token that carries no `aud` at all — the shape minted
+  by releases before binding — so that Express can reject it with a 401, the
   status MCP clients refresh on; a Lambda deny is a fixed 403 that strands
-  them. A token that names any other audience is denied at the Lambda.
+  them. Only tokens minted before an upgrade have this shape, so the path
+  goes quiet within one access-token TTL. A token that names any other
+  audience is denied at the Lambda.
 - A client's `resource` parameter, when sent, must name one of the two
   identifiers the server's discovery documents advertise — the MCP endpoint
   or the server URL itself — compared in canonical form, so a trailing slash
