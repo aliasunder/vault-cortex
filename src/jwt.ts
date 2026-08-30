@@ -79,9 +79,10 @@ const isJwtPayload = (value: unknown): value is JwtPayload => {
 // exp is Unix seconds. Native Date here, not Luxon: this module is bundled
 // into the Lambda authorizer and stays dependency-free — a single epoch read
 // doesn't justify the bundle weight.
-const isExpired = (claims: JwtBaseClaims): boolean =>
+const isExpired = (claims: JwtBaseClaims): boolean => {
   // eslint-disable-next-line no-restricted-syntax
-  claims.exp < Date.now() / 1000
+  return claims.exp < Date.now() / 1000
+}
 
 /** The decoded payload of a token whose signature verifies under `secret`,
  *  with no claim checked yet; null when the signature or encoding is bad. */
