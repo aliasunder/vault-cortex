@@ -839,6 +839,129 @@ const startAuthFlow = async (
   return match[1]
 }
 
+describe("OAuth default scope", () => {
+  /** Starts an authorization flow with the given scopes and returns the
+   *  rendered consent HTML plus the request id it carries. */
+  const startAuthFlowWithScopes = async (
+    oauth: OAuthProvider,
+    client: OAuthClientInformationFull,
+    scopes: string[] | undefined,
+  ): Promise<{ consentHtml: string; requestId: string }> => {
+    let consentHtml = ""
+    const res = {
+      type: () => res,
+      send: (html: string) => {
+        consentHtml = html
+        return res
+      },
+    }
+    await oauth.provider.authorize(
+      client,
+      {
+        codeChallenge: "test-challenge",
+        redirectUri: "https://example.com/cb",
+        ...(scopes === undefined ? {} : { scopes }),
+      },
+      res as never,
+    )
+    const requestId = /name="request_id"\s+value="([^"]+)"/.exec(
+      consentHtml,
+    )?.[1]
+    if (!requestId) throw new Error("no request_id in consent HTML")
+    return { consentHtml, requestId }
+  }
+
+  it("grants vault when the request names no scope", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+
+    const { consentHtml, requestId } = await startAuthFlowWithScopes(
+      oauth,
+      client,
+      [],
+    )
+
+    const started = logs.find(
+      (log) => log.message === "oauth_authorize_started",
+    )
+    expect(started?.data.scopes).toEqual(["vault"])
+    expect(consentHtml).toContain("<li>vault</li>")
+    expect(consentHtml).not.toContain("No specific scopes requested")
+
+    const code = oauth.approveRequest(requestId, testLogger)
+    const issued = await oauth.provider.exchangeAuthorizationCode(client, code)
+    expect(issued.scope).toBe("vault")
+    const verified = await oauth.provider.verifyAccessToken(issued.access_token)
+    expect(verified.scopes).toEqual(["vault"])
+
+    if (!issued.refresh_token) throw new Error("no refresh token issued")
+    const refreshed = await exchangeRefreshToken(
+      oauth,
+      client,
+      issued.refresh_token,
+    )
+    expect(refreshed.scope).toBe("vault")
+  })
+
+  it("grants vault when the request's scope is blank", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+
+    // The SDK turns `scope=` into [""].
+    const { consentHtml, requestId } = await startAuthFlowWithScopes(
+      oauth,
+      client,
+      [""],
+    )
+
+    const started = logs.find(
+      (log) => log.message === "oauth_authorize_started",
+    )
+    expect(started?.data.scopes).toEqual(["vault"])
+    expect(consentHtml).toContain("<li>vault</li>")
+    expect(consentHtml).not.toContain("<li></li>")
+
+    const code = oauth.approveRequest(requestId, testLogger)
+    const issued = await oauth.provider.exchangeAuthorizationCode(client, code)
+    expect(issued.scope).toBe("vault")
+  })
+
+  it("keeps the scope a request names", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+
+    const { consentHtml, requestId } = await startAuthFlowWithScopes(
+      oauth,
+      client,
+      ["vault"],
+    )
+
+    const started = logs.find(
+      (log) => log.message === "oauth_authorize_started",
+    )
+    expect(started?.data.scopes).toEqual(["vault"])
+    expect(consentHtml).toContain("<li>vault</li>")
+
+    const code = oauth.approveRequest(requestId, testLogger)
+    const issued = await oauth.provider.exchangeAuthorizationCode(client, code)
+    expect(issued.scope).toBe("vault")
+  })
+
+  it("does not widen a narrower explicit scope to vault", async () => {
+    const { oauth, testLogger, client } = await setupAuditTest()
+
+    const { consentHtml, requestId } = await startAuthFlowWithScopes(
+      oauth,
+      client,
+      ["read"],
+    )
+
+    expect(consentHtml).toContain("<li>read</li>")
+    expect(consentHtml).not.toContain("<li>vault</li>")
+
+    const code = oauth.approveRequest(requestId, testLogger)
+    const issued = await oauth.provider.exchangeAuthorizationCode(client, code)
+    expect(issued.scope).toBe("read")
+  })
+})
+
 describe("OAuth refresh token storage keyed by the auth token", () => {
   const createKeyedStorageTest = async (): Promise<{
     dbPath: string
