@@ -10,10 +10,13 @@
 
 import { createHmac, timingSafeEqual } from "node:crypto"
 
-export type JwtPayload = {
+type JwtBaseClaims = {
   sub: string
   scope: string
   exp: number
+}
+
+export type JwtPayload = JwtBaseClaims & {
   /** The authorization server's issuer URL, as advertised in its metadata. */
   iss: string
   /** The RFC 8707 resource identifier the token was minted for. */
@@ -28,6 +31,11 @@ type VerifyJwtOptions = {
   /** The value `aud` must equal; a token minted for another server is
    *  rejected even when it carries a valid signature under `secret`. */
   expectedAudience: string
+}
+
+type VerifyUnboundJwtOptions = {
+  token: string
+  secret: string
 }
 
 const b64url = (buf: Buffer): string => buf.toString("base64url")
@@ -45,7 +53,7 @@ export const signJwt = (payload: JwtPayload, secret: string): string => {
   return `${body}.${hmac(body, secret)}`
 }
 
-const isJwtPayload = (value: unknown): value is JwtPayload => {
+const isJwtBaseClaims = (value: unknown): value is JwtBaseClaims => {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -54,7 +62,13 @@ const isJwtPayload = (value: unknown): value is JwtPayload => {
     "scope" in value &&
     typeof value.scope === "string" &&
     "exp" in value &&
-    typeof value.exp === "number" &&
+    typeof value.exp === "number"
+  )
+}
+
+const isJwtPayload = (value: unknown): value is JwtPayload => {
+  return (
+    isJwtBaseClaims(value) &&
     "iss" in value &&
     typeof value.iss === "string" &&
     "aud" in value &&
@@ -62,15 +76,16 @@ const isJwtPayload = (value: unknown): value is JwtPayload => {
   )
 }
 
-/** Returns the payload when the signature, expiry, issuer, and audience all
- *  check out; null otherwise. Issuer and audience are compared as exact
- *  strings — callers canonicalize before passing them in. */
-export const verifyJwt = ({
-  token,
-  secret,
-  expectedIssuer,
-  expectedAudience,
-}: VerifyJwtOptions): JwtPayload | null => {
+// exp is Unix seconds. Native Date here, not Luxon: this module is bundled
+// into the Lambda authorizer and stays dependency-free — a single epoch read
+// doesn't justify the bundle weight.
+const isExpired = (claims: JwtBaseClaims): boolean =>
+  // eslint-disable-next-line no-restricted-syntax
+  claims.exp < Date.now() / 1000
+
+/** The decoded payload of a token whose signature verifies under `secret`,
+ *  with no claim checked yet; null when the signature or encoding is bad. */
+const signedPayload = (token: string, secret: string): unknown => {
   // A valid JWT is exactly three base64url segments: header.payload.signature
   const parts = token.split(".")
   if (parts.length !== 3) return null
@@ -85,19 +100,41 @@ export const verifyJwt = ({
   if (!timingSafeEqual(sigBuf, expBuf)) return null
 
   try {
-    const decoded: unknown = JSON.parse(
-      Buffer.from(payload, "base64url").toString(),
-    )
-    if (!isJwtPayload(decoded)) return null
-    // Reject expired tokens (exp is Unix seconds). Native Date here, not
-    // Luxon: this module is bundled into the Lambda authorizer and stays
-    // dependency-free — a single epoch read doesn't justify the bundle weight.
-    // eslint-disable-next-line no-restricted-syntax
-    if (decoded.exp < Date.now() / 1000) return null
-    if (decoded.iss !== expectedIssuer) return null
-    if (decoded.aud !== expectedAudience) return null
-    return decoded
+    return JSON.parse(Buffer.from(payload, "base64url").toString())
   } catch {
     return null
   }
+}
+
+/** Returns the payload when the signature, expiry, issuer, and audience all
+ *  check out; null otherwise. Issuer and audience are compared as exact
+ *  strings — callers canonicalize before passing them in. */
+export const verifyJwt = ({
+  token,
+  secret,
+  expectedIssuer,
+  expectedAudience,
+}: VerifyJwtOptions): JwtPayload | null => {
+  const decoded = signedPayload(token, secret)
+  if (!isJwtPayload(decoded)) return null
+  if (isExpired(decoded)) return null
+  if (decoded.iss !== expectedIssuer) return null
+  if (decoded.aud !== expectedAudience) return null
+  return decoded
+}
+
+/** Accepts a token minted before access tokens carried `aud`: signature and
+ *  expiry are checked, and the token must carry no `aud` at all — a token
+ *  that names any audience goes through `verifyJwt`. Lets clients holding a
+ *  pre-binding token reach the server that rejects it with a 401, which is
+ *  the signal they refresh on; a gateway-level deny would strand them. */
+export const verifyUnboundJwt = ({
+  token,
+  secret,
+}: VerifyUnboundJwtOptions): JwtBaseClaims | null => {
+  const decoded = signedPayload(token, secret)
+  if (!isJwtBaseClaims(decoded)) return null
+  if ("aud" in decoded) return null
+  if (isExpired(decoded)) return null
+  return decoded
 }

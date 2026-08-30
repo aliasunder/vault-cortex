@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, onTestFinished } from "vitest"
+import { createHmac } from "node:crypto"
 import { DateTime } from "luxon"
 import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda"
 import { signJwt } from "../../jwt.js"
@@ -40,6 +41,28 @@ const accessToken = (claims: { iss: string; aud: string }): string =>
     SECRET,
   )
 
+/** An access token in the shape minted before tokens were bound to a
+ *  server (literal issuer, no `aud`) — signed by hand because `signJwt`
+ *  only accepts the bound shape. */
+const preBindingToken = (secret: string): string => {
+  const header = Buffer.from(
+    JSON.stringify({ alg: "HS256", typ: "JWT" }),
+  ).toString("base64url")
+  const body = Buffer.from(
+    JSON.stringify({
+      sub: "client-1",
+      scope: "vault",
+      exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+      iss: "vault-cortex",
+    }),
+  ).toString("base64url")
+  const sig = createHmac("sha256", secret)
+    .update(`${header}.${body}`)
+    .digest()
+    .toString("base64url")
+  return `${header}.${body}.${sig}`
+}
+
 describe("authorizer handler", () => {
   it("authorizes the static token", async () => {
     const result = await handler(protectedRequest(`Bearer ${SECRET}`))
@@ -61,6 +84,20 @@ describe("authorizer handler", () => {
       aud: "https://other.example/mcp",
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
+    expect(result).toEqual({ isAuthorized: false })
+  })
+
+  it("authorizes a pre-binding JWT (no aud) so Express can answer it with a 401", async () => {
+    const result = await handler(
+      protectedRequest(`Bearer ${preBindingToken(SECRET)}`),
+    )
+    expect(result).toEqual({ isAuthorized: true })
+  })
+
+  it("denies a pre-binding JWT signed with another secret", async () => {
+    const result = await handler(
+      protectedRequest(`Bearer ${preBindingToken("not-the-lambda-secret")}`),
+    )
     expect(result).toEqual({ isAuthorized: false })
   })
 

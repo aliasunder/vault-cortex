@@ -640,7 +640,11 @@ Each verifier also checks `iss` against the deployment's own issuer URL and
 ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)), so a token minted by
 another deployment is rejected even when the two share a secret. The
 Lambda reads `PUBLIC_URL` from its function environment; Express reads it from the
-instance `.env`. A client's `resource` parameter, when sent, must name this
+instance `.env`. One transitional exception: the Lambda still passes a token
+that carries no `aud` at all (the shape minted before binding) so that Express
+can reject it with a 401, the status MCP clients refresh on; a Lambda deny is a
+fixed 403 that strands them. A token that names any other audience is denied at
+the Lambda. A client's `resource` parameter, when sent, must name this
 server's MCP endpoint (compared in canonical form, so a trailing slash is
 fine); a mismatch is answered with `invalid_target` before any code or
 refresh token is consumed. Clients that send no `resource` are accepted.

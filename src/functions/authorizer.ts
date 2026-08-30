@@ -29,7 +29,7 @@ import { Resource } from "sst"
 import env from "env-var"
 import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda"
 import { safeEqual, parseBearer, tokenBindingForServer } from "../auth.js"
-import { verifyJwt } from "../jwt.js"
+import { verifyJwt, verifyUnboundJwt } from "../jwt.js"
 import { logger as rootLogger } from "../logger.js"
 
 const OPEN_PATH_PREFIXES = [
@@ -93,6 +93,16 @@ export const handler = async (
   })
   if (verified) {
     logger.info("auth_success", { method: "jwt" })
+    return { isAuthorized: true }
+  }
+
+  // A token minted before access tokens carried `aud` is let through to
+  // Express, which rejects it with a 401 so the client refreshes into a
+  // bound token. Denying it here would be a 403, which clients never
+  // recover from on their own. Remove once every token in flight is bound.
+  const unbound = verifyUnboundJwt({ token, secret })
+  if (unbound) {
+    logger.info("auth_success", { method: "jwt-unbound" })
     return { isAuthorized: true }
   }
 
