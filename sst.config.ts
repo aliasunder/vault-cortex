@@ -69,12 +69,10 @@ export default $config({
     const customDomain = env("CUSTOM_DOMAIN").asString()
     const customDomainCertArn = env("CUSTOM_DOMAIN_CERT_ARN").asString()
 
-    // The URL clients reach the server at. Optional: when unset it is
-    // derived below from the custom domain or the gateway's own URL, so a
-    // first deploy needs no value. Set it to pin a hostname through a
-    // custom-domain cutover. Must match PUBLIC_URL in the instance .env —
-    // the Lambda authorizer checks each JWT's issuer and audience against
-    // this value, and Express mints them from that one.
+    // Must match PUBLIC_URL in the instance .env: the Lambda authorizer
+    // verifies each JWT's issuer and audience against this value, and
+    // Express mints them from that one. Unset, resolvePublicUrl() below
+    // derives it, so a first deploy needs no value.
     const publicUrlOverride = env("PUBLIC_URL").asString()
 
     // The authorizer derives the token issuer and audience from this value
