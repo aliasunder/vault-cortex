@@ -32,8 +32,9 @@ export const canonicalResourceUri = (resource: URL): string => {
   return `${resource.origin}${pathWithoutTrailingSlash}`
 }
 
-/** The MCP endpoint's URL for a deployment's public URL. Resolved as an
- *  absolute path, so a path prefix on the public URL is not carried over. */
+/** The MCP endpoint's URL, derived from a deployment's public URL. Resolved
+ *  as an absolute path, so a path prefix on the public URL is not carried
+ *  over. */
 export const mcpResourceUrl = (serverUrl: URL): URL =>
   new URL("/mcp", serverUrl)
 

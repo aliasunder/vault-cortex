@@ -632,28 +632,31 @@ sequenceDiagram
     E-->>C: {access_token: new JWT, refresh_token: new}
 ```
 
-**JWT payload:** `{ sub: clientId, scope: "vault", exp: <unix>, iss: "<PUBLIC_URL>/", aud: "<scheme>://<host>[:port]/mcp" }`
+**JWT payload:** `{ sub: clientId, scope: "vault", exp: <unix>, iss, aud }`
 Signed with HMAC-SHA256 using `MCP_AUTH_TOKEN` as the key. Both the Lambda
-authorizer and Express can verify independently — no shared state needed.
-Each verifier also checks `iss` against the deployment's own issuer URL and
-`aud` against its MCP endpoint's canonical URI
-([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)) — the origin of
-`PUBLIC_URL` plus `/mcp`; a path prefix on `PUBLIC_URL` is not part of the
-audience. So a token minted by
-another deployment is rejected even when the two share a secret. The
-Lambda reads `PUBLIC_URL` from its function environment; Express reads it from the
-instance `.env`. One transitional exception: the Lambda still passes a token
-that carries no `aud` at all (the shape minted before binding) so that Express
-can reject it with a 401, the status MCP clients refresh on; a Lambda deny is a
-fixed 403 that strands them. A token that names any other audience is denied at
-the Lambda. A client's `resource` parameter, when sent, must name this
-server's MCP endpoint (compared in canonical form, so a trailing slash is
-fine); a mismatch is answered with `invalid_target` before any code or
-refresh token is consumed. Clients that send no `resource` are accepted.
-`vault` is the server's only scope: a client that requests it gets it, and a
-client that requests no scope is granted it at authorization time, so the
-consent page, the access token, and every refresh carry the same value as the
-static token.
+authorizer and Express verify independently — no shared state needed. The
+binding claims ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
+
+- `iss` — the normalized `PUBLIC_URL` (a bare origin gains a trailing slash).
+- `aud` — the MCP endpoint's canonical URI: the origin of `PUBLIC_URL` plus
+  `/mcp`. A path prefix on `PUBLIC_URL` is not part of the audience.
+- Each verifier checks both claims against its own copy of `PUBLIC_URL` — the
+  Lambda reads its function environment, Express the instance `.env` — so a
+  token minted by another deployment is rejected even when the two share a
+  secret.
+- Transitional: the Lambda passes a token that carries no `aud` at all (the
+  shape minted before binding) so that Express can reject it with a 401, the
+  status MCP clients refresh on; a Lambda deny is a fixed 403 that strands
+  them. A token that names any other audience is denied at the Lambda.
+- A client's `resource` parameter, when sent, must name one of the two
+  identifiers the server's discovery documents advertise — the MCP endpoint
+  or the server URL itself — compared in canonical form, so a trailing slash
+  is fine. A mismatch is answered with `invalid_target` before any code or
+  refresh token is consumed; clients that send no `resource` are accepted.
+  `vault` is the server's only scope: a client that requests it gets it, and a
+  client that requests no scope is granted it at authorization time, so the
+  consent page, the access token, and every refresh carry the same value as the
+  static token.
 
 **Token storage:** what each credential is and where it lives.
 

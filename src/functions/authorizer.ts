@@ -106,7 +106,8 @@ export const handler = async (
   // A token minted before access tokens carried `aud` is let through to
   // Express, which rejects it with a 401 so the client refreshes into a
   // bound token. Denying it here would be a 403, which clients never
-  // recover from on their own. Remove once every token in flight is bound.
+  // recover from on their own. Transitional: earns its place only while
+  // pre-binding tokens are in flight.
   const unbound = verifyUnboundJwt({ token, secret })
   if (unbound) {
     logger.info("auth_success", { method: "jwt-unbound" })
