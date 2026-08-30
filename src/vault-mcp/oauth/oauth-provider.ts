@@ -48,7 +48,7 @@ const AUTH_CODE_TTL_S = 10 * 60
 // The one scope the server grants; also what the static token carries
 // (see verifyAccessToken) and what the metadata advertises as
 // scopes_supported.
-export const DEFAULT_SCOPE = "vault"
+export const DEFAULT_SCOPE = "vault" as const
 
 type PendingAuthRequest = {
   client: OAuthClientInformationFull
