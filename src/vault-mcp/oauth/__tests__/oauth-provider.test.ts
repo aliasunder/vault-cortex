@@ -890,6 +890,9 @@ describe("OAuth token audience and issuer", () => {
     expect(payload.exp).toBeLessThanOrEqual(
       issuedAtUpperBound + ACCESS_TOKEN_TTL_S,
     )
+    // The lifetime told to the client and the exp the server enforces must
+    // move together — both assert against the same test-owned TTL.
+    expect(issued.expires_in).toBe(ACCESS_TOKEN_TTL_S)
   })
 
   it("keeps a subpath prefix in the minted issuer but not the audience", async () => {
