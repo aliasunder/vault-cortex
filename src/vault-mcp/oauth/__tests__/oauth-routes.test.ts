@@ -998,6 +998,7 @@ describe("OAuth refresh over HTTP", () => {
       error: "invalid_scope",
       error_description: "Requested scope exceeds the granted scope",
     })
+    // Token is burned — retry is a plain miss, not a reuse revocation
     const consumed = await refresh({
       baseUrl,
       client: owner,

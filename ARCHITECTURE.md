@@ -632,7 +632,7 @@ sequenceDiagram
     E-->>C: {access_token: new JWT, refresh_token: new}
 ```
 
-**JWT payload:** `{ sub: clientId, scope: "vault", exp: <unix>, iss, aud }`
+**JWT payload:** `{ sub: clientId, scope: "vault", iat: <unix>, exp: <unix>, iss, aud }`
 Signed with HMAC-SHA256 using `MCP_AUTH_TOKEN` as the key. Both the Lambda
 authorizer and Express verify independently — no shared state needed. The
 binding claims ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
@@ -670,14 +670,23 @@ static token.
   the token keyed by `MCP_AUTH_TOKEN`, never in plaintext. A row is only
   reachable under the auth token that wrote it, and a copied `oauth.db` holds
   no token a client could present.
-- **Refresh grants** — a refresh token is honoured only for the client it was
-  issued to, and a refresh may narrow the granted scope but never widen it.
+- **Refresh grants** — bound to the issuing client; may narrow scope but
+  never widen it. Reuse detection: each rotation records the consumed token,
+  and replaying one revokes the entire grant (refresh tokens + access tokens
+  issued strictly before the cutoff, logged as `oauth_refresh_token_reuse`).
+  Consumed records expire with their parent token's window.
 - **Auth codes** — in-memory, short-lived (10 minutes).
-- **Access tokens** — JWTs; stateless, no storage.
+- **Access tokens** — JWTs with an `iat` (issued-at) claim. Verification
+  checks both per-token revocation and per-client grant revocation (a cutoff
+  timestamp rejecting `iat` strictly before revocation). Tokens without `iat`
+  are rejected whenever a grant revocation exists for their client.
 - **Revoked tokens** — revoked access tokens are tracked in SQLite; a revoked
-  refresh token is simply deleted. A revoked JWT outlives its revocation by at
+  refresh token is simply deleted. Grant-level revocations (from reuse
+  detection) insert a per-client cutoff that rejects tokens minted strictly
+  before the revocation time. A revoked JWT outlives its revocation by at
   most the access-token lifetime, so rows older than that are purged at boot
-  and before each new revocation, logged as `oauth_revoked_tokens_purged`.
+  and before each new revocation, logged as `oauth_revoked_tokens_purged`
+  and `oauth_revoked_clients_purged`.
 
 **Refresh token expiry:** 60-day sliding (inactivity) window. Each successful
 use rotates the token AND extends the window by another 60 days, so a daily
