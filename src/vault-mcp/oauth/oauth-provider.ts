@@ -350,7 +350,7 @@ export const createOAuthProvider = ({
     "DELETE FROM consumed_refresh_tokens WHERE client_id = ?",
   )
   // revoked_clients is a mint-time cutoff, not a ban: only access tokens
-  // with iat at or before revoked_at are rejected, so a re-consented
+  // with iat strictly before revoked_at are rejected, so a re-consented
   // client keeps working under the same client_id.
   const insertRevokedClientStmt = db.prepare<[string, number]>(
     "INSERT OR REPLACE INTO revoked_clients (client_id, revoked_at) VALUES (?, ?)",
