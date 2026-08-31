@@ -99,7 +99,8 @@ Returns: Raw markdown text.`,
         reqLogger,
         () => memoryStore.getMemory({ vaultPath, file, section }, reqLogger),
         (text) => {
-          const mode = !file ? "all" : !section ? "file" : "section"
+          const scopeWithFile = !section ? "file" : "section"
+          const mode = !file ? "all" : scopeWithFile
           reqLogger.info("tool_result", { mode })
           return text
         },

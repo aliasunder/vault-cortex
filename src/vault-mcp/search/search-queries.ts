@@ -828,8 +828,10 @@ const DATE_CASCADE: Record<string, readonly string[]> = {
 
 const toSqlDirection = (
   direction: "asc" | "desc" | undefined,
-): "ASC" | "DESC" | undefined =>
-  direction === undefined ? undefined : direction === "desc" ? "DESC" : "ASC"
+): "ASC" | "DESC" | undefined => {
+  if (direction === undefined) return undefined
+  return direction === "desc" ? "DESC" : "ASC"
+}
 
 /** Builds a cascaded ORDER BY for a date sort key: primary date column, then
  *  each fallback date column (all with NULL-last), then note mtime descending

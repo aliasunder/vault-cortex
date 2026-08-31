@@ -239,11 +239,11 @@ export const registerVaultOrientationPrompt = ({
               ].join("\n")
             : "No orphans found — every note has at least one incoming link."
 
-        const memorySection = config.memoryEnabled
-          ? memoryFiles.length > 0
+        const memorySectionContent =
+          memoryFiles.length > 0
             ? formatMemoryOutline(memoryFiles)
             : `No memory files yet — the ${config.memoryDir}/ layer is empty.${whenToolEnabledText("vault_update_memory", " Use vault_update_memory to start it.")}`
-          : ""
+        const memorySection = config.memoryEnabled ? memorySectionContent : ""
 
         // The "go deeper" menu is a list of calls to make, so every line is
         // keyed on its own tool being served — a suggestion the client cannot

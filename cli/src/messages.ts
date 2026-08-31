@@ -200,12 +200,12 @@ export const buildLocalConnectMessage = (params: {
 
   const baseUrl = `http://localhost:${port}`
 
+  const nonRunningLine =
+    startStatus === "starting"
+      ? startingInBackgroundLine()
+      : startServerLine(targetDir)
   const startLine =
-    startStatus === "running"
-      ? "The server is running."
-      : startStatus === "starting"
-        ? startingInBackgroundLine()
-        : startServerLine(targetDir)
+    startStatus === "running" ? "The server is running." : nonRunningLine
 
   const tokenLine = tokenBlock({ targetDir, token, tokenWritten })
 

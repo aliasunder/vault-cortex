@@ -691,6 +691,10 @@ undefined) return`) or schema validation to narrow types instead.
   incident dates, deployment names, task-board IDs, remediation
   narration, and investigation chronology never enter any public
   artifact — committed files, PR descriptions, or comments.
+- No nested ternaries — a chained `a ? b : c ? d : e` forces the
+  reader to simulate branches. Decompose into named const steps or
+  use an early-return guard with a trailing ternary. Lint-enforced
+  via `no-nested-ternary`.
 - Early returns over nested `if/else` — reduces indentation depth
   and cognitive load. Prefer `if (done) return` over wrapping 15
   lines in `if (!done) { ... }`. In loops, prefer `if (cond) { …;

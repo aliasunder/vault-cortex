@@ -58,6 +58,8 @@ export default defineConfig(
       "@typescript-eslint/consistent-type-definitions": ["error", "type"],
       // AGENTS.md → Code style: early returns over nested if/else.
       "no-else-return": "error",
+      // AGENTS.md → Code style: no nested ternaries.
+      "no-nested-ternary": "error",
       // AGENTS.md → Code style: explicit names over abbreviations — no
       // single-char identifiers. Exceptions: `i` (loop index), `a`/`b`
       // (sort comparators), `k` (the RRF constant's literature name),
