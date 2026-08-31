@@ -76,7 +76,8 @@ const isJwtPayload = (value: unknown): value is JwtPayload => {
     "iss" in value &&
     typeof value.iss === "string" &&
     "aud" in value &&
-    typeof value.aud === "string"
+    typeof value.aud === "string" &&
+    (!("iat" in value) || typeof value.iat === "number")
   )
 }
 
