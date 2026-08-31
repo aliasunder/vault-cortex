@@ -21,9 +21,8 @@ export type JwtPayload = JwtBaseClaims & {
   iss: string
   /** The RFC 8707 resource identifier the token was minted for. */
   aud: string
-  /** RFC 7519 issued-at (Unix seconds). Optional — pre-existing tokens
-   *  lack it and are rejected whenever a grant revocation exists for
-   *  their client. */
+  /** RFC 7519 issued-at (Unix seconds). Optional — when absent, the
+   *  token is rejected if a grant revocation exists for the client. */
   iat?: number
 }
 
