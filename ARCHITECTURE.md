@@ -670,29 +670,19 @@ static token.
   the token keyed by `MCP_AUTH_TOKEN`, never in plaintext. A row is only
   reachable under the auth token that wrote it, and a copied `oauth.db` holds
   no token a client could present.
-- **Refresh grants** — a refresh token is honoured only for the client it was
-  issued to, and a refresh may narrow the granted scope but never widen it.
-  Each rotation records the consumed token; replaying it triggers reuse
-  detection, which revokes the entire grant (all refresh tokens + access
-  tokens issued strictly before the cutoff) and logs
-  `oauth_refresh_token_reuse`. The
-  client must re-consent to obtain a new grant. Consumed-token records are
-  purged alongside their parent refresh token's expiry, so a stale replay
-  after the window closes is a plain miss, not a repeated revocation.
+- **Refresh grants** — bound to the issuing client; may narrow scope but
+  never widen it. Reuse detection: each rotation records the consumed token,
+  and replaying one revokes the entire grant (refresh tokens + access tokens
+  issued strictly before the cutoff, logged as `oauth_refresh_token_reuse`).
+  Consumed records expire with their parent token's window.
 - **Auth codes** — in-memory, short-lived (10 minutes).
-- **Access tokens** — JWTs carrying an `iat` (issued-at) claim. Verification
-  is stateful for individually revoked tokens and grant revocation: a
-  per-client cutoff timestamp in SQLite
-  rejects any token whose `iat` is strictly before the revocation time.
-  Same-second tokens pass — the attacker's refresh tokens are already deleted,
-  so they cannot mint new access tokens. Tokens without `iat` are treated as
-  older than any revocation.
-- **Revoked tokens** — revoked access tokens are tracked in SQLite; a revoked
-  refresh token is simply deleted. Grant-level revocations (from reuse
-  detection) insert a per-client cutoff that rejects tokens minted strictly
-  before the revocation time. A revoked JWT outlives its revocation by at
-  most the access-token lifetime, so rows older than that are purged at boot
-  and before each new revocation, logged as `oauth_revoked_tokens_purged`.
+- **Access tokens** — JWTs with an `iat` (issued-at) claim. Verification
+  checks both per-token revocation and per-client grant revocation (a cutoff
+  timestamp rejecting `iat` strictly before revocation). Tokens without `iat`
+  are treated as older than any revocation.
+- **Revoked tokens** — per-token: tracked in SQLite, purged past the
+  access-token lifetime. Per-client (grant revocation): a cutoff timestamp
+  inserted on reuse detection, purged on the same schedule.
 
 **Refresh token expiry:** 60-day sliding (inactivity) window. Each successful
 use rotates the token AND extends the window by another 60 days, so a daily
