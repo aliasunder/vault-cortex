@@ -2138,5 +2138,14 @@ describe("task line mutations", () => {
       ]
       expect(tasks.parseKanbanCardInsertionMethod(bodyLines)).toBeUndefined()
     })
+
+    it("returns undefined when the settings block has no code fence", () => {
+      const bodyLines = [
+        "%% kanban:settings",
+        '{"new-card-insertion-method":"append"}',
+        "%%",
+      ]
+      expect(tasks.parseKanbanCardInsertionMethod(bodyLines)).toBeUndefined()
+    })
   })
 })

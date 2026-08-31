@@ -2307,6 +2307,53 @@ kanban-plugin: board
 `)
       })
 
+      it("Kanban + heading + no position + setting=prepend → top", async () => {
+        const vault = await createVault()
+        const board = `---
+kanban-plugin: board
+---
+
+## Active
+
+- [ ] Existing task ➕ 2026-07-01 ^existing
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board","new-card-insertion-method":"prepend"}
+\`\`\`
+%%
+`
+        await writeTestNote(vault, "board.md", board)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Prepended card",
+            blockId: "prepended-card",
+            heading: "Active",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(`---
+kanban-plugin: board
+---
+
+## Active
+- [ ] Prepended card ➕ ${today()} ^prepended-card
+
+- [ ] Existing task ➕ 2026-07-01 ^existing
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board","new-card-insertion-method":"prepend"}
+\`\`\`
+%%
+`)
+      })
+
       it("Kanban + heading + explicit position=top overrides setting=append", async () => {
         const vault = await createVault()
         const board = `---
