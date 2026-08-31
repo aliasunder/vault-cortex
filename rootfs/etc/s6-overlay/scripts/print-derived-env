@@ -22,6 +22,15 @@
 # behavior); LOG_DIR=none turns log files off.
 set -eu
 
+# find -path treats *, ?, and [ as wildcards — a path containing them
+# makes the deletion-storm guard's patterns silently malfunction.
+contains_glob_chars() {
+  case "$1" in
+    *\** | *\?* | *\[*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 if [ -z "${STORAGE_ROOT:-}" ]; then
   if [ -z "${VAULT_PATH:-}" ]; then
     printf 'VAULT_PATH=%s\n' /vault
@@ -50,6 +59,10 @@ else
     echo "[vault-cortex] ERROR: STORAGE_ROOT must be an absolute path to a directory inside a persistent mount (e.g. /persist), not '$STORAGE_ROOT'." >&2
     exit 1
   fi
+  if contains_glob_chars "$storage_root"; then
+    echo "[vault-cortex] ERROR: STORAGE_ROOT must not contain glob characters (*, ?, [) — they break the container's find-path safety guards, not '$STORAGE_ROOT'." >&2
+    exit 1
+  fi
   if [ -z "${VAULT_PATH:-}" ]; then
     printf 'VAULT_PATH=%s\n' "$storage_root/vault"
   fi
@@ -70,6 +83,13 @@ else
   if [ -z "${XDG_CONFIG_HOME:-}" ]; then
     printf 'XDG_CONFIG_HOME=%s\n' "$storage_root/config"
   fi
+fi
+
+# An explicit VAULT_PATH bypasses derivation — check it for glob chars.
+# Derived values are safe: they append "/vault" to a validated storage_root.
+if [ -n "${VAULT_PATH:-}" ] && contains_glob_chars "$VAULT_PATH"; then
+  echo "[vault-cortex] ERROR: VAULT_PATH must not contain glob characters (*, ?, [) — they break the container's find-path safety guards, not '$VAULT_PATH'." >&2
+  exit 1
 fi
 
 # The server requires PUBLIC_URL. Each hosted platform exposes the service's

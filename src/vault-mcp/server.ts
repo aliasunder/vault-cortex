@@ -84,6 +84,11 @@ const startServer = async (): Promise<void> => {
   // surrounding whitespace.
   const authToken = env.get("MCP_AUTH_TOKEN").required().asString().trim()
   const vaultPath = env.get("VAULT_PATH").required().asString()
+  // The remote image's deletion-storm guard uses find -path with VAULT_PATH;
+  // glob characters would make those patterns silently malfunction.
+  if (/[*?[]/.test(vaultPath)) {
+    throw new Error("VAULT_PATH must not contain glob characters (*, ?, [)")
+  }
   const publicUrl = env.get("PUBLIC_URL").required().asString()
   const serverUrl = new URL(publicUrl)
   // Credentials in the URL would be minted into every token's `iss`
