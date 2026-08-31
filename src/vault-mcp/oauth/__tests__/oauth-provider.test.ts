@@ -1857,7 +1857,7 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     ).rejects.toThrow("Requested scope exceeds the granted scope")
   })
 
-  it("burns the token on scope widening but does not trigger reuse detection on retry", async () => {
+  it("consumes the token on scope widening but does not trigger reuse detection on retry", async () => {
     const { oauth, db, client } = await createKeyedStorageTest()
     const refreshToken = await issuedRefreshToken(oauth, client)
 

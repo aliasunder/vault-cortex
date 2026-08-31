@@ -980,7 +980,7 @@ describe("OAuth refresh over HTTP", () => {
     expect(stillValid.status).toBe(200)
   })
 
-  it("rejects a refresh that widens the scope with invalid_scope and burns the token", async () => {
+  it("rejects a refresh that widens the scope with invalid_scope and consumes the token", async () => {
     const { baseUrl } = await createRefreshTest()
     const owner = await registerClient(baseUrl, "203.0.113.3")
     const issued = await issueTokens(baseUrl, owner, "203.0.113.3")

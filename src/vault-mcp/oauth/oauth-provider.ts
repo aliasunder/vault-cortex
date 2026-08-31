@@ -639,7 +639,7 @@ export const createOAuthProvider = ({
     ): Promise<OAuthTokens> {
       const clientId = client.client_id
       // Checked before the refresh token is consumed, for the same reason
-      // as the code exchange: a wrong resource must not burn the token.
+      // as the code exchange: a wrong resource must not consume the token.
       assertResourceIsThisServer(resource, clientId)
       const consumed = consumeRefreshToken({ token: refreshToken, clientId })
       if (consumed.status === "reuse") {
@@ -679,7 +679,7 @@ export const createOAuthProvider = ({
         (scope) => !stored.scopes.includes(scope),
       )
       if (requestedScopeWidens) {
-        // A widening request burns the token (misbehaving client). Delete
+        // A widening request consumes the token (misbehaving client). Delete
         // the consumed record so a retry is a plain miss, not a reuse signal.
         deleteConsumedRefreshTokenStmt.run(stored.storageKey)
         oauthLogger.warn("oauth_token_refresh_failed", {
