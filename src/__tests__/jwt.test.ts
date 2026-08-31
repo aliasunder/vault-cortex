@@ -213,6 +213,22 @@ describe("verifyJwt", () => {
     expect(verify(`${header}.${body}.${sig}`, SECRET)).toBeNull()
   })
 
+  it("accepts a token without iat (pre-upgrade shape)", () => {
+    const payload = buildPayload()
+    expect(payload).not.toHaveProperty("iat")
+    const decoded = verify(signJwt(payload, SECRET), SECRET)
+    expect(decoded).toEqual(payload)
+    expect(decoded).not.toHaveProperty("iat")
+  })
+
+  it("preserves iat when present in the payload", () => {
+    const iat = DateTime.now().toUnixInteger()
+    const payload = buildPayload({ iat })
+    const decoded = verify(signJwt(payload, SECRET), SECRET)
+    expect(decoded).toEqual(payload)
+    expect(decoded?.iat).toBe(iat)
+  })
+
   it("returns null for a signature of correct length but wrong bytes", () => {
     const token = signJwt(buildPayload(), SECRET)
     const [header, body, sig] = token.split(".") as [string, string, string]

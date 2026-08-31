@@ -111,6 +111,15 @@ const initDb = (dbPath: string, logger: Logger): Database.Database => {
       token TEXT PRIMARY KEY,
       revoked_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS consumed_refresh_tokens (
+      token TEXT PRIMARY KEY,
+      client_id TEXT NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS revoked_clients (
+      client_id TEXT PRIMARY KEY,
+      revoked_at INTEGER NOT NULL
+    );
   `)
   // Migration for DBs created before sliding expiry: add expires_at
   // with DEFAULT 0 so any pre-migration row is treated as expired on
@@ -319,33 +328,99 @@ export const createOAuthProvider = ({
   const deleteExpiredRevokedTokensStmt = db.prepare<[number]>(
     "DELETE FROM revoked_tokens WHERE revoked_at < ?",
   )
+  const insertConsumedRefreshTokenStmt = db.prepare<[string, string, number]>(
+    "INSERT OR IGNORE INTO consumed_refresh_tokens (token, client_id, expires_at) VALUES (?, ?, ?)",
+  )
+  // The expires_at bound makes an expired replay a plain invalid_grant no
+  // matter when the sweep last ran — past the token's own expiry no
+  // legitimate holder exists, so there is no grant left to protect.
+  const selectConsumedRefreshTokenStmt = db.prepare<
+    [string, number],
+    { client_id: string }
+  >(
+    "SELECT client_id FROM consumed_refresh_tokens WHERE token = ? AND expires_at >= ?",
+  )
+  const deleteExpiredConsumedTokensStmt = db.prepare<[number]>(
+    "DELETE FROM consumed_refresh_tokens WHERE expires_at < ?",
+  )
+  const deleteClientRefreshTokensStmt = db.prepare<[string]>(
+    "DELETE FROM refresh_tokens WHERE client_id = ?",
+  )
+  const deleteClientConsumedTokensStmt = db.prepare<[string]>(
+    "DELETE FROM consumed_refresh_tokens WHERE client_id = ?",
+  )
+  // revoked_clients is a mint-time cutoff, not a ban: only access tokens
+  // with iat at or before revoked_at are rejected, so a re-consented
+  // client keeps working under the same client_id.
+  const insertRevokedClientStmt = db.prepare<[string, number]>(
+    "INSERT OR REPLACE INTO revoked_clients (client_id, revoked_at) VALUES (?, ?)",
+  )
+  const selectRevokedClientStmt = db.prepare<
+    [string],
+    { revoked_at: number }
+  >("SELECT revoked_at FROM revoked_clients WHERE client_id = ?")
+  const deleteExpiredRevokedClientsStmt = db.prepare<[number]>(
+    "DELETE FROM revoked_clients WHERE revoked_at < ?",
+  )
   /** A revoked access JWT outlives its revocation by at most its own
-   *  lifetime, so rows older than that can never be presented again. */
-  const purgeExpiredRevokedTokens = (): void => {
-    const { changes: purgedTokenCount } = deleteExpiredRevokedTokensStmt.run(
-      DateTime.now().toUnixInteger() - ACCESS_TOKEN_TTL_S,
-    )
-    if (purgedTokenCount === 0) return
-    oauthLogger.info("oauth_revoked_tokens_purged", {
-      purgedTokenCount,
-      maxAgeSeconds: ACCESS_TOKEN_TTL_S,
-    })
+   *  lifetime, so rows older than that can never be presented again. The
+   *  same bound holds for a client revocation: every token minted at or
+   *  before it has expired by then. */
+  const purgeExpiredRevocations = (): void => {
+    const revocationCutoff = DateTime.now().toUnixInteger() - ACCESS_TOKEN_TTL_S
+    const { changes: purgedTokenCount } =
+      deleteExpiredRevokedTokensStmt.run(revocationCutoff)
+    if (purgedTokenCount > 0) {
+      oauthLogger.info("oauth_revoked_tokens_purged", {
+        purgedTokenCount,
+        maxAgeSeconds: ACCESS_TOKEN_TTL_S,
+      })
+    }
+    const { changes: purgedClientCount } =
+      deleteExpiredRevokedClientsStmt.run(revocationCutoff)
+    if (purgedClientCount > 0) {
+      oauthLogger.info("oauth_revoked_clients_purged", {
+        purgedClientCount,
+        maxAgeSeconds: ACCESS_TOKEN_TTL_S,
+      })
+    }
   }
-  purgeExpiredRevokedTokens()
+  purgeExpiredRevocations()
 
-  const issueAccessToken = (clientId: string, scopes: string[]): string =>
-    signJwt(
+  /** Revokes everything the grant issued: the client's live refresh rows,
+   *  its consumed-token history (so one stale token cannot re-trigger
+   *  revocation after the user re-consents), and — via the revoked_clients
+   *  cutoff — every access token minted up to revokedAt. One transaction:
+   *  a partial write would leave refresh rows deleted with access tokens
+   *  still valid, the exact state this control exists to prevent. */
+  const revokeClientGrant = db.transaction(
+    ({
+      ownerClientId,
+      revokedAt,
+    }: {
+      ownerClientId: string
+      revokedAt: number
+    }): void => {
+      deleteClientRefreshTokensStmt.run(ownerClientId)
+      deleteClientConsumedTokensStmt.run(ownerClientId)
+      insertRevokedClientStmt.run(ownerClientId, revokedAt)
+    },
+  )
+
+  const issueAccessToken = (clientId: string, scopes: string[]): string => {
+    const issuedAt = DateTime.now()
+    return signJwt(
       {
         sub: clientId,
         scope: scopes.join(" "),
-        exp: DateTime.now()
-          .plus({ seconds: ACCESS_TOKEN_TTL_S })
-          .toUnixInteger(),
+        iat: issuedAt.toUnixInteger(),
+        exp: issuedAt.plus({ seconds: ACCESS_TOKEN_TTL_S }).toUnixInteger(),
         iss: issuer,
         aud: audience,
       },
       authToken,
     )
+  }
 
   /** Stores a refresh token under its storage key. Expired rows are
    *  purged here as well as on read: a row is only read when its own
@@ -362,6 +437,7 @@ export const createOAuthProvider = ({
   }): void => {
     const now = DateTime.now()
     deleteExpiredRefreshTokensStmt.run(now.toUnixInteger())
+    deleteExpiredConsumedTokensStmt.run(now.toUnixInteger())
     insertRefreshTokenStmt.run(
       refreshTokenStorageKey(token),
       clientId,
@@ -370,25 +446,73 @@ export const createOAuthProvider = ({
     )
   }
 
+  /** Deletes a live refresh row and records its key as consumed in one
+   *  transaction — a crash between the two would silently drop reuse
+   *  detection for this token. */
+  const consumeLiveRefreshRow = db.transaction(
+    ({
+      storageKey,
+      clientId,
+      expiresAt,
+    }: {
+      storageKey: string
+      clientId: string
+      expiresAt: number
+    }): void => {
+      deleteRefreshTokenStmt.run(storageKey)
+      insertConsumedRefreshTokenStmt.run(storageKey, clientId, expiresAt)
+    },
+  )
+
+  type ConsumeRefreshTokenResult =
+    | { status: "consumed"; scopes: string[] }
+    | { status: "reuse"; ownerClientId: string }
+    | { status: "not_found" }
+
   /** Refresh token rotation with sliding expiry. Tokens are single-use
    *  (consumed on read to prevent replay) AND time-bounded (rejected
    *  past expires_at). A successful refresh issues a new token whose
    *  expires_at is REFRESH_TOKEN_TTL_S from now — every use resets the
    *  countdown, so active clients never expire. A token issued under a
-   *  different auth token derives a different key and is never found. */
+   *  different auth token derives a different key and is never found.
+   *  A consumed, unexpired key presented again reports "reuse" — the
+   *  OAuth 2.1 rotation-replay signal the caller revokes the grant on. */
   const consumeRefreshToken = ({
     token,
     clientId,
   }: {
     token: string
     clientId: string
-  }): { scopes: string[] } | null => {
+  }): ConsumeRefreshTokenResult => {
     const storageKey = refreshTokenStorageKey(token)
+    const now = DateTime.now().toUnixInteger()
+
     const row = selectRefreshTokenStmt.get(storageKey, clientId)
-    if (!row) return null
-    deleteRefreshTokenStmt.run(storageKey)
-    if (row.expires_at < DateTime.now().toUnixInteger()) return null
-    return { scopes: row.scopes.split(" ") }
+    if (row) {
+      if (row.expires_at < now) {
+        // An expired token was never presentable again, so its deletion
+        // needs no consumed record — a later replay is a plain miss.
+        deleteRefreshTokenStmt.run(storageKey)
+        return { status: "not_found" }
+      }
+      consumeLiveRefreshRow({
+        storageKey,
+        clientId,
+        expiresAt: row.expires_at,
+      })
+      return { status: "consumed", scopes: row.scopes.split(" ") }
+    }
+
+    // Keyed on the token alone, unlike the live lookup: a stale token
+    // means the RECORDED owner's grant is compromised no matter which
+    // registration presents it. A live token under the wrong client stays
+    // a plain miss — clients re-register routinely, and revoking on a
+    // confused client would be trigger-happy.
+    const consumedRow = selectConsumedRefreshTokenStmt.get(storageKey, now)
+    if (consumedRow) {
+      return { status: "reuse", ownerClientId: consumedRow.client_id }
+    }
+    return { status: "not_found" }
   }
 
   const isRevoked = (token: string): boolean =>
@@ -511,14 +635,33 @@ export const createOAuthProvider = ({
       // Checked before the refresh token is consumed, for the same reason
       // as the code exchange: a wrong resource must not burn the token.
       assertResourceIsThisServer(resource, clientId)
-      const stored = consumeRefreshToken({ token: refreshToken, clientId })
-      if (!stored) {
+      const consumed = consumeRefreshToken({ token: refreshToken, clientId })
+      if (consumed.status === "reuse") {
+        // OAuth 2.1 rotation replay: the server cannot tell which presenter
+        // is the attacker, so the whole grant dies — the owner re-consents
+        // once. The error matches the plain-miss message on purpose: a
+        // distinct one would tell an attacker the replay was noticed.
+        purgeExpiredRevocations()
+        revokeClientGrant({
+          ownerClientId: consumed.ownerClientId,
+          revokedAt: DateTime.now().toUnixInteger(),
+        })
+        oauthLogger.warn("oauth_refresh_token_reuse", {
+          clientId: consumed.ownerClientId,
+          ...(clientId !== consumed.ownerClientId
+            ? { presenterClientId: clientId }
+            : {}),
+        })
+        throw new InvalidGrantError("Refresh token expired or invalid")
+      }
+      if (consumed.status === "not_found") {
         oauthLogger.warn("oauth_token_refresh_failed", {
           reason: "expired_or_invalid",
           clientId,
         })
         throw new InvalidGrantError("Refresh token expired or invalid")
       }
+      const stored = consumed
 
       // An omitted or empty scope means the stored scope (RFC 6749 §6, linked
       // above). The SDK splits `scope=` into [""], so blank entries count
@@ -580,6 +723,18 @@ export const createOAuthProvider = ({
 
       const payload = verifyAccessJwt(token)
       if (payload) {
+        const revokedClient = selectRevokedClientStmt.get(payload.sub)
+        // A missing iat means the token predates iat minting, so it also
+        // predates any revocation row — reject. Strictly greater: a token
+        // minted after revocation (iat > revoked_at) passes; same-second
+        // is benign because the attacker's refresh tokens are already deleted.
+        if (revokedClient && revokedClient.revoked_at > (payload.iat ?? 0)) {
+          oauthLogger.warn("oauth_token_rejected", {
+            reason: "client_revoked",
+            clientId: payload.sub,
+          })
+          throw new InvalidTokenError("Token has been revoked")
+        }
         oauthLogger.debug("oauth_token_verified", {
           method: "jwt",
           clientId: payload.sub,
@@ -612,7 +767,7 @@ export const createOAuthProvider = ({
       )
       const isValidAccessToken = verifyAccessJwt(request.token) !== null
       if (isValidAccessToken) {
-        purgeExpiredRevokedTokens()
+        purgeExpiredRevocations()
         insertRevokedTokenStmt.run(
           request.token,
           DateTime.now().toUnixInteger(),

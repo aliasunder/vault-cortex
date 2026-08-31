@@ -1609,6 +1609,39 @@ describe("rotating MCP_AUTH_TOKEN", () => {
     expect(refreshedAgain.status).toBe(200)
   }, 60_000)
 
+  it("revokes the grant when a rotated refresh token is replayed", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "vc-integ-reuse-"))
+    onTestFinished(async () => {
+      await rm(dataDir, { recursive: true, force: true })
+    })
+    const port = await freePort()
+    const server = await startServer(port, {
+      MCP_AUTH_TOKEN: TOKEN_A,
+      INDEX_DB_PATH: join(dataDir, "search.db"),
+    })
+    onTestFinished(() => server.cleanup())
+
+    const client = await registerClient(port)
+    const issued = await authorize({ port, client, authToken: TOKEN_A })
+    const originalRefresh = issued.refresh_token
+
+    // Rotate: consumes the original, issues a new pair (2nd /token call)
+    const rotated = await refresh({ port, client, refreshToken: originalRefresh })
+    expect(rotated.status).toBe(200)
+
+    // Replay the original (consumed) — triggers reuse detection (3rd call)
+    const replay = await refresh({ port, client, refreshToken: originalRefresh })
+    expect(replay.status).toBe(400)
+    expect(await replay.json()).toEqual({
+      error: "invalid_grant",
+      error_description: "Refresh token expired or invalid",
+    })
+
+    // Re-consent produces a working grant (4th call)
+    const reissued = await authorize({ port, client, authToken: TOKEN_A })
+    expect(await mcpStatusWithBearer(port, reissued.access_token)).toBe(200)
+  }, 60_000)
+
   it("sweeps a week-old registration that never consented on the next boot", async () => {
     const dataDir = await mkdtemp(join(tmpdir(), "vc-integ-sweep-"))
     onTestFinished(async () => {

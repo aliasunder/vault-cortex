@@ -21,6 +21,10 @@ export type JwtPayload = JwtBaseClaims & {
   iss: string
   /** The RFC 8707 resource identifier the token was minted for. */
   aud: string
+  /** RFC 7519 issued-at (Unix seconds). Optional because tokens minted
+   *  before client revocation shipped carry no `iat` and must keep
+   *  verifying; verifiers treat absence as older than any revocation. */
+  iat?: number
 }
 
 type VerifyJwtOptions = {
