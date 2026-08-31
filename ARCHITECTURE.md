@@ -679,10 +679,11 @@ static token.
 - **Access tokens** — JWTs with an `iat` (issued-at) claim. Verification
   checks both per-token revocation and per-client grant revocation (a cutoff
   timestamp rejecting `iat` strictly before revocation). Tokens without `iat`
-  are treated as older than any revocation.
+  are rejected whenever a grant revocation exists for their client.
 - **Revoked tokens** — per-token: tracked in SQLite, purged past the
-  access-token lifetime. Per-client (grant revocation): a cutoff timestamp
-  inserted on reuse detection, purged on the same schedule.
+  access-token lifetime, logged as `oauth_revoked_tokens_purged`. Per-client
+  (grant revocation): a cutoff timestamp inserted on reuse detection, purged
+  on the same schedule.
 
 **Refresh token expiry:** 60-day sliding (inactivity) window. Each successful
 use rotates the token AND extends the window by another 60 days, so a daily
