@@ -213,7 +213,7 @@ describe("verifyJwt", () => {
     expect(verify(`${header}.${body}.${sig}`, SECRET)).toBeNull()
   })
 
-  it("accepts a token without iat (pre-upgrade shape)", () => {
+  it("accepts a token without iat", () => {
     const payload = buildPayload()
     expect(payload).not.toHaveProperty("iat")
     const decoded = verify(signJwt(payload, SECRET), SECRET)
