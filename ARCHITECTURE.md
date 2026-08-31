@@ -685,7 +685,8 @@ static token.
   detection) insert a per-client cutoff that rejects tokens minted strictly
   before the revocation time. A revoked JWT outlives its revocation by at
   most the access-token lifetime, so rows older than that are purged at boot
-  and before each new revocation, logged as `oauth_revoked_tokens_purged`.
+  and before each new revocation, logged as `oauth_revoked_tokens_purged`
+  and `oauth_revoked_clients_purged`.
 
 **Refresh token expiry:** 60-day sliding (inactivity) window. Each successful
 use rotates the token AND extends the window by another 60 days, so a daily
