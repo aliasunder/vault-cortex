@@ -130,6 +130,7 @@ src/
       test-harness.ts                  #   Server lifecycle (spawn, healthz poll, cleanup) + client factory
       server-integration.test.ts       #   Every tool + prompt exercised per config (default, READONLY, DISABLED_TOOLS, etc.)
       server-error-contracts.test.ts   #   Documented error paths verified over real HTTP
+      server-oauth-integration.test.ts #   OAuth flows: token rotation, client sweep, reuse detection, scope widening
       fixtures/vault/                  #   Fixture vault copied to tempdir per server boot
     docker/                            # Remote image boot tests (npm run test:remote-boot; excluded from npm test)
       docker-harness.ts                #   docker run/exec/logs/healthz helpers + MCP client factory
@@ -534,8 +535,9 @@ undefined) return`) or schema validation to narrow types instead.
   "present only in mode X" are the cue for a discriminated union; a
   callback param with a closed set of instantiations becomes a
   discriminated field naming the domain choice. Keep `x is T` guard
-  bodies to one boolean expression — predicates are compiler-trusted,
-  not verified.
+  bodies simple — predicates are compiler-trusted, not verified. A
+  short `&&` chain is fine; when checks need a negated `in` or `||`
+  branches, early returns read clearer.
 - Prefer `async/await` over `.then()`/`.catch()`. When `.then()` or
   `.finally()` is the natural idiom (e.g. promise-chain serialization
   queues), use it with a comment explaining the pattern.
@@ -1027,6 +1029,8 @@ test.
   server per config combo).
 - `server-error-contracts.test.ts` — error paths, default config only
   (errors are config-independent).
+- `server-oauth-integration.test.ts` — OAuth flows: token rotation,
+  client sweep, reuse detection, scope widening.
 - `test-harness.ts` — shared server lifecycle + client factory.
 - `fixtures/vault/` — committed fixture vault; a PR that adds a tool
   also adds fixture data and a test case.
