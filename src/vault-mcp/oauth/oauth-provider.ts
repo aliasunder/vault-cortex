@@ -471,14 +471,12 @@ export const createOAuthProvider = ({
     | { status: "reuse"; ownerClientId: string }
     | { status: "not_found" }
 
-  /** Refresh token rotation with sliding expiry. Tokens are single-use
-   *  (consumed on read to prevent replay) AND time-bounded (rejected
-   *  past expires_at). A successful refresh issues a new token whose
-   *  expires_at is REFRESH_TOKEN_TTL_S from now — every use resets the
-   *  countdown, so active clients never expire. A token issued under a
-   *  different auth token derives a different key and is never found.
-   *  A consumed, unexpired key presented again reports "reuse" — the
-   *  OAuth 2.1 rotation-replay signal the caller revokes the grant on. */
+  /** Refresh token rotation with sliding expiry.
+   *  - Single-use: consumed on read, rejected past expires_at.
+   *  - Sliding: each refresh resets expires_at to REFRESH_TOKEN_TTL_S from now.
+   *  - Isolated: a different auth token derives a different key.
+   *  - Reuse: a consumed, unexpired key presented again reports "reuse" —
+   *    the caller revokes the grant. */
   const consumeRefreshToken = ({
     token,
     clientId,
