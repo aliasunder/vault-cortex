@@ -355,10 +355,9 @@ export const createOAuthProvider = ({
   const insertRevokedClientStmt = db.prepare<[string, number]>(
     "INSERT OR REPLACE INTO revoked_clients (client_id, revoked_at) VALUES (?, ?)",
   )
-  const selectRevokedClientStmt = db.prepare<
-    [string],
-    { revoked_at: number }
-  >("SELECT revoked_at FROM revoked_clients WHERE client_id = ?")
+  const selectRevokedClientStmt = db.prepare<[string], { revoked_at: number }>(
+    "SELECT revoked_at FROM revoked_clients WHERE client_id = ?",
+  )
   const deleteExpiredRevokedClientsStmt = db.prepare<[number]>(
     "DELETE FROM revoked_clients WHERE revoked_at < ?",
   )

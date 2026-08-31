@@ -1626,11 +1626,19 @@ describe("rotating MCP_AUTH_TOKEN", () => {
     const originalRefresh = issued.refresh_token
 
     // Rotate: consumes the original, issues a new pair (2nd /token call)
-    const rotated = await refresh({ port, client, refreshToken: originalRefresh })
+    const rotated = await refresh({
+      port,
+      client,
+      refreshToken: originalRefresh,
+    })
     expect(rotated.status).toBe(200)
 
     // Replay the original (consumed) — triggers reuse detection (3rd call)
-    const replay = await refresh({ port, client, refreshToken: originalRefresh })
+    const replay = await refresh({
+      port,
+      client,
+      refreshToken: originalRefresh,
+    })
     expect(replay.status).toBe(400)
     expect(await replay.json()).toEqual({
       error: "invalid_grant",
