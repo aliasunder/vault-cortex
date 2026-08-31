@@ -2550,6 +2550,28 @@ kanban-plugin: board
 %%
 `)
       })
+
+      it("bottom insertion into a section ending with prose appends after the prose", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Tasks\n\n- [ ] First ^first\n\nSome notes about the tasks.\n\n## Other\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            description: "After prose",
+            blockId: "after-prose",
+            heading: "Tasks",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Tasks\n\n- [ ] First ^first\n\nSome notes about the tasks.\n- [ ] After prose ➕ ${today()} ^after-prose\n\n## Other\n`,
+        )
+      })
     })
 
     // ── updateTask + position ───────────────────────────────────
