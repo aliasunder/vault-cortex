@@ -1538,6 +1538,9 @@ const refreshToken = ({
 
 describe("rotating MCP_AUTH_TOKEN", () => {
   it("rejects every refresh token issued under the old token and accepts a fresh consent", async () => {
+    // The OAuth database lives beside INDEX_DB_PATH, so a test-owned data
+    // directory survives the first server's cleanup and the second boot
+    // opens the same oauth.db under the new token.
     const dataDir = await mkdtemp(join(tmpdir(), "vc-integ-rotation-"))
     onTestFinished(async () => {
       await rm(dataDir, { recursive: true, force: true })
@@ -1566,6 +1569,10 @@ describe("rotating MCP_AUTH_TOKEN", () => {
     if (!isIssuedTokens(rotatedTokens)) throw new Error("malformed refresh")
     await before.cleanup()
 
+    // A fresh port: the first server's socket can linger after exit, and
+    // only the data directory needs to carry over. PUBLIC_URL stays on the
+    // first port so the old access token's audience still matches — its
+    // 401 below must come from the rotated key, not from a changed URL.
     const rotatedPort = await freePort()
     const after = await startServer(rotatedPort, {
       MCP_AUTH_TOKEN: OAUTH_TOKEN_B,
@@ -1677,6 +1684,7 @@ describe("refresh-token reuse detection", () => {
     })
     const originalRefresh = issued.refresh_token
 
+    // Rotate: consumes the original, issues a new pair
     const rotated = await refreshToken({
       port,
       client,
@@ -1686,6 +1694,7 @@ describe("refresh-token reuse detection", () => {
     const rotatedTokens: unknown = await rotated.json()
     if (!isIssuedTokens(rotatedTokens)) throw new Error("malformed refresh")
 
+    // Replay the original (consumed) — triggers reuse detection
     const replay = await refreshToken({
       port,
       client,
@@ -1697,6 +1706,8 @@ describe("refresh-token reuse detection", () => {
       error_description: "Refresh token expired or invalid",
     })
 
+    // The rotated refresh token is also dead — the whole grant was
+    // revoked, not just the replayed token.
     const rotatedRefresh = await refreshToken({
       port,
       client,
@@ -1704,6 +1715,7 @@ describe("refresh-token reuse detection", () => {
     })
     expect(rotatedRefresh.status).toBe(400)
 
+    // Re-consent produces a working grant
     const reissued = await authorizeOAuth({
       port,
       client,
