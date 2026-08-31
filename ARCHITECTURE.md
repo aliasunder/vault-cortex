@@ -735,8 +735,10 @@ client-IP key derived from the deployment's explicit proxy-trust config:
   Access policy on the tunnel host admits nothing else, so the only
   `Forwarded` header reaching the container is the gateway's.
 
-(express-rate-limit's built-in validators are disabled — they assume
-direct-to-server traffic, not reverse-proxy deployments.) A tripped limiter
+(express-rate-limit's built-in validators run; the proxy-header checks
+live inside the library's default key generator, which the custom
+`extractClientIp` key generator replaces, so they don't fire behind the
+reverse proxy.) A tripped limiter
 emits an `oauth_rate_limited` warn log with the client IP and endpoint path
 before returning the 429.
 

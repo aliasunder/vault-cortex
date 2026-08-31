@@ -77,7 +77,6 @@ export const createOAuthRoutes = ({
       })
       res.status(options.statusCode).send(options.message)
     },
-    validate: false as const,
   }
 
   const scopesSupported = [DEFAULT_SCOPE]
