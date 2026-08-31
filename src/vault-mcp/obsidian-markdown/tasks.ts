@@ -1250,6 +1250,9 @@ const extractDoneLanes = (
 /** The two values the Kanban plugin recognizes for `new-card-insertion-method`. */
 type KanbanCardInsertionMethod = "prepend" | "append"
 
+/** Matches a backtick fence delimiter (with or without a language tag). */
+const BACKTICK_FENCE_RE = /^`{3,}/
+
 /** Extracts `new-card-insertion-method` from the `%% kanban:settings %%`
  *  comment block. Returns `undefined` when the block is absent, the JSON
  *  is malformed, or the value is not a recognized insertion method. */
@@ -1261,24 +1264,21 @@ const parseKanbanCardInsertionMethod = (
   )
   if (settingsLineIndex === -1) return undefined
 
-  // Collect lines between the code fence delimiters inside the comment block.
-  // The fence opener may carry a language tag (```json or bare ```).
-  const jsonLines: string[] = []
-  // `let`: parser state tracking whether the walk is inside a code fence
-  let insideFence = false
-  for (let i = settingsLineIndex + 1; i < bodyLines.length; i++) {
-    const line = bodyLines[i]
-    if (line === undefined) break
-    const trimmed = line.trim()
-    if (trimmed === "%%") break
-    if (!insideFence && /^`{3,}/.test(trimmed)) {
-      insideFence = true
-      continue
-    }
-    if (insideFence && /^`{3,}$/.test(trimmed)) break
-    if (insideFence) jsonLines.push(line)
-  }
+  // The block structure is fixed: %% kanban:settings → backtick fence →
+  // JSON → closing fence → %%. Extract the lines between the fences.
+  const blockLines = bodyLines.slice(settingsLineIndex + 1)
+  const fenceStart = blockLines.findIndex((line) =>
+    BACKTICK_FENCE_RE.test(line.trim()),
+  )
+  if (fenceStart === -1) return undefined
 
+  const afterFence = blockLines.slice(fenceStart + 1)
+  const fenceEnd = afterFence.findIndex((line) =>
+    BACKTICK_FENCE_RE.test(line.trim()),
+  )
+  if (fenceEnd === -1) return undefined
+
+  const jsonLines = afterFence.slice(0, fenceEnd)
   if (jsonLines.length === 0) return undefined
 
   try {
