@@ -683,9 +683,8 @@ static token.
   except during grant revocation: a per-client cutoff timestamp in SQLite
   rejects any token whose `iat` is strictly before the revocation time.
   Same-second tokens pass — the attacker's refresh tokens are already deleted,
-  so they cannot mint new access tokens. Tokens minted before `iat` was added
-  (pre-revocation builds) carry no `iat` and are treated as older than any
-  revocation.
+  so they cannot mint new access tokens. Tokens without `iat` are treated as
+  older than any revocation.
 - **Revoked tokens** — revoked access tokens are tracked in SQLite; a revoked
   refresh token is simply deleted. Grant-level revocations (from reuse
   detection) insert a per-client cutoff that rejects tokens minted strictly

@@ -723,8 +723,8 @@ export const createOAuthProvider = ({
       const payload = verifyAccessJwt(token)
       if (payload) {
         const revokedClient = selectRevokedClientStmt.get(payload.sub)
-        // A missing iat means the token predates iat minting, so it also
-        // predates any revocation row — reject. Strictly greater: a token
+        // Without iat the token cannot be proven post-revocation, so the
+        // 0 fallback rejects it against any timestamp. Strictly greater: a token
         // minted after revocation (iat > revoked_at) passes; same-second
         // is benign because the attacker's refresh tokens are already deleted.
         if (revokedClient && revokedClient.revoked_at > (payload.iat ?? 0)) {
