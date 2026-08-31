@@ -61,6 +61,12 @@ vi.mock("../prompt-definitions.js", () => ({ registerPrompts: vi.fn() }))
 const FORWARDED_IP = "192.0.2.10"
 const VAULT_PATH = "/test-vault"
 const DEFAULT_CONFIG = loadConfig({})
+// One trusted proxy hop: Express derives req.ip from the X-Forwarded-For
+// header baseHeaders injects. Tests asserting an XFF-derived clientIp opt
+// into proxy trust with this config — the harness default mirrors
+// production's untrusted default (TRUST_PROXY_HOPS=0), where req.ip is the
+// socket peer.
+const TRUSTED_PROXY_CONFIG = loadConfig({ TRUST_PROXY_HOPS: "1" })
 
 const SERVER_INFO = {
   name: "vault-cortex",
@@ -164,22 +170,29 @@ const setupHarness = async (
 
   const search = {} as SearchIndex
   const provider = {} as OAuthServerProvider
+  const config = opts.config ?? DEFAULT_CONFIG
 
   const app = express()
-  app.set("trust proxy", true)
+  // Mirrors server.ts — the harness derives proxy trust from the same config
+  // the router receives, so tests exercise the deployment's actual trust
+  // model instead of an ambient blanket trust.
+  app.set("trust proxy", config.trustProxyHops)
   app.use(express.json())
   app.use(
     createMcpRouter({
       vaultPath: VAULT_PATH,
       search,
       provider,
-      config: opts.config ?? DEFAULT_CONFIG,
+      config,
       serverUrl: new URL("http://localhost:8000"),
     }),
   )
 
+  // Pinned to IPv4 loopback so the untrusted socket peer is a deterministic
+  // "127.0.0.1" — a host-less listen binds dual-stack and reports the peer
+  // as the IPv4-mapped "::ffff:127.0.0.1".
   const httpServer = await new Promise<Server>((resolve) => {
-    const listener = app.listen(0, () => resolve(listener))
+    const listener = app.listen(0, "127.0.0.1", () => resolve(listener))
   })
   const port = (httpServer.address() as AddressInfo).port
 
@@ -221,12 +234,14 @@ const createSession = async (
 // Sets up a harness and immediately runs the initialize handshake so a
 // test can assert on the side-effects of session creation without
 // repeating the two-step setup in every it().
-const setupInitializedSession = async (): Promise<{
+const setupInitializedSession = async (
+  opts: Parameters<typeof setupHarness>[0] = {},
+): Promise<{
   harness: Harness
   sessionId: string
   transport: TransportMock
 }> => {
-  const harness = await setupHarness()
+  const harness = await setupHarness(opts)
   const session = await createSession(harness)
   return { harness, ...session }
 }
@@ -595,7 +610,9 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
     })
 
     it("scopes the logger for registerTools to a lazy sessionId and clientIp", async () => {
-      const { sessionId } = await setupInitializedSession()
+      const { sessionId } = await setupInitializedSession({
+        config: TRUSTED_PROXY_CONFIG,
+      })
       expect(mockedLogger.child).toHaveBeenCalledWith({
         sessionId: expect.any(Function),
         clientIp: FORWARDED_IP,
@@ -610,7 +627,9 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
     })
 
     it("session logger emits lines carrying the generated sessionId", async () => {
-      const { sessionId } = await setupInitializedSession()
+      const { sessionId } = await setupInitializedSession({
+        config: TRUSTED_PROXY_CONFIG,
+      })
       const sessionLoggerResult = mockedLogger.child.mock.results[0]
       if (sessionLoggerResult === undefined) {
         throw new Error("logger.child was never called")
@@ -633,7 +652,9 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
     })
 
     it("logs the 'session created' response", async () => {
-      const { sessionId } = await setupInitializedSession()
+      const { sessionId } = await setupInitializedSession({
+        config: TRUSTED_PROXY_CONFIG,
+      })
       expect(mockedLogger.info).toHaveBeenCalledWith("mcp_response", {
         sessionId,
         clientIp: FORWARDED_IP,
@@ -643,7 +664,7 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
     })
 
     it("logs an 'mcp_request' for the incoming POST", async () => {
-      await setupInitializedSession()
+      await setupInitializedSession({ config: TRUSTED_PROXY_CONFIG })
       expect(mockedLogger.info).toHaveBeenCalledWith("mcp_request", {
         sessionId: undefined,
         clientIp: FORWARDED_IP,
@@ -651,8 +672,10 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
       })
     })
 
-    it("logs the RFC 7239 Forwarded client IP over x-forwarded-for", async () => {
-      const harness = await setupHarness()
+    it("logs the RFC 7239 Forwarded client IP over x-forwarded-for when the header is trusted", async () => {
+      const harness = await setupHarness({
+        config: loadConfig({ TRUST_FORWARDED_HOPS: "1" }),
+      })
       const response = await fetch(harness.url(), {
         method: "POST",
         headers: { ...baseHeaders, forwarded: "for=198.51.100.9" },
@@ -665,10 +688,28 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
         method: "POST",
       })
     })
+
+    // Under production defaults neither the Forwarded header nor
+    // X-Forwarded-For is trusted — the socket peer is the only claim that
+    // identifies the client.
+    it("ignores a client-supplied Forwarded header when it is not trusted (default)", async () => {
+      const harness = await setupHarness()
+      const response = await fetch(harness.url(), {
+        method: "POST",
+        headers: { ...baseHeaders, forwarded: "for=198.51.100.9" },
+        body: JSON.stringify(initializeBody),
+      })
+      await response.arrayBuffer()
+      expect(mockedLogger.info).toHaveBeenCalledWith("mcp_request", {
+        sessionId: undefined,
+        clientIp: "127.0.0.1",
+        method: "POST",
+      })
+    })
   })
 
   it("logs a warn with the real status when the transport rejects the initialize request without creating a session", async () => {
-    const harness = await setupHarness()
+    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
     // Shadows the harness transport for the next construction only: mimics the
     // SDK rejecting the initialize request (e.g. missing Accept header → 406)
     // before it generates a session id.
@@ -714,7 +755,7 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
   })
 
   it("routes a follow-up POST to the existing transport when the session id matches", async () => {
-    const harness = await setupHarness()
+    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
     const { sessionId, transport } = await createSession(harness)
     transport.handleRequest.mockClear()
     mockedLogger.info.mockClear()
@@ -741,7 +782,7 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
   })
 
   it("returns 400 with 'no session' when there is no session and the body is not an initialize request", async () => {
-    const harness = await setupHarness()
+    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
     vi.mocked(isInitializeRequest).mockReturnValue(false)
 
     const response = await fetch(harness.url(), {
@@ -761,7 +802,7 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
   })
 
   it("returns 404 when the session id is unknown", async () => {
-    const harness = await setupHarness()
+    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
 
     const response = await fetch(harness.url(), {
       method: "POST",
@@ -801,7 +842,7 @@ describe("createMcpRouter — GET /mcp", () => {
   // HTTP spec) instead of holding a stream open until an upstream proxy
   // timeout kills it.
   it("returns 405 with an Allow header and logs the response", async () => {
-    const harness = await setupHarness()
+    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
 
     const response = await fetch(harness.url(), {
       method: "GET",
@@ -854,7 +895,7 @@ describe("createMcpRouter — GET /mcp", () => {
 
 describe("createMcpRouter — DELETE /mcp", () => {
   it("closes the transport, removes the session, and returns 200", async () => {
-    const harness = await setupHarness()
+    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
     const { sessionId, transport } = await createSession(harness)
 
     const response = await fetch(harness.url(), {

@@ -5,9 +5,13 @@ import type { NextFunction, Request, Response } from "express"
 import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
 import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/metadata.js"
 import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
-import { extractClientIp, safeEqual } from "../../auth.js"
+import {
+  extractClientIp,
+  safeEqual,
+  tokenBindingForServer,
+} from "../../auth.js"
 import { renderConsentPage } from "./consent-page.js"
-import type { OAuthProvider } from "./oauth-provider.js"
+import { DEFAULT_SCOPE, type OAuthProvider } from "./oauth-provider.js"
 import type { Logger } from "../../logger.js"
 
 type OAuthRoutesOptions = {
@@ -15,6 +19,13 @@ type OAuthRoutesOptions = {
   serverUrl: URL
   oauthProvider: OAuthProvider
   serviceDocumentationUrl: string
+  /** How many trailing `for=` elements of the RFC 7239 Forwarded header
+   *  (https://www.rfc-editor.org/rfc/rfc7239) were written by trusted
+   *  proxies. With a value of N, the client IP used for rate limiting and
+   *  logs is the Nth element from the end of that list; 0 ignores the
+   *  header. The value comes from TRUST_FORWARDED_HOPS. Keep it at 0 unless
+   *  a known edge proxy (API Gateway) writes or appends the header. */
+  trustForwardedHops: number
   logger: Logger
 }
 
@@ -23,6 +34,7 @@ export const createOAuthRoutes = ({
   serverUrl,
   oauthProvider,
   serviceDocumentationUrl,
+  trustForwardedHops,
   logger,
 }: OAuthRoutesOptions): Router => {
   const routeLogger = logger.child({ component: "oauth-routes" })
@@ -41,10 +53,12 @@ export const createOAuthRoutes = ({
   const rateLimit = {
     windowMs: 60 * 1000,
     max: 5,
-    // Bucket by the Forwarded-header client IP: behind API Gateway the
-    // library default (req.ip) would merge every client into a single
-    // gateway-egress bucket.
-    keyGenerator: extractClientIp,
+    // Bucket by client IP via extractClientIp: when the Forwarded header
+    // is trusted (trustForwardedHops > 0), the resolved client IP is the
+    // key — the library default (req.ip) would merge every client into a
+    // single gateway-egress bucket. Elsewhere req.ip, governed by the
+    // server's trust-proxy hop count, is the key.
+    keyGenerator: (req: Request) => extractClientIp(req, trustForwardedHops),
     // The default handler sends the 429 silently — log the offender, then
     // send the SDK's per-endpoint message unchanged. The query string is
     // stripped from the logged path (authorize carries client_id/state).
@@ -58,27 +72,32 @@ export const createOAuthRoutes = ({
         URL.parse(req.originalUrl, "http://localhost")?.pathname ??
         req.originalUrl
       routeLogger.warn("oauth_rate_limited", {
-        clientIp: extractClientIp(req),
+        clientIp: extractClientIp(req, trustForwardedHops),
         path: requestPath,
       })
       res.status(options.statusCode).send(options.message)
     },
-    validate: false as const,
   }
 
-  const scopesSupported = ["vault"]
+  const scopesSupported = [DEFAULT_SCOPE]
 
-  // RFC 9728 §3.1: a metadata document's `resource` must equal the resource
-  // identifier its well-known URL derives from, so this suffixed document
-  // advertises <origin>/mcp rather than copying the root document. It is an
-  // additive second mount (before mcpAuthRouter, via the SDK's own
-  // metadataHandler so CORS/OPTIONS/405 behavior matches the root route)
-  // because the SDK registers only ONE metadata path — steering it via
-  // `resourceServerUrl` would move the route and break every client that
-  // discovers via the root form.
+  // A second, path-suffixed metadata mount, separate from the SDK's root
+  // document:
+  // - RFC 9728 §3.1: a metadata document's `resource` must equal the
+  //   resource identifier its well-known URL derives from — so this one
+  //   advertises the /mcp resource instead of copying the root document.
+  // - The SDK registers only ONE metadata path, so this is an additive
+  //   second mount; steering the SDK via `resourceServerUrl` would move
+  //   the route and break every client that discovers via the root form.
+  // - The SDK's own metadataHandler serves it, so CORS/OPTIONS/405
+  //   behavior matches the root route.
+
+  // The same derivation the provider mints tokens from, so metadata and
+  // tokens can't disagree.
+  const { issuer, audience } = tokenBindingForServer(serverUrl)
   const mcpResourceMetadata: OAuthProtectedResourceMetadata = {
-    resource: new URL("/mcp", serverUrl).href,
-    authorization_servers: [serverUrl.href],
+    resource: audience,
+    authorization_servers: [issuer],
     scopes_supported: scopesSupported,
     resource_documentation: new URL(serviceDocumentationUrl).href,
   }
@@ -116,7 +135,7 @@ export const createOAuthRoutes = ({
         res.status(400).send("Invalid form submission.")
         return
       }
-      const clientIp = extractClientIp(req)
+      const clientIp = extractClientIp(req, trustForwardedHops)
       const pending = getPendingRequest(
         request_id,
         routeLogger.child({ clientIp, requestId: request_id }),

@@ -14,9 +14,19 @@ to get started.
    git clone https://github.com/aliasunder/vault-cortex.git
    cd vault-cortex
    npm install
+   npx sst install
    ```
 
+   **Windows:** this repo uses symlinks (`CLAUDE.md → AGENTS.md`). Run
+   `git config core.symlinks true` before cloning, or re-clone after
+   setting it — otherwise Git checks out symlinks as plain text files
+   containing the target path.
+
+   `npx sst install` fetches the SST platform types that `npm run build`
+   typechecks `sst.config.ts` against.
+
 3. **Run the checks:**
+
    ```bash
    npm test
    npm run lint
@@ -29,6 +39,9 @@ every tool and prompt over real HTTP. The integration tests verify that
 each config combination serves the correct tool surface, that auth
 rejects invalid tokens, that write operations actually mutate the vault
 (read-back verified), and that misconfiguration fails fast at boot.
+
+`npm run test:coverage` runs the same suite with a statement-coverage
+report (V8 provider); the `coverage/` output directory is gitignored.
 
 ## Development Modes
 
@@ -121,20 +134,26 @@ truth. Key points:
    `refactor/`, `chore/`)
 2. **Keep PRs focused** — one logical change per PR
 3. **Run the full check suite** before pushing:
+
    ```bash
-   npm run prettier:check && npm run lint && npm test && npm run build
+   npm run prettier:check && npm run lint && npm run markdownlint && npm run knip && npm test && npm run build
    ```
+
 4. **Fill out the PR template** — the checklist mirrors CI
-5. **Required checks must pass** — the `CI` workflow runs prettier, lint,
-   test, and build on every PR. The `Arch Smoke` workflow builds the Docker
-   image and boots it on native amd64 and arm64 runners (`arch-smoke (amd64)`
-   and `arch-smoke (arm64)` checks), with the arm64 check also build-verifying
-   the remote image target — a native-binding, startup, or remote-build
-   failure on either architecture blocks the merge. Two security scans also gate merges:
-   **Gitleaks** (secret detection) and **Trivy** (vulnerability scan of the
-   Docker image built from your branch — a fixable CRITICAL/HIGH CVE fails
-   the `trivy-pr` check and blocks the merge; the finding details are in the
-   job log)
+5. **Required checks must pass** — the `main` ruleset requires all eight;
+   each blocks the merge and the finding details are in its job log:
+   - `checks` — prettier, lint, markdownlint, knip, test, and build
+   - `cli-smoke (20)` / `cli-smoke (22)` / `cli-smoke (24)` — builds the
+     CLI and runs `init` on each supported Node major, catching APIs too
+     new for the CLI's `engines` range
+   - `arch-smoke (amd64)` / `arch-smoke (arm64)` — builds the Docker image
+     and boots it on a native runner for each architecture, then boots the
+     remote image with a stubbed Sync client to run its init chain
+     end-to-end (`npm run test:remote-boot`)
+   - `gitleaks` — secret detection over `main` plus the PR's commits, so a
+     finding on `main` fails every open PR until it is cleaned up
+   - `trivy-pr` — vulnerability scan of the Docker image built from your
+     branch; a fixable CRITICAL/HIGH CVE fails it
 
 ## Issues
 
@@ -184,6 +203,49 @@ The CLI releases separately: Actions tab → "Release CLI" (see
 [The `cli/` Package](#the-cli-package)).
 
 See the [DEPLOY.md CI/CD section](./DEPLOY.md#cicd) for details on each workflow.
+
+## Railway template
+
+The Railway one-click template (`railway.com/deploy/vault-cortex`) lives in
+Railway's Template Composer, not in this repository; `deploy/railway/README.md`
+is the user-facing guide. Re-creating the template from scratch is mechanical —
+these are its settings:
+
+| Setting           | Value                                                 |
+| ----------------- | ----------------------------------------------------- |
+| Service name      | `vault-cortex`                                        |
+| Source            | Docker image `ghcr.io/aliasunder/vault-cortex:remote` |
+| Volume            | mount path `/persist`                                 |
+| Public networking | HTTP, port `8000`                                     |
+| Healthcheck path  | `/healthz`                                            |
+| Restart policy    | On failure (Railway's default)                        |
+
+Variables, in the order the deploy form shows them (everything after the six inputs sits under **Pre-Configured Environment Variables**, collapsed):
+
+| Variable                          | Value                                 | Description shown on the deploy form                                                                                                                                                                                            |
+| --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TZ`                              | _(optional input)_                    | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
+| `VAULT_NAME`                      | _(required input)_                    | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                                                                                       |
+| `VAULT_PASSWORD`                  | _(optional input)_                    | Only if your vault uses end-to-end encryption; otherwise leave empty                                                                                                                                                            |
+| `OBSIDIAN_AUTH_TOKEN`             | _(required input)_                    | Obsidian Sync login token — run `npx vault-cortex@latest get-sync-token` to get yours                                                                                                                                           |
+| `SYNC_EXCLUDED_FOLDERS`           | _(optional input)_                    | Folders to leave out of sync, comma-separated — the same list as Obsidian's Sync → Excluded folders. Empty excludes nothing                                                                                                     |
+| `SYNC_FILE_TYPES`                 | _(optional input)_                    | Attachment types to sync: image, audio, video, pdf, unsupported — the same toggles as Obsidian's Sync → Selective sync. Empty keeps the Sync client's default                                                                   |
+| `MCP_AUTH_TOKEN`                  | `${{secret(64, "0123456789abcdef")}}` | Generated for you — the token your MCP client enters on the consent page                                                                                                                                                        |
+| `PORT`                            | `8000`                                | The port the image listens on. Leave as is.                                                                                                                                                                                     |
+| `STORAGE_ROOT`                    | `/persist`                            | Where the volume is mounted — vault, search index, Sync device state, and logs live under it. Leave as is.                                                                                                                      |
+| `DEVICE_NAME`                     | `vault-cortex`                        | The device name that labels this container's changes in Obsidian's sync log                                                                                                                                                     |
+| `TRUST_PROXY_HOPS`                | `2`                                   | Railway proxies between a visitor and the container, so the server sees the visitor's real address                                                                                                                              |
+| `RAILWAY_HEALTHCHECK_TIMEOUT_SEC` | `900`                                 | How long Railway waits for the first health check — the first start downloads the vault and builds the index                                                                                                                    |
+| `MEMORY_ENABLED`                  | `true`                                | The About Me/ memory layer and its tools. Set false to hide them and skip creating the folder                                                                                                                                   |
+| `EMBEDDING_ENABLED`               | `true`                                | Semantic search. Set false to skip the models and use keyword search only — fits in much less memory                                                                                                                            |
+| `READONLY_MODE`                   | `false`                               | Set true to hide every tool that changes the vault — clients can only read and search                                                                                                                                           |
+| `FILE_TOOLS_ENABLED`              | `true`                                | vault_read_file and vault_list_files. Set false when Obsidian Sync has attachment syncing off                                                                                                                                   |
+| `SYNC_MODE`                       | `bidirectional`                       | Sync direction: bidirectional, pull-only (server edits are kept locally but never uploaded), or mirror-remote (server edits are undone; the server is an exact copy)                                                            |
+| `CONFLICT_STRATEGY`               | `merge`                               | Obsidian Sync conflict resolution: merge integrates changes automatically; conflict writes a separate conflict file                                                                                                             |
+
+Update the template whenever the image tag, a boot-required variable, the
+port, or the health path changes, then re-publish; existing deployments keep
+their settings until their owners redeploy.
 
 ## License
 

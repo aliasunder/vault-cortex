@@ -24,7 +24,7 @@ ob login
 
 # obsidian-headless writes the token under XDG config; fall back to a
 # filesystem search in case a future version relocates it.
-token_file="${HOME}/.config/obsidian-headless/auth_token"
+token_file="${XDG_CONFIG_HOME:-$HOME/.config}/obsidian-headless/auth_token"
 if [ ! -s "$token_file" ]; then
   token_file="$(find "$HOME" -name auth_token -path '*obsidian-headless*' 2>/dev/null | head -n 1)"
 fi

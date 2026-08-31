@@ -7,10 +7,14 @@ import type { Prompts, SelectOption } from "../prompts.js"
  */
 export type ScriptedAnswer = string | boolean | string[]
 
-export type MultiselectCall = { message: string; options: SelectOption[] }
-export type ConfirmCall = { message: string; initialValue: boolean }
-export type SelectCall = { message: string; initialValue: string }
-export type TextCall = {
+type MultiselectCall = { message: string; options: SelectOption[] }
+type ConfirmCall = { message: string; initialValue: boolean }
+type SelectCall = {
+  message: string
+  options: SelectOption[]
+  initialValue: string
+}
+type TextCall = {
   message: string
   defaultValue: string | undefined
   placeholder: string | undefined
@@ -104,8 +108,8 @@ export const createScriptedPrompts = (
     error: (message) => {
       errors.push(message)
     },
-    select: async (message, _options, initialValue) => {
-      selectCalls.push({ message, initialValue })
+    select: async (message, options, initialValue) => {
+      selectCalls.push({ message, options, initialValue })
       return nextStringAnswer(message)
     },
     multiselect: async (message, options) => {
@@ -170,7 +174,6 @@ export const dockerReady: DockerRunner = {
   stopAndRemoveContainer: () => true,
   containerExists: () => true,
   streamLogs: async () => 0,
-  runObsidianLogin: () => false,
 }
 
 /** Daemon installed but not running — every operation fails. */
@@ -181,7 +184,6 @@ export const dockerDown: DockerRunner = {
   stopAndRemoveContainer: () => false,
   containerExists: () => false,
   streamLogs: async () => 1,
-  runObsidianLogin: () => false,
 }
 
 /** Docker binary absent entirely — every operation fails. */

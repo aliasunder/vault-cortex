@@ -38,6 +38,7 @@ import {
   escapeLikeWildcards,
 } from "./search-helpers.js"
 import * as queries from "./search-queries.js"
+import { hybridSearch } from "./hybrid-search.js"
 
 // ── File content indexing constants ─────────────────────────────
 
@@ -192,37 +193,43 @@ export type TaskRow = {
   block_id: string | null
   heading: string | null
   folder: string
+  depth: number
+  parent_line: number | null
+  parent_block_id: string | null
   is_kanban_task: number
   kanban_done_lanes: string | null
 }
 
 /** One task on the wire — snake_case multi-word fields match the JSON
  *  response shape. Every entry carries its attribution (path, folder,
- *  heading, line) so a client never needs a follow-up read to locate it. */
+ *  line) so a client never needs a follow-up read to locate it. Metadata
+ *  the task doesn't have is omitted, never null: optional fields hold
+ *  undefined, which JSON.stringify drops. */
 export type TaskEntry = {
   path: string
   line: number
   status: TaskStatus
   status_char: string
   description: string
-  heading: string | null
+  heading?: string | undefined
   folder: string
-  created: string | null
-  scheduled: string | null
-  start: string | null
-  due: string | null
-  done: string | null
-  cancelled: string | null
-  priority: TaskPriority | null
-  recurrence: string | null
-  on_completion: string | null
-  task_id: string | null
+  created?: string | undefined
+  scheduled?: string | undefined
+  start?: string | undefined
+  due?: string | undefined
+  done?: string | undefined
+  cancelled?: string | undefined
+  priority?: TaskPriority | undefined
+  recurrence?: string | undefined
+  on_completion?: string | undefined
+  task_id?: string | undefined
   depends_on: string[]
   tags: string[]
-  block_id: string | null
+  block_id?: string | undefined
+  depth: number
+  parent_block_id?: string | undefined
   is_kanban_task: boolean
-  lane: string | null
-  done_lanes: string[] | null
+  done_lanes?: string[] | undefined
 }
 
 /** Status filter vocabulary for listTasks. "not_done" (the default) covers
@@ -516,6 +523,24 @@ export const createSearchIndex = (
         path UNINDEXED, title, content, tokenize='porter unicode61'
       );
     `)
+    if (embedder) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS file_content_chunks (
+          id           INTEGER PRIMARY KEY AUTOINCREMENT,
+          file_path    TEXT NOT NULL,
+          chunk_index  INTEGER NOT NULL,
+          chunk_text   TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          UNIQUE(file_path, chunk_index)
+        );
+        CREATE INDEX IF NOT EXISTS idx_file_content_chunks_path ON file_content_chunks(file_path);
+
+        CREATE VIRTUAL TABLE IF NOT EXISTS file_content_vectors USING vec0(
+          chunk_id  INTEGER PRIMARY KEY,
+          embedding float[384]
+        );
+      `)
+    }
   }
 
   // CREATE TABLE IF NOT EXISTS is a no-op on a pre-existing DB file, so a warm
@@ -534,6 +559,21 @@ export const createSearchIndex = (
   }
   if (!noteColumns.some((column) => column.name === "kanban_done_lanes")) {
     db.exec(`ALTER TABLE notes ADD COLUMN kanban_done_lanes TEXT`)
+  }
+
+  // Same idempotent migration for tasks: depth/parent columns for sub-task
+  // tracking.
+  const taskColumns = db
+    .prepare<unknown[], { name: string }>(`PRAGMA table_info(tasks)`)
+    .all()
+  if (!taskColumns.some((column) => column.name === "depth")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN depth INTEGER NOT NULL DEFAULT 0`)
+  }
+  if (!taskColumns.some((column) => column.name === "parent_line")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN parent_line INTEGER`)
+  }
+  if (!taskColumns.some((column) => column.name === "parent_block_id")) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN parent_block_id TEXT`)
   }
 
   // Same idempotent migration for non_md_files.bytes: a warm database from
@@ -563,11 +603,11 @@ export const createSearchIndex = (
     INSERT INTO tasks (note_path, line, status_char, status, description,
       created, scheduled, start, due, done, cancelled,
       priority, recurrence, on_completion, task_id, depends_on, tags,
-      block_id, heading, folder)
+      block_id, heading, folder, depth, parent_line, parent_block_id)
     VALUES (@notePath, @line, @statusChar, @status, @description,
       @created, @scheduled, @start, @due, @done, @cancelled,
       @priority, @recurrence, @onCompletion, @taskId, @dependsOn, @tags,
-      @blockId, @heading, @folder)
+      @blockId, @heading, @folder, @depth, @parentLine, @parentBlockId)
   `)
   const deleteLinksStmt = db.prepare(`DELETE FROM links WHERE source = ?`)
   const insertLinkStmt = db.prepare(
@@ -658,9 +698,12 @@ export const createSearchIndex = (
         `INSERT INTO file_content_fts (path, title, content) VALUES (?, ?, ?)`,
       )
     : null
+  // The folder predicate runs before ORDER BY/LIMIT so a folder-scoped search
+  // sees every in-folder match, not just those that rank inside the candidate
+  // window vault-wide; callers bind "%" when no folder filter applies.
   const searchFileContentFtsStmt = fileToolsEnabled
     ? db.prepare<
-        [number, string, number],
+        [number, string, string, number],
         {
           path: string
           title: string
@@ -675,7 +718,22 @@ export const createSearchIndex = (
          FROM file_content_fts
          JOIN file_content fc ON fc.path = file_content_fts.path
          WHERE file_content_fts MATCH ?
+           AND fc.path LIKE ? ESCAPE '\\'
          ORDER BY rank LIMIT ?`,
+      )
+    : null
+  const selectFileContentMetadataStmt = fileToolsEnabled
+    ? db.prepare<
+        [string],
+        {
+          path: string
+          title: string
+          folder: string
+          mtime: number
+          bytes: number
+        }
+      >(
+        "SELECT path, title, folder, mtime, bytes FROM file_content WHERE path = ?",
       )
     : null
 
@@ -718,6 +776,57 @@ export const createSearchIndex = (
   const deleteStaleVectorsStmt = embedder
     ? db.prepare(
         `DELETE FROM note_vectors WHERE chunk_id IN (SELECT id FROM note_chunks WHERE note_path = ? AND chunk_index >= ?)`,
+      )
+    : null
+
+  // ── File content vector prepared statements (conditional on fileToolsEnabled + embedder) ──
+  const fileContentVectorEnabled = fileToolsEnabled && Boolean(embedder)
+  const upsertFileChunkStmt = fileContentVectorEnabled
+    ? db.prepare(
+        `INSERT OR REPLACE INTO file_content_chunks (file_path, chunk_index, chunk_text, content_hash)
+         VALUES (@file_path, @chunk_index, @chunk_text, @content_hash)`,
+      )
+    : null
+  const selectFileChunkHashesStmt = fileContentVectorEnabled
+    ? db.prepare<unknown[], { chunk_index: number; content_hash: string }>(
+        `SELECT chunk_index, content_hash FROM file_content_chunks WHERE file_path = ?`,
+      )
+    : null
+  const selectFileChunkIdStmt = fileContentVectorEnabled
+    ? db.prepare<[string, number], { id: number }>(
+        `SELECT id FROM file_content_chunks WHERE file_path = ? AND chunk_index = ?`,
+      )
+    : null
+  const deleteStaleFileChunksStmt = fileContentVectorEnabled
+    ? db.prepare(
+        `DELETE FROM file_content_chunks WHERE file_path = ? AND chunk_index >= ?`,
+      )
+    : null
+  const insertFileVectorStmt = fileContentVectorEnabled
+    ? db.prepare(
+        `INSERT INTO file_content_vectors (chunk_id, embedding) VALUES (?, ?)`,
+      )
+    : null
+  const deleteFileVectorByChunkIdStmt = fileContentVectorEnabled
+    ? db.prepare(`DELETE FROM file_content_vectors WHERE chunk_id = ?`)
+    : null
+  const deleteFileVectorsForPathStmt = fileContentVectorEnabled
+    ? db.prepare(
+        `DELETE FROM file_content_vectors WHERE chunk_id IN (SELECT id FROM file_content_chunks WHERE file_path = ?)`,
+      )
+    : null
+  const deleteFileChunksForPathStmt = fileContentVectorEnabled
+    ? db.prepare(`DELETE FROM file_content_chunks WHERE file_path = ?`)
+    : null
+  const deleteStaleFileVectorsStmt = fileContentVectorEnabled
+    ? db.prepare(
+        `DELETE FROM file_content_vectors WHERE chunk_id IN (SELECT id FROM file_content_chunks WHERE file_path = ? AND chunk_index >= ?)`,
+      )
+    : null
+  // Reads the processed content from file_content for embedding.
+  const selectFileContentForEmbeddingStmt = fileContentVectorEnabled
+    ? db.prepare<[string], { title: string; content: string }>(
+        "SELECT title, content FROM file_content WHERE path = ?",
       )
     : null
 
@@ -829,11 +938,73 @@ export const createSearchIndex = (
       )
     : null
 
+  // Folder-scoped KNN: the chunk_id IN (...) constraint narrows the vector
+  // search to in-folder chunks BEFORE the k-window is taken, so a folder
+  // filter sees the folder's own nearest neighbours rather than whatever
+  // survives a vault-wide top-k. sqlite-vec honours rowid IN constraints
+  // inside KNN queries; chunk_id is the vec0 rowid alias.
+  const knnSearchInFolderStmt = embedder
+    ? db.prepare<
+        unknown[],
+        { note_path: string; chunk_text: string; distance: number }
+      >(
+        `SELECT nc.note_path, nc.chunk_text, nv.distance
+         FROM note_vectors nv
+         JOIN note_chunks nc ON nc.id = nv.chunk_id
+         WHERE nv.embedding MATCH ?
+           AND nv.k = ?
+           AND nv.chunk_id IN (
+             SELECT id FROM note_chunks WHERE note_path LIKE ? ESCAPE '\\'
+           )
+         ORDER BY nv.distance`,
+      )
+    : null
+
   /** First chunk text for a note — used by the reranker to score FTS-only
    *  results that have no vector hit. Chunk 0 contains the title + intro. */
   const selectFirstChunkStmt = embedder
     ? db.prepare<[string], { chunk_text: string }>(
         `SELECT chunk_text FROM note_chunks WHERE note_path = ? AND chunk_index = 0`,
+      )
+    : null
+
+  /** KNN search over file content vectors — finds the k nearest file chunks. */
+  const fileContentKnnSearchStmt = fileContentVectorEnabled
+    ? db.prepare<
+        unknown[],
+        { file_path: string; chunk_text: string; distance: number }
+      >(
+        `SELECT fc.file_path, fc.chunk_text, fv.distance
+         FROM file_content_vectors fv
+         JOIN file_content_chunks fc ON fc.id = fv.chunk_id
+         WHERE fv.embedding MATCH ?
+           AND fv.k = ?
+         ORDER BY fv.distance`,
+      )
+    : null
+
+  // Folder-scoped variant — same pre-window narrowing as knnSearchInFolderStmt.
+  const fileContentKnnSearchInFolderStmt = fileContentVectorEnabled
+    ? db.prepare<
+        unknown[],
+        { file_path: string; chunk_text: string; distance: number }
+      >(
+        `SELECT fc.file_path, fc.chunk_text, fv.distance
+         FROM file_content_vectors fv
+         JOIN file_content_chunks fc ON fc.id = fv.chunk_id
+         WHERE fv.embedding MATCH ?
+           AND fv.k = ?
+           AND fv.chunk_id IN (
+             SELECT id FROM file_content_chunks WHERE file_path LIKE ? ESCAPE '\\'
+           )
+         ORDER BY fv.distance`,
+      )
+    : null
+
+  /** First chunk text for a file — reranker fallback for FTS-only file hits. */
+  const selectFirstFileChunkStmt = fileContentVectorEnabled
+    ? db.prepare<[string], { chunk_text: string }>(
+        `SELECT chunk_text FROM file_content_chunks WHERE file_path = ? AND chunk_index = 0`,
       )
     : null
 
@@ -1065,6 +1236,10 @@ export const createSearchIndex = (
         deleteFileContentFtsStmt.run(params.filePath)
         deleteFileContentStmt.run(params.filePath)
       }
+      if (deleteFileVectorsForPathStmt && deleteFileChunksForPathStmt) {
+        deleteFileVectorsForPathStmt.run(params.filePath)
+        deleteFileChunksForPathStmt.run(params.filePath)
+      }
       deleteLinksStmt.run(params.filePath)
     })()
     logger.debug("removed file content", { path: params.filePath })
@@ -1283,7 +1458,18 @@ export const createSearchIndex = (
       insertFtsStmt.run(note.path, note.title, note.content, metadataText)
 
       deleteTasksStmt.run(note.path)
+      // Line→blockId lookup so each child can resolve its parent's
+      // block_id from the same extraction batch (no second pass needed).
+      const blockIdByLine = new Map(
+        extractedTasks.map((extractedTask) => [
+          extractedTask.line,
+          extractedTask.blockId,
+        ]),
+      )
       for (const extractedTask of extractedTasks) {
+        const { parentLine } = extractedTask
+        const parentBlockId =
+          parentLine === null ? null : (blockIdByLine.get(parentLine) ?? null)
         insertTaskStmt.run({
           notePath: note.path,
           line: extractedTask.line,
@@ -1305,6 +1491,9 @@ export const createSearchIndex = (
           blockId: extractedTask.blockId,
           heading: extractedTask.heading,
           folder: taskFolder,
+          depth: extractedTask.depth,
+          parentLine: extractedTask.parentLine,
+          parentBlockId,
         })
       }
 
@@ -1544,6 +1733,115 @@ export const createSearchIndex = (
     }
   }
 
+  /** Chunks and embeds file content into file_content_chunks / file_content_vectors.
+   *  Mirrors embedAndStoreChunks for notes: content-hash gated, transaction-wrapped,
+   *  stale chunks cleaned up. Returns the number of chunks actually (re-)embedded. */
+  const embedAndStoreFileChunks = async (
+    params: { filePath: string; title: string; content: string },
+    logger: Logger,
+  ): Promise<number> => {
+    if (
+      !embedder ||
+      !upsertFileChunkStmt ||
+      !selectFileChunkHashesStmt ||
+      !selectFileChunkIdStmt ||
+      !deleteStaleFileChunksStmt ||
+      !insertFileVectorStmt ||
+      !deleteFileVectorByChunkIdStmt
+    ) {
+      return 0
+    }
+
+    const chunks = chunkNoteContent(params.title, params.content)
+
+    const existingHashes = new Map(
+      selectFileChunkHashesStmt
+        .all(params.filePath)
+        .map((chunkHashRow) => [
+          chunkHashRow.chunk_index,
+          chunkHashRow.content_hash,
+        ]),
+    )
+
+    let embeddedCount = 0
+
+    for (const chunk of chunks) {
+      const hash = contentHash(chunk.text)
+
+      if (existingHashes.get(chunk.index) === hash) continue
+
+      const embedding = await embedder.embedText(chunk.text)
+
+      db.transaction(() => {
+        const existingChunk = selectFileChunkIdStmt.get(
+          params.filePath,
+          chunk.index,
+        )
+        if (existingChunk) {
+          deleteFileVectorByChunkIdStmt.run(BigInt(existingChunk.id))
+        }
+
+        upsertFileChunkStmt.run({
+          file_path: params.filePath,
+          chunk_index: chunk.index,
+          chunk_text: chunk.text,
+          content_hash: hash,
+        })
+
+        const chunkRow = selectFileChunkIdStmt.get(params.filePath, chunk.index)
+        if (!chunkRow) {
+          throw new Error(
+            `file chunk row missing after upsert: ${params.filePath} chunk ${String(chunk.index)}`,
+          )
+        }
+        insertFileVectorStmt.run(
+          BigInt(chunkRow.id),
+          Buffer.from(
+            embedding.buffer,
+            embedding.byteOffset,
+            embedding.byteLength,
+          ),
+        )
+      })()
+      embeddedCount++
+    }
+
+    if (deleteStaleFileVectorsStmt) {
+      deleteStaleFileVectorsStmt.run(params.filePath, chunks.length)
+    }
+    deleteStaleFileChunksStmt.run(params.filePath, chunks.length)
+
+    logger.debug("embedded file content", {
+      path: params.filePath,
+      totalChunks: chunks.length,
+      embeddedCount,
+    })
+    return embeddedCount
+  }
+
+  /** Embed a file's rendered content into vector storage. Reads the processed
+   *  content from the file_content table (already linearized/truncated by
+   *  upsertFileContent). No-op when the embedding pipeline or file tools are
+   *  disabled, or the file is not in the FTS index. Safe to call unconditionally. */
+  const embedFileContent = async (
+    params: { filePath: string },
+    logger: Logger,
+  ): Promise<void> => {
+    if (!embedder || !selectFileContentForEmbeddingStmt) return
+    const fileContentRow = selectFileContentForEmbeddingStmt.get(
+      params.filePath,
+    )
+    if (!fileContentRow) return
+    await embedAndStoreFileChunks(
+      {
+        filePath: params.filePath,
+        title: fileContentRow.title,
+        content: fileContentRow.content,
+      },
+      logger,
+    )
+  }
+
   /** Removes a note from the notes table, FTS index, links, tasks, vectors,
    *  and — for memory files — the entry-granular index. A watcher rename
    *  arrives as unlink+add, so a renamed memory file behaves as delete+create:
@@ -1764,20 +2062,35 @@ export const createSearchIndex = (
       )
     ).filter((entry) => entry !== null)
 
-    const noteContents = await Promise.all(
-      markdownFiles.map(async (file) => {
-        const [content, fileStat] = await Promise.all([
-          readFile(file.absolutePath, "utf8"),
-          stat(file.absolutePath),
-        ])
-        return {
-          relativePath: file.relativePath,
-          content,
-          modifiedAtMs: fileStat.mtimeMs,
-          sizeBytes: fileStat.size,
-        }
-      }),
-    )
+    const noteContents = (
+      await Promise.all(
+        markdownFiles.map(async (file) => {
+          try {
+            const [content, fileStat] = await Promise.all([
+              readFile(file.absolutePath, "utf8"),
+              stat(file.absolutePath),
+            ])
+            return {
+              relativePath: file.relativePath,
+              content,
+              modifiedAtMs: fileStat.mtimeMs,
+              sizeBytes: fileStat.size,
+            }
+          } catch (error) {
+            logger.warn("skipped unreadable note during rebuild", {
+              path: file.relativePath,
+              error: describeError(error),
+            })
+            return null
+          }
+        }),
+      )
+    ).filter((entry) => entry !== null)
+
+    // Notes whose parse or index write throws are skipped with a warning
+    // instead of aborting the rebuild — one malformed note must never
+    // prevent the server from starting.
+    const skippedNotePaths = new Set<string>()
 
     // better-sqlite3: .transaction() returns a function; call it immediately
     db.transaction(() => {
@@ -1789,15 +2102,23 @@ export const createSearchIndex = (
       // Pass 1: index all notes (content, frontmatter, FTS) — skip link
       // extraction here; Pass 2 handles it with the complete path list.
       for (const note of noteContents) {
-        upsertNote(
-          {
-            filePath: note.relativePath,
-            rawContent: note.content,
-            fileStat: { mtimeMs: note.modifiedAtMs, size: note.sizeBytes },
-            skipLinks: true,
-          },
-          logger,
-        )
+        try {
+          upsertNote(
+            {
+              filePath: note.relativePath,
+              rawContent: note.content,
+              fileStat: { mtimeMs: note.modifiedAtMs, size: note.sizeBytes },
+              skipLinks: true,
+            },
+            logger,
+          )
+        } catch (error) {
+          skippedNotePaths.add(note.relativePath)
+          logger.warn("skipped malformed note during rebuild", {
+            path: note.relativePath,
+            error: describeError(error),
+          })
+        }
       }
 
       // Entry-index reconciliation for memory files deleted while the server
@@ -1805,9 +2126,13 @@ export const createSearchIndex = (
       // its rows survive on content-hash identity), so files that vanished
       // from disk leave orphaned entries the per-file upsert never touches.
       if (selectDistinctMemoryFilesStmt) {
+        // Built from the disk listing (markdownFiles) on purpose: a note
+        // that failed to read or parse still exists on disk, and treating
+        // it as deleted here would permanently remove its memory_entries
+        // rows (the table survives rebuilds on content-hash identity).
         const memoryFilesOnDisk = new Set(
-          noteContents
-            .map((note) => memoryFileNameFromPath(note.relativePath))
+          markdownFiles
+            .map((file) => memoryFileNameFromPath(file.relativePath))
             .filter((fileName) => fileName !== null),
         )
         const deletedMemoryFiles = selectDistinctMemoryFilesStmt
@@ -1832,25 +2157,37 @@ export const createSearchIndex = (
 
       db.exec("DELETE FROM links")
       for (const note of noteContents) {
-        const parsed = parseNote(note.content)
-        for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
-          const resolved = links.resolve({
-            target: rawTarget,
-            allPaths: pathList,
-            sourcePath: note.relativePath,
-          })
-          if (resolved !== null) {
-            insertLinkStmt.run(note.relativePath, resolved)
-          } else {
-            const resolvedNonMdPath = resolveNonMarkdownFile(
-              rawTarget,
-              note.relativePath,
-            )
-            insertLinkStmt.run(
-              note.relativePath,
-              resolvedNonMdPath ?? rawTarget,
-            )
+        if (skippedNotePaths.has(note.relativePath)) continue
+        try {
+          const parsed = parseNote(note.content)
+          for (const rawTarget of links.extractAll(
+            parsed.content,
+            parsed.data,
+          )) {
+            const resolved = links.resolve({
+              target: rawTarget,
+              allPaths: pathList,
+              sourcePath: note.relativePath,
+            })
+            if (resolved !== null) {
+              insertLinkStmt.run(note.relativePath, resolved)
+            } else {
+              const resolvedNonMdPath = resolveNonMarkdownFile(
+                rawTarget,
+                note.relativePath,
+              )
+              insertLinkStmt.run(
+                note.relativePath,
+                resolvedNonMdPath ?? rawTarget,
+              )
+            }
           }
+        } catch (error) {
+          skippedNotePaths.add(note.relativePath)
+          logger.warn("skipped malformed note during rebuild", {
+            path: note.relativePath,
+            error: describeError(error),
+          })
         }
       }
 
@@ -1884,11 +2221,18 @@ export const createSearchIndex = (
       }
     })()
 
-    const totalBytes = noteContents.reduce(
+    const indexedNotes = noteContents.filter(
+      (note) => !skippedNotePaths.has(note.relativePath),
+    )
+    const totalBytes = indexedNotes.reduce(
       (sum, note) => sum + note.sizeBytes,
       0,
     )
-    logger.info("rebuilt index", { count: noteContents.length, totalBytes })
+    logger.info("rebuilt index", {
+      count: indexedNotes.length,
+      totalBytes,
+      ...(skippedNotePaths.size > 0 ? { skipped: skippedNotePaths.size } : {}),
+    })
 
     // Extract only what Pass 3 needs so the full noteContents array (with
     // every note's body + stats) can be garbage-collected during embedding.
@@ -1897,6 +2241,17 @@ export const createSearchIndex = (
       content: note.content,
       snapshotMtimeMs: note.modifiedAtMs,
     }))
+
+    // File content for embedding — read the processed text from file_content
+    // (already linearized/extracted/truncated by upsertFileContent above).
+    const filesForEmbedding = fileContentVectorEnabled
+      ? db
+          .prepare<
+            unknown[],
+            { path: string; title: string; content: string; mtime: number }
+          >("SELECT path, title, content, mtime FROM file_content")
+          .all()
+      : []
 
     // Pass 3 runs in the background — the server can start accepting requests
     // immediately after FTS indexing (Passes 1+2) finishes. Embedding is a
@@ -1976,6 +2331,86 @@ export const createSearchIndex = (
             // (Express healthz, MCP tool handlers) can drain.
             await setImmediateAsync()
           }
+          // ── File content embedding ──────────────────────────────
+          // Clean up vectors for files that no longer exist — runs
+          // unconditionally so deletions while the server was down are caught
+          // even when filesForEmbedding is empty (mirroring the note-side cleanup).
+          if (
+            fileContentVectorEnabled &&
+            deleteFileVectorsForPathStmt &&
+            deleteFileChunksForPathStmt
+          ) {
+            // Query the live table instead of the pre-loop snapshot — files
+            // the watcher indexed during the note embedding loop are in the
+            // table but absent from the snapshot.
+            const currentFilePaths = new Set(
+              db
+                .prepare<unknown[], { path: string }>(
+                  "SELECT path FROM file_content",
+                )
+                .all()
+                .map((fileContentPathRow) => fileContentPathRow.path),
+            )
+            const indexedFileChunkPaths = db
+              .prepare<unknown[], { file_path: string }>(
+                "SELECT DISTINCT file_path FROM file_content_chunks",
+              )
+              .all()
+              .map((chunkPathRow) => chunkPathRow.file_path)
+
+            const deletedFilePaths = indexedFileChunkPaths.filter(
+              (path) => !currentFilePaths.has(path),
+            )
+            if (deletedFilePaths.length > 0) {
+              for (const path of deletedFilePaths) {
+                deleteFileVectorsForPathStmt.run(path)
+                deleteFileChunksForPathStmt.run(path)
+              }
+              logger.info("cleaned up vectors for deleted files", {
+                count: deletedFilePaths.length,
+              })
+            }
+          }
+
+          if (filesForEmbedding.length > 0) {
+            const selectFileMtimeStmt = db.prepare<[string], { mtime: number }>(
+              "SELECT mtime FROM file_content WHERE path = ?",
+            )
+
+            let fileChunksEmbedded = 0
+            let fileEmbedErrors = 0
+            for (const file of filesForEmbedding) {
+              const currentFile = selectFileMtimeStmt.get(file.path)
+              const fileIsStale =
+                !currentFile || currentFile.mtime !== file.mtime
+              if (fileIsStale) continue
+
+              try {
+                fileChunksEmbedded += await embedAndStoreFileChunks(
+                  {
+                    filePath: file.path,
+                    title: file.title,
+                    content: file.content,
+                  },
+                  logger,
+                )
+              } catch (err) {
+                fileEmbedErrors++
+                logger.warn("failed to embed file content", {
+                  path: file.path,
+                  error: describeError(err),
+                })
+              }
+
+              await setImmediateAsync()
+            }
+            logger.info("file content embedding pass complete", {
+              files: filesForEmbedding.length,
+              fileChunksEmbedded,
+              ...(fileEmbedErrors > 0 ? { fileEmbedErrors } : {}),
+            })
+          }
+
           logger.info("embedding pass complete", {
             notes: notesForEmbedding.length,
             chunksEmbedded,
@@ -1990,7 +2425,7 @@ export const createSearchIndex = (
       logger.error("embedding pass failed", { error: describeError(err) })
     })
 
-    return { count: noteContents.length, embedding: embeddingPromise }
+    return { count: indexedNotes.length, embedding: embeddingPromise }
   }
 
   // ── Query context + delegation ───────────────────────────────
@@ -2000,6 +2435,7 @@ export const createSearchIndex = (
     vector: {
       embedder,
       knnSearchStmt,
+      knnSearchInFolderStmt,
       selectNoteMetadataStmt,
     },
     reranker,
@@ -2019,6 +2455,15 @@ export const createSearchIndex = (
     fileContentFts: searchFileContentFtsStmt
       ? { searchStmt: searchFileContentFtsStmt }
       : null,
+    fileContentVector:
+      fileContentKnnSearchStmt && fileContentKnnSearchInFolderStmt
+        ? {
+            knnSearchStmt: fileContentKnnSearchStmt,
+            knnSearchInFolderStmt: fileContentKnnSearchInFolderStmt,
+            selectFirstFileChunkStmt,
+          }
+        : null,
+    selectFileContentMetadataStmt,
   }
 
   /** Binds the query context as the first argument of a query function,
@@ -2038,8 +2483,9 @@ export const createSearchIndex = (
     removeNonMdFile,
     upsertFileContent,
     removeFileContent,
+    embedFileContent,
     fullTextSearch: bindQueryContext(queries.fullTextSearch),
-    hybridSearch: bindQueryContext(queries.hybridSearch),
+    hybridSearch: bindQueryContext(hybridSearch),
     memoryRecall: bindQueryContext(queries.memoryRecall),
     searchByTag: bindQueryContext(queries.searchByTag),
     searchByFolder: bindQueryContext(queries.searchByFolder),

@@ -27,36 +27,32 @@ run_sync_setup() {
   fi
 }
 
-# No hard fail on a missing VAULT_NAME: a container whose config volume
-# already holds a completed sync setup restarts fine without it. But on a
-# fresh volume the skip means `ob sync --continuous` crash-loops against an
-# unconfigured vault, so make the skip loud — plain `docker run --env-file`
-# performs no `:?` interpolation, unlike Compose.
+# VAULT_NAME is required: Obsidian Sync needs a vault to sync, and a boot
+# without one would reach the first-sync stage unconfigured. Compose enforces
+# this via `:?`; plain `docker run` and hosting-platform settings pages do
+# not, so the check lives here too.
 if [ -z "$VAULT_NAME" ]; then
-  echo "[obsidian-sync] WARNING: VAULT_NAME is not set — skipping vault setup." >&2
-  echo "[obsidian-sync] Continuous sync will fail unless a previous setup persisted in the config volume." >&2
+  echo "[obsidian-sync] ERROR: VAULT_NAME is not set." >&2
+  echo "[obsidian-sync] Set VAULT_NAME to your exact Obsidian vault name (case-sensitive) in .env (or -e VAULT_NAME=...) and restart." >&2
+  exit 1
 fi
 
-if [ -n "$VAULT_NAME" ]; then
-  echo "[obsidian-sync] Configuring sync for vault: '$VAULT_NAME' → $VAULT_PATH"
-  # run_sync_setup prepends `ob sync-setup`, so $@ holds flags only. (The
-  # fork's 460f7d4 upstream merge kept a duplicate leading `sync-setup`
-  # token here — `ob sync-setup sync-setup …` — fixed during absorption.)
-  set -- --vault "$VAULT_NAME"
-  if [ -n "$VAULT_PASSWORD" ]; then
-    set -- "$@" --password "$VAULT_PASSWORD"
+echo "[obsidian-sync] Configuring sync for vault: '$VAULT_NAME' → $VAULT_PATH"
+# run_sync_setup prepends `ob sync-setup`, so $@ holds flags only.
+set -- --vault "$VAULT_NAME"
+if [ -n "$VAULT_PASSWORD" ]; then
+  set -- "$@" --password "$VAULT_PASSWORD"
+fi
+if [ -n "$CONFIG_DIR_NAME" ]; then
+  set -- "$@" --config-dir "$CONFIG_DIR_NAME"
+fi
+if ! run_sync_setup "$@"; then
+  echo "[obsidian-sync] ERROR: ob sync-setup failed." >&2
+  echo "[obsidian-sync] Check OBSIDIAN_AUTH_TOKEN and VAULT_NAME are correct." >&2
+  if [ -z "$VAULT_PASSWORD" ]; then
+    echo "[obsidian-sync] If your vault uses end-to-end encryption, set VAULT_PASSWORD." >&2
   fi
-  if [ -n "$CONFIG_DIR_NAME" ]; then
-    set -- "$@" --config-dir "$CONFIG_DIR_NAME"
-  fi
-  if ! run_sync_setup "$@"; then
-    echo "[obsidian-sync] ERROR: ob sync-setup failed." >&2
-    echo "[obsidian-sync] Check OBSIDIAN_AUTH_TOKEN and VAULT_NAME are correct." >&2
-    if [ -z "$VAULT_PASSWORD" ]; then
-      echo "[obsidian-sync] If your vault uses end-to-end encryption, set VAULT_PASSWORD." >&2
-    fi
-    exit 1
-  fi
+  exit 1
 fi
 
 # ---------------------------------------------------------------------------
@@ -78,10 +74,23 @@ apply_sync_config() {
   fi
 }
 
+# Settings with no stored default of their own are always applied, with an
+# empty value passed through: the Sync client stores these on the config
+# volume, so skipping an empty variable would keep a folder exclusion or
+# attachment filter from an earlier boot after the user cleared it. An
+# empty argument is the client's "clear" form (`ob sync-config --help`).
+apply_sync_config_or_clear() {
+  flag="$1"
+  value="$2"
+  if ! s6-setuidgid obsidian ob sync-config "$flag" "$value"; then
+    echo "[obsidian-sync] WARNING: ob sync-config $flag '$value' failed — continuing without it." >&2
+  fi
+}
+
 apply_sync_config --device-name "$DEVICE_NAME"
 apply_sync_config --conflict-strategy "$CONFLICT_STRATEGY"
-apply_sync_config --excluded-folders "$EXCLUDED_FOLDERS"
-apply_sync_config --file-types "$FILE_TYPES"
+apply_sync_config_or_clear --excluded-folders "${SYNC_EXCLUDED_FOLDERS:-}"
+apply_sync_config_or_clear --file-types "${SYNC_FILE_TYPES:-}"
 apply_sync_config --mode "$SYNC_MODE"
 
 # Config-category sync defaults ON for the two categories the server

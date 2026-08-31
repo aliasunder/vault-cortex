@@ -9,5 +9,10 @@ export default defineConfig({
       "cli/src/**/*.test.ts",
       "scripts/**/*.test.ts",
     ],
+    exclude: [
+      "node_modules/**",
+      "cli/src/__tests__/integration/**",
+      "src/__tests__/docker/**",
+    ],
   },
 })

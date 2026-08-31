@@ -1,0 +1,82 @@
+# Render Blueprint for Vault Cortex — backs the "Deploy to Render" button.
+# Guide: deploy/render/README.md
+#
+# One web service running the published :remote image (Obsidian Sync + MCP
+# server in one container) on one persistent disk.
+services:
+  - type: web
+    name: vault-cortex
+    runtime: image
+    image:
+      url: ghcr.io/aliasunder/vault-cortex:remote
+    # Standard is 1 CPU / 2 GB — the floor for semantic search. Persistent
+    # disks need a paid plan. Large vaults: switch to Pro (4 GB) in the
+    # dashboard after the first deploy.
+    plan: standard
+    # Render routes traffic only once this path answers. The server answers
+    # after the first Obsidian Sync and the search-index build finish: two to
+    # three minutes for a vault of a few thousand notes, up to Render's 15-minute
+    # limit for a large one (see the guide's First start section).
+    healthCheckPath: /healthz
+    # Image services redeploy from "Manual Deploy" in the dashboard; nothing
+    # here deploys on git pushes.
+    autoDeployTrigger: off
+    disk:
+      name: vault-cortex-storage
+      # Must equal STORAGE_ROOT below: the vault, search index, Sync device
+      # state, and logs all live under this one disk.
+      mountPath: /persist
+      sizeGB: 5
+    envVars:
+      # Render injects PORT=10000 unless set; the image listens on 8000.
+      - key: PORT
+        value: "8000"
+      - key: STORAGE_ROOT
+        value: /persist
+      # Name the container reports to Obsidian Sync — it labels the container's
+      # changes in the sync log. Without it the device is registered under the
+      # container's random hostname.
+      - key: DEVICE_NAME
+        value: vault-cortex
+      # Cloudflare → Render load balancer → container: two proxy hops.
+      - key: TRUST_PROXY_HOPS
+        value: "2"
+      # Token your MCP client enters on the consent page. Render generates a
+      # random value; read it from the service's Environment tab.
+      - key: MCP_AUTH_TOKEN
+        generateValue: true
+      # Prompted for when you click the button.
+      # Obsidian Sync login token: npx vault-cortex@latest get-sync-token
+      - key: OBSIDIAN_AUTH_TOKEN
+        sync: false
+      # Your vault's name, exactly as shown in Obsidian Sync.
+      - key: VAULT_NAME
+        sync: false
+      # Only for end-to-end-encrypted vaults; leave empty otherwise.
+      - key: VAULT_PASSWORD
+        sync: false
+      # Your timezone as an IANA name (America/Toronto) — decides what "today"
+      # means for daily notes, task due dates, and memory timestamps. Leave
+      # empty for UTC. List: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List
+      - key: TZ
+        sync: false
+      # Optional settings, pre-filled with the image defaults so they can be
+      # changed from the Environment tab without knowing the names.
+      - key: MEMORY_ENABLED
+        value: "true"
+      - key: EMBEDDING_ENABLED
+        value: "true"
+      - key: READONLY_MODE
+        value: "false"
+      - key: FILE_TOOLS_ENABLED
+        value: "true"
+      - key: SYNC_MODE
+        value: bidirectional
+      # The Obsidian Sync settings the image forwards; empty keeps the Sync
+      # client's default.
+      - key: CONFLICT_STRATEGY
+        value: merge
+      - key: SYNC_EXCLUDED_FOLDERS
+        value: ""
+      - key: SYNC_FILE_TYPES
+        value: ""

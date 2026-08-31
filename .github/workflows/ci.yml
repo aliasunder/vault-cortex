@@ -53,7 +53,16 @@ jobs:
 
       - run: npm run lint
 
+      - run: npm run markdownlint
+
+      - run: npm run knip
+
       - run: npm test
+
+      # sst.config.ts is part of the build's typecheck; its globals come from
+      # .sst/platform, which only exists after sst install (no AWS credentials
+      # needed — it fetches the provider types).
+      - run: npx sst install
 
       - run: npm run build
 

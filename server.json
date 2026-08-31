@@ -3,7 +3,7 @@
   "name": "io.github.aliasunder/vault-cortex",
   "title": "Vault Cortex",
   "description": "Standalone MCP server for Obsidian vaults — hybrid search, notes & files, memory, tasks, OAuth 2.1",
-  "version": "0.37.3",
+  "version": "0.46.0",
   "websiteUrl": "https://github.com/aliasunder/vault-cortex",
   "repository": {
     "url": "https://github.com/aliasunder/vault-cortex",
@@ -13,7 +13,7 @@
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/aliasunder/vault-cortex:0.37.3",
+      "identifier": "ghcr.io/aliasunder/vault-cortex:0.46.0",
       "runtimeHint": "docker",
       "runtimeArguments": [
         {
@@ -117,6 +117,26 @@
           "default": "About Me"
         },
         {
+          "name": "DAILY_NOTES_FOLDER",
+          "description": "Vault folder for daily notes. Overrides the folder configured in Obsidian's daily-notes plugin.",
+          "default": "Daily Notes"
+        },
+        {
+          "name": "DAILY_NOTES_FORMAT",
+          "description": "Filename date format for daily notes (Moment.js tokens). Overrides the format configured in Obsidian's daily-notes plugin.",
+          "default": "YYYY-MM-DD"
+        },
+        {
+          "name": "TRUST_PROXY_HOPS",
+          "description": "Number of trusted reverse-proxy hops used to derive the client IP from X-Forwarded-For for OAuth rate limiting and request logs. With 0, injected forwarding headers are ignored.",
+          "default": "0"
+        },
+        {
+          "name": "TRUST_FORWARDED_HOPS",
+          "description": "How many entries from the end of the RFC 7239 Forwarded header's for= list to count to reach the client IP for OAuth rate limiting and request logs. 0 ignores the header; 1 when the proxy in front writes it (e.g. AWS API Gateway); 2 when a CDN fronts that proxy and is the only way to reach it.",
+          "default": "0"
+        },
+        {
           "name": "TZ",
           "description": "IANA timezone for timestamps and daily note resolution.",
           "default": "UTC"
@@ -129,18 +149,18 @@
         },
         {
           "name": "LOG_DIR",
-          "description": "Directory for persistent log files. Unset by default — logs go to stdout only. Set to /data/logs to also write date-stamped .log files to the persistent volume.",
+          "description": "Directory for log files that survive container re-creation. The container's own log is always written but discarded when the container is recreated; date-stamped files under LOG_DIR persist on the data volume. Default: /data/logs (remote image), none (local image). none keeps only the container log.",
           "format": "filepath"
         },
         {
           "name": "LOG_RETENTION_DAYS",
-          "description": "Days to retain persistent log files before cleanup.",
-          "default": "30",
+          "description": "Days to keep log files before automatic cleanup on startup; only applies when LOG_DIR is a path.",
+          "default": "90",
           "format": "number"
         },
         {
           "name": "PROTECTED_PATHS",
-          "description": "Comma-separated vault folder names blocked from vault_delete_note. Default: MEMORY_DIR and \"Daily Notes\"."
+          "description": "Comma-separated vault folder names blocked from vault_delete_note and vault_move_note. Default: MEMORY_DIR plus the daily notes folder, read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json (default Daily Notes). When set, overrides the default entirely."
         },
         {
           "name": "ORPHAN_EXCLUDE_FOLDERS",

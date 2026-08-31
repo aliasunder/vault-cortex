@@ -80,6 +80,15 @@ export type ParsedTask = Readonly<{
   /** Text of the nearest heading above the task, or null before the first
    *  heading — on a Kanban board this is the lane. */
   heading: string | null
+  /** Nesting depth: 0 for top-level tasks, 1+ for sub-tasks. Derived from
+   *  structural indentation relative to ancestor task lines; a plain list
+   *  item at a task's indent ends its scope, so a task nested under a
+   *  non-task bullet is top-level. */
+  depth: number
+  /** 1-based file line number of the parent task, or null for top-level
+   *  tasks. The index resolves it to the parent's block_id; the wire shape
+   *  never carries the line itself. */
+  parentLine: number | null
 }>
 
 // ── Task-line grammar (private) ─────────────────────────────────
@@ -90,6 +99,11 @@ export type ParsedTask = Readonly<{
  *  character. Captures: [1] status character, [2] everything after the
  *  checkbox. Anchored and non-global — safe for .exec(). */
 const TASK_LINE_RE = /^[\s\t>]*(?:[-*+]|[0-9]+[.)]) +\[(.)\] *(.*)$/u
+
+/** Matches any list item — the same prefix and marker grammar as
+ *  TASK_LINE_RE without the checkbox. A non-task item at a task's indent
+ *  ends that task's list, so it must close the task's sub-task scope too. */
+const LIST_ITEM_RE = /^[\s\t>]*(?:[-*+]|[0-9]+[.)]) /u
 
 /** Matches a trailing block link ` ^block-id` at the very end of the line.
  *  Captures the ID without the caret (group 1). The plugin strips this before
@@ -118,6 +132,11 @@ const HASHTAG_FROM_END_RE = /(^|\s)#[^ !@#$%^&*(),.?":{}|<>]+$/
 
 /** The allowed characters in a single 🆔 / `id::` task ID. */
 const TASK_ID = /[a-zA-Z0-9_-]+/
+/** Whole-string form of TASK_ID, for validating an id before it is written —
+ *  anything else lands on the line as prose the parser never reads back. */
+const TASK_ID_WHOLE_RE = new RegExp(`^${TASK_ID.source}$`)
+const isTaskId = (candidate: string): boolean =>
+  TASK_ID_WHOLE_RE.test(candidate)
 /** A comma-separated sequence of task IDs, as accepted after ⛔ / `dependsOn::`. */
 const TASK_ID_SEQUENCE = new RegExp(
   `${TASK_ID.source}( *, *${TASK_ID.source} *)*`,
@@ -126,7 +145,13 @@ const TASK_ID_SEQUENCE = new RegExp(
 /** Builds an emoji field regex: signifier + optional VS16 (U+FE0F, matched
  *  via escape so no invisible character hides in this source) + spaces +
  *  value, anchored to line end (see block comment above). */
-const emojiField = (symbols: string, valuePattern: string): RegExp =>
+const emojiField = ({
+  symbols,
+  valuePattern,
+}: {
+  symbols: string
+  valuePattern: string
+}): RegExp =>
   new RegExp(
     valuePattern === ""
       ? `${symbols}\\uFE0F?$`
@@ -153,38 +178,41 @@ const DATE_FIELDS: ReadonlyArray<{
 }> = [
   {
     key: "done",
-    emoji: emojiField("✅", DATE_VALUE),
+    emoji: emojiField({ symbols: "✅", valuePattern: DATE_VALUE }),
     dataview: dataviewField(`completion:: *${DATE_VALUE}`),
   },
   {
     key: "cancelled",
-    emoji: emojiField("❌", DATE_VALUE),
+    emoji: emojiField({ symbols: "❌", valuePattern: DATE_VALUE }),
     dataview: dataviewField(`cancelled:: *${DATE_VALUE}`),
   },
   {
     key: "due",
-    emoji: emojiField("(?:📅|📆|🗓)", DATE_VALUE),
+    emoji: emojiField({ symbols: "(?:📅|📆|🗓)", valuePattern: DATE_VALUE }),
     dataview: dataviewField(`due:: *${DATE_VALUE}`),
   },
   {
     key: "scheduled",
-    emoji: emojiField("(?:⏳|⌛)", DATE_VALUE),
+    emoji: emojiField({ symbols: "(?:⏳|⌛)", valuePattern: DATE_VALUE }),
     dataview: dataviewField(`scheduled:: *${DATE_VALUE}`),
   },
   {
     key: "start",
-    emoji: emojiField("🛫", DATE_VALUE),
+    emoji: emojiField({ symbols: "🛫", valuePattern: DATE_VALUE }),
     dataview: dataviewField(`start:: *${DATE_VALUE}`),
   },
   {
     key: "created",
-    emoji: emojiField("➕", DATE_VALUE),
+    emoji: emojiField({ symbols: "➕", valuePattern: DATE_VALUE }),
     dataview: dataviewField(`created:: *${DATE_VALUE}`),
   },
 ]
 
 /** Emoji priority signifier, anchored to line end. Captures the emoji. */
-const EMOJI_PRIORITY_RE = emojiField("(🔺|⏫|🔼|🔽|⏬)", "")
+const EMOJI_PRIORITY_RE = emojiField({
+  symbols: "(🔺|⏫|🔼|🔽|⏬)",
+  valuePattern: "",
+})
 /** Dataview priority field, anchored to line end. Captures the level word
  *  (lowercase only, matching the plugin's regex; `highest` before `high` so
  *  the longer word wins). */
@@ -192,16 +220,28 @@ const DATAVIEW_PRIORITY_RE = dataviewField(
   "priority:: *(highest|high|medium|low|lowest)",
 )
 /** Recurrence rule text after 🔁 — letters, digits, commas, spaces, `!`. */
-const EMOJI_RECURRENCE_RE = emojiField("🔁", "([a-zA-Z0-9, !]+)")
+const EMOJI_RECURRENCE_RE = emojiField({
+  symbols: "🔁",
+  valuePattern: "([a-zA-Z0-9, !]+)",
+})
 const DATAVIEW_RECURRENCE_RE = dataviewField("repeat:: *([a-zA-Z0-9, !]+)")
 /** On-completion action word after 🏁 (the plugin accepts delete/keep). */
-const EMOJI_ON_COMPLETION_RE = emojiField("🏁", "([a-zA-Z]+)")
+const EMOJI_ON_COMPLETION_RE = emojiField({
+  symbols: "🏁",
+  valuePattern: "([a-zA-Z]+)",
+})
 const DATAVIEW_ON_COMPLETION_RE = dataviewField("onCompletion:: *([a-zA-Z]+)")
 /** The task's own ID after 🆔. */
-const EMOJI_ID_RE = emojiField("🆔", `(${TASK_ID.source})`)
+const EMOJI_ID_RE = emojiField({
+  symbols: "🆔",
+  valuePattern: `(${TASK_ID.source})`,
+})
 const DATAVIEW_ID_RE = dataviewField(`id:: *(${TASK_ID.source})`)
 /** Comma-separated IDs this task depends on, after ⛔. */
-const EMOJI_DEPENDS_ON_RE = emojiField("⛔", `(${TASK_ID_SEQUENCE.source})`)
+const EMOJI_DEPENDS_ON_RE = emojiField({
+  symbols: "⛔",
+  valuePattern: `(${TASK_ID_SEQUENCE.source})`,
+})
 const DATAVIEW_DEPENDS_ON_RE = dataviewField(
   `dependsOn:: *(${TASK_ID_SEQUENCE.source})`,
 )
@@ -440,6 +480,24 @@ const findBodyStartLine = (lines: readonly string[]): number => {
  *  fence and comment state machines. Each task carries the text of the nearest
  *  heading above it (its Kanban lane on a board), or null before the first
  *  heading. */
+/** One open task on the extraction indent stack: its structural indent and
+ *  1-based file line. */
+type IndentEntry = {
+  indent: number
+  fileLine: number
+}
+
+/** The open tasks that are ancestors of a new list item: every stack entry
+ *  at a shallower indent. Entries at the same or deeper indent are siblings or
+ *  cousins of the item, so they are dropped. Stack indents strictly increase,
+ *  so the ancestors are always a prefix of the stack. */
+const ancestorsOf = (
+  indentStack: readonly IndentEntry[],
+  itemIndent: number,
+): readonly IndentEntry[] => {
+  return indentStack.filter((entry) => entry.indent < itemIndent)
+}
+
 const extractTasks = (rawContent: string): ParsedTask[] => {
   const allLines = splitIntoLines(rawContent)
   const bodyStartLine = findBodyStartLine(allLines)
@@ -447,6 +505,16 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
   const headings = parseHeadings(bodyLines)
 
   const extractedTasks: ParsedTask[] = []
+
+  // Indent stack for parent-child tracking:
+  // - deeper indent than the stack top → the task is a child
+  // - equal or shallower (task or plain list item) → the closed entries are
+  //   dropped until the top is a parent
+  // - a heading clears the stack (children can't span headings)
+  // Sequential parser state, like the fence and comment scans below — each
+  // step assigns a new stack, never mutates the current one.
+  let indentStack: readonly IndentEntry[] = []
+
   // Fence and comment scans are inherently sequential — both thread mutable
   // state across the loop (same pattern as classifyLines).
   let openFence: OpenFence = null
@@ -468,8 +536,24 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
     commentOpen = commentResult.commentOpen
     if (commentResult.lineIsComment) continue
 
+    // Reset indent stack at heading boundaries — sub-tasks can't span headings
+    const lineStartsHeading = headings.some(
+      (heading) => heading.startLine === lineIndex,
+    )
+    if (lineStartsHeading) {
+      indentStack = []
+    }
+
     const taskLineMatch = TASK_LINE_RE.exec(lineText)
-    if (!taskLineMatch) continue
+    if (!taskLineMatch) {
+      // A plain list item at a task's indent (or shallower) is that task's
+      // sibling, so tasks nested under it belong to it, not to the earlier
+      // task — drop the entries it closes. It is never a parent itself.
+      if (LIST_ITEM_RE.test(lineText)) {
+        indentStack = ancestorsOf(indentStack, getTaskIndent(lineText))
+      }
+      continue
+    }
 
     const statusChar = matchedText(taskLineMatch, 1)
     // The block link sits at the absolute end of the line — strip it before
@@ -485,12 +569,23 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
       (heading) => heading.startLine < lineIndex,
     )
 
+    const taskIndent = getTaskIndent(lineText)
+    const ancestors = ancestorsOf(indentStack, taskIndent)
+    const parentEntry = ancestors.at(-1)
+    const depth = ancestors.length
+    const parentLine = parentEntry?.fileLine ?? null
+
+    const fileLine = bodyStartLine + lineIndex + 1
+    indentStack = [...ancestors, { indent: taskIndent, fileLine }]
+
     extractedTasks.push({
-      line: bodyStartLine + lineIndex + 1,
+      line: fileLine,
       statusChar,
       status: statusForChar(statusChar),
       blockId,
       heading: nearestHeading?.text ?? null,
+      depth,
+      parentLine,
       ...parseTaskMetadata(taskBody),
     })
   }
@@ -536,6 +631,30 @@ const DONE_DATE_INLINE_RE =
 const CANCELLED_DATE_INLINE_RE =
   /❌️? *\d{4}-\d{2}-\d{2}|[[(] *cancelled:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
 
+/** Matches a due date in either format (📅, 📆, 🗓 variants). */
+const DUE_DATE_INLINE_RE =
+  /(?:📅|📆|🗓)️? *\d{4}-\d{2}-\d{2}|[[(] *due:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
+
+/** Matches a scheduled date in either format (⏳, ⌛ variants). */
+const SCHEDULED_DATE_INLINE_RE =
+  /(?:⏳|⌛)️? *\d{4}-\d{2}-\d{2}|[[(] *scheduled:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
+
+/** Matches a start date in either format. */
+const START_DATE_INLINE_RE =
+  /🛫️? *\d{4}-\d{2}-\d{2}|[[(] *start:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
+
+/** Matches a created date in either format. */
+const CREATED_DATE_INLINE_RE =
+  /➕️? *\d{4}-\d{2}-\d{2}|[[(] *created:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
+
+/** Matches a task ID in either format. */
+const TASK_ID_INLINE_RE =
+  /🆔️? *[a-zA-Z0-9_-]+|[[(] *id:: *[a-zA-Z0-9_-]+ *[\])](?: *,)?/u
+
+/** Matches a depends-on field in either format (comma-separated IDs). */
+const DEPENDS_ON_INLINE_RE =
+  /⛔️? *[a-zA-Z0-9_-]+(?:,\s*[a-zA-Z0-9_-]+)*|[[(] *dependsOn:: *[a-zA-Z0-9_-]+(?:,\s*[a-zA-Z0-9_-]+)* *[\])](?: *,)?/u
+
 /** Matches any priority signifier in either format: emoji (🔺⏫🔼🔽⏬)
  *  or Dataview (`[priority:: level]` / `(priority:: level)`). */
 const PRIORITY_INLINE_RE =
@@ -554,20 +673,13 @@ const isTaskLine = (line: string): boolean => TASK_LINE_RE.test(line)
 
 /** Replaces the checkbox character in a task line, e.g. `[/]` → `[x]`.
  *  Returns the line unchanged if it's not a task line. */
-const replaceCheckboxChar = (taskLine: string, newChar: string): string =>
-  taskLine.replace(/\[.\]/, `[${newChar}]`)
-
-/** Inserts text just before the trailing `^block-id`, or at the end of
- *  the line if there's no block link. */
-const insertBeforeBlockId = (taskLine: string, text: string): string => {
-  const blockLinkMatch = BLOCK_LINK_RE.exec(taskLine)
-  if (!blockLinkMatch) return `${taskLine} ${text}`
-  // BLOCK_LINK_RE matches ` ^id` (leading space included), so insertAt
-  // points at the space. Insert ` text` before that space, keeping one
-  // space between the inserted text and the block link.
-  const insertAt = blockLinkMatch.index
-  return `${taskLine.slice(0, insertAt)} ${text}${taskLine.slice(insertAt)}`
-}
+const replaceCheckboxChar = ({
+  taskLine,
+  newChar,
+}: {
+  taskLine: string
+  newChar: string
+}): string => taskLine.replace(/\[.\]/, `[${newChar}]`)
 
 /** Removes a matched regex from the line and collapses any resulting
  *  double spaces. Preserves leading indentation. */
@@ -597,20 +709,405 @@ const formatPriority = (
     ? `[priority:: ${priority}]`
     : emojiForPriority(priority)
 
+/** Formats a task ID (🆔) in the configured format. */
+const formatTaskId = (taskId: string, format: "emoji" | "dataview"): string =>
+  format === "dataview" ? `[id:: ${taskId}]` : `🆔 ${taskId}`
+
+/** Formats a depends-on list (⛔) in the configured format. */
+const formatDependsOn = (
+  dependsOn: readonly string[],
+  format: "emoji" | "dataview",
+): string => {
+  const idList = dependsOn.join(",")
+  return format === "dataview" ? `[dependsOn:: ${idList}]` : `⛔ ${idList}`
+}
+
+// ── Date field keys and their format/strip data ──────────────────
+//
+// Each settable date field has an emoji signifier, a Dataview key, and a
+// non-anchored inline regex for stripping. The ordering here matches the
+// Tasks-plugin field convention (priority → created → start → scheduled →
+// due → done → cancelled), which buildTaskLine uses to assemble lines and
+// updateTaskLineDate uses to find the insertion point.
+
+/** The six date-field keys in the Tasks plugin's canonical ordering. */
+type DateFieldKey =
+  "created" | "start" | "scheduled" | "due" | "done" | "cancelled"
+
+const DATE_FIELD_INFO: ReadonlyArray<{
+  key: DateFieldKey
+  emoji: string
+  dataviewKey: string
+  inlineRegex: RegExp
+}> = [
+  {
+    key: "created",
+    emoji: "➕",
+    dataviewKey: "created",
+    inlineRegex: CREATED_DATE_INLINE_RE,
+  },
+  {
+    key: "start",
+    emoji: "🛫",
+    dataviewKey: "start",
+    inlineRegex: START_DATE_INLINE_RE,
+  },
+  {
+    key: "scheduled",
+    emoji: "⏳",
+    dataviewKey: "scheduled",
+    inlineRegex: SCHEDULED_DATE_INLINE_RE,
+  },
+  {
+    key: "due",
+    emoji: "📅",
+    dataviewKey: "due",
+    inlineRegex: DUE_DATE_INLINE_RE,
+  },
+  {
+    key: "done",
+    emoji: "✅",
+    dataviewKey: "completion",
+    inlineRegex: DONE_DATE_INLINE_RE,
+  },
+  {
+    key: "cancelled",
+    emoji: "❌",
+    dataviewKey: "cancelled",
+    inlineRegex: CANCELLED_DATE_INLINE_RE,
+  },
+]
+
+/** Formats a date field in the configured format. */
+const formatDateField = ({
+  field,
+  date,
+  format,
+}: {
+  field: DateFieldKey
+  date: string
+  format: "emoji" | "dataview"
+}): string => {
+  const info = DATE_FIELD_INFO.find((entry) => entry.key === field)
+  if (!info) throw new Error(`unknown date field: ${field}`)
+  return format === "dataview"
+    ? `[${info.dataviewKey}:: ${date}]`
+    : `${info.emoji} ${date}`
+}
+
+/** Sets or clears a date field on a task line. Strips existing values in
+ *  both formats; inserts the new value at the correct position per the
+ *  Tasks-plugin field ordering convention. A null date clears the field. */
+const updateTaskLineDate = (params: {
+  taskLine: string
+  field: DateFieldKey
+  date: string | null
+  config: TaskFormatConfig
+}): string => {
+  const fieldInfo = DATE_FIELD_INFO.find((entry) => entry.key === params.field)
+  if (!fieldInfo) throw new Error(`unknown date field: ${params.field}`)
+
+  // Later fields in the canonical order: the remaining dates, then
+  // task_id and depends_on — a new date is inserted ahead of the first one
+  // present so the line keeps the order the create path writes.
+  const fieldIndex = DATE_FIELD_INFO.findIndex(
+    (entry) => entry.key === params.field,
+  )
+  const laterFieldRegexes = [
+    ...DATE_FIELD_INFO.slice(fieldIndex + 1).map((entry) => entry.inlineRegex),
+    TASK_ID_INLINE_RE,
+    DEPENDS_ON_INLINE_RE,
+  ]
+
+  return mapMetadataTail(params.taskLine, (metadata) => {
+    const metadataWithoutDate = stripField(metadata, fieldInfo.inlineRegex)
+    if (params.date === null) return metadataWithoutDate
+    const dateText = formatDateField({
+      field: params.field,
+      date: params.date,
+      format: params.config.taskFormat,
+    })
+    return insertFieldBefore({
+      metadata: metadataWithoutDate,
+      fieldText: dateText,
+      laterFieldRegexes,
+    })
+  })
+}
+
+/** Sets or clears the Tasks-plugin `🆔` / `[id:: ]` field on a task line.
+ *  A new id goes ahead of an existing depends_on, matching the create order. */
+const updateTaskLineTaskId = ({
+  taskLine,
+  taskId,
+  config,
+}: {
+  taskLine: string
+  taskId: string | null
+  config: TaskFormatConfig
+}): string => {
+  return mapMetadataTail(taskLine, (metadata) => {
+    const metadataWithoutTaskId = stripField(metadata, TASK_ID_INLINE_RE)
+    if (taskId === null) return metadataWithoutTaskId
+    return insertFieldBefore({
+      metadata: metadataWithoutTaskId,
+      fieldText: formatTaskId(taskId, config.taskFormat),
+      laterFieldRegexes: [DEPENDS_ON_INLINE_RE],
+    })
+  })
+}
+
+/** Sets or clears the Tasks-plugin `⛔` / `[dependsOn:: ]` field. */
+const updateTaskLineDependsOn = ({
+  taskLine,
+  dependsOn,
+  config,
+}: {
+  taskLine: string
+  dependsOn: readonly string[] | null
+  config: TaskFormatConfig
+}): string => {
+  return mapMetadataTail(taskLine, (metadata) => {
+    const metadataWithoutDependsOn = stripField(metadata, DEPENDS_ON_INLINE_RE)
+    if (dependsOn === null || dependsOn.length === 0) {
+      return metadataWithoutDependsOn
+    }
+    return appendField({
+      metadata: metadataWithoutDependsOn,
+      fieldText: formatDependsOn(dependsOn, config.taskFormat),
+    })
+  })
+}
+
+/** Global twin of FIRST_METADATA_SIGNIFIER_RE for matchAll — kept separate
+ *  so the non-global regex never carries a lastIndex. */
+const METADATA_SIGNIFIER_CANDIDATES_RE = new RegExp(
+  FIRST_METADATA_SIGNIFIER_RE.source,
+  "gu",
+)
+
+/** Index in a task body (checkbox prefix and block link removed) where the
+ *  metadata tail begins, or -1 when the whole body is description.
+ *  - A signifier opens the tail only when everything after it parses as
+ *    metadata — the parser strips from the right, so an emoji mid-sentence
+ *    ("Prefer 🔼 arrows in docs 📅 2026-09-15") stays in the description.
+ *  - Tags interleaved with fields belong to the tail, not the description. */
+const findMetadataStart = (taskBody: string): number => {
+  for (const candidate of taskBody.matchAll(METADATA_SIGNIFIER_CANDIDATES_RE)) {
+    const tail = parseTaskMetadata(taskBody.slice(candidate.index))
+    const tailDescription = tail.description.replace(HASHTAG_RE, "").trim()
+    if (tailDescription === "") return candidate.index
+  }
+  return -1
+}
+
+type TaskLineParts = {
+  /** Indentation, list marker, and checkbox, e.g. `  - [ ] `. */
+  prefix: string
+  description: string
+  /** Metadata fields from the first real signifier on; "" when none. */
+  metadata: string
+  /** Trailing block link including its leading space; "" when none. */
+  blockLink: string
+}
+
+/** Splits a task line at the parser's description/metadata boundary.
+ *  Returns null when the line is not a task line. */
+const splitTaskLine = (taskLine: string): TaskLineParts | null => {
+  const checkboxMatch = /^([\s\t>]*(?:[-*+]|[0-9]+[.)]) +\[.\] *)/.exec(
+    taskLine,
+  )
+  const prefix = checkboxMatch?.[1]
+  if (!prefix) return null
+  const afterCheckbox = taskLine.slice(prefix.length)
+  const blockLinkMatch = BLOCK_LINK_RE.exec(afterCheckbox)
+  const blockLink = blockLinkMatch?.[0] ?? ""
+  const taskBody = blockLinkMatch
+    ? afterCheckbox.slice(0, blockLinkMatch.index)
+    : afterCheckbox
+  const metadataStart = findMetadataStart(taskBody)
+  if (metadataStart === -1) {
+    return { prefix, description: taskBody.trim(), metadata: "", blockLink }
+  }
+  return {
+    prefix,
+    description: taskBody.slice(0, metadataStart).trim(),
+    metadata: taskBody.slice(metadataStart).trim(),
+    blockLink,
+  }
+}
+
+const joinTaskLine = ({
+  prefix,
+  description,
+  metadata,
+  blockLink,
+}: TaskLineParts): string => {
+  const body = [description.trim(), metadata.trim()].filter(Boolean).join(" ")
+  return `${prefix}${body}${blockLink}`
+}
+
+/** Applies a field mutation to the metadata tail only — field-like text
+ *  inside the description ("Trip on 📅 2026-09-15, then relax") is prose to
+ *  the parser and must never be matched by a strip or replace. Returns the
+ *  line unchanged when it is not a task line. */
+const mapMetadataTail = (
+  taskLine: string,
+  transform: (metadata: string) => string,
+): string => {
+  const parts = splitTaskLine(taskLine)
+  if (!parts) return taskLine
+  return joinTaskLine({ ...parts, metadata: transform(parts.metadata) })
+}
+
+/** Appends a field to the end of a metadata tail. */
+const appendField = ({
+  metadata,
+  fieldText,
+}: {
+  metadata: string
+  fieldText: string
+}): string => [metadata, fieldText].filter(Boolean).join(" ")
+
+/** Inserts a field ahead of the first later-ordered field present in the
+ *  metadata tail, or appends it when none of them is. */
+const insertFieldBefore = ({
+  metadata,
+  fieldText,
+  laterFieldRegexes,
+}: {
+  metadata: string
+  fieldText: string
+  laterFieldRegexes: readonly RegExp[]
+}): string => {
+  for (const laterFieldRegex of laterFieldRegexes) {
+    const laterMatch = laterFieldRegex.exec(metadata)
+    if (laterMatch) {
+      return `${metadata.slice(0, laterMatch.index)}${fieldText} ${metadata.slice(laterMatch.index)}`
+    }
+  }
+  return appendField({ metadata, fieldText })
+}
+
+/** The description the parser sees for a task line — metadata stripped
+ *  from the right, interleaved tags re-appended, block link removed. */
+const describeTaskLine = (taskLine: string): string => {
+  const taskLineMatch = TASK_LINE_RE.exec(taskLine)
+  if (!taskLineMatch) return taskLine
+  const bodyWithBlockLink = matchedText(taskLineMatch, 2)
+  const blockLinkMatch = BLOCK_LINK_RE.exec(bodyWithBlockLink)
+  const taskBody = blockLinkMatch
+    ? bodyWithBlockLink.slice(0, blockLinkMatch.index)
+    : bodyWithBlockLink
+  return parseTaskMetadata(taskBody).description
+}
+
+/** Replaces the description text on a task line — everything before the
+ *  metadata tail. Metadata fields, block_id, and indentation are preserved. */
+const replaceTaskLineDescription = ({
+  taskLine,
+  newDescription,
+}: {
+  taskLine: string
+  newDescription: string
+}): string => {
+  const parts = splitTaskLine(taskLine)
+  if (!parts) return taskLine
+  return joinTaskLine({ ...parts, description: newDescription })
+}
+
+/** Adds or replaces a `^block-id` at the end of a task line. */
+const assignBlockId = ({
+  taskLine,
+  blockId,
+}: {
+  taskLine: string
+  blockId: string
+}): string => {
+  const existingMatch = BLOCK_LINK_RE.exec(taskLine)
+  if (existingMatch) {
+    return `${taskLine.slice(0, existingMatch.index)} ^${blockId}`
+  }
+  return `${taskLine} ^${blockId}`
+}
+
+/** Extracts the structural indent of a line — leading whitespace after
+ *  stripping blockquote `>` markers. A top-level task returns 0; an
+ *  indented sub-task returns the whitespace count before its list marker. */
+const getTaskIndent = (line: string): number => {
+  // Strip leading blockquote markers: each `> ` (one `>` + one optional
+  // space) is a blockquote level. Only the marker's own space is consumed;
+  // additional spaces are structural indent that must be measured.
+  const withoutBlockquotes = line.replace(/^(?:> ?)+/, "")
+  const indentMatch = /^(\s*)/.exec(withoutBlockquotes)
+  return indentMatch?.[1]?.length ?? 0
+}
+
+// ── Task line builder ─────────────────────────────────────────────
+
+/** Parameters for building a complete task line. */
+type BuildTaskLineParams = {
+  description: string
+  blockId: string
+  priority?: TaskPriority | undefined
+  created: string
+  start?: string | undefined
+  scheduled?: string | undefined
+  due?: string | undefined
+  taskId?: string | undefined
+  dependsOn?: readonly string[] | undefined
+  indent?: string | undefined
+}
+
+/** Assembles a complete task line in the correct field ordering:
+ *  description → priority → ➕ created → 🛫 start → ⏳ scheduled →
+ *  📅 due → 🆔 task_id → ⛔ depends_on → ^block_id */
+const buildTaskLine = (
+  params: BuildTaskLineParams,
+  config: TaskFormatConfig,
+): string => {
+  const format = config.taskFormat
+  const optionalDates: ReadonlyArray<{
+    field: DateFieldKey
+    date: string | undefined
+  }> = [
+    { field: "start", date: params.start },
+    { field: "scheduled", date: params.scheduled },
+    { field: "due", date: params.due },
+  ]
+  const optionalDateFields = optionalDates.flatMap(({ field, date }) =>
+    date ? [formatDateField({ field, date, format })] : [],
+  )
+
+  const parts = [
+    `${params.indent ?? ""}- [ ] ${params.description}`,
+    ...(params.priority ? [formatPriority(params.priority, format)] : []),
+    formatDateField({ field: "created", date: params.created, format }),
+    ...optionalDateFields,
+    ...(params.taskId ? [formatTaskId(params.taskId, format)] : []),
+    ...(params.dependsOn?.length
+      ? [formatDependsOn(params.dependsOn, format)]
+      : []),
+    `^${params.blockId}`,
+  ]
+  return parts.join(" ")
+}
+
 /** Stamps or strips a completion-style date field on a task line.
- *  When stamping is enabled, replaces an existing field or inserts before
- *  the block ID; when disabled, strips any existing field. */
+ *  When stamping is enabled, replaces an existing field or appends it
+ *  to the metadata tail; when disabled, strips any existing field. */
 const applyCompletionDate = (params: {
   taskLine: string
   shouldStamp: boolean
   dateField: string
   dateRegex: RegExp
 }): string => {
-  if (!params.shouldStamp) return stripField(params.taskLine, params.dateRegex)
-
-  return params.dateRegex.test(params.taskLine)
-    ? params.taskLine.replace(params.dateRegex, params.dateField)
-    : insertBeforeBlockId(params.taskLine, params.dateField)
+  return mapMetadataTail(params.taskLine, (metadata) => {
+    if (!params.shouldStamp) return stripField(metadata, params.dateRegex)
+    return params.dateRegex.test(metadata)
+      ? metadata.replace(params.dateRegex, params.dateField)
+      : appendField({ metadata, fieldText: params.dateField })
+  })
 }
 
 /** Updates the status-related fields of a task line: checkbox character
@@ -623,14 +1120,17 @@ const updateTaskLineStatus = (params: {
   today: string
   config: TaskFormatConfig
 }): string => {
-  const withNewCheckbox = replaceCheckboxChar(
-    params.taskLine,
-    charForStatus(params.newStatus),
-  )
+  const withNewCheckbox = replaceCheckboxChar({
+    taskLine: params.taskLine,
+    newChar: charForStatus(params.newStatus),
+  })
+
+  const stripMetadataField = (taskLine: string, regex: RegExp): string =>
+    mapMetadataTail(taskLine, (metadata) => stripField(metadata, regex))
 
   if (params.newStatus === "done") {
     return applyCompletionDate({
-      taskLine: stripField(withNewCheckbox, CANCELLED_DATE_INLINE_RE),
+      taskLine: stripMetadataField(withNewCheckbox, CANCELLED_DATE_INLINE_RE),
       shouldStamp: params.config.setDoneDate,
       dateField: formatDoneDate(params.today, params.config.taskFormat),
       dateRegex: DONE_DATE_INLINE_RE,
@@ -639,7 +1139,7 @@ const updateTaskLineStatus = (params: {
 
   if (params.newStatus === "cancelled") {
     return applyCompletionDate({
-      taskLine: stripField(withNewCheckbox, DONE_DATE_INLINE_RE),
+      taskLine: stripMetadataField(withNewCheckbox, DONE_DATE_INLINE_RE),
       shouldStamp: params.config.setCancelledDate,
       dateField: formatCancelledDate(params.today, params.config.taskFormat),
       dateRegex: CANCELLED_DATE_INLINE_RE,
@@ -647,8 +1147,8 @@ const updateTaskLineStatus = (params: {
   }
 
   // todo / in_progress — strip both completion dates
-  return stripField(
-    stripField(withNewCheckbox, DONE_DATE_INLINE_RE),
+  return stripMetadataField(
+    stripMetadataField(withNewCheckbox, DONE_DATE_INLINE_RE),
     CANCELLED_DATE_INLINE_RE,
   )
 }
@@ -659,33 +1159,44 @@ const updateTaskLineStatus = (params: {
  *
  *  Insertion position: after the description, before the first metadata
  *  signifier. If no signifiers exist, before the block ID or at end. */
-const updateTaskLinePriority = (
-  taskLine: string,
-  newPriority: TaskPriority | null,
-  config: TaskFormatConfig,
-): string => {
-  const hasExistingPriority = PRIORITY_INLINE_RE.test(taskLine)
+const updateTaskLinePriority = ({
+  taskLine,
+  newPriority,
+  config,
+}: {
+  taskLine: string
+  newPriority: TaskPriority | null
+  config: TaskFormatConfig
+}): string => {
+  const parts = splitTaskLine(taskLine)
+  if (!parts) return taskLine
+  // Only the metadata tail can hold a priority field — a priority emoji
+  // inside the description is prose to the parser and must be left alone.
+  const hasExistingPriority = PRIORITY_INLINE_RE.test(parts.metadata)
 
   if (!newPriority) {
     if (!hasExistingPriority) return taskLine
-    return stripField(taskLine, PRIORITY_INLINE_RE)
+    return joinTaskLine({
+      ...parts,
+      metadata: stripField(parts.metadata, PRIORITY_INLINE_RE),
+    })
   }
 
   const priorityField = formatPriority(newPriority, config.taskFormat)
 
   if (hasExistingPriority) {
-    return taskLine.replace(PRIORITY_INLINE_RE, priorityField)
+    return joinTaskLine({
+      ...parts,
+      metadata: parts.metadata.replace(PRIORITY_INLINE_RE, priorityField),
+    })
   }
 
-  // Insert before the first metadata signifier (emoji or inline field)
-  // so priority lands at the end of the description, before dates.
-  const signifierMatch = FIRST_METADATA_SIGNIFIER_RE.exec(taskLine)
-  if (signifierMatch) {
-    const insertAt = signifierMatch.index
-    return `${taskLine.slice(0, insertAt)}${priorityField} ${taskLine.slice(insertAt)}`
-  }
-
-  return insertBeforeBlockId(taskLine, priorityField)
+  // Priority leads the metadata tail — right after the description,
+  // before dates.
+  return joinTaskLine({
+    ...parts,
+    metadata: [priorityField, parts.metadata].filter(Boolean).join(" "),
+  })
 }
 
 /** Finds the 0-based line index of a task whose line ends with
@@ -721,44 +1232,43 @@ const extractDoneLanes = (
   bodyLines: readonly string[],
   headings: readonly HeadingInfo[],
 ): string[] => {
-  const doneLanes: string[] = []
-
-  for (const heading of headings) {
-    // Scan the body of this heading for a Complete marker before the
-    // first list item. Skip blank lines.
-    for (
-      let lineIndex = heading.bodyStartLine;
-      lineIndex < heading.bodyEndLine;
-      lineIndex++
-    ) {
-      const trimmed = bodyLines[lineIndex]?.trim()
-      if (trimmed === undefined) break
-      if (!trimmed) continue
-
-      if (trimmed === COMPLETE_MARKER) {
-        doneLanes.push(heading.text)
-      }
-
-      // Stop at the first non-blank line regardless — the marker must
-      // be the very first content paragraph after the heading.
-      break
-    }
+  // The marker must be the very first content paragraph after the heading —
+  // blank lines are skipped, anything else means the lane has no marker.
+  const startsWithCompleteMarker = (heading: HeadingInfo): boolean => {
+    const firstContentLine = bodyLines
+      .slice(heading.bodyStartLine, heading.bodyEndLine)
+      .find((line) => line.trim() !== "")
+    return firstContentLine?.trim() === COMPLETE_MARKER
   }
-
-  return doneLanes
+  return headings
+    .filter(startsWithCompleteMarker)
+    .map((heading) => heading.text)
 }
 
 // ── Public surface ──────────────────────────────────────────────
 
 export const tasks = {
   extractTasks,
+  isTaskId,
   charForStatus,
   statusForChar,
   emojiForPriority,
   isTaskLine,
   updateTaskLineStatus,
   updateTaskLinePriority,
+  updateTaskLineDate,
+  updateTaskLineTaskId,
+  updateTaskLineDependsOn,
+  replaceTaskLineDescription,
+  describeTaskLine,
+  assignBlockId,
+  getTaskIndent,
+  buildTaskLine,
+  formatDateField,
   findTaskByBlockId,
+  findBodyStartLine,
   extractDoneLanes,
-  FIRST_METADATA_SIGNIFIER_RE,
+  BLOCK_LINK_RE,
 }
+
+export type { DateFieldKey }

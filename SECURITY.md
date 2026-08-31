@@ -70,7 +70,9 @@ mechanism-level detail.
   configuration, where `SYNC_CONFIGS` syncs community plugin settings to
   the server whenever the desktop pushes them.
 - The search index and OAuth databases live outside the vault (the
-  default `/data` volume), so the file tools can't reach them.
+  default `/data` volume), so the file tools can't reach them. The OAuth
+  database stores refresh tokens keyed by an HMAC under `MCP_AUTH_TOKEN`,
+  so a copy of it holds no usable credential.
   Hidden-path blocking does not cover a database relocated into a
   _visible_ vault folder — there it is readable like any other vault
   file.
@@ -128,6 +130,12 @@ mechanism-level detail.
 - First-sync gate (remote image): the init chain runs Obsidian Sync to
   completion before the server starts, so memory bootstrap can never race
   an incoming sync
+- Sync-state vault guard (remote image): the Sync client's own device
+  record of locally held files is read before any sync attempt. If the
+  record lists files but the vault volume has no content (notes or
+  synced `.obsidian/` settings), the container refuses to start,
+  preventing the sync engine from interpreting the empty vault as mass
+  local deletions
 - Memory shrink guard: refuses writes that would remove >50% of a file's
   bytes — defense-in-depth against bugs that would silently erase most of
   a memory file
@@ -207,6 +215,36 @@ Several scanners already run against this repository:
 Base-image CVEs surfaced by Trivy are typically already tracked in the
 Security tab and handled through image updates. A report is still welcome if
 you've found a Vault Cortex–specific exploit path for one.
+
+## Release Signing
+
+Every server release (`v*` tags) includes a signed digest file (`digests.txt`
+\+ `digests.txt.sigstore.json`) containing the GHCR image manifest digests for
+both the local and remote Docker targets. CLI releases (`cli-v*` tags) are npm
+packages and do not include container digests. Signatures use
+[Sigstore cosign](https://docs.sigstore.dev/) keyless signing — no long-lived
+keys; the signing identity is the GitHub Actions OIDC token, and each signature
+is recorded in Sigstore's public transparency log
+([Rekor](https://docs.sigstore.dev/logging/overview/)).
+
+To verify a release's digest file:
+
+```bash
+gh release download v0.38.0 --pattern 'digests.txt*'
+
+cosign verify-blob \
+  --bundle digests.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/aliasunder/vault-cortex/\.github/workflows/(auto_release|manual_release)\.yml@.*$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  digests.txt
+```
+
+Then confirm the image you pulled matches a signed digest:
+
+```bash
+docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/aliasunder/vault-cortex:v0.38.0
+# Compare the sha256:... with the corresponding line in digests.txt
+```
 
 ## Reporting a Vulnerability
 

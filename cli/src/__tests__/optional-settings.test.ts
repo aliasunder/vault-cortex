@@ -341,7 +341,7 @@ describe("askOptionalSettings per-setting prompts", () => {
     expect(overrides).toEqual({ READONLY_MODE: "true" })
   })
 
-  it("seeds the SYNC_MODE select with its default when the var is absent", async () => {
+  it("offers the three Sync modes the client accepts, seeded with the default when the var is absent", async () => {
     const scripted = createScriptedPrompts([["SYNC_MODE"], "pull-only"])
 
     await askOptionalSettings(
@@ -349,9 +349,28 @@ describe("askOptionalSettings per-setting prompts", () => {
       scripted.prompts,
     )
 
+    // The values are what `ob sync-config --mode` accepts; a chooser entry the
+    // client rejects would only surface at the image's first boot.
     expect(scripted.selectCalls).toEqual([
       {
         message: "Obsidian Sync direction:",
+        options: [
+          {
+            value: "bidirectional",
+            label: "Bidirectional",
+            hint: "pull remote changes and push server-side edits",
+          },
+          {
+            value: "pull-only",
+            label: "Pull-only",
+            hint: "receive changes but never push",
+          },
+          {
+            value: "mirror-remote",
+            label: "Mirror remote",
+            hint: "receive changes and revert any server-side edit",
+          },
+        ],
         initialValue: "bidirectional",
       },
     ])
@@ -443,12 +462,9 @@ describe("askOptionalSettings per-setting prompts", () => {
       scripted.prompts,
     )
 
-    expect(scripted.selectCalls).toEqual([
-      {
-        message: "Obsidian Sync direction:",
-        initialValue: "pull-only",
-      },
-    ])
+    expect(
+      scripted.selectCalls.map(({ initialValue }) => initialValue),
+    ).toEqual(["pull-only"])
     expect(overrides).toEqual({ SYNC_MODE: "bidirectional" })
   })
 

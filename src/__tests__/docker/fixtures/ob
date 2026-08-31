@@ -1,0 +1,148 @@
+#!/bin/sh
+# Stand-in for the obsidian-headless CLI (`ob`) used by the remote-boot
+# tests.
+#
+# The test harness bind-mounts this file over
+# /opt/obsidian-headless/node_modules/obsidian-headless/cli.js — the target of
+# the `.bin/ob` symlink the image puts on PATH — so the real s6 init chain runs
+# unchanged while every Sync call lands here instead of on Obsidian's servers.
+#
+# Every invocation runs as the `obsidian` user (s6's `with-contenv`
+# injects the container environment). init-setup-user has already created
+# and chowned the config directory by this point, so the call log lives
+# beside .applied-ids and the sync state. The log survives a
+# `docker restart`, which lets the test assert the cumulative call
+# sequence across boots.
+#
+# Logging "$*" cannot leak the Sync token: the real CLI reads
+# OBSIDIAN_AUTH_TOKEN from the environment and never receives it as an
+# argument. (VAULT_PASSWORD is a CLI argument to `ob sync-setup` when
+# set, but none of the CI scenarios set it.)
+#
+# Behaviour switches (set as container env vars; s6's with-contenv makes
+# them visible to the stub):
+#   OB_STUB_SYNC_FAIL=1  — one-shot `sync` exits 1 without writing notes, so
+#                          init-first-sync walks its retry and failure paths
+#   OB_STUB_SYNC_EMPTY=1 — one-shot `sync` succeeds without writing notes:
+#                          a remote vault that has nothing in it yet
+#   OB_STUB_SYNC_CONFIG_ONLY=1 — one-shot `sync` delivers only .obsidian/
+#                          settings, no notes
+#
+# Test-only verbs (not real ob commands) that stand in for what continuous
+# sync does to the record while the container runs:
+#   ob sync-record <paths>  — files arrived: add their rows
+#   ob sync-forget <paths>  — files were deleted locally: drop their rows
+set -eu
+
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+CALL_LOG="$CONFIG_HOME/ob-calls.log"
+printf '%s\n' "$*" >> "$CALL_LOG"
+
+# The real client records every file it holds locally in
+# obsidian-headless/sync/<vaultId>/state.db (table local_files) — the
+# record init-first-sync reads to decide whether an empty vault was wiped.
+# Each one-shot sync records what it delivered; the vault-relative paths
+# arrive as the arguments.
+record_local_files() {
+  state_dir="$CONFIG_HOME/obsidian-headless/sync/ci-vault-id"
+  mkdir -p "$state_dir"
+  node --no-warnings -e '
+    const { DatabaseSync } = require("node:sqlite")
+    const db = new DatabaseSync(process.argv[1])
+    db.exec("CREATE TABLE IF NOT EXISTS local_files (path TEXT PRIMARY KEY, data TEXT NOT NULL)")
+    const insert = db.prepare("INSERT OR REPLACE INTO local_files VALUES (?, ?)")
+    for (const path of process.argv.slice(2)) insert.run(path, JSON.stringify({ folder: false }))
+    db.close()
+  ' "$state_dir/state.db" "$@"
+}
+
+# The real client drops a file's row when the file is deleted locally, so
+# a vault emptied by hand while the device runs leaves an empty record.
+forget_local_files() {
+  state_dir="$CONFIG_HOME/obsidian-headless/sync/ci-vault-id"
+  node --no-warnings -e '
+    const { DatabaseSync } = require("node:sqlite")
+    const db = new DatabaseSync(process.argv[1])
+    const remove = db.prepare("DELETE FROM local_files WHERE path = ?")
+    for (const path of process.argv.slice(2)) remove.run(path)
+    db.close()
+  ' "$state_dir/state.db" "$@"
+}
+
+case "${1:-}" in
+  login | sync-setup | sync-config)
+    exit 0
+    ;;
+  sync-record)
+    # Test-only verb: record files that "arrived" through continuous sync
+    # (which the stub otherwise just sleeps through). Not a real ob command.
+    shift
+    record_local_files "$@"
+    exit 0
+    ;;
+  sync-forget)
+    # Test-only verb: drop the rows for files deleted locally while the
+    # stub's continuous sync was "running". Not a real ob command.
+    shift
+    forget_local_files "$@"
+    exit 0
+    ;;
+  sync)
+    if [ "${2:-}" = "--continuous" ]; then
+      # svc-obsidian-sync execs `ob sync --continuous` and s6 supervises the
+      # resulting process; blocking forever keeps the service "up" instead
+      # of restart-looping, which is what a healthy sync daemon looks like.
+      exec sleep infinity
+    fi
+    if [ "${OB_STUB_SYNC_FAIL:-}" = "1" ]; then
+      echo "ob stub: sync failing on request (OB_STUB_SYNC_FAIL=1)" >&2
+      exit 1
+    fi
+    # What the vault held before this one-shot sync delivered anything,
+    # one top-level entry per line (.obsidian excluded). A test reads it to
+    # prove the server's memory bootstrap ran after the first sync, not
+    # before: an "About Me" line here means the templates landed first.
+    find . -mindepth 1 -maxdepth 1 ! -name '.obsidian' | sort >> "$CONFIG_HOME/pre-sync-entries.log"
+    # The real client creates .obsidian/ and a .obsidian/.sync.lock
+    # directory before transferring anything, so every one-shot sync
+    # leaves these behind — init-first-sync must not count them as content.
+    mkdir -p .obsidian/.sync.lock
+    # A remote vault with nothing in it: the sync state records no files,
+    # so on restart the guard must treat the device as fresh, not wiped.
+    if [ "${OB_STUB_SYNC_EMPTY:-}" = "1" ]; then
+      record_local_files
+      exit 0
+    fi
+    # A remote vault holding only Obsidian settings: the one recorded file
+    # lives under .obsidian/, which init-first-sync must count as content.
+    if [ "${OB_STUB_SYNC_CONFIG_ONLY:-}" = "1" ]; then
+      printf '{"theme":"obsidian"}\n' > .obsidian/appearance.json
+      record_local_files ".obsidian/appearance.json"
+      exit 0
+    fi
+    # One-shot first sync (init-first-sync cd's into $VAULT_PATH first):
+    # "deliver" the remote vault by writing the fixture notes into the
+    # current directory and recording them in the sync state.
+    record_local_files "Projects/Remote Boot.md" "Sync Log.md"
+    mkdir -p Projects
+    cat > "Projects/Remote Boot.md" << 'EOF'
+---
+tags: [ci, remote-boot]
+---
+
+# Remote Boot
+
+Delivered by the stubbed first sync. Links to [[Sync Log]].
+EOF
+    cat > "Sync Log.md" << 'EOF'
+# Sync Log
+
+Second fixture note; links back to [[Remote Boot]].
+EOF
+    exit 0
+    ;;
+  *)
+    echo "ob stub: unexpected invocation: $*" >&2
+    exit 64
+    ;;
+esac

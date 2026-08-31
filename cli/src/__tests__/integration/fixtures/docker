@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Fake docker binary for CLI PTY integration tests.
+# Shadows the real docker when its directory is prepended to PATH.
+# Behavior is controllable via environment variables:
+#   DOCKER_SHIM_NO_CONTAINER=1  — `container inspect` exits 1 (no container)
+#   DOCKER_SHIM_RUN_FAIL=1      — `run` exits 1
+#   DOCKER_SHIM_HEALTH_PORT     — port for the background health server (default 8000)
+#   DOCKER_SHIM_PID_FILE        — where to write the health server PID
+
+set -euo pipefail
+
+case "${1:-}" in
+  info)
+    echo '{"ServerVersion":"27.0.0","OSType":"linux"}'
+    ;;
+
+  run)
+    if [ "${DOCKER_SHIM_RUN_FAIL:-}" = "1" ]; then
+      exit 1
+    fi
+    # Start a background HTTP server that responds 200 to /healthz.
+    # Port and PID file path are read via process.env to avoid
+    # bash interpolation breaking on paths with special characters.
+    DOCKER_SHIM_HEALTH_PORT="${DOCKER_SHIM_HEALTH_PORT:-8000}" \
+    DOCKER_SHIM_PID_FILE="${DOCKER_SHIM_PID_FILE:-/tmp/docker-shim-health.pid}" \
+    node -e '
+      const s = require("http").createServer((q, r) => {
+        r.writeHead(200, {"Content-Type":"text/plain"});
+        r.end("ok");
+      });
+      s.listen(Number(process.env.DOCKER_SHIM_HEALTH_PORT), "127.0.0.1", () => {
+        require("fs").writeFileSync(process.env.DOCKER_SHIM_PID_FILE, String(process.pid));
+      });
+    ' &
+    ;;
+
+  container)
+    # docker container inspect <name> — check if container exists
+    if [ "${DOCKER_SHIM_NO_CONTAINER:-}" = "1" ]; then
+      exit 1
+    fi
+    echo '[{"Id":"abc123","State":{"Status":"running"}}]'
+    ;;
+
+  stop)
+    PID_FILE="${DOCKER_SHIM_PID_FILE:-/tmp/docker-shim-health.pid}"
+    if [ -f "$PID_FILE" ]; then
+      kill "$(cat "$PID_FILE")" 2>/dev/null || true
+      rm -f "$PID_FILE"
+    fi
+    ;;
+
+  rm)
+    PID_FILE="${DOCKER_SHIM_PID_FILE:-/tmp/docker-shim-health.pid}"
+    if [ -f "$PID_FILE" ]; then
+      kill "$(cat "$PID_FILE")" 2>/dev/null || true
+      rm -f "$PID_FILE"
+    fi
+    ;;
+
+  pull)
+    echo "Status: Image is up to date"
+    ;;
+
+  logs)
+    echo '{"timestamp":"2026-01-01T00:00:00Z","level":"info","message":"server started"}'
+    ;;
+
+  *)
+    echo "docker-shim: unhandled subcommand '$1'" >&2
+    exit 1
+    ;;
+esac

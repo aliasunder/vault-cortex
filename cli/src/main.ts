@@ -53,7 +53,7 @@ export const run = async (version: string): Promise<void> => {
     runGetSyncToken: (flags) =>
       runGetSyncToken(flags, {
         prompts: createPrompts(),
-        docker: createDockerRunner(),
+        fetchFn: fetch,
       }),
   })
   await program.parseAsync()

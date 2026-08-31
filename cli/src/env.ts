@@ -6,8 +6,8 @@ export type LocalEnvAnswers = {
 export type RemoteEnvAnswers = {
   mcpAuthToken: string
   publicUrl: string
-  /** Empty string when the user chose to fill it in later. */
-  obsidianAuthToken: string
+  /** Undefined when no token was captured or found on disk. */
+  obsidianAuthToken?: string
   vaultName: string
   /** Only set when the vault uses end-to-end encryption. */
   vaultPassword?: string
@@ -31,7 +31,7 @@ const LOCAL_OPTIONAL_BLOCK = `# Optional ─────────────
 # "npx vault-cortex@latest restart" (plain docker restart does not
 # re-read this file).
 
-# Public URL for OAuth issuer URL in discovery metadata (default: http://localhost:8000).
+# Public URL for OAuth issuer and access-token binding (default: http://localhost:8000).
 # Override if you expose the server on a different URL (e.g. via a reverse proxy).
 PUBLIC_URL=http://localhost:8000
 
@@ -93,9 +93,10 @@ MEMORY_DIR=About Me
 # DAILY_NOTES_FOLDER=Journal
 # DAILY_NOTES_FORMAT=YYYY-MM-DD
 
-# Comma-separated folders protected from deletion (default: MEMORY_DIR plus
-# the daily notes folder — DAILY_NOTES_FOLDER when set, otherwise "Daily Notes").
-# A custom folder set only in daily-notes.json is not auto-protected.
+# Comma-separated folders protected from deletion and moves. Default: MEMORY_DIR plus
+# the daily notes folder, read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json
+# (default "Daily Notes"). When set, replaces the whole default — include the
+# daily notes folder in your list if needed.
 # PROTECTED_PATHS=About Me,Daily Notes
 
 # Comma-separated folders excluded from orphan detection (default: the daily
@@ -110,16 +111,42 @@ MEMORY_DIR=About Me
 # Host port to expose (default: 8000).
 PORT=8000
 
+# These two settings choose the client IP used for OAuth rate limiting and
+# logs (defaults shown below). Without the right values, every visitor
+# behind a proxy shares one rate-limit budget. TRUST_PROXY_HOPS counts the
+# proxies you control that write X-Forwarded-For; TRUST_FORWARDED_HOPS
+# counts the ones that write the RFC 7239 Forwarded header
+# (https://www.rfc-editor.org/rfc/rfc7239), and 0 ignores that header.
+#
+#   What sits in front of the server       TRUST_PROXY_HOPS  TRUST_FORWARDED_HOPS  Client IP is
+#   Nothing (default)                      0                 0                     the visitor (socket peer)
+#   A proxy or tunnel you control          1                 0                     the visitor (X-Forwarded-For)
+#     (Caddy, nginx, Cloudflare Tunnel)
+#   A proxy that reports visitors in       1                 1                     the visitor (Forwarded)
+#     Forwarded (e.g. AWS API Gateway)
+#   A CDN in front of that proxy, and      1                 2                     the visitor (Forwarded)
+#     the CDN is the only way to reach it
+#
+# When the Forwarded header is read (TRUST_FORWARDED_HOPS above 0), it wins
+# and TRUST_PROXY_HOPS is not consulted; TRUST_PROXY_HOPS is the fallback
+# when that header is ignored or absent. Faked headers from visitors are
+# ignored in every row — only the counted proxies are trusted.
+# TRUST_PROXY_HOPS=0
+# TRUST_FORWARDED_HOPS=0
+
 # Log verbosity: debug | info | warn | error (default: info).
 LOG_LEVEL=info
 
-# Directory for persistent log files inside the container.
-# Unset by default — logs go to stdout only. Set a path to also write
-# date-stamped log files there (the /data volume persists them).
-# LOG_DIR=/data/logs
+# Directory for persistent log files inside the container (default: none).
+# The container's own log (what \`docker logs\` shows) is always written, but
+# Docker discards it whenever the container is recreated — on image updates
+# or compose changes. Set a path (e.g. /data/logs) to also write date-stamped
+# log files there; the /data volume keeps them.
+LOG_DIR=none
 
-# Days to retain persistent log files before cleanup (default: 30).
-LOG_RETENTION_DAYS=30
+# Days to keep log files before cleanup on startup (default: 90). Only
+# applies once LOG_DIR is a path.
+# LOG_RETENTION_DAYS=90
 
 # Windows users: set this to true. Makes a vault stored on a C: drive work
 # through Docker Desktop (switches the file watcher to polling and note moves
@@ -207,9 +234,10 @@ MEMORY_DIR=About Me
 # DAILY_NOTES_FOLDER=Journal
 # DAILY_NOTES_FORMAT=YYYY-MM-DD
 
-# Comma-separated folders protected from deletion (default: MEMORY_DIR plus
-# the daily notes folder — DAILY_NOTES_FOLDER when set, otherwise "Daily Notes").
-# A custom folder set only in daily-notes.json is not auto-protected.
+# Comma-separated folders protected from deletion and moves. Default: MEMORY_DIR plus
+# the daily notes folder, read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json
+# (default "Daily Notes"). When set, replaces the whole default — include the
+# daily notes folder in your list if needed.
 # PROTECTED_PATHS=About Me,Daily Notes
 
 # Comma-separated folders excluded from orphan detection (default: the daily
@@ -224,29 +252,66 @@ MEMORY_DIR=About Me
 # Host port to expose (default: 8000).
 PORT=8000
 
+# These two settings choose the client IP used for OAuth rate limiting and
+# logs (defaults shown below). Without the right values, every visitor
+# behind a proxy shares one rate-limit budget. TRUST_PROXY_HOPS counts the
+# proxies you control that write X-Forwarded-For; TRUST_FORWARDED_HOPS
+# counts the ones that write the RFC 7239 Forwarded header
+# (https://www.rfc-editor.org/rfc/rfc7239), and 0 ignores that header.
+#
+#   What sits in front of the server       TRUST_PROXY_HOPS  TRUST_FORWARDED_HOPS  Client IP is
+#   Nothing (default)                      0                 0                     the visitor (socket peer)
+#   A proxy or tunnel you control          1                 0                     the visitor (X-Forwarded-For)
+#     (Caddy, nginx, Cloudflare Tunnel)
+#   A proxy that reports visitors in       1                 1                     the visitor (Forwarded)
+#     Forwarded (e.g. AWS API Gateway)
+#   A CDN in front of that proxy, and      1                 2                     the visitor (Forwarded)
+#     the CDN is the only way to reach it
+#
+# When the Forwarded header is read (TRUST_FORWARDED_HOPS above 0), it wins
+# and TRUST_PROXY_HOPS is not consulted; TRUST_PROXY_HOPS is the fallback
+# when that header is ignored or absent. Faked headers from visitors are
+# ignored in every row — only the counted proxies are trusted.
+# TRUST_PROXY_HOPS=0
+# TRUST_FORWARDED_HOPS=0
+
 # Log verbosity: debug | info | warn | error (default: info).
 LOG_LEVEL=info
 
 # Directory for persistent log files inside the container (default: /data/logs).
-# Set to empty to disable file logging (logs still go to stdout either way).
+# The container's own log (what \`docker logs\` shows) is always written, but
+# Docker discards it whenever the container is recreated — on image updates
+# or compose changes. Log files under LOG_DIR live on the data volume and
+# survive. Set to "none" to keep only the container log.
 LOG_DIR=/data/logs
 
-# Days to retain persistent log files before cleanup (default: 30).
-LOG_RETENTION_DAYS=30
+# Days to retain persistent log files before cleanup (default: 90).
+LOG_RETENTION_DAYS=90
 
 # User/group IDs for obsidian-sync (default: 1000).
 PUID=1000
 PGID=1000
 
-# Device name shown in Obsidian Sync settings.
+# Device name the container reports to Obsidian Sync — labels its changes in the sync log.
 DEVICE_NAME=vault-cortex
 
 # Obsidian Sync conflict resolution: merge | conflict (default: merge).
 # 'merge' integrates changes automatically; 'conflict' writes a separate conflict file.
 CONFLICT_STRATEGY=merge
 
-# Sync direction: bidirectional | pull-only | push-only (default: bidirectional).
+# Sync direction: bidirectional | pull-only | mirror-remote (default: bidirectional).
+# 'pull-only': server edits are kept locally but never uploaded;
+# 'mirror-remote': server edits are undone, so the server is an exact copy.
 SYNC_MODE=bidirectional
+
+# Folders to leave out of sync, comma-separated — the same list as Obsidian's
+# Sync → "Excluded folders". Empty keeps the Sync client's default (nothing excluded).
+SYNC_EXCLUDED_FOLDERS=
+
+# Attachment types to sync, comma-separated: image, audio, video, pdf, unsupported —
+# the same toggles as Obsidian's Sync → "Selective sync". Empty keeps the Sync
+# client's default.
+SYNC_FILE_TYPES=
 
 # Obsidian settings categories to sync into the server's .obsidian/ folder
 # (default: the two the server reads — daily notes settings and community
@@ -286,12 +351,11 @@ export const buildRemoteEnv = (answers: RemoteEnvAnswers): string => {
       : `# Vault end-to-end encryption password.
 VAULT_PASSWORD=${answers.vaultPassword}`
 
-  const obsidianTokenComment =
-    answers.obsidianAuthToken === ""
-      ? `# Obsidian Sync auth token — FILL THIS IN before starting the server.
+  const obsidianTokenComment = answers.obsidianAuthToken
+    ? `# Obsidian Sync auth token.`
+    : `# Obsidian Sync auth token — FILL THIS IN before starting the server.
 # Generate once with:
 #   npx vault-cortex@latest get-sync-token`
-      : `# Obsidian Sync auth token.`
 
   return `# vault-cortex — remote quickstart (Obsidian Sync)
 # Generated by \`npx vault-cortex@latest init\`. Full option reference:
@@ -303,11 +367,12 @@ VAULT_PASSWORD=${answers.vaultPassword}`
 MCP_AUTH_TOKEN=${answers.mcpAuthToken}
 
 # Public URL that MCP clients use to reach this server.
-# Used as the OAuth issuer URL in discovery metadata.
+# Used as the OAuth issuer URL in discovery metadata and stamped on every
+# access token; changing it invalidates connected clients' tokens.
 PUBLIC_URL=${answers.publicUrl}
 
 ${obsidianTokenComment}
-OBSIDIAN_AUTH_TOKEN=${answers.obsidianAuthToken}
+OBSIDIAN_AUTH_TOKEN=${answers.obsidianAuthToken ?? ""}
 
 # Exact name of your Obsidian vault (case-sensitive).
 VAULT_NAME=${answers.vaultName}

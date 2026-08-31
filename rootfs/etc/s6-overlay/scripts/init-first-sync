@@ -4,22 +4,104 @@
 # against a still-empty vault, bootstraps default About Me/ templates, and
 # bidirectional sync pushes them over the user's real memory files (#440).
 #
+# Pre-sync guard: the sync engine keeps a per-device record of the files
+# it holds locally and, at startup, pushes every recorded file that is
+# missing from disk as a deletion. A non-empty record alongside a vault
+# with no content means the vault volume was wiped while the device state
+# was kept. The guard exits FATAL before any sync runs.
+#
 # Failure policy once attempts are exhausted, keyed on whether that clobber
 # is possible — bootstrap writes templates only when the memory layer is
 # enabled AND the memory folder is missing (fresh volume, or partial sync
 # where the folder hasn't arrived), so:
-# - VAULT_NAME set + memory enabled + folder missing: FATAL —
-#   S6_BEHAVIOUR_IF_STAGE2_FAILS=2 stops the container; the restart policy
-#   owns the outer retry.
+# - Memory enabled + folder missing: FATAL — S6_BEHAVIOUR_IF_STAGE2_FAILS=2
+#   stops the container; the restart policy owns the outer retry.
 # - Folder present, or memory disabled: warn and continue — bootstrap is a
 #   no-op; continuous sync keeps retrying.
-# - VAULT_NAME unset: single attempt, warn and continue — matches
-#   init-setup-vault's skip for unconfigured vaults.
+# Sync is always configured here — init-setup-vault requires VAULT_NAME.
 set -e
 
 VAULT_PATH="${VAULT_PATH:-/vault}"
 if ! cd "$VAULT_PATH"; then
   echo "[obsidian-sync] ERROR: Failed to change directory to VAULT_PATH='$VAULT_PATH'." >&2
+  exit 1
+fi
+
+# obsidian-headless keeps one SQLite store per configured vault:
+# $XDG_CONFIG_HOME/obsidian-headless/sync/<vaultId>/state.db. Its
+# local_files table is the record the engine compares against disk.
+#
+# The guard sums local_files across every store instead of resolving
+# <vaultId>. The image serves one vault, so a second store exists only
+# after the device was registered against a different remote vault
+# (one deleted and re-created, or a manual sync-setup). Counting that
+# store too keeps the guard conservative; the cost is a stopped
+# container until the device is re-registered.
+SYNC_STATE_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/obsidian-headless/sync"
+
+# Prints the number of files the sync state records as present locally;
+# 0 when no store exists yet (fresh device). A store that exists but
+# cannot be read is a non-zero exit — the caller treats that as fatal
+# rather than assuming the device is fresh.
+# stdout is the return value: the caller captures it with $(...) and
+# compares it as an integer, so the only output is the bare number.
+#
+# local_files holds folders as well as files; each row's data JSON carries
+# "folder": true or false. Only file rows count: folder rows survive a
+# vault emptied of notes while the folders stay, and a deleted folder is
+# not what the guard protects against. A row whose data does not say
+# either way is counted, so an unexpected shape errs toward stopping.
+known_sync_files() {
+  set -- "$SYNC_STATE_ROOT"/*/state.db
+  [ -e "$1" ] || { echo 0; return 0; }
+  node --no-warnings -e '
+    const { DatabaseSync } = require("node:sqlite")
+    const storeCounts = process.argv.slice(1).map((file) => {
+      const db = new DatabaseSync(file, { readOnly: true })
+      const { count } = db
+        .prepare("SELECT COUNT(*) AS count FROM local_files WHERE COALESCE(json_extract(data, ?), 0) = 0")
+        .get("$.folder")
+      db.close()
+      return count
+    })
+    const knownFiles = storeCounts.reduce((total, count) => total + count, 0)
+    console.log(knownFiles)
+  ' "$@"
+}
+
+# "Content" is a regular file that sync could have delivered: a file at
+# any depth whose path has no dot-named component, or any file under
+# .obsidian/ (synced settings and plugin data). Dotfiles elsewhere are not
+# synced and do not count. `ob sync` itself creates .obsidian/ and a
+# .sync.lock directory in it before transferring anything
+# (obsidian-headless cli.js), so that directory is skipped.
+#
+# Directories alone are not content: a wipe that deletes files but leaves
+# the folder tree in place (`find -type f -delete`, a restore that kept
+# empty directories) must still read as an empty vault, or the guard would
+# let the engine push every recorded file as a deletion.
+vault_has_content() {
+  find "$VAULT_PATH" -mindepth 1 \
+    \( -path "$VAULT_PATH/.obsidian/.sync.lock" -prune \) -o \
+    \( -name '.*' ! -path "$VAULT_PATH/.obsidian" ! -path "$VAULT_PATH/.obsidian/*" -prune \) -o \
+    -type f -print | grep -q .
+}
+
+if ! KNOWN_SYNC_FILES=$(known_sync_files); then
+  echo "[obsidian-sync] ERROR: Could not read this device's sync state under ${SYNC_STATE_ROOT}." >&2
+  echo "[obsidian-sync] Refusing to sync without knowing which files this device has already synced." >&2
+  exit 1
+fi
+
+if [ "$KNOWN_SYNC_FILES" -gt 0 ] && ! vault_has_content; then
+  echo "[obsidian-sync] ERROR: The vault is empty but this device has previously synced." >&2
+  echo "[obsidian-sync] Starting sync in this state would cause the sync engine to interpret" >&2
+  echo "[obsidian-sync] every previously-synced file as a local deletion, pushing mass" >&2
+  echo "[obsidian-sync] deletions to all connected devices." >&2
+  echo "[obsidian-sync] To restore the vault: re-attach the vault volume or restore from backup." >&2
+  echo "[obsidian-sync] If you emptied the vault on purpose, this stop is expected." >&2
+  echo "[obsidian-sync] Re-register the device as below. A fresh device downloads the empty vault without deleting anything." >&2
+  echo "[obsidian-sync] To start fresh: remove the Obsidian config directory (${XDG_CONFIG_HOME:-$HOME/.config} — the obsidian_config volume under Compose, or the config directory under STORAGE_ROOT) to re-register the device." >&2
   exit 1
 fi
 
@@ -33,14 +115,7 @@ MEMORY_DIR=$(printf '%s' "${MEMORY_DIR:-}" | sed 's/^[[:space:]]*//;s/[[:space:]
 MEMORY_DIR="${MEMORY_DIR:-About Me}"
 MEMORY_ENABLED=$(printf '%s' "${MEMORY_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')
 
-# VAULT_NAME unset means either a persisted config volume (sync succeeds
-# anyway) or a truly unconfigured vault (sync fails fast) — retry only when
-# configuration is certain, so the unconfigured path stays quick.
-if [ -n "$VAULT_NAME" ]; then
-  MAX_ATTEMPTS=3
-else
-  MAX_ATTEMPTS=1
-fi
+MAX_ATTEMPTS=3
 
 ATTEMPT=1
 while :; do
@@ -60,7 +135,7 @@ done
 # Checked at decision time, not before the attempts: a failed sync may still
 # have delivered the memory folder, and a partially delivered folder already
 # defuses the bootstrap (it only writes templates when the folder is absent).
-if [ -n "$VAULT_NAME" ] && [ "$MEMORY_ENABLED" != "false" ] && [ "$MEMORY_ENABLED" != "0" ] && [ ! -d "$VAULT_PATH/$MEMORY_DIR" ]; then
+if [ "$MEMORY_ENABLED" != "false" ] && [ "$MEMORY_ENABLED" != "0" ] && [ ! -d "$VAULT_PATH/$MEMORY_DIR" ]; then
   echo "[obsidian-sync] ERROR: First sync failed and the memory folder ('$MEMORY_DIR') has not synced yet." >&2
   echo "[obsidian-sync] Refusing to start: the MCP server would create memory template files" >&2
   echo "[obsidian-sync] that sync could push over your real notes once it recovers." >&2

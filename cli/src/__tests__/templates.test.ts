@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
+import { parse as parseYaml } from "yaml"
 
+import { loadConfig } from "../../../src/vault-mcp/config.js"
 import { REMOTE_IMAGE } from "../docker.js"
 import { buildLocalEnv, buildRemoteEnv } from "../env.js"
 
@@ -57,11 +59,228 @@ const allEnvExampleVarNames = (envExampleContent: string): string[] => {
   return [...new Set([...required, ...optional])]
 }
 
+// --- Hosted platform template helpers ---
+
+type RenderEnvVar = {
+  key: string
+  value?: string
+  generateValue?: boolean
+  sync?: boolean
+}
+
+type RenderBlueprint = {
+  services: Array<{
+    runtime: string
+    image: { url: string }
+    plan: string
+    healthCheckPath: string
+    disk: { mountPath: string; sizeGB: number }
+    envVars: RenderEnvVar[]
+  }>
+}
+
+const readRenderBlueprint = (): RenderBlueprint =>
+  parseYaml(readRepoFile("render.yaml"))
+
+/** Maps a Blueprint's `envVars` list by key so tests can address one entry. */
+const renderEnvVarsByKey = (
+  blueprint: RenderBlueprint,
+): Map<string, RenderEnvVar> =>
+  new Map(blueprint.services[0].envVars.map((envVar) => [envVar.key, envVar]))
+
+/** Values every hosted template fixes so the image boots in single-volume mode. */
+const HOSTED_FIXED_ENV = {
+  PORT: "8000",
+  STORAGE_ROOT: "/persist",
+  DEVICE_NAME: "vault-cortex",
+}
+
+/**
+ * Optional settings every hosted template pre-fills with the image's own
+ * defaults, so users change them in the platform's dashboard instead of
+ * creating variables by hand. A template value that drifts from the image
+ * default would silently change behaviour for button deploys only — so the
+ * server-side defaults are read from `loadConfig` with an empty environment,
+ * not restated here. SYNC_MODE is passed straight to the Obsidian Sync
+ * client, whose own default is bidirectional (`deploy/remote/.env.example`
+ * documents the same), so it has no server-side source and stays a literal.
+ */
+const imageDefaults = loadConfig({})
+const HOSTED_OPTIONAL_ENV = {
+  MEMORY_ENABLED: String(imageDefaults.memoryEnabled),
+  EMBEDDING_ENABLED: String(imageDefaults.embeddingEnabled),
+  READONLY_MODE: String(imageDefaults.readOnlyMode),
+  FILE_TOOLS_ENABLED: String(imageDefaults.fileToolsEnabled),
+  SYNC_MODE: "bidirectional",
+  CONFLICT_STRATEGY: "merge",
+  SYNC_EXCLUDED_FOLDERS: "",
+  SYNC_FILE_TYPES: "",
+}
+
+/**
+ * Derived at boot by `init-derive-env` from STORAGE_ROOT and the platform's
+ * own variables — a template that sets one overrides the derivation.
+ */
+const DERIVED_AT_BOOT = [
+  "LOG_DIR",
+  "PUBLIC_URL",
+  "VAULT_PATH",
+  "INDEX_DB_PATH",
+  "XDG_CONFIG_HOME",
+]
+
 describe("image constants", () => {
   it("REMOTE_IMAGE matches the image the remote compose template pulls", () => {
     expect(readRepoFile("deploy/remote/docker-compose.yml")).toContain(
       `image: ${REMOTE_IMAGE}`,
     )
+  })
+
+  it("REMOTE_IMAGE matches the image the Render blueprint pulls", () => {
+    expect(readRenderBlueprint().services[0].image.url).toBe(REMOTE_IMAGE)
+  })
+})
+
+describe("hosted platform templates", () => {
+  describe("render.yaml", () => {
+    it("runs the image with the single-volume boot variables fixed", () => {
+      const blueprint = readRenderBlueprint()
+      const envVars = renderEnvVarsByKey(blueprint)
+      const fixedValues = Object.fromEntries(
+        Object.keys(HOSTED_FIXED_ENV).map((key) => [
+          key,
+          envVars.get(key)?.value,
+        ]),
+      )
+      expect(blueprint.services[0].runtime).toBe("image")
+      expect(fixedValues).toEqual(HOSTED_FIXED_ENV)
+      expect(envVars.get("TRUST_PROXY_HOPS")?.value).toBe("2")
+    })
+
+    it("provisions the Standard instance and a 5 GB disk the guides quote as the cost", () => {
+      const blueprint = readRenderBlueprint()
+      expect(blueprint.services[0].plan).toBe("standard")
+      expect(blueprint.services[0].disk.sizeGB).toBe(5)
+    })
+
+    it("mounts the disk at STORAGE_ROOT and health-checks /healthz", () => {
+      const blueprint = readRenderBlueprint()
+      const envVars = renderEnvVarsByKey(blueprint)
+      expect(blueprint.services[0].disk.mountPath).toBe(
+        envVars.get("STORAGE_ROOT")?.value,
+      )
+      expect(blueprint.services[0].healthCheckPath).toBe("/healthz")
+    })
+
+    it("generates MCP_AUTH_TOKEN and prompts for the Sync token, vault name, vault password, and timezone", () => {
+      const envVars = renderEnvVarsByKey(readRenderBlueprint())
+      expect(envVars.get("MCP_AUTH_TOKEN")).toEqual({
+        key: "MCP_AUTH_TOKEN",
+        generateValue: true,
+      })
+      expect(envVars.get("OBSIDIAN_AUTH_TOKEN")).toEqual({
+        key: "OBSIDIAN_AUTH_TOKEN",
+        sync: false,
+      })
+      expect(envVars.get("VAULT_NAME")).toEqual({
+        key: "VAULT_NAME",
+        sync: false,
+      })
+      expect(envVars.get("VAULT_PASSWORD")).toEqual({
+        key: "VAULT_PASSWORD",
+        sync: false,
+      })
+      expect(envVars.get("TZ")).toEqual({ key: "TZ", sync: false })
+    })
+
+    it("leaves the boot-derived variables to init-derive-env", () => {
+      const envVars = renderEnvVarsByKey(readRenderBlueprint())
+      const derivedKeysSet = DERIVED_AT_BOOT.filter((key) => envVars.has(key))
+      expect(derivedKeysSet).toEqual([])
+    })
+
+    it("pre-fills the optional settings with the image defaults", () => {
+      const envVars = renderEnvVarsByKey(readRenderBlueprint())
+      const optionalValues = Object.fromEntries(
+        Object.keys(HOSTED_OPTIONAL_ENV).map((key) => [
+          key,
+          envVars.get(key)?.value,
+        ]),
+      )
+      expect(optionalValues).toEqual(HOSTED_OPTIONAL_ENV)
+    })
+  })
+
+  describe("CONTRIBUTING.md Railway template definition table", () => {
+    /** Parses `| \`KEY\` | \`value\` | …` rows into a key → value map. A
+     *  value cell of `_(optional input)_` is an empty value the deploy form
+     *  lets the user fill; it maps to "". */
+    const definitionTableValues = (): Map<string, string> => {
+      const contributing = readRepoFile("CONTRIBUTING.md")
+      const sectionStart = contributing.indexOf("## Railway template")
+      if (sectionStart === -1) {
+        throw new Error("CONTRIBUTING.md has no '## Railway template' section")
+      }
+      const railwaySection = contributing.slice(sectionStart)
+      const tableRows = railwaySection.matchAll(
+        /^\| `([A-Z_]+)`\s*\| (?:`([^`]*)`|_\(optional input\)_)\s*\|/gm,
+      )
+      return new Map([...tableRows].map((row) => [row[1], row[2] ?? ""]))
+    }
+
+    it("records the same fixed and optional values as render.yaml, plus the generated token and Railway's own proxy-hop and health-window settings", () => {
+      const tableValues = definitionTableValues()
+      const expectedValues = {
+        ...HOSTED_FIXED_ENV,
+        ...HOSTED_OPTIONAL_ENV,
+        MCP_AUTH_TOKEN: '${{secret(64, "0123456789abcdef")}}',
+        TRUST_PROXY_HOPS: "2",
+        RAILWAY_HEALTHCHECK_TIMEOUT_SEC: "900",
+      }
+      const recordedValues = Object.fromEntries(
+        Object.keys(expectedValues).map((key) => [key, tableValues.get(key)]),
+      )
+      expect(recordedValues).toEqual(expectedValues)
+    })
+
+    it("leaves the boot-derived variables to init-derive-env", () => {
+      const tableValues = definitionTableValues()
+      const derivedKeysSet = DERIVED_AT_BOOT.filter((key) =>
+        tableValues.has(key),
+      )
+      expect(derivedKeysSet).toEqual([])
+    })
+
+    it("records the six deploy-form inputs, and the Railway guide's Deploy table lists the same six", () => {
+      const contributing = readRepoFile("CONTRIBUTING.md")
+      const railwaySection = contributing.slice(
+        contributing.indexOf("## Railway template"),
+      )
+      const inputRows = railwaySection.matchAll(
+        /^\| `([A-Z_]+)`\s*\| _\((required|optional) input\)_/gm,
+      )
+      const recordedInputs = Object.fromEntries(
+        [...inputRows].map((row) => [row[1], row[2]]),
+      )
+      expect(recordedInputs).toEqual({
+        TZ: "optional",
+        VAULT_NAME: "required",
+        VAULT_PASSWORD: "optional",
+        OBSIDIAN_AUTH_TOKEN: "required",
+        SYNC_EXCLUDED_FOLDERS: "optional",
+        SYNC_FILE_TYPES: "optional",
+      })
+
+      const guide = readRepoFile("deploy/railway/README.md")
+      const deploySection = guide.slice(
+        guide.indexOf("## Deploy"),
+        guide.indexOf("## Your URL and token"),
+      )
+      const guideInputs = [...deploySection.matchAll(/^\| `([A-Z_]+)`/gm)].map(
+        (row) => row[1],
+      )
+      expect(guideInputs).toEqual(Object.keys(recordedInputs))
+    })
   })
 })
 

@@ -9,12 +9,21 @@ import {
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { createHmac } from "node:crypto"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
+import {
+  InvalidGrantError,
+  InvalidTargetError,
+  InvalidTokenError,
+} from "@modelcontextprotocol/sdk/server/auth/errors.js"
 import { signJwt } from "../../../jwt.js"
 import { createOAuthProvider } from "../oauth-provider.js"
 import type { OAuthProvider } from "../oauth-provider.js"
-import type { OAuthClientInformationFull } from "@modelcontextprotocol/sdk/shared/auth.js"
+import type {
+  OAuthClientInformationFull,
+  OAuthTokens,
+} from "@modelcontextprotocol/sdk/shared/auth.js"
 import { logger, type Logger } from "../../../logger.js"
 
 type LogCall = {
@@ -38,10 +47,79 @@ const recordingLogger = (sink: LogCall[]): Logger => {
 }
 
 const AUTH_TOKEN = "test-static-token"
+const OTHER_AUTH_TOKEN = "rotated-static-token"
+const TEST_URLS = { serverUrl: new URL("http://localhost:8000") }
+// The claim values the provider is expected to mint and check for
+// TEST_URLS — spelled out so a change to either derivation shows up here.
+const TEST_ISSUER = "http://localhost:8000/"
+const TEST_AUDIENCE = "http://localhost:8000/mcp"
 
-const seedClient = (db: Database.Database): OAuthClientInformationFull => {
+// Mirrors the provider's storage-key derivation so tests can seed and
+// inspect rows without importing production as its own oracle.
+const refreshTokenKey = (token: string, secret = AUTH_TOKEN): string =>
+  "hmac-sha256:" +
+  createHmac("sha256", secret).update(`refresh-token:${token}`).digest("hex")
+
+const storedRefreshTokenKeys = (db: Database.Database): string[] =>
+  db
+    .prepare<[], { token: string }>(
+      "SELECT token FROM refresh_tokens ORDER BY token",
+    )
+    .all()
+    .map((refreshTokenRow) => refreshTokenRow.token)
+
+const storedRevokedTokens = (db: Database.Database): string[] =>
+  db
+    .prepare<[], { token: string }>(
+      "SELECT token FROM revoked_tokens ORDER BY token",
+    )
+    .all()
+    .map((revokedTokenRow) => revokedTokenRow.token)
+
+const exchangeRefreshToken = (
+  oauth: OAuthProvider,
+  client: OAuthClientInformationFull,
+  refreshToken: string,
+): Promise<OAuthTokens> =>
+  oauth.provider.exchangeRefreshToken(client, refreshToken)
+
+// revokeToken is optional on the SDK's provider type; this provider
+// always implements it.
+const revokeToken = async (
+  oauth: OAuthProvider,
+  client: OAuthClientInformationFull,
+  token: string,
+): Promise<void> => {
+  if (!oauth.provider.revokeToken)
+    throw new Error("revokeToken not implemented")
+  await oauth.provider.revokeToken(client, { token })
+}
+
+/** Runs the real consent → code → token flow and returns the issued tokens. */
+const issueTokens = async (
+  oauth: OAuthProvider,
+  client: OAuthClientInformationFull,
+): Promise<OAuthTokens> => {
+  const requestId = await startAuthFlow(oauth, client)
+  const code = oauth.approveRequest(requestId, logger)
+  return oauth.provider.exchangeAuthorizationCode(client, code)
+}
+
+const issuedRefreshToken = async (
+  oauth: OAuthProvider,
+  client: OAuthClientInformationFull,
+): Promise<string> => {
+  const tokens = await issueTokens(oauth, client)
+  if (!tokens.refresh_token) throw new Error("no refresh token issued")
+  return tokens.refresh_token
+}
+
+const seedClient = (
+  db: Database.Database,
+  clientId = "test-client",
+): OAuthClientInformationFull => {
   const client = {
-    client_id: "test-client",
+    client_id: clientId,
     client_id_issued_at: DateTime.now().toUnixInteger(),
     client_secret: "test-secret",
     client_secret_expires_at: 0,
@@ -57,10 +135,14 @@ const seedClient = (db: Database.Database): OAuthClientInformationFull => {
   return client
 }
 
-const seedRevokedToken = (db: Database.Database, token: string): void => {
+const seedRevokedToken = (
+  db: Database.Database,
+  token: string,
+  revokedAt = DateTime.now().toUnixInteger(),
+): void => {
   db.prepare(
     "INSERT INTO revoked_tokens (token, revoked_at) VALUES (?, ?)",
-  ).run(token, DateTime.now().toUnixInteger())
+  ).run(token, revokedAt)
 }
 
 const seedRefreshToken = (
@@ -72,8 +154,28 @@ const seedRefreshToken = (
 ): void => {
   db.prepare(
     "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
-  ).run(token, clientId, scopes.join(" "), expiresAt)
+  ).run(refreshTokenKey(token), clientId, scopes.join(" "), expiresAt)
 }
+
+const seedConsumedToken = (
+  db: Database.Database,
+  token: string,
+  clientId: string,
+  expiresAt: number,
+): void => {
+  db.prepare(
+    "INSERT INTO consumed_refresh_tokens (token, client_id, expires_at) VALUES (?, ?, ?)",
+  ).run(refreshTokenKey(token), clientId, expiresAt)
+}
+
+const storedRevokedClients = (
+  db: Database.Database,
+): { client_id: string; revoked_at: number }[] =>
+  db
+    .prepare<[], { client_id: string; revoked_at: number }>(
+      "SELECT client_id, revoked_at FROM revoked_clients ORDER BY client_id",
+    )
+    .all()
 
 describe("OAuth refresh token sliding expiry", () => {
   let dir: string
@@ -86,6 +188,7 @@ describe("OAuth refresh token sliding expiry", () => {
     dir = await mkdtemp(join(tmpdir(), "oauth-test-"))
     dbPath = join(dir, "oauth.db")
     oauth = createOAuthProvider({
+      ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath,
       logger,
@@ -108,7 +211,7 @@ describe("OAuth refresh token sliding expiry", () => {
       DateTime.now().plus({ days: 60 }).toUnixInteger(),
     )
 
-    const tokens = await oauth.provider.exchangeRefreshToken!(
+    const tokens = await oauth.provider.exchangeRefreshToken(
       client,
       "fresh-token",
     )
@@ -129,7 +232,7 @@ describe("OAuth refresh token sliding expiry", () => {
     )
 
     await expect(
-      oauth.provider.exchangeRefreshToken!(client, "expired-token"),
+      oauth.provider.exchangeRefreshToken(client, "expired-token"),
     ).rejects.toThrow("Refresh token expired or invalid")
   })
 
@@ -143,42 +246,39 @@ describe("OAuth refresh token sliding expiry", () => {
     )
 
     await expect(
-      oauth.provider.exchangeRefreshToken!(client, "expired-token"),
+      oauth.provider.exchangeRefreshToken(client, "expired-token"),
     ).rejects.toThrow("Refresh token expired or invalid")
 
-    const row = db
-      .prepare("SELECT * FROM refresh_tokens WHERE token = ?")
-      .get("expired-token")
-    expect(row).toBeUndefined()
+    expect(storedRefreshTokenKeys(db)).toEqual([])
   })
 
   it("rotates to a new token with a fresh 60-day window on use", async () => {
+    // Seeded far from a fresh window so a rotated token that inherited
+    // this expiry would miss the assertion below by ~59 days.
     seedRefreshToken(
       db,
       "first-token",
       client.client_id,
       ["vault"],
-      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+      DateTime.now().plus({ days: 1 }).toUnixInteger(),
     )
 
-    const tokens = await oauth.provider.exchangeRefreshToken!(
-      client,
-      "first-token",
-    )
+    const tokens = await exchangeRefreshToken(oauth, client, "first-token")
     const newToken = tokens.refresh_token
-    expect(typeof newToken).toBe("string")
-    expect(newToken!.length).toBeGreaterThan(0)
+    if (!newToken) throw new Error("no refresh token issued")
 
     const row = db
-      .prepare("SELECT expires_at FROM refresh_tokens WHERE token = ?")
-      .get(newToken!) as { expires_at: number } | undefined
-    expect(row).not.toBeUndefined()
+      .prepare<[string], { expires_at: number }>(
+        "SELECT expires_at FROM refresh_tokens WHERE token = ?",
+      )
+      .get(refreshTokenKey(newToken))
+    if (!row) throw new Error("rotated refresh token was not stored")
 
     // The new token's expires_at should be ~60 days from "now" — i.e.
     // a fresh window, not inherited from the old token's expires_at.
     const expected = DateTime.now().plus({ days: 60 }).toUnixInteger()
-    expect(row!.expires_at).toBeGreaterThanOrEqual(expected - 5)
-    expect(row!.expires_at).toBeLessThanOrEqual(expected + 5)
+    expect(row.expires_at).toBeGreaterThanOrEqual(expected - 5)
+    expect(row.expires_at).toBeLessThanOrEqual(expected + 5)
   })
 
   it("invalidates the old token after rotation (single-use)", async () => {
@@ -190,10 +290,10 @@ describe("OAuth refresh token sliding expiry", () => {
       DateTime.now().plus({ days: 60 }).toUnixInteger(),
     )
 
-    await oauth.provider.exchangeRefreshToken!(client, "first-token")
+    await oauth.provider.exchangeRefreshToken(client, "first-token")
 
     await expect(
-      oauth.provider.exchangeRefreshToken!(client, "first-token"),
+      oauth.provider.exchangeRefreshToken(client, "first-token"),
     ).rejects.toThrow("Refresh token expired or invalid")
   })
 
@@ -201,13 +301,13 @@ describe("OAuth refresh token sliding expiry", () => {
     seedRefreshToken(db, "pre-migration-token", client.client_id, ["vault"], 0)
 
     await expect(
-      oauth.provider.exchangeRefreshToken!(client, "pre-migration-token"),
+      oauth.provider.exchangeRefreshToken(client, "pre-migration-token"),
     ).rejects.toThrow("Refresh token expired or invalid")
   })
 
   it("rejects a non-existent refresh token", async () => {
     await expect(
-      oauth.provider.exchangeRefreshToken!(client, "never-existed"),
+      oauth.provider.exchangeRefreshToken(client, "never-existed"),
     ).rejects.toThrow("Refresh token expired or invalid")
   })
 })
@@ -233,48 +333,165 @@ describe("OAuth refresh token schema migration", () => {
         client_id TEXT NOT NULL,
         scopes TEXT NOT NULL
       );
-      INSERT INTO refresh_tokens (token, client_id, scopes)
-      VALUES ('legacy-token', 'legacy-client', 'vault');
     `)
     oldDb.close()
 
-    createOAuthProvider({
-      authToken: AUTH_TOKEN,
-      dbPath,
-      logger,
-    })
+    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
 
     const db = new Database(dbPath)
-    try {
-      const columns = db
-        .prepare("SELECT name FROM pragma_table_info('refresh_tokens')")
-        .all() as { name: string }[]
-      expect(columns.map((column) => column.name)).toContain("expires_at")
-
-      const row = db
-        .prepare("SELECT expires_at FROM refresh_tokens WHERE token = ?")
-        .get("legacy-token") as { expires_at: number } | undefined
-      expect(row).toBeDefined()
-      expect(row!.expires_at).toBe(0) // DEFAULT 0 — treated as expired
-    } finally {
+    onTestFinished(() => {
       db.close()
-    }
+    })
+    const columns = db
+      .prepare<[], { name: string }>(
+        "SELECT name FROM pragma_table_info('refresh_tokens')",
+      )
+      .all()
+    expect(columns.map((column) => column.name)).toEqual([
+      "token",
+      "client_id",
+      "scopes",
+      "expires_at",
+    ])
   })
 
-  it("is idempotent — re-running on a migrated DB doesn't error", () => {
-    createOAuthProvider({
+  it("clears raw refresh tokens written by a version that stored them in plaintext", () => {
+    const oldDb = new Database(dbPath)
+    oldDb.exec(`
+      CREATE TABLE refresh_tokens (
+        token TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL,
+        scopes TEXT NOT NULL,
+        expires_at INTEGER NOT NULL
+      );
+    `)
+    oldDb
+      .prepare(
+        "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(
+        "legacy-token",
+        "legacy-client",
+        "vault",
+        DateTime.now().plus({ days: 60 }).toUnixInteger(),
+      )
+    oldDb.close()
+
+    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
+
+    const db = new Database(dbPath)
+    onTestFinished(() => {
+      db.close()
+    })
+    expect(storedRefreshTokenKeys(db)).toEqual([])
+  })
+
+  it("clears raw refresh tokens written after a rollback beside keyed rows it keeps", async () => {
+    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
+    const db = new Database(dbPath)
+    onTestFinished(() => {
+      db.close()
+    })
+    const client = seedClient(db)
+    seedRefreshToken(
+      db,
+      "keyed-token",
+      client.client_id,
+      ["vault"],
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+    )
+    db.prepare(
+      "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
+    ).run(
+      "raw-token-from-rollback",
+      client.client_id,
+      "vault",
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+    )
+
+    const reopened = createOAuthProvider({
+      ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath,
       logger,
     })
 
-    expect(() =>
-      createOAuthProvider({
-        authToken: AUTH_TOKEN,
-        dbPath,
-        logger,
+    expect(storedRefreshTokenKeys(db)).toEqual([refreshTokenKey("keyed-token")])
+    const tokens = await exchangeRefreshToken(reopened, client, "keyed-token")
+    expect(tokens.scope).toBe("vault")
+  })
+
+  it("logs oauth_refresh_tokens_cleared when clearing raw tokens", () => {
+    const oldDb = new Database(dbPath)
+    oldDb.exec(`
+      CREATE TABLE refresh_tokens (
+        token TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL,
+        scopes TEXT NOT NULL,
+        expires_at INTEGER NOT NULL
+      );
+    `)
+    oldDb
+      .prepare(
+        "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(
+        "legacy-token",
+        "legacy-client",
+        "vault",
+        DateTime.now().plus({ days: 60 }).toUnixInteger(),
+      )
+    oldDb.close()
+
+    const logs: LogCall[] = []
+    const testLogger = recordingLogger(logs)
+    createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: testLogger,
+    })
+
+    const event = logs.find(
+      (log) => log.message === "oauth_refresh_tokens_cleared",
+    )
+    expect(event).toEqual(
+      expect.objectContaining({
+        level: "info",
+        message: "oauth_refresh_tokens_cleared",
+        data: expect.objectContaining({
+          reason: "plaintext_rows",
+          rows: 1,
+        }),
       }),
-    ).not.toThrow()
+    )
+  })
+
+  it("keeps keyed refresh tokens when the provider is re-opened", async () => {
+    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
+    const db = new Database(dbPath)
+    onTestFinished(() => {
+      db.close()
+    })
+    const client = seedClient(db)
+    seedRefreshToken(
+      db,
+      "live-token",
+      client.client_id,
+      ["vault"],
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+    )
+
+    const reopened = createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger,
+    })
+
+    expect(storedRefreshTokenKeys(db)).toEqual([refreshTokenKey("live-token")])
+    const tokens = await exchangeRefreshToken(reopened, client, "live-token")
+    expect(tokens.scope).toBe("vault")
   })
 })
 
@@ -290,7 +507,12 @@ describe("verifyAccessToken", () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "verify-token-test-"))
     dbPath = join(dir, "oauth.db")
-    oauth = createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+    oauth = createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger,
+    })
     db = new Database(dbPath)
   })
 
@@ -320,7 +542,8 @@ describe("verifyAccessToken", () => {
         sub: "client-123",
         scope: "vault",
         exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
-        iss: "vault-cortex",
+        iss: TEST_ISSUER,
+        aud: TEST_AUDIENCE,
       },
       AUTH_TOKEN,
     )
@@ -339,7 +562,8 @@ describe("verifyAccessToken", () => {
         sub: "client-456",
         scope: "vault read write",
         exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
-        iss: "vault-cortex",
+        iss: TEST_ISSUER,
+        aud: TEST_AUDIENCE,
       },
       AUTH_TOKEN,
     )
@@ -354,7 +578,8 @@ describe("verifyAccessToken", () => {
         sub: "client-789",
         scope: "",
         exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
-        iss: "vault-cortex",
+        iss: TEST_ISSUER,
+        aud: TEST_AUDIENCE,
       },
       AUTH_TOKEN,
     )
@@ -369,7 +594,8 @@ describe("verifyAccessToken", () => {
         sub: "client-123",
         scope: "vault",
         exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
-        iss: "vault-cortex",
+        iss: TEST_ISSUER,
+        aud: TEST_AUDIENCE,
       },
       AUTH_TOKEN,
     )
@@ -386,7 +612,8 @@ describe("verifyAccessToken", () => {
         sub: "client-123",
         scope: "vault",
         exp: DateTime.now().minus({ seconds: 10 }).toUnixInteger(),
-        iss: "vault-cortex",
+        iss: TEST_ISSUER,
+        aud: TEST_AUDIENCE,
       },
       AUTH_TOKEN,
     )
@@ -403,7 +630,9 @@ describe("verifyAccessToken", () => {
   })
 })
 
-const setupAuditTest = async (): Promise<{
+const setupAuditTest = async (
+  serverUrl = TEST_URLS.serverUrl,
+): Promise<{
   logs: LogCall[]
   testLogger: Logger
   oauth: OAuthProvider
@@ -415,6 +644,7 @@ const setupAuditTest = async (): Promise<{
   const logs: LogCall[] = []
   const testLogger = recordingLogger(logs)
   const oauth = createOAuthProvider({
+    serverUrl,
     authToken: AUTH_TOKEN,
     dbPath,
     logger: testLogger,
@@ -490,7 +720,7 @@ describe("OAuth audit logging", () => {
     )
     logs.length = 0
 
-    await oauth.provider.exchangeRefreshToken!(client, "audit-refresh")
+    await oauth.provider.exchangeRefreshToken(client, "audit-refresh")
 
     const event = logs.find((log) => log.message === "oauth_token_refreshed")
     expect(event).toBeDefined()
@@ -502,7 +732,7 @@ describe("OAuth audit logging", () => {
     const { logs, oauth, client } = await setupAuditTest()
 
     await expect(
-      oauth.provider.exchangeRefreshToken!(client, "nonexistent"),
+      oauth.provider.exchangeRefreshToken(client, "nonexistent"),
     ).rejects.toThrow("Refresh token expired or invalid")
 
     const event = logs.find(
@@ -513,17 +743,52 @@ describe("OAuth audit logging", () => {
     expect(event!.data.reason).toBe("expired_or_invalid")
   })
 
-  it("logs oauth_token_revoked on revocation", async () => {
+  it("logs oauth_token_revoked with the client and an unknown token type when nothing matched", async () => {
     const { logs, oauth, client } = await setupAuditTest()
 
-    await oauth.provider.revokeToken!(client, {
-      token: "some-token",
-      token_type_hint: "access_token",
-    })
+    await revokeToken(oauth, client, "some-token")
+
+    expect(logs.filter((log) => log.message === "oauth_token_revoked")).toEqual(
+      [
+        {
+          level: "info",
+          message: "oauth_token_revoked",
+          data: {
+            component: "oauth",
+            clientId: client.client_id,
+            tokenType: "unknown",
+          },
+        },
+      ],
+    )
+  })
+
+  it("logs tokenType refresh_token when a stored refresh token is revoked", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+    const refreshToken = await issuedRefreshToken(oauth, client)
+
+    await revokeToken(oauth, client, refreshToken)
 
     const event = logs.find((log) => log.message === "oauth_token_revoked")
-    expect(event).toBeDefined()
-    expect(event!.level).toBe("info")
+    expect(event?.data).toEqual({
+      component: "oauth",
+      clientId: client.client_id,
+      tokenType: "refresh_token",
+    })
+  })
+
+  it("logs tokenType access_token when a valid access JWT is revoked", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+    const { access_token: accessToken } = await issueTokens(oauth, client)
+
+    await revokeToken(oauth, client, accessToken)
+
+    const event = logs.find((log) => log.message === "oauth_token_revoked")
+    expect(event?.data).toEqual({
+      component: "oauth",
+      clientId: client.client_id,
+      tokenType: "access_token",
+    })
   })
 
   it("logs oauth_token_rejected when a revoked token is verified", async () => {
@@ -533,7 +798,8 @@ describe("OAuth audit logging", () => {
         sub: client.client_id,
         scope: "vault",
         exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
-        iss: "vault-cortex",
+        iss: TEST_ISSUER,
+        aud: TEST_AUDIENCE,
       },
       AUTH_TOKEN,
     )
@@ -611,3 +877,1288 @@ const startAuthFlow = async (
   if (!match?.[1]) throw new Error("no request_id in consent HTML")
   return match[1]
 }
+
+describe("OAuth token audience and issuer", () => {
+  const decodeJwtPayload = (token: string): Record<string, unknown> => {
+    const [, body] = token.split(".")
+    if (!body) throw new Error("token has no payload segment")
+    const decoded: unknown = JSON.parse(
+      Buffer.from(body, "base64url").toString(),
+    )
+    if (typeof decoded !== "object" || decoded === null) {
+      throw new Error("token payload is not an object")
+    }
+    return { ...decoded }
+  }
+
+  // Test-owned copy of the production TTL — a TTL change must fail here
+  // and be updated deliberately.
+  const ACCESS_TOKEN_TTL_S = 6 * 60 * 60
+
+  it("mints access tokens with exactly the bound claim set", async () => {
+    const { oauth, client } = await setupAuditTest()
+
+    const issuedAtLowerBound = DateTime.now().toUnixInteger()
+    const issued = await issueTokens(oauth, client)
+    const issuedAtUpperBound = DateTime.now().toUnixInteger()
+    const payload = decodeJwtPayload(issued.access_token)
+
+    expect(payload).toEqual({
+      sub: "test-client",
+      scope: "vault",
+      iat: expect.any(Number),
+      exp: expect.any(Number),
+      iss: TEST_ISSUER,
+      aud: TEST_AUDIENCE,
+    })
+    // Bounded rather than exact because the clock ticks during issuance.
+    expect(payload.iat).toBeGreaterThanOrEqual(issuedAtLowerBound)
+    expect(payload.iat).toBeLessThanOrEqual(issuedAtUpperBound)
+    expect(payload.exp).toBeGreaterThanOrEqual(
+      issuedAtLowerBound + ACCESS_TOKEN_TTL_S,
+    )
+    expect(payload.exp).toBeLessThanOrEqual(
+      issuedAtUpperBound + ACCESS_TOKEN_TTL_S,
+    )
+    // The lifetime told to the client and the exp the server enforces must
+    // move together — both assert against the same test-owned TTL.
+    expect(issued.expires_in).toBe(ACCESS_TOKEN_TTL_S)
+  })
+
+  it("keeps a subpath prefix in the minted issuer but not the audience", async () => {
+    const { oauth, client } = await setupAuditTest(
+      new URL("http://localhost:8000/vault/"),
+    )
+
+    const issued = await issueTokens(oauth, client)
+    const payload = decodeJwtPayload(issued.access_token)
+
+    expect(payload).toEqual({
+      sub: "test-client",
+      scope: "vault",
+      iat: expect.any(Number),
+      exp: expect.any(Number),
+      iss: "http://localhost:8000/vault/",
+      aud: "http://localhost:8000/mcp",
+    })
+  })
+
+  it("rejects a same-secret token minted for another audience", async () => {
+    const { logs, oauth } = await setupAuditTest()
+    const foreignAudience = signJwt(
+      {
+        sub: "other-deployment-client",
+        scope: "vault",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: TEST_ISSUER,
+        aud: "https://other.example/mcp",
+      },
+      AUTH_TOKEN,
+    )
+
+    await expect(
+      oauth.provider.verifyAccessToken(foreignAudience),
+    ).rejects.toThrow("Token expired or invalid")
+    const rejected = logs.find((log) => log.message === "oauth_token_rejected")
+    expect(rejected?.data.reason).toBe("invalid_or_expired")
+  })
+
+  it("rejects a same-secret token from another issuer", async () => {
+    const { oauth } = await setupAuditTest()
+    const foreignIssuer = signJwt(
+      {
+        sub: "other-deployment-client",
+        scope: "vault",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: "https://other.example/",
+        aud: TEST_AUDIENCE,
+      },
+      AUTH_TOKEN,
+    )
+
+    await expect(
+      oauth.provider.verifyAccessToken(foreignIssuer),
+    ).rejects.toThrow("Token expired or invalid")
+  })
+
+  it("does not record a foreign-audience token as a revoked access token", async () => {
+    const { oauth, db, client } = await setupAuditTest()
+    const foreignAudience = signJwt(
+      {
+        sub: client.client_id,
+        scope: "vault",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: TEST_ISSUER,
+        aud: "https://other.example/mcp",
+      },
+      AUTH_TOKEN,
+    )
+
+    await revokeToken(oauth, client, foreignAudience)
+
+    expect(storedRevokedTokens(db)).toEqual([])
+  })
+})
+
+describe("OAuth refresh token reuse revocation", () => {
+  const refreshTokenOf = (tokens: OAuthTokens): string => {
+    if (!tokens.refresh_token) throw new Error("no refresh token issued")
+    return tokens.refresh_token
+  }
+
+  it("revokes the whole grant when a rotated refresh token is presented again", async () => {
+    const { logs, oauth, db, client } = await setupAuditTest()
+    const originalRefreshToken = await issuedRefreshToken(oauth, client)
+    const rotated = await exchangeRefreshToken(
+      oauth,
+      client,
+      originalRefreshToken,
+    )
+
+    await expect(
+      exchangeRefreshToken(oauth, client, originalRefreshToken),
+    ).rejects.toStrictEqual(
+      new InvalidGrantError("Refresh token expired or invalid"),
+    )
+
+    const reuseLogs = logs.filter(
+      (log) => log.message === "oauth_refresh_token_reuse",
+    )
+    expect(reuseLogs).toEqual([
+      {
+        level: "warn",
+        message: "oauth_refresh_token_reuse",
+        data: { component: "oauth", clientId: "test-client" },
+      },
+    ])
+    expect(storedRefreshTokenKeys(db)).toEqual([])
+    await expect(
+      exchangeRefreshToken(oauth, client, refreshTokenOf(rotated)),
+    ).rejects.toStrictEqual(
+      new InvalidGrantError("Refresh token expired or invalid"),
+    )
+
+    // A pre-revocation access token (iat strictly before the cutoff) is
+    // rejected even though the JWT signature is valid.
+    const preRevocationToken = signJwt(
+      {
+        sub: client.client_id,
+        scope: "vault",
+        iat: DateTime.now().minus({ seconds: 5 }).toUnixInteger(),
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: TEST_ISSUER,
+        aud: TEST_AUDIENCE,
+      },
+      AUTH_TOKEN,
+    )
+    await expect(
+      oauth.provider.verifyAccessToken(preRevocationToken),
+    ).rejects.toStrictEqual(new InvalidTokenError("Token has been revoked"))
+    const rejectedLogs = logs.filter(
+      (log) =>
+        log.message === "oauth_token_rejected" &&
+        log.data.reason === "client_revoked",
+    )
+    expect(rejectedLogs).toEqual([
+      {
+        level: "warn",
+        message: "oauth_token_rejected",
+        data: {
+          component: "oauth",
+          reason: "client_revoked",
+          clientId: "test-client",
+        },
+      },
+    ])
+  })
+
+  it("records the consumed key with the parent row's expiry when a refresh token rotates", async () => {
+    const { oauth, db, client } = await setupAuditTest()
+    const originalRefreshToken = await issuedRefreshToken(oauth, client)
+    const parentRow = db
+      .prepare<[string], { expires_at: number }>(
+        "SELECT expires_at FROM refresh_tokens WHERE token = ?",
+      )
+      .get(refreshTokenKey(originalRefreshToken))
+    if (!parentRow) throw new Error("parent row not found")
+
+    await exchangeRefreshToken(oauth, client, originalRefreshToken)
+
+    const consumedRows = db
+      .prepare<[], { token: string; client_id: string; expires_at: number }>(
+        "SELECT token, client_id, expires_at FROM consumed_refresh_tokens",
+      )
+      .all()
+    expect(consumedRows).toEqual([
+      {
+        token: refreshTokenKey(originalRefreshToken),
+        client_id: "test-client",
+        expires_at: parentRow.expires_at,
+      },
+    ])
+  })
+
+  it("treats a replay of an expired consumed token as a plain miss", async () => {
+    const { logs, oauth, db, client } = await setupAuditTest()
+    seedConsumedToken(
+      db,
+      "stale-token",
+      client.client_id,
+      DateTime.now().minus({ days: 1 }).toUnixInteger(),
+    )
+    seedRefreshToken(
+      db,
+      "live-token",
+      client.client_id,
+      ["vault"],
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+    )
+
+    await expect(
+      exchangeRefreshToken(oauth, client, "stale-token"),
+    ).rejects.toStrictEqual(
+      new InvalidGrantError("Refresh token expired or invalid"),
+    )
+
+    expect(
+      logs.filter((log) => log.message === "oauth_refresh_token_reuse"),
+    ).toEqual([])
+    expect(storedRevokedClients(db)).toEqual([])
+    expect(storedRefreshTokenKeys(db)).toEqual([refreshTokenKey("live-token")])
+  })
+
+  it("makes a second replay after re-consent a plain miss, not another revocation", async () => {
+    const { logs, oauth, db, client } = await setupAuditTest()
+    const originalRefreshToken = await issuedRefreshToken(oauth, client)
+    await exchangeRefreshToken(oauth, client, originalRefreshToken)
+    await expect(
+      exchangeRefreshToken(oauth, client, originalRefreshToken),
+    ).rejects.toStrictEqual(
+      new InvalidGrantError("Refresh token expired or invalid"),
+    )
+    const revokedAfterReuse = storedRevokedClients(db)
+
+    const reissued = await issueTokens(oauth, client)
+    await expect(
+      exchangeRefreshToken(oauth, client, originalRefreshToken),
+    ).rejects.toStrictEqual(
+      new InvalidGrantError("Refresh token expired or invalid"),
+    )
+
+    expect(
+      logs.filter((log) => log.message === "oauth_refresh_token_reuse"),
+    ).toHaveLength(1)
+    expect(storedRevokedClients(db)).toEqual(revokedAfterReuse)
+    // The re-consented grant survives the second replay: its refresh
+    // token still rotates.
+    const refreshedAfter = await exchangeRefreshToken(
+      oauth,
+      client,
+      refreshTokenOf(reissued),
+    )
+    expect(typeof refreshedAfter.access_token).toBe("string")
+  })
+
+  it("revokes the recorded owner when another client replays its token", async () => {
+    const { logs, oauth, db, client } = await setupAuditTest()
+    const otherClient = seedClient(db, "other-client")
+    const originalRefreshToken = await issuedRefreshToken(oauth, client)
+    await exchangeRefreshToken(oauth, client, originalRefreshToken)
+
+    await expect(
+      exchangeRefreshToken(oauth, otherClient, originalRefreshToken),
+    ).rejects.toStrictEqual(
+      new InvalidGrantError("Refresh token expired or invalid"),
+    )
+
+    const reuseLogs = logs.filter(
+      (log) => log.message === "oauth_refresh_token_reuse",
+    )
+    expect(reuseLogs).toEqual([
+      {
+        level: "warn",
+        message: "oauth_refresh_token_reuse",
+        data: {
+          component: "oauth",
+          clientId: "test-client",
+          presenterClientId: "other-client",
+        },
+      },
+    ])
+    expect(storedRevokedClients(db)).toEqual([
+      { client_id: "test-client", revoked_at: expect.any(Number) },
+    ])
+    expect(storedRefreshTokenKeys(db)).toEqual([])
+  })
+
+  it("accepts a token the client minted after its revocation", async () => {
+    const { oauth, db, client } = await setupAuditTest()
+    db.prepare(
+      "INSERT INTO revoked_clients (client_id, revoked_at) VALUES (?, ?)",
+    ).run(
+      client.client_id,
+      DateTime.now().minus({ seconds: 10 }).toUnixInteger(),
+    )
+
+    const issued = await issueTokens(oauth, client)
+    const authInfo = await oauth.provider.verifyAccessToken(issued.access_token)
+
+    expect(authInfo.clientId).toBe("test-client")
+  })
+
+  it("accepts a token minted in the revocation's own second", async () => {
+    const { oauth, db, client } = await setupAuditTest()
+    const revokedAt = DateTime.now().toUnixInteger()
+    db.prepare(
+      "INSERT INTO revoked_clients (client_id, revoked_at) VALUES (?, ?)",
+    ).run(client.client_id, revokedAt)
+    const sameSecondToken = signJwt(
+      {
+        sub: client.client_id,
+        scope: "vault",
+        iat: revokedAt,
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: TEST_ISSUER,
+        aud: TEST_AUDIENCE,
+      },
+      AUTH_TOKEN,
+    )
+
+    // Same-second is benign: the attacker's refresh tokens are already
+    // deleted, so they can't mint new access tokens.
+    const authInfo = await oauth.provider.verifyAccessToken(sameSecondToken)
+    expect(authInfo.clientId).toBe(client.client_id)
+  })
+
+  it("rejects a token minted one second before the revocation", async () => {
+    const { oauth, db, client } = await setupAuditTest()
+    const revokedAt = DateTime.now().toUnixInteger()
+    db.prepare(
+      "INSERT INTO revoked_clients (client_id, revoked_at) VALUES (?, ?)",
+    ).run(client.client_id, revokedAt)
+    const preRevocationToken = signJwt(
+      {
+        sub: client.client_id,
+        scope: "vault",
+        iat: revokedAt - 1,
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: TEST_ISSUER,
+        aud: TEST_AUDIENCE,
+      },
+      AUTH_TOKEN,
+    )
+
+    await expect(
+      oauth.provider.verifyAccessToken(preRevocationToken),
+    ).rejects.toStrictEqual(new InvalidTokenError("Token has been revoked"))
+  })
+
+  it("rejects a revoked client's token that carries no iat", async () => {
+    const { oauth, db, client } = await setupAuditTest()
+    db.prepare(
+      "INSERT INTO revoked_clients (client_id, revoked_at) VALUES (?, ?)",
+    ).run(client.client_id, DateTime.now().toUnixInteger())
+    const preUpgradeToken = signJwt(
+      {
+        sub: client.client_id,
+        scope: "vault",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: TEST_ISSUER,
+        aud: TEST_AUDIENCE,
+      },
+      AUTH_TOKEN,
+    )
+
+    await expect(
+      oauth.provider.verifyAccessToken(preUpgradeToken),
+    ).rejects.toStrictEqual(new InvalidTokenError("Token has been revoked"))
+  })
+
+  it("sweeps a consumed record once its token's own expiry passes", async () => {
+    const { oauth, db, client } = await setupAuditTest()
+    seedConsumedToken(
+      db,
+      "long-gone-token",
+      client.client_id,
+      DateTime.now().minus({ days: 1 }).toUnixInteger(),
+    )
+
+    // Minting any refresh token runs the sweep.
+    await issueTokens(oauth, client)
+
+    const consumedRows = db
+      .prepare<[], { token: string }>(
+        "SELECT token FROM consumed_refresh_tokens",
+      )
+      .all()
+    expect(consumedRows).toEqual([])
+  })
+})
+
+describe("OAuth resource parameter (RFC 8707)", () => {
+  const authorizeWithResource = async (
+    oauth: OAuthProvider,
+    client: OAuthClientInformationFull,
+    resource: URL | undefined,
+  ): Promise<{ sent: boolean; requestId: string | undefined }> => {
+    let consentHtml = ""
+    const res = {
+      type: () => res,
+      send: (html: string) => {
+        consentHtml = html
+        return res
+      },
+    }
+    await oauth.provider.authorize(
+      client,
+      {
+        codeChallenge: "test-challenge",
+        redirectUri: "https://example.com/cb",
+        scopes: ["vault"],
+        ...(resource === undefined ? {} : { resource }),
+      },
+      res as never,
+    )
+    const requestId = /name="request_id"\s+value="([^"]+)"/.exec(
+      consentHtml,
+    )?.[1]
+    return { sent: consentHtml !== "", requestId }
+  }
+
+  it("accepts an authorization request that names this server", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+
+    const { sent, requestId } = await authorizeWithResource(
+      oauth,
+      client,
+      new URL("http://localhost:8000/mcp"),
+    )
+
+    expect(sent).toBe(true)
+    expect(requestId).toBeDefined()
+    expect(logs.some((log) => log.message === "oauth_authorize_started")).toBe(
+      true,
+    )
+  })
+
+  it("accepts a resource that differs only by a trailing slash", async () => {
+    const { oauth, client } = await setupAuditTest()
+
+    const { sent } = await authorizeWithResource(
+      oauth,
+      client,
+      new URL("http://localhost:8000/mcp/"),
+    )
+
+    expect(sent).toBe(true)
+  })
+
+  it("accepts an authorization request that names no resource", async () => {
+    const { oauth, client } = await setupAuditTest()
+
+    const { sent } = await authorizeWithResource(oauth, client, undefined)
+
+    expect(sent).toBe(true)
+  })
+
+  it("accepts the root discovery document's resource identifier", async () => {
+    // The SDK's root /.well-known/oauth-protected-resource advertises the
+    // server URL itself; a client that discovers there sends it verbatim.
+    const { oauth, client } = await setupAuditTest()
+
+    const { sent } = await authorizeWithResource(
+      oauth,
+      client,
+      new URL("http://localhost:8000/"),
+    )
+
+    expect(sent).toBe(true)
+  })
+
+  it("rejects a resource on this server's host with any other path", async () => {
+    const { oauth, client } = await setupAuditTest()
+
+    await expect(
+      authorizeWithResource(
+        oauth,
+        client,
+        new URL("http://localhost:8000/other"),
+      ),
+    ).rejects.toStrictEqual(
+      new InvalidTargetError("The resource parameter is not this server"),
+    )
+  })
+
+  it("rejects an authorization request for another server with invalid_target before rendering", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+    const consent = { sent: false }
+    const res = {
+      type: () => res,
+      send: () => {
+        consent.sent = true
+        return res
+      },
+    }
+
+    await expect(
+      oauth.provider.authorize(
+        client,
+        {
+          codeChallenge: "test-challenge",
+          redirectUri: "https://example.com/cb",
+          scopes: ["vault"],
+          resource: new URL("https://other.example/mcp"),
+        },
+        res as never,
+      ),
+    ).rejects.toStrictEqual(
+      new InvalidTargetError("The resource parameter is not this server"),
+    )
+    expect(consent.sent).toBe(false)
+    const rejected = logs.find(
+      (log) => log.message === "oauth_resource_rejected",
+    )
+    expect(rejected?.data).toEqual({
+      component: "oauth",
+      clientId: client.client_id,
+      resource: "https://other.example/mcp",
+    })
+  })
+
+  it("rejects a code exchange for another server and leaves the code redeemable", async () => {
+    const { oauth, testLogger, client } = await setupAuditTest()
+    const requestId = await startAuthFlow(oauth, client)
+    const code = oauth.approveRequest(requestId, testLogger)
+
+    await expect(
+      oauth.provider.exchangeAuthorizationCode(
+        client,
+        code,
+        undefined,
+        undefined,
+        new URL("https://other.example/mcp"),
+      ),
+    ).rejects.toStrictEqual(
+      new InvalidTargetError("The resource parameter is not this server"),
+    )
+
+    const issued = await oauth.provider.exchangeAuthorizationCode(
+      client,
+      code,
+      undefined,
+      undefined,
+      new URL("http://localhost:8000/mcp"),
+    )
+    expect(issued.token_type).toBe("Bearer")
+  })
+
+  it("rejects a refresh for another server and leaves the refresh token usable", async () => {
+    const { oauth, client } = await setupAuditTest()
+    const refreshToken = await issuedRefreshToken(oauth, client)
+
+    await expect(
+      oauth.provider.exchangeRefreshToken(
+        client,
+        refreshToken,
+        undefined,
+        new URL("https://other.example/mcp"),
+      ),
+    ).rejects.toStrictEqual(
+      new InvalidTargetError("The resource parameter is not this server"),
+    )
+
+    const refreshed = await oauth.provider.exchangeRefreshToken(
+      client,
+      refreshToken,
+      undefined,
+      new URL("http://localhost:8000/mcp"),
+    )
+    expect(refreshed.token_type).toBe("Bearer")
+  })
+})
+
+describe("OAuth default scope", () => {
+  /** Starts an authorization flow with the given scopes and returns the
+   *  rendered consent HTML plus the request id it carries. */
+  const startAuthFlowWithScopes = async (
+    oauth: OAuthProvider,
+    client: OAuthClientInformationFull,
+    scopes: string[] | undefined,
+  ): Promise<{ consentHtml: string; requestId: string }> => {
+    let consentHtml = ""
+    const res = {
+      type: () => res,
+      send: (html: string) => {
+        consentHtml = html
+        return res
+      },
+    }
+    await oauth.provider.authorize(
+      client,
+      {
+        codeChallenge: "test-challenge",
+        redirectUri: "https://example.com/cb",
+        ...(scopes === undefined ? {} : { scopes }),
+      },
+      res as never,
+    )
+    const requestId = /name="request_id"\s+value="([^"]+)"/.exec(
+      consentHtml,
+    )?.[1]
+    if (!requestId) throw new Error("no request_id in consent HTML")
+    return { consentHtml, requestId }
+  }
+
+  it("grants vault when the request names no scope", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+
+    const { consentHtml, requestId } = await startAuthFlowWithScopes(
+      oauth,
+      client,
+      [],
+    )
+
+    const started = logs.find(
+      (log) => log.message === "oauth_authorize_started",
+    )
+    expect(started?.data.scopes).toEqual(["vault"])
+    expect(consentHtml).toContain("<li>vault</li>")
+    expect(consentHtml).not.toContain("No specific scopes requested")
+
+    const code = oauth.approveRequest(requestId, testLogger)
+    const issued = await oauth.provider.exchangeAuthorizationCode(client, code)
+    expect(issued.scope).toBe("vault")
+    const verified = await oauth.provider.verifyAccessToken(issued.access_token)
+    expect(verified.scopes).toEqual(["vault"])
+
+    if (!issued.refresh_token) throw new Error("no refresh token issued")
+    const refreshed = await exchangeRefreshToken(
+      oauth,
+      client,
+      issued.refresh_token,
+    )
+    expect(refreshed.scope).toBe("vault")
+  })
+
+  it("grants vault when the request's scope is blank", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+
+    // The SDK turns `scope=` into [""].
+    const { consentHtml, requestId } = await startAuthFlowWithScopes(
+      oauth,
+      client,
+      [""],
+    )
+
+    const started = logs.find(
+      (log) => log.message === "oauth_authorize_started",
+    )
+    expect(started?.data.scopes).toEqual(["vault"])
+    expect(consentHtml).toContain("<li>vault</li>")
+    expect(consentHtml).not.toContain("<li></li>")
+
+    const code = oauth.approveRequest(requestId, testLogger)
+    const issued = await oauth.provider.exchangeAuthorizationCode(client, code)
+    expect(issued.scope).toBe("vault")
+  })
+
+  it("keeps the scope a request names", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+
+    const { consentHtml, requestId } = await startAuthFlowWithScopes(
+      oauth,
+      client,
+      ["vault"],
+    )
+
+    const started = logs.find(
+      (log) => log.message === "oauth_authorize_started",
+    )
+    expect(started?.data.scopes).toEqual(["vault"])
+    expect(consentHtml).toContain("<li>vault</li>")
+
+    const code = oauth.approveRequest(requestId, testLogger)
+    const issued = await oauth.provider.exchangeAuthorizationCode(client, code)
+    expect(issued.scope).toBe("vault")
+  })
+
+  it("does not widen a narrower explicit scope to vault", async () => {
+    const { oauth, testLogger, client } = await setupAuditTest()
+
+    const { consentHtml, requestId } = await startAuthFlowWithScopes(
+      oauth,
+      client,
+      ["read"],
+    )
+
+    expect(consentHtml).toContain("<li>read</li>")
+    expect(consentHtml).not.toContain("<li>vault</li>")
+
+    const code = oauth.approveRequest(requestId, testLogger)
+    const issued = await oauth.provider.exchangeAuthorizationCode(client, code)
+    expect(issued.scope).toBe("read")
+  })
+
+  it("grants vault when the scopes key is absent from the request", async () => {
+    const { logs, testLogger, oauth, client } = await setupAuditTest()
+
+    // When the SDK receives no `scope` parameter at all, params.scopes is
+    // undefined — the ?? [] nullish guard in authorize handles this.
+    const { consentHtml, requestId } = await startAuthFlowWithScopes(
+      oauth,
+      client,
+      undefined,
+    )
+
+    const started = logs.find(
+      (log) => log.message === "oauth_authorize_started",
+    )
+    expect(started?.data.scopes).toEqual(["vault"])
+    expect(consentHtml).toContain("<li>vault</li>")
+
+    const code = oauth.approveRequest(requestId, testLogger)
+    const issued = await oauth.provider.exchangeAuthorizationCode(client, code)
+    expect(issued.scope).toBe("vault")
+  })
+})
+
+describe("OAuth refresh token storage keyed by the auth token", () => {
+  const createKeyedStorageTest = async (): Promise<{
+    dbPath: string
+    oauth: OAuthProvider
+    db: Database.Database
+    client: OAuthClientInformationFull
+  }> => {
+    const dir = await mkdtemp(join(tmpdir(), "oauth-keyed-test-"))
+    const dbPath = join(dir, "oauth.db")
+    const oauth = createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger,
+    })
+    const db = new Database(dbPath)
+    onTestFinished(async () => {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    })
+    const client = seedClient(db)
+    return { dbPath, oauth, db, client }
+  }
+
+  it("stores an issued refresh token only under its HMAC key", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+
+    const refreshToken = await issuedRefreshToken(oauth, client)
+
+    expect(storedRefreshTokenKeys(db)).toEqual([refreshTokenKey(refreshToken)])
+  })
+
+  it("rejects a refresh token issued under a different auth token and leaves its row in place", async () => {
+    const { dbPath, oauth, db, client } = await createKeyedStorageTest()
+    const firstToken = await issuedRefreshToken(oauth, client)
+    const secondToken = await issuedRefreshToken(oauth, client)
+    const rotated = createOAuthProvider({
+      ...TEST_URLS,
+      authToken: OTHER_AUTH_TOKEN,
+      dbPath,
+      logger,
+    })
+
+    await expect(
+      exchangeRefreshToken(rotated, client, firstToken),
+    ).rejects.toThrow("Refresh token expired or invalid")
+
+    expect(storedRefreshTokenKeys(db)).toEqual(
+      [refreshTokenKey(firstToken), refreshTokenKey(secondToken)].sort(),
+    )
+    const tokens = await exchangeRefreshToken(oauth, client, secondToken)
+    expect(tokens.scope).toBe("vault")
+  })
+
+  it("purges expired rows when a refresh token is issued", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    seedRefreshToken(
+      db,
+      "expired-token",
+      client.client_id,
+      ["vault"],
+      DateTime.now().minus({ seconds: 1 }).toUnixInteger(),
+    )
+    seedRefreshToken(
+      db,
+      "live-token",
+      client.client_id,
+      ["vault"],
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+    )
+
+    const issued = await issuedRefreshToken(oauth, client)
+
+    expect(storedRefreshTokenKeys(db)).toEqual(
+      [refreshTokenKey("live-token"), refreshTokenKey(issued)].sort(),
+    )
+  })
+
+  it("revoking a refresh token removes its row without recording it in revoked_tokens", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    const refreshToken = await issuedRefreshToken(oauth, client)
+
+    await revokeToken(oauth, client, refreshToken)
+
+    expect(storedRefreshTokenKeys(db)).toEqual([])
+    expect(storedRevokedTokens(db)).toEqual([])
+    await expect(
+      exchangeRefreshToken(oauth, client, refreshToken),
+    ).rejects.toThrow("Refresh token expired or invalid")
+  })
+
+  it("purges revoked_tokens rows older than the access-token lifetime at boot", async () => {
+    const { db, dbPath } = await createKeyedStorageTest()
+    seedRevokedToken(
+      db,
+      "revoked-7h-ago",
+      DateTime.now().minus({ hours: 7 }).toUnixInteger(),
+    )
+    seedRevokedToken(
+      db,
+      "revoked-5h-ago",
+      DateTime.now().minus({ hours: 5 }).toUnixInteger(),
+    )
+    const logs: LogCall[] = []
+
+    createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+
+    expect(storedRevokedTokens(db)).toEqual(["revoked-5h-ago"])
+    const purge = logs.find(
+      (log) => log.message === "oauth_revoked_tokens_purged",
+    )
+    expect(purge).toEqual({
+      level: "info",
+      message: "oauth_revoked_tokens_purged",
+      data: { component: "oauth", purgedTokenCount: 1, maxAgeSeconds: 21_600 },
+    })
+  })
+
+  it("does not log a purge when no revoked_tokens rows are expired", async () => {
+    const { db, dbPath } = await createKeyedStorageTest()
+    seedRevokedToken(
+      db,
+      "revoked-5h-ago",
+      DateTime.now().minus({ hours: 5 }).toUnixInteger(),
+    )
+    const logs: LogCall[] = []
+
+    createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+
+    expect(storedRevokedTokens(db)).toEqual(["revoked-5h-ago"])
+    expect(logs.map((log) => log.message)).not.toContain(
+      "oauth_revoked_tokens_purged",
+    )
+  })
+
+  it("purges revoked_tokens rows older than the access-token lifetime on revocation", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    // Seeded after the boot in createKeyedStorageTest, so only the
+    // revocation below can purge them.
+    seedRevokedToken(
+      db,
+      "revoked-7h-ago",
+      DateTime.now().minus({ hours: 7 }).toUnixInteger(),
+    )
+    seedRevokedToken(
+      db,
+      "revoked-5h-ago",
+      DateTime.now().minus({ hours: 5 }).toUnixInteger(),
+    )
+    const { access_token: accessToken } = await issueTokens(oauth, client)
+
+    await revokeToken(oauth, client, accessToken)
+
+    expect(storedRevokedTokens(db)).toEqual(
+      [accessToken, "revoked-5h-ago"].sort(),
+    )
+  })
+
+  it("purges revoked_clients rows older than the access-token lifetime at boot", async () => {
+    const { db, dbPath } = await createKeyedStorageTest()
+    db.prepare(
+      "INSERT INTO revoked_clients (client_id, revoked_at) VALUES (?, ?)",
+    ).run("old-client", DateTime.now().minus({ hours: 7 }).toUnixInteger())
+    db.prepare(
+      "INSERT INTO revoked_clients (client_id, revoked_at) VALUES (?, ?)",
+    ).run("recent-client", DateTime.now().minus({ hours: 5 }).toUnixInteger())
+    const logs: LogCall[] = []
+
+    createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+
+    expect(storedRevokedClients(db)).toEqual([
+      {
+        client_id: "recent-client",
+        revoked_at: expect.any(Number),
+      },
+    ])
+    const purge = logs.find(
+      (log) => log.message === "oauth_revoked_clients_purged",
+    )
+    expect(purge).toEqual({
+      level: "info",
+      message: "oauth_revoked_clients_purged",
+      data: { component: "oauth", purgedClientCount: 1, maxAgeSeconds: 21_600 },
+    })
+  })
+
+  it("revoking an access token records it in revoked_tokens and rejects it afterwards", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    const { access_token: accessToken } = await issueTokens(oauth, client)
+
+    await revokeToken(oauth, client, accessToken)
+
+    expect(storedRevokedTokens(db)).toEqual([accessToken])
+    await expect(oauth.provider.verifyAccessToken(accessToken)).rejects.toThrow(
+      "Token has been revoked",
+    )
+  })
+
+  it("rejects a refresh token presented by a client other than the one it was issued to and leaves its row in place", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    const refreshToken = await issuedRefreshToken(oauth, client)
+    const otherClient: OAuthClientInformationFull = {
+      ...client,
+      client_id: "other-client",
+    }
+
+    await expect(
+      exchangeRefreshToken(oauth, otherClient, refreshToken),
+    ).rejects.toThrow("Refresh token expired or invalid")
+
+    expect(storedRefreshTokenKeys(db)).toEqual([refreshTokenKey(refreshToken)])
+    const tokens = await exchangeRefreshToken(oauth, client, refreshToken)
+    expect(tokens.scope).toBe("vault")
+  })
+
+  it("rejects a refresh that requests a scope outside the granted scope", async () => {
+    const { oauth, client } = await createKeyedStorageTest()
+    const refreshToken = await issuedRefreshToken(oauth, client)
+
+    await expect(
+      oauth.provider.exchangeRefreshToken(client, refreshToken, [
+        "vault",
+        "admin",
+      ]),
+    ).rejects.toThrow("Requested scope exceeds the granted scope")
+  })
+
+  it("consumes the token on scope widening but does not trigger reuse detection on retry", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    const refreshToken = await issuedRefreshToken(oauth, client)
+
+    await expect(
+      oauth.provider.exchangeRefreshToken(client, refreshToken, [
+        "vault",
+        "admin",
+      ]),
+    ).rejects.toThrow("Requested scope exceeds the granted scope")
+
+    // Token is burned — retry is a plain miss, not a reuse signal
+    expect(storedRefreshTokenKeys(db)).toEqual([])
+    await expect(
+      exchangeRefreshToken(oauth, client, refreshToken),
+    ).rejects.toStrictEqual(
+      new InvalidGrantError("Refresh token expired or invalid"),
+    )
+    expect(storedRevokedClients(db)).toEqual([])
+  })
+
+  it("issues the stored scope when a refresh requests none", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    seedRefreshToken(
+      db,
+      "two-scope-token",
+      client.client_id,
+      ["vault", "extra"],
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+    )
+
+    const tokens = await exchangeRefreshToken(oauth, client, "two-scope-token")
+
+    expect(tokens.scope).toBe("vault extra")
+  })
+
+  it("narrows the issued scope when a refresh requests a subset", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    seedRefreshToken(
+      db,
+      "two-scope-token",
+      client.client_id,
+      ["vault", "extra"],
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+    )
+
+    const tokens = await oauth.provider.exchangeRefreshToken(
+      client,
+      "two-scope-token",
+      ["vault"],
+    )
+
+    expect(tokens.scope).toBe("vault")
+  })
+
+  it("keeps a narrowed scope on the rotated refresh token", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    seedRefreshToken(
+      db,
+      "two-scope-token",
+      client.client_id,
+      ["vault", "extra"],
+      DateTime.now().plus({ days: 60 }).toUnixInteger(),
+    )
+    const narrowed = await oauth.provider.exchangeRefreshToken(
+      client,
+      "two-scope-token",
+      ["vault"],
+    )
+    if (!narrowed.refresh_token) throw new Error("no refresh token issued")
+
+    const tokens = await exchangeRefreshToken(
+      oauth,
+      client,
+      narrowed.refresh_token,
+    )
+
+    expect(tokens.scope).toBe("vault")
+  })
+
+  it("issues the stored scope when a refresh sends a blank scope", async () => {
+    const { oauth, client } = await createKeyedStorageTest()
+    const refreshToken = await issuedRefreshToken(oauth, client)
+
+    const tokens = await oauth.provider.exchangeRefreshToken(
+      client,
+      refreshToken,
+      [""],
+    )
+
+    expect(tokens.scope).toBe("vault")
+  })
+
+  it("revoking an unknown string records nothing", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+
+    await revokeToken(oauth, client, "not-a-token")
+
+    expect(storedRevokedTokens(db)).toEqual([])
+    expect(storedRefreshTokenKeys(db)).toEqual([])
+  })
+
+  it("logs scope_exceeds_grant reason when a refresh widens scope", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oauth-keyed-log-test-"))
+    const dbPath = join(dir, "oauth.db")
+    const logs: LogCall[] = []
+    const testLogger = recordingLogger(logs)
+    const oauth = createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: testLogger,
+    })
+    const db = new Database(dbPath)
+    onTestFinished(async () => {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    })
+    const client = seedClient(db)
+    const refreshToken = await issuedRefreshToken(oauth, client)
+    logs.length = 0
+
+    await expect(
+      oauth.provider.exchangeRefreshToken(client, refreshToken, [
+        "vault",
+        "admin",
+      ]),
+    ).rejects.toThrow("Requested scope exceeds the granted scope")
+
+    const event = logs.find(
+      (log) => log.message === "oauth_token_refresh_failed",
+    )
+    expect(event).toEqual(
+      expect.objectContaining({
+        level: "warn",
+        message: "oauth_token_refresh_failed",
+        data: expect.objectContaining({
+          reason: "scope_exceeds_grant",
+          clientId: client.client_id,
+        }),
+      }),
+    )
+  })
+})
+
+describe("OAuth tokenless client sweep", () => {
+  const EIGHT_DAYS_AGO = DateTime.now().minus({ days: 8 }).toUnixInteger()
+  const SIX_DAYS_AGO = DateTime.now().minus({ days: 6 }).toUnixInteger()
+  const SIXTY_DAYS_AHEAD = DateTime.now().plus({ days: 60 }).toUnixInteger()
+
+  const createSweepTest = async (): Promise<{
+    dbPath: string
+    logs: LogCall[]
+  }> => {
+    const dir = await mkdtemp(join(tmpdir(), "oauth-sweep-test-"))
+    const dbPath = join(dir, "oauth.db")
+    // A first boot creates the schema so clients can be seeded before the
+    // boot under test.
+    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
+    onTestFinished(async () => {
+      await rm(dir, { recursive: true, force: true })
+    })
+    return { dbPath, logs: [] }
+  }
+
+  const openDb = (dbPath: string): Database.Database => {
+    const db = new Database(dbPath)
+    onTestFinished(() => {
+      db.close()
+    })
+    return db
+  }
+
+  const seedClientIssuedAt = (
+    db: Database.Database,
+    clientId: string,
+    issuedAt: number,
+  ): void => {
+    const client = {
+      client_id: clientId,
+      client_id_issued_at: issuedAt,
+      client_secret: "test-secret",
+      client_secret_expires_at: 0,
+      redirect_uris: ["https://example.com/cb"],
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+    }
+    db.prepare("INSERT INTO clients (client_id, data) VALUES (?, ?)").run(
+      clientId,
+      JSON.stringify(client),
+    )
+  }
+
+  const registeredClientIds = (db: Database.Database): string[] =>
+    db
+      .prepare<[], { client_id: string }>(
+        "SELECT client_id FROM clients ORDER BY client_id",
+      )
+      .all()
+      .map((clientRow) => clientRow.client_id)
+
+  it("sweeps a client older than seven days that holds no refresh token at boot", async () => {
+    const { dbPath, logs } = await createSweepTest()
+    const db = openDb(dbPath)
+    seedClientIssuedAt(db, "old-tokenless", EIGHT_DAYS_AGO)
+
+    createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+
+    expect(registeredClientIds(db)).toEqual([])
+    const sweep = logs.find((log) => log.message === "oauth_clients_swept")
+    expect(sweep).toEqual({
+      level: "info",
+      message: "oauth_clients_swept",
+      data: { component: "oauth", sweptClientCount: 1, maxAgeSeconds: 604_800 },
+    })
+  })
+
+  it("keeps a client younger than seven days that holds no refresh token", async () => {
+    const { dbPath, logs } = await createSweepTest()
+    const db = openDb(dbPath)
+    seedClientIssuedAt(db, "recent-tokenless", SIX_DAYS_AGO)
+
+    createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+
+    expect(registeredClientIds(db)).toEqual(["recent-tokenless"])
+    expect(logs.map((log) => log.message)).not.toContain("oauth_clients_swept")
+  })
+
+  it("keeps an old client whose refresh token was keyed under a previous auth token", async () => {
+    const { dbPath } = await createSweepTest()
+    const db = openDb(dbPath)
+    seedClientIssuedAt(db, "rotated-client", EIGHT_DAYS_AGO)
+    db.prepare(
+      "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
+    ).run(
+      refreshTokenKey("pre-rotation-token", "previous-auth-token"),
+      "rotated-client",
+      "vault",
+      SIXTY_DAYS_AHEAD,
+    )
+
+    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
+
+    expect(registeredClientIds(db)).toEqual(["rotated-client"])
+  })
+
+  it("sweeps an old client whose only refresh token has expired", async () => {
+    const { dbPath } = await createSweepTest()
+    const db = openDb(dbPath)
+    seedClientIssuedAt(db, "expired-token-client", EIGHT_DAYS_AGO)
+    seedRefreshToken(
+      db,
+      "long-expired-token",
+      "expired-token-client",
+      ["vault"],
+      DateTime.now().minus({ days: 1 }).toUnixInteger(),
+    )
+
+    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
+
+    expect(registeredClientIds(db)).toEqual([])
+  })
+
+  it("sweeps before each registration so the table does not wait for a reboot", async () => {
+    const { dbPath } = await createSweepTest()
+    const db = openDb(dbPath)
+    const oauth = createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger,
+    })
+    // Seeded after the boot so the registration itself has to sweep it.
+    seedClientIssuedAt(db, "old-tokenless", EIGHT_DAYS_AGO)
+    const { clientsStore } = oauth.provider
+    if (!clientsStore.registerClient) {
+      throw new Error("registerClient not implemented")
+    }
+
+    const registered = await clientsStore.registerClient({
+      client_name: "fresh",
+      redirect_uris: ["https://example.com/cb"],
+    })
+
+    expect(registeredClientIds(db)).toEqual([registered.client_id])
+  })
+})

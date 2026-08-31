@@ -25,6 +25,11 @@ services:
       INDEX_DB_PATH: /data/index.db
       MCP_AUTH_TOKEN: "${MCP_AUTH_TOKEN:?Set MCP_AUTH_TOKEN in .env — see .env.example}"
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:8000}
+      # Client-IP trust for rate limiting (see .env.example): the defaults
+      # are safe with nothing in front of the server; set TRUST_PROXY_HOPS=1
+      # when a proxy or tunnel sits in front.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
+      TRUST_FORWARDED_HOPS: ${TRUST_FORWARDED_HOPS:-0}
       EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-true}
       RERANK_MODE: ${RERANK_MODE:-blended}
       MEMORY_ENABLED: ${MEMORY_ENABLED:-true}
@@ -33,8 +38,8 @@ services:
       DISABLED_TOOLS: ${DISABLED_TOOLS:-}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      LOG_DIR: ${LOG_DIR:-}
-      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
+      LOG_DIR: ${LOG_DIR:-none}
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-90}
       TZ: ${TZ:-UTC}
       # Windows: set WINDOWS_MODE=true in .env when your vault is on a C: drive
       # (polling watcher + rename-based moves across the Docker Desktop/WSL2 bridge).

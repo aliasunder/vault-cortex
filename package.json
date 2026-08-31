@@ -1,8 +1,8 @@
 {
   "name": "vault-cortex",
-  "version": "0.37.3",
+  "version": "0.46.0",
   "private": true,
-  "description": "Standalone MCP server for Obsidian vaults — hybrid search, structured memory, link graph, and daily notes over Streamable HTTP",
+  "description": "Standalone MCP server for Obsidian vaults — hybrid search, notes & files, memory, tasks, OAuth 2.1",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -21,7 +21,6 @@
     "obsidian-vault",
     "obsidian-sync",
     "ai-agents",
-    "ai-memory",
     "ai-memory-system",
     "knowledge-base",
     "note-taking",
@@ -31,7 +30,7 @@
     "task-management",
     "semantic-search",
     "attachments",
-    "pdf",
+    "one-click-deploy",
     "self-hosted",
     "docker",
     "claude"
@@ -41,8 +40,9 @@
     "node": ">=24.0.0 <25.0.0"
   },
   "scripts": {
-    "build": "npm run build:server && npm run build:cli",
+    "build": "npm run build:server && npm run build:cli && npm run build:sst",
     "build:server": "tsc",
+    "build:sst": "tsc -p tsconfig.sst.json",
     "build:cli": "tsc -p cli/tsconfig.json && tsc -p cli/tsconfig.test.json",
     "sync:cli-env-blocks": "tsx scripts/sync-cli-env-blocks.ts",
     "sync:lobehub-manifest": "tsx scripts/sync-lobehub-manifest.ts",
@@ -61,15 +61,26 @@
     "deploy:dev": "npm run deploy && npm run docker:publish && npm run lightsail:up",
     "prettier": "prettier --write .",
     "prettier:check": "prettier --check .",
+    "knip": "knip",
     "lint": "eslint .",
     "lint:fix": "eslint --fix .",
+    "markdownlint": "markdownlint-cli2 \"**/*.md\"",
+    "markdownlint:fix": "markdownlint-cli2 --fix \"**/*.md\"",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
+    "test:cli-pty": "vitest run --config vitest.cli-pty.config.ts",
+    "build:remote-image": "docker build --target remote -t vault-cortex:remote-ci .",
+    "test:remote-boot": "npm run build:remote-image && vitest run --config vitest.remote-boot.config.ts",
     "prepare": "husky",
     "render:social-preview": "puppeteer browsers install chrome && tsx scripts/render-social-preview.ts"
   },
   "lint-staged": {
-    "*.{json,md}": "prettier --write",
+    "*.json": "prettier --write",
+    "*.md": [
+      "markdownlint-cli2 --fix",
+      "prettier --write"
+    ],
     "*.ts": [
       "eslint --fix",
       "prettier --write"
@@ -78,7 +89,7 @@
   "dependencies": {
     "@huggingface/transformers": "4.2.0",
     "@modelcontextprotocol/sdk": "1.30.0",
-    "@napi-rs/canvas": "1.0.6",
+    "@napi-rs/canvas": "1.0.8",
     "better-sqlite3": "13.0.3",
     "chokidar": "5.0.0",
     "env-var": "7.5.0",
@@ -86,7 +97,7 @@
     "gray-matter": "4.0.3",
     "luxon": "3.7.2",
     "pdfjs-dist": "6.2.108",
-    "picomatch": "4.0.5",
+    "picomatch": "4.0.7",
     "sharp": "0.35.3",
     "sqlite-vec": "0.1.9",
     "unpdf": "1.8.1",
@@ -107,26 +118,31 @@
     "@types/aws-lambda": "8.10.162",
     "@types/better-sqlite3": "9.6.0",
     "@types/express": "5.0.6",
-    "@types/luxon": "3.7.4",
-    "@types/node": "26.2.0",
+    "@types/luxon": "3.7.5",
+    "@types/node": "26.3.0",
     "@types/picomatch": "4.0.3",
     "@typescript/native": "npm:typescript@7.0.2",
+    "@vitest/coverage-v8": "4.1.11",
     "commander": "14.0.3",
-    "eslint": "10.8.1",
+    "eslint": "10.9.1",
     "eslint-config-prettier": "10.1.8",
     "husky": "9.1.7",
     "jiti": "2.7.0",
+    "knip": "6.32.3",
     "lint-staged": "17.3.0",
+    "markdownlint-cli2": "0.23.2",
+    "node-pty": "1.1.0",
     "prettier": "3.9.6",
-    "puppeteer": "25.7.0",
+    "puppeteer": "25.9.0",
     "sst": "4.17.1",
     "tsx": "4.23.12",
     "typescript": "npm:@typescript/typescript6@6.0.2",
-    "typescript-eslint": "8.67.0",
-    "vitest": "4.1.10"
+    "typescript-eslint": "8.68.0",
+    "vitest": "4.1.11"
   },
   "allowScripts": {
-    "puppeteer@25.3.0": true
+    "puppeteer@25.8.0": true,
+    "node-pty@1.1.0": true
   },
   "puppeteer": {
     "skipDownload": true

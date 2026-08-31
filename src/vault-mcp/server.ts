@@ -17,14 +17,19 @@ import type { VaultConfig } from "./config.js"
 import { logger } from "../logger.js"
 import { extractClientIp, headerAsString } from "../auth.js"
 import { describeError } from "../utils/describe-error.js"
+import { urlHasCredentials } from "../utils/url-has-credentials.js"
 import env from "env-var"
 
+/** Error middleware — logs the failure with request context, answers 500.
+ *  The client IP is derived under the same Forwarded hop count as
+ *  everywhere else, so a client-supplied Forwarded header can't write a
+ *  false IP into the error log. */
 export const createErrorMiddleware =
-  () =>
+  ({ trustForwardedHops }: { trustForwardedHops: number }) =>
   (err: Error, req: Request, res: Response, _next: NextFunction): void => {
     logger.error("unhandled_error", {
       sessionId: headerAsString(req.headers["mcp-session-id"]),
-      clientIp: extractClientIp(req),
+      clientIp: extractClientIp(req, trustForwardedHops),
       method: req.method,
       path: req.path,
       error: `[${err.name}]: ${err.message}`,
@@ -80,6 +85,12 @@ const startServer = async (): Promise<void> => {
   const authToken = env.get("MCP_AUTH_TOKEN").required().asString().trim()
   const vaultPath = env.get("VAULT_PATH").required().asString()
   const publicUrl = env.get("PUBLIC_URL").required().asString()
+  const serverUrl = new URL(publicUrl)
+  // Credentials in the URL would be minted into every token's `iss`
+  // claim and served by the discovery documents — refuse to start.
+  if (urlHasCredentials(serverUrl)) {
+    throw new Error("PUBLIC_URL must not contain credentials (user:password@)")
+  }
 
   const indexDbPath = env.get("INDEX_DB_PATH").asString()
   const dataDir = indexDbPath ? indexDbPath.replace(/\/[^/]+$/, "") : "/data"
@@ -98,6 +109,8 @@ const startServer = async (): Promise<void> => {
     embeddingEnabled: config.embeddingEnabled,
     rerankMode: config.rerankMode,
     windowsBindMount: config.windowsBindMount,
+    trustProxyHops: config.trustProxyHops,
+    trustForwardedHops: config.trustForwardedHops,
   })
 
   const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
@@ -117,17 +130,21 @@ const startServer = async (): Promise<void> => {
     usePolling: config.windowsBindMount,
   })
 
-  const serverUrl = new URL(publicUrl)
   const oauthProvider = createOAuthProvider({
     authToken,
     dbPath: oauthDbPath,
+    serverUrl,
     logger,
   })
 
   const app = express()
-  // Trust exactly one proxy hop (API Gateway). `true` would trust the entire
-  // X-Forwarded-For chain, letting clients spoof req.ip via injected headers.
-  app.set("trust proxy", 1)
+  // Proxy trust is deployment-explicit: TRUST_PROXY_HOPS grants one
+  // X-Forwarded-For hop per proxy the deployment controls. With the
+  // default 0, req.ip — the OAuth rate limiter's fallback bucket key —
+  // is the socket peer, and an injected header can't shift it. Never
+  // widen this to Express's blanket `true`: trusting the whole chain
+  // lets any client claim any IP via appended headers.
+  app.set("trust proxy", config.trustProxyHops)
   app.use(express.json())
 
   app.get("/healthz", (_req: Request, res: Response) => {
@@ -140,6 +157,7 @@ const startServer = async (): Promise<void> => {
       serverUrl,
       oauthProvider,
       serviceDocumentationUrl: config.serviceDocumentationUrl,
+      trustForwardedHops: config.trustForwardedHops,
       logger,
     }),
   )
@@ -153,9 +171,22 @@ const startServer = async (): Promise<void> => {
     }),
   )
 
-  app.use(createErrorMiddleware())
+  app.use(
+    createErrorMiddleware({ trustForwardedHops: config.trustForwardedHops }),
+  )
 
-  const httpServer = app.listen(port, host, () => {
+  // Express 5 reports a bind failure (EADDRINUSE, EACCES) through the
+  // callback's error argument instead of throwing, so an unchecked callback
+  // would log "server started" and leave a process that serves nothing.
+  const httpServer = app.listen(port, host, (listenError?: Error) => {
+    if (listenError) {
+      logger.error("server failed to listen", {
+        host,
+        port,
+        error: describeError(listenError),
+      })
+      process.exit(1)
+    }
     logger.info("server started", { host, port })
   })
 

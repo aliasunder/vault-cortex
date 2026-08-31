@@ -2,7 +2,7 @@
 
 Full cloud deployment using SST v4 for infrastructure-as-code. Provisions a Lightsail VM, API Gateway with Lambda authorizer, and CI/CD via GitHub Actions.
 
-For simpler setups, see [`deploy/local/`](./deploy/local/) (Docker on your machine) or [`deploy/remote/`](./deploy/remote/) (VPS + [Obsidian Sync](https://obsidian.md/sync)).
+For simpler setups, see [`deploy/local/`](./deploy/local/) (Docker on your machine), [`deploy/remote/`](./deploy/remote/) (VPS + [Obsidian Sync](https://obsidian.md/sync)), or the hosted one-click guides under [`deploy/render/`](./deploy/render/) and [`deploy/railway/`](./deploy/railway/).
 
 **Contents** — [Prerequisites](#prerequisites) · [One-time setup](#one-time-setup) · [Deploy](#deploy) · [Verify](#verify) · [Monitoring](#monitoring) · [Commands](#command-reference) · [Updating](#updating-the-deployed-app) · [Teardown](#tearing-down) · [CI/CD](#cicd) · [Hardening](#hardening) · [Custom Domain](#custom-domain-optional) · [Troubleshooting](#troubleshooting)
 
@@ -34,7 +34,7 @@ MCP_AUTH_TOKEN=$(openssl rand -hex 32)
 npx sst secret set McpAuthToken "$MCP_AUTH_TOKEN"
 ```
 
-`McpAuthToken` is the only SST secret — it's linked to the Lambda authorizer. Obsidian credentials (`OBSIDIAN_AUTH_TOKEN`, `VAULT_NAME`) flow to Docker containers via the `.env` file, not through SST.
+`McpAuthToken` is the only SST secret the base deployment needs — it's linked to the Lambda authorizer. (The optional [Port 8000 Hardening](#port-8000-hardening-optional) adds two more.) Obsidian credentials (`OBSIDIAN_AUTH_TOKEN`, `VAULT_NAME`) flow to Docker containers via the `.env` file, not through SST.
 
 **3. Create the deploy `.env` file** (secrets live outside the repo at `~/.config/vault-cortex/.env`):
 
@@ -103,7 +103,10 @@ curl -H "Authorization: Bearer <McpAuthToken>" <apiUrl>/healthz
 # Skip if you've set MCP_PORT_CIDRS=none (port 8000 blocked).
 curl http://<lightsailIp>:8000/healthz
 
-# If using ORIGIN_URL (tunnel/proxy), verify it reaches the MCP server:
+# If using ORIGIN_URL (tunnel/proxy), verify it reaches the MCP server.
+# Once the tunnel hostname admits only the gateway (Port 8000 Hardening,
+# step 6), a bare request gets 403 from Cloudflare Access — send the
+# service token, as in step 7.
 curl <ORIGIN_URL>/healthz
 ```
 
@@ -126,7 +129,7 @@ ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp>
 
 ### Tailing logs
 
-The container writes to stdout/stderr, captured by Docker's `json-file` log driver (10MB per file, 3 rotated files — ~30MB retained). One stream carries both processes: MCP server lines are structured JSON; the init chain's lifecycle lines carry an `[obsidian-sync]` prefix, while the continuous sync process's own output is plain (unprefixed) text.
+The container writes to stdout/stderr, captured by Docker's `json-file` log driver (10MB per file, 3 rotated files — ~30MB retained). One stream carries both processes: MCP server lines are structured JSON; the init chain's lifecycle lines carry an `[obsidian-sync]` or `[vault-cortex]` prefix, while the continuous sync process's own output is plain (unprefixed) text.
 
 ```bash
 # Follow the logs in real time
@@ -177,6 +180,16 @@ Note: `2>&1` is needed because error-level logs go to stderr — piping to jq re
 
 Set `LOG_LEVEL` in `.env` to control the threshold (default: `info`).
 
+### CloudWatch logs
+
+API Gateway and the Lambda authorizer log to CloudWatch, separately from the container. Both log groups keep 1 year (set in `sst.config.ts`; SST's default is 1 month). A year of these logs is about 100 MB, inside the CloudWatch free tier.
+
+```bash
+# Authorizer invocations (log group name is stage-specific; list to find it)
+aws logs describe-log-groups --query 'logGroups[].[logGroupName,retentionInDays]' --output table
+aws logs tail /aws/lambda/<authorizer-function> --since 24h
+```
+
 ## Command reference
 
 | Command                  | What it does                                                                                                    |
@@ -185,7 +198,7 @@ Set `LOG_LEVEL` in `.env` to control the threshold (default: `info`).
 | `npm run docker:publish` | Builds the vault-cortex `:remote` image (linux/amd64) and pushes to GHCR.                                       |
 | `npm run lightsail:up`   | Bootstraps the VM (mkdir, Docker wait, GHCR login), SCPs config, pulls + restarts containers. Volumes persist.  |
 | `npm run deploy:dev`     | Full chain: `deploy` → `docker:publish` → `lightsail:up`.                                                       |
-| `npx sst remove`         | **Destructive** — deletes Lightsail VM, API Gateway, Lambda. Frees the ~$12–24/mo Lightsail cost.               |
+| `npx sst remove`         | **Destructive** — deletes Lightsail VM, API Gateway, Lambda. Frees the ~$12–24 USD/mo Lightsail cost.           |
 
 All commands are idempotent and safe to run repeatedly.
 
@@ -215,7 +228,7 @@ GitHub Actions runs lint/test/build plus security scans (secret detection, image
 
 | Workflow                    | Trigger                          | What it does                                                                                                                                                                                                                                                                                                                                             |
 | --------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ci.yml`                    | PR + push to main                | `prettier:check`, `lint`, `test`, `build`                                                                                                                                                                                                                                                                                                                |
+| `ci.yml`                    | PR + push to main                | `prettier:check`, `lint`, `markdownlint`, `knip`, `test`, `build`                                                                                                                                                                                                                                                                                        |
 | `gitleaks.yml`              | PR + push to main                | Secret detection across the repo and its git history                                                                                                                                                                                                                                                                                                     |
 | `trivy.yml`                 | PR + push to main + weekly cron  | Vulnerability scan of the Docker image — PRs scan an image built from the branch (`trivy-pr` gates merges on fixable CRITICAL/HIGH findings); pushes and the cron scan the published GHCR `:latest` report-only. Findings upload as SARIF to the Security tab.                                                                                           |
 | `scorecard.yml`             | Push to main + weekly cron       | [OpenSSF Scorecard](https://github.com/ossf/scorecard) supply-chain posture analysis; results upload to the Security tab. Also re-runs when branch protection settings change.                                                                                                                                                                           |
@@ -226,11 +239,12 @@ GitHub Actions runs lint/test/build plus security scans (secret detection, image
 | `test_deploy.yml`           | Actions UI (`workflow_dispatch`) | Deploys the selected branch to the instance for testing without cutting a release — builds an amd64-only `remote`-target image pushed as `:test` (never `:remote`, `:latest`, or version tags, so released users are unaffected) and points the instance at it via `VAULT_CORTEX_TAG=test`. Run Force Deploy afterwards to return to the released image. |
 | `publish-registry.yml`      | Reusable (`workflow_call`)       | Publishes `server.json` to the [official MCP Registry](https://registry.modelcontextprotocol.io/) via `mcp-publisher`, authenticating with GitHub OIDC. Runs after `deploy` (so the GHCR image referenced in `server.json` already exists).                                                                                                              |
 | `cli_release.yml`           | Actions UI (`workflow_dispatch`) | Publishes the `cli/` package to npm via Trusted Publishing — independent of server releases. See [CONTRIBUTING.md](./CONTRIBUTING.md#the-cli-package).                                                                                                                                                                                                   |
+| `cli_pty_tests.yml`         | Actions UI (`workflow_dispatch`) | Runs the CLI interactive PTY integration tests via node-pty. Also runs as a pre-publish gate in `cli_release.yml`.                                                                                                                                                                                                                                       |
 | `ghcr-cleanup.yml`          | Weekly cron + Actions UI         | Deletes untagged GHCR image digests to reclaim storage. Manual runs default to dry-run mode.                                                                                                                                                                                                                                                             |
 | `dockerhub-description.yml` | Reusable (`workflow_call`)       | Syncs `DOCKERHUB.md` to the Docker Hub repository description via `peter-evans/dockerhub-description`. Called by both release workflows after `deploy` — keeps the Hub listing in sync on every release.                                                                                                                                                 |
 
 > **Why two release paths?** GitHub prevents a tag pushed by `GITHUB_TOKEN` from inside a workflow from triggering other workflows. So `manual_release.yml` has to do its own deploy + release inline instead of relying on `auto_release.yml` firing. `auto_release.yml` still exists for the laptop path — when you push a tag from your terminal, your user account is the actor and the trigger fires normally.
-
+>
 > **MCP Registry publishing is automatic.** Both release paths call `publish-registry.yml`, so the [official MCP Registry](https://registry.modelcontextprotocol.io/) entry tracks every release — no manual `mcp-publisher publish`. It authenticates with [GitHub OIDC](https://modelcontextprotocol.io/registry/github-actions) and needs **no secret**: the registry authorizes the `io.github.<owner>/*` namespace from the OIDC token's repo owner, so a fork publishing `io.github.<your-user>/...` works out of the box (unlike the AWS OIDC role below, which you must provision).
 
 ### GitHub OIDC setup (for forkers)
@@ -322,47 +336,53 @@ To find your stage: `cat .sst/stage` (after your first deploy).
 
 **Variables** (Settings → Secrets and variables → Actions → Variables tab):
 
-| Variable                    | Purpose                                                                                                                                                                                                                                                   |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GHCR_USER`                 | GitHub username. Used in image tags and instance `.env`.                                                                                                                                                                                                  |
-| `DOCKERHUB_USERNAME`        | Optional. Docker Hub username. When set, images are mirrored to Docker Hub alongside GHCR on release and README syncs automatically. Omit to skip entirely.                                                                                               |
-| `EMBEDDING_ENABLED`         | Optional. Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching. Default: `true`.                                                          |
-| `RERANK_MODE`               | Optional. Cross-encoder reranking mode: `blended` (default) applies position-aware score blending after RRF fusion, `none` skips reranking for lower latency. Only takes effect when `EMBEDDING_ENABLED` is true.                                         |
-| `MEMORY_ENABLED`            | Optional. Set `false` to disable the memory layer entirely — hides memory tools, skips bootstrap, omits memory from server metadata. Default: `true`.                                                                                                     |
-| `FILE_TOOLS_ENABLED`        | Optional. Set `false` to hide file tools (`vault_read_file`, `vault_list_files`) for deployments without synced attachments. Default: `true`.                                                                                                             |
-| `READONLY_MODE`             | Optional. Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — read and search only. Default: `false`.                                                                                                             |
-| `DISABLED_TOOLS`            | Optional. Hide individual tools by name, comma-separated. Names match the Name column in the [README tools table](./README.md#tools). Subtractive only; an unknown tool name stops the server at startup. Default: none hidden.                           |
-| `MEMORY_DIR`                | Optional. Memory folder name in the vault (default: `About Me`). See the [Configuration](./README.md#configuration) section.                                                                                                                              |
-| `PROTECTED_PATHS`           | Optional. Comma-separated folders protected from deletion (default: `MEMORY_DIR, DAILY_NOTES_FOLDER` — `Daily Notes` when the latter is unset). Overrides the default entirely when set.                                                                  |
-| `ORPHAN_EXCLUDE_FOLDERS`    | Optional. Comma-separated folders excluded from orphan detection (default: `DAILY_NOTES_FOLDER, Templates, MEMORY_DIR`). Overrides the default entirely when set.                                                                                         |
-| `SERVICE_DOCUMENTATION_URL` | Optional. URL in OAuth discovery metadata (default: `https://github.com/aliasunder/vault-cortex`). Set to your fork's URL.                                                                                                                                |
-| `SYNC_CONFIGS`              | Optional. Obsidian settings categories synced to the server, comma-separated (default: `core-plugin-data,community-plugin-data` — daily-notes settings and the Tasks plugin's format). Set `none` to disable. See [Daily notes](./README.md#daily-notes). |
-| `DAILY_NOTES_FOLDER`        | Optional. Sets the daily notes folder (default: read from the vault's `.obsidian/daily-notes.json`, falling back to `Daily Notes`). See [Daily notes](./README.md#daily-notes).                                                                           |
-| `DAILY_NOTES_FORMAT`        | Optional. Sets the daily note filename format, in the same tokens as Obsidian's daily note date format setting (default: read from the vault's config, falling back to `YYYY-MM-DD`).                                                                     |
-| `TZ`                        | Optional. Container timezone (default: `UTC`). Affects `vault_update_memory` date stamps and `vault_get_daily_note` date resolution. Set to your IANA timezone (e.g. `America/New_York`).                                                                 |
-| `LOG_LEVEL`                 | Optional. Logging verbosity: `debug`, `info`, `warn`, `error`. Default: `info`.                                                                                                                                                                           |
-| `LOG_DIR`                   | Optional. Directory for persistent log files inside the container. Default: `/data/logs`.                                                                                                                                                                 |
-| `LOG_RETENTION_DAYS`        | Optional. Days to keep log files before automatic cleanup on startup. Default: `30`.                                                                                                                                                                      |
-| `WINDOWS_MODE`              | Optional. Set `true` when the vault is on a Windows drive (Docker Desktop). Default: `false`.                                                                                                                                                             |
+| Variable                              | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GHCR_USER`                           | GitHub username. Used in image tags and instance `.env`.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `DOCKERHUB_USERNAME`                  | Optional. Docker Hub username. When set, images are mirrored to Docker Hub alongside GHCR on release and README syncs automatically. Omit to skip entirely.                                                                                                                                                                                                                                                                                                                                         |
+| `EMBEDDING_ENABLED`                   | Optional. Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching. Default: `true`.                                                                                                                                                                                                                                                                                                    |
+| `RERANK_MODE`                         | Optional. Cross-encoder reranking mode: `blended` (default) applies position-aware score blending after RRF fusion, `none` skips reranking for lower latency. Only takes effect when `EMBEDDING_ENABLED` is true.                                                                                                                                                                                                                                                                                   |
+| `MEMORY_ENABLED`                      | Optional. Set `false` to disable the memory layer entirely — hides memory tools, skips bootstrap, omits memory from server metadata. Default: `true`.                                                                                                                                                                                                                                                                                                                                               |
+| `FILE_TOOLS_ENABLED`                  | Optional. Set `false` to hide file tools (`vault_read_file`, `vault_list_files`) for deployments without synced attachments. Default: `true`.                                                                                                                                                                                                                                                                                                                                                       |
+| `READONLY_MODE`                       | Optional. Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — read and search only. Default: `false`.                                                                                                                                                                                                                                                                                                                                                       |
+| `DISABLED_TOOLS`                      | Optional. Hide individual tools by name, comma-separated. Names match the Name column in the [README tools table](./README.md#tools). Subtractive only; an unknown tool name stops the server at startup. Default: none hidden.                                                                                                                                                                                                                                                                     |
+| `MEMORY_DIR`                          | Optional. Memory folder name in the vault (default: `About Me`). See the [Configuration](./README.md#configuration) section.                                                                                                                                                                                                                                                                                                                                                                        |
+| `PROTECTED_PATHS`                     | Optional. Comma-separated folders protected from deletion and moves (default: `MEMORY_DIR` plus the daily notes folder, read from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json`, default `Daily Notes`). Overrides the default entirely when set.                                                                                                                                                                                                                                            |
+| `ORPHAN_EXCLUDE_FOLDERS`              | Optional. Comma-separated folders excluded from orphan detection (default: `DAILY_NOTES_FOLDER, Templates, MEMORY_DIR`). Overrides the default entirely when set.                                                                                                                                                                                                                                                                                                                                   |
+| `SERVICE_DOCUMENTATION_URL`           | Optional. URL in OAuth discovery metadata (default: `https://github.com/aliasunder/vault-cortex`). Set to your fork's URL.                                                                                                                                                                                                                                                                                                                                                                          |
+| `SYNC_CONFIGS`                        | Optional. Obsidian settings categories synced to the server, comma-separated (default: `core-plugin-data,community-plugin-data` — daily-notes settings and the Tasks plugin's format). Set `none` to disable. See [Daily notes](./README.md#daily-notes).                                                                                                                                                                                                                                           |
+| `SYNC_EXCLUDED_FOLDERS`               | Optional. Folders to leave out of Obsidian Sync, comma-separated — the same list as Obsidian's Sync → Excluded folders. Unset syncs everything.                                                                                                                                                                                                                                                                                                                                                     |
+| `SYNC_FILE_TYPES`                     | Optional. Attachment types Obsidian Sync delivers: `image`, `audio`, `video`, `pdf`, `unsupported`, comma-separated. Unset keeps the Sync client's default.                                                                                                                                                                                                                                                                                                                                         |
+| `DAILY_NOTES_FOLDER`                  | Optional. Sets the daily notes folder (default: read from the vault's `.obsidian/daily-notes.json`, falling back to `Daily Notes`). See [Daily notes](./README.md#daily-notes).                                                                                                                                                                                                                                                                                                                     |
+| `DAILY_NOTES_FORMAT`                  | Optional. Sets the daily note filename format, in the same tokens as Obsidian's daily note date format setting (default: read from the vault's config, falling back to `YYYY-MM-DD`).                                                                                                                                                                                                                                                                                                               |
+| `TZ`                                  | Optional. Container timezone (default: `UTC`). Affects `vault_update_memory` date stamps and `vault_get_daily_note` date resolution. Set to your IANA timezone (e.g. `America/New_York`).                                                                                                                                                                                                                                                                                                           |
+| `LOG_LEVEL`                           | Optional. Logging verbosity: `debug`, `info`, `warn`, `error`. Default: `info`.                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `LOG_DIR`                             | Optional. Directory for persistent log files inside the container. Default: `/data/logs`; `none` disables log files.                                                                                                                                                                                                                                                                                                                                                                                |
+| `LOG_RETENTION_DAYS`                  | Optional. Days to keep log files before automatic cleanup on startup; only applies when `LOG_DIR` is a path. Default: `90`.                                                                                                                                                                                                                                                                                                                                                                         |
+| `WINDOWS_MODE`                        | Optional. Set `true` when the vault is on a Windows drive (Docker Desktop). Default: `false`.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `TRUST_PROXY_HOPS`                    | Optional. Trusted reverse-proxy hops for deriving `req.ip` from `X-Forwarded-For` (the fallback client IP). The compose file defaults the instance to `1` (API Gateway); set `2` for `ORIGIN_URL` deployments (a tunnel between the gateway and the instance).                                                                                                                                                                                                                                      |
+| `TRUST_FORWARDED_HOPS`                | Optional. How many entries from the end of the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header's `for=` list to count to reach the client IP (OAuth rate limiting, request logs); `0` ignores the header. The compose file defaults the instance to `1` (API Gateway reports visitors there and sends no `X-Forwarded-For`). For `ORIGIN_URL` and CDN setups, see the **Client-IP trust with ORIGIN_URL** callout under [Port 8000 Hardening](#port-8000-hardening-optional). |
+| `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED` | Optional, SST deploys only. Set `true` once the tunnel hostname behind `ORIGIN_URL` is locked with a Cloudflare Access service token — API Gateway then presents the `OriginAccessClientId` / `OriginAccessClientSecret` SST secrets on every request (see [Port 8000 Hardening](#port-8000-hardening-optional), steps 5–8). It has no effect unless `ORIGIN_URL` is set.                                                                                                                           |
+| `DISABLE_EXECUTE_API_ENDPOINT`        | Optional. Requires the `CUSTOM_DOMAIN` secret. Set `true` once every client uses the custom domain: the gateway stops answering on its default `execute-api` hostname at the next deploy. If a CDN sits in front of the custom domain, set this to `true` before setting `TRUST_FORWARDED_HOPS=2`; the **Client-IP trust with ORIGIN_URL** callout under [Port 8000 Hardening](#port-8000-hardening-optional) explains why.                                                                         |
 
 **Secrets** (Settings → Secrets and variables → Actions → Secrets tab):
 
-| Secret                   | Purpose                                                                                                                                                                                                                                                                                                             |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AWS_DEPLOY_ROLE_ARN`    | IAM role ARN from the [OIDC setup](#github-oidc-setup-for-forkers) above.                                                                                                                                                                                                                                           |
-| `AWS_REGION`             | AWS region for SST deployment (default: `us-east-1`). Must match the region in `sst.config.ts`.                                                                                                                                                                                                                     |
-| `SST_STAGE`              | SST stage name — see [SST stage](#sst-stage) above. Must match your local `.sst/stage` so CI and laptop deploys target the same infrastructure.                                                                                                                                                                     |
-| `PUBLIC_URL`             | API Gateway URL (e.g. `https://<id>.execute-api.<region>.amazonaws.com`) or your [custom domain](#custom-domain-optional). Used for the healthcheck and written into the instance `.env` as the OAuth issuer URL.                                                                                                   |
-| `VAULT_NAME`             | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                                                                                                                                         |
-| `GHCR_TOKEN`             | Optional. Only needed when your GHCR package is private (a fork's first push defaults to private): a classic PAT with `read:packages`, used to log the instance in for pulls. Image pushes use the built-in `GITHUB_TOKEN`; when unset, the deploy clears any stored credential and the instance pulls anonymously. |
-| `DOCKERHUB_TOKEN`        | Optional. Docker Hub access token with `Read & Write` repository permissions. Used by deploy (image push) and dockerhub-description (DOCKERHUB.md sync). Only needed when `DOCKERHUB_USERNAME` is set.                                                                                                              |
-| `MCP_AUTH_TOKEN`         | Same value as the SST secret of the same name. Written into the instance `.env` for the Express auth layer.                                                                                                                                                                                                         |
-| `OBSIDIAN_AUTH_TOKEN`    | Output of `npx vault-cortex@latest get-sync-token` — see [One-time setup](#one-time-setup).                                                                                                                                                                                                                         |
-| `VAULT_PASSWORD`         | Optional. Only set if your vault uses end-to-end encryption. Empty value is fine and ships through to `.env` as `VAULT_PASSWORD=`.                                                                                                                                                                                  |
-| `SSH_PUBKEY`             | Public key contents of your `~/.ssh/vault-cortex.pub` (literal, single line). Same key local dev and CI use — see [Prerequisites](#prerequisites).                                                                                                                                                                  |
-| `SSH_PRIVATE_KEY`        | Private half (`~/.ssh/vault-cortex`, full multi-line block including BEGIN/END markers). Loaded by `webfactory/ssh-agent` for SCP/SSH to the instance.                                                                                                                                                              |
-| `CUSTOM_DOMAIN`          | Optional. Custom domain for API Gateway (e.g. `mcp.example.com`) — see [Custom Domain](#custom-domain-optional). Set together with `CUSTOM_DOMAIN_CERT_ARN`.                                                                                                                                                        |
-| `CUSTOM_DOMAIN_CERT_ARN` | Optional. ARN of an **Issued** ACM certificate (same region as the API) covering `CUSTOM_DOMAIN`.                                                                                                                                                                                                                   |
+| Secret                   | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AWS_DEPLOY_ROLE_ARN`    | IAM role ARN from the [OIDC setup](#github-oidc-setup-for-forkers) above.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `AWS_REGION`             | AWS region for SST deployment (default: `us-east-1`). Must match the region in `sst.config.ts`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `SST_STAGE`              | SST stage name — see [SST stage](#sst-stage) above. Must match your local `.sst/stage` so CI and laptop deploys target the same infrastructure.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `PUBLIC_URL`             | Optional. The URL clients reach the server at. When unset, the deploy derives it: `https://<CUSTOM_DOMAIN>` if that secret is set, otherwise the gateway's own `https://<id>.execute-api.<region>.amazonaws.com`. Set it to pin a hostname, for example to keep the execute-api URL through a [custom-domain](#custom-domain-optional) cutover. Whatever the value, it is written into the instance `.env`, used for the healthcheck, and set on the Lambda authorizer, which rejects any access token whose issuer or audience was minted for a different URL. Changing it on a live deployment therefore invalidates every access token (403) — every connected client stays cut off until you reconnect it. |
+| `VAULT_NAME`             | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `GHCR_TOKEN`             | Optional. Only needed when your GHCR package is private (a fork's first push defaults to private): a classic PAT with `read:packages`, used to log the instance in for pulls. Image pushes use the built-in `GITHUB_TOKEN`; when unset, the deploy clears any stored credential and the instance pulls anonymously.                                                                                                                                                                                                                                                                                                                                                                                            |
+| `DOCKERHUB_TOKEN`        | Optional. Docker Hub access token with `Read & Write` repository permissions. Used by deploy (image push) and dockerhub-description (DOCKERHUB.md sync). Only needed when `DOCKERHUB_USERNAME` is set.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `MCP_AUTH_TOKEN`         | Same value as the SST secret of the same name. Written into the instance `.env` for the Express auth layer.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `OBSIDIAN_AUTH_TOKEN`    | Output of `npx vault-cortex@latest get-sync-token` — see [One-time setup](#one-time-setup).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `VAULT_PASSWORD`         | Optional. Only set if your vault uses end-to-end encryption. Empty value is fine and ships through to `.env` as `VAULT_PASSWORD=`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `SSH_PUBKEY`             | Public key contents of your `~/.ssh/vault-cortex.pub` (literal, single line). Same key local dev and CI use — see [Prerequisites](#prerequisites).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `SSH_PRIVATE_KEY`        | Private half (`~/.ssh/vault-cortex`, full multi-line block including BEGIN/END markers). Loaded by `webfactory/ssh-agent` for SCP/SSH to the instance.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `CUSTOM_DOMAIN`          | Optional. Custom domain for API Gateway (e.g. `mcp.example.com`) — see [Custom Domain](#custom-domain-optional). Set together with `CUSTOM_DOMAIN_CERT_ARN`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `CUSTOM_DOMAIN_CERT_ARN` | Optional. ARN of an **Issued** ACM certificate (same region as the API) covering `CUSTOM_DOMAIN`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 Both halves come from the dedicated deploy keypair set up in [Prerequisites](#prerequisites). Generating a new keypair just for CI would cause SST to replace the Lightsail VM on the next deploy — that's why local and CI share the same key.
 
@@ -398,6 +418,8 @@ ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp> \
 ```
 
 ### Rotating `MCP_AUTH_TOKEN`
+
+Rotation ends every OAuth session — each connected client goes back through the consent page on its next request, and clients that use the token directly need the new value.
 
 The token must stay in sync across three places: the SST secret (`sst secret set McpAuthToken`), the GitHub repo secret, and the instance `.env`. CI writes the instance `.env` from the GitHub secret on every deploy, so the laptop rotation procedure becomes:
 
@@ -438,7 +460,7 @@ curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up --auth-key=<YOUR_AUTH_KEY> --hostname=vault-cortex --advertise-tags=tag:server --reset
 ```
 
-Use a **reusable, non-expiring** auth key from https://login.tailscale.com/admin/settings/keys with tag `tag:server`. The `--reset` flag clears any prior registration state. Do NOT use `--ssh` (that replaces OpenSSH with Tailscale SSH — we want standard SSH over the Tailscale network).
+Use a **reusable, non-expiring** auth key from <https://login.tailscale.com/admin/settings/keys> with tag `tag:server`. The `--reset` flag clears any prior registration state. Do NOT use `--ssh` (that replaces OpenSSH with Tailscale SSH — we want standard SSH over the Tailscale network).
 
 **2. Verify Tailscale SSH** from your laptop:
 
@@ -458,7 +480,7 @@ This blocks port 22 on the Lightsail firewall (non-routable CIDR — same mechan
 
 **4. Update local dev** — add to `~/.config/vault-cortex/.env`:
 
-```
+```bash
 LIGHTSAIL_SSH_HOST=vault-cortex
 ```
 
@@ -480,7 +502,8 @@ The deploy workflow supports optional Tailscale connectivity for SSH steps. Gate
 **Tailscale admin setup:**
 
 1. Create an OAuth client at Tailscale admin → Settings → Trust Credentials → +Credential → OAuth → Continue — scopes: Devices Core (Read + Write) + Auth Keys (Write), tag: `tag:ci`
-2. Add tag owners and ACL grants in https://login.tailscale.com/admin/acls:
+2. Add tag owners and ACL grants in <https://login.tailscale.com/admin/acls>:
+
    ```json
    {
      "tagOwners": {
@@ -536,7 +559,12 @@ aws lightsail put-instance-public-ports \
 
 ### Port 8000 Hardening (Optional)
 
-By default, port 8000 is open to all IPs on the Lightsail firewall. API Gateway provides TLS for MCP client traffic, but port 8000 itself is plain HTTP — anyone who discovers the Lightsail IP (via scanning, Shodan, or historical records) can reach it directly. With `ORIGIN_URL` and `MCP_PORT_CIDRS`, you can route API Gateway through a tunnel or reverse proxy and block direct access to port 8000.
+By default, port 8000 is open to all IPs on the Lightsail firewall. API Gateway provides TLS for MCP client traffic, but the port itself is plain HTTP. Leaving it open has two costs:
+
+- **Plain-HTTP exposure** — anyone who discovers the Lightsail IP (scanning, Shodan, historical records) can reach the port directly, without API Gateway's TLS.
+- **Forgeable client identity** — the reference configuration trusts the `Forwarded` header because API Gateway is the expected upstream, so a request that bypasses the gateway can claim any client IP and mint itself a fresh rate-limit bucket. Every bucket key is a real client IP only once the gateway is the sole way in — port 8000 closed, and the tunnel hostname locked to the gateway.
+
+With `ORIGIN_URL` and `MCP_PORT_CIDRS`, you can route API Gateway through a tunnel or reverse proxy and block direct access to port 8000. That setup adds a proxy hop — the **Client-IP trust with ORIGIN_URL** callout at the end of **How it works**, just below, has the settings to adjust.
 
 #### How it works
 
@@ -544,7 +572,28 @@ By default, port 8000 is open to all IPs on the Lightsail firewall. API Gateway 
 
 `MCP_PORT_CIDRS` controls port 8000 on the Lightsail firewall — same format as `SSH_CIDRS`. Set to `none` to block all direct access (traffic flows through the tunnel/proxy instead). Lightsail requires the port entry to exist — removing it would trigger an `InstancePublicPorts` replacement — so `none` sets it to a non-routable CIDR (`192.0.2.1/32`, RFC 5737 TEST-NET) that no real source IP matches. The port still appears in `get-instance-port-states` but is effectively unreachable.
 
-Together: `ORIGIN_URL` provides the alternative path, `MCP_PORT_CIDRS=none` blocks the direct path.
+Together:
+
+- `ORIGIN_URL` provides the alternative path
+- `MCP_PORT_CIDRS=none` blocks the direct path
+- `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` lets the alternative path admit the gateway alone
+
+> **Client-IP trust with ORIGIN_URL:** API Gateway reports the visitor only in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header and sends no `X-Forwarded-For`, so `TRUST_FORWARDED_HOPS` is what finds the visitor; `TRUST_PROXY_HOPS` only sets how many `X-Forwarded-For` hops feed the fallback client IP, used when `Forwarded` is ignored or absent. Pick the row that matches the instance:
+>
+> | What sits in front of the instance                                                                           | `TRUST_PROXY_HOPS` | `TRUST_FORWARDED_HOPS` | Client IP is          |
+> | ------------------------------------------------------------------------------------------------------------ | ------------------ | ---------------------- | --------------------- |
+> | API Gateway directly (no `ORIGIN_URL`)                                                                       | `1`                | `1`                    | the visitor           |
+> | Gateway → tunnel/proxy that admits any client                                                                | `2`                | `0`                    | the gateway's address |
+> | Gateway → tunnel/proxy that admits only the gateway                                                          | `2`                | `1`                    | the visitor           |
+> | Gateway → a frontend that cannot check headers (Tailscale Funnel)                                            | `2`                | `0`                    | the gateway's address |
+> | A proxied Cloudflare record in front of the gateway's custom domain, and `DISABLE_EXECUTE_API_ENDPOINT=true` | `2`                | `2`                    | the visitor           |
+>
+> Where the client IP is the visitor, it comes from `Forwarded` and `TRUST_PROXY_HOPS` is not consulted. On the `0` rows the header is ignored and the client IP is whatever `TRUST_PROXY_HOPS` resolves from `X-Forwarded-For` — the gateway's own address, never the visitor, because the gateway sends no `X-Forwarded-For`.
+>
+> - **A tunnel hostname that admits any client** lets anyone reaching it directly write their own `Forwarded` header and pick their OAuth rate-limit bucket — hence `0` until it admits only the gateway. Steps 5–7 below close it with an Access service token before the gateway routes through it; step 10 sets the values.
+> - **Other frontends** (Caddy, nginx) can enforce the same check: `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` makes the gateway send `CF-Access-Client-Id` / `CF-Access-Client-Secret` on every request, so reject requests without your two values (Caddy: a `header` matcher on `handle`; nginx: an `if` on `$http_cf_access_client_secret`).
+> - **With `0`, every visitor shares one rate-limit bucket** (the gateway's address), but no visitor can pick their bucket — nothing a client sends changes it.
+> - **`2` needs the CDN to be the only way in.** Cloudflare appends the visitor to `X-Forwarded-For` and the gateway lists the edge last, so the visitor is the element before it. On the gateway's default `execute-api` hostname a request has only one gateway-written element, and a client-supplied `X-Forwarded-For` lands right before it — `2` would read that client-supplied value. Close that hostname with `DISABLE_EXECUTE_API_ENDPOINT=true` (a repo Variable for CI deploys) before setting `2`. A CDN that passes client headers through unchanged cannot use `2`.
 
 #### Example: Cloudflare Tunnel
 
@@ -580,28 +629,62 @@ In the tunnel's Public Hostname tab, add a route:
 - Domain: select your Cloudflare-managed domain
 - Service: `http://localhost:8000`
 
-**4. Verify the tunnel** before blocking port 8000:
+**4. Verify the tunnel** before steps 5–7 restrict it to API Gateway:
 
 ```bash
 curl https://<subdomain>.<yourdomain>/healthz
 # Should return 200 OK
 ```
 
-**5. Block port 8000** — set `ORIGIN_URL` and `MCP_PORT_CIDRS=none`, then deploy:
+The tunnel hostname is a public HTTPS endpoint. Steps 5–7 restrict it to API Gateway with a [Cloudflare Access service token](https://developers.cloudflare.com/cloudflare-one/identity/service-tokens/) _before_ the gateway routes through it: the gateway presents the token on every request and the tunnel hostname refuses everything else. Restricting it first means the container never trusts a `Forwarded` header that arrived through a tunnel anyone could reach, and nothing goes dark in between — clients keep using port 8000 until step 8.
+
+**5. Create a service token** in [Zero Trust](https://one.dash.cloudflare.com/) → Access → Service auth → Service Tokens → **Create Service Token**. Name it (e.g., `vault-cortex-api-gateway`) and copy the Client ID and Client Secret — the secret is shown once. Store both as SST secrets:
 
 ```bash
-ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none npx sst deploy
+npx sst secret set OriginAccessClientId "<client-id>"
+npx sst secret set OriginAccessClientSecret "<client-secret>"
 ```
 
-**6. Verify port 8000 is blocked:**
+**6. Lock the tunnel hostname** in Zero Trust → Access → Applications → **Add an application** → Self-hosted:
+
+- Application domain: the tunnel hostname (`<subdomain>.<yourdomain>`)
+- Add a policy with Action **Service Auth**; under Include, choose Selector **Service Token** and pick the token from step 5
+- Save the application
+
+**7. Verify the lock:**
+
+```bash
+# Without the token — Access refuses it (403 from Cloudflare)
+curl -o /dev/null -w "%{http_code}\n" https://<subdomain>.<yourdomain>/healthz
+
+# With the token — 200 (what API Gateway will send)
+curl -H "CF-Access-Client-Id: <client-id>" -H "CF-Access-Client-Secret: <client-secret>" https://<subdomain>.<yourdomain>/healthz
+```
+
+**8. Route through the tunnel and block port 8000** — set `ORIGIN_URL`, `MCP_PORT_CIDRS=none`, and `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true`, then deploy:
+
+```bash
+ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true npx sst deploy
+```
+
+**9. Verify the new path:**
 
 ```bash
 # Direct access — should timeout (port blocked on firewall)
 curl --connect-timeout 5 http://<lightsailIp>:8000/healthz
 
-# API Gateway — should return 200 (routed through tunnel)
+# API Gateway — 200 (routed through the locked tunnel with the service token)
 curl https://<api-gateway-url>/healthz
 ```
+
+**10. Set the instance's client-IP trust** — `TRUST_FORWARDED_HOPS=1` (the compose default) and `TRUST_PROXY_HOPS=2` in the instance `.env` (repo Variables for CI deploys), then redeploy the instance. Use `TRUST_FORWARDED_HOPS=2` instead only if the gateway's custom domain is a proxied Cloudflare record **and** the CDN is the only way into the gateway — see the **Client-IP trust with ORIGIN_URL** callout under [How it works](#port-8000-hardening-optional).
+
+**Already running `ORIGIN_URL` with an open tunnel?** Until the lock exists, keep `TRUST_FORWARDED_HOPS=0` — the open tunnel hostname passes any client-written `Forwarded` header through unverified. To lock it:
+
+1. Create and apply the service token (steps 5–7)
+2. Redeploy with `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` (step 8's command)
+3. Verify the new path (step 9)
+4. Set the trust values (step 10)
 
 #### MCP_PORT_CIDRS reference
 
@@ -619,19 +702,24 @@ curl https://<api-gateway-url>/healthz
 If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, port 8000 is blocked — but `cloudflared` isn't running on the new VM yet. Recovery:
 
 1. Temporarily open both ports and disable tunnel routing:
+
    ```bash
    SSH_CIDRS=0.0.0.0/0 ORIGIN_URL= MCP_PORT_CIDRS=0.0.0.0/0 npx sst deploy
    ```
+
 2. SSH in via public IP, install Tailscale (see [SSH Hardening](#ssh-hardening-with-tailscale-optional))
 3. Install `cloudflared` and register with the existing tunnel token:
+
    ```bash
    sudo apt-get update && sudo apt-get install -y cloudflared
    sudo cloudflared service install <TUNNEL_TOKEN>
    ```
+
 4. Verify the tunnel: `curl https://<subdomain>.<yourdomain>/healthz`
-5. Re-harden:
+5. Re-harden (drop `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` if the tunnel hostname is not locked with a service token):
+
    ```bash
-   SSH_CIDRS=none ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none npx sst deploy
+   SSH_CIDRS=none ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true npx sst deploy
    ```
 
 The tunnel token doesn't change when the VM is replaced — it's tied to the Cloudflare tunnel resource, not the host.
@@ -659,7 +747,7 @@ aws lightsail put-instance-public-ports \
 
 By default, clients reach the server at the auto-generated API Gateway URL (`https://<id>.execute-api.<region>.amazonaws.com`). A custom domain (e.g. `mcp.example.com`) replaces that with your own hostname — nicer connect URLs, and MCP clients that derive a connector icon from the URL's domain show your site's favicon instead of the AWS one.
 
-DNS stays with your provider (Cloudflare, Route 53, anything) — SST only creates the API Gateway domain and stage mapping from a certificate you already hold. The default execute-api URL keeps working alongside the custom domain, so existing OAuth clients are not cut off.
+DNS stays with your provider (Cloudflare, Route 53, anything) — SST only creates the API Gateway domain and stage mapping from a certificate you already hold. The default execute-api URL keeps working alongside the custom domain, so existing OAuth clients are not cut off — until you close it in step 5.
 
 **1. Get an ACM certificate** in the same region as the API, covering the domain (exact name or a wildcard like `*.example.com`). Request it in the ACM console (or any IaC), add the DNS validation record at your DNS provider, and wait for status **Issued**. The cert is referenced by ARN — it can live in your account already.
 
@@ -687,13 +775,16 @@ curl https://mcp.example.com/healthz
 # → {"ok":true}
 ```
 
-**4. Update `PUBLIC_URL`** to `https://mcp.example.com` (instance `.env` + the repo secret for CI) and redeploy or restart, so OAuth discovery metadata advertises the custom domain. Existing OAuth clients connected via the execute-api URL keep working; new connections should use the custom domain.
+**4. Move clients to the custom domain.** A CI deploy with `CUSTOM_DOMAIN` set derives `PUBLIC_URL` from it (unless the `PUBLIC_URL` secret pins another value), so OAuth discovery metadata advertises the custom domain and every access token is minted for it. Access tokens are bound to that URL: a client still connected through the execute-api URL is rejected on its next request (its token names the old audience) and reconnects on the custom domain, where it consents once. To stage the cutover, set the `PUBLIC_URL` secret to the execute-api URL until the CNAME resolves, then clear it and redeploy. For a laptop deploy, update `PUBLIC_URL` in the instance `.env` yourself and restart the stack; the Lambda and Express must derive the same value or every token gets a 403 at the gateway.
+
+**5. Close the default hostname (optional)** — once every client connects through the custom domain, set `DISABLE_EXECUTE_API_ENDPOINT=true` (a repo Variable for CI deploys, or on the command line) and redeploy. The gateway then answers only on the custom domain; a client still pointed at the execute-api URL gets a connection error until it is re-pointed. This is the precondition for `TRUST_FORWARDED_HOPS=2` when a CDN fronts the domain (see the **Client-IP trust with ORIGIN_URL** callout under [Port 8000 Hardening](#port-8000-hardening-optional)).
 
 ---
 
 ## Troubleshooting
 
 - **`npm run build` fails with `Property 'McpAuthToken' does not exist`** — `sst-env.d.ts` hasn't been generated. Run `npx sst deploy` (or `sst dev`) once for your stage.
+- **Every request gets `403` at the gateway while the instance is healthy** — the Lambda authorizer is rejecting every token, and clients do not recover on their own (they refresh on 401, not 403). Either the Lambda and Express disagree on `PUBLIC_URL` — the Lambda derives its value at `sst deploy` (the `PUBLIC_URL` env var, else `CUSTOM_DOMAIN`, else the gateway URL), Express reads the instance `.env`; make them match and redeploy or restart — or connected clients still hold tokens minted before audience binding (an upgrade that skipped the release that accepts them): each client recovers when its own token timer refreshes it, at most one access-token lifetime, or reconnect it now.
 - **`sst dev` errors with `SecretMissingError`** — set the secret first (one-time setup step 2).
 - **`curl <lightsailIp>` hangs** — use `:8000`. The firewall only allows ports 22 and 8000 by default (port 22 may be blocked if `SSH_CIDRS=none`, port 8000 may be blocked if `MCP_PORT_CIDRS=none`).
 - **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Verify `~/.ssh/vault-cortex` exists (generate with `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`), then redeploy. To also use your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.

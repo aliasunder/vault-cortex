@@ -18,6 +18,7 @@ import {
   readEnvPort,
   readEnvPublicUrl,
   readEnvVaultPath,
+  stripEnvQuotedValues,
   type Mode,
 } from "./scaffold.js"
 import { expandTilde } from "./vault.js"
@@ -214,6 +215,7 @@ export const recreateContainer = async (
     return 1
   }
 
+  stripEnvQuotedValues(deployment.envFilePath)
   prompts.log("Starting container...")
   const containerStarted = docker.dockerRun({
     mode: deployment.mode,

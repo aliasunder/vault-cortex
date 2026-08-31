@@ -11,9 +11,9 @@ describe("loadConfig", () => {
       expect(config.memoryDir).toBe("About Me")
     })
 
-    it("protectedPaths defaults to About Me and Daily Notes", () => {
+    it("protectedPathsOverride is null when PROTECTED_PATHS is unset", () => {
       const config = loadConfig(EMPTY_ENV)
-      expect(config.protectedPaths).toEqual(["About Me", "Daily Notes"])
+      expect(config.protectedPathsOverride).toBeNull()
     })
 
     it("orphanExcludeFolders defaults to Daily Notes, Templates, About Me", () => {
@@ -52,11 +52,6 @@ describe("loadConfig", () => {
     it("uses the provided value", () => {
       const config = loadConfig({ MEMORY_DIR: "Profile" })
       expect(config.memoryDir).toBe("Profile")
-    })
-
-    it("cascades into protectedPaths when PROTECTED_PATHS is not set", () => {
-      const config = loadConfig({ MEMORY_DIR: "Profile" })
-      expect(config.protectedPaths).toEqual(["Profile", "Daily Notes"])
     })
 
     it("cascades into orphanExcludeFolders when ORPHAN_EXCLUDE_FOLDERS is not set", () => {
@@ -140,11 +135,6 @@ describe("loadConfig", () => {
       expect(config.dailyNotesFolder).toBe("Journal")
     })
 
-    it("cascades into protectedPaths when PROTECTED_PATHS is not set", () => {
-      const config = loadConfig({ DAILY_NOTES_FOLDER: "Journal" })
-      expect(config.protectedPaths).toEqual(["About Me", "Journal"])
-    })
-
     it("cascades into orphanExcludeFolders when ORPHAN_EXCLUDE_FOLDERS is not set", () => {
       const config = loadConfig({ DAILY_NOTES_FOLDER: "Journal" })
       expect(config.orphanExcludeFolders).toEqual([
@@ -154,12 +144,12 @@ describe("loadConfig", () => {
       ])
     })
 
-    it("does not cascade when PROTECTED_PATHS is explicitly set", () => {
+    it("keeps the explicit PROTECTED_PATHS list when DAILY_NOTES_FOLDER is set", () => {
       const config = loadConfig({
         DAILY_NOTES_FOLDER: "Journal",
         PROTECTED_PATHS: "Secrets,Archive",
       })
-      expect(config.protectedPaths).toEqual(["Secrets", "Archive"])
+      expect(config.protectedPathsOverride).toEqual(["Secrets", "Archive"])
     })
 
     it("accepts nested folder paths", () => {
@@ -280,32 +270,36 @@ describe("loadConfig", () => {
   })
 
   describe("PROTECTED_PATHS (comma-separated)", () => {
-    it("overrides the default entirely", () => {
+    it("stores the user's list as the override", () => {
       const config = loadConfig({ PROTECTED_PATHS: "Secrets,Archive" })
-      expect(config.protectedPaths).toEqual(["Secrets", "Archive"])
+      expect(config.protectedPathsOverride).toEqual(["Secrets", "Archive"])
     })
 
-    it("does not include MEMORY_DIR when explicitly set", () => {
+    it("does not add MEMORY_DIR to an explicit list", () => {
       const config = loadConfig({
         MEMORY_DIR: "Profile",
         PROTECTED_PATHS: "Secrets,Archive",
       })
-      expect(config.protectedPaths).toEqual(["Secrets", "Archive"])
-      expect(config.protectedPaths).not.toContain("Profile")
+      expect(config.protectedPathsOverride).toEqual(["Secrets", "Archive"])
     })
 
     it("trims whitespace around entries", () => {
       const config = loadConfig({
         PROTECTED_PATHS: " Secrets , Archive ",
       })
-      expect(config.protectedPaths).toEqual(["Secrets", "Archive"])
+      expect(config.protectedPathsOverride).toEqual(["Secrets", "Archive"])
     })
 
     it("filters out empty entries from trailing commas", () => {
       const config = loadConfig({
         PROTECTED_PATHS: "Secrets,Archive,",
       })
-      expect(config.protectedPaths).toEqual(["Secrets", "Archive"])
+      expect(config.protectedPathsOverride).toEqual(["Secrets", "Archive"])
+    })
+
+    it("treats a whitespace-only value as unset", () => {
+      const config = loadConfig({ PROTECTED_PATHS: "   " })
+      expect(config.protectedPathsOverride).toBeNull()
     })
 
     it("validates each entry", () => {
@@ -452,11 +446,6 @@ describe("loadConfig", () => {
       })
       expect(config.memoryEnabled).toBe(false)
       expect(config.memoryDir).toBe("Profile")
-    })
-
-    it("still includes memoryDir in default protectedPaths when disabled", () => {
-      const config = loadConfig({ MEMORY_ENABLED: "false" })
-      expect(config.protectedPaths).toEqual(["About Me", "Daily Notes"])
     })
   })
 
@@ -658,6 +647,72 @@ describe("loadConfig", () => {
       expect(() => loadConfig({ MAX_PDF_RENDER_PAGES: value })).toThrow(
         /MAX_PDF_RENDER_PAGES/,
       )
+    })
+  })
+
+  describe("TRUST_PROXY_HOPS", () => {
+    it("defaults to 0 when unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.trustProxyHops).toBe(0)
+    })
+
+    it("accepts a custom non-negative integer", () => {
+      const config = loadConfig({ TRUST_PROXY_HOPS: "2" })
+      expect(config.trustProxyHops).toBe(2)
+    })
+
+    it("rejects a non-integer value", () => {
+      expect(() => loadConfig({ TRUST_PROXY_HOPS: "abc" })).toThrow(
+        /TRUST_PROXY_HOPS/,
+      )
+    })
+
+    it.each(["-1", "1.5"])("rejects invalid hop count %s", (value) => {
+      expect(() => loadConfig({ TRUST_PROXY_HOPS: value })).toThrow(
+        /TRUST_PROXY_HOPS/,
+      )
+    })
+  })
+
+  describe("TRUST_FORWARDED_HOPS", () => {
+    it("defaults to 0 (Forwarded header ignored) when unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.trustForwardedHops).toBe(0)
+    })
+
+    it.each(["0", "1", "2"])("accepts hop count %s", (value) => {
+      const config = loadConfig({ TRUST_FORWARDED_HOPS: value })
+      expect(config.trustForwardedHops).toBe(Number(value))
+    })
+
+    it("rejects a non-integer value", () => {
+      expect(() => loadConfig({ TRUST_FORWARDED_HOPS: "abc" })).toThrow(
+        /TRUST_FORWARDED_HOPS/,
+      )
+    })
+
+    it.each(["-1", "1.5"])("rejects hop count %s", (value) => {
+      expect(() => loadConfig({ TRUST_FORWARDED_HOPS: value })).toThrow(
+        /TRUST_FORWARDED_HOPS/,
+      )
+    })
+
+    it("warns when the removed TRUST_FORWARDED_HEADER is still set", () => {
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+      onTestFinished(() => warnSpy.mockRestore())
+      const config = loadConfig({ TRUST_FORWARDED_HEADER: "true" })
+      expect(config.trustForwardedHops).toBe(0)
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith(
+        "TRUST_FORWARDED_HEADER is no longer read — set TRUST_FORWARDED_HOPS instead (0 ignores the Forwarded header, 1 trusts the proxy that writes it)",
+      )
+    })
+
+    it("does not warn when TRUST_FORWARDED_HEADER is unset", () => {
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+      onTestFinished(() => warnSpy.mockRestore())
+      loadConfig({ TRUST_FORWARDED_HOPS: "1" })
+      expect(warnSpy).not.toHaveBeenCalled()
     })
   })
 })

@@ -1,7 +1,16 @@
 /** End-to-end integration tests — every tool and prompt called over real
  *  HTTP transport against a real server with a real vault on disk. */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest"
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  onTestFinished,
+  vi,
+} from "vitest"
+import { DateTime } from "luxon"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
   startServer,
@@ -9,31 +18,13 @@ import {
   createTestClient,
   toolNames,
   promptNames,
-  randomPort,
+  freePort,
   mcpInitStatus,
+  callTool,
+  textContent,
 } from "./test-harness.js"
 
 vi.setConfig({ testTimeout: 15_000 })
-
-type TextBlock = { type: "text"; text: string }
-type ToolResult = { isError?: boolean; content: TextBlock[] }
-
-const callTool = async ({
-  client,
-  name,
-  args = {},
-}: {
-  client: Client
-  name: string
-  args?: Record<string, unknown>
-}): Promise<ToolResult> =>
-  client.callTool({ name, arguments: args }) as Promise<ToolResult>
-
-const textContent = (result: ToolResult): string =>
-  result.content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("\n")
 
 /** Extract joined text from a prompt result's messages. */
 const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string =>
@@ -43,7 +34,7 @@ const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string =>
     )
     .join("\n")
 
-// ── Default config (30 tools, 3 prompts) ──────────────────────
+// ── Default config (33 tools, 3 prompts) ──────────────────────
 
 describe("default config", () => {
   let client: Client
@@ -51,7 +42,7 @@ describe("default config", () => {
   let port: number
 
   beforeAll(async () => {
-    port = randomPort()
+    port = await freePort()
     const server = await startServer(port)
     cleanup = server.cleanup
     client = await createTestClient(server.port)
@@ -66,9 +57,10 @@ describe("default config", () => {
   })
 
   describe("surface", () => {
-    it("lists 30 tools", async () => {
+    it("lists 33 tools", async () => {
       const names = await toolNames(client)
       expect(names).toEqual([
+        "vault_create_task",
         "vault_delete_memory",
         "vault_delete_note",
         "vault_delete_span",
@@ -77,6 +69,7 @@ describe("default config", () => {
         "vault_get_daily_note",
         "vault_get_memory",
         "vault_get_outgoing_links",
+        "vault_insert_at_anchor",
         "vault_list_files",
         "vault_list_memory_files",
         "vault_list_notes",
@@ -91,6 +84,7 @@ describe("default config", () => {
         "vault_read_note",
         "vault_recent_notes",
         "vault_replace_in_note",
+        "vault_replace_span",
         "vault_search",
         "vault_search_by_folder",
         "vault_search_by_property",
@@ -167,6 +161,10 @@ describe("default config", () => {
       expect(text).toContain("Projects/alpha.md")
       expect(text).toContain("Projects/beta.md")
       expect(text).toContain("Orphan Note.md")
+      // The Multi Column fixture opens with `--- start-multi-column:` —
+      // its presence proves the server booted without crashing on a note
+      // whose first line gray-matter alone would reject (issue #485)
+      expect(text).toContain("Multi Column Template.md")
     })
 
     it("vault_list_notes — folder filter", async () => {
@@ -387,6 +385,115 @@ describe("default config", () => {
       expect(text).toContain("alpha-task-2")
     })
 
+    it("vault_create_task — creates a card and verifies via readback", async () => {
+      const createResult = await callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "Projects/alpha.md",
+          description: "Integration test task",
+          block_id: "integ-test-task",
+          heading: "Tasks",
+          priority: "medium",
+        },
+      })
+      expect(createResult.isError).not.toBe(true)
+      const createJson = JSON.parse(textContent(createResult))
+      // Inserted at the top of the Tasks section: line 18 of the fixture
+      expect(createJson).toEqual({
+        path: "Projects/alpha.md",
+        line: 18,
+        description: "Integration test task",
+        block_id: "integ-test-task",
+        heading: "Tasks",
+        changes: [
+          `created: (none) → ${DateTime.now().toISODate()}`,
+          "priority: (none) → medium",
+        ],
+      })
+
+      // Verify the created task is in the file via vault_read_note
+      const readback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/alpha.md", heading: "Tasks" },
+      })
+      const readbackText = textContent(readback)
+      expect(readbackText).toContain("Integration test task")
+      expect(readbackText).toContain("^integ-test-task")
+      expect(readbackText).toContain("🔼")
+    })
+
+    it("vault_list_tasks — top_level_only excludes sub-tasks", async () => {
+      const allResult = await callTool({
+        client,
+        name: "vault_list_tasks",
+        args: {
+          path: "Projects/board.md",
+          status: "all",
+          sort_by: "position",
+        },
+      })
+      const allJson = JSON.parse(textContent(allResult))
+      // board.md fixture: 3 cards + 2 checklist items under the in-progress card
+      expect(allJson.total).toBe(5)
+
+      const topOnlyResult = await callTool({
+        client,
+        name: "vault_list_tasks",
+        args: {
+          path: "Projects/board.md",
+          status: "all",
+          sort_by: "position",
+          top_level_only: true,
+        },
+      })
+      const topOnlyJson = JSON.parse(textContent(topOnlyResult))
+
+      expect(topOnlyJson.total).toBe(3)
+      expect(
+        topOnlyJson.tasks.map(
+          (task: {
+            description: string
+            depth: number
+            is_kanban_task: boolean
+          }) => ({
+            description: task.description,
+            depth: task.depth,
+            is_kanban_task: task.is_kanban_task,
+          }),
+        ),
+      ).toEqual([
+        { description: "In-progress feature", depth: 0, is_kanban_task: true },
+        { description: "Planned work", depth: 0, is_kanban_task: true },
+        { description: "Shipped item", depth: 0, is_kanban_task: true },
+      ])
+    })
+
+    it("vault_update_task — description edit preserves metadata", async () => {
+      const result = await callTool({
+        client,
+        name: "vault_update_task",
+        args: {
+          path: "Projects/alpha.md",
+          block_id: "alpha-task-2",
+          description: "Renamed second task",
+        },
+      })
+      expect(result.isError).not.toBe(true)
+      const json = JSON.parse(textContent(result))
+      // Line 22, not the fixture's 21: the vault_create_task case above
+      // inserted a card at the top of the same Tasks section.
+      expect(json).toEqual({
+        path: "Projects/alpha.md",
+        line: 22,
+        description: "Renamed second task",
+        block_id: "alpha-task-2",
+        heading: "Tasks",
+        changes: ["description: Second task → Renamed second task"],
+      })
+    })
+
     it("vault_update_task — verify priority applied", async () => {
       const result = await callTool({
         client,
@@ -422,7 +529,7 @@ describe("default config", () => {
   })
 
   describe("write chain", () => {
-    it("write → patch → replace → delete_span → update_properties → move → delete", async () => {
+    it("write → patch → replace → delete_span → replace_span → insert_at_anchor → update_properties → move → delete", async () => {
       // write
       const writeResult = await callTool({
         client,
@@ -495,6 +602,45 @@ describe("default config", () => {
       expect(textContent(afterSpan)).not.toContain("Removable line")
       expect(textContent(afterSpan)).toContain("Replaced line.")
 
+      // replace_span — verify anchor-based replacement
+      const replaceSpanResult = await callTool({
+        client,
+        name: "vault_replace_span",
+        args: {
+          path: "Scratch/test-write.md",
+          start_anchor: "Replaced line",
+          content: "Span-replaced line.",
+        },
+      })
+      expect(replaceSpanResult.isError).not.toBe(true)
+      const afterReplaceSpan = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Scratch/test-write.md" },
+      })
+      expect(textContent(afterReplaceSpan)).toContain("Span-replaced line.")
+      expect(textContent(afterReplaceSpan)).not.toContain("Replaced line.")
+
+      // insert_at_anchor — verify anchor-based insertion
+      const insertResult = await callTool({
+        client,
+        name: "vault_insert_at_anchor",
+        args: {
+          path: "Scratch/test-write.md",
+          anchor: "Span-replaced line",
+          position: "after",
+          content: "Inserted line.",
+        },
+      })
+      expect(insertResult.isError).not.toBe(true)
+      const afterInsert = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Scratch/test-write.md" },
+      })
+      expect(textContent(afterInsert)).toContain("Inserted line.")
+      expect(textContent(afterInsert)).toContain("Span-replaced line.")
+
       // update_properties — verify frontmatter merged
       const propsResult = await callTool({
         client,
@@ -533,7 +679,7 @@ describe("default config", () => {
         name: "vault_read_note",
         args: { path: "Scratch/test-moved.md" },
       })
-      expect(textContent(afterMoveNew)).toContain("Replaced line.")
+      expect(textContent(afterMoveNew)).toContain("Span-replaced line.")
 
       // delete — verify the note is gone
       const deleteResult = await callTool({
@@ -639,6 +785,274 @@ describe("default config", () => {
       expect(status).toBe(401)
     })
   })
+
+  describe("OAuth rate limiting", () => {
+    const register = (forwardedIp: string) =>
+      fetch(`http://127.0.0.1:${port}/register`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          forwarded: `for=${forwardedIp}`,
+        },
+        body: JSON.stringify({
+          client_name: "integration-test",
+          redirect_uris: ["http://127.0.0.1/callback"],
+          grant_types: ["authorization_code"],
+          response_types: ["code"],
+          token_endpoint_auth_method: "none",
+        }),
+      })
+
+    // With the Forwarded header untrusted (the default), a distinct spoofed
+    // value per request must NOT mint a fresh rate-limit bucket — all six
+    // share the socket peer's bucket.
+    it("spoofed Forwarded headers do not bypass the /register rate limit", async () => {
+      for (let i = 1; i <= 5; i++) {
+        const response = await register(`198.51.100.${i}`)
+        expect(response.status).toBe(201)
+      }
+      const sixth = await register("198.51.100.6")
+      expect(sixth.status).toBe(429)
+    })
+  })
+})
+
+// ── X-Forwarded-For rate limiting (default proxy trust) ────────
+
+describe("X-Forwarded-For rate limiting (default proxy trust)", () => {
+  let cleanup: (() => Promise<void>) | undefined
+  let port: number
+
+  beforeAll(async () => {
+    port = await freePort()
+    // Dedicated default-config server: the limiter's in-memory store is
+    // per-process and blocked hits count, so the default-config describe's
+    // Forwarded test leaves its shared 5-req bucket exhausted inside the
+    // 60s window — running this test there would 429 on the first request.
+    const server = await startServer(port)
+    cleanup = server.cleanup
+  }, 30_000)
+
+  afterAll(async () => {
+    if (cleanup) await cleanup()
+  })
+
+  const register = (xffIp: string) =>
+    fetch(`http://127.0.0.1:${port}/register`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-for": xffIp,
+      },
+      body: JSON.stringify({
+        client_name: "integration-test",
+        redirect_uris: ["http://127.0.0.1/callback"],
+        grant_types: ["authorization_code"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
+    })
+
+  // X-Forwarded-For is the other spoofable channel: with TRUST_PROXY_HOPS=0
+  // (the default), a client-supplied X-Forwarded-For must not shift the
+  // bucket either — re-raising the hop count would reopen the bypass
+  // silently.
+  it("spoofed X-Forwarded-For headers do not bypass the /register rate limit", async () => {
+    for (let i = 1; i <= 5; i++) {
+      const response = await register(`198.51.100.${i}`)
+      expect(response.status).toBe(201)
+    }
+    const sixth = await register("198.51.100.6")
+    expect(sixth.status).toBe(429)
+  })
+})
+
+// ── TRUST_PROXY_HOPS=1 ─────────────────────────────────────────
+
+describe("TRUST_PROXY_HOPS=1", () => {
+  let cleanup: (() => Promise<void>) | undefined
+  let port: number
+
+  beforeAll(async () => {
+    port = await freePort()
+    const server = await startServer(port, { TRUST_PROXY_HOPS: "1" })
+    cleanup = server.cleanup
+  }, 30_000)
+
+  afterAll(async () => {
+    if (cleanup) await cleanup()
+  })
+
+  const register = (xffIp: string) =>
+    fetch(`http://127.0.0.1:${port}/register`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-forwarded-for": xffIp,
+      },
+      body: JSON.stringify({
+        client_name: "integration-test",
+        redirect_uris: ["http://127.0.0.1/callback"],
+        grant_types: ["authorization_code"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
+    })
+
+  // Positive wiring proof for `app.set("trust proxy", config.trustProxyHops)`:
+  // with one trusted hop the XFF-derived IP is the bucket key, so exhausting
+  // one client's bucket must leave another client's bucket fresh. If the
+  // config value never reached Express, every request would share the socket
+  // peer's bucket and the second client's request would 429.
+  it("buckets the /register rate limit by the X-Forwarded-For client IP", async () => {
+    for (let i = 1; i <= 5; i++) {
+      const response = await register("203.0.113.50")
+      expect(response.status).toBe(201)
+    }
+    const sixth = await register("203.0.113.50")
+    expect(sixth.status).toBe(429)
+    const otherClient = await register("203.0.113.51")
+    expect(otherClient.status).toBe(201)
+  })
+})
+
+// ── TRUST_FORWARDED_HOPS=1 ─────────────────────────────────────
+
+describe("TRUST_FORWARDED_HOPS=1", () => {
+  let cleanup: (() => Promise<void>) | undefined
+  let port: number
+
+  beforeAll(async () => {
+    port = await freePort()
+    const server = await startServer(port, { TRUST_FORWARDED_HOPS: "1" })
+    cleanup = server.cleanup
+  }, 30_000)
+
+  afterAll(async () => {
+    if (cleanup) await cleanup()
+  })
+
+  const register = (forwardedIp: string) =>
+    fetch(`http://127.0.0.1:${port}/register`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        forwarded: `for=${forwardedIp}`,
+      },
+      body: JSON.stringify({
+        client_name: "integration-test",
+        redirect_uris: ["http://127.0.0.1/callback"],
+        grant_types: ["authorization_code"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
+    })
+
+  it("buckets the /register rate limit by the Forwarded client IP", async () => {
+    for (let i = 0; i < 5; i++) {
+      const response = await register("198.51.100.1")
+      expect(response.status).toBe(201)
+    }
+    const sixthSameClient = await register("198.51.100.1")
+    expect(sixthSameClient.status).toBe(429)
+    const firstOtherClient = await register("198.51.100.2")
+    expect(firstOtherClient.status).toBe(201)
+  })
+
+  // An edge proxy that appends (as API Gateway does) leaves any
+  // client-supplied prefix ahead of its own claim — the bucket key must be
+  // the LAST for= element, never the first.
+  it("buckets by the last for= element, not a client-supplied prefix", async () => {
+    for (let i = 0; i < 5; i++) {
+      const response = await fetch(`http://127.0.0.1:${port}/register`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          forwarded: "for=203.0.113.99, for=198.51.100.4",
+        },
+        body: JSON.stringify({
+          client_name: "integration-test",
+          redirect_uris: ["http://127.0.0.1/callback"],
+          grant_types: ["authorization_code"],
+          response_types: ["code"],
+          token_endpoint_auth_method: "none",
+        }),
+      })
+      expect(response.status).toBe(201)
+    }
+    // If the prefix (203.0.113.99) were the key, this plain request would
+    // open a fresh bucket instead of joining 198.51.100.4's exhausted one.
+    const sixth = await register("198.51.100.4")
+    expect(sixth.status).toBe(429)
+  })
+})
+
+// ── TRUST_FORWARDED_HOPS=2 ─────────────────────────────────────
+
+// A CDN in front of the header-writing proxy makes the last for= the
+// CDN's address; the client is the element before it.
+describe("TRUST_FORWARDED_HOPS=2", () => {
+  let cleanup: (() => Promise<void>) | undefined
+  let port: number
+
+  beforeAll(async () => {
+    port = await freePort()
+    const server = await startServer(port, {
+      TRUST_FORWARDED_HOPS: "2",
+    })
+    cleanup = server.cleanup
+  }, 30_000)
+
+  afterAll(async () => {
+    if (cleanup) await cleanup()
+  })
+
+  const register = (forwarded: string) =>
+    fetch(`http://127.0.0.1:${port}/register`, {
+      method: "POST",
+      headers: { "content-type": "application/json", forwarded },
+      body: JSON.stringify({
+        client_name: "integration-test",
+        redirect_uris: ["http://127.0.0.1/callback"],
+        grant_types: ["authorization_code"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      }),
+    })
+
+  it("buckets the /register rate limit by the for= element before the last", async () => {
+    for (let i = 0; i < 5; i++) {
+      const response = await register("for=198.51.100.1, for=172.69.0.1")
+      expect(response.status).toBe(201)
+    }
+    // Same client behind a different CDN edge — same bucket.
+    const sixthSameClient = await register("for=198.51.100.1, for=172.69.0.2")
+    expect(sixthSameClient.status).toBe(429)
+    // Different client behind the same CDN edge — fresh bucket.
+    const firstOtherClient = await register("for=198.51.100.2, for=172.69.0.1")
+    expect(firstOtherClient.status).toBe(201)
+  })
+
+  it("ignores a client-supplied prefix ahead of the two trusted elements", async () => {
+    for (let i = 0; i < 5; i++) {
+      const response = await register(
+        "for=203.0.113.99, for=198.51.100.4, for=172.69.0.1",
+      )
+      expect(response.status).toBe(201)
+    }
+    // The exhausted bucket is keyed on 198.51.100.4 alone: neither the
+    // prefix (203.0.113.99) nor the CDN element (172.69.0.1) is part of
+    // the key, so a different prefix and a different CDN edge both land
+    // in it.
+    const sixth = await register("for=198.51.100.4, for=172.69.0.1")
+    expect(sixth.status).toBe(429)
+    const otherPrefixAndEdge = await register(
+      "for=203.0.113.77, for=198.51.100.4, for=172.69.0.2",
+    )
+    expect(otherPrefixAndEdge.status).toBe(429)
+    const prefixAsClient = await register("for=203.0.113.99, for=172.69.0.1")
+    expect(prefixAsClient.status).toBe(201)
+  })
 })
 
 // ── READONLY_MODE (20 tools, 2 prompts) ───────────────────────
@@ -648,7 +1062,7 @@ describe("READONLY_MODE=true", () => {
   let cleanup: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
-    const server = await startServer(randomPort(), {
+    const server = await startServer(await freePort(), {
       READONLY_MODE: "true",
     })
     cleanup = server.cleanup
@@ -670,6 +1084,8 @@ describe("READONLY_MODE=true", () => {
     expect(names).not.toContain("vault_patch_note")
     expect(names).not.toContain("vault_replace_in_note")
     expect(names).not.toContain("vault_delete_span")
+    expect(names).not.toContain("vault_replace_span")
+    expect(names).not.toContain("vault_insert_at_anchor")
     expect(names).not.toContain("vault_delete_note")
     expect(names).not.toContain("vault_move_note")
     expect(names).not.toContain("vault_update_properties")
@@ -706,14 +1122,14 @@ describe("READONLY_MODE=true", () => {
   })
 })
 
-// ── DISABLED_TOOLS (selective, 27 tools) ──────────────────────
+// ── DISABLED_TOOLS (selective, 30 tools) ──────────────────────
 
 describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory", () => {
   let client: Client
   let cleanup: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
-    const server = await startServer(randomPort(), {
+    const server = await startServer(await freePort(), {
       DISABLED_TOOLS: "vault_delete_note,vault_move_note,vault_delete_memory",
     })
     cleanup = server.cleanup
@@ -728,9 +1144,9 @@ describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory",
     }
   })
 
-  it("lists 27 tools with expected survivors", async () => {
+  it("lists 30 tools with expected survivors", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(27)
+    expect(names).toHaveLength(30)
     expect(names).not.toContain("vault_delete_note")
     expect(names).not.toContain("vault_move_note")
     expect(names).not.toContain("vault_delete_memory")
@@ -777,7 +1193,7 @@ describe("DISABLED_TOOLS=vault_update_memory", () => {
   let cleanup: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
-    const server = await startServer(randomPort(), {
+    const server = await startServer(await freePort(), {
       DISABLED_TOOLS: "vault_update_memory",
     })
     cleanup = server.cleanup
@@ -792,9 +1208,9 @@ describe("DISABLED_TOOLS=vault_update_memory", () => {
     }
   })
 
-  it("lists 29 tools", async () => {
+  it("lists 32 tools", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(29)
+    expect(names).toHaveLength(32)
     expect(names).not.toContain("vault_update_memory")
     expect(names).toContain("vault_get_memory")
   })
@@ -806,14 +1222,14 @@ describe("DISABLED_TOOLS=vault_update_memory", () => {
   })
 })
 
-// ── MEMORY_ENABLED=false (25 tools, 2 prompts) ───────────────
+// ── MEMORY_ENABLED=false (28 tools, 2 prompts) ───────────────
 
 describe("MEMORY_ENABLED=false", () => {
   let client: Client
   let cleanup: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
-    const server = await startServer(randomPort(), {
+    const server = await startServer(await freePort(), {
       MEMORY_ENABLED: "false",
     })
     cleanup = server.cleanup
@@ -828,9 +1244,9 @@ describe("MEMORY_ENABLED=false", () => {
     }
   })
 
-  it("lists 25 tools — no memory group", async () => {
+  it("lists 28 tools — no memory group", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(25)
+    expect(names).toHaveLength(28)
     expect(names).not.toContain("vault_get_memory")
     expect(names).not.toContain("vault_list_memory_files")
     expect(names).not.toContain("vault_memory_recall")
@@ -845,14 +1261,14 @@ describe("MEMORY_ENABLED=false", () => {
   })
 })
 
-// ── FILE_TOOLS_ENABLED=false (28 tools) ──────────────────────
+// ── FILE_TOOLS_ENABLED=false (31 tools) ──────────────────────
 
 describe("FILE_TOOLS_ENABLED=false", () => {
   let client: Client
   let cleanup: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
-    const server = await startServer(randomPort(), {
+    const server = await startServer(await freePort(), {
       FILE_TOOLS_ENABLED: "false",
     })
     cleanup = server.cleanup
@@ -867,9 +1283,9 @@ describe("FILE_TOOLS_ENABLED=false", () => {
     }
   })
 
-  it("lists 28 tools — no asset tools", async () => {
+  it("lists 31 tools — no asset tools", async () => {
     const names = await toolNames(client)
-    expect(names).toHaveLength(28)
+    expect(names).toHaveLength(31)
     expect(names).not.toContain("vault_read_file")
     expect(names).not.toContain("vault_list_files")
     expect(names).toContain("vault_read_note")
@@ -893,7 +1309,7 @@ describe("DAILY_NOTES_FORMAT with unsupported token", () => {
   let cleanup: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
-    const port = randomPort()
+    const port = await freePort()
     const server = await startServer(port, {
       DAILY_NOTES_FORMAT: "MMMM Do, YYYY",
     })
@@ -928,10 +1344,35 @@ describe("DAILY_NOTES_FORMAT with unsupported token", () => {
 describe("boot rejection", () => {
   it("unknown DISABLED_TOOLS name exits with error", async () => {
     const { exitCode, stderr } = await startServerExpectingFailure(
-      randomPort(),
+      await freePort(),
       { DISABLED_TOOLS: "vault_fake_tool" },
     )
     expect(exitCode).toBe(1)
     expect(stderr).toContain("vault_fake_tool")
   }, 15_000)
+
+  it("PUBLIC_URL with embedded credentials exits with error", async () => {
+    const { exitCode, stderr } = await startServerExpectingFailure(
+      await freePort(),
+      { PUBLIC_URL: "https://user:fake-secret@127.0.0.1" },
+    )
+    expect(exitCode).toBe(1)
+    expect(stderr).toContain(
+      "PUBLIC_URL must not contain credentials (user:password@)",
+    )
+  }, 15_000)
+
+  // Express 5 hands bind failures to the listen callback instead of
+  // throwing; without the check the second server would log "server
+  // started" and idle while the first one keeps answering the port.
+  it("exits with error when the port is already in use", async () => {
+    const port = await freePort()
+    const occupant = await startServer(port)
+    onTestFinished(() => occupant.cleanup())
+
+    const { exitCode, stderr } = await startServerExpectingFailure(port, {})
+    expect(exitCode).toBe(1)
+    expect(stderr).toContain('"message":"server failed to listen"')
+    expect(stderr).toContain("EADDRINUSE")
+  }, 30_000)
 })

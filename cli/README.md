@@ -60,8 +60,8 @@ What it does:
 Re-running init where a setup already exists asks first — declining leaves
 everything unchanged and points you at [`configure`](#configure), the right
 tool for changing settings in place. Existing files are never overwritten
-without asking. During a remote setup, init offers to run
-[`get-sync-token`](#get-sync-token) for you when Docker is available.
+without asking. During a remote setup, init offers to generate your
+[Obsidian Sync token](#get-sync-token) as part of the flow.
 
 Flags:
 
@@ -194,17 +194,15 @@ remote setups — without leaving the CLI:
 npx vault-cortex@latest get-sync-token
 ```
 
-The command opens the Obsidian login inside Docker. Once you've signed in, it
-captures your token and prints it — nothing to dig out of the login output.
-Use `--dir <path>` to write the token straight into an existing `.env`
-instead:
+The command prompts for your Obsidian account email, password, and MFA code
+(if enabled), signs in via the Obsidian API, and prints the token. Use
+`--dir <path>` to write the token straight into an existing `.env` instead:
 
 ```bash
 npx vault-cortex@latest get-sync-token --dir ./vault-cortex
 ```
 
-During `init --mode remote`, this flow is offered automatically when Docker
-is available.
+During `init --mode remote`, this flow is offered automatically.
 
 ## Requirements
 
@@ -218,4 +216,5 @@ is available.
 
 - [Local quickstart](https://github.com/aliasunder/vault-cortex/blob/main/deploy/local/README.md)
 - [Remote quickstart (VPS + Obsidian Sync)](https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md)
+- [One-click deploy on Render or Railway](https://github.com/aliasunder/vault-cortex#one-click-deploy)
 - [Full project README](https://github.com/aliasunder/vault-cortex)

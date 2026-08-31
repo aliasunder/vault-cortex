@@ -1,5 +1,91 @@
 import { describe, it, expect } from "vitest"
-import { extractClientIp, safeEqual, parseBearer } from "../auth.js"
+import {
+  canonicalResourceUri,
+  extractClientIp,
+  mcpResourceUrl,
+  safeEqual,
+  parseBearer,
+  tokenBindingForServer,
+} from "../auth.js"
+
+describe("tokenBindingForServer", () => {
+  it("derives the issuer with a trailing slash and the audience without one", () => {
+    // The exact strings both verifiers compare against; a change to
+    // either derivation shows up here.
+    expect(tokenBindingForServer(new URL("https://mcp.example.com"))).toEqual({
+      issuer: "https://mcp.example.com/",
+      audience: "https://mcp.example.com/mcp",
+    })
+  })
+
+  it("keeps a non-default port in both claims", () => {
+    expect(tokenBindingForServer(new URL("http://127.0.0.1:8000"))).toEqual({
+      issuer: "http://127.0.0.1:8000/",
+      audience: "http://127.0.0.1:8000/mcp",
+    })
+  })
+
+  it("keeps a path prefix in the issuer but not in the audience", () => {
+    expect(
+      tokenBindingForServer(new URL("https://mcp.example.com/vault/")),
+    ).toEqual({
+      issuer: "https://mcp.example.com/vault/",
+      audience: "https://mcp.example.com/mcp",
+    })
+  })
+})
+
+describe("mcpResourceUrl", () => {
+  it("appends /mcp to the origin", () => {
+    expect(mcpResourceUrl(new URL("https://mcp.example.com")).href).toBe(
+      "https://mcp.example.com/mcp",
+    )
+  })
+
+  it("replaces a path prefix rather than nesting under it", () => {
+    expect(mcpResourceUrl(new URL("https://mcp.example.com/vault/")).href).toBe(
+      "https://mcp.example.com/mcp",
+    )
+  })
+})
+
+describe("canonicalResourceUri", () => {
+  it("keeps a canonical URI unchanged", () => {
+    expect(canonicalResourceUri(new URL("https://mcp.example.com/mcp"))).toBe(
+      "https://mcp.example.com/mcp",
+    )
+  })
+
+  it("drops a trailing slash", () => {
+    expect(canonicalResourceUri(new URL("https://mcp.example.com/mcp/"))).toBe(
+      "https://mcp.example.com/mcp",
+    )
+  })
+
+  it("drops the trailing slash of a bare origin", () => {
+    expect(canonicalResourceUri(new URL("https://mcp.example.com/"))).toBe(
+      "https://mcp.example.com",
+    )
+  })
+
+  it("lowercases the scheme and host and drops a default port", () => {
+    expect(
+      canonicalResourceUri(new URL("HTTPS://MCP.Example.COM:443/mcp")),
+    ).toBe("https://mcp.example.com/mcp")
+  })
+
+  it("keeps a non-default port", () => {
+    expect(canonicalResourceUri(new URL("http://127.0.0.1:8000/mcp"))).toBe(
+      "http://127.0.0.1:8000/mcp",
+    )
+  })
+
+  it("drops the query and fragment", () => {
+    expect(
+      canonicalResourceUri(new URL("https://mcp.example.com/mcp?x=1#frag")),
+    ).toBe("https://mcp.example.com/mcp")
+  })
+})
 
 describe("safeEqual", () => {
   it("returns true for equal strings", () => {
@@ -56,43 +142,175 @@ describe("parseBearer", () => {
 
 describe("extractClientIp", () => {
   const requestWith = (
-    headers: Record<string, string>,
+    headers: Record<string, string | string[]>,
     ip?: string,
   ): Parameters<typeof extractClientIp>[0] => ({ headers, ip })
+  const IGNORE_FORWARDED_HEADER = 0
+  const TRUSTED_ONE_HOP = 1
+  const TRUSTED_TWO_HOPS = 2
 
-  it("extracts the IP from a plain Forwarded for= element", () => {
-    const request = requestWith({ forwarded: "for=203.0.113.7" }, "10.0.0.1")
-    expect(extractClientIp(request)).toBe("203.0.113.7")
+  describe("when the Forwarded header is not trusted (default)", () => {
+    // Without a trusted edge proxy, any client can choose the header's
+    // value, so it must never become the rate-limit identity.
+    it("ignores a client-supplied Forwarded header and returns req.ip", () => {
+      const request = requestWith({ forwarded: "for=203.0.113.7" }, "10.0.0.1")
+      expect(extractClientIp(request, IGNORE_FORWARDED_HEADER)).toBe("10.0.0.1")
+    })
+
+    it("falls back to 'unknown' when req.ip is also unavailable", () => {
+      const request = requestWith({ forwarded: "for=203.0.113.7" })
+      expect(extractClientIp(request, IGNORE_FORWARDED_HEADER)).toBe("unknown")
+    })
   })
 
-  it("extracts the IP from a quoted Forwarded for= element", () => {
-    const request = requestWith({ forwarded: 'for="203.0.113.7"' }, "10.0.0.1")
-    expect(extractClientIp(request)).toBe("203.0.113.7")
+  describe("when the Forwarded header is trusted (edge proxy deployment)", () => {
+    it("extracts the IP from a plain Forwarded for= element", () => {
+      const request = requestWith({ forwarded: "for=203.0.113.7" }, "10.0.0.1")
+      expect(extractClientIp(request, TRUSTED_ONE_HOP)).toBe("203.0.113.7")
+    })
+
+    it("extracts the IP from a quoted Forwarded for= element", () => {
+      const request = requestWith(
+        { forwarded: 'for="203.0.113.7"' },
+        "10.0.0.1",
+      )
+      expect(extractClientIp(request, TRUSTED_ONE_HOP)).toBe("203.0.113.7")
+    })
+
+    // RFC 7239 §6 writes IPv6 nodes bracketed and quoted, optionally with a
+    // port; the rate-limit key and logged IP must be the bare address.
+    it("strips the brackets and port from a bracketed IPv6 for= node", () => {
+      const request = requestWith(
+        { forwarded: 'for="[2001:db8::17]:4711"' },
+        "10.0.0.1",
+      )
+      expect(extractClientIp(request, TRUSTED_ONE_HOP)).toBe("2001:db8::17")
+    })
+
+    it("strips the port from an IPv4 for= node", () => {
+      const request = requestWith(
+        { forwarded: 'for="203.0.113.7:4711"' },
+        "10.0.0.1",
+      )
+      expect(extractClientIp(request, TRUSTED_ONE_HOP)).toBe("203.0.113.7")
+    })
+
+    it("returns an unbracketed IPv6 for= value unchanged", () => {
+      const request = requestWith({ forwarded: "for=2001:db8::17" }, "10.0.0.1")
+      expect(extractClientIp(request, TRUSTED_ONE_HOP)).toBe("2001:db8::17")
+    })
+
+    it("stops at parameter separators in the for= value", () => {
+      const request = requestWith(
+        { forwarded: "for=203.0.113.7;proto=https" },
+        "10.0.0.1",
+      )
+      expect(extractClientIp(request, TRUSTED_ONE_HOP)).toBe("203.0.113.7")
+    })
+
+    // A client can prepend its own elements whenever the edge proxy appends
+    // (as API Gateway does) rather than replaces, so the first for= is
+    // client-chosen — the last for= is the proxy's own claim.
+    it("takes the last for= element of a multi-element Forwarded header", () => {
+      const request = requestWith(
+        { forwarded: "for=203.0.113.7, for=70.41.3.18" },
+        "10.0.0.1",
+      )
+      expect(extractClientIp(request, TRUSTED_ONE_HOP)).toBe("70.41.3.18")
+    })
+
+    // Duplicate header lines can arrive as an array when middleware or a
+    // custom HTTP stack re-parses them — the last-for= property must span
+    // the joined lines, not just the first line's value.
+    it("takes the last for= element across duplicate Forwarded header lines", () => {
+      const request = requestWith(
+        { forwarded: ["for=203.0.113.7", "for=70.41.3.18"] },
+        "10.0.0.1",
+      )
+      expect(extractClientIp(request, TRUSTED_ONE_HOP)).toBe("70.41.3.18")
+    })
+
+    it("skips trailing elements that carry no for= parameter", () => {
+      const request = requestWith(
+        { forwarded: "for=203.0.113.7, proto=https" },
+        "10.0.0.1",
+      )
+      expect(extractClientIp(request, TRUSTED_ONE_HOP)).toBe("203.0.113.7")
+    })
+
+    it("falls back to req.ip when no Forwarded header is present", () => {
+      const request = requestWith({}, "10.0.0.1")
+      expect(extractClientIp(request, TRUSTED_ONE_HOP)).toBe("10.0.0.1")
+    })
+
+    it("falls back to req.ip when the Forwarded header carries no for=", () => {
+      const request = requestWith({ forwarded: "proto=https" }, "10.0.0.1")
+      expect(extractClientIp(request, TRUSTED_ONE_HOP)).toBe("10.0.0.1")
+    })
+
+    it("returns 'unknown' when neither Forwarded nor req.ip is available", () => {
+      const request = requestWith({})
+      expect(extractClientIp(request, TRUSTED_ONE_HOP)).toBe("unknown")
+    })
   })
 
-  it("stops at parameter and element separators in the Forwarded value", () => {
-    const request = requestWith(
-      { forwarded: "for=203.0.113.7;proto=https, for=70.41.3.18" },
-      "10.0.0.1",
-    )
-    expect(extractClientIp(request)).toBe("203.0.113.7")
-  })
+  // With a CDN in front of the proxy that writes the header, that proxy's
+  // peer — the last for= — is the CDN, and the client is the element
+  // before it. TRUST_FORWARDED_HOPS=2 selects that element.
+  describe("when two trusted proxies write the Forwarded header", () => {
+    it("takes the for= element before the last one", () => {
+      const request = requestWith(
+        { forwarded: "for=203.0.113.7, for=70.41.3.18, for=172.69.214.195" },
+        "10.0.0.1",
+      )
+      expect(extractClientIp(request, TRUSTED_TWO_HOPS)).toBe("70.41.3.18")
+    })
 
-  it("takes the first for= element of joined duplicate Forwarded headers", () => {
-    const request = requestWith(
-      { forwarded: "for=203.0.113.7, for=70.41.3.18" },
-      "10.0.0.1",
-    )
-    expect(extractClientIp(request)).toBe("203.0.113.7")
-  })
+    it("returns the bare IPv6 visitor behind an IPv4 CDN element", () => {
+      const request = requestWith(
+        { forwarded: 'for="[2606:4700:4700::1111]:4711", for=172.69.214.195' },
+        "10.0.0.1",
+      )
+      expect(extractClientIp(request, TRUSTED_TWO_HOPS)).toBe(
+        "2606:4700:4700::1111",
+      )
+    })
 
-  it("falls back to req.ip when no Forwarded header is present", () => {
-    const request = requestWith({}, "10.0.0.1")
-    expect(extractClientIp(request)).toBe("10.0.0.1")
-  })
+    it("ignores client-prepended elements beyond the trusted hops", () => {
+      const request = requestWith(
+        {
+          forwarded:
+            "for=198.51.100.9, for=203.0.113.7, for=70.41.3.18, for=172.69.214.195",
+        },
+        "10.0.0.1",
+      )
+      expect(extractClientIp(request, TRUSTED_TWO_HOPS)).toBe("70.41.3.18")
+    })
 
-  it("returns 'unknown' when neither Forwarded nor req.ip is available", () => {
-    const request = requestWith({})
-    expect(extractClientIp(request)).toBe("unknown")
+    it("counts for= elements across duplicate Forwarded header lines", () => {
+      const request = requestWith(
+        {
+          forwarded: ["for=203.0.113.7, for=70.41.3.18", "for=172.69.214.195"],
+        },
+        "10.0.0.1",
+      )
+      expect(extractClientIp(request, TRUSTED_TWO_HOPS)).toBe("70.41.3.18")
+    })
+
+    it("skips elements without for= when counting hops", () => {
+      const request = requestWith(
+        { forwarded: "for=70.41.3.18, proto=https, for=172.69.214.195" },
+        "10.0.0.1",
+      )
+      expect(extractClientIp(request, TRUSTED_TWO_HOPS)).toBe("70.41.3.18")
+    })
+
+    // A chain with fewer elements than trusted hops is entirely
+    // proxy-written — the first element is the farthest claim available,
+    // mirroring Express's X-Forwarded-For rule when every hop is trusted.
+    it("takes the first for= element of a chain shorter than the hop count", () => {
+      const request = requestWith({ forwarded: "for=70.41.3.18" }, "10.0.0.1")
+      expect(extractClientIp(request, TRUSTED_TWO_HOPS)).toBe("70.41.3.18")
+    })
   })
 })

@@ -13,6 +13,7 @@ import {
   buildSnippetFromChunkText,
   escapeLikeWildcards,
   stripTrailingSlashes,
+  pathIsInFolder,
   dayToEpochMsRange,
 } from "../search-helpers.js"
 import type { NoteRow, TaskRow } from "../search-index.js"
@@ -165,6 +166,9 @@ const makeTaskRow = (overrides: Partial<TaskRow> = {}): TaskRow => ({
   block_id: null,
   heading: "Tasks",
   folder: "Projects/Alpha",
+  depth: 0,
+  parent_line: null,
+  parent_block_id: null,
   is_kanban_task: 0,
   kanban_done_lanes: null,
   ...overrides,
@@ -227,7 +231,7 @@ describe("rowToMetadata", () => {
 // ── rowToTaskEntry ───────────────────────────────────────────────
 
 describe("rowToTaskEntry", () => {
-  it("maps a complete TaskRow to TaskEntry with parsed JSON columns", () => {
+  it("maps a TaskRow to TaskEntry, parsing JSON columns and dropping NULL metadata", () => {
     const entry = rowToTaskEntry(makeTaskRow())
     expect(entry).toEqual({
       path: "Projects/Alpha/tasks.md",
@@ -238,25 +242,16 @@ describe("rowToTaskEntry", () => {
       heading: "Tasks",
       folder: "Projects/Alpha",
       created: "2024-01-01",
-      scheduled: null,
-      start: null,
       due: "2024-03-01",
-      done: null,
-      cancelled: null,
-      priority: null,
-      recurrence: null,
-      on_completion: null,
       task_id: "abc123",
       depends_on: ["def456"],
       tags: ["bug"],
-      block_id: null,
+      depth: 0,
       is_kanban_task: false,
-      lane: null,
-      done_lanes: null,
     })
   })
 
-  it("maps lane and done_lanes for Kanban tasks", () => {
+  it("maps done_lanes for Kanban tasks", () => {
     const entry = rowToTaskEntry(
       makeTaskRow({
         is_kanban_task: 1,
@@ -264,15 +259,28 @@ describe("rowToTaskEntry", () => {
         kanban_done_lanes: JSON.stringify(["Done"]),
       }),
     )
-    expect(entry.lane).toBe("Active")
-    expect(entry.done_lanes).toEqual(["Done"])
-    expect(entry.is_kanban_task).toBe(true)
+    expect(entry).toEqual({
+      path: "Projects/Alpha/tasks.md",
+      line: 5,
+      status: "todo",
+      status_char: " ",
+      description: "Fix the bug",
+      heading: "Active",
+      folder: "Projects/Alpha",
+      created: "2024-01-01",
+      due: "2024-03-01",
+      task_id: "abc123",
+      depends_on: ["def456"],
+      tags: ["bug"],
+      depth: 0,
+      is_kanban_task: true,
+      done_lanes: ["Done"],
+    })
   })
 
-  it("sets lane to null for non-Kanban tasks", () => {
+  it("omits done_lanes for non-Kanban tasks", () => {
     const entry = rowToTaskEntry(makeTaskRow({ is_kanban_task: 0 }))
-    expect(entry.lane).toBeNull()
-    expect(entry.done_lanes).toBeNull()
+    expect(entry.done_lanes).toBeUndefined()
   })
 
   it("renames note_path to path", () => {
@@ -784,6 +792,58 @@ describe("escapeLikeWildcards", () => {
 })
 
 // ── stripTrailingSlashes ──────────────────────────────────────
+
+describe("pathIsInFolder", () => {
+  it("matches a path directly inside the folder", () => {
+    expect(pathIsInFolder({ path: "Docs/inside.txt", folder: "Docs" })).toBe(
+      true,
+    )
+  })
+
+  it("matches a path nested below the folder", () => {
+    expect(pathIsInFolder({ path: "Docs/sub/deep.txt", folder: "Docs" })).toBe(
+      true,
+    )
+  })
+
+  it("ignores ASCII case, mirroring SQLite LIKE on the SQL legs", () => {
+    expect(
+      pathIsInFolder({ path: "Projects/plan.md", folder: "projects" }),
+    ).toBe(true)
+    expect(
+      pathIsInFolder({ path: "projects/plan.md", folder: "PROJECTS" }),
+    ).toBe(true)
+  })
+
+  it("does not fold non-ASCII case, exactly like SQLite LIKE", () => {
+    expect(pathIsInFolder({ path: "Équipe/plan.md", folder: "équipe" })).toBe(
+      false,
+    )
+    expect(pathIsInFolder({ path: "Équipe/plan.md", folder: "Équipe" })).toBe(
+      true,
+    )
+  })
+
+  it("requires a segment boundary so a folder prefix is not enough", () => {
+    expect(pathIsInFolder({ path: "Docs2/outside.txt", folder: "Docs" })).toBe(
+      false,
+    )
+    expect(
+      pathIsInFolder({ path: "Documents/outside.txt", folder: "Docs" }),
+    ).toBe(false)
+  })
+
+  it("ignores trailing slashes on the folder filter", () => {
+    expect(pathIsInFolder({ path: "Docs/inside.txt", folder: "Docs//" })).toBe(
+      true,
+    )
+  })
+
+  it("does not match the folder's own path or a root-level file", () => {
+    expect(pathIsInFolder({ path: "Docs", folder: "Docs" })).toBe(false)
+    expect(pathIsInFolder({ path: "inside.txt", folder: "Docs" })).toBe(false)
+  })
+})
 
 describe("stripTrailingSlashes", () => {
   it("strips a single trailing slash", () => {

@@ -11,7 +11,12 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime, Settings } from "luxon"
 import { findSourceMap } from "node:module"
-import { createFileSinkExtension, pruneOldLogFiles, logger } from "../logger.js"
+import {
+  createFileSinkExtension,
+  pruneOldLogFiles,
+  logger,
+  resolveLogDir,
+} from "../logger.js"
 
 vi.mock("node:module", { spy: true })
 
@@ -41,6 +46,33 @@ const sampleEntry = (message: string) => ({
   name: "test",
   message,
   data: {},
+})
+
+describe("resolveLogDir", () => {
+  it("returns the directory for an ordinary path", () => {
+    expect(resolveLogDir("/data/logs")).toBe("/data/logs")
+  })
+
+  it("turns file logging off for the none sentinel", () => {
+    expect(resolveLogDir("none")).toBeUndefined()
+  })
+
+  it("matches the none sentinel case-insensitively", () => {
+    expect(resolveLogDir("NONE")).toBeUndefined()
+    expect(resolveLogDir("None")).toBeUndefined()
+  })
+
+  it("turns file logging off when unset", () => {
+    expect(resolveLogDir(undefined)).toBeUndefined()
+  })
+
+  it("turns file logging off when empty", () => {
+    expect(resolveLogDir("")).toBeUndefined()
+  })
+
+  it("does not treat a directory literally named none under a path as the sentinel", () => {
+    expect(resolveLogDir("/data/none")).toBe("/data/none")
+  })
 })
 
 describe("createFileSinkExtension", () => {
@@ -181,6 +213,19 @@ describe("pruneOldLogFiles", () => {
       `vault-mcp-${yesterday}.log`,
       `vault-mcp-${today}.log`,
     ])
+  })
+
+  it("keeps 90 days of log files when no retention is configured", () => {
+    const logDir = createTempDir()
+
+    const sixtyDaysAgo = DateTime.now().minus({ days: 60 }).toISODate()
+    const hundredDaysAgo = DateTime.now().minus({ days: 100 }).toISODate()
+    writeFileSync(join(logDir, `vault-mcp-${sixtyDaysAgo}.log`), "kept")
+    writeFileSync(join(logDir, `vault-mcp-${hundredDaysAgo}.log`), "pruned")
+
+    createFileSinkExtension(logDir)
+
+    expect(readdirSync(logDir)).toEqual([`vault-mcp-${sixtyDaysAgo}.log`])
   })
 
   it("respects custom retention days", () => {

@@ -39,6 +39,11 @@ const splitCommaSeparatedValues = (raw: string): string[] =>
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0)
 
+/** Parses a comma-separated env value as vault folder names, rejecting
+ *  absolute paths and path traversal. */
+const parseVaultFolderList = (raw: string): string[] =>
+  splitCommaSeparatedValues(raw).map((folder) => vaultFolderName.parse(folder))
+
 /** Validates a DAILY_NOTES_FORMAT value by probe-rendering a fixed date.
  *  Structural checks only — structurally unsafe results (traversal,
  *  separators, empty) are rejected. Warns when the format contains
@@ -99,6 +104,24 @@ export type VaultConfig = Readonly<{
    *  DISABLED_TOOLS (comma-separated tool names; unknown names fail the
    *  boot). */
   disabledTools: ReadonlySet<ToolName>
+  /** Number of proxy hops trusted when deriving the client IP from
+   *  X-Forwarded-For (Express `trust proxy`). With 0 — the default — req.ip
+   *  is the socket peer and injected forwarding headers are ignored. Set to
+   *  1 when a single reverse proxy (Caddy, nginx, Cloudflare Tunnel, API
+   *  Gateway) sits in front of the server. Set via TRUST_PROXY_HOPS. */
+  trustProxyHops: number
+  /** How many entries from the end of the RFC 7239 Forwarded header's
+   *  `for=` list (https://www.rfc-editor.org/rfc/rfc7239) to reach the
+   *  client IP used for rate limiting and request logs. Any client can
+   *  send this header, so it is only safe to read when the proxy
+   *  connecting to this server writes it (e.g. AWS API Gateway).
+   *
+   *  - `0` (default) — ignore the header.
+   *  - `1` — the proxy's appended peer is the client.
+   *  - `2` — a CDN fronts the proxy, so the last element names the CDN.
+   *
+   *  Set via TRUST_FORWARDED_HOPS. */
+  trustForwardedHops: number
   memoryDir: string
   /** Sets the daily notes folder, taking precedence over
    *  .obsidian/daily-notes.json.
@@ -110,7 +133,9 @@ export type VaultConfig = Readonly<{
    *  Per-field precedence: env setting → daily-notes.json → fallback
    *  ("YYYY-MM-DD"). Set via DAILY_NOTES_FORMAT. */
   dailyNotesFormat?: string | undefined
-  protectedPaths: readonly string[]
+  /** PROTECTED_PATHS as the user set it; null when unset, in which case the
+   *  protected set (memory dir + daily notes folder) is resolved per call. */
+  protectedPathsOverride: readonly string[] | null
   orphanExcludeFolders: readonly string[]
   serviceDocumentationUrl: string
   /** When true, the embedding pipeline is active — notes are chunked, embedded
@@ -165,22 +190,19 @@ export const loadConfig = (
     ? validateDailyNotesFormat(dailyNotesFormatRaw)
     : undefined
 
-  // Smart defaults track the env-configured daily notes folder (the
-  // vault's daily-notes.json can't cascade here — config load is
+  const protectedPathsRaw = env.PROTECTED_PATHS?.trim()
+  const protectedPathsOverride = protectedPathsRaw
+    ? parseVaultFolderList(protectedPathsRaw)
+    : null
+
+  // The orphan default tracks the env-configured daily notes folder only
+  // (the vault's daily-notes.json can't cascade here — config load is
   // synchronous env parsing; the file is read lazily at call time).
   const dailyNotesFolderOrDefault = dailyNotesFolder ?? "Daily Notes"
 
-  const protectedPathsRaw = env.PROTECTED_PATHS?.trim()
-  const protectedPaths = protectedPathsRaw
-    ? splitCommaSeparatedValues(protectedPathsRaw).map((folder) =>
-        vaultFolderName.parse(folder),
-      )
-    : [memoryDir, dailyNotesFolderOrDefault]
-
-  const orphanExcludeFolders = env.ORPHAN_EXCLUDE_FOLDERS?.trim()
-    ? splitCommaSeparatedValues(env.ORPHAN_EXCLUDE_FOLDERS.trim()).map(
-        (folder) => vaultFolderName.parse(folder),
-      )
+  const orphanExcludeFoldersRaw = env.ORPHAN_EXCLUDE_FOLDERS?.trim()
+  const orphanExcludeFolders = orphanExcludeFoldersRaw
+    ? parseVaultFolderList(orphanExcludeFoldersRaw)
     : [dailyNotesFolderOrDefault, "Templates", memoryDir]
 
   const serviceDocumentationUrl = env.SERVICE_DOCUMENTATION_URL?.trim()
@@ -222,6 +244,15 @@ export const loadConfig = (
       return toolName
     }),
   )
+
+  // Default 0: req.ip is the socket peer, so an injected X-Forwarded-For
+  // can't shift a client into a fresh rate-limit bucket. A deployment
+  // behind proxies opts into one hop per proxy it controls.
+  const trustProxyHops = envVar
+    .from(env)
+    .get("TRUST_PROXY_HOPS")
+    .default("0")
+    .asIntPositive()
 
   const embeddingEnabled = envVar
     .from(env)
@@ -270,15 +301,35 @@ export const loadConfig = (
     envVar.from(env).get("MAX_PDF_RENDER_PAGES").default("5").asIntPositive(),
   )
 
+  // Default 0 (header ignored): without a proxy that writes the Forwarded
+  // header (e.g. AWS API Gateway), the header is client-supplied — trusting
+  // it by default would let any client choose its own rate-limit bucket.
+  // Mirrors TRUST_PROXY_HOPS, where 0 is also "no trusted proxy".
+  const trustForwardedHops = envVar
+    .from(env)
+    .get("TRUST_FORWARDED_HOPS")
+    .default("0")
+    .asIntPositive()
+
+  // TRUST_FORWARDED_HEADER was folded into TRUST_FORWARDED_HOPS. A deployment
+  // still setting it gets the new default silently otherwise, so say so.
+  if (env.TRUST_FORWARDED_HEADER !== undefined) {
+    logger.warn(
+      "TRUST_FORWARDED_HEADER is no longer read — set TRUST_FORWARDED_HOPS instead (0 ignores the Forwarded header, 1 trusts the proxy that writes it)",
+    )
+  }
+
   return Object.freeze({
     memoryEnabled,
     fileToolsEnabled,
     readOnlyMode,
     disabledTools,
+    trustProxyHops,
+    trustForwardedHops,
     memoryDir,
     dailyNotesFolder,
     dailyNotesFormat,
-    protectedPaths,
+    protectedPathsOverride,
     orphanExcludeFolders,
     serviceDocumentationUrl,
     embeddingEnabled,

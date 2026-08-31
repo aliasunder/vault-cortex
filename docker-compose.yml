@@ -22,13 +22,15 @@ services:
     environment:
       # --- Obsidian Sync (s6 init chain + svc-obsidian-sync) ---
       OBSIDIAN_AUTH_TOKEN: ${OBSIDIAN_AUTH_TOKEN}
-      VAULT_NAME: ${VAULT_NAME}
+      VAULT_NAME: "${VAULT_NAME:?Set VAULT_NAME to your Obsidian vault name (case-sensitive)}"
       VAULT_PASSWORD: ${VAULT_PASSWORD:-}
       PUID: ${PUID:-1000}
       PGID: ${PGID:-1000}
       DEVICE_NAME: ${DEVICE_NAME:-vault-cortex-lightsail}
       CONFLICT_STRATEGY: ${CONFLICT_STRATEGY:-merge}
       SYNC_MODE: ${SYNC_MODE:-bidirectional}
+      SYNC_EXCLUDED_FOLDERS: ${SYNC_EXCLUDED_FOLDERS:-}
+      SYNC_FILE_TYPES: ${SYNC_FILE_TYPES:-}
       # Obsidian config-category sync (default: core plugin data, so the
       # vault's daily-notes settings reach the server). "none" disables;
       # the category values are listed in .env.example.
@@ -41,9 +43,48 @@ services:
       INDEX_DB_PATH: /data/index.db
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?MCP_AUTH_TOKEN required for in-process auth}
       PUBLIC_URL: ${PUBLIC_URL:?PUBLIC_URL required for OAuth metadata}
+      # These two settings choose the client IP used for OAuth rate limiting
+      # and request logs. API Gateway reports the visitor only in the RFC 7239
+      # Forwarded header (https://www.rfc-editor.org/rfc/rfc7239) and sends
+      # no X-Forwarded-For, so TRUST_FORWARDED_HOPS is the setting that finds
+      # the visitor; TRUST_PROXY_HOPS only sets how many X-Forwarded-For hops
+      # feed the fallback client IP, used when the Forwarded header is ignored
+      # or absent.
+      #
+      #   What sits in front of this container   TRUST_PROXY_HOPS  TRUST_FORWARDED_HOPS  Client IP is
+      #   API Gateway (default)                  1                 1                     the visitor
+      #   Gateway → tunnel (ORIGIN_URL) that     2                 0                     the gateway's address
+      #     admits any client
+      #   Gateway → tunnel that admits only      2                 1                     the visitor
+      #     the gateway
+      #   CDN → gateway's custom domain, and     2                 2                     the visitor
+      #     the CDN is the only way in
+      #     (DISABLE_EXECUTE_API_ENDPOINT=true)
+      #
+      # On the rows where the client IP is the visitor, it comes from the
+      # Forwarded header and TRUST_PROXY_HOPS is not consulted. On the
+      # TRUST_FORWARDED_HOPS=0 row, the Forwarded header is ignored and the
+      # client IP is whatever TRUST_PROXY_HOPS resolves from X-Forwarded-For —
+      # the gateway's own address, never the visitor, since the gateway sends
+      # no X-Forwarded-For.
+      #
+      # A tunnel host admits only the gateway once the
+      # ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED repo Variable is set and the Access
+      # policy is in place (DEPLOY.md "Port 8000 Hardening", steps 5–10). Until
+      # then the host passes any client-written Forwarded header through,
+      # which is why the "admits any client" row sets TRUST_FORWARDED_HOPS to
+      # 0.
+      #
+      # Port 8000 is open to the internet. With the default settings (the
+      # "API Gateway" row), anyone can send a fake Forwarded header straight
+      # to the server. To fix this, follow the steps in DEPLOY.md under "Port
+      # 8000 Hardening". They close the port and lock the tunnel to the
+      # gateway. After that, set TRUST_PROXY_HOPS=2 and TRUST_FORWARDED_HOPS=1.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      TRUST_FORWARDED_HOPS: ${TRUST_FORWARDED_HOPS:-1}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      LOG_DIR: /data/logs
-      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-30}
+      LOG_DIR: ${LOG_DIR:-/data/logs}
+      LOG_RETENTION_DAYS: ${LOG_RETENTION_DAYS:-90}
       TZ: ${TZ:-UTC}
       EMBEDDING_ENABLED: ${EMBEDDING_ENABLED:-true}
       RERANK_MODE: ${RERANK_MODE:-blended}

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
@@ -497,6 +497,25 @@ describe("runRestart", () => {
       "Applied the current .env settings.",
     ])
     expect(scripted.outros).toEqual(["Restart complete."])
+  })
+
+  it("strips quoted values from .env before docker run", async () => {
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeFileSync(
+      join(targetDir, ".env"),
+      'MCP_AUTH_TOKEN=abc123\nVAULT_PATH="/home/user/My Vault"\nPORT="9000"\nPUBLIC_URL=http://localhost:9000\n',
+    )
+    const scripted = createScriptedPrompts()
+
+    await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchOk },
+    )
+
+    const envAfter = readFileSync(join(targetDir, ".env"), "utf8")
+    expect(envAfter).toContain("VAULT_PATH=/home/user/My Vault\n")
+    expect(envAfter).toContain("PORT=9000\n")
+    expect(envAfter).not.toMatch(/^(VAULT_PATH|PORT)="/m)
   })
 
   it("re-creates a remote container without a vault path", async () => {

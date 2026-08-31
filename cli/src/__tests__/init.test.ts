@@ -10,7 +10,7 @@ import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { runInit } from "../init.js"
-import { pollHealth, type DockerRunner } from "../docker.js"
+import { pollHealth } from "../docker.js"
 import { buildDockerNotInstalledMessage } from "../messages.js"
 
 vi.mock("../docker.js", { spy: true })
@@ -228,7 +228,7 @@ describe("remote connect message https routing", () => {
     const scripted = createScriptedPrompts([
       publicUrl,
       "MyVault",
-      "", // blank sync token — fill in .env later
+      false, // don't generate the token now (declined auto-capture)
       false, // no encryption
       [], // no optional settings
     ])
@@ -286,7 +286,7 @@ describe("remote connect message https routing", () => {
       "https://vault.example.com/mcp", // re-included the /mcp path — rejected
       "https://vault.example.com", // base origin — accepted on re-prompt
       "MyVault",
-      "", // blank sync token — fill in .env later
+      false, // don't generate the token now (declined auto-capture)
       false, // no encryption
       [], // no optional settings
     ])
@@ -318,7 +318,7 @@ describe("remote connect message https routing", () => {
     const scripted = createScriptedPrompts([
       "https://vault.example.com/", // trailing slash — trimmed, not rejected
       "MyVault",
-      "", // blank sync token — fill in .env later
+      false, // don't generate the token now (declined auto-capture)
       false, // no encryption
       [], // no optional settings
     ])
@@ -346,7 +346,7 @@ describe("remote connect message https routing", () => {
     const scripted = createScriptedPrompts([
       "https://vault.example.com",
       "MyVault",
-      "", // blank sync token — fill in .env later
+      false, // don't generate the token now (declined auto-capture)
       false, // no encryption
       [], // no optional settings
     ])
@@ -395,6 +395,18 @@ describe("runInit interactive local flow", () => {
     expect(scripted.selectCalls).toEqual([
       {
         message: "How do you want to run Vault Cortex?",
+        options: [
+          {
+            value: "local",
+            label: "Local",
+            hint: "Docker on this machine, bind-mounted vault",
+          },
+          {
+            value: "remote",
+            label: "Remote",
+            hint: "VPS + Obsidian Sync, access from anywhere",
+          },
+        ],
         initialValue: "local",
       },
     ])
@@ -510,16 +522,14 @@ describe("runInit interactive local flow", () => {
 })
 
 describe("runInit remote flow", () => {
-  it("asks the remote sequence with auto-capture declined and writes .env", async () => {
+  it("leaves OBSIDIAN_AUTH_TOKEN blank when auto-capture is declined", async () => {
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([
       "https://vault.example.com/", // public URL (trailing slash trimmed)
       "MyVault", // vault name
       false, // don't generate the token now (declined auto-capture)
-      "sync-token-xyz", // paste fallback — obsidian sync token
       false, // no end-to-end encryption
       [], // no optional settings
-      false, // don't start the server
     ])
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
@@ -535,27 +545,26 @@ describe("runInit remote flow", () => {
       "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
       "Exact name of your Obsidian vault (case-sensitive):",
       "Generate the token now?",
-      "Paste the Obsidian Sync token (leave blank to fill in .env later):",
       "Does your vault use end-to-end encryption?",
       "Any optional settings to change? (press enter to skip)",
-      "Start the server now?",
     ])
     expect(existsSync(join(targetDir, "docker-compose.yml"))).toBe(false)
     const envContent = readFileSync(join(targetDir, ".env"), "utf8")
     expect(envContent).toContain("PUBLIC_URL=https://vault.example.com\n")
     expect(envContent).toContain("VAULT_NAME=MyVault\n")
-    expect(envContent).toContain("OBSIDIAN_AUTH_TOKEN=sync-token-xyz\n")
-    expect(scripted.prints[0]).toContain(
-      "Adjust optional settings (memory layer and folder, daily notes\nfolder and format, file tools, semantic search, port, timezone,\nsync direction):",
+    expect(envContent).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
+    expect(scripted.logs).toContain(
+      "No token yet — run this later to add it to your .env:\n" +
+        `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
     )
   })
 
-  it("skips the token auto-capture offer when Docker is not installed", async () => {
+  it("always offers token generation even without Docker", async () => {
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([
       "https://vault.example.com", // public URL
       "MyVault", // vault name
-      "sync-token-xyz", // paste prompt directly — no auto-capture offer
+      false, // don't generate the token now (declined auto-capture)
       false, // no end-to-end encryption
       [], // no optional settings
     ])
@@ -568,35 +577,44 @@ describe("runInit remote flow", () => {
       },
     )
 
-    // No "Generate the token now?" (capture needs Docker) and no "Start the
-    // server now?" (the install warning replaces the start offer).
+    // Token generation is always offered (uses the API, not Docker). With a
+    // blank token (capture declined), no start offer is shown.
     expect(exitCode).toBe(0)
     expect(scripted.asked).toEqual([
       "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
       "Exact name of your Obsidian vault (case-sensitive):",
-      "Paste the Obsidian Sync token (leave blank to fill in .env later):",
+      "Generate the token now?",
       "Does your vault use end-to-end encryption?",
       "Any optional settings to change? (press enter to skip)",
     ])
-    expect(scripted.warnings).toEqual([
-      buildDockerNotInstalledMessage({
-        nextStep: `\nThen start the server with:\n  npx vault-cortex@latest start --dir "${targetDir}"`,
-      }),
-    ])
+    expect(scripted.asked).toContain("Generate the token now?")
   })
 
   it("probes the public URL after a confirmed start and reports success", async () => {
     const targetDir = makeTargetDir()
     const fetchedUrls: string[] = []
     const fetchRecorder: typeof fetch = async (input) => {
-      fetchedUrls.push(String(input))
+      const url = String(input)
+      fetchedUrls.push(url)
+      // Signin API call succeeds; health/probe calls succeed
+      if (url.includes("api.obsidian.md")) {
+        return new Response(
+          JSON.stringify({
+            token: "sync-token-xyz",
+            name: "User",
+            email: "user@example.com",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        )
+      }
       return new Response(null, { status: 200 })
     }
     const scripted = createScriptedPrompts([
       "https://vault.example.com", // public URL
       "MyVault", // vault name
-      false, // don't generate the token now (declined auto-capture)
-      "sync-token-xyz", // paste fallback
+      true, // generate the token now
+      "user@example.com", // email
+      "password", // password
       false, // no end-to-end encryption
       [], // no optional settings
       true, // start the server now
@@ -611,16 +629,11 @@ describe("runInit remote flow", () => {
     )
 
     expect(exitCode).toBe(0)
-    // Order proves the probe ran after the container health poll.
+    // Signin first (auto-capture), then health poll, then public URL probe.
     expect(fetchedUrls).toEqual([
+      "https://api.obsidian.md/user/signin",
       "http://127.0.0.1:8000/healthz",
       "https://vault.example.com/healthz",
-    ])
-    expect(scripted.spinnerMessages).toEqual([
-      "start: Waiting for the server to come up (first run may take a moment)",
-      "stop: Server is up — health check passed.",
-      "start: Checking the public URL (https://vault.example.com/healthz)",
-      "stop: Public URL responds — https://vault.example.com/healthz answered from this machine.",
     ])
   })
 
@@ -629,17 +642,29 @@ describe("runInit remote flow", () => {
     const fetchedUrls: string[] = []
     // Localhost (the container check) answers; the public URL is unreachable
     // — the state every remote init is in before HTTPS/ingress is set up.
-    const fetchPublicUrlDown: typeof fetch = async (input) => {
-      const url = String(input)
-      fetchedUrls.push(url)
-      if (url.includes("127.0.0.1")) return new Response(null, { status: 200 })
+    const fetchPublicUrlDownWithSignin: typeof fetch = async (input) => {
+      const requestUrl = String(input)
+      fetchedUrls.push(requestUrl)
+      if (requestUrl.includes("api.obsidian.md")) {
+        return new Response(
+          JSON.stringify({
+            token: "sync-token-xyz",
+            name: "User",
+            email: "user@example.com",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        )
+      }
+      if (requestUrl.includes("127.0.0.1"))
+        return new Response(null, { status: 200 })
       throw new Error("ECONNREFUSED")
     }
     const scripted = createScriptedPrompts([
       "https://vault.example.com", // public URL
       "MyVault", // vault name
-      false, // don't generate the token now (declined auto-capture)
-      "sync-token-xyz", // paste fallback
+      true, // generate the token now
+      "user@example.com", // email
+      "password", // password
       false, // no end-to-end encryption
       [], // no optional settings
       true, // start the server now
@@ -649,7 +674,7 @@ describe("runInit remote flow", () => {
       {
         prompts: scripted.prompts,
         docker: dockerReady,
-        fetchFn: fetchPublicUrlDown,
+        fetchFn: fetchPublicUrlDownWithSignin,
       },
     )
 
@@ -657,7 +682,10 @@ describe("runInit remote flow", () => {
     // never a gate — and the connect message still reports the running server.
     expect(exitCode).toBe(0)
     expect(fetchedUrls).toContain("https://vault.example.com/healthz")
+    // Signin spinner from auto-capture, then container health, then URL probe.
     expect(scripted.spinnerMessages).toEqual([
+      "start: Signing in to Obsidian...",
+      "stop: Signed in as user@example.com.",
       "start: Waiting for the server to come up (first run may take a moment)",
       "stop: Server is up — health check passed.",
       "start: Checking the public URL (https://vault.example.com/healthz)",
@@ -673,44 +701,38 @@ describe("runInit remote flow", () => {
     expect(scripted.prints[0]).toContain("The server is running.")
   })
 
-  it("skips paste prompt when auto-capture succeeds", async () => {
+  it("fills OBSIDIAN_AUTH_TOKEN from auto-capture when accepted", async () => {
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([
       "https://vault.example.com",
       "MyVault",
       true, // generate the token now
+      "user@example.com", // email
+      "password", // password
       false, // no end-to-end encryption
       [], // no optional settings
       false, // don't start the server
     ])
-    const dockerWithCapture: DockerRunner = {
-      ...dockerDaemonOnly,
-      runObsidianLogin: (configMountPath) => {
-        const tokenDir = join(configMountPath, "obsidian-headless")
-        mkdirSync(tokenDir, { recursive: true })
-        writeFileSync(join(tokenDir, "auth_token"), "captured-token")
-        return true
-      },
-    }
+    const fetchSigninSuccess: typeof fetch = async () =>
+      new Response(
+        JSON.stringify({
+          token: "captured-token",
+          name: "User",
+          email: "user@example.com",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      )
 
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
       {
         prompts: scripted.prompts,
-        docker: dockerWithCapture,
-        fetchFn: fetchNever,
+        docker: dockerDaemonOnly,
+        fetchFn: fetchSigninSuccess,
       },
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.logs).toContain(
-      "Handing the terminal to the Obsidian login — it will ask for your " +
-        "account email, password, and MFA code. The token is captured " +
-        "automatically and stored in your .env — nothing to copy.",
-    )
-    expect(scripted.asked).not.toContain(
-      "Paste the Obsidian Sync token (leave blank to fill in .env later):",
-    )
     const envContent = readFileSync(join(targetDir, ".env"), "utf8")
     // Exact line match — a substring check would also pass for a commented
     // or prefixed entry (e.g. "# OBSIDIAN_AUTH_TOKEN=captured-token").
@@ -719,12 +741,12 @@ describe("runInit remote flow", () => {
     )
   })
 
-  it("skips the docker-run offer when the sync token was left blank", async () => {
+  it("skips the start offer when the sync token was left blank", async () => {
     const targetDir = makeTargetDir()
     const scripted = createScriptedPrompts([
       "http://203.0.113.10:8000",
       "MyVault",
-      "", // blank token — fill in later (Docker unavailable, no capture offer)
+      false, // don't generate the token now (declined auto-capture)
       false, // no encryption
       [], // no optional settings
     ])
@@ -745,13 +767,47 @@ describe("runInit remote flow", () => {
     )
   })
 
+  it("preserves existing token and offers start when capture is declined on re-init", async () => {
+    const targetDir = makeTargetDir()
+    mkdirSync(targetDir, { recursive: true })
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=old\nOBSIDIAN_AUTH_TOKEN=existing-token\nPUBLIC_URL=https://vault.example.com\nVAULT_NAME=MyVault\n",
+    )
+    const scripted = createScriptedPrompts([
+      true, // re-run setup
+      "https://vault.example.com",
+      "MyVault",
+      false, // don't generate the token now
+      false, // no encryption
+      [], // no optional settings
+      true, // overwrite .env (content differs due to new MCP_AUTH_TOKEN)
+      false, // don't start the server
+    ])
+
+    const exitCode = await runInit(
+      { mode: "remote", dir: targetDir },
+      {
+        prompts: scripted.prompts,
+        docker: dockerDaemonOnly,
+        fetchFn: fetchNever,
+      },
+    )
+
+    expect(exitCode).toBe(0)
+    expect(scripted.asked).toContain("Start the server now?")
+    expect(scripted.logs).not.toContain(expect.stringContaining("No token yet"))
+    const envContent = readFileSync(join(targetDir, ".env"), "utf8")
+    expect(envContent).toMatch(/^OBSIDIAN_AUTH_TOKEN=existing-token$/m)
+  })
+
   it("asks the config dir first, then the mode-specific inputs", async () => {
     const configDir = makeTargetDir()
     const scripted = createScriptedPrompts([
       configDir, // config dir — prompted, not passed as a flag
       "https://vault.example.com", // public URL
       "MyVault", // vault name
-      "", // blank sync token (Docker down, no capture offer)
+      false, // don't generate the token now (declined auto-capture)
       false, // no encryption
       [], // no optional settings
     ])
@@ -770,7 +826,7 @@ describe("runInit remote flow", () => {
       "Where should I put the config files?",
       "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
       "Exact name of your Obsidian vault (case-sensitive):",
-      "Paste the Obsidian Sync token (leave blank to fill in .env later):",
+      "Generate the token now?",
       "Does your vault use end-to-end encryption?",
       "Any optional settings to change? (press enter to skip)",
     ])
@@ -963,11 +1019,9 @@ describe("runInit remote encryption password", () => {
       "https://vault.example.com",
       "MyVault",
       false, // decline auto-capture
-      "sync-token-xyz", // paste fallback
       true, // vault uses end-to-end encryption
       "hunter2", // password (masked prompt)
       [], // no optional settings
-      false, // don't start the server
     ])
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
@@ -1001,15 +1055,27 @@ describe("runInit remote with a kept existing .env", () => {
     )
     const fetchedUrls: string[] = []
     const fetchRecorder: typeof fetch = async (input) => {
-      fetchedUrls.push(String(input))
+      const requestUrl = String(input)
+      fetchedUrls.push(requestUrl)
+      if (requestUrl.includes("api.obsidian.md")) {
+        return new Response(
+          JSON.stringify({
+            token: "sync-token-xyz",
+            name: "User",
+            email: "user@example.com",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        )
+      }
       return new Response(null, { status: 200 })
     }
     const scripted = createScriptedPrompts([
       true, // existing deployment found — re-run setup anyway
       "https://prompted.example.com", // public URL prompt — differs from disk
       "MyVault", // vault name
-      false, // don't generate the token now (declined auto-capture)
-      "sync-token-xyz", // paste fallback
+      true, // generate the token now
+      "user@example.com", // email
+      "password", // password
       false, // no end-to-end encryption
       [], // settings chooser — consented re-runs get the full setup
       false, // .env differs — keep the existing file
@@ -1026,7 +1092,9 @@ describe("runInit remote with a kept existing .env", () => {
     )
 
     expect(exitCode).toBe(0)
+    // The signin URL is first (auto-capture), then health + public URL probe.
     expect(fetchedUrls).toEqual([
+      "https://api.obsidian.md/user/signin",
       "http://127.0.0.1:8000/healthz",
       "https://persisted.example.com/healthz",
     ])
@@ -1036,13 +1104,19 @@ describe("runInit remote with a kept existing .env", () => {
 })
 
 describe("runInit sync-token auto-capture fallback", () => {
-  it("falls back to paste prompt when auto-capture fails", async () => {
+  it("logs get-sync-token guidance when capture fails", async () => {
     const targetDir = makeTargetDir()
+    const fetchSigninError: typeof fetch = async () =>
+      new Response(JSON.stringify({ error: "Invalid email or password" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
     const scripted = createScriptedPrompts([
       "https://vault.example.com",
       "MyVault",
       true, // try to generate the token
-      "", // paste fallback — blank token, fill in later
+      "user@example.com", // email
+      "bad-password", // password
       false, // no encryption
       [], // no optional settings
     ])
@@ -1051,15 +1125,19 @@ describe("runInit sync-token auto-capture fallback", () => {
       {
         prompts: scripted.prompts,
         docker: dockerDaemonOnly,
-        fetchFn: fetchNever,
+        fetchFn: fetchSigninError,
       },
     )
 
-    expect(scripted.asked).toContain(
-      "Paste the Obsidian Sync token (leave blank to fill in .env later):",
+    expect(scripted.warnings[0]).toBe(
+      "Could not sign in: Invalid email or password",
     )
-    expect(scripted.warnings[0]).toContain(
-      "The Obsidian login did not complete",
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(
+      /^OBSIDIAN_AUTH_TOKEN=$/m,
+    )
+    expect(scripted.logs).toContain(
+      "No token yet — run this later to add it to your .env:\n" +
+        `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
     )
   })
 })
@@ -1238,7 +1316,7 @@ describe("runInit guided optional settings", () => {
     const scripted = createScriptedPrompts([
       "https://vault.example.com",
       "MyVault",
-      "", // blank sync token — fill in .env later
+      false, // don't generate the token now (declined auto-capture)
       false, // no encryption
       ["SYNC_MODE"],
       "pull-only",
@@ -1255,7 +1333,11 @@ describe("runInit guided optional settings", () => {
 
     expect(exitCode).toBe(0)
     // --mode remote skips the mode select, so this is the flow's only select.
-    expect(scripted.selectCalls).toEqual([
+    // The option list itself is pinned in optional-settings.test.ts.
+    const selectsAsked = scripted.selectCalls.map(
+      ({ message, initialValue }) => ({ message, initialValue }),
+    )
+    expect(selectsAsked).toEqual([
       {
         message: "Obsidian Sync direction:",
         initialValue: "bidirectional",
@@ -1299,15 +1381,27 @@ describe("runInit health-timeout returns starting status", () => {
     vi.mocked(pollHealth).mockResolvedValueOnce(false)
     const targetDir = makeTargetDir()
     const fetchedUrls: string[] = []
-    const fetchRecorder: typeof fetch = async (input) => {
-      fetchedUrls.push(String(input))
+    const fetchWithSignin: typeof fetch = async (input) => {
+      const requestUrl = String(input)
+      if (requestUrl.includes("api.obsidian.md")) {
+        return new Response(
+          JSON.stringify({
+            token: "sync-token-xyz",
+            name: "User",
+            email: "user@example.com",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        )
+      }
+      fetchedUrls.push(requestUrl)
       return new Response(null, { status: 200 })
     }
     const scripted = createScriptedPrompts([
       "https://vault.example.com", // public URL
       "MyVault", // vault name
-      false, // don't generate the token now (declined auto-capture)
-      "sync-token-xyz", // paste fallback
+      true, // generate the token now
+      "user@example.com", // email
+      "password", // password
       false, // no end-to-end encryption
       [], // no optional settings
       true, // start the server now
@@ -1318,13 +1412,13 @@ describe("runInit health-timeout returns starting status", () => {
       {
         prompts: scripted.prompts,
         docker: dockerReady,
-        fetchFn: fetchRecorder,
+        fetchFn: fetchWithSignin,
       },
     )
 
     expect(exitCode).toBe(0)
-    // pollHealth was mocked — fetchRecorder was never called. The public URL
-    // probe only runs for "running", not "starting", so no URLs were fetched.
+    // pollHealth was mocked — the public URL probe only runs for "running",
+    // not "starting", so no non-signin URLs were fetched.
     expect(fetchedUrls).toEqual([])
     // The connect message must show "starting", not the running or not-started copy.
     expect(scripted.prints[0]).toContain("starting in the background")

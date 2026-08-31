@@ -4,7 +4,7 @@ Vault Cortex is a remote MCP server that exposes an Obsidian vault over HTTPS
 via the Model Context Protocol. Any MCP client — Claude Desktop, Claude Code,
 Cursor, OpenCode — can read, write, and search your vault from anywhere.
 
-**Contents**
+## Contents
 
 - [Why This Exists](#why-this-exists)
 - [Capabilities](#capabilities)
@@ -115,7 +115,7 @@ graph TB
 
 **Sync (from apps):** Obsidian app → Obsidian Sync → the sync service → `/vault/` → watcher → SQLite. Now searchable via MCP.
 
-**Hybrid query:** MCP client → `vault_search` → FTS5 BM25 ranks + sqlite-vec KNN ranks → RRF fusion → cross-encoder reranking → response.
+**Hybrid query:** MCP client → `vault_search` → FTS5 BM25 ranks (notes + file content) + sqlite-vec KNN ranks (notes + file content) → RRF fusion → cross-encoder reranking → response.
 
 **Invariant — vault is source of truth:** The vault `.md` files are canonical. SQLite FTS5 is derived — rebuildable from scratch. Never write to the index directly. The sqlite-vec embeddings are equally derived — they persist across rebuilds as an optimization but can always be regenerated from the vault.
 
@@ -136,23 +136,33 @@ Group modules register through a gated wrapper that skips disabled names and inj
 
 ### Vault read/write
 
-| Tool                      | Input                                                                             | Annotation      |
-| ------------------------- | --------------------------------------------------------------------------------- | --------------- |
-| `vault_read_note`         | `path, properties_only?, outline?, heading?, heading_level?, start_line?, limit?` | readOnlyHint    |
-| `vault_write_note`        | `path, body, properties?, overwrite?`                                             | destructiveHint |
-| `vault_patch_note`        | `path, operation, content, heading?, heading_level?, include_children?`           | destructiveHint |
-| `vault_replace_in_note`   | `path, old_text, new_text, replace_all_occurrences?`                              | destructiveHint |
-| `vault_delete_span`       | `path, start_anchor, end_anchor?, first_match?`                                   | destructiveHint |
-| `vault_list_notes`        | `folder?, glob?`                                                                  | readOnlyHint    |
-| `vault_delete_note`       | `path, prune_empty_folders?`                                                      | destructiveHint |
-| `vault_move_note`         | `old_path, new_path, prune_empty_folders?`                                        | destructiveHint |
-| `vault_update_properties` | `path, properties`                                                                | destructiveHint |
+| Tool                      | Input                                                                             | Annotation       |
+| ------------------------- | --------------------------------------------------------------------------------- | ---------------- |
+| `vault_read_note`         | `path, properties_only?, outline?, heading?, heading_level?, start_line?, limit?` | readOnlyHint     |
+| `vault_write_note`        | `path, body, properties?, overwrite?`                                             | destructiveHint  |
+| `vault_patch_note`        | `path, operation, content, heading?, heading_level?, include_children?`           | destructiveHint  |
+| `vault_replace_in_note`   | `path, old_text, new_text, replace_all_occurrences?`                              | destructiveHint  |
+| `vault_delete_span`       | `path, start_anchor, end_anchor?, first_match?`                                   | destructiveHint  |
+| `vault_replace_span`      | `path, start_anchor, end_anchor?, content, first_match?`                          | destructiveHint  |
+| `vault_insert_at_anchor`  | `path, anchor, position, content, first_match?`                                   | !destructiveHint |
+| `vault_list_notes`        | `folder?, glob?`                                                                  | readOnlyHint     |
+| `vault_delete_note`       | `path, prune_empty_folders?`                                                      | destructiveHint  |
+| `vault_move_note`         | `old_path, new_path, prune_empty_folders?`                                        | destructiveHint  |
+| `vault_update_properties` | `path, properties`                                                                | destructiveHint  |
 
 `vault_read_note` returns full content by default; optional `properties_only`, `outline`, or `heading` (with `heading_level` to disambiguate) modes return just the properties, the structure, or a single section — cheap partial reads for large notes. `outline` returns an object `{ leading_callout?, leading_content?, headings }` — the heading tree, any top-of-file callout (a `> [!type]` block), and any remaining body text above the first heading (the callout's own lines excluded, so the two never overlap). `start_line` and `limit` page the delivered rendition (full body or a heading section) by line range — the same idiom as `vault_read_file` paging; not available for JSON modes (outline, properties_only).
 
-`vault_patch_note` supports 4 operations: `append`, `prepend`, `replace`, `insert_before` — heading-targeted with optional file-level mode. A no-heading `prepend` whose content starts with a heading reports back when it nested pre-existing leading content inside that heading. `vault_replace_in_note` does exact text find-and-replace in the note body. `vault_delete_span` deletes a contiguous block of lines by short anchor substrings — more reliable than reproducing the full block as `old_text`, and the complement to `vault_replace_in_note` for deletion.
+The edit tools differ in how they locate the lines they change — by heading, by exact text, or by a short anchor substring:
 
-`vault_delete_note` refuses paths under folders listed in `PROTECTED_PATHS` (default: the memory dir + the daily notes folder — `DAILY_NOTES_FOLDER` or `Daily Notes/`) as a server-side guardrail; use `vault_delete_memory` for individual entries in memory files. `vault_update_properties` merges properties without touching the body — sets new keys, overwrites matching keys, deletes keys set to `null`.
+- **`vault_patch_note`** — heading-targeted, with an optional file-level mode. Four operations: `append`, `prepend`, `replace`, `insert_before`. A no-heading `prepend` whose content starts with a heading reports back when it nested pre-existing leading content inside that heading.
+- **`vault_replace_in_note`** — exact-text find-and-replace in the note body.
+- **`vault_delete_span`** — anchor-targeted; removes the matched span of whole lines.
+- **`vault_replace_span`** — anchor-targeted; swaps the matched span for new content.
+- **`vault_insert_at_anchor`** — anchor-targeted; inserts content before or after the anchor line without removing it.
+
+The three anchor tools share one resolution rule: a short, case-sensitive substring locates a full line, ambiguity is an error, and `first_match` takes the first match instead.
+
+`vault_delete_note` refuses paths under protected folders as a server-side guardrail. The default protected set is the memory dir plus the daily notes folder, read at operation time from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`). `PROTECTED_PATHS` overrides the default entirely. Use `vault_delete_memory` for individual entries in memory files. `vault_update_properties` merges properties without touching the body — sets new keys, overwrites matching keys, deletes keys set to `null`.
 
 `vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it, mirroring Obsidian's built-in rename:
 
@@ -294,22 +304,46 @@ The extension-to-representation routing above is implemented by the `vault-opera
 
 ### Tasks
 
-| Tool                | Input                                                                                                                                          | Annotation      |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, sort_by?, sort_direction?, limit?` | readOnlyHint    |
-| `vault_update_task` | `path, block_id?, line?, status?, priority?, lane?, format?`                                                                                   | destructiveHint |
+| Tool                | Input                                                                                                                                                                     | Annotation       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, top_level_only?, sort_by?, sort_direction?, limit?`           | readOnlyHint     |
+| `vault_create_task` | `path, description, block_id, heading?, parent_block_id?, parent_line?, priority?, due?, scheduled?, start?, task_id?, depends_on?, subtasks?, format?`                   | !destructiveHint |
+| `vault_update_task` | `path, block_id?, line?, status?, priority?, description?, due?, scheduled?, start?, created?, task_id?, depends_on?, add_subtasks?, assign_block_id?, heading?, format?` | destructiveHint  |
 
-A `tasks` table in the same SQLite database stores every checkbox task line, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a faithful reimplementation of the [Tasks plugin](https://publish.obsidian.md/tasks/)'s own parser (right-to-left signifier stripping; both emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats; status, all six dates, priority, recurrence, dependencies, inline tags, block IDs). Unlike the plugin (which reads one configured format per vault), both formats are recognized in the same pass, so mixed-format vaults index uniformly. Task lines inside fenced code blocks and `%% %%` comments are skipped — the parser threads the same fence and comment state machines used by heading and link extraction (`lines.ts`).
+A `tasks` table in the same SQLite database stores every checkbox task line, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a reimplementation of the [Tasks plugin](https://publish.obsidian.md/tasks/)'s own parser:
 
-Each row carries its full attribution: note path, full parent folder, nearest heading (the Kanban lane on a board), and 1-based file line number — so no follow-up reads are needed to locate a task. Rows are replaced per note inside `upsertNote`, deleted in `removeNote`, and wiped on rebuild — the same lifecycle as the FTS rows.
+- **Right-to-left signifier stripping** — status, all six dates, priority, recurrence, dependencies, inline tags, block IDs.
+- **Both formats in one pass** — emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields are recognized together (the plugin reads one configured format per vault), so mixed-format vaults index uniformly.
+- **Fences and comments skipped** — task lines inside fenced code blocks and `%% %%` comments are ignored; the parser threads the same fence and comment state machines as heading and link extraction (`lines.ts`).
+- **Sub-task depth** — an indent stack during extraction gives each task a `depth` (0 for top-level, 1+ for sub-tasks) and a `parent_block_id` (the parent's block_id, when it has one). Blockquote markers are stripped before measuring indent; a plain list item at a task's indent closes that task's sub-task scope (a task nested under a non-task bullet is top-level); depth resets at heading boundaries.
 
-`vault_list_tasks` queries the table with structured filters (status, six date fields — due, scheduled, start, created, done, cancelled — each with before/on/after bounds, priority, folder/tag/heading/path scoping) and eight sort keys (`due`, `scheduled`, `start`, `created`, `done`, `priority`, `note_mtime`, `position`). Three design choices shape the query surface:
+Each row carries its attribution — note path, full parent folder, 1-based file line number, and the nearest heading when the task sits under one (the Kanban lane on a board) — so no follow-up reads are needed to locate a task. Rows are replaced per note inside `upsertNote`, deleted in `removeNote`, and wiped on rebuild — the same lifecycle as the FTS rows.
+
+`vault_list_tasks` queries the table with structured filters and sort keys:
+
+- **Filters** — status; six date fields (due, scheduled, start, created, done, cancelled), each with before/on/after bounds; priority; folder, tag, heading, and path scoping; `top_level_only`, which excludes sub-tasks from board reads.
+- **Sort keys** — `due`, `scheduled`, `start`, `created`, `done`, `priority`, `note_mtime`, `position`.
+
+Three design choices shape the query surface:
 
 - **Array params for status and heading** — both accept `string | string[]`, OR-combined. This collapses multi-lane Kanban queries (e.g. Active + Up Next + Waiting On) into a single call instead of N sequential reads.
 - **Date cascade sorting** — when the primary sort date is absent on a task, actionable date sorts fall back through the remaining fields in urgency order (due → scheduled → start → created), each using its own natural direction. (`done`, a terminal-state date, stands alone.) Tasks with sparse dates sort usably instead of clustering at the end.
-- **Kanban awareness** — each task carries an `is_kanban_task` flag, derived via `json_extract` on the parent note's `kanban-plugin` frontmatter (no schema changes). When true, `heading` carries the lane name (also surfaced as a `lane` alias field), and `sort_by: "position"` (file path then line number) preserves the board's card arrangement as the sort order. A `done_lanes` field (populated at index time by scanning for the Kanban plugin's `**Complete**` marker between headings and list items) tells agents which lane(s) represent task completion.
+- **Kanban awareness** — each task carries an `is_kanban_task` flag, derived via `json_extract` on the parent note's `kanban-plugin` frontmatter (no schema changes). When true, `heading` carries the lane name, and `sort_by: "position"` (file path then line number) preserves the board's card arrangement as the sort order. A `done_lanes` field (populated at index time by scanning for the Kanban plugin's `**Complete**` marker between headings and list items) tells agents which lane(s) represent task completion.
 
-`vault_update_task` applies status, priority, and/or lane mutations in a single atomic read-modify-write under one exclusive file lock. Status changes toggle the checkbox character and manage done/cancelled dates. Priority changes insert, replace, or remove the emoji signifier at the correct position. Lane moves splice the task block (task line plus indented sub-items) from its current heading to the target heading's body. When `status: "done"` is set on a Kanban board without an explicit `lane`, the tool auto-detects the done lane — first checking for `**Complete**`-marked lanes, then falling back to a heading named "Done". The task line mutations are pure string transforms in `obsidian-markdown/tasks.ts`; the I/O orchestration lives in `vault-operations/task-updater.ts`.
+`vault_create_task` builds a task line (description, priority, dates, `task_id`, `depends_on`, `block_id`) plus optional checklist sub-item lines. The line builder is a pure string transform in `obsidian-markdown/tasks.ts`; the I/O orchestration lives in `vault-operations/task-mutations.ts`:
+
+- **Field ordering is guaranteed** — description → priority → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id.
+- **Always `[ ]`** — creating a task is not starting it.
+- **Placement** — a heading (required on Kanban boards), a parent task (for sub-tasks; mutually exclusive with a heading), or end-of-body.
+
+`vault_update_task` applies status, priority, description, dates, task_id, depends_on, block_id assignment, heading moves, and sub-task additions in one atomic read-modify-write under one exclusive file lock:
+
+- **Mutations compose** — every field passed is applied in the same write cycle; clearing a field is always an explicit `null`.
+- **Line splitting follows the parser** — the description is everything before the metadata tail, and a signifier only opens the tail when everything after it parses as fields (a priority emoji used as prose stays in the description). Description edits, priority changes, and the returned `description` all use that boundary.
+- **Status** — toggles the checkbox character and stamps or strips done/cancelled dates. `status: "done"` on a top-level Kanban task without an explicit `heading` auto-detects the done lane.
+- **Dates** — set or clear due, scheduled, start, and created at their position in the field ordering.
+- **Heading moves** — `heading` moves the task and its indented sub-items to another section; on a Kanban board that is a lane move, but any note with headings works. A sub-task (depth > 0) never moves: an explicit `heading` is rejected, and `status: "done"` changes its checkbox in place.
+- **`add_subtasks`** — appends checklist items under the task's existing ones.
 
 ## MCP Prompts
 
@@ -344,13 +378,17 @@ Both models lazy-load on first use (~1–2s cold start each, cached after). Tota
 
 ### Query fusion
 
-`vault_search` calls `hybridSearch`, which runs FTS5 keyword search and vector similarity search, then merges results via RRF. The flow:
+`vault_search` calls `hybridSearch`, which runs up to four ranked retrieval legs and merges results via RRF. The flow:
 
-1. FTS5 keyword search (synchronous, existing `fullTextSearch`)
-2. Vector search: embed the query → sqlite-vec KNN → deduplicate to best chunk per note
-3. RRF fusion (`computeRrfScores`): score = Σ(1/(k+rank)) across both lists, k=60, with top-rank bonuses (+0.05 rank 1, +0.02 ranks 2–3)
-4. Build merged results: FTS results keep their metadata and snippet (score replaced with RRF score); vector-only results get metadata from the notes table and a snippet from their best-matching chunk text
-5. Apply user filters (folder, tags, type, related, properties) to vector-only results — FTS results are already filtered via SQL
+1. **Note FTS5** keyword search (synchronous, `fullTextSearch`)
+2. **File content FTS5** — linearized canvas, extracted PDF text, plain text files (skipped when note-specific filters are active)
+3. **Note vector search** — embed the query → sqlite-vec KNN over `note_vectors` → deduplicate to best chunk per note
+4. **File content vector search** — same query embedding → KNN over `file_content_vectors` → deduplicate to best chunk per file (same skip condition as step 2)
+5. RRF fusion (`computeRrfScores`): score = Σ(1/(k+rank)) across all available lists, k=60, with top-rank bonuses (+0.05 rank 1, +0.02 ranks 2–3)
+6. Build merged results: FTS results keep their metadata and snippet (score replaced with RRF score); vector-only results get metadata from their respective tables and a snippet from their best-matching chunk text
+7. Apply user filters (folder, tags, type, related, properties, created, modified) to vector-only note results — FTS results are already filtered via SQL
+
+A `folder` filter is applied inside SQL on all four legs — a `LIKE 'folder/%'` predicate on the FTS queries and a `chunk_id IN (…)` pre-filter on the KNN queries — so each leg's candidate window is drawn from the folder itself rather than filtered down from a vault-wide top-k. Folder matching is case-insensitive on every leg.
 
 ### Cross-encoder reranking
 
@@ -366,11 +404,15 @@ Both scores are min-max normalized to [0, 1] before blending. Controlled by `RER
 
 ```mermaid
 flowchart LR
-    Q[Query] --> FTS[FTS5 BM25]
+    Q[Query] --> NoteFTS[Note FTS5 BM25]
+    Q --> FileFTS[File Content FTS5]
     Q --> EMB[Embed Query]
-    EMB --> KNN[sqlite-vec KNN]
-    FTS --> |ranked paths| RRF[RRF Fusion\nk=60 + bonuses]
-    KNN --> |ranked paths| RRF
+    EMB --> NoteKNN[Note KNN]
+    EMB --> FileKNN[File Content KNN]
+    NoteFTS --> |ranked paths| RRF[RRF Fusion\nk=60 + bonuses]
+    FileFTS --> |ranked paths| RRF
+    NoteKNN --> |ranked paths| RRF
+    FileKNN --> |ranked paths| RRF
     RRF --> |top candidates| CE[Cross-Encoder\nms-marco-MiniLM]
     RRF --> |RRF scores| BL[Position-Aware\nBlend]
     CE --> |rerank scores| BL
@@ -385,18 +427,28 @@ flowchart LR
 
 ### Graceful fallback
 
-When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are indexed yet (startup), or the embedding model fails, `hybridSearch` returns FTS-only results silently. The response includes `search_mode: "hybrid" | "fts"` and `reranked: boolean` so clients know which ranking produced the scores. The tool description is also conditional — hybrid-aware when embeddings are enabled, keyword-only when disabled.
+When no embedder is configured (`EMBEDDING_ENABLED=false`), no vectors are indexed yet (startup), or both vector searches return empty, `hybridSearch` returns FTS-only results silently. The response includes `search_mode: "hybrid" | "fts"` and `reranked: boolean` so clients know which ranking produced the scores. The tool description is also conditional — hybrid-aware when embeddings are enabled, keyword-only when disabled.
 
 ### Indexing
 
-**Indexing flow:** `rebuildFromVault` runs three passes — Pass 1 (FTS + metadata), Pass 2 (links with complete path list), then returns so the server can start accepting requests. Pass 3 (embedding) runs in the background — search works with FTS-only until vectors are ready. Vector tables persist across both restarts and rebuilds (only FTS, notes, links, tasks, non-md, and file content tables are cleared): Pass 3 cleans up vectors for deleted notes, then embeds only new or modified chunks. The file watcher calls `embedNote` after `upsertNote`; `removeNote` cleans up both vectors and chunks.
+**Indexing flow:** `rebuildFromVault` runs three passes, then returns so the server can start accepting requests:
+
+1. **Pass 1** — index notes (FTS5 + metadata)
+2. **Pass 2** — extract links (with the complete path list for resolution), then index file content (canvas, PDF, text → FTS5)
+3. **Pass 3 (background)** — embed notes, then file content. Search works with FTS-only until vectors are ready
+
+Vector tables persist across restarts and rebuilds (only FTS, notes, links, tasks, non-md, and file content tables are cleared). Pass 3 cleans up vectors for deleted notes and files, then embeds only new or modified chunks via content-hash gating.
+
+**Incremental updates:** the file watcher calls `embedNote` after `upsertNote` and `embedFileContent` after `upsertFileContent`; deletion cleans up both vectors and chunks.
 
 **Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Notes are chunked via heading-aware splitting (`chunker.ts`) with paragraph sub-splitting for oversized sections (MAX_CHUNK_TOKENS = 450). Markdown syntax is stripped before embedding (`plaintext.ts`). Each chunk is prefixed with the note title for context. Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds.
 
-**Vector schema:** Two tables in the same SQLite database as FTS5 (which also holds the `tasks` table — see [Tasks](#tasks)):
+**Vector schema:** Four tables in the same SQLite database as FTS5 (which also holds the `tasks` table — see [Tasks](#tasks)):
 
 - `note_chunks`: stores chunk text, position index, and content hash per note
 - `note_vectors` (vec0): stores 384-dim Float32 embeddings keyed by chunk ID
+- `file_content_chunks`: stores chunk text, position index, and content hash per non-markdown file (canvas, PDF, text)
+- `file_content_vectors` (vec0): stores 384-dim Float32 embeddings keyed by chunk ID
 
 **New-directory rescan:** chokidar handles a newly-appeared directory in two steps: first it scans the directory's contents, then it registers the directory's `fs.watch`. A file created between the scan and the registration is silently lost ([chokidar#1471](https://github.com/paulmillr/chokidar/issues/1471)) — the scan didn't see it, and no watch existed to catch the event. The server's atomic write into a freshly created folder can hit exactly that window, leaving the note invisible to search. As a safety net, the watcher schedules a one-shot rescan of every new directory, delayed to twice chokidar's write-stability threshold (`awaitWriteFinish`, 2 s — a 4 s delay) so in-flight writes settle first. The rescan:
 
@@ -411,9 +463,11 @@ flowchart TD
     VF[Vault Files] --> RB[rebuildFromVault]
     RB --> P1[Pass 1: Index Notes\nFTS5 + metadata]
     P1 --> P2[Pass 2: Extract Links\nresolve with full path list]
-    P2 --> P3[Pass 3: Embed Notes\nchunk → hash → embed → store]
+    P2 --> FC[Index File Content\ncanvas + PDF + text → FTS5]
+    FC --> P3[Pass 3: Embed Notes\nchunk → hash → embed → store]
+    P3 --> P3F[Embed File Content\nchunk → hash → embed → store]
 
-    FW[File Watcher\nchokidar] --> |add/change| UP[upsertNote]
+    FW[File Watcher\nchokidar] --> |.md add/change| UP[upsertNote]
     UP --> FTS[Update FTS5]
     UP --> LK[Update Links]
     UP --> EM[embedAndStoreChunks]
@@ -422,28 +476,43 @@ flowchart TD
     CH --> |changed| EMB[Embed chunk\nbge-small q8]
     EMB --> VEC[Store in\nnote_vectors]
 
-    FW --> |delete| RM[removeNote]
+    FW --> |non-.md add/change| UFC[upsertFileContent]
+    UFC --> FFTS[Update file_content_fts]
+    UFC --> EFC[embedAndStoreFileChunks]
+    EFC --> FCH{Content\nhash match?}
+    FCH --> |unchanged| FSK[Skip]
+    FCH --> |changed| FEMB[Embed chunk]
+    FEMB --> FVEC[Store in\nfile_content_vectors]
+
+    FW --> |.md delete| RM[removeNote]
     RM --> D1[Delete FTS + links]
     RM --> D2[Delete chunks + vectors]
+
+    FW --> |non-.md delete| RMF[removeFileContent]
+    RMF --> FD1[Delete FTS + links]
+    RMF --> FD2[Delete file chunks + vectors]
 
     style VF fill:#f9f,stroke:#333
     style FW fill:#f9f,stroke:#333
     style CH fill:#ffd,stroke:#333
+    style FCH fill:#ffd,stroke:#333
     style SK fill:#dfd,stroke:#333
+    style FSK fill:#dfd,stroke:#333
 ```
 
 ### Module decomposition
 
-The search query and indexing layer is split into six modules (the embedding pipeline and file watcher are described above):
+The search query and indexing layer is split into seven modules (the embedding pipeline and file watcher are described above):
 
-| Module              | Responsibility                                                                                                                                                                                                                                                                                                      |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `search-index.ts`   | Factory/closure (`createSearchIndex`), schema, migrations, write operations (`upsertNote`, `removeNote`, `rebuildFromVault`, `upsertFileContent`, `removeFileContent`), embedder + reranker wiring                                                                                                                  |
-| `search-queries.ts` | 17 query methods — `fullTextSearch`, `hybridSearch`, `memoryRecall`, `searchByTag`, `searchByFolder`, `listTasks`, `recentNotes`, `listAllTags`, `listPropertyKeys`, `listPropertyValues`, `searchByProperty`, `getBacklinks`, `getOutgoingLinks`, `findOrphans`, `brokenLinkCount`, `modifiedOnDate`, `vaultStats` |
-| `search-helpers.ts` | Pure data transforms — row mappers (`rowToMetadata`, `rowToTaskEntry`, `noteRowToSearchResult`, `fileContentRowToSearchResult`), filters (`noteMatchesSearchFilters`), snippet construction                                                                                                                         |
-| `fts-query.ts`      | FTS5 query sanitization — compound-term handling, reserved-word stripping, phrase extraction                                                                                                                                                                                                                        |
-| `rrf.ts`            | Reciprocal Rank Fusion scoring (`computeRrfScores`) — rank accumulation, k=60, top-rank bonuses                                                                                                                                                                                                                     |
-| `reranker.ts`       | Cross-encoder factory (`createReranker`, ms-marco-MiniLM-L-6-v2) + position-aware score blending (`blendScores`, `normalizeScores`)                                                                                                                                                                                 |
+| Module              | Responsibility                                                                                                                                                                                                                                                                                                             |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `search-index.ts`   | Factory/closure (`createSearchIndex`), schema, migrations, write operations (`upsertNote`, `removeNote`, `rebuildFromVault`, `upsertFileContent`, `removeFileContent`), embedder + reranker wiring                                                                                                                         |
+| `search-queries.ts` | `SearchQueryContext` + 16 query methods — `fullTextSearch`, `memoryRecall`, `searchByTag`, `searchByFolder`, `listTasks`, `recentNotes`, `listAllTags`, `listPropertyKeys`, `listPropertyValues`, `searchByProperty`, `getBacklinks`, `getOutgoingLinks`, `findOrphans`, `brokenLinkCount`, `modifiedOnDate`, `vaultStats` |
+| `hybrid-search.ts`  | `hybridSearch` — runs the note FTS, note vector, file-content FTS, and file-content vector legs, fuses them with RRF, applies cross-encoder reranking; falls back to FTS-only when no embeddings are available                                                                                                             |
+| `search-helpers.ts` | Pure data transforms — row mappers (`rowToMetadata`, `rowToTaskEntry`, `noteRowToSearchResult`, `fileContentRowToSearchResult`), filters (`noteMatchesSearchFilters`), snippet construction                                                                                                                                |
+| `fts-query.ts`      | FTS5 query sanitization — compound-term handling, reserved-word stripping, phrase extraction                                                                                                                                                                                                                               |
+| `rrf.ts`            | Reciprocal Rank Fusion scoring (`computeRrfScores`) — rank accumulation, k=60, top-rank bonuses                                                                                                                                                                                                                            |
+| `reranker.ts`       | Cross-encoder factory (`createReranker`, ms-marco-MiniLM-L-6-v2) + position-aware score blending (`blendScores`, `normalizeScores`)                                                                                                                                                                                        |
 
 Write concerns (index mutations) are separated from read concerns (queries) and pure logic (helpers, RRF). `search-index.ts` remains the factory — it binds query functions to the database via a `SearchQueryContext` closure.
 
@@ -461,10 +530,10 @@ guarantees that hold in any deployment. The
 
 Two authentication methods, both validated at two layers:
 
-| Method                                | Used by                                                  | Token format                | Lifetime                                    |
-| ------------------------------------- | -------------------------------------------------------- | --------------------------- | ------------------------------------------- |
-| OAuth 2.1 (Authorization Code + PKCE) | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256)                 | 24h access, 60-day sliding refresh (SQLite) |
-| Static bearer token                   | Claude Code, MCP Inspector, curl                         | Raw string (MCP_AUTH_TOKEN) | No expiry                                   |
+| Method                                | Used by                                                  | Token format                | Lifetime                                   |
+| ------------------------------------- | -------------------------------------------------------- | --------------------------- | ------------------------------------------ |
+| OAuth 2.1 (Authorization Code + PKCE) | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256)                 | 6h access, 60-day sliding refresh (SQLite) |
+| Static bearer token                   | Claude Code, MCP Inspector, curl                         | Raw string (MCP_AUTH_TOKEN) | No expiry                                  |
 
 **Layer 1 — API Gateway Lambda authorizer** (`src/functions/authorizer.ts`):
 Attached to protected routes only. OAuth discovery paths (`/.well-known/*`,
@@ -557,43 +626,148 @@ sequenceDiagram
     E->>E: requireBearerAuth (verify JWT again)
     E-->>C: MCP response
 
-    Note over C,E: Silent Token Refresh (24h cycle)
+    Note over C,E: Silent Token Refresh (6h cycle)
     C->>E: POST /token (refresh_token)
     E->>DB: Consume old, store new refresh token
     E-->>C: {access_token: new JWT, refresh_token: new}
 ```
 
-**JWT payload:** `{ sub: clientId, scope: "vault", exp: <unix>, iss: "vault-cortex" }`
+**JWT payload:** `{ sub: clientId, scope: "vault", iat: <unix>, exp: <unix>, iss, aud }`
 Signed with HMAC-SHA256 using `MCP_AUTH_TOKEN` as the key. Both the Lambda
-authorizer and Express can verify independently — no shared state needed.
+authorizer and Express verify independently — no shared state needed. The
+binding claims ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
 
-**Token storage:** Refresh tokens and registered clients are persisted in
-SQLite (`/data/oauth.db`) — survives container restarts, no re-authentication
-needed after deploys for active clients. Auth codes are in-memory (short-lived,
-10 minutes). Access tokens are JWTs (stateless, no storage needed). Revoked
-tokens are tracked in SQLite.
+- `iss` — the normalized `PUBLIC_URL` (a bare origin gains a trailing slash).
+- `aud` — the MCP endpoint's canonical URI: the origin of `PUBLIC_URL` plus
+  `/mcp`. A path prefix on `PUBLIC_URL` is not part of the audience.
+- Each verifier checks both claims against its own copy of `PUBLIC_URL` — the
+  Lambda reads its function environment, Express the instance `.env` — so a
+  token minted by another deployment is rejected even when the two share a
+  secret.
+- The Lambda passes a token that carries no `aud` at all — the shape minted
+  by releases before binding — so that Express can reject it with a 401, the
+  status MCP clients refresh on; a Lambda deny is a fixed 403 that strands
+  them. Only tokens minted before an upgrade have this shape, so the path
+  goes quiet within one access-token TTL. A token that names any other
+  audience is denied at the Lambda.
+- A client's `resource` parameter, when sent, must name one of the two
+  identifiers the server's discovery documents advertise — the MCP endpoint
+  or the server URL itself — compared in canonical form, so a trailing slash
+  is fine. A mismatch is answered with `invalid_target` before any code or
+  refresh token is consumed; clients that send no `resource` are accepted.
+
+`vault` is the server's only scope: a client that requests it gets it, and a
+client that requests no scope is granted it at authorization time, so the
+consent page, the access token, and every refresh carry the same value as the
+static token.
+
+**Token storage:** what each credential is and where it lives.
+
+- **Registered clients** — persisted in SQLite (`/data/oauth.db`), so they
+  survive container restarts and active clients don't re-authenticate after a
+  deploy.
+- **Refresh tokens** — persisted in the same database, stored under an HMAC of
+  the token keyed by `MCP_AUTH_TOKEN`, never in plaintext. A row is only
+  reachable under the auth token that wrote it, and a copied `oauth.db` holds
+  no token a client could present.
+- **Refresh grants** — bound to the issuing client; may narrow scope but
+  never widen it. Reuse detection: each rotation records the consumed token,
+  and replaying one revokes the entire grant (refresh tokens + access tokens
+  issued strictly before the cutoff, logged as `oauth_refresh_token_reuse`).
+  Consumed records expire with their parent token's window.
+- **Auth codes** — in-memory, short-lived (10 minutes).
+- **Access tokens** — JWTs with an `iat` (issued-at) claim. Verification
+  checks both per-token revocation and per-client grant revocation (a cutoff
+  timestamp rejecting `iat` strictly before revocation). Tokens without `iat`
+  are rejected whenever a grant revocation exists for their client.
+- **Revoked tokens** — revoked access tokens are tracked in SQLite; a revoked
+  refresh token is simply deleted. Grant-level revocations (from reuse
+  detection) insert a per-client cutoff that rejects tokens minted strictly
+  before the revocation time. A revoked JWT outlives its revocation by at
+  most the access-token lifetime, so rows older than that are purged at boot
+  and before each new revocation, logged as `oauth_revoked_tokens_purged`
+  and `oauth_revoked_clients_purged`.
 
 **Refresh token expiry:** 60-day sliding (inactivity) window. Each successful
 use rotates the token AND extends the window by another 60 days, so a daily
 client never sees expiry. A client dormant for >60 days is forced through the
-full OAuth flow on its next attempt. The schema column is `expires_at INTEGER
-NOT NULL`; rows past `expires_at` are deleted on read so the table self-cleans.
-This bounds the blast radius of a leaked refresh token without inconveniencing
-active sessions.
+full OAuth flow on its next attempt. This bounds the blast radius of a leaked
+refresh token without inconveniencing active sessions. Expired rows
+(`expires_at INTEGER NOT NULL`) are removed two ways:
+
+- a row past `expires_at` is deleted when its token is presented;
+- every remaining expired row is purged each time a new refresh token is
+  issued, so rows left by dormant clients or by a token rotation never
+  accumulate.
 
 **Rate limiting:** OAuth endpoints (`/token`, `/register`, `/authorize`,
-`/revoke`) are rate-limited at 5 req/min per client IP. A custom key
-generator extracts the real client IP from API Gateway's `Forwarded` header
-(express-rate-limit's built-in validators are disabled — they assume
-direct-to-server traffic, not reverse-proxy deployments). A tripped limiter
+`/revoke`) are rate-limited at 5 req/min per client IP, bucketed by a
+client-IP key derived from the deployment's explicit proxy-trust config:
+
+- `TRUST_FORWARDED_HOPS` (default `0`) reads the client from the
+  [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header.
+  The proxy that writes the header appends its own peer as the **last**
+  `for=` element; a client can prepend elements, but its entries land
+  before the proxy's append. The value is how many trailing elements
+  trusted proxies wrote:
+  - `0` — the header is ignored.
+  - `1` — the last element is the client (the proxy talks to clients
+    directly).
+  - `2` — the element before it is the client, for a gateway whose custom
+    domain sits behind a CDN: the gateway's peer is the CDN, and the CDN
+    recorded the client ahead of it. Only once the CDN is the sole way in
+    (`DISABLE_EXECUTE_API_ENDPOINT=true`) — on the default hostname a
+    request skips the CDN and carries one fewer trusted element.
+- Behind API Gateway, `Forwarded` is the only carrier of the client IP:
+  the gateway writes that header, folds a client-supplied
+  `X-Forwarded-For` into it as leading elements, and sends no
+  `X-Forwarded-For` of its own. The reference deployment therefore runs
+  `TRUST_FORWARDED_HOPS=1`.
+- `TRUST_PROXY_HOPS` (default `0`) sets Express `trust proxy` — how many
+  `X-Forwarded-For` hops feed `req.ip`, the bucket key whenever `Forwarded`
+  isn't trusted. An injected forwarding header is ignored on both channels,
+  so it can't mint a fresh bucket.
+- With the optional `ORIGIN_URL` hardening (a tunnel or reverse proxy
+  between API Gateway and the instance —
+  [`DEPLOY.md`](./DEPLOY.md#port-8000-hardening-optional)), the tunnel
+  host is a second front door that passes a client-written `Forwarded`
+  through unverified. `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED` closes it: API Gateway
+  presents a Cloudflare Access service token on every request and an
+  Access policy on the tunnel host admits nothing else, so the only
+  `Forwarded` header reaching the container is the gateway's.
+
+(express-rate-limit's built-in validators run; the proxy-header checks
+live inside the library's default key generator, which the custom
+`extractClientIp` key generator replaces, so they don't fire behind the
+reverse proxy.) A tripped limiter
 emits an `oauth_rate_limited` warn log with the client IP and endpoint path
 before returning the 429.
 
-**Rotating `MCP_AUTH_TOKEN`:** Update the SST secret AND the Lightsail `.env`, then redeploy
-both. Existing JWTs signed with the old key become invalid immediately.
-Refresh tokens in SQLite are unaffected — clients silently get new JWTs
-signed with the new key on their next token refresh. Procedure:
-[`DEPLOY.md`](./DEPLOY.md#rotating-mcp_auth_token).
+**Registrations that never consented:** every MCP client registers itself
+through `/register` on first connect, and some register more than once per
+connect, so the `clients` table would grow with rows no client ever uses.
+A registration older than a week that holds no unexpired refresh token is
+deleted at boot and before each new registration, logged as `oauth_clients_swept`:
+
+- Consent mints a refresh token within minutes, so such a row never
+  finished consent or had its last token expire
+- A swept client that still presents its `client_id` gets `invalid_client`
+  and registers again
+- Refresh-token rows made unreachable by a rotation stay until they expire,
+  so a rotation does not sweep the clients that were active before it
+- The per-IP `/register` rate limit bounds how fast rows can appear and the
+  sweep bounds how long they stay
+
+**Rotating `MCP_AUTH_TOKEN`:** update the SST secret AND the Lightsail `.env`,
+then redeploy both
+([`DEPLOY.md`](./DEPLOY.md#rotating-mcp_auth_token)). Rotation ends every
+OAuth session:
+
+- existing access JWTs, signed with the old key, fail verification
+  immediately (without a rotation they live for 6 hours);
+- every stored refresh token becomes unreachable, because rows are keyed
+  under the old token;
+- each client goes back through the consent page on its next request.
 
 ### Optional hardening + customization
 
@@ -613,7 +787,8 @@ traffic bypasses the public-IP firewall). See
 
 **Optional: custom domain.** Set `CUSTOM_DOMAIN` + `CUSTOM_DOMAIN_CERT_ARN`
 to serve the API Gateway on your own hostname instead of the auto-generated
-execute-api URL (which stays active alongside it). The ACM cert and DNS
+execute-api URL (which stays active alongside it until
+`DISABLE_EXECUTE_API_ENDPOINT=true` closes it). The ACM cert and DNS
 records are managed outside SST — any DNS provider works. See
 [`DEPLOY.md`](./DEPLOY.md#custom-domain-optional).
 
@@ -630,7 +805,7 @@ dependency-ordered service database.
 
 ```mermaid
 graph LR
-    A["init chain<br/>setup-user (PUID/PGID) →<br/>check-auth → login →<br/>sync-setup → first sync"] --> B["svc-obsidian-sync<br/>(UID 1000)<br/>Obsidian Sync → /vault"]
+    A["init chain<br/>derive-env → setup-user (PUID/PGID) →<br/>check-auth → login →<br/>sync-setup → first sync"] --> B["svc-obsidian-sync<br/>(UID 1000)<br/>Obsidian Sync → /vault"]
     B --> C["svc-vault-mcp<br/>(UID 1000)<br/>MCP server :8000"]
     B -.->|shared volume| D[("/vault<br/>source of truth")]
     C -.->|shared volume| D
@@ -638,11 +813,17 @@ graph LR
     B -.->|sync state| F[("config volume<br/>/home/obsidian/.config")]
 ```
 
-1. **Init chain** — `init-setup-user` (adjusts the `obsidian` user to
-   PUID/PGID and fixes ownership of `/vault`, `/data`, and `/home/obsidian`) →
+1. **Init chain** — `init-derive-env` (publishes boot-time defaults to every
+   later stage via `/run/s6/container_environment/`: `VAULT_PATH` and
+   `INDEX_DB_PATH`, relocated under `STORAGE_ROOT` when set, and `PUBLIC_URL`
+   filled from the hosting platform's variable when unset — see "Single-volume
+   layout" below) → `init-setup-user` (adjusts the `obsidian` user to
+   PUID/PGID and fixes ownership of the vault, index, and config directories
+   plus `/home/obsidian`) →
    `init-check-auth` (fails fast when `OBSIDIAN_AUTH_TOKEN` is missing) →
    `init-obsidian-login` (`ob login`) → `init-setup-vault` (`ob sync-setup`
-   with `--device-name`, plus optional sync-config) → `init-first-sync`
+   with `--device-name`, plus optional sync-config; fails fast when
+   `VAULT_NAME` is missing) → `init-first-sync`
    (one-shot `ob sync` run to _completion_, with retries; failure
    branches under "`init-first-sync` gates vault state" below). Any
    fatal init failure stops the container
@@ -664,13 +845,27 @@ process has spawned. Two mechanisms with distinct jobs:
 - **The longrun dependency gates startup order only.** It does not wait for
   sync health, and a later sync crash restarts just that service, not the
   MCP server.
-- **`init-first-sync` gates vault state.** When it succeeds, the first sync
-  has run to completion before any service starts. When it fails while the
-  memory bootstrap could still overwrite real files (memory layer enabled,
-  memory folder absent), the services refuse to start. On its
-  warn-and-continue branches — memory folder present, memory disabled, or
-  `VAULT_NAME` unset — the server starts with whatever vault state exists
-  while continuous sync keeps retrying.
+- **`init-first-sync` gates vault state.** Three outcomes, checked in order:
+  1. **Deletion-storm guard** (before sync runs): the container refuses to
+     start when the Sync client's file record lists files but the vault has
+     no content.
+     - The record is `obsidian-headless/sync/<vaultId>/state.db` on the
+       config volume. At startup, the client pushes every recorded file
+       that is missing from disk as a deletion.
+     - Content is a regular file: any file at any depth with no dot-named
+       path component, or any file inside `.obsidian/` except under the
+       client's own `.sync.lock/`.
+     - Empty folders do not count, so a wipe that deletes files but keeps
+       the folder tree still reads as empty. Dotfiles outside `.obsidian/`
+       are not synced and do not count either.
+     - A record that exists but cannot be read also stops the container.
+     - No record means a fresh device, which downloads without deleting.
+  2. **Sync succeeds**: the first sync runs to completion before any service
+     starts.
+  3. **Sync fails**: FATAL when the memory bootstrap could still overwrite
+     real files (memory layer enabled, memory folder absent). Warn-and-continue
+     when the memory folder is present or memory is disabled — the server
+     starts while continuous sync keeps retrying.
 
 On a fresh volume, the gate closes the memory-bootstrap race: either the vault
 already holds the user's real `About Me/` files when the server's bootstrap
@@ -681,6 +876,74 @@ they land — and the memory-write
 [shrink guard](#memory-layer-safety) remains defense-in-depth for
 update/delete writes.
 
+#### Single-volume layout
+
+Hosted container platforms (Railway, Render)
+allow one persistent volume per service, while the image's default
+layout spans three mounts. Setting `STORAGE_ROOT=<dir>` makes
+`init-derive-env` place everything under that one directory:
+
+- `$STORAGE_ROOT/vault` → `VAULT_PATH`
+- `$STORAGE_ROOT/data/index.db` → `INDEX_DB_PATH` (OAuth state lives beside it)
+- `$STORAGE_ROOT/data/logs` → `LOG_DIR`
+- `$STORAGE_ROOT/config` → `XDG_CONFIG_HOME` — the
+  [XDG Base Directory](https://specifications.freedesktop.org/basedir-spec/latest/)
+  variable for per-user config, `~/.config` when unset; obsidian-headless
+  keeps its Sync login and device registration under
+  `$XDG_CONFIG_HOME/obsidian-headless/`, and `init-setup-user` /
+  `init-first-sync` read the `.applied-ids` record and the Sync client's
+  own state there
+
+Derivation never overrides a variable that is already set to a non-empty
+value. `LOG_DIR=none` turns log files off; the sentinel exists because every
+deployment surface that defaults `LOG_DIR` on substitutes its default for an
+empty value, so "empty" cannot mean "off". Without `STORAGE_ROOT`, the layout
+is the three-mount one, and Compose and plain `docker run` deployments are
+unaffected.
+
+#### `PUBLIC_URL` derivation
+
+Hosted platforms assign a service's public
+address only at creation, so a template deploy cannot ask the user to type it
+up front. When `PUBLIC_URL` is unset, `init-derive-env` checks these
+platform variables in order and builds `PUBLIC_URL` from the first one that
+is set:
+
+- `RENDER_EXTERNAL_URL` — used as-is (Render supplies the full `https://` URL)
+- `RAILWAY_PUBLIC_DOMAIN` → `https://$RAILWAY_PUBLIC_DOMAIN`
+
+When none is present, `PUBLIC_URL` stays unset and the server's
+required-variable error fires as usual. The derivations live in one pure
+script, `print-derived-env`, which `init-derive-env` runs at boot and the unit
+tests run directly under `sh`.
+
+#### Hosted platform templates
+
+Two templates run the `:remote` image in
+single-volume mode on container hosting platforms. Each sets
+`STORAGE_ROOT=/persist`, `PORT=8000`, `DEVICE_NAME=vault-cortex`, and the
+platform's `TRUST_PROXY_HOPS`, and leaves `PUBLIC_URL` to the derivation
+above. `DEVICE_NAME` is fixed because the platform's container hostname is
+random, so the Sync device name cannot fall back to it.
+
+- `render.yaml` (repo root — Render reads Blueprints only from there) backs
+  the "Deploy to Render" button; guide in `deploy/render/`
+- the Railway template lives in Railway's Template Composer; its definition
+  is recorded in `CONTRIBUTING.md` → Railway template
+
+A platform qualifies only if it starts the image's entrypoint as PID 1 —
+s6-overlay v3 refuses to run as a child of a platform-injected init
+(`s6-overlay-suexec: fatal: can only run as pid 1`). Both platforms above
+do; the probe is a deploy with no variables set, which must reach
+`init-check-auth`'s own error rather than the s6 one.
+
+`cli/src/__tests__/templates.test.ts` pins `render.yaml` to the published
+image, to the fixed values above (`PORT`, `STORAGE_ROOT`, `DEVICE_NAME`), to
+the image's own defaults for the optional settings it pre-fills
+(`MEMORY_ENABLED`, `EMBEDDING_ENABLED`, `READONLY_MODE`, `FILE_TOOLS_ENABLED`,
+`SYNC_MODE`, `CONFLICT_STRATEGY`, `SYNC_EXCLUDED_FOLDERS`, `SYNC_FILE_TYPES`), and to
+leaving the boot-derived variables unset.
+
 The local target (`:latest`) skips all of this — no s6, no sync; tini runs
 the MCP server as PID 1's only child.
 
@@ -688,17 +951,17 @@ the MCP server as PID 1's only child.
 
 The runtime image (`Dockerfile`) minimizes the attack surface:
 
-| Measure                     | What it does                                                                                                                                                                                |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Multi-stage build           | Build deps (`python3`, `make`, `g++`) stay in the build stage — never enter the runtime image                                                                                               |
-| Digest-pinned base          | `node:24-trixie-slim@sha256:...` — reproducible builds, no tag-mutation supply-chain risk; trixie because better-sqlite3's linux-arm64 prebuild needs glibc >= 2.38                         |
-| Non-root processes          | Local target: `USER node` (UID 1000). Remote target: s6 `/init` is PID 1 as root, both services drop to `obsidian` (UID 1000, PUID/PGID-adjustable) via `s6-setuidgid`                      |
-| PID 1 init                  | Local: `tini` forwards SIGTERM so SQLite WAL closes cleanly and reaps zombies. Remote: s6-overlay's `/init` does the same plus process supervision                                          |
-| Package-manager removal     | `npm`, `npx`, `corepack`, `yarn` stripped from both targets — reduces CVE surface. `obsidian-headless` is installed under `/opt/obsidian-headless` from a sha512-pinned lockfile (`npm ci`) |
-| Debian security fixes       | `apt-get upgrade` at build time covers the node-image rebuild window                                                                                                                        |
-| Log rotation (Compose)      | `max-size: 10m`, `max-file: 3` — prevents disk exhaustion                                                                                                                                   |
-| `trust proxy` = 1 (Express) | Trusts exactly one proxy hop (API Gateway); prevents client IP spoofing via injected `X-Forwarded-For`                                                                                      |
-| `Object.freeze` on config   | Prevents accidental mutation of the loaded `ServerConfig` — defense against programming errors                                                                                              |
+| Measure                        | What it does                                                                                                                                                                                                                                         |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Multi-stage build              | Build deps (`python3`, `make`, `g++`) stay in the build stage — never enter the runtime image                                                                                                                                                        |
+| Digest-pinned base             | `node:24-trixie-slim@sha256:...` — reproducible builds, no tag-mutation supply-chain risk; trixie because better-sqlite3's linux-arm64 prebuild needs glibc >= 2.38                                                                                  |
+| Non-root processes             | Local target: `USER node` (UID 1000). Remote target: s6 `/init` is PID 1 as root, both services drop to `obsidian` (UID 1000, PUID/PGID-adjustable) via `s6-setuidgid`                                                                               |
+| PID 1 init                     | Local: `tini` forwards SIGTERM so SQLite WAL closes cleanly and reaps zombies. Remote: s6-overlay's `/init` does the same plus process supervision                                                                                                   |
+| Package-manager removal        | `npm`, `npx`, `corepack`, `yarn` stripped from both targets — reduces CVE surface. `obsidian-headless` is installed under `/opt/obsidian-headless` from a sha512-pinned lockfile (`npm ci`)                                                          |
+| Debian security fixes          | `apt-get upgrade` at build time covers the node-image rebuild window                                                                                                                                                                                 |
+| Log rotation (Compose)         | `max-size: 10m`, `max-file: 3` — prevents disk exhaustion                                                                                                                                                                                            |
+| Explicit proxy trust (Express) | `trust proxy` = `TRUST_PROXY_HOPS` (default 0 — direct exposure); the `Forwarded` header is honored only under a non-zero `TRUST_FORWARDED_HOPS` — injected forwarding headers can't spoof the client IP (OAuth rate-limit bucket key, request logs) |
+| `Object.freeze` on config      | Prevents accidental mutation of the loaded `ServerConfig` — defense against programming errors                                                                                                                                                       |
 
 ### Durability
 

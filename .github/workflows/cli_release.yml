@@ -113,6 +113,11 @@ jobs:
       - run: npm ci
 
       - run: npx tsc -p cli/tsconfig.json
+      - run: npx tsc -p cli/tsconfig.test.json
+
+      - name: CLI interactive tests (node-pty)
+        timeout-minutes: 20
+        run: npm run test:cli-pty
 
       - name: Bump cli/package.json
         if: inputs.bump != 'none'

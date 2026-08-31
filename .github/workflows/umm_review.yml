@@ -8,17 +8,22 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 # Non-trigger comments still create a (guard-skipped) run — isolate them in a
 # per-run group so they can't cancel an in-flight review. Every comment the
-# review posts on the PR would otherwise kill the very run it belongs to.
+# review posts on the PR would otherwise kill the very run it belongs to, and
+# the owner check mirrors the job guard: concurrency resolves before `if`,
+# so a non-owner "@umm review" would otherwise cancel a live review and then
+# skip.
 concurrency:
-  group: umm-review-${{ github.event.pull_request.number || github.event.issue.number }}${{ (github.event_name == 'issue_comment' && !startsWith(github.event.comment.body, '@umm review')) && format('-noop-{0}', github.run_id) || '' }}
+  group: umm-review-${{ github.event.pull_request.number || github.event.issue.number }}${{ (github.event_name == 'issue_comment' && !(github.event.comment.user.login == github.repository_owner && startsWith(github.event.comment.body, '@umm review'))) && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
   review:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     name: umm, actually
     if: >-
       (
@@ -33,6 +38,8 @@ jobs:
       )
     permissions:
       contents: read
+      # The comment-trigger step below reads the PR via the REST API
+      pull-requests: read
     steps:
       # issue_comment events check out the default branch unless overridden —
       # the action reads workspace files for context, so it needs the PR head.
@@ -77,7 +84,7 @@ jobs:
       # to the action's defaults. Inputs whose default is empty
       # (fallback_model, max_findings) pass empty when the var is unset —
       # identical to omitting them.
-      - uses: aliasunder/umm-actually@d110bf4c0e9c50aab5cd2e74da7c9bcf03707465 # v0.3.9
+      - uses: aliasunder/umm-actually@74276fdab1793e985ccef030fabfdcd9ccc72e4d # v0.3.13
         with:
           github_token: ${{ steps.app-token.outputs.token }}
           openrouter_api_key: ${{ secrets.OPENROUTER_KEY }}
@@ -127,5 +134,9 @@ jobs:
           # (those are excluded from its bucket)
           max_related_files: ${{ vars.UMM_MAX_RELATED_FILES || '8' }}
           max_related_docs: ${{ vars.UMM_MAX_RELATED_DOCS || '4' }}
+          # Comma-separated folder prefixes excluded from the workspace
+          # scan — invisible to import-tracing and doc-mention matching.
+          # Changed files and priority_docs are never excluded.
+          exclude_paths: ${{ vars.UMM_EXCLUDE_PATHS }}
           # true | false — per-run cost report in the workflow step summary
           cost_summary: ${{ vars.UMM_COST_SUMMARY || 'true' }}

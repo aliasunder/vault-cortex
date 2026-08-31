@@ -359,7 +359,7 @@ const normalizeExtension = (extension: string): string => {
   return lowered.startsWith(".") ? lowered : `.${lowered}`
 }
 
-export type AssetListing = Readonly<{
+type AssetListing = Readonly<{
   assets: readonly Readonly<{
     path: string
     extension: string
@@ -426,7 +426,7 @@ const buildAssetListing = async (
 
 /** The asset operations surface — one namespace for the grouped read/browse
  *  functionality, matching the folder's operation modules (noteMover,
- *  vaultPatcher, taskUpdater). */
+ *  vaultPatcher, taskMutations). */
 export const assetOperations = {
   readAssetContent,
   buildAssetListing,

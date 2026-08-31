@@ -74,6 +74,269 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## [0.46.0] — 2026-08-31
+
+### Features
+
+- **oauth:** Bind access tokens with iss/aud and shorten their lifetime to 6h (#508)
+
+### Bug Fixes
+
+- **oauth:** Grant the vault scope when a client requests none (#507)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.45.0
+
+### CI / Infrastructure
+
+- **gitleaks:** Scan main plus the pull request's commits, not every branch (#505)
+
+### Maintenance
+
+- **sst:** Keep API Gateway and authorizer CloudWatch logs for 1 year (#504)
+- **deps:** Bump the production group across 1 directory with 2 updates (#501)
+- **deps:** Bump github/codeql-action/upload-sarif from 4.37.7 to 4.37.8 (#502)
+- **deps-dev:** Bump the development group with 5 updates (#503)
+
+## [0.45.0] — 2026-08-27
+
+### Features
+
+- Add vault_replace_span and vault_insert_at_anchor tools (#495)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.44.0
+
+### Maintenance
+
+- Bump umm-actually to v0.3.13 (#499)
+
+## [0.44.0] — 2026-08-27
+
+### ⚠ BREAKING CHANGES
+
+- `vault_update_task` renames `lane` to `heading` and clears `priority` with `null` instead of `"none"`.
+
+### Features
+
+- Vault_create_task + vault_update_task expansion (task CRUD family) (#494)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.43.0
+
+### Maintenance
+
+- **deps:** Bump umm-actually to v0.3.12 (#498)
+
+## [0.43.0] — 2026-08-27
+
+### Features
+
+- Protect file-configured daily notes folder from deletion and moves (#497)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.42.1
+
+### Maintenance
+
+- Add knip and markdownlint-cli2 as pre-commit hooks (#496)
+
+## [0.42.1] — 2026-08-25
+
+### Features
+
+- **cli:** Replace Docker-based get-sync-token with native Obsidian API call (#492)
+
+### Bug Fixes
+
+- **cli:** Strip quoted values from .env before docker run (#491)
+
+### Documentation
+
+- Align descriptions with one-click deploy positioning; add DAILY_NOTES env vars (#487)
+- Update CHANGELOG.md for v0.42.0
+
+### Maintenance
+
+- Add 30m job timeout to umm-review workflow (#493)
+- Replace CLAUDE.md with symlink to AGENTS.md (#489)
+- Sync code standards from vault (#488)
+
+## [0.42.0] — 2026-08-24
+
+### ⚠ BREAKING CHANGES
+
+- `TRUST_FORWARDED_HEADER` is removed. Replace `TRUST_FORWARDED_HEADER=true` with `TRUST_FORWARDED_HOPS=1` (or the hop count you already set); `TRUST_FORWARDED_HEADER=false` is the new default, `TRUST_FORWARDED_HOPS=0`.
+
+### Features
+
+- **oauth:** Sweep client registrations that never turned into a session (#483)
+
+### Bug Fixes
+
+- **search:** One malformed note no longer prevents server startup (#486)
+- **deploy:** Trust the gateway's Forwarded header behind a locked tunnel; TRUST_FORWARDED_HOPS replaces TRUST_FORWARDED_HEADER (#484)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.41.0
+
+## [0.41.0] — 2026-08-23
+
+### ⚠ BREAKING CHANGES
+
+- Upgrading clears every stored refresh token; each OAuth client re-authorizes once through the consent page when its access token expires (within 24 hours). Rotating `MCP_AUTH_TOKEN` now ends every OAuth session immediately.
+
+### Features
+
+- **oauth:** Bind refresh tokens to MCP_AUTH_TOKEN and their client so rotation revokes every session (#482)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.40.1
+
+## [0.40.1] — 2026-08-22
+
+### Documentation
+
+- **readme:** Comparison table for the remote deployment paths; rules between top-level sections (#481)
+- Update CHANGELOG.md for v0.40.0
+
+## [0.40.0] — 2026-08-22
+
+### Features
+
+- **deploy:** One-click Render and Railway deployments for the remote image (#480)
+
+### Bug Fixes
+
+- **remote:** Read the Sync client's file record in the deletion-storm guard; boot the remote image in CI on both architectures (#475)
+- **remote:** Stop on a fresh volume when VAULT_NAME is unset (#476)
+
+### Documentation
+
+- **contributing:** List every check the main ruleset requires
+- Update CHANGELOG.md for v0.39.0
+
+### Maintenance
+
+- **deps-dev:** Bump the development group with 3 updates (#478)
+- **deps:** Bump @napi-rs/canvas from 1.0.6 to 1.0.7 in the production group (#477)
+- **deps:** Bump docker/setup-buildx-action from 4.2.0 to 4.3.0 (#479)
+
+## [0.39.0] — 2026-08-21
+
+### Features
+
+- **remote:** STORAGE_ROOT single-volume mode and PUBLIC_URL derivation at boot (#472)
+
+### Bug Fixes
+
+- Mirror the owner check in the umm_review concurrency noop guard (#474)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.38.2
+
+### Maintenance
+
+- Bump umm-actually to v0.3.11 (#473)
+
+## [0.38.2] — 2026-08-20
+
+### Bug Fixes
+
+- **search:** Apply folder filters in SQL before the candidate window on every hybrid-search leg (#471)
+
+### Refactoring
+
+- **search:** Extract hybrid search pipeline into hybrid-search.ts (#470)
+
+### Documentation
+
+- Add v0.38.1 security section to CHANGELOG (#469)
+- Update CHANGELOG.md for v0.38.1
+
+## [0.38.1] — 2026-08-20
+
+### ⚠ BREAKING CHANGES
+
+- self-hosted deployments behind a reverse proxy or tunnel (Caddy, nginx, Cloudflare Tunnel) must set `TRUST_PROXY_HOPS=1` — without it, all clients share the proxy's OAuth rate-limit budget. The AWS reference deployment and direct-exposure setups need no action.
+
+### Bug Fixes
+
+- **security:** Gate Forwarded/X-Forwarded-For client-IP trust behind explicit proxy config (#468)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.38.0
+
+### Security
+
+- This release fixes GHSA-wm5v-9236-597m (High, CVSS 7.5): spoofed `Forwarded`/`X-Forwarded-For` headers could bypass the per-client OAuth rate limit. All deployments `<= 0.38.0` should upgrade. Details: https://github.com/aliasunder/vault-cortex/security/advisories/GHSA-wm5v-9236-597m
+
+## [0.38.0] — 2026-08-20
+
+### Features
+
+- **search:** Embed non-markdown file content for semantic search (#463)
+
+### Documentation
+
+- Add OpenSSF Best Practices badge to README (#465)
+- Replace License badge with OpenSSF Scorecard badge (#461)
+- Update CHANGELOG.md for v0.37.4
+
+### CI / Infrastructure
+
+- Cosign keyless signing for GitHub releases (#466)
+
+### Maintenance
+
+- Add test:coverage npm script (#467)
+- Bump umm-actually to v0.3.10 (#464)
+
+### Other Changes
+
+- **cli:** Interactive PTY integration tests via node-pty (#462)
+- **integration:** Error contract tests for documented tool error paths (#460)
+
+## [0.37.4] — 2026-08-19
+
+### Bug Fixes
+
+- **init:** Guard against empty-vault deletion storm on partial volume wipe (#458)
+- **logger:** Resolve source locations to .ts via source maps (#459)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.37.3
+
+### Maintenance
+
+- **deps:** Bump the production group with 2 updates (#455)
+- **deps-dev:** Bump puppeteer from 25.6.0 to 25.7.0 in the development group (#456)
+- **deps:** Bump github/codeql-action/upload-sarif from 4.37.6 to 4.37.7 (#457)
+- Add TypeScript 7 via dual-install with npm aliasing (#454)
+
 ## [0.37.3] — 2026-08-18
 
 ### Bug Fixes

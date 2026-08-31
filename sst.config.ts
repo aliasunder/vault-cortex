@@ -22,6 +22,8 @@ export default $config({
     const { readFileSync, existsSync } = await import("node:fs")
     const { homedir } = await import("node:os")
     const env = (await import("env-var")).get
+    const { urlHasCredentials } =
+      await import("./src/utils/url-has-credentials.js")
 
     // ── Environment ──────────────────────────────────────────────
     // SSH key fallback chain: SSH_PUBKEY (CI) → SSH_PUBKEY_PATH → ~/.ssh/vault-cortex.pub
@@ -42,6 +44,23 @@ export default $config({
     // reverse proxy, or any HTTPS frontend that proxies to localhost:8000.
     const originUrl = env("ORIGIN_URL").asString()
 
+    // ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true: API Gateway presents a Cloudflare
+    // Access service token (the OriginAccessClientId / OriginAccessClientSecret
+    // secrets) to the ORIGIN_URL host on every request, so an Access policy
+    // on that host can admit the gateway alone.
+    //
+    // Ignored without ORIGIN_URL — there is no host to present it to, and a
+    // rollback deploy blanks ORIGIN_URL on the command line without having
+    // to unset this flag too.
+    //
+    // Compared as a string, like the other optional vars here: CI passes an
+    // unset repo Variable as "", which env-var's default() does not cover
+    // and asBool() rejects.
+    const originAccessServiceTokenEnabled =
+      Boolean(originUrl) &&
+      env("ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED").asString()?.toLowerCase() ===
+        "true"
+
     // Optional custom domain on API Gateway (e.g. mcp.example.com), replacing
     // the auto-generated execute-api URL. DNS stays external (any provider):
     // SST only creates the API Gateway domain + mapping from an existing
@@ -51,10 +70,58 @@ export default $config({
     // certificate in the API's region covering the name (wildcard or exact).
     const customDomain = env("CUSTOM_DOMAIN").asString()
     const customDomainCertArn = env("CUSTOM_DOMAIN_CERT_ARN").asString()
+
+    // Must match PUBLIC_URL in the instance .env: the Lambda authorizer
+    // verifies each JWT's issuer and audience against this value, and
+    // Express mints them from that one. Unset, resolvePublicUrl() below
+    // derives it, so a first deploy needs no value.
+    const publicUrlOverride = env("PUBLIC_URL").asString()
+
+    // A bare hostname or a non-http(s) scheme (whose origin is "null")
+    // can never match a minted token, so it would 403 every client at
+    // runtime — fail the deploy instead.
+    const parsedPublicUrlOverride = publicUrlOverride
+      ? URL.parse(publicUrlOverride)
+      : undefined
+
+    const publicUrlIsHttp =
+      parsedPublicUrlOverride?.protocol === "https:" ||
+      parsedPublicUrlOverride?.protocol === "http:"
+
+    if (publicUrlOverride && !publicUrlIsHttp) {
+      throw new Error(
+        "PUBLIC_URL must be an absolute http(s) URL, e.g. " +
+          "https://mcp.example.com",
+      )
+    }
+
+    // Credentials in the URL would be minted into every token's `iss`
+    // claim and served by the discovery documents — fail the deploy.
+    const publicUrlHasCredentials = parsedPublicUrlOverride
+      ? urlHasCredentials(parsedPublicUrlOverride)
+      : false
+
+    if (publicUrlHasCredentials) {
+      throw new Error(
+        "PUBLIC_URL must not contain credentials (user:password@)",
+      )
+    }
+
     if (customDomain && !customDomainCertArn) {
       throw new Error(
         "CUSTOM_DOMAIN requires CUSTOM_DOMAIN_CERT_ARN — the ARN of an " +
           "ISSUED ACM certificate (in this API's region) covering that domain.",
+      )
+    }
+
+    // DISABLE_EXECUTE_API_ENDPOINT=true: the gateway stops answering on its
+    // default execute-api hostname, so the custom domain is the only way in.
+    const disableExecuteApiEndpoint =
+      env("DISABLE_EXECUTE_API_ENDPOINT").asString()?.toLowerCase() === "true"
+    if (disableExecuteApiEndpoint && !customDomain) {
+      throw new Error(
+        "DISABLE_EXECUTE_API_ENDPOINT requires CUSTOM_DOMAIN — without a " +
+          "custom domain the API would have no hostname left.",
       )
     }
 
@@ -95,6 +162,12 @@ export default $config({
     // secrets (CI). See deploy.yml and .env.example.
     // ──────────────────────────────────────────────────────────────
     const mcpAuthToken = new sst.Secret("McpAuthToken")
+    const originAccessClientId = originAccessServiceTokenEnabled
+      ? new sst.Secret("OriginAccessClientId")
+      : undefined
+    const originAccessClientSecret = originAccessServiceTokenEnabled
+      ? new sst.Secret("OriginAccessClientSecret")
+      : undefined
 
     // ── SSH key pair ──────────────────────────────────────────────
     // Uses a dedicated deploy key (~/.ssh/vault-cortex.pub) shared
@@ -103,10 +176,6 @@ export default $config({
     //
     // Setup: ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy
     // CI:    store the public key as SSH_PUBKEY secret, private as SSH_PRIVATE_KEY.
-    //
-    // To also SSH with your personal key, add it post-provision:
-    //   ssh -i ~/.ssh/vault-cortex ubuntu@<IP> \
-    //     "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub
     //
     // GOTCHA #1: Changing the public key FORCES AN INSTANCE REPLACE.
     //            The VM is destroyed and recreated, wiping Docker
@@ -121,16 +190,16 @@ export default $config({
     })
 
     // ── Lightsail ─────────────────────────────────────────────────
-    // medium_3_0 = 2 vCPU, 4 GB RAM, 80 GB SSD, 4 TB transfer, $24/mo.
-    // Upgraded from small_3_0 for the second vCPU (concurrent ONNX
-    // inference) and page-cache headroom. small_3_0 (1 vCPU, 2 GB,
-    // $12/mo) handles semantic search fine for a typical vault.
-    // Downgrade path is a snapshot-based restore — see RECOVERY.md.
+    // medium_3_0 = 2 vCPU, 4 GB RAM, 80 GB SSD, 4 TB transfer, $24/mo —
+    // the second vCPU covers concurrent ONNX inference, and the RAM gives
+    // page-cache headroom. small_3_0 (1 vCPU, 2 GB, $12/mo) handles
+    // semantic search fine for a typical vault; moving between bundles is
+    // a snapshot-based restore — see RECOVERY.md.
     //
     // Auto-snapshot: daily disk-image backup retained 7 days by
     // Lightsail. Captures everything on the boot disk (Docker volumes,
-    // /opt/vault-cortex, /etc edits, ad-hoc apt installs). UTC time —
-    // 03:00 UTC = 23:00 ET. Restore path is in RECOVERY.md.
+    // /opt/vault-cortex, /etc edits, ad-hoc apt installs). snapshotTime
+    // is UTC. Restore path is in RECOVERY.md.
     //
     // protect + retainOnDelete are the IaC seatbelt. `protect` refuses
     // any Pulumi operation that would destroy or replace this resource;
@@ -259,7 +328,8 @@ export default $config({
     const api = new sst.aws.ApiGatewayV2("VaultCortexApi", {
       // dns: false — SST skips DNS record creation (records live with the
       // external DNS provider) and requires the pre-issued cert instead of
-      // provisioning one. The default execute-api endpoint stays active.
+      // provisioning one. The default execute-api endpoint stays active
+      // unless DISABLE_EXECUTE_API_ENDPOINT closes it.
       ...(customDomain &&
         customDomainCertArn && {
           domain: {
@@ -268,7 +338,12 @@ export default $config({
             cert: customDomainCertArn,
           },
         }),
+      // CloudWatch retention for the gateway access log (the authorizer's
+      // log group below matches). SST defaults to 1 month, which caps how
+      // far back an auth audit can look; a year of them is about 100 MB.
+      accessLog: { retention: "1 year" },
       transform: {
+        api: { disableExecuteApiEndpoint },
         stage: {
           defaultRouteSettings: {
             throttlingRateLimit: 20,
@@ -278,31 +353,34 @@ export default $config({
       },
     })
 
-    // Lambda authorizer — validates Bearer tokens (static MCP_AUTH_TOKEN
-    // or JWT) on protected routes only. OAuth discovery paths are wired as
-    // separate unauthenticated routes below and never invoke the authorizer;
-    // its own open-path check is defense in depth in case that wiring
-    // changes. Express also validates in-process via requireBearerAuth.
-    //
-    // identitySources is the load-bearing detail: with the Authorization
-    // header registered as the identity source, API Gateway answers
-    // tokenless requests with an automatic 401 Unauthorized — without
-    // invoking the Lambda. MCP clients (Claude, etc.) require a 401 on the
-    // initial unauthenticated probe to enter the OAuth connect flow; they
-    // fall back to /.well-known/oauth-protected-resource discovery when no
-    // WWW-Authenticate header is present (RFC 9728 default location).
-    // A Lambda-authorizer deny, by contrast, is a fixed 403 Forbidden that
-    // HTTP APIs cannot customize — clients treat it as a broken server.
+    const resolvePublicUrl = (): $util.Output<string> => {
+      if (publicUrlOverride) return $output(publicUrlOverride)
+      if (customDomain) return $output(`https://${customDomain}`)
+      return api.url
+    }
+
+    // Bearer-token validation on protected routes only; the OAuth discovery
+    // paths are separate unauthenticated routes below. Verification details:
+    // src/functions/authorizer.ts.
     const authorizer = api.addAuthorizer({
       name: "bearer-auth",
       lambda: {
         function: {
           handler: "src/functions/authorizer.handler",
           link: [mcpAuthToken],
+          environment: { PUBLIC_URL: resolvePublicUrl() },
           runtime: "nodejs24.x",
           timeout: "5 seconds",
           memory: "128 MB",
+          logging: { retention: "1 year" },
         },
+        // Registering the Authorization header as the identity source makes
+        // API Gateway answer tokenless requests with an automatic 401 — the
+        // status MCP clients need to start the OAuth flow (that response has
+        // no WWW-Authenticate, so clients use the RFC 9728 default
+        // discovery location, https://www.rfc-editor.org/rfc/rfc9728#section-3).
+        // A Lambda deny is a fixed 403 they treat as a broken server.
+        // SST fills this field with a default when omitted.
         identitySources: ["$request.header.Authorization"],
       },
     })
@@ -314,6 +392,22 @@ export default $config({
       originUrl
         ? `${originUrl}${path}`
         : $interpolate`http://${staticIp.ipAddress}:8000${path}`
+
+    // Service-token headers on every integration. `overwrite:` so a
+    // client-supplied copy of either header is replaced, never joined.
+    const originAccessHeaders: sst.aws.ApiGatewayV2RouteArgs["transform"] =
+      originAccessClientId && originAccessClientSecret
+        ? {
+            integration: {
+              requestParameters: {
+                "overwrite:header.CF-Access-Client-Id":
+                  originAccessClientId.value,
+                "overwrite:header.CF-Access-Client-Secret":
+                  originAccessClientSecret.value,
+              },
+            },
+          }
+        : undefined
 
     // ── Open routes — no authorizer ──────────────────────────────
     // OAuth discovery/flow endpoints must be reachable unauthenticated
@@ -328,19 +422,27 @@ export default $config({
       "/revoke",
       "/healthz",
     ]) {
-      api.routeUrl(`ANY ${path}`, target(path))
+      api.routeUrl(`ANY ${path}`, target(path), {
+        transform: originAccessHeaders,
+      })
     }
-    api.routeUrl("ANY /.well-known/{proxy+}", target("/.well-known/{proxy}"))
-    api.routeUrl("ANY /oauth/{proxy+}", target("/oauth/{proxy}"))
+    api.routeUrl("ANY /.well-known/{proxy+}", target("/.well-known/{proxy}"), {
+      transform: originAccessHeaders,
+    })
+    api.routeUrl("ANY /oauth/{proxy+}", target("/oauth/{proxy}"), {
+      transform: originAccessHeaders,
+    })
 
     // ── Protected routes — Lambda authorizer ─────────────────────
     // GOTCHA: {proxy+} matches one-or-more path segments but NOT
     // the bare root "/". You need both routes.
     api.routeUrl("ANY /{proxy+}", target("/{proxy}"), {
       auth: { lambda: authorizer.id },
+      transform: originAccessHeaders,
     })
     api.routeUrl("ANY /", target(""), {
       auth: { lambda: authorizer.id },
+      transform: originAccessHeaders,
     })
 
     // Deliberately NOT outputs: the Lightsail IP and the custom domain's

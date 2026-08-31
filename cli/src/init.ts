@@ -25,8 +25,10 @@ import {
 } from "./optional-settings.js"
 import {
   buildFilesToWrite,
+  readEnvObsidianToken,
   readEnvPort,
   readEnvPublicUrl,
+  stripEnvQuotedValues,
   writeFiles,
   type FileWriteResult,
   type Mode,
@@ -74,20 +76,22 @@ const askMode = async (prompts: Prompts): Promise<Mode> => {
 }
 
 /**
- * Offers to auto-capture the Obsidian Sync token via a Docker volume mount.
- * Returns the captured token string, or undefined when the user declines or
- * the capture fails (the caller falls back to a paste prompt).
+ * Offers to sign in to the Obsidian account and capture the Sync token.
+ * Returns the captured token string, or undefined when the user declines
+ * or the capture fails (the caller falls back to any token already in the
+ * on-disk .env, or shows get-sync-token guidance).
  */
 const offerSyncTokenCapture = async (
   prompts: Prompts,
-  docker: DockerRunner,
+  fetchFn: typeof fetch,
 ): Promise<string | undefined> => {
+  prompts.log(
+    "Your server needs an Obsidian Sync token to access your vault.\n" +
+      "You can sign in to your Obsidian account now to generate one.",
+  )
   const runNow = await prompts.confirm("Generate the token now?", true)
   if (!runNow) return undefined
-  return captureObsidianToken(
-    { docker, prompts },
-    "The token is captured automatically and stored in your .env — nothing to copy.",
-  )
+  return captureObsidianToken({ prompts, fetchFn })
 }
 
 /**
@@ -264,9 +268,11 @@ const offerDockerRun = async (
   }
   const startNow = await prompts.confirm("Start the server now?", true)
   if (!startNow) return "not-started"
+  const envFilePath = join(targetDir, ".env")
+  stripEnvQuotedValues(envFilePath)
   const containerStarted = docker.dockerRun({
     mode,
-    envFilePath: join(targetDir, ".env"),
+    envFilePath,
     port,
     vaultPath,
   })
@@ -414,15 +420,15 @@ const runLocalInit = async (
 }
 
 // Remote flow (VPS + Obsidian Sync): resolve target dir → PUBLIC_URL →
-// VAULT_NAME → Obsidian Sync token (optionally running the Obsidian login via
-// Docker) → optional E2E vault password → generate token → write .env →
-// optionally start → print connect instructions. Always interactive —
-// the sync-token step can't be defaulted.
+// VAULT_NAME → Obsidian Sync token (sign in via the Obsidian API) → optional
+// E2E vault password → generate token → write .env → optionally start → print
+// connect instructions. Always interactive — the sync-token step can't be
+// defaulted.
 const runRemoteInit = async (
   flags: InitFlags,
   deps: InitDeps,
 ): Promise<number> => {
-  const { prompts, docker } = deps
+  const { prompts, fetchFn } = deps
 
   // expandTilde before resolve: resolve() treats a leading `~` as a literal
   // path segment, so a quoted "~/path" would create a directory named "~".
@@ -442,25 +448,19 @@ const runRemoteInit = async (
   const publicUrl = await askPublicUrl(prompts)
   const vaultName = await askVaultName(prompts)
 
-  // Auto-capture the Obsidian Sync token via a Docker volume mount when
-  // the daemon is reachable. Falls back to a paste prompt when capture
-  // fails or the user declines. Both non-running states stay silent here —
-  // the paste fallback is fully functional without Docker, and the start
-  // offer surfaces the differentiated runtime guidance later in the flow.
-  const capturedToken =
-    docker.daemonStatus() === "running"
-      ? await offerSyncTokenCapture(prompts, docker)
-      : undefined
-  // Masked prompt: the sync token is a credential and must not echo into
-  // the terminal or scrollback. An empty submission still means "fill in
-  // .env later" — clack's password prompt accepts blank input.
-  const obsidianAuthToken =
-    capturedToken ??
-    (
-      await prompts.password(
-        "Paste the Obsidian Sync token (leave blank to fill in .env later):",
-      )
-    ).trim()
+  // Sign in to Obsidian and capture the Sync token directly via the API.
+  // When the user declines or capture fails, fall back to any token already
+  // in the on-disk .env (a re-init over an existing deployment). Only show
+  // the "run get-sync-token later" guidance when neither source has a token.
+  const capturedToken = await offerSyncTokenCapture(prompts, fetchFn)
+  const existingEnvToken = readEnvObsidianToken(join(targetDir, ".env"))
+  const hasExistingToken = Boolean(capturedToken ?? existingEnvToken)
+  if (!hasExistingToken) {
+    prompts.log(
+      "No token yet — run this later to add it to your .env:\n" +
+        `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
+    )
+  }
 
   const usesEncryption = await prompts.confirm(
     "Does your vault use end-to-end encryption?",
@@ -480,7 +480,7 @@ const runRemoteInit = async (
   const defaultEnvContent = buildRemoteEnv({
     mcpAuthToken: token,
     publicUrl,
-    obsidianAuthToken,
+    obsidianAuthToken: capturedToken ?? existingEnvToken,
     vaultName,
     vaultPassword,
   })
@@ -517,10 +517,9 @@ const runRemoteInit = async (
 
   // Without the sync token the container can't start (init-check-auth fails
   // and s6 stops it), so only offer docker run when it was provided.
-  const startStatus: StartStatus =
-    obsidianAuthToken === ""
-      ? "not-started"
-      : await offerDockerRun({ targetDir, port, mode: "remote" }, deps)
+  const startStatus: StartStatus = !hasExistingToken
+    ? "not-started"
+    : await offerDockerRun({ targetDir, port, mode: "remote" }, deps)
   // The container check above hit localhost on this machine; the public URL
   // is the ingress path clients actually use — probe it too, informationally.
   if (startStatus === "running") {
@@ -535,7 +534,7 @@ const runRemoteInit = async (
       token,
       publicUrl: effectivePublicUrl,
       startStatus,
-      obsidianTokenMissing: obsidianAuthToken === "",
+      obsidianTokenMissing: !hasExistingToken,
       tokenWritten,
     }),
   )
