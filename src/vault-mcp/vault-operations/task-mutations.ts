@@ -279,10 +279,11 @@ const headingInsertIndex = ({
   lines: readonly string[]
   heading: HeadingInfo
   position: "top" | "bottom"
-}): number =>
-  position === "top"
+}): number => {
+  return position === "top"
     ? taskInsertIndexUnderHeading({ lines, heading })
     : taskAppendIndexUnderHeading({ lines, heading })
+}
 
 /** Resolves the effective insertion position for a new task under a heading.
  *  Priority: explicit param > Kanban setting > context default. */
