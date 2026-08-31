@@ -315,11 +315,10 @@ export const registerDailyReviewPrompt = ({
           dailyNoteTasks.tasks.length > 0
         // Write directives name only served tools; without them, the step
         // falls back to conversational output.
-        const memoryStep = config.memoryEnabled
-          ? isToolEnabled("vault_update_memory")
-            ? `**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to ${config.memoryDir}/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.`
-            : "**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and tell me so I can record them."
-          : ""
+        const memoryStepText = isToolEnabled("vault_update_memory")
+          ? `**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and propose saving it to ${config.memoryDir}/ memory via vault_update_memory (append-with-dates, newest-first). Confirm before writing.`
+          : "**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and tell me so I can record them."
+        const memoryStep = config.memoryEnabled ? memoryStepText : ""
         // vault_update_task is the atomic path for status, priority, and lane
         // moves, but it takes no date fields — rescheduling is still a note
         // edit. Each sentence stands alone so any subset reads correctly.
@@ -338,13 +337,14 @@ export const registerDailyReviewPrompt = ({
         ]
           .filter(Boolean)
           .join(" ")
-        const taskReviewStep = hasTaskData
-          ? taskUpdateDirective.length > 0
+        const taskReviewWithData =
+          taskUpdateDirective.length > 0
             ? `**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? ${taskUpdateDirective}`
             : "**Review tasks** — check the task summaries above. Are any blocked or need rescheduling? Flag what needs updating so I can change it in Obsidian."
-          : dailyNote.exists
-            ? "**Scan for tasks** — no structured tasks surfaced for this date. Look for informal action items or commitments in the daily note."
-            : ""
+        const noDataFallback = dailyNote.exists
+          ? "**Scan for tasks** — no structured tasks surfaced for this date. Look for informal action items or commitments in the daily note."
+          : ""
+        const taskReviewStep = hasTaskData ? taskReviewWithData : noDataFallback
         const noteContextSteps = dailyNote.exists
           ? [
               "**Follow the links** — read linked notes (see outgoing links above) for full context on what was referenced today.",
@@ -364,14 +364,15 @@ export const registerDailyReviewPrompt = ({
           .map((step, index) => `${index + 1}. ${step}`)
           .join("\n")
 
+        const noNoteMessage = isToolEnabled("vault_write_note")
+          ? `No daily note found at \`${dailyNote.path}\`. If you'd like one, create it at that path with vault_write_note.`
+          : `No daily note found at \`${dailyNote.path}\`.`
         const dailyReview = [
           "# Daily review",
           "",
           dailyNote.exists
             ? `Daily note: \`${dailyNote.path}\``
-            : isToolEnabled("vault_write_note")
-              ? `No daily note found at \`${dailyNote.path}\`. If you'd like one, create it at that path with vault_write_note.`
-              : `No daily note found at \`${dailyNote.path}\`.`,
+            : noNoteMessage,
           "",
           "## Daily note",
           "",

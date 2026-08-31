@@ -568,12 +568,8 @@ export const runInit = async (
 
   // Mode resolution: explicit --mode wins; --yes implies local; otherwise
   // ask, defaulting to local — it's the simpler activation path.
-  const mode: Mode =
-    flags.mode !== undefined && isMode(flags.mode)
-      ? flags.mode
-      : flags.yes
-        ? "local"
-        : await askMode(prompts)
+  const flagMode = flags.mode && isMode(flags.mode) ? flags.mode : undefined
+  const mode: Mode = flagMode ?? (flags.yes ? "local" : await askMode(prompts))
 
   const exitCode =
     mode === "local"

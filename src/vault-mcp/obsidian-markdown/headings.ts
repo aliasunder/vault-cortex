@@ -100,14 +100,15 @@ export const findTrailingCommentBlockStart = (
 
   // An unclosed comment runs to EOF and is trailing by definition. A closed
   // block is trailing only when nothing but blank lines follow it.
+  const hasTrailingClosedBlock =
+    lastClosedBlock &&
+    lines
+      .slice(lastClosedBlock.endLine + 1)
+      .every((trailingLine) => trailingLine.trim() === "")
+  const closedTrailingBlock = hasTrailingClosedBlock ? lastClosedBlock : null
   const trailingBlock = commentOpen
     ? { startLine: commentOpenLine }
-    : lastClosedBlock &&
-        lines
-          .slice(lastClosedBlock.endLine + 1)
-          .every((trailingLine) => trailingLine.trim() === "")
-      ? lastClosedBlock
-      : null
+    : closedTrailingBlock
 
   if (!trailingBlock) return lines.length
 
