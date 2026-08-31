@@ -931,19 +931,39 @@ title: Tasks
 
       expect(result).toEqual({
         path: "board.md",
-        line: 12,
+        line: 14,
         description: "Board task",
         block_id: "board-task",
         heading: "Up Next",
         changes: [`created: (none) → ${today()}`],
       })
       const content = await readTestNote(vault, "board.md")
-      // Task inserted at the top of Up Next, before the existing card
-      const upNextSection =
-        content.split("## Up Next")[1]?.split("## ")[0] ?? ""
-      expect(upNextSection).toBe(
-        `\n- [ ] Board task ➕ ${today()} ^board-task\n\n- [ ] Planned task ⏫ ➕ 2026-07-03 ^planned-task\n\n`,
-      )
+      // No setting → plugin default is append (bottom of lane)
+      expect(content).toBe(`---
+title: Board
+kanban-plugin: board
+---
+
+## Active
+
+- [/] In-progress task ➕ 2026-07-01 ^active-task
+- [ ] Second task ➕ 2026-07-02
+
+## Up Next
+
+- [ ] Planned task ⏫ ➕ 2026-07-03 ^planned-task
+- [ ] Board task ➕ ${today()} ^board-task
+
+## Done
+
+- [x] Completed ➕ 2026-06-01 ✅ 2026-06-15
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`)
     })
 
     it("creates a task with priority and dates", async () => {
@@ -2213,7 +2233,7 @@ kanban-plugin: board
         )
       })
 
-      it("Kanban + heading + no position + no setting → top (Kanban default is prepend)", async () => {
+      it("Kanban + heading + no position + no setting → bottom (plugin default is append)", async () => {
         const vault = await createVault()
         await writeTestNote(vault, "board.md", KANBAN_BOARD)
 
@@ -2240,9 +2260,9 @@ kanban-plugin: board
 - [ ] Second task ➕ 2026-07-02
 
 ## Up Next
-- [ ] New card ➕ ${today()} ^new-card
 
 - [ ] Planned task ⏫ ➕ 2026-07-03 ^planned-task
+- [ ] New card ➕ ${today()} ^new-card
 
 ## Done
 

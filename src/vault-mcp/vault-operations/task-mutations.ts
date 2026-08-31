@@ -298,7 +298,7 @@ const resolveCreatePosition = ({
   if (explicitPosition) return explicitPosition
   if (isKanbanBoard) {
     const kanbanMethod = tasks.parseKanbanCardInsertionMethod(bodyLines)
-    return kanbanMethod === "append" ? "bottom" : "top"
+    if (kanbanMethod === "prepend") return "top"
   }
   return "bottom"
 }

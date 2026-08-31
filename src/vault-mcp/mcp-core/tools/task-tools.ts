@@ -257,7 +257,7 @@ Parameters:
 - block_id (required): the ^block-id for stable identification — letters, digits, and hyphens only. Must be unique within the note.
 - heading: target heading. Required on Kanban boards (notes with kanban-plugin frontmatter); optional on regular notes (omit to append at end of body).
 - parent_block_id / parent_line: the existing task to nest under as a sub-task, identified by its ^block-id or its 1-based line number — the same pair vault_update_task uses (block_id / line). Pass at most one. Either is mutually exclusive with heading — a sub-task lives wherever its parent lives.
-- position: "top" or "bottom" — where within the heading section the task is placed. Defaults: Kanban boards use the board's new-card-insertion-method setting ("prepend" = top if absent, matching the plugin), non-Kanban notes default to "bottom" (append). An explicit value overrides both defaults. Ignored when no heading or when placing under a parent.
+- position: "top" or "bottom" — where within the heading section the task is placed. Defaults: Kanban boards use the board's new-card-insertion-method setting (bottom if absent, matching the plugin), non-Kanban notes default to "bottom" (append). An explicit value overrides both defaults. Ignored when no heading or when placing under a parent.
 - priority: "highest" | "high" | "medium" | "low" | "lowest". Omit for normal priority (the plugin ranks "no signifier" between medium and low).
 - due / scheduled / start: YYYY-MM-DD dates (calendar-validated). Omit a date rather than guessing — an absent 📅 means "no deadline".
 - task_id: Tasks plugin 🆔 identifier for dependency chains.
@@ -324,7 +324,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
           .enum(["top", "bottom"])
           .optional()
           .describe(
-            "Where within the heading section the task is placed. Kanban boards default to the board's new-card-insertion-method setting (top when absent); non-Kanban notes default to bottom. Ignored when no heading or when placing under a parent.",
+            "Where within the heading section the task is placed. Kanban boards default to the board's new-card-insertion-method setting (bottom when absent, matching the plugin); non-Kanban notes default to bottom. Ignored when no heading or when placing under a parent.",
           ),
         priority: z
           .enum(["highest", "high", "medium", "low", "lowest"])
