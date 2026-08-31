@@ -1,7 +1,11 @@
 [extend]
 useDefault = true
 
-[allowlist]
+[[allowlists]]
 description = "Documented placeholder used in local-dev quickstarts (README, CONTRIBUTING, docker-compose.local.yml). Not a real credential."
 regexTarget = "match"
 regexes = ['''local-dev-token''']
+
+[[allowlists]]
+description = "Test fixture label in oauth-provider.test.ts flagged by generic-api-key on the accessToken keyword. Not a real credential."
+commits = ["fa6e3a53245494dbfbfd78d215fb4406ec98f4da"]
