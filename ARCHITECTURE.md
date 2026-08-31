@@ -530,10 +530,10 @@ guarantees that hold in any deployment. The
 
 Two authentication methods, both validated at two layers:
 
-| Method                                | Used by                                                  | Token format                | Lifetime                                    |
-| ------------------------------------- | -------------------------------------------------------- | --------------------------- | ------------------------------------------- |
-| OAuth 2.1 (Authorization Code + PKCE) | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256)                 | 24h access, 60-day sliding refresh (SQLite) |
-| Static bearer token                   | Claude Code, MCP Inspector, curl                         | Raw string (MCP_AUTH_TOKEN) | No expiry                                   |
+| Method                                | Used by                                                  | Token format                | Lifetime                                   |
+| ------------------------------------- | -------------------------------------------------------- | --------------------------- | ------------------------------------------ |
+| OAuth 2.1 (Authorization Code + PKCE) | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256)                 | 6h access, 60-day sliding refresh (SQLite) |
+| Static bearer token                   | Claude Code, MCP Inspector, curl                         | Raw string (MCP_AUTH_TOKEN) | No expiry                                  |
 
 **Layer 1 — API Gateway Lambda authorizer** (`src/functions/authorizer.ts`):
 Attached to protected routes only. OAuth discovery paths (`/.well-known/*`,
@@ -626,15 +626,36 @@ sequenceDiagram
     E->>E: requireBearerAuth (verify JWT again)
     E-->>C: MCP response
 
-    Note over C,E: Silent Token Refresh (24h cycle)
+    Note over C,E: Silent Token Refresh (6h cycle)
     C->>E: POST /token (refresh_token)
     E->>DB: Consume old, store new refresh token
     E-->>C: {access_token: new JWT, refresh_token: new}
 ```
 
-**JWT payload:** `{ sub: clientId, scope: "vault", exp: <unix>, iss: "vault-cortex" }`
+**JWT payload:** `{ sub: clientId, scope: "vault", exp: <unix>, iss, aud }`
 Signed with HMAC-SHA256 using `MCP_AUTH_TOKEN` as the key. Both the Lambda
-authorizer and Express can verify independently — no shared state needed.
+authorizer and Express verify independently — no shared state needed. The
+binding claims ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
+
+- `iss` — the normalized `PUBLIC_URL` (a bare origin gains a trailing slash).
+- `aud` — the MCP endpoint's canonical URI: the origin of `PUBLIC_URL` plus
+  `/mcp`. A path prefix on `PUBLIC_URL` is not part of the audience.
+- Each verifier checks both claims against its own copy of `PUBLIC_URL` — the
+  Lambda reads its function environment, Express the instance `.env` — so a
+  token minted by another deployment is rejected even when the two share a
+  secret.
+- The Lambda passes a token that carries no `aud` at all — the shape minted
+  by releases before binding — so that Express can reject it with a 401, the
+  status MCP clients refresh on; a Lambda deny is a fixed 403 that strands
+  them. Only tokens minted before an upgrade have this shape, so the path
+  goes quiet within one access-token TTL. A token that names any other
+  audience is denied at the Lambda.
+- A client's `resource` parameter, when sent, must name one of the two
+  identifiers the server's discovery documents advertise — the MCP endpoint
+  or the server URL itself — compared in canonical form, so a trailing slash
+  is fine. A mismatch is answered with `invalid_target` before any code or
+  refresh token is consumed; clients that send no `resource` are accepted.
+
 `vault` is the server's only scope: a client that requests it gets it, and a
 client that requests no scope is granted it at authorization time, so the
 consent page, the access token, and every refresh carry the same value as the
@@ -732,7 +753,7 @@ then redeploy both
 OAuth session:
 
 - existing access JWTs, signed with the old key, fail verification
-  immediately (without a rotation they live for 24 hours);
+  immediately (without a rotation they live for 6 hours);
 - every stored refresh token becomes unreachable, because rows are keyed
   under the old token;
 - each client goes back through the consent page on its next request.

@@ -225,7 +225,7 @@ downtime.
 
 ## Auth implications after any restore
 
-- **Existing JWTs (24h)** keep working until expiry — `/mcp` validation
+- **Existing JWTs (6h)** keep working until expiry — `/mcp` validation
   is stateless HMAC signature checking. Clients hold these silently.
 - **Refresh tokens** are in `oauth.db` on the restored disk. What happens
   next depends on the snapshot:
@@ -233,7 +233,7 @@ downtime.
     carry over and clients silently get new JWTs on their next refresh.
   - Snapshot from before refresh tokens were stored under their HMAC key:
     the first boot clears the raw rows and each client re-auths once — when
-    its access JWT expires, within 24 hours.
+    its access JWT expires, within 6 hours.
   - Fresh instance with no snapshot to restore (Scenario C): `oauth.db`
     starts empty, so every client re-auths via the consent page on its next
     token refresh — minor inconvenience, no data loss.

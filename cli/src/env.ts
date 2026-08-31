@@ -31,7 +31,7 @@ const LOCAL_OPTIONAL_BLOCK = `# Optional ─────────────
 # "npx vault-cortex@latest restart" (plain docker restart does not
 # re-read this file).
 
-# Public URL for OAuth issuer URL in discovery metadata (default: http://localhost:8000).
+# Public URL for OAuth issuer and access-token binding (default: http://localhost:8000).
 # Override if you expose the server on a different URL (e.g. via a reverse proxy).
 PUBLIC_URL=http://localhost:8000
 
@@ -367,7 +367,8 @@ VAULT_PASSWORD=${answers.vaultPassword}`
 MCP_AUTH_TOKEN=${answers.mcpAuthToken}
 
 # Public URL that MCP clients use to reach this server.
-# Used as the OAuth issuer URL in discovery metadata.
+# Used as the OAuth issuer URL in discovery metadata and stamped on every
+# access token; changing it invalidates connected clients' tokens.
 PUBLIC_URL=${answers.publicUrl}
 
 ${obsidianTokenComment}

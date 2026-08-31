@@ -17,6 +17,7 @@ import type { VaultConfig } from "./config.js"
 import { logger } from "../logger.js"
 import { extractClientIp, headerAsString } from "../auth.js"
 import { describeError } from "../utils/describe-error.js"
+import { urlHasCredentials } from "../utils/url-has-credentials.js"
 import env from "env-var"
 
 /** Error middleware — logs the failure with request context, answers 500.
@@ -84,6 +85,12 @@ const startServer = async (): Promise<void> => {
   const authToken = env.get("MCP_AUTH_TOKEN").required().asString().trim()
   const vaultPath = env.get("VAULT_PATH").required().asString()
   const publicUrl = env.get("PUBLIC_URL").required().asString()
+  const serverUrl = new URL(publicUrl)
+  // Credentials in the URL would be minted into every token's `iss`
+  // claim and served by the discovery documents — refuse to start.
+  if (urlHasCredentials(serverUrl)) {
+    throw new Error("PUBLIC_URL must not contain credentials (user:password@)")
+  }
 
   const indexDbPath = env.get("INDEX_DB_PATH").asString()
   const dataDir = indexDbPath ? indexDbPath.replace(/\/[^/]+$/, "") : "/data"
@@ -123,10 +130,10 @@ const startServer = async (): Promise<void> => {
     usePolling: config.windowsBindMount,
   })
 
-  const serverUrl = new URL(publicUrl)
   const oauthProvider = createOAuthProvider({
     authToken,
     dbPath: oauthDbPath,
+    serverUrl,
     logger,
   })
 
