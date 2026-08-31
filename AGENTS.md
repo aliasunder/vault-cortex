@@ -130,6 +130,7 @@ src/
       test-harness.ts                  #   Server lifecycle (spawn, healthz poll, cleanup) + client factory
       server-integration.test.ts       #   Every tool + prompt exercised per config (default, READONLY, DISABLED_TOOLS, etc.)
       server-error-contracts.test.ts   #   Documented error paths verified over real HTTP
+      server-oauth-integration.test.ts #   OAuth flows: token rotation, client sweep, reuse detection, scope widening
       fixtures/vault/                  #   Fixture vault copied to tempdir per server boot
     docker/                            # Remote image boot tests (npm run test:remote-boot; excluded from npm test)
       docker-harness.ts                #   docker run/exec/logs/healthz helpers + MCP client factory
@@ -1028,6 +1029,8 @@ test.
   server per config combo).
 - `server-error-contracts.test.ts` — error paths, default config only
   (errors are config-independent).
+- `server-oauth-integration.test.ts` — OAuth flows: token rotation,
+  client sweep, reuse detection, scope widening.
 - `test-harness.ts` — shared server lifecycle + client factory.
 - `fixtures/vault/` — committed fixture vault; a PR that adds a tool
   also adds fixture data and a test case.
