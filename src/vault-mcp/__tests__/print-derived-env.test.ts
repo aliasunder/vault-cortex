@@ -105,6 +105,35 @@ describe("print-derived-env — storage layout", () => {
     },
   )
 
+  it.each(["/persist*", "/per?sist", "/persist[1]"])(
+    "rejects STORAGE_ROOT=%s containing a glob character",
+    (storageRoot) => {
+      const run = runPrinter({ STORAGE_ROOT: storageRoot })
+
+      expect(run.status).toBe(1)
+      expect(run.stdout).toBe("")
+      expect(run.stderr).toBe(
+        `[vault-cortex] ERROR: STORAGE_ROOT must not contain glob characters (*, ?, [) — they break the container's find-path safety guards. Got '${storageRoot}'.\n`,
+      )
+    },
+  )
+
+  it.each(["/my*vault", "/vault?", "/vault[0]"])(
+    "rejects VAULT_PATH=%s containing a glob character",
+    (vaultPath) => {
+      const run = runPrinter({
+        VAULT_PATH: vaultPath,
+        INDEX_DB_PATH: "/data/index.db",
+      })
+
+      expect(run.status).toBe(1)
+      expect(run.stdout).toBe("")
+      expect(run.stderr).toBe(
+        `[vault-cortex] ERROR: VAULT_PATH must not contain glob characters (*, ?, [) — they break the container's find-path safety guards. Got '${vaultPath}'.\n`,
+      )
+    },
+  )
+
   it("keeps an explicit VAULT_PATH when STORAGE_ROOT is set", () => {
     const run = runPrinter({
       STORAGE_ROOT: "/persist",

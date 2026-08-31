@@ -47,10 +47,10 @@ cp .env.example .env
 
 **3. Fill in the two required values:**
 
-| Variable         | Value                                                             |
-| ---------------- | ----------------------------------------------------------------- |
-| `MCP_AUTH_TOKEN` | Generate with `openssl rand -hex 32`                              |
-| `VAULT_PATH`     | Absolute path to your vault (e.g. `/Users/you/Documents/MyVault`) |
+| Variable         | Value                                                                                                 |
+| ---------------- | ----------------------------------------------------------------------------------------------------- |
+| `MCP_AUTH_TOKEN` | Generate with `openssl rand -hex 32`                                                                  |
+| `VAULT_PATH`     | Absolute path to your vault (e.g. `/Users/you/Documents/MyVault`). Must not contain `*`, `?`, or `[`. |
 
 **4. Start the server:**
 
