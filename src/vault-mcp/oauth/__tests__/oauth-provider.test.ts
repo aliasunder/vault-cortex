@@ -1783,6 +1783,39 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     )
   })
 
+  it("purges revoked_clients rows older than the access-token lifetime at boot", async () => {
+    const { db, dbPath } = await createKeyedStorageTest()
+    db.prepare(
+      "INSERT INTO revoked_clients (client_id, revoked_at) VALUES (?, ?)",
+    ).run("old-client", DateTime.now().minus({ hours: 7 }).toUnixInteger())
+    db.prepare(
+      "INSERT INTO revoked_clients (client_id, revoked_at) VALUES (?, ?)",
+    ).run("recent-client", DateTime.now().minus({ hours: 5 }).toUnixInteger())
+    const logs: LogCall[] = []
+
+    createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger: recordingLogger(logs),
+    })
+
+    expect(storedRevokedClients(db)).toEqual([
+      {
+        client_id: "recent-client",
+        revoked_at: expect.any(Number),
+      },
+    ])
+    const purge = logs.find(
+      (log) => log.message === "oauth_revoked_clients_purged",
+    )
+    expect(purge).toEqual({
+      level: "info",
+      message: "oauth_revoked_clients_purged",
+      data: { component: "oauth", purgedClientCount: 1, maxAgeSeconds: 21_600 },
+    })
+  })
+
   it("revoking an access token records it in revoked_tokens and rejects it afterwards", async () => {
     const { oauth, db, client } = await createKeyedStorageTest()
     const { access_token: accessToken } = await issueTokens(oauth, client)

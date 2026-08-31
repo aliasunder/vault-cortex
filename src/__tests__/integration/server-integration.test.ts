@@ -1632,6 +1632,8 @@ describe("rotating MCP_AUTH_TOKEN", () => {
       refreshToken: originalRefresh,
     })
     expect(rotated.status).toBe(200)
+    const rotatedTokens: unknown = await rotated.json()
+    if (!isIssuedTokens(rotatedTokens)) throw new Error("malformed refresh")
 
     // Replay the original (consumed) — triggers reuse detection (3rd call)
     const replay = await refresh({
@@ -1645,7 +1647,16 @@ describe("rotating MCP_AUTH_TOKEN", () => {
       error_description: "Refresh token expired or invalid",
     })
 
-    // Re-consent produces a working grant (4th call)
+    // The rotated refresh token is also dead — the whole grant was
+    // revoked, not just the replayed token.
+    const rotatedRefresh = await refresh({
+      port,
+      client,
+      refreshToken: rotatedTokens.refresh_token,
+    })
+    expect(rotatedRefresh.status).toBe(400)
+
+    // Re-consent produces a working grant (5th call)
     const reissued = await authorize({ port, client, authToken: TOKEN_A })
     expect(await mcpStatusWithBearer(port, reissued.access_token)).toBe(200)
   }, 60_000)

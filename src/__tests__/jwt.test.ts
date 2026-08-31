@@ -229,6 +229,21 @@ describe("verifyJwt", () => {
     expect(decoded?.iat).toBe(iat)
   })
 
+  it("returns null for a token with a non-number iat", () => {
+    const token = signClaims(
+      {
+        sub: "test-client",
+        scope: "vault",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: ISSUER,
+        aud: AUDIENCE,
+        iat: "not-a-number",
+      },
+      SECRET,
+    )
+    expect(verify(token, SECRET)).toBeNull()
+  })
+
   it("returns null for a signature of correct length but wrong bytes", () => {
     const token = signJwt(buildPayload(), SECRET)
     const [header, body, sig] = token.split(".") as [string, string, string]
