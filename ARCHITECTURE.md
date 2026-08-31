@@ -881,7 +881,9 @@ update/delete writes.
 Hosted container platforms (Railway, Render)
 allow one persistent volume per service, while the image's default
 layout spans three mounts. Setting `STORAGE_ROOT=<dir>` makes
-`init-derive-env` place everything under that one directory:
+`init-derive-env` place everything under that one directory
+(`STORAGE_ROOT` and `VAULT_PATH` must not contain `*`, `?`, or `[` —
+rejected at startup because `find -path` treats them as wildcards):
 
 - `$STORAGE_ROOT/vault` → `VAULT_PATH`
 - `$STORAGE_ROOT/data/index.db` → `INDEX_DB_PATH` (OAuth state lives beside it)
