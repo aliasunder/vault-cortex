@@ -75,7 +75,7 @@ const registerClient = async (port: number): Promise<RegisteredClient> => {
       token_endpoint_auth_method: "none",
     }),
   })
-  expect(response.status).toBe(201)
+  if (response.status !== 201) throw new Error(`register: ${response.status}`)
   const registered: unknown = await response.json()
   if (!isRegisteredClient(registered)) throw new Error("malformed client")
   return registered
@@ -134,7 +134,9 @@ const authorize = async ({
       redirect_uri: REDIRECT_URI,
     }),
   })
-  expect(tokenResponse.status).toBe(200)
+  if (tokenResponse.status !== 200) {
+    throw new Error(`token exchange: ${tokenResponse.status}`)
+  }
   const issued: unknown = await tokenResponse.json()
   if (!isIssuedTokens(issued)) throw new Error("malformed token response")
   return issued
