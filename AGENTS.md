@@ -535,7 +535,7 @@ undefined) return`) or schema validation to narrow types instead.
   callback param with a closed set of instantiations becomes a
   discriminated field naming the domain choice. Keep `x is T` guard
   bodies simple — predicates are compiler-trusted, not verified. A
-  short `&&` chain is fine; when checks need negated `in` or `||`
+  short `&&` chain is fine; when checks need a negated `in` or `||`
   branches, early returns read clearer.
 - Prefer `async/await` over `.then()`/`.catch()`. When `.then()` or
   `.finally()` is the natural idiom (e.g. promise-chain serialization
