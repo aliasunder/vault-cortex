@@ -248,6 +248,7 @@ Example: vault_create_task({ path: "TASKS.md", description: "Fix login bug", blo
 Example: vault_create_task({ path: "TASKS.md", description: "Ship the feature", block_id: "ship-feature", heading: "Up Next", subtasks: ["Design", "Implement", "Test"] }) — card with checklist stages
 Example: vault_create_task({ path: "TASKS.md", description: "Sub-bug", block_id: "sub-bug", parent_block_id: "fix-login", due: "2026-09-01" }) — full sub-task under a parent identified by block_id
 Example: vault_create_task({ path: "TASKS.md", description: "Quick fix", block_id: "quick-fix", parent_line: 42 }) — sub-task under a parent identified by line number
+Example: vault_create_task({ path: "TASKS.md", description: "Urgent fix", block_id: "urgent-fix", heading: "Active", position: "top" }) — insert at the top of a lane instead of the default bottom
 
 When to use: Creating a new task card on a board or in a note. Guarantees correct field ordering (description → priority → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id)${whenToolEnabledText("vault_list_tasks", " so the card round-trips through vault_list_tasks with all fields intact")}.${whenToolEnabledText("vault_update_task", " For lightweight checklist items under an existing card (no metadata), use vault_update_task's add_subtasks param instead.")}
 
@@ -257,7 +258,7 @@ Parameters:
 - block_id (required): the ^block-id for stable identification — letters, digits, and hyphens only. Must be unique within the note.
 - heading: target heading. Required on Kanban boards (notes with kanban-plugin frontmatter); optional on regular notes (omit to append at end of body).
 - parent_block_id / parent_line: the existing task to nest under as a sub-task, identified by its ^block-id or its 1-based line number — the same pair vault_update_task uses (block_id / line). Pass at most one. Either is mutually exclusive with heading — a sub-task lives wherever its parent lives.
-- position: "top" or "bottom" — where within the heading section the task is placed. Defaults: Kanban boards use the board's new-card-insertion-method setting (bottom if absent, matching the plugin), non-Kanban notes default to "bottom" (append). An explicit value overrides both defaults. Ignored when no heading or when placing under a parent.
+- position: "top" or "bottom" — where within the heading section the task is placed. Defaults to "bottom" (append). On Kanban boards, reads the board's new-card-insertion-method setting when present ("prepend" overrides to top). Ignored when no heading or when placing under a parent.
 - priority: "highest" | "high" | "medium" | "low" | "lowest". Omit for normal priority (the plugin ranks "no signifier" between medium and low).
 - due / scheduled / start: YYYY-MM-DD dates (calendar-validated). Omit a date rather than guessing — an absent 📅 means "no deadline".
 - task_id: Tasks plugin 🆔 identifier for dependency chains.
@@ -324,7 +325,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
           .enum(["top", "bottom"])
           .optional()
           .describe(
-            "Where within the heading section the task is placed. Kanban boards default to the board's new-card-insertion-method setting (bottom when absent, matching the plugin); non-Kanban notes default to bottom. Ignored when no heading or when placing under a parent.",
+            "Where within the heading section the task is placed. Defaults to bottom. On Kanban boards, reads the board's new-card-insertion-method setting when present (prepend overrides to top). Ignored when no heading or when placing under a parent.",
           ),
         priority: z
           .enum(["highest", "high", "medium", "low", "lowest"])
@@ -469,7 +470,8 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
       description: `Update a task's status, priority, description, dates, dependencies, block_id, checklist items, or heading placement in one call. Any combination of these can change together — every field passed is written in a single edit.
 
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "done" }) — complete a task; on a Kanban board, auto-moves to the done lane
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Done" }) — move a task to a different heading
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Done" }) — move a task to a different heading (lands at the top of the lane by default)
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Done", position: "bottom" }) — move to the bottom of the lane
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", description: "Updated task name", due: "2026-10-01" }) — change description and set due date
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", due: null }) — clear a date field
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "in_progress", add_subtasks: ["Design", "Implement", "Test"] }) — start working and add checklist stages
