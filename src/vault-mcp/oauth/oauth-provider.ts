@@ -466,32 +466,8 @@ export const createOAuthProvider = ({
     },
   )
 
-  /** Reverses a consume: removes the consumed record and re-inserts the
-   *  live row so the client can retry without triggering reuse detection. */
-  const unconsumeRefreshToken = db.transaction(
-    ({
-      storageKey,
-      clientId,
-      scopes,
-      expiresAt,
-    }: {
-      storageKey: string
-      clientId: string
-      scopes: string
-      expiresAt: number
-    }): void => {
-      deleteConsumedRefreshTokenStmt.run(storageKey)
-      insertRefreshTokenStmt.run(storageKey, clientId, scopes, expiresAt)
-    },
-  )
-
   type ConsumeRefreshTokenResult =
-    | {
-        status: "consumed"
-        scopes: string[]
-        storageKey: string
-        expiresAt: number
-      }
+    | { status: "consumed"; scopes: string[]; storageKey: string }
     | { status: "reuse"; ownerClientId: string }
     | { status: "not_found" }
 
@@ -530,7 +506,6 @@ export const createOAuthProvider = ({
         status: "consumed",
         scopes: row.scopes.split(" "),
         storageKey,
-        expiresAt: row.expires_at,
       }
     }
 
@@ -704,14 +679,9 @@ export const createOAuthProvider = ({
         (scope) => !stored.scopes.includes(scope),
       )
       if (requestedScopeWidens) {
-        // Undo the consume so the client can retry with a valid scope
-        // without triggering reuse detection.
-        unconsumeRefreshToken({
-          storageKey: stored.storageKey,
-          clientId,
-          scopes: stored.scopes.join(" "),
-          expiresAt: stored.expiresAt,
-        })
+        // A widening request burns the token (misbehaving client). Delete
+        // the consumed record so a retry is a plain miss, not a reuse signal.
+        deleteConsumedRefreshTokenStmt.run(stored.storageKey)
         oauthLogger.warn("oauth_token_refresh_failed", {
           reason: "scope_exceeds_grant",
           clientId,
