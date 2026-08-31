@@ -404,10 +404,10 @@ describe("default config", () => {
       })
       expect(createResult.isError).not.toBe(true)
       const createJson = JSON.parse(textContent(createResult))
-      // Inserted at the top of the Tasks section: line 18 of the fixture
+      // Non-Kanban note: default position is bottom of the Tasks section
       expect(createJson).toEqual({
         path: "Projects/alpha.md",
-        line: 18,
+        line: 22,
         description: "Integration test task",
         block_id: "integ-test-task",
         heading: "Tasks",
@@ -487,11 +487,11 @@ describe("default config", () => {
       })
       expect(result.isError).not.toBe(true)
       const json = JSON.parse(textContent(result))
-      // Line 22, not the fixture's 21: the vault_create_task case above
-      // inserted a card at the top of the same Tasks section.
+      // Line 21: the vault_create_task case above appended to the bottom
+      // of the Tasks section, so this task's line is unchanged.
       expect(json).toEqual({
         path: "Projects/alpha.md",
-        line: 22,
+        line: 21,
         description: "Renamed second task",
         block_id: "alpha-task-2",
         heading: "Tasks",

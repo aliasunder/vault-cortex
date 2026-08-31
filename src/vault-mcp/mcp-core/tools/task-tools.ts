@@ -257,6 +257,7 @@ Parameters:
 - block_id (required): the ^block-id for stable identification — letters, digits, and hyphens only. Must be unique within the note.
 - heading: target heading. Required on Kanban boards (notes with kanban-plugin frontmatter); optional on regular notes (omit to append at end of body).
 - parent_block_id / parent_line: the existing task to nest under as a sub-task, identified by its ^block-id or its 1-based line number — the same pair vault_update_task uses (block_id / line). Pass at most one. Either is mutually exclusive with heading — a sub-task lives wherever its parent lives.
+- position: "top" or "bottom" — where within the heading section the task is placed. Defaults: Kanban boards use the board's new-card-insertion-method setting ("prepend" = top if absent, matching the plugin), non-Kanban notes default to "bottom" (append). An explicit value overrides both defaults. Ignored when no heading or when placing under a parent.
 - priority: "highest" | "high" | "medium" | "low" | "lowest". Omit for normal priority (the plugin ranks "no signifier" between medium and low).
 - due / scheduled / start: YYYY-MM-DD dates (calendar-validated). Omit a date rather than guessing — an absent 📅 means "no deadline".
 - task_id: Tasks plugin 🆔 identifier for dependency chains.
@@ -318,6 +319,12 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
           .optional()
           .describe(
             "1-based line number of an existing task to nest under as a sub-task. Mutually exclusive with parent_block_id and heading. Fragile if the file changed since the line was read.",
+          ),
+        position: z
+          .enum(["top", "bottom"])
+          .optional()
+          .describe(
+            "Where within the heading section the task is placed. Kanban boards default to the board's new-card-insertion-method setting (top when absent); non-Kanban notes default to bottom. Ignored when no heading or when placing under a parent.",
           ),
         priority: z
           .enum(["highest", "high", "medium", "low", "lowest"])
@@ -383,6 +390,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
         heading,
         parent_block_id,
         parent_line,
+        position,
         priority,
         due,
         scheduled,
@@ -404,6 +412,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
         heading,
         parentBlockId: parent_block_id,
         parentLine: parent_line,
+        position,
         priority,
         due,
         scheduled,
@@ -425,6 +434,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
               heading,
               parentBlockId: parent_block_id,
               parentLine: parent_line,
+              position,
               priority,
               due,
               scheduled,
@@ -481,6 +491,7 @@ Parameters:
   - add_subtasks: non-empty string array — appends one indented [ ] checklist item per entry under the task; existing checklist items are kept.${whenToolEnabledText("vault_create_task", " For full sub-tasks with their own metadata, use vault_create_task with parent_block_id.")}
   - assign_block_id: adds or replaces the ^block-id on the task line. Letters, digits, and hyphens only; must be unique within the note.
   - heading: target heading to move the task to. On Kanban boards this is a lane move; works on any note with headings. Not valid on sub-tasks.
+  - position: "top" or "bottom" — where within the target heading the task lands after a heading move or auto-done-lane move. Defaults to "top" (first position in the lane). Ignored when no heading move occurs.
   - Clearing is always explicit null — omitting a field leaves it untouched.
 - format: "emoji" or "dataview" — overrides the auto-detected Tasks plugin format.
 
@@ -603,6 +614,12 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
           .describe(
             "Target heading to move the task to. On Kanban boards this is a lane move; works on any note with headings. Not valid on sub-tasks.",
           ),
+        position: z
+          .enum(["top", "bottom"])
+          .optional()
+          .describe(
+            'Where within the target heading the task lands after a heading move or auto-done-lane move. Defaults to "top". Ignored when no heading move occurs.',
+          ),
         format: z
           .enum(["emoji", "dataview"])
           .optional()
@@ -628,6 +645,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
         add_subtasks,
         assign_block_id,
         heading,
+        position,
         format,
       },
       extra,
@@ -651,6 +669,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
         subtaskCount: add_subtasks?.length,
         assignBlockId: assign_block_id,
         heading,
+        position,
         format,
       })
       return safeHandler(
@@ -674,6 +693,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
               addSubtasks: add_subtasks,
               assignBlockId: assign_block_id,
               heading,
+              position,
               format,
             },
             reqLogger,

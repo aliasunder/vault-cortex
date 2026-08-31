@@ -33,6 +33,7 @@ type CreateTaskParams = {
   heading?: string | undefined
   parentBlockId?: string | undefined
   parentLine?: number | undefined
+  position?: "top" | "bottom" | undefined
   priority?: TaskPriority | undefined
   due?: string | undefined
   scheduled?: string | undefined
@@ -68,6 +69,7 @@ type UpdateTaskParams = {
   status?: TaskStatus | undefined
   priority?: TaskPriority | null | undefined
   heading?: string | undefined
+  position?: "top" | "bottom" | undefined
   description?: string | undefined
   due?: string | null | undefined
   scheduled?: string | null | undefined
@@ -231,11 +233,9 @@ const subtaskIndentUnder = ({
   return firstChildPrefix ?? `${parentPrefix}  `
 }
 
-/** Body index where a task inserted under a heading goes: the heading's
- *  body start, or just past a `**Complete**` marker when the lane has one —
- *  the marker sits between the heading and the first list item, and a task
- *  inserted above it would break done-lane detection on later reads. Blank
- *  lines are skipped first, mirroring extractDoneLanes' scan. */
+/** Top-of-section insertion index: the heading's body start, or just past
+ *  a `**Complete**` marker — inserting above the marker would break
+ *  done-lane detection on later reads. */
 const taskInsertIndexUnderHeading = ({
   lines,
   heading,
@@ -253,6 +253,56 @@ const taskInsertIndexUnderHeading = ({
     : heading.bodyStartLine
 }
 
+/** Bottom-of-section insertion index: after the last non-blank line in
+ *  the section body, so the task appends to the existing content without
+ *  trailing blank-line gaps. Falls back to bodyStartLine for empty sections. */
+const taskAppendIndexUnderHeading = ({
+  lines,
+  heading,
+}: {
+  lines: readonly string[]
+  heading: HeadingInfo
+}): number => {
+  const sectionLines = lines.slice(heading.bodyStartLine, heading.bodyEndLine)
+  const lastContentOffset = sectionLines.findLastIndex(
+    (line) => line.trim() !== "",
+  )
+  if (lastContentOffset === -1) return heading.bodyStartLine
+  return heading.bodyStartLine + lastContentOffset + 1
+}
+
+const headingInsertIndex = ({
+  lines,
+  heading,
+  position,
+}: {
+  lines: readonly string[]
+  heading: HeadingInfo
+  position: "top" | "bottom"
+}): number =>
+  position === "top"
+    ? taskInsertIndexUnderHeading({ lines, heading })
+    : taskAppendIndexUnderHeading({ lines, heading })
+
+/** Resolves the effective insertion position for a new task under a heading.
+ *  Priority: explicit param > Kanban setting > context default. */
+const resolveCreatePosition = ({
+  explicitPosition,
+  isKanbanBoard,
+  bodyLines,
+}: {
+  explicitPosition: "top" | "bottom" | undefined
+  isKanbanBoard: boolean
+  bodyLines: readonly string[]
+}): "top" | "bottom" => {
+  if (explicitPosition) return explicitPosition
+  if (isKanbanBoard) {
+    const kanbanMethod = tasks.parseKanbanCardInsertionMethod(bodyLines)
+    return kanbanMethod === "append" ? "bottom" : "top"
+  }
+  return "bottom"
+}
+
 type NewTaskPlacement = {
   /** Body index the new task line is inserted at. */
   insertAt: number
@@ -263,7 +313,8 @@ type NewTaskPlacement = {
 }
 
 /** Where a created task goes: under its parent's block, under a named
- *  heading, or at the end of the body. Kanban boards require a heading. */
+ *  heading, or at the end of the body. Kanban boards require a heading.
+ *  Position is silently ignored for parent and no-heading cases. */
 const resolveNewTaskPlacement = ({
   bodyLines,
   bodyStartLine,
@@ -271,6 +322,7 @@ const resolveNewTaskPlacement = ({
   parentLocator,
   heading,
   isKanbanBoard,
+  position,
 }: {
   bodyLines: readonly string[]
   bodyStartLine: number
@@ -278,6 +330,7 @@ const resolveNewTaskPlacement = ({
   parentLocator: ParentLocator | undefined
   heading: string | undefined
   isKanbanBoard: boolean
+  position: "top" | "bottom" | undefined
 }): NewTaskPlacement => {
   if (parentLocator) {
     const parentLineIndex = findParentLineIndex({
@@ -306,10 +359,16 @@ const resolveNewTaskPlacement = ({
         `heading "${heading}" not found; available: ${availableHeadings}`,
       )
     }
+    const resolvedPosition = resolveCreatePosition({
+      explicitPosition: position,
+      isKanbanBoard,
+      bodyLines,
+    })
     return {
-      insertAt: taskInsertIndexUnderHeading({
+      insertAt: headingInsertIndex({
         lines: bodyLines,
         heading: targetHeading,
+        position: resolvedPosition,
       }),
       indent: "",
       heading,
@@ -385,11 +444,13 @@ const moveTaskBlock = ({
   taskLineIndex,
   targetLane,
   headings,
+  position = "top",
 }: {
   lines: readonly string[]
   taskLineIndex: number
   targetLane: string
   headings: readonly HeadingInfo[]
+  position?: "top" | "bottom"
 }): { lines: readonly string[]; taskLineIndex: number; change?: string } => {
   const targetHeading = headings.find((heading) => heading.text === targetLane)
   if (!targetHeading) {
@@ -419,9 +480,10 @@ const moveTaskBlock = ({
   if (!headingAfterRemoval) {
     throw new Error(`heading "${targetLane}" not found after line removal`)
   }
-  const insertAt = taskInsertIndexUnderHeading({
+  const insertAt = headingInsertIndex({
     lines: linesWithoutBlock,
     heading: headingAfterRemoval,
+    position,
   })
   return {
     lines: linesWithoutBlock.toSpliced(insertAt, 0, ...taskBlock),
@@ -614,6 +676,7 @@ const createTask = async (
     heading,
     parentBlockId,
     parentLine,
+    position,
     priority,
     due,
     scheduled,
@@ -713,6 +776,7 @@ const createTask = async (
       parentLocator,
       heading,
       isKanbanBoard,
+      position,
     })
 
     const taskLine = tasks.buildTaskLine(
@@ -805,6 +869,7 @@ const updateTask = async (
     status,
     priority,
     heading: targetHeadingParam,
+    position,
     format,
     description: newDescription,
     due,
@@ -1092,6 +1157,7 @@ const updateTask = async (
           taskLineIndex,
           targetLane,
           headings,
+          position: position ?? "top",
         })
       : { lines: linesWithEdits, taskLineIndex, change: undefined }
 

@@ -1245,6 +1245,55 @@ const extractDoneLanes = (
     .map((heading) => heading.text)
 }
 
+// ── Kanban settings parser ──────────────────────────────────────
+
+/** The two values the Kanban plugin recognizes for `new-card-insertion-method`. */
+type KanbanCardInsertionMethod = "prepend" | "append"
+
+/** Extracts `new-card-insertion-method` from the `%% kanban:settings %%`
+ *  comment block. Returns `undefined` when the block is absent, the JSON
+ *  is malformed, or the value is not a recognized insertion method. */
+const parseKanbanCardInsertionMethod = (
+  bodyLines: readonly string[],
+): KanbanCardInsertionMethod | undefined => {
+  const settingsLineIndex = bodyLines.findIndex((line) =>
+    line.trimStart().startsWith("%% kanban:settings"),
+  )
+  if (settingsLineIndex === -1) return undefined
+
+  // Collect lines between the code fence delimiters inside the comment block.
+  // The fence opener may carry a language tag (```json or bare ```).
+  const jsonLines: string[] = []
+  // `let`: parser state tracking whether the walk is inside a code fence
+  let insideFence = false
+  for (let i = settingsLineIndex + 1; i < bodyLines.length; i++) {
+    const line = bodyLines[i]
+    if (line === undefined) break
+    const trimmed = line.trim()
+    if (trimmed === "%%") break
+    if (!insideFence && /^`{3,}/.test(trimmed)) {
+      insideFence = true
+      continue
+    }
+    if (insideFence && /^`{3,}$/.test(trimmed)) break
+    if (insideFence) jsonLines.push(line)
+  }
+
+  if (jsonLines.length === 0) return undefined
+
+  try {
+    const parsed: unknown = JSON.parse(jsonLines.join("\n"))
+    if (typeof parsed !== "object" || parsed === null) return undefined
+    if (!("new-card-insertion-method" in parsed)) return undefined
+    const method = parsed["new-card-insertion-method"]
+    if (method === "prepend") return "prepend"
+    if (method === "append") return "append"
+    return undefined
+  } catch {
+    return undefined
+  }
+}
+
 // ── Public surface ──────────────────────────────────────────────
 
 export const tasks = {
@@ -1268,6 +1317,7 @@ export const tasks = {
   findTaskByBlockId,
   findBodyStartLine,
   extractDoneLanes,
+  parseKanbanCardInsertionMethod,
   BLOCK_LINK_RE,
 }
 

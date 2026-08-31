@@ -2058,4 +2058,85 @@ describe("task line mutations", () => {
       ])
     })
   })
+
+  // ── parseKanbanCardInsertionMethod ─────────────────────────────
+
+  describe("parseKanbanCardInsertionMethod", () => {
+    it("returns undefined when no kanban:settings block exists", () => {
+      const bodyLines = ["## Active", "", "- [ ] Task"]
+      expect(tasks.parseKanbanCardInsertionMethod(bodyLines)).toBeUndefined()
+    })
+
+    it("returns undefined when the key is absent from the settings JSON", () => {
+      const bodyLines = [
+        "## Active",
+        "",
+        "%% kanban:settings",
+        "```",
+        '{"kanban-plugin":"board"}',
+        "```",
+        "%%",
+      ]
+      expect(tasks.parseKanbanCardInsertionMethod(bodyLines)).toBeUndefined()
+    })
+
+    it('returns "prepend" when the setting is "prepend"', () => {
+      const bodyLines = [
+        "## Active",
+        "",
+        "%% kanban:settings",
+        "```",
+        '{"kanban-plugin":"board","new-card-insertion-method":"prepend"}',
+        "```",
+        "%%",
+      ]
+      expect(tasks.parseKanbanCardInsertionMethod(bodyLines)).toBe("prepend")
+    })
+
+    it('returns "append" when the setting is "append"', () => {
+      const bodyLines = [
+        "## Active",
+        "",
+        "%% kanban:settings",
+        "```",
+        '{"kanban-plugin":"board","new-card-insertion-method":"append"}',
+        "```",
+        "%%",
+      ]
+      expect(tasks.parseKanbanCardInsertionMethod(bodyLines)).toBe("append")
+    })
+
+    it("handles the ```json language tag on the code fence", () => {
+      const bodyLines = [
+        "%% kanban:settings",
+        "```json",
+        '{"new-card-insertion-method":"append"}',
+        "```",
+        "%%",
+      ]
+      expect(tasks.parseKanbanCardInsertionMethod(bodyLines)).toBe("append")
+    })
+
+    it("returns undefined for malformed JSON", () => {
+      const bodyLines = [
+        "%% kanban:settings",
+        "```",
+        "{not valid json",
+        "```",
+        "%%",
+      ]
+      expect(tasks.parseKanbanCardInsertionMethod(bodyLines)).toBeUndefined()
+    })
+
+    it("returns undefined for an unrecognized insertion method value", () => {
+      const bodyLines = [
+        "%% kanban:settings",
+        "```",
+        '{"new-card-insertion-method":"custom-value"}',
+        "```",
+        "%%",
+      ]
+      expect(tasks.parseKanbanCardInsertionMethod(bodyLines)).toBeUndefined()
+    })
+  })
 })
