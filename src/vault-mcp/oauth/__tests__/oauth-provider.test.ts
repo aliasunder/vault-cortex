@@ -1072,21 +1072,28 @@ describe("OAuth refresh token reuse revocation", () => {
     ])
   })
 
-  it("records the consumed key when a refresh token rotates", async () => {
+  it("records the consumed key with the parent row's expiry when a refresh token rotates", async () => {
     const { oauth, db, client } = await setupAuditTest()
     const originalRefreshToken = await issuedRefreshToken(oauth, client)
+    const parentRow = db
+      .prepare<[string], { expires_at: number }>(
+        "SELECT expires_at FROM refresh_tokens WHERE token = ?",
+      )
+      .get(refreshTokenKey(originalRefreshToken))
+    if (!parentRow) throw new Error("parent row not found")
 
     await exchangeRefreshToken(oauth, client, originalRefreshToken)
 
     const consumedRows = db
-      .prepare<[], { token: string; client_id: string }>(
-        "SELECT token, client_id FROM consumed_refresh_tokens",
+      .prepare<[], { token: string; client_id: string; expires_at: number }>(
+        "SELECT token, client_id, expires_at FROM consumed_refresh_tokens",
       )
       .all()
     expect(consumedRows).toEqual([
       {
         token: refreshTokenKey(originalRefreshToken),
         client_id: "test-client",
+        expires_at: parentRow.expires_at,
       },
     ])
   })
