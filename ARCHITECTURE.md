@@ -632,7 +632,7 @@ sequenceDiagram
     E-->>C: {access_token: new JWT, refresh_token: new}
 ```
 
-**JWT payload:** `{ sub: clientId, scope: "vault", exp: <unix>, iss, aud }`
+**JWT payload:** `{ sub: clientId, scope: "vault", iat: <unix>, exp: <unix>, iss, aud }`
 Signed with HMAC-SHA256 using `MCP_AUTH_TOKEN` as the key. Both the Lambda
 authorizer and Express verify independently — no shared state needed. The
 binding claims ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
