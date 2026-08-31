@@ -673,14 +673,16 @@ static token.
 - **Refresh grants** — a refresh token is honoured only for the client it was
   issued to, and a refresh may narrow the granted scope but never widen it.
   Each rotation records the consumed token; replaying it triggers reuse
-  detection, which revokes the entire grant (all refresh tokens + outstanding
-  access tokens for that client) and logs `oauth_refresh_token_reuse`. The
+  detection, which revokes the entire grant (all refresh tokens + access
+  tokens issued strictly before the cutoff) and logs
+  `oauth_refresh_token_reuse`. The
   client must re-consent to obtain a new grant. Consumed-token records are
   purged alongside their parent refresh token's expiry, so a stale replay
   after the window closes is a plain miss, not a repeated revocation.
 - **Auth codes** — in-memory, short-lived (10 minutes).
-- **Access tokens** — JWTs carrying an `iat` (issued-at) claim. Stateless
-  except during grant revocation: a per-client cutoff timestamp in SQLite
+- **Access tokens** — JWTs carrying an `iat` (issued-at) claim. Verification
+  is stateful for individually revoked tokens and grant revocation: a
+  per-client cutoff timestamp in SQLite
   rejects any token whose `iat` is strictly before the revocation time.
   Same-second tokens pass — the attacker's refresh tokens are already deleted,
   so they cannot mint new access tokens. Tokens without `iat` are treated as
