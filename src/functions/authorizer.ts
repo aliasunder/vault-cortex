@@ -29,6 +29,7 @@ import { Resource } from "sst"
 import env from "env-var"
 import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda"
 import { safeEqual, parseBearer, tokenBindingForServer } from "../auth.js"
+import { urlHasCredentials } from "../utils/url-has-credentials.js"
 import { verifyJwt, verifyUnboundJwt } from "../jwt.js"
 import { logger as rootLogger } from "../logger.js"
 
@@ -94,7 +95,7 @@ export const handler = async (
   // Credentials in the URL would become part of the expected `iss`
   // claim; the deploy validation rejects them, so a value carrying them
   // here is misconfiguration — deny rather than compare against it.
-  if (serverUrl.username || serverUrl.password) {
+  if (urlHasCredentials(serverUrl)) {
     logger.error("auth_failed: PUBLIC_URL contains credentials")
     return { isAuthorized: false }
   }

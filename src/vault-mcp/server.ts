@@ -17,6 +17,7 @@ import type { VaultConfig } from "./config.js"
 import { logger } from "../logger.js"
 import { extractClientIp, headerAsString } from "../auth.js"
 import { describeError } from "../utils/describe-error.js"
+import { urlHasCredentials } from "../utils/url-has-credentials.js"
 import env from "env-var"
 
 /** Error middleware — logs the failure with request context, answers 500.
@@ -87,7 +88,7 @@ const startServer = async (): Promise<void> => {
   const serverUrl = new URL(publicUrl)
   // Credentials in the URL would be minted into every token's `iss`
   // claim and served by the discovery documents — refuse to start.
-  if (serverUrl.username || serverUrl.password) {
+  if (urlHasCredentials(serverUrl)) {
     throw new Error("PUBLIC_URL must not contain credentials (user:password@)")
   }
 
