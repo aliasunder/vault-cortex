@@ -534,8 +534,9 @@ undefined) return`) or schema validation to narrow types instead.
   "present only in mode X" are the cue for a discriminated union; a
   callback param with a closed set of instantiations becomes a
   discriminated field naming the domain choice. Keep `x is T` guard
-  bodies to one boolean expression — predicates are compiler-trusted,
-  not verified.
+  bodies simple — predicates are compiler-trusted, not verified. A
+  short `&&` chain is fine; when checks need negated `in` or `||`
+  branches, early returns read clearer.
 - Prefer `async/await` over `.then()`/`.catch()`. When `.then()` or
   `.finally()` is the natural idiom (e.g. promise-chain serialization
   queues), use it with a comment explaining the pattern.
