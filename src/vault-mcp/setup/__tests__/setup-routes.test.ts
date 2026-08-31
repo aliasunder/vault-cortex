@@ -488,6 +488,41 @@ describe("POST /setup — two-factor round trip", () => {
     expect(existsSync(harness.tokenFilePath)).toBe(false)
   })
 
+  it("does not refresh the TTL on wrong-code retries", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const harness = await startHarness({ api: mfaApi() })
+    const firstId = REQUEST_ID_PATTERN.exec(
+      await (await harness.postForm(CREDENTIALS)).text(),
+    )?.[1]
+    if (!firstId) throw new Error("no request_id in the MFA page")
+
+    // Advance 4 minutes, then submit a wrong code — within the original TTL.
+    vi.setSystemTime(DateTime.now().plus({ minutes: 4 }).toJSDate())
+    const retryHtml = await (
+      await harness.postForm({ request_id: firstId, mfa: "000000" })
+    ).text()
+    const secondId = REQUEST_ID_PATTERN.exec(retryHtml)?.[1]
+    if (!secondId) throw new Error("no request_id in the retry page")
+
+    // Advance another 2 minutes (6 total) — past the original 5-min TTL,
+    // but within 5 minutes of the retry. Without the fix, the retry would
+    // have refreshed the expiry and the code would still work.
+    vi.setSystemTime(DateTime.now().plus({ minutes: 2 }).toJSDate())
+    const expiredHtml = await (
+      await harness.postForm({ request_id: secondId, mfa: "123456" })
+    ).text()
+
+    expect(expiredHtml).toContain(
+      '<div class="error">That sign-in expired — start again.</div>',
+    )
+    expect(
+      harness.apiRequests.filter((request) => request.path === "/user/signin"),
+    ).toHaveLength(2)
+  })
+
   it("expires a pending sign-in after five minutes", async () => {
     vi.useFakeTimers({ toFake: ["Date"] })
     onTestFinished(() => {

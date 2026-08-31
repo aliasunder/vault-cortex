@@ -81,20 +81,23 @@ export const createSetupRoutes = ({
   // dropped after the TTL — never rendered into the page.
   const pendingSignIns = new Map<string, PendingSignIn>()
 
-  const storePendingSignIn = (email: string, password: string): string => {
+  const storePendingSignIn = (
+    email: string,
+    password: string,
+    inheritedExpiresAt?: DateTime,
+  ): string => {
     const requestId = randomUUID()
-    pendingSignIns.set(requestId, {
-      email,
-      password,
-      expiresAt: DateTime.now().plus({ minutes: PENDING_SIGN_IN_TTL_MINUTES }),
-    })
-    // Drop the credentials at the TTL even when no further request arrives;
+    const expiresAt =
+      inheritedExpiresAt ??
+      DateTime.now().plus({ minutes: PENDING_SIGN_IN_TTL_MINUTES })
+    const remainingMs = expiresAt.diff(DateTime.now()).toMillis()
+    // The inherited expiry already passed — don't store credentials at all.
+    if (remainingMs <= 0) return requestId
+    pendingSignIns.set(requestId, { email, password, expiresAt })
+    // Drop the credentials at the expiry even when no further request arrives;
     // `expiresAt` stays the check for a code that comes in late. unref so an
     // abandoned sign-in cannot hold the process open.
-    setTimeout(
-      () => pendingSignIns.delete(requestId),
-      PENDING_SIGN_IN_TTL_MINUTES * 60 * 1000,
-    ).unref()
+    setTimeout(() => pendingSignIns.delete(requestId), remainingMs).unref()
     return requestId
   }
 
@@ -383,7 +386,11 @@ export const createSetupRoutes = ({
       // A wrong or missing code keeps the sign-in alive for another try;
       // anything else (a timeout, a rejected password) starts over.
       if (isMfaCodeError(error)) {
-        const requestId = storePendingSignIn(pending.email, pending.password)
+        const requestId = storePendingSignIn(
+          pending.email,
+          pending.password,
+          pending.expiresAt,
+        )
         res.type("html").send(
           renderSetupPage({
             kind: "mfa",
