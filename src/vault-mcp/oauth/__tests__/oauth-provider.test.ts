@@ -1857,7 +1857,7 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     ).rejects.toThrow("Requested scope exceeds the granted scope")
   })
 
-  it("consumes the refresh token even when scope validation rejects", async () => {
+  it("restores the refresh token when scope validation rejects so a retry succeeds", async () => {
     const { oauth, db, client } = await createKeyedStorageTest()
     const refreshToken = await issuedRefreshToken(oauth, client)
 
@@ -1868,10 +1868,28 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
       ]),
     ).rejects.toThrow("Requested scope exceeds the granted scope")
 
-    expect(storedRefreshTokenKeys(db)).toEqual([])
+    // The token is restored — retry with the granted scope succeeds
+    expect(storedRefreshTokenKeys(db)).toHaveLength(1)
+    const retried = await exchangeRefreshToken(oauth, client, refreshToken)
+    expect(retried.scope).toBe("vault")
+  })
+
+  it("does not trigger reuse detection on a scope-widening retry", async () => {
+    const { oauth, db, client } = await createKeyedStorageTest()
+    const refreshToken = await issuedRefreshToken(oauth, client)
+
     await expect(
-      exchangeRefreshToken(oauth, client, refreshToken),
-    ).rejects.toThrow("Refresh token expired or invalid")
+      oauth.provider.exchangeRefreshToken(client, refreshToken, [
+        "vault",
+        "admin",
+      ]),
+    ).rejects.toThrow("Requested scope exceeds the granted scope")
+
+    // Retry with correct scope — must not revoke the grant
+    const retried = await exchangeRefreshToken(oauth, client, refreshToken)
+    expect(retried.scope).toBe("vault")
+    expect(storedRefreshTokenKeys(db)).toHaveLength(1)
+    expect(storedRevokedClients(db)).toEqual([])
   })
 
   it("issues the stored scope when a refresh requests none", async () => {

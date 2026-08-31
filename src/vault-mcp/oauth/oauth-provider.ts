@@ -343,6 +343,9 @@ export const createOAuthProvider = ({
   const deleteExpiredConsumedTokensStmt = db.prepare<[number]>(
     "DELETE FROM consumed_refresh_tokens WHERE expires_at < ?",
   )
+  const deleteConsumedRefreshTokenStmt = db.prepare<[string]>(
+    "DELETE FROM consumed_refresh_tokens WHERE token = ?",
+  )
   const deleteClientRefreshTokensStmt = db.prepare<[string]>(
     "DELETE FROM refresh_tokens WHERE client_id = ?",
   )
@@ -463,8 +466,32 @@ export const createOAuthProvider = ({
     },
   )
 
+  /** Reverses a consume: removes the consumed record and re-inserts the
+   *  live row so the client can retry without triggering reuse detection. */
+  const unconsumeRefreshToken = db.transaction(
+    ({
+      storageKey,
+      clientId,
+      scopes,
+      expiresAt,
+    }: {
+      storageKey: string
+      clientId: string
+      scopes: string
+      expiresAt: number
+    }): void => {
+      deleteConsumedRefreshTokenStmt.run(storageKey)
+      insertRefreshTokenStmt.run(storageKey, clientId, scopes, expiresAt)
+    },
+  )
+
   type ConsumeRefreshTokenResult =
-    | { status: "consumed"; scopes: string[] }
+    | {
+        status: "consumed"
+        scopes: string[]
+        storageKey: string
+        expiresAt: number
+      }
     | { status: "reuse"; ownerClientId: string }
     | { status: "not_found" }
 
@@ -499,7 +526,12 @@ export const createOAuthProvider = ({
         clientId,
         expiresAt: row.expires_at,
       })
-      return { status: "consumed", scopes: row.scopes.split(" ") }
+      return {
+        status: "consumed",
+        scopes: row.scopes.split(" "),
+        storageKey,
+        expiresAt: row.expires_at,
+      }
     }
 
     // Keyed on the token alone, unlike the live lookup: a stale token
@@ -672,6 +704,14 @@ export const createOAuthProvider = ({
         (scope) => !stored.scopes.includes(scope),
       )
       if (requestedScopeWidens) {
+        // Undo the consume so the client can retry with a valid scope
+        // without triggering reuse detection.
+        unconsumeRefreshToken({
+          storageKey: stored.storageKey,
+          clientId,
+          scopes: stored.scopes.join(" "),
+          expiresAt: stored.expiresAt,
+        })
         oauthLogger.warn("oauth_token_refresh_failed", {
           reason: "scope_exceeds_grant",
           clientId,
