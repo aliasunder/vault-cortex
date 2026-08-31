@@ -12,6 +12,7 @@ import { tmpdir } from "node:os"
 import { createHmac } from "node:crypto"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
+import { InvalidTargetError } from "@modelcontextprotocol/sdk/server/auth/errors.js"
 import { signJwt } from "../../../jwt.js"
 import { createOAuthProvider } from "../oauth-provider.js"
 import type { OAuthProvider } from "../oauth-provider.js"
@@ -43,6 +44,11 @@ const recordingLogger = (sink: LogCall[]): Logger => {
 
 const AUTH_TOKEN = "test-static-token"
 const OTHER_AUTH_TOKEN = "rotated-static-token"
+const TEST_URLS = { serverUrl: new URL("http://localhost:8000") }
+// The claim values the provider is expected to mint and check for
+// TEST_URLS — spelled out so a change to either derivation shows up here.
+const TEST_ISSUER = "http://localhost:8000/"
+const TEST_AUDIENCE = "http://localhost:8000/mcp"
 
 // Mirrors the provider's storage-key derivation so tests can seed and
 // inspect rows without importing production as its own oracle.
@@ -155,6 +161,7 @@ describe("OAuth refresh token sliding expiry", () => {
     dir = await mkdtemp(join(tmpdir(), "oauth-test-"))
     dbPath = join(dir, "oauth.db")
     oauth = createOAuthProvider({
+      ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath,
       logger,
@@ -302,11 +309,7 @@ describe("OAuth refresh token schema migration", () => {
     `)
     oldDb.close()
 
-    createOAuthProvider({
-      authToken: AUTH_TOKEN,
-      dbPath,
-      logger,
-    })
+    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
 
     const db = new Database(dbPath)
     onTestFinished(() => {
@@ -347,11 +350,7 @@ describe("OAuth refresh token schema migration", () => {
       )
     oldDb.close()
 
-    createOAuthProvider({
-      authToken: AUTH_TOKEN,
-      dbPath,
-      logger,
-    })
+    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
 
     const db = new Database(dbPath)
     onTestFinished(() => {
@@ -361,7 +360,7 @@ describe("OAuth refresh token schema migration", () => {
   })
 
   it("clears raw refresh tokens written after a rollback beside keyed rows it keeps", async () => {
-    createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
     const db = new Database(dbPath)
     onTestFinished(() => {
       db.close()
@@ -384,6 +383,7 @@ describe("OAuth refresh token schema migration", () => {
     )
 
     const reopened = createOAuthProvider({
+      ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath,
       logger,
@@ -419,6 +419,7 @@ describe("OAuth refresh token schema migration", () => {
     const logs: LogCall[] = []
     const testLogger = recordingLogger(logs)
     createOAuthProvider({
+      ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath,
       logger: testLogger,
@@ -440,11 +441,7 @@ describe("OAuth refresh token schema migration", () => {
   })
 
   it("keeps keyed refresh tokens when the provider is re-opened", async () => {
-    createOAuthProvider({
-      authToken: AUTH_TOKEN,
-      dbPath,
-      logger,
-    })
+    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
     const db = new Database(dbPath)
     onTestFinished(() => {
       db.close()
@@ -459,6 +456,7 @@ describe("OAuth refresh token schema migration", () => {
     )
 
     const reopened = createOAuthProvider({
+      ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath,
       logger,
@@ -482,7 +480,12 @@ describe("verifyAccessToken", () => {
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "verify-token-test-"))
     dbPath = join(dir, "oauth.db")
-    oauth = createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+    oauth = createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger,
+    })
     db = new Database(dbPath)
   })
 
@@ -512,7 +515,8 @@ describe("verifyAccessToken", () => {
         sub: "client-123",
         scope: "vault",
         exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
-        iss: "vault-cortex",
+        iss: TEST_ISSUER,
+        aud: TEST_AUDIENCE,
       },
       AUTH_TOKEN,
     )
@@ -531,7 +535,8 @@ describe("verifyAccessToken", () => {
         sub: "client-456",
         scope: "vault read write",
         exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
-        iss: "vault-cortex",
+        iss: TEST_ISSUER,
+        aud: TEST_AUDIENCE,
       },
       AUTH_TOKEN,
     )
@@ -546,7 +551,8 @@ describe("verifyAccessToken", () => {
         sub: "client-789",
         scope: "",
         exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
-        iss: "vault-cortex",
+        iss: TEST_ISSUER,
+        aud: TEST_AUDIENCE,
       },
       AUTH_TOKEN,
     )
@@ -561,7 +567,8 @@ describe("verifyAccessToken", () => {
         sub: "client-123",
         scope: "vault",
         exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
-        iss: "vault-cortex",
+        iss: TEST_ISSUER,
+        aud: TEST_AUDIENCE,
       },
       AUTH_TOKEN,
     )
@@ -578,7 +585,8 @@ describe("verifyAccessToken", () => {
         sub: "client-123",
         scope: "vault",
         exp: DateTime.now().minus({ seconds: 10 }).toUnixInteger(),
-        iss: "vault-cortex",
+        iss: TEST_ISSUER,
+        aud: TEST_AUDIENCE,
       },
       AUTH_TOKEN,
     )
@@ -595,7 +603,9 @@ describe("verifyAccessToken", () => {
   })
 })
 
-const setupAuditTest = async (): Promise<{
+const setupAuditTest = async (
+  serverUrl = TEST_URLS.serverUrl,
+): Promise<{
   logs: LogCall[]
   testLogger: Logger
   oauth: OAuthProvider
@@ -607,6 +617,7 @@ const setupAuditTest = async (): Promise<{
   const logs: LogCall[] = []
   const testLogger = recordingLogger(logs)
   const oauth = createOAuthProvider({
+    serverUrl,
     authToken: AUTH_TOKEN,
     dbPath,
     logger: testLogger,
@@ -760,7 +771,8 @@ describe("OAuth audit logging", () => {
         sub: client.client_id,
         scope: "vault",
         exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
-        iss: "vault-cortex",
+        iss: TEST_ISSUER,
+        aud: TEST_AUDIENCE,
       },
       AUTH_TOKEN,
     )
@@ -838,6 +850,306 @@ const startAuthFlow = async (
   if (!match?.[1]) throw new Error("no request_id in consent HTML")
   return match[1]
 }
+
+describe("OAuth token audience and issuer", () => {
+  const decodeJwtPayload = (token: string): Record<string, unknown> => {
+    const [, body] = token.split(".")
+    if (!body) throw new Error("token has no payload segment")
+    const decoded: unknown = JSON.parse(
+      Buffer.from(body, "base64url").toString(),
+    )
+    if (typeof decoded !== "object" || decoded === null) {
+      throw new Error("token payload is not an object")
+    }
+    return { ...decoded }
+  }
+
+  // Test-owned copy of the production TTL — a TTL change must fail here
+  // and be updated deliberately.
+  const ACCESS_TOKEN_TTL_S = 6 * 60 * 60
+
+  it("mints access tokens with exactly the bound claim set", async () => {
+    const { oauth, client } = await setupAuditTest()
+
+    const issuedAtLowerBound = DateTime.now().toUnixInteger()
+    const issued = await issueTokens(oauth, client)
+    const issuedAtUpperBound = DateTime.now().toUnixInteger()
+    const payload = decodeJwtPayload(issued.access_token)
+
+    expect(payload).toEqual({
+      sub: "test-client",
+      scope: "vault",
+      exp: expect.any(Number),
+      iss: TEST_ISSUER,
+      aud: TEST_AUDIENCE,
+    })
+    // Bounded rather than exact because the clock ticks during issuance.
+    expect(payload.exp).toBeGreaterThanOrEqual(
+      issuedAtLowerBound + ACCESS_TOKEN_TTL_S,
+    )
+    expect(payload.exp).toBeLessThanOrEqual(
+      issuedAtUpperBound + ACCESS_TOKEN_TTL_S,
+    )
+    // The lifetime told to the client and the exp the server enforces must
+    // move together — both assert against the same test-owned TTL.
+    expect(issued.expires_in).toBe(ACCESS_TOKEN_TTL_S)
+  })
+
+  it("keeps a subpath prefix in the minted issuer but not the audience", async () => {
+    const { oauth, client } = await setupAuditTest(
+      new URL("http://localhost:8000/vault/"),
+    )
+
+    const issued = await issueTokens(oauth, client)
+    const payload = decodeJwtPayload(issued.access_token)
+
+    expect(payload).toEqual({
+      sub: "test-client",
+      scope: "vault",
+      exp: expect.any(Number),
+      iss: "http://localhost:8000/vault/",
+      aud: "http://localhost:8000/mcp",
+    })
+  })
+
+  it("rejects a same-secret token minted for another audience", async () => {
+    const { logs, oauth } = await setupAuditTest()
+    const foreignAudience = signJwt(
+      {
+        sub: "other-deployment-client",
+        scope: "vault",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: TEST_ISSUER,
+        aud: "https://other.example/mcp",
+      },
+      AUTH_TOKEN,
+    )
+
+    await expect(
+      oauth.provider.verifyAccessToken(foreignAudience),
+    ).rejects.toThrow("Token expired or invalid")
+    const rejected = logs.find((log) => log.message === "oauth_token_rejected")
+    expect(rejected?.data.reason).toBe("invalid_or_expired")
+  })
+
+  it("rejects a same-secret token from another issuer", async () => {
+    const { oauth } = await setupAuditTest()
+    const foreignIssuer = signJwt(
+      {
+        sub: "other-deployment-client",
+        scope: "vault",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: "https://other.example/",
+        aud: TEST_AUDIENCE,
+      },
+      AUTH_TOKEN,
+    )
+
+    await expect(
+      oauth.provider.verifyAccessToken(foreignIssuer),
+    ).rejects.toThrow("Token expired or invalid")
+  })
+
+  it("does not record a foreign-audience token as a revoked access token", async () => {
+    const { oauth, db, client } = await setupAuditTest()
+    const foreignAudience = signJwt(
+      {
+        sub: client.client_id,
+        scope: "vault",
+        exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+        iss: TEST_ISSUER,
+        aud: "https://other.example/mcp",
+      },
+      AUTH_TOKEN,
+    )
+
+    await revokeToken(oauth, client, foreignAudience)
+
+    expect(storedRevokedTokens(db)).toEqual([])
+  })
+})
+
+describe("OAuth resource parameter (RFC 8707)", () => {
+  const authorizeWithResource = async (
+    oauth: OAuthProvider,
+    client: OAuthClientInformationFull,
+    resource: URL | undefined,
+  ): Promise<{ sent: boolean; requestId: string | undefined }> => {
+    let consentHtml = ""
+    const res = {
+      type: () => res,
+      send: (html: string) => {
+        consentHtml = html
+        return res
+      },
+    }
+    await oauth.provider.authorize(
+      client,
+      {
+        codeChallenge: "test-challenge",
+        redirectUri: "https://example.com/cb",
+        scopes: ["vault"],
+        ...(resource === undefined ? {} : { resource }),
+      },
+      res as never,
+    )
+    const requestId = /name="request_id"\s+value="([^"]+)"/.exec(
+      consentHtml,
+    )?.[1]
+    return { sent: consentHtml !== "", requestId }
+  }
+
+  it("accepts an authorization request that names this server", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+
+    const { sent, requestId } = await authorizeWithResource(
+      oauth,
+      client,
+      new URL("http://localhost:8000/mcp"),
+    )
+
+    expect(sent).toBe(true)
+    expect(requestId).toBeDefined()
+    expect(logs.some((log) => log.message === "oauth_authorize_started")).toBe(
+      true,
+    )
+  })
+
+  it("accepts a resource that differs only by a trailing slash", async () => {
+    const { oauth, client } = await setupAuditTest()
+
+    const { sent } = await authorizeWithResource(
+      oauth,
+      client,
+      new URL("http://localhost:8000/mcp/"),
+    )
+
+    expect(sent).toBe(true)
+  })
+
+  it("accepts an authorization request that names no resource", async () => {
+    const { oauth, client } = await setupAuditTest()
+
+    const { sent } = await authorizeWithResource(oauth, client, undefined)
+
+    expect(sent).toBe(true)
+  })
+
+  it("accepts the root discovery document's resource identifier", async () => {
+    // The SDK's root /.well-known/oauth-protected-resource advertises the
+    // server URL itself; a client that discovers there sends it verbatim.
+    const { oauth, client } = await setupAuditTest()
+
+    const { sent } = await authorizeWithResource(
+      oauth,
+      client,
+      new URL("http://localhost:8000/"),
+    )
+
+    expect(sent).toBe(true)
+  })
+
+  it("rejects a resource on this server's host with any other path", async () => {
+    const { oauth, client } = await setupAuditTest()
+
+    await expect(
+      authorizeWithResource(
+        oauth,
+        client,
+        new URL("http://localhost:8000/other"),
+      ),
+    ).rejects.toStrictEqual(
+      new InvalidTargetError("The resource parameter is not this server"),
+    )
+  })
+
+  it("rejects an authorization request for another server with invalid_target before rendering", async () => {
+    const { logs, oauth, client } = await setupAuditTest()
+    const consent = { sent: false }
+    const res = {
+      type: () => res,
+      send: () => {
+        consent.sent = true
+        return res
+      },
+    }
+
+    await expect(
+      oauth.provider.authorize(
+        client,
+        {
+          codeChallenge: "test-challenge",
+          redirectUri: "https://example.com/cb",
+          scopes: ["vault"],
+          resource: new URL("https://other.example/mcp"),
+        },
+        res as never,
+      ),
+    ).rejects.toStrictEqual(
+      new InvalidTargetError("The resource parameter is not this server"),
+    )
+    expect(consent.sent).toBe(false)
+    const rejected = logs.find(
+      (log) => log.message === "oauth_resource_rejected",
+    )
+    expect(rejected?.data).toEqual({
+      component: "oauth",
+      clientId: client.client_id,
+      resource: "https://other.example/mcp",
+    })
+  })
+
+  it("rejects a code exchange for another server and leaves the code redeemable", async () => {
+    const { oauth, testLogger, client } = await setupAuditTest()
+    const requestId = await startAuthFlow(oauth, client)
+    const code = oauth.approveRequest(requestId, testLogger)
+
+    await expect(
+      oauth.provider.exchangeAuthorizationCode(
+        client,
+        code,
+        undefined,
+        undefined,
+        new URL("https://other.example/mcp"),
+      ),
+    ).rejects.toStrictEqual(
+      new InvalidTargetError("The resource parameter is not this server"),
+    )
+
+    const issued = await oauth.provider.exchangeAuthorizationCode(
+      client,
+      code,
+      undefined,
+      undefined,
+      new URL("http://localhost:8000/mcp"),
+    )
+    expect(issued.token_type).toBe("Bearer")
+  })
+
+  it("rejects a refresh for another server and leaves the refresh token usable", async () => {
+    const { oauth, client } = await setupAuditTest()
+    const refreshToken = await issuedRefreshToken(oauth, client)
+
+    await expect(
+      oauth.provider.exchangeRefreshToken(
+        client,
+        refreshToken,
+        undefined,
+        new URL("https://other.example/mcp"),
+      ),
+    ).rejects.toStrictEqual(
+      new InvalidTargetError("The resource parameter is not this server"),
+    )
+
+    const refreshed = await oauth.provider.exchangeRefreshToken(
+      client,
+      refreshToken,
+      undefined,
+      new URL("http://localhost:8000/mcp"),
+    )
+    expect(refreshed.token_type).toBe("Bearer")
+  })
+})
 
 describe("OAuth default scope", () => {
   /** Starts an authorization flow with the given scopes and returns the
@@ -993,7 +1305,12 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
   }> => {
     const dir = await mkdtemp(join(tmpdir(), "oauth-keyed-test-"))
     const dbPath = join(dir, "oauth.db")
-    const oauth = createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+    const oauth = createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger,
+    })
     const db = new Database(dbPath)
     onTestFinished(async () => {
       db.close()
@@ -1016,6 +1333,7 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     const firstToken = await issuedRefreshToken(oauth, client)
     const secondToken = await issuedRefreshToken(oauth, client)
     const rotated = createOAuthProvider({
+      ...TEST_URLS,
       authToken: OTHER_AUTH_TOKEN,
       dbPath,
       logger,
@@ -1073,30 +1391,31 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     const { db, dbPath } = await createKeyedStorageTest()
     seedRevokedToken(
       db,
-      "revoked-25h-ago",
-      DateTime.now().minus({ hours: 25 }).toUnixInteger(),
+      "revoked-7h-ago",
+      DateTime.now().minus({ hours: 7 }).toUnixInteger(),
     )
     seedRevokedToken(
       db,
-      "revoked-23h-ago",
-      DateTime.now().minus({ hours: 23 }).toUnixInteger(),
+      "revoked-5h-ago",
+      DateTime.now().minus({ hours: 5 }).toUnixInteger(),
     )
     const logs: LogCall[] = []
 
     createOAuthProvider({
+      ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath,
       logger: recordingLogger(logs),
     })
 
-    expect(storedRevokedTokens(db)).toEqual(["revoked-23h-ago"])
+    expect(storedRevokedTokens(db)).toEqual(["revoked-5h-ago"])
     const purge = logs.find(
       (log) => log.message === "oauth_revoked_tokens_purged",
     )
     expect(purge).toEqual({
       level: "info",
       message: "oauth_revoked_tokens_purged",
-      data: { component: "oauth", purgedTokenCount: 1, maxAgeSeconds: 86_400 },
+      data: { component: "oauth", purgedTokenCount: 1, maxAgeSeconds: 21_600 },
     })
   })
 
@@ -1104,18 +1423,19 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     const { db, dbPath } = await createKeyedStorageTest()
     seedRevokedToken(
       db,
-      "revoked-23h-ago",
-      DateTime.now().minus({ hours: 23 }).toUnixInteger(),
+      "revoked-5h-ago",
+      DateTime.now().minus({ hours: 5 }).toUnixInteger(),
     )
     const logs: LogCall[] = []
 
     createOAuthProvider({
+      ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath,
       logger: recordingLogger(logs),
     })
 
-    expect(storedRevokedTokens(db)).toEqual(["revoked-23h-ago"])
+    expect(storedRevokedTokens(db)).toEqual(["revoked-5h-ago"])
     expect(logs.map((log) => log.message)).not.toContain(
       "oauth_revoked_tokens_purged",
     )
@@ -1127,20 +1447,20 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     // revocation below can purge them.
     seedRevokedToken(
       db,
-      "revoked-26h-ago",
-      DateTime.now().minus({ hours: 26 }).toUnixInteger(),
+      "revoked-7h-ago",
+      DateTime.now().minus({ hours: 7 }).toUnixInteger(),
     )
     seedRevokedToken(
       db,
-      "revoked-23h-ago",
-      DateTime.now().minus({ hours: 23 }).toUnixInteger(),
+      "revoked-5h-ago",
+      DateTime.now().minus({ hours: 5 }).toUnixInteger(),
     )
     const { access_token: accessToken } = await issueTokens(oauth, client)
 
     await revokeToken(oauth, client, accessToken)
 
     expect(storedRevokedTokens(db)).toEqual(
-      [accessToken, "revoked-23h-ago"].sort(),
+      [accessToken, "revoked-5h-ago"].sort(),
     )
   })
 
@@ -1289,6 +1609,7 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     const logs: LogCall[] = []
     const testLogger = recordingLogger(logs)
     const oauth = createOAuthProvider({
+      ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath,
       logger: testLogger,
@@ -1338,7 +1659,7 @@ describe("OAuth tokenless client sweep", () => {
     const dbPath = join(dir, "oauth.db")
     // A first boot creates the schema so clients can be seeded before the
     // boot under test.
-    createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
     onTestFinished(async () => {
       await rm(dir, { recursive: true, force: true })
     })
@@ -1388,6 +1709,7 @@ describe("OAuth tokenless client sweep", () => {
     seedClientIssuedAt(db, "old-tokenless", EIGHT_DAYS_AGO)
 
     createOAuthProvider({
+      ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath,
       logger: recordingLogger(logs),
@@ -1408,6 +1730,7 @@ describe("OAuth tokenless client sweep", () => {
     seedClientIssuedAt(db, "recent-tokenless", SIX_DAYS_AGO)
 
     createOAuthProvider({
+      ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath,
       logger: recordingLogger(logs),
@@ -1430,7 +1753,7 @@ describe("OAuth tokenless client sweep", () => {
       SIXTY_DAYS_AHEAD,
     )
 
-    createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
 
     expect(registeredClientIds(db)).toEqual(["rotated-client"])
   })
@@ -1447,7 +1770,7 @@ describe("OAuth tokenless client sweep", () => {
       DateTime.now().minus({ days: 1 }).toUnixInteger(),
     )
 
-    createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+    createOAuthProvider({ ...TEST_URLS, authToken: AUTH_TOKEN, dbPath, logger })
 
     expect(registeredClientIds(db)).toEqual([])
   })
@@ -1455,7 +1778,12 @@ describe("OAuth tokenless client sweep", () => {
   it("sweeps before each registration so the table does not wait for a reboot", async () => {
     const { dbPath } = await createSweepTest()
     const db = openDb(dbPath)
-    const oauth = createOAuthProvider({ authToken: AUTH_TOKEN, dbPath, logger })
+    const oauth = createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger,
+    })
     // Seeded after the boot so the registration itself has to sweep it.
     seedClientIssuedAt(db, "old-tokenless", EIGHT_DAYS_AGO)
     const { clientsStore } = oauth.provider

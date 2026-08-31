@@ -17,7 +17,7 @@ import { TOOL_REGISTRY } from "./tool-registry.js"
 import type { ToolName } from "./tool-registry.js"
 import { createToolAvailability } from "./tool-availability.js"
 import { logger } from "../../logger.js"
-import { extractClientIp, headerAsString } from "../../auth.js"
+import { extractClientIp, headerAsString, mcpResourceUrl } from "../../auth.js"
 
 type McpRouterOptions = {
   vaultPath: string
@@ -126,7 +126,7 @@ export const createMcpRouter = ({
   const bearerAuth = requireBearerAuth({
     verifier: provider,
     resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(
-      new URL("/mcp", serverUrl),
+      mcpResourceUrl(serverUrl),
     ),
   })
   const transports = new Map<string, StreamableHTTPServerTransport>()

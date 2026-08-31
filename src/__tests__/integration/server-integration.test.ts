@@ -1356,6 +1356,17 @@ describe("boot rejection", () => {
     expect(stderr).toContain("vault_fake_tool")
   }, 15_000)
 
+  it("PUBLIC_URL with embedded credentials exits with error", async () => {
+    const { exitCode, stderr } = await startServerExpectingFailure(
+      await freePort(),
+      { PUBLIC_URL: "https://user:fake-secret@127.0.0.1" },
+    )
+    expect(exitCode).toBe(1)
+    expect(stderr).toContain(
+      "PUBLIC_URL must not contain credentials (user:password@)",
+    )
+  }, 15_000)
+
   // Express 5 hands bind failures to the listen callback instead of
   // throwing; without the check the second server would log "server
   // started" and idle while the first one keeps answering the port.
@@ -1557,11 +1568,14 @@ describe("rotating MCP_AUTH_TOKEN", () => {
     await before.cleanup()
 
     // A fresh port: the first server's socket can linger after exit, and
-    // only the data directory needs to carry over.
+    // only the data directory needs to carry over. PUBLIC_URL stays on the
+    // first port so the old access token's audience still matches — its
+    // 401 below must come from the rotated key, not from a changed URL.
     const rotatedPort = await freePort()
     const after = await startServer(rotatedPort, {
       MCP_AUTH_TOKEN: TOKEN_B,
       INDEX_DB_PATH: indexDbPath,
+      PUBLIC_URL: `http://127.0.0.1:${port}`,
     })
     onTestFinished(() => after.cleanup())
 

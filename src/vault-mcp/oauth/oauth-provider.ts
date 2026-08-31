@@ -29,15 +29,20 @@ import type {
 import {
   InvalidGrantError,
   InvalidScopeError,
+  InvalidTargetError,
   InvalidTokenError,
 } from "@modelcontextprotocol/sdk/server/auth/errors.js"
-import { safeEqual } from "../../auth.js"
-import { signJwt, verifyJwt } from "../../jwt.js"
+import {
+  canonicalResourceUri,
+  safeEqual,
+  tokenBindingForServer,
+} from "../../auth.js"
+import { signJwt, verifyJwt, type JwtPayload } from "../../jwt.js"
 import { renderConsentPage } from "./consent-page.js"
 import type { Logger } from "../../logger.js"
 
-// 24 hours
-const ACCESS_TOKEN_TTL_S = 24 * 60 * 60
+// 6 hours
+const ACCESS_TOKEN_TTL_S = 6 * 60 * 60
 // 60 days. Sliding (inactivity) expiry — each use rotates the token
 // AND resets the countdown, so a daily user never sees it and a
 // dormant client re-auths after 60 days. Bounds the blast radius of
@@ -66,6 +71,10 @@ type StoredAuthCode = {
 type OAuthProviderOptions = {
   authToken: string
   dbPath: string
+  /** The deployment's public URL. Its issuer and MCP resource URI are
+   *  stamped on every access token as `iss` and `aud`, and a client's
+   *  `resource` param is compared against the latter. */
+  serverUrl: URL
   logger: Logger
 }
 
@@ -232,6 +241,7 @@ export type OAuthProvider = {
 export const createOAuthProvider = ({
   authToken,
   dbPath,
+  serverUrl,
   logger,
 }: OAuthProviderOptions): OAuthProvider => {
   const oauthLogger = logger.child({ component: "oauth" })
@@ -239,6 +249,40 @@ export const createOAuthProvider = ({
   const store = new SqliteClientsStore(db, oauthLogger)
   const pendingRequests = new Map<string, PendingAuthRequest>()
   const authCodes = new Map<string, StoredAuthCode>()
+  const { issuer, audience } = tokenBindingForServer(serverUrl)
+  // The root discovery document (/.well-known/oauth-protected-resource,
+  // served by the SDK) advertises the server URL itself as its resource
+  // identifier, so a client that discovers there sends this value.
+  const rootResource = canonicalResourceUri(serverUrl)
+
+  /** RFC 8707: a `resource` the client names must be this server — either
+   *  identifier the server advertises, the MCP endpoint or the root. An
+   *  absent `resource` is accepted — clients that predate the parameter
+   *  still connect, and the token is bound to this server regardless.
+   *  https://www.rfc-editor.org/rfc/rfc8707#section-2 */
+  const assertResourceIsThisServer = (
+    resource: URL | undefined,
+    clientId: string,
+  ): void => {
+    if (!resource) return
+    const requestedResource = canonicalResourceUri(resource)
+    if (requestedResource === audience) return
+    if (requestedResource === rootResource) return
+    oauthLogger.warn("oauth_resource_rejected", {
+      clientId,
+      resource: resource.href,
+    })
+    throw new InvalidTargetError("The resource parameter is not this server")
+  }
+
+  const verifyAccessJwt = (token: string): JwtPayload | null => {
+    return verifyJwt({
+      token,
+      secret: authToken,
+      expectedIssuer: issuer,
+      expectedAudience: audience,
+    })
+  }
 
   /** Storage key for a refresh token: an HMAC of the token under the
    *  auth token. Rows are only reachable under the secret that wrote
@@ -297,7 +341,8 @@ export const createOAuthProvider = ({
         exp: DateTime.now()
           .plus({ seconds: ACCESS_TOKEN_TTL_S })
           .toUnixInteger(),
-        iss: "vault-cortex",
+        iss: issuer,
+        aud: audience,
       },
       authToken,
     )
@@ -366,6 +411,9 @@ export const createOAuthProvider = ({
       params: AuthorizationParams,
       res: Response,
     ): Promise<void> {
+      // Thrown before anything is sent, so the SDK's handler can still
+      // redirect the client with error=invalid_target.
+      assertResourceIsThisServer(params.resource, client.client_id)
       const requestId = randomUUID()
       // The SDK splits `scope=` into [""], so blank entries count as none.
       const requestedScopes = (params.scopes ?? []).filter(
@@ -409,12 +457,15 @@ export const createOAuthProvider = ({
     },
 
     async exchangeAuthorizationCode(
-      _client: OAuthClientInformationFull,
+      client: OAuthClientInformationFull,
       authorizationCode: string,
       _codeVerifier?: string,
       _redirectUri?: string,
-      _resource?: URL,
+      resource?: URL,
     ): Promise<OAuthTokens> {
+      // Checked before the code is consumed: a wrong resource is a client
+      // configuration error, not a replay, so the code stays redeemable.
+      assertResourceIsThisServer(resource, client.client_id)
       const stored = authCodes.get(authorizationCode)
       if (!stored || stored.expiresAt < DateTime.now()) {
         oauthLogger.warn("oauth_code_exchange_failed", {
@@ -454,9 +505,12 @@ export const createOAuthProvider = ({
       client: OAuthClientInformationFull,
       refreshToken: string,
       scopes?: string[],
-      _resource?: URL,
+      resource?: URL,
     ): Promise<OAuthTokens> {
       const clientId = client.client_id
+      // Checked before the refresh token is consumed, for the same reason
+      // as the code exchange: a wrong resource must not burn the token.
+      assertResourceIsThisServer(resource, clientId)
       const stored = consumeRefreshToken({ token: refreshToken, clientId })
       if (!stored) {
         oauthLogger.warn("oauth_token_refresh_failed", {
@@ -524,7 +578,7 @@ export const createOAuthProvider = ({
         throw new InvalidTokenError("Token has been revoked")
       }
 
-      const payload = verifyJwt(token, authToken)
+      const payload = verifyAccessJwt(token)
       if (payload) {
         oauthLogger.debug("oauth_token_verified", {
           method: "jwt",
@@ -556,7 +610,7 @@ export const createOAuthProvider = ({
       const { changes: refreshTokensDeleted } = deleteRefreshTokenStmt.run(
         refreshTokenStorageKey(request.token),
       )
-      const isValidAccessToken = verifyJwt(request.token, authToken) !== null
+      const isValidAccessToken = verifyAccessJwt(request.token) !== null
       if (isValidAccessToken) {
         purgeExpiredRevokedTokens()
         insertRevokedTokenStmt.run(

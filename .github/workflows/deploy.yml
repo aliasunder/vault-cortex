@@ -89,7 +89,40 @@ jobs:
           CUSTOM_DOMAIN: ${{ secrets.CUSTOM_DOMAIN }}
           CUSTOM_DOMAIN_CERT_ARN: ${{ secrets.CUSTOM_DOMAIN_CERT_ARN }}
           DISABLE_EXECUTE_API_ENDPOINT: ${{ vars.DISABLE_EXECUTE_API_ENDPOINT }}
+          PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
         run: npx sst deploy --stage "$SST_STAGE"
+
+      # The URL clients reach the server at: the PUBLIC_URL secret when set,
+      # else the custom domain, else the gateway's own URL queried from AWS
+      # (not an SST output — those print in the public job log). The same
+      # rule runs inside sst.config.ts for the Lambda authorizer, so both
+      # JWT verifiers check against one value.
+      - name: Resolve public URL
+        if: ${{ !inputs.skip_instance }}
+        id: public-url
+        env:
+          PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
+          CUSTOM_DOMAIN: ${{ secrets.CUSTOM_DOMAIN }}
+        run: |
+          if [ -n "$PUBLIC_URL" ]; then
+            url="$PUBLIC_URL"
+          elif [ -n "$CUSTOM_DOMAIN" ]; then
+            url="https://$CUSTOM_DOMAIN"
+          else
+            # Newest match wins: with removal "retain", an sst remove can
+            # leave an older API whose name matches the same prefix, and
+            # picking it would bind tokens to a gateway the Lambda no
+            # longer fronts.
+            url=$(aws apigatewayv2 get-apis \
+              --query "sort_by(Items[?starts_with(Name, 'vault-cortex-${SST_STAGE}-VaultCortexApi')], &CreatedDate)[-1].ApiEndpoint" \
+              --output text)
+          fi
+          if [ -z "$url" ] || [ "$url" = "None" ]; then
+            echo "::error::could not resolve the public URL from PUBLIC_URL, CUSTOM_DOMAIN, or the API Gateway"
+            exit 1
+          fi
+          echo "::add-mask::$url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
 
       - name: Connect to Tailscale
         if: ${{ !inputs.skip_instance && env.TAILSCALE_ENABLED == 'true' }}
@@ -273,7 +306,7 @@ jobs:
       - name: Write Lightsail .env from secrets
         if: ${{ !inputs.skip_instance }}
         env:
-          PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
+          PUBLIC_URL: ${{ steps.public-url.outputs.url }}
           MCP_AUTH_TOKEN: ${{ secrets.MCP_AUTH_TOKEN }}
           OBSIDIAN_AUTH_TOKEN: ${{ secrets.OBSIDIAN_AUTH_TOKEN }}
           VAULT_NAME: ${{ secrets.VAULT_NAME }}
@@ -365,5 +398,5 @@ jobs:
       - name: Healthcheck
         if: ${{ !inputs.skip_instance }}
         env:
-          PUBLIC_URL: ${{ secrets.PUBLIC_URL }}
+          PUBLIC_URL: ${{ steps.public-url.outputs.url }}
         run: curl -fsS --retry 6 --retry-delay 5 "$PUBLIC_URL/healthz"

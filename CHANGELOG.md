@@ -87,6 +87,32 @@
 
 
 
+
+## [0.46.0] — 2026-08-31
+
+### Features
+
+- **oauth:** Bind access tokens with iss/aud and shorten their lifetime to 6h (#508)
+
+### Bug Fixes
+
+- **oauth:** Grant the vault scope when a client requests none (#507)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.45.0
+
+### CI / Infrastructure
+
+- **gitleaks:** Scan main plus the pull request's commits, not every branch (#505)
+
+### Maintenance
+
+- **sst:** Keep API Gateway and authorizer CloudWatch logs for 1 year (#504)
+- **deps:** Bump the production group across 1 directory with 2 updates (#501)
+- **deps:** Bump github/codeql-action/upload-sarif from 4.37.7 to 4.37.8 (#502)
+- **deps-dev:** Bump the development group with 5 updates (#503)
+
 ## [0.45.0] — 2026-08-27
 
 ### Features

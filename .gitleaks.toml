@@ -1,7 +1,7 @@
 [extend]
 useDefault = true
 
-[allowlist]
+[[allowlists]]
 description = "Known non-secrets. local-dev-token: the documented placeholder in the local-dev quickstarts (README, CONTRIBUTING, docker-compose.local.yml). The three hex strings: key-hash test vectors in src/vault-mcp/setup/__tests__/ — the Sync client's derivation output for made-up inputs, pinned so the derivation can be tested against the CLI."
 regexTarget = "match"
 regexes = [
@@ -10,3 +10,7 @@ regexes = [
   '''70e71fbaf4e6016807c7d24edd32dce10c0c1f7491ccea42a848f7d078990490''',
   '''8d8534f8d78a42c892f4edb0b0c9adbb3554954bfab6c09d708c93aa8e633f5a''',
 ]
+
+[[allowlists]]
+description = "Test fixture label in oauth-provider.test.ts flagged by generic-api-key on the accessToken keyword. Not a real credential."
+commits = ["fa6e3a53245494dbfbfd78d215fb4406ec98f4da"]

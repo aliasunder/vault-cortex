@@ -22,6 +22,8 @@ export default $config({
     const { readFileSync, existsSync } = await import("node:fs")
     const { homedir } = await import("node:os")
     const env = (await import("env-var")).get
+    const { urlHasCredentials } =
+      await import("./src/utils/url-has-credentials.js")
 
     // ── Environment ──────────────────────────────────────────────
     // SSH key fallback chain: SSH_PUBKEY (CI) → SSH_PUBKEY_PATH → ~/.ssh/vault-cortex.pub
@@ -68,6 +70,43 @@ export default $config({
     // certificate in the API's region covering the name (wildcard or exact).
     const customDomain = env("CUSTOM_DOMAIN").asString()
     const customDomainCertArn = env("CUSTOM_DOMAIN_CERT_ARN").asString()
+
+    // Must match PUBLIC_URL in the instance .env: the Lambda authorizer
+    // verifies each JWT's issuer and audience against this value, and
+    // Express mints them from that one. Unset, resolvePublicUrl() below
+    // derives it, so a first deploy needs no value.
+    const publicUrlOverride = env("PUBLIC_URL").asString()
+
+    // A bare hostname or a non-http(s) scheme (whose origin is "null")
+    // can never match a minted token, so it would 403 every client at
+    // runtime — fail the deploy instead.
+    const parsedPublicUrlOverride = publicUrlOverride
+      ? URL.parse(publicUrlOverride)
+      : undefined
+
+    const publicUrlIsHttp =
+      parsedPublicUrlOverride?.protocol === "https:" ||
+      parsedPublicUrlOverride?.protocol === "http:"
+
+    if (publicUrlOverride && !publicUrlIsHttp) {
+      throw new Error(
+        "PUBLIC_URL must be an absolute http(s) URL, e.g. " +
+          "https://mcp.example.com",
+      )
+    }
+
+    // Credentials in the URL would be minted into every token's `iss`
+    // claim and served by the discovery documents — fail the deploy.
+    const publicUrlHasCredentials = parsedPublicUrlOverride
+      ? urlHasCredentials(parsedPublicUrlOverride)
+      : false
+
+    if (publicUrlHasCredentials) {
+      throw new Error(
+        "PUBLIC_URL must not contain credentials (user:password@)",
+      )
+    }
+
     if (customDomain && !customDomainCertArn) {
       throw new Error(
         "CUSTOM_DOMAIN requires CUSTOM_DOMAIN_CERT_ARN — the ARN of an " +
@@ -138,10 +177,6 @@ export default $config({
     // Setup: ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy
     // CI:    store the public key as SSH_PUBKEY secret, private as SSH_PRIVATE_KEY.
     //
-    // To also SSH with your personal key, add it post-provision:
-    //   ssh -i ~/.ssh/vault-cortex ubuntu@<IP> \
-    //     "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub
-    //
     // GOTCHA #1: Changing the public key FORCES AN INSTANCE REPLACE.
     //            The VM is destroyed and recreated, wiping Docker
     //            volumes and /opt/vault-cortex. The StaticIp survives.
@@ -155,16 +190,16 @@ export default $config({
     })
 
     // ── Lightsail ─────────────────────────────────────────────────
-    // medium_3_0 = 2 vCPU, 4 GB RAM, 80 GB SSD, 4 TB transfer, $24/mo.
-    // Upgraded from small_3_0 for the second vCPU (concurrent ONNX
-    // inference) and page-cache headroom. small_3_0 (1 vCPU, 2 GB,
-    // $12/mo) handles semantic search fine for a typical vault.
-    // Downgrade path is a snapshot-based restore — see RECOVERY.md.
+    // medium_3_0 = 2 vCPU, 4 GB RAM, 80 GB SSD, 4 TB transfer, $24/mo —
+    // the second vCPU covers concurrent ONNX inference, and the RAM gives
+    // page-cache headroom. small_3_0 (1 vCPU, 2 GB, $12/mo) handles
+    // semantic search fine for a typical vault; moving between bundles is
+    // a snapshot-based restore — see RECOVERY.md.
     //
     // Auto-snapshot: daily disk-image backup retained 7 days by
     // Lightsail. Captures everything on the boot disk (Docker volumes,
-    // /opt/vault-cortex, /etc edits, ad-hoc apt installs). UTC time —
-    // 03:00 UTC = 23:00 ET. Restore path is in RECOVERY.md.
+    // /opt/vault-cortex, /etc edits, ad-hoc apt installs). snapshotTime
+    // is UTC. Restore path is in RECOVERY.md.
     //
     // protect + retainOnDelete are the IaC seatbelt. `protect` refuses
     // any Pulumi operation that would destroy or replace this resource;
@@ -318,32 +353,34 @@ export default $config({
       },
     })
 
-    // Lambda authorizer — validates Bearer tokens (static MCP_AUTH_TOKEN
-    // or JWT) on protected routes only. OAuth discovery paths are wired as
-    // separate unauthenticated routes below and never invoke the authorizer;
-    // its own open-path check is defense in depth in case that wiring
-    // changes. Express also validates in-process via requireBearerAuth.
-    //
-    // identitySources is the load-bearing detail: with the Authorization
-    // header registered as the identity source, API Gateway answers
-    // tokenless requests with an automatic 401 Unauthorized — without
-    // invoking the Lambda. MCP clients (Claude, etc.) require a 401 on the
-    // initial unauthenticated probe to enter the OAuth connect flow; they
-    // fall back to /.well-known/oauth-protected-resource discovery when no
-    // WWW-Authenticate header is present (RFC 9728 default location).
-    // A Lambda-authorizer deny, by contrast, is a fixed 403 Forbidden that
-    // HTTP APIs cannot customize — clients treat it as a broken server.
+    const resolvePublicUrl = (): $util.Output<string> => {
+      if (publicUrlOverride) return $output(publicUrlOverride)
+      if (customDomain) return $output(`https://${customDomain}`)
+      return api.url
+    }
+
+    // Bearer-token validation on protected routes only; the OAuth discovery
+    // paths are separate unauthenticated routes below. Verification details:
+    // src/functions/authorizer.ts.
     const authorizer = api.addAuthorizer({
       name: "bearer-auth",
       lambda: {
         function: {
           handler: "src/functions/authorizer.handler",
           link: [mcpAuthToken],
+          environment: { PUBLIC_URL: resolvePublicUrl() },
           runtime: "nodejs24.x",
           timeout: "5 seconds",
           memory: "128 MB",
           logging: { retention: "1 year" },
         },
+        // Registering the Authorization header as the identity source makes
+        // API Gateway answer tokenless requests with an automatic 401 — the
+        // status MCP clients need to start the OAuth flow (that response has
+        // no WWW-Authenticate, so clients use the RFC 9728 default
+        // discovery location, https://www.rfc-editor.org/rfc/rfc9728#section-3).
+        // A Lambda deny is a fixed 403 they treat as a broken server.
+        // SST fills this field with a default when omitted.
         identitySources: ["$request.header.Authorization"],
       },
     })

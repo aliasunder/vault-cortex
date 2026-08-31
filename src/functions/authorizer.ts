@@ -26,9 +26,11 @@
  */
 
 import { Resource } from "sst"
+import env from "env-var"
 import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda"
-import { safeEqual, parseBearer } from "../auth.js"
-import { verifyJwt } from "../jwt.js"
+import { safeEqual, parseBearer, tokenBindingForServer } from "../auth.js"
+import { urlHasCredentials } from "../utils/url-has-credentials.js"
+import { verifyJwt, verifyUnboundJwt } from "../jwt.js"
 import { logger as rootLogger } from "../logger.js"
 
 const OPEN_PATH_PREFIXES = [
@@ -75,8 +77,51 @@ export const handler = async (
     return { isAuthorized: true }
   }
 
-  if (verifyJwt(token, secret)) {
+  // sst.config.ts sets PUBLIC_URL on this function from the same inputs
+  // Express reads it from, so the binding derived here matches the one
+  // Express mints into tokens.
+  const publicUrl = env.get("PUBLIC_URL").asString()
+  if (!publicUrl) {
+    logger.error("auth_failed: PUBLIC_URL is empty")
+    return { isAuthorized: false }
+  }
+  // A value that is not a URL must deny, not throw: a throw here is a
+  // gateway 500 with no auth_failed line to find.
+  const serverUrl = URL.parse(publicUrl)
+  if (!serverUrl) {
+    logger.error("auth_failed: PUBLIC_URL is not a URL")
+    return { isAuthorized: false }
+  }
+  // Credentials in the URL would become part of the expected `iss`
+  // claim; the deploy validation rejects them, so a value carrying them
+  // here is misconfiguration — deny rather than compare against it.
+  if (urlHasCredentials(serverUrl)) {
+    logger.error("auth_failed: PUBLIC_URL contains credentials")
+    return { isAuthorized: false }
+  }
+  // Verifying against this deployment's own URL is what makes a JWT
+  // minted for another deployment fail even when the two share a secret.
+  const { issuer, audience } = tokenBindingForServer(serverUrl)
+  const verified = verifyJwt({
+    token,
+    secret,
+    expectedIssuer: issuer,
+    expectedAudience: audience,
+  })
+  if (verified) {
     logger.info("auth_success", { method: "jwt" })
+    return { isAuthorized: true }
+  }
+
+  // A token minted by a release before access tokens carried `aud` is
+  // let through to Express, which rejects it with a 401 so the client
+  // refreshes into a bound token. Denying it here would be a 403, which
+  // clients never recover from on their own. Only tokens minted before
+  // an upgrade can be unbound, so this path goes quiet within one
+  // access-token TTL of upgrading.
+  const unbound = verifyUnboundJwt({ token, secret })
+  if (unbound) {
+    logger.info("auth_success", { method: "jwt-unbound" })
     return { isAuthorized: true }
   }
 

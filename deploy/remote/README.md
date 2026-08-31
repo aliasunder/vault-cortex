@@ -306,7 +306,7 @@ accepts `https` URLs, so with an `http` PUBLIC_URL connect via Claude Code
 Add a remote MCP server with URL `<PUBLIC_URL>/mcp`. Leave OAuth Client ID and
 Secret empty — dynamic registration handles it. A consent page opens in your
 browser; enter your `MCP_AUTH_TOKEN` to approve. The client receives a JWT
-access token (24h) with automatic refresh (60-day sliding window).
+access token (6h) with automatic refresh (60-day sliding window).
 
 Claude Code also accepts `http` URLs directly:
 
