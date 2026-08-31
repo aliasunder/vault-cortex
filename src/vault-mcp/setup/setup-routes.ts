@@ -81,11 +81,15 @@ export const createSetupRoutes = ({
   // dropped after the TTL — never rendered into the page.
   const pendingSignIns = new Map<string, PendingSignIn>()
 
-  const storePendingSignIn = (
-    email: string,
-    password: string,
-    inheritedExpiresAt?: DateTime,
-  ): string => {
+  const storePendingSignIn = ({
+    email,
+    password,
+    inheritedExpiresAt,
+  }: {
+    email: string
+    password: string
+    inheritedExpiresAt?: DateTime
+  }): string => {
     const requestId = randomUUID()
     const expiresAt =
       inheritedExpiresAt ??
@@ -342,7 +346,7 @@ export const createSetupRoutes = ({
       })
     } catch (error) {
       if (isMfaRequiredError(error)) {
-        const requestId = storePendingSignIn(email, password)
+        const requestId = storePendingSignIn({ email, password })
         res.type("html").send(renderSetupPage({ kind: "mfa", requestId }))
         return
       }
@@ -386,11 +390,11 @@ export const createSetupRoutes = ({
       // A wrong or missing code keeps the sign-in alive for another try;
       // anything else (a timeout, a rejected password) starts over.
       if (isMfaCodeError(error)) {
-        const requestId = storePendingSignIn(
-          pending.email,
-          pending.password,
-          pending.expiresAt,
-        )
+        const requestId = storePendingSignIn({
+          email: pending.email,
+          password: pending.password,
+          inheritedExpiresAt: pending.expiresAt,
+        })
         res.type("html").send(
           renderSetupPage({
             kind: "mfa",
