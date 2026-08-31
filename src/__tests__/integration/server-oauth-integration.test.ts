@@ -234,7 +234,11 @@ describe("rotating MCP_AUTH_TOKEN", () => {
     })
     expect(refreshedAgain.status).toBe(200)
   }, 60_000)
+})
 
+// ── Client registration sweep ─────────────────────────────────
+
+describe("client registration sweep", () => {
   it("sweeps a week-old registration that never consented on the next boot", async () => {
     const dataDir = await mkdtemp(join(tmpdir(), "vc-integ-sweep-"))
     onTestFinished(async () => {
