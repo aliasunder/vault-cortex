@@ -60,7 +60,7 @@ else
     exit 1
   fi
   if contains_glob_chars "$storage_root"; then
-    echo "[vault-cortex] ERROR: STORAGE_ROOT must not contain glob characters (*, ?, [) — they break the container's find-path safety guards, not '$STORAGE_ROOT'." >&2
+    echo "[vault-cortex] ERROR: STORAGE_ROOT must not contain glob characters (*, ?, [) — they break the container's find-path safety guards. Got '$STORAGE_ROOT'." >&2
     exit 1
   fi
   if [ -z "${VAULT_PATH:-}" ]; then
@@ -88,7 +88,7 @@ fi
 # An explicit VAULT_PATH bypasses derivation — check it for glob chars.
 # Derived values are safe: they append "/vault" to a validated storage_root.
 if [ -n "${VAULT_PATH:-}" ] && contains_glob_chars "$VAULT_PATH"; then
-  echo "[vault-cortex] ERROR: VAULT_PATH must not contain glob characters (*, ?, [) — they break the container's find-path safety guards, not '$VAULT_PATH'." >&2
+  echo "[vault-cortex] ERROR: VAULT_PATH must not contain glob characters (*, ?, [) — they break the container's find-path safety guards. Got '$VAULT_PATH'." >&2
   exit 1
 fi
 

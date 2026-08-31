@@ -113,7 +113,7 @@ describe("print-derived-env — storage layout", () => {
       expect(run.status).toBe(1)
       expect(run.stdout).toBe("")
       expect(run.stderr).toBe(
-        `[vault-cortex] ERROR: STORAGE_ROOT must not contain glob characters (*, ?, [) — they break the container's find-path safety guards, not '${storageRoot}'.\n`,
+        `[vault-cortex] ERROR: STORAGE_ROOT must not contain glob characters (*, ?, [) — they break the container's find-path safety guards. Got '${storageRoot}'.\n`,
       )
     },
   )
@@ -129,7 +129,7 @@ describe("print-derived-env — storage layout", () => {
       expect(run.status).toBe(1)
       expect(run.stdout).toBe("")
       expect(run.stderr).toBe(
-        `[vault-cortex] ERROR: VAULT_PATH must not contain glob characters (*, ?, [) — they break the container's find-path safety guards, not '${vaultPath}'.\n`,
+        `[vault-cortex] ERROR: VAULT_PATH must not contain glob characters (*, ?, [) — they break the container's find-path safety guards. Got '${vaultPath}'.\n`,
       )
     },
   )
