@@ -78,6 +78,9 @@ export const bootstrapMemoryIfEnabled = async (
   await memoryStore.bootstrapMemoryDir({ vaultPath }, logger)
 }
 
+/** Matches `*`, `?`, or `[` — `find -path` glob metacharacters. */
+const GLOB_CHARS = /[*?[]/
+
 const startServer = async (): Promise<void> => {
   const config = loadConfig()
   // Trim so a stray trailing space or newline on MCP_AUTH_TOKEN in .env
@@ -85,6 +88,9 @@ const startServer = async (): Promise<void> => {
   // surrounding whitespace.
   const authToken = env.get("MCP_AUTH_TOKEN").required().asString().trim()
   const vaultPath = env.get("VAULT_PATH").required().asString()
+  if (GLOB_CHARS.test(vaultPath)) {
+    throw new Error("VAULT_PATH must not contain glob characters (*, ?, [)")
+  }
   const publicUrl = env.get("PUBLIC_URL").required().asString()
   const serverUrl = new URL(publicUrl)
   // Credentials in the URL would be minted into every token's `iss`

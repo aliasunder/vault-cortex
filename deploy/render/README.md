@@ -238,7 +238,7 @@ tab (each change triggers a redeploy):
 
 | Variable                | Value           | What it does                                                                                                                                                                              |
 | ----------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `STORAGE_ROOT`          | `/persist`      | Where the disk is mounted — the vault, search index, Sync device state, and logs live under it. Leave as is.                                                                              |
+| `STORAGE_ROOT`          | `/persist`      | Where the disk is mounted — the vault, search index, Sync device state, and logs live under it. Must not contain `*`, `?`, or `[`. Leave as is.                                           |
 | `PORT`                  | `8000`          | The port the image listens on. Leave as is.                                                                                                                                               |
 | `DEVICE_NAME`           | `vault-cortex`  | The device name that labels this container's changes in Obsidian's sync log.                                                                                                              |
 | `TRUST_PROXY_HOPS`      | `2`             | Render's network puts two proxies between a visitor and the container; this lets the server see the visitor's real address in its logs and rate limits.                                   |

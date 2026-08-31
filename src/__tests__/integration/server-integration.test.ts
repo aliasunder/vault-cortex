@@ -1351,6 +1351,21 @@ describe("boot rejection", () => {
     expect(stderr).toContain("vault_fake_tool")
   }, 15_000)
 
+  it.each(["/vault*path", "/vault?path", "/vault[path]"])(
+    "VAULT_PATH=%s with glob characters exits with error",
+    async (vaultPath) => {
+      const { exitCode, stderr } = await startServerExpectingFailure(
+        await freePort(),
+        { VAULT_PATH: vaultPath },
+      )
+      expect(exitCode).toBe(1)
+      expect(stderr).toContain(
+        "VAULT_PATH must not contain glob characters (*, ?, [)",
+      )
+    },
+    15_000,
+  )
+
   it("PUBLIC_URL with embedded credentials exits with error", async () => {
     const { exitCode, stderr } = await startServerExpectingFailure(
       await freePort(),
