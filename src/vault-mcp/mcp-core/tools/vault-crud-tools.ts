@@ -670,7 +670,7 @@ Returns: Confirmation message with replacement count (number of occurrences repl
     TOOL_NAMES.VAULT_DELETE_SPAN,
     {
       title: "Delete Span",
-      description: `Delete a contiguous block of whole lines from a note's body by referencing short anchor substrings instead of reproducing the full block text. Case-sensitive matching. Properties are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only.
+      description: `Delete a contiguous block of whole lines from a note's body by referencing short anchor substrings instead of reproducing the full block text. Each anchor locates a full line — the entire line is selected, not just the matching substring. Case-sensitive matching. Properties are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only.
 
 Example: vault_delete_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme" }) — deletes the one table row whose line contains that fragment.
 Example: vault_delete_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch" }) — deletes from the start anchor line through the end anchor line.
@@ -703,14 +703,14 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
           .string()
           .min(1)
           .describe(
-            "Short, unique substring on the first line of the block to delete (case-sensitive). Pick a brief fragment — do not paste the whole block.",
+            "Short, unique substring that identifies the first line of the block (case-sensitive). The entire line is selected, not just the substring. Pick a brief fragment — do not paste the whole block.",
           ),
         end_anchor: z
           .string()
           .min(1)
           .optional()
           .describe(
-            "Short, unique substring on the LAST line of the block, searched at or after the start_anchor line. Omit to delete just the single line containing start_anchor.",
+            "Short, unique substring that identifies the LAST line of the block, searched at or after the start_anchor line. The entire line is selected. Omit to delete just the single line containing start_anchor.",
           ),
         first_match: z
           .boolean()
@@ -755,7 +755,7 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
     TOOL_NAMES.VAULT_REPLACE_SPAN,
     {
       title: "Replace Span",
-      description: `Replace a contiguous block of whole lines in a note's body with new content, identified by short anchor substrings instead of the block's full text.${whenToolEnabledText("vault_delete_span", " Same anchor semantics as vault_delete_span.")} Case-sensitive matching. Properties are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only.
+      description: `Replace a contiguous block of whole lines in a note's body with new content, identified by short anchor substrings instead of the block's full text. Each anchor locates a full line — the entire line is selected, not just the matching substring.${whenToolEnabledText("vault_delete_span", " Same anchor semantics as vault_delete_span.")} Case-sensitive matching. Properties are preserved; YAML formatting may be normalized to block style on first edit. Operates on the body only.
 
 Example: vault_replace_span({ path: "Tracker.md", start_anchor: "| 2024-03-02 | Acme", content: "| 2024-03-02 | Acme Corp | Updated |" }) — replaces the one table row whose line contains that fragment.
 Example: vault_replace_span({ path: "Notes/Plan.md", start_anchor: "> [!warning] Stale", end_anchor: "remove after launch", content: "> [!info] Current\\n> Updated for v2." }) — replaces the callout block with a new one.
@@ -764,7 +764,7 @@ When to use: Replacing a block you have already read — a table row, callout, o
 ${whenToolEnabledText("vault_replace_in_note", "Prefer vault_replace_in_note for small in-place text changes (typos, renaming).")}${whenToolEnabledText("vault_delete_span", " Prefer vault_delete_span when removing without replacement.")}
 
 Parameters:
-- start_anchor + end_anchor define a line range, not a text range — each anchor locates a full line, and entire lines are replaced (never cuts mid-line). Omit end_anchor for a single-line replace.
+- start_anchor + end_anchor define a line range, not a text range — each anchor locates a full line, and the entire line from start to end is replaced (never cuts mid-line). Omit end_anchor for a single-line replace.
 - end_anchor is searched at or after the start line, so the span can never run backward. If both match the same line, only that one line is replaced.
 - content replaces the entire matched span and must be non-empty. A trailing newline adds a blank line after the new block.
 - first_match applies to both anchors independently — when an anchor matches multiple lines, takes the first instead of erroring.
@@ -792,14 +792,14 @@ Returns: Confirmation message "Replaced <N> lines with <M> lines in <path>" — 
           .string()
           .min(1)
           .describe(
-            "Short, unique substring on the first line of the block to replace (case-sensitive). Pick a brief fragment — do not paste the whole block.",
+            "Short, unique substring that identifies the first line of the block (case-sensitive). The entire line is selected, not just the substring. Pick a brief fragment — do not paste the whole block.",
           ),
         end_anchor: z
           .string()
           .min(1)
           .optional()
           .describe(
-            "Short, unique substring on the LAST line of the block to replace, searched at or after the start_anchor line. Omit to replace just the single line containing start_anchor.",
+            "Short, unique substring that identifies the LAST line of the block, searched at or after the start_anchor line. The entire line is selected. Omit to replace just the single line containing start_anchor.",
           ),
         content: z
           .string()
