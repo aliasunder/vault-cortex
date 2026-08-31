@@ -146,21 +146,26 @@ const refresh = ({
   port,
   client,
   refreshToken,
+  scope,
 }: {
   port: number
   client: RegisteredClient
   refreshToken: string
-}): Promise<Response> =>
-  fetch(`http://127.0.0.1:${port}/token`, {
+  scope?: string
+}): Promise<Response> => {
+  const params = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    client_id: client.client_id,
+    client_secret: client.client_secret,
+  })
+  if (scope) params.set("scope", scope)
+  return fetch(`http://127.0.0.1:${port}/token`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-      client_id: client.client_id,
-      client_secret: client.client_secret,
-    }),
+    body: params,
   })
+}
 
 // ── Rotating MCP_AUTH_TOKEN ends every OAuth session ───────────
 
@@ -342,5 +347,50 @@ describe("refresh-token reuse detection", () => {
     // Re-consent produces a working grant
     const reissued = await authorize({ port, client, authToken: TOKEN_A })
     expect(await mcpStatusWithBearer(port, reissued.access_token)).toBe(200)
+  }, 60_000)
+})
+
+// ── Scope-widening refresh ────────────────────────────────────
+
+describe("scope-widening refresh", () => {
+  it("consumes the token on scope widening and rejects a retry with the granted scope", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "vc-integ-scope-"))
+    onTestFinished(async () => {
+      await rm(dataDir, { recursive: true, force: true })
+    })
+    const port = await freePort()
+    const server = await startServer(port, {
+      MCP_AUTH_TOKEN: TOKEN_A,
+      INDEX_DB_PATH: join(dataDir, "search.db"),
+    })
+    onTestFinished(() => server.cleanup())
+
+    const client = await registerClient(port)
+    const issued = await authorize({ port, client, authToken: TOKEN_A })
+
+    // Scope widening: rejected with invalid_scope
+    const widened = await refresh({
+      port,
+      client,
+      refreshToken: issued.refresh_token,
+      scope: "vault admin",
+    })
+    expect(widened.status).toBe(400)
+    expect(await widened.json()).toEqual({
+      error: "invalid_scope",
+      error_description: "Requested scope exceeds the granted scope",
+    })
+
+    // Retry with the granted scope: token was consumed, plain miss
+    const retried = await refresh({
+      port,
+      client,
+      refreshToken: issued.refresh_token,
+    })
+    expect(retried.status).toBe(400)
+    expect(await retried.json()).toEqual({
+      error: "invalid_grant",
+      error_description: "Refresh token expired or invalid",
+    })
   }, 60_000)
 })
