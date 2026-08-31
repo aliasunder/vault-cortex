@@ -76,9 +76,9 @@ export const handler = async (
     return { isAuthorized: true }
   }
 
-  // PUBLIC_URL is set on the function by sst.config.ts from the same
-  // inputs Express reads it from, so a JWT minted for another deployment
-  // fails here even when the two share a secret.
+  // sst.config.ts sets PUBLIC_URL on this function from the same inputs
+  // Express reads it from, so the binding derived here matches the one
+  // Express mints into tokens.
   const publicUrl = env.get("PUBLIC_URL").asString()
   if (!publicUrl) {
     logger.error("auth_failed: PUBLIC_URL is empty")
@@ -98,6 +98,8 @@ export const handler = async (
     logger.error("auth_failed: PUBLIC_URL contains credentials")
     return { isAuthorized: false }
   }
+  // Verifying against this deployment's own URL is what makes a JWT
+  // minted for another deployment fail even when the two share a secret.
   const { issuer, audience } = tokenBindingForServer(serverUrl)
   const verified = verifyJwt({
     token,
