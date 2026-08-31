@@ -680,10 +680,12 @@ static token.
   checks both per-token revocation and per-client grant revocation (a cutoff
   timestamp rejecting `iat` strictly before revocation). Tokens without `iat`
   are rejected whenever a grant revocation exists for their client.
-- **Revoked tokens** — per-token: tracked in SQLite, purged past the
-  access-token lifetime, logged as `oauth_revoked_tokens_purged`. Per-client
-  (grant revocation): a cutoff timestamp inserted on reuse detection, purged
-  on the same schedule.
+- **Revoked tokens** — revoked access tokens are tracked in SQLite; a revoked
+  refresh token is simply deleted. Grant-level revocations (from reuse
+  detection) insert a per-client cutoff that rejects tokens minted strictly
+  before the revocation time. A revoked JWT outlives its revocation by at
+  most the access-token lifetime, so rows older than that are purged at boot
+  and before each new revocation, logged as `oauth_revoked_tokens_purged`.
 
 **Refresh token expiry:** 60-day sliding (inactivity) window. Each successful
 use rotates the token AND extends the window by another 60 days, so a daily
