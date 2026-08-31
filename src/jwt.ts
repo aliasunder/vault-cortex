@@ -58,27 +58,19 @@ export const signJwt = (payload: JwtPayload, secret: string): string => {
 }
 
 const isJwtBaseClaims = (value: unknown): value is JwtBaseClaims => {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "sub" in value &&
-    typeof value.sub === "string" &&
-    "scope" in value &&
-    typeof value.scope === "string" &&
-    "exp" in value &&
-    typeof value.exp === "number"
-  )
+  if (typeof value !== "object" || value === null) return false
+  if (!("sub" in value) || typeof value.sub !== "string") return false
+  if (!("scope" in value) || typeof value.scope !== "string") return false
+  if (!("exp" in value) || typeof value.exp !== "number") return false
+  return true
 }
 
 const isJwtPayload = (value: unknown): value is JwtPayload => {
-  return (
-    isJwtBaseClaims(value) &&
-    "iss" in value &&
-    typeof value.iss === "string" &&
-    "aud" in value &&
-    typeof value.aud === "string" &&
-    (!("iat" in value) || typeof value.iat === "number")
-  )
+  if (!isJwtBaseClaims(value)) return false
+  if (!("iss" in value) || typeof value.iss !== "string") return false
+  if (!("aud" in value) || typeof value.aud !== "string") return false
+  if ("iat" in value && typeof value.iat !== "number") return false
+  return true
 }
 
 // exp is Unix seconds. Native Date here, not Luxon: this module is bundled
