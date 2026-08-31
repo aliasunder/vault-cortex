@@ -2503,6 +2503,53 @@ kanban-plugin: board
 - [ ] New done task ➕ ${today()} ^new-done
 `)
       })
+
+      it("bottom insertion into the last lane of a board with kanban:settings stays before the settings block", async () => {
+        const vault = await createVault()
+        const board = `---
+kanban-plugin: board
+---
+
+## Done
+
+- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board","new-card-insertion-method":"append"}
+\`\`\`
+%%
+`
+        await writeTestNote(vault, "board.md", board)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "New card",
+            blockId: "new-card",
+            heading: "Done",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(`---
+kanban-plugin: board
+---
+
+## Done
+
+- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10
+- [ ] New card ➕ ${today()} ^new-card
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board","new-card-insertion-method":"append"}
+\`\`\`
+%%
+`)
+      })
     })
 
     // ── updateTask + position ───────────────────────────────────
