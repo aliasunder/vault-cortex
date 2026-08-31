@@ -22,6 +22,8 @@ export default $config({
     const { readFileSync, existsSync } = await import("node:fs")
     const { homedir } = await import("node:os")
     const env = (await import("env-var")).get
+    const { urlHasCredentials } =
+      await import("./src/utils/url-has-credentials.js")
 
     // ── Environment ──────────────────────────────────────────────
     // SSH key fallback chain: SSH_PUBKEY (CI) → SSH_PUBKEY_PATH → ~/.ssh/vault-cortex.pub
@@ -95,9 +97,9 @@ export default $config({
 
     // Credentials in the URL would be minted into every token's `iss`
     // claim and served by the discovery documents — fail the deploy.
-    const publicUrlHasCredentials = Boolean(
-      parsedPublicUrlOverride?.username || parsedPublicUrlOverride?.password,
-    )
+    const publicUrlHasCredentials = parsedPublicUrlOverride
+      ? urlHasCredentials(parsedPublicUrlOverride)
+      : false
 
     if (publicUrlHasCredentials) {
       throw new Error(
