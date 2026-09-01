@@ -19,7 +19,7 @@ Prefer your own VPS? Use the [remote quickstart](../remote/) instead.
 Curious how the container is put together?
 [ARCHITECTURE.md →](../../ARCHITECTURE.md#container-startup).
 
-**Contents** — [Prerequisites](#prerequisites) · [Deploy](#deploy) · [Your URL and token](#your-url-and-token) · [Security](#security) · [First start](#first-start) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Restart, stop, delete](#restart-stop-delete) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Deploy](#deploy) · [Your URL and token](#your-url-and-token) · [Sign in to Obsidian Sync](#sign-in-to-obsidian-sync) · [Security](#security) · [First start](#first-start) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Restart, stop, delete](#restart-stop-delete) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -29,73 +29,27 @@ Curious how the container is put together?
   together, the instance billed by the second and the disk as its own line
   item ([Render's pricing](https://render.com/pricing)).
 - An [Obsidian Sync](https://obsidian.md/sync) subscription
-- Your Obsidian Sync login token — see
-  [Getting your Obsidian Sync token](#getting-your-obsidian-sync-token)
-  below. It is the one step that happens on your own computer.
-
-### Getting your Obsidian Sync token
-
-The token lets the container log in to Obsidian Sync as you. Obsidian only
-hands it out after an interactive login, so this step runs in a terminal on
-your computer — once, before you click the button.
-
-1. **Open a terminal.** macOS: **Applications → Utilities → Terminal**.
-   Windows: search the Start menu for **Terminal** (or **PowerShell**).
-2. **Check that Node.js is installed** (version 20.12 or later):
-
-   ```bash
-   node -v
-   ```
-
-   If Node.js is missing, install it from [nodejs.org](https://nodejs.org/).
-
-3. **Paste this line and press Enter:**
-
-   ```bash
-   npx vault-cortex@latest get-sync-token
-   ```
-
-   It asks for your Obsidian account email, password, and two-factor code
-   (if you use one), then prints the token.
-
-4. **Copy the token.** The deploy form asks for it as `OBSIDIAN_AUTH_TOKEN`.
-
-<details>
-<summary><strong>Don't have Node.js?</strong></summary>
-
-Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-and run the login in a throwaway container instead:
-
-```bash
-docker run --rm -it --entrypoint get-sync-token ghcr.io/aliasunder/vault-cortex:remote
-```
-
-</details>
 
 ## Deploy
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex)
 
 Render asks for a card first if your workspace has none on file, then reads
-the Blueprint and asks for a **Blueprint Name** (any name) and four values
+the Blueprint and asks for a **Blueprint Name** (any name) and three values
 before it creates anything:
 
-| Field                 | Value                                                                                                                                                                                                                           |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OBSIDIAN_AUTH_TOKEN` | The token from [Getting your Obsidian Sync token](#getting-your-obsidian-sync-token)                                                                                                                                            |
-| `VAULT_NAME`          | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                                                                                       |
-| `VAULT_PASSWORD`      | Only if your vault uses end-to-end encryption; otherwise leave empty                                                                                                                                                            |
-| `TZ`                  | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
+| Field            | Value                                                                                                                                                                                                                           |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VAULT_NAME`     | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                                                                                       |
+| `VAULT_PASSWORD` | Only if your vault uses end-to-end encryption; otherwise leave empty                                                                                                                                                            |
+| `TZ`             | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
 
-Fill the token, vault name, and (for an encrypted vault) password in
-**before** the first deploy — a container that starts without them stops at
-Obsidian Sync setup. A value you missed is added later under the service's
-**Environment** tab, followed by **Manual Deploy** (see
-[Troubleshooting](#troubleshooting)).
-
-Click **Deploy Blueprint**. Render creates the service and disk, pulls the
-image, and starts the first deploy. Everything else — the MCP token, the public URL, the
-port, the storage layout — is set by the Blueprint.
+Leave `OBSIDIAN_AUTH_TOKEN` empty — you sign in to Obsidian Sync through
+the setup page after the service starts (next section). Click **Deploy
+Blueprint**. Render creates the service and disk, pulls the image, and
+starts the first deploy. Everything else — the MCP token, the public URL,
+the port, the storage layout — is set by the Blueprint. The service is
+ready in about 30 seconds.
 
 ## Your URL and token
 
@@ -107,6 +61,50 @@ port, the storage layout — is set by the Blueprint.
   `<host>`; your MCP client connects at `https://<host>/mcp`.
 - **Token:** `MCP_AUTH_TOKEN` under the service's **Environment** tab. Render
   generated it for you; your MCP client enters it once on the consent page.
+
+## Sign in to Obsidian Sync
+
+After the deploy finishes, sign in to Obsidian Sync through the setup page:
+
+1. **Find your service URL** at the top of the service page — the
+   `https://vault-cortex-xxxx.onrender.com` address.
+2. **Copy `MCP_AUTH_TOKEN`** from the service's **Environment** tab — click
+   the eye icon to reveal it, then copy the value.
+3. **Open `https://<your-service-url>/setup`** in your browser.
+4. **Paste the `MCP_AUTH_TOKEN` value** in the token field.
+5. **Enter your Obsidian account email and password.** If you use
+   two-factor authentication, the page asks for the code on the next step.
+6. **Wait for "Your vault is ready."** The server signs in, validates your
+   vault settings, writes the token, and restarts to download your vault
+   and build the search index. The page follows the progress automatically.
+   A vault of a few thousand notes takes two to three minutes; a large vault
+   can take longer.
+
+Once the page shows your MCP URL, the server is live and ready to connect.
+
+<details>
+<summary><strong>Already have a token?</strong></summary>
+
+<a id="getting-your-obsidian-sync-token"></a>
+
+If you already have an Obsidian Sync token (from a previous deploy, from the
+CLI, or from a manual login), paste it into the `OBSIDIAN_AUTH_TOKEN` field
+on the Blueprint form — the container skips the setup page and starts
+syncing immediately.
+
+To generate a token from the command line:
+
+```bash
+npx vault-cortex@latest get-sync-token
+```
+
+Or, if you don't have Node.js installed:
+
+```bash
+docker run --rm -it --entrypoint get-sync-token ghcr.io/aliasunder/vault-cortex:remote
+```
+
+</details>
 
 ## Security
 
@@ -151,12 +149,12 @@ each part is hardened.
 
 ## First start
 
-The first deploy takes longer than later ones. In order, the container logs
-in to Obsidian Sync, downloads your vault, builds the search index, and only
-then answers health checks and
-receives traffic. A vault of a few thousand notes takes two to three
-minutes; Render allows up to 15, and a large vault can take most of it.
-Until then the URL answers `502` — that is Render waiting, not a failure.
+After you sign in on the setup page, the container restarts and runs the
+full startup sequence: it logs in to Obsidian Sync, downloads your vault,
+builds the search index, and then answers health checks and receives
+traffic. A vault of a few thousand notes takes two to three minutes; Render
+allows up to 15, and a large vault can take most of it. Until the index is
+built, the URL answers `502` — that is Render waiting, not a failure.
 
 Watch the **Logs** tab. Lines prefixed `[obsidian-sync]` are the Sync setup
 and download; `[vault-cortex]` lines show the storage layout and the public
@@ -243,7 +241,7 @@ tab (each change triggers a redeploy):
 | `DEVICE_NAME`           | `vault-cortex`  | The device name that labels this container's changes in Obsidian's sync log.                                                                                                              |
 | `TRUST_PROXY_HOPS`      | `2`             | Render's network puts two proxies between a visitor and the container; this lets the server see the visitor's real address in its logs and rate limits.                                   |
 | `MCP_AUTH_TOKEN`        | generated       | Your MCP client's token. Change it here to rotate it — every connected client re-authorizes.                                                                                              |
-| `OBSIDIAN_AUTH_TOKEN`   | yours           | Obsidian Sync login. Re-run `get-sync-token` and paste the new value if Sync ever rejects it.                                                                                             |
+| `OBSIDIAN_AUTH_TOKEN`   | from setup page | Obsidian Sync login, filled by the setup page on first deploy. To re-sign-in, clear this value and redeploy — the setup page appears again.                                               |
 | `VAULT_NAME`            | yours           | The vault this container syncs.                                                                                                                                                           |
 | `VAULT_PASSWORD`        | yours / empty   | End-to-end encryption password, if your vault has one.                                                                                                                                    |
 | `TZ`                    | yours / empty   | Timezone for daily notes, task due dates, and memory timestamps. Empty means UTC.                                                                                                         |
@@ -273,21 +271,22 @@ disk, never shrink it).
 
 ## Troubleshooting
 
-**The first deploy failed.** Open **Logs** and look at the last
-`[obsidian-sync]` lines:
+**The setup page shows an error after signing in.** The page tells you
+what went wrong:
 
-- `OBSIDIAN_AUTH_TOKEN is empty or unset` — the token wasn't entered. Add it
-  under **Environment**, then **Manual Deploy**.
-- `login was rejected` — the token is stale. Run `get-sync-token` again,
-  update `OBSIDIAN_AUTH_TOKEN`, then **Manual Deploy**.
-- `Password not provided.` then `ob sync-setup failed` — the vault is
-  end-to-end encrypted and `VAULT_PASSWORD` is missing. Add it under
-  **Environment**, then **Manual Deploy**.
-- `ob sync-setup failed` on its own — the vault name doesn't match Obsidian
-  Sync exactly (it is case-sensitive). Fix `VAULT_NAME`, then **Manual
+- _login was rejected_ — wrong email, password, or two-factor code. Try
+  again on the same page.
+- _Vault "X" was not found_ — the vault name doesn't match Obsidian Sync
+  exactly (it is case-sensitive). Fix `VAULT_NAME` under the service's
+  **Environment** tab, then **Manual Deploy**.
+- _Vault password required_ — the vault is end-to-end encrypted and
+  `VAULT_PASSWORD` is missing. Add it under **Environment**, then **Manual
   Deploy**.
-- `VAULT_NAME is not set` — add it under **Environment**, then **Manual
-  Deploy**.
+- _Wrong vault key_ — the vault password is incorrect. Fix
+  `VAULT_PASSWORD`, then **Manual Deploy**.
+
+**`VAULT_NAME is not set` in the logs.** Add it under **Environment**, then
+**Manual Deploy**.
 
 **The deploy timed out waiting for the health check.** Render allows 15
 minutes from container start. The first start of a large vault — download

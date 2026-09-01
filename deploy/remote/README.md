@@ -83,6 +83,12 @@ docker run --rm -it --entrypoint get-sync-token \
   ghcr.io/aliasunder/vault-cortex:remote
 ```
 
+Or leave `OBSIDIAN_AUTH_TOKEN` blank in `.env` and sign in through the
+`/setup` page after starting the container — the server shows a browser
+form where you enter your Obsidian credentials directly. Configure
+[HTTPS access](#https-access) first, since the setup page sends your
+Obsidian password to the server.
+
 **4. Create your `.env` file:**
 
 ```bash
@@ -95,7 +101,7 @@ cp .env.example .env
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MCP_AUTH_TOKEN`      | Generate with `openssl rand -hex 32`                                                                                                                                                                     |
 | `PUBLIC_URL`          | Your server's public base URL, e.g. `https://vault.example.com` — no `/mcp` at the end; it's appended automatically, and clients connect at `<PUBLIC_URL>/mcp` (see [HTTPS access](#https-access) below) |
-| `OBSIDIAN_AUTH_TOKEN` | Output from step 3                                                                                                                                                                                       |
+| `OBSIDIAN_AUTH_TOKEN` | Output from step 3. Or leave empty to sign in through the `/setup` page after starting                                                                                                                   |
 | `VAULT_NAME`          | Your exact Obsidian vault name (case-sensitive)                                                                                                                                                          |
 
 **6. Start the server:**
@@ -514,8 +520,9 @@ with `docker run`, re-create the container as described in the
 
 ## Configuration
 
-Only `MCP_AUTH_TOKEN`, `PUBLIC_URL`, `OBSIDIAN_AUTH_TOKEN`, and `VAULT_NAME` are
-required. These optional settings are worth knowing about:
+Only `MCP_AUTH_TOKEN`, `PUBLIC_URL`, and `VAULT_NAME` are required.
+`OBSIDIAN_AUTH_TOKEN` can be filled via the `/setup` page when left blank.
+These optional settings are worth knowing about:
 
 | Setting                 | Default                       | What it does                                                                                                                                                                                                                                                                                        |
 | ----------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

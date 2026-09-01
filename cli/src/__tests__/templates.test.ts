@@ -172,7 +172,7 @@ describe("hosted platform templates", () => {
       expect(blueprint.services[0].healthCheckPath).toBe("/healthz")
     })
 
-    it("generates MCP_AUTH_TOKEN and prompts for the Sync token, vault name, vault password, and timezone", () => {
+    it("generates MCP_AUTH_TOKEN and accepts optional Sync token, vault name, vault password, and timezone", () => {
       const envVars = renderEnvVarsByKey(readRenderBlueprint())
       expect(envVars.get("MCP_AUTH_TOKEN")).toEqual({
         key: "MCP_AUTH_TOKEN",
@@ -266,7 +266,7 @@ describe("hosted platform templates", () => {
         TZ: "optional",
         VAULT_NAME: "required",
         VAULT_PASSWORD: "optional",
-        OBSIDIAN_AUTH_TOKEN: "required",
+        OBSIDIAN_AUTH_TOKEN: "optional",
         SYNC_EXCLUDED_FOLDERS: "optional",
         SYNC_FILE_TYPES: "optional",
       })

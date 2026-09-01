@@ -21,7 +21,7 @@ services:
     restart: unless-stopped
     environment:
       # --- Obsidian Sync (s6 init chain + svc-obsidian-sync) ---
-      OBSIDIAN_AUTH_TOKEN: ${OBSIDIAN_AUTH_TOKEN}
+      OBSIDIAN_AUTH_TOKEN: ${OBSIDIAN_AUTH_TOKEN:-}
       VAULT_NAME: "${VAULT_NAME:?Set VAULT_NAME to your Obsidian vault name (case-sensitive)}"
       VAULT_PASSWORD: ${VAULT_PASSWORD:-}
       PUID: ${PUID:-1000}
