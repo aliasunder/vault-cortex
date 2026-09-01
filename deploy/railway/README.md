@@ -192,8 +192,6 @@ show the storage layout and the public URL the container derived
 (`PUBLIC_URL derived from RAILWAY_PUBLIC_DOMAIN`); the structured JSON lines
 are the MCP server. `server started` means the deploy is about to go live.
 
-![Railway deploy logs showing rebuilt index, server started, and embedding model loaded](img/railway-logs.jpg)
-
 ## Connect your MCP client
 
 The same three steps in every app:

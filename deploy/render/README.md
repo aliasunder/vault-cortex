@@ -176,8 +176,6 @@ URL the container derived (`PUBLIC_URL derived from RENDER_EXTERNAL_URL`);
 the structured JSON lines are the MCP server. `server started` means the
 deploy is about to go live.
 
-![Render logs showing rebuilt index, server started, and embedding model loaded](img/render-logs.jpg)
-
 ## Connect your MCP client
 
 The same three steps in every app:
