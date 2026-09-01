@@ -903,8 +903,9 @@ flowchart TD
    start.
 3. `svc-vault-mcp` runs `setup-server.ts` instead of `server.ts`.
    `/healthz` answers `{ ok: true, mode: "setup" }` within seconds (so a
-   platform deploy goes live), `/setup` serves the sign-in page, and every
-   other path answers 503 with the setup URL.
+   platform deploy goes live), `/setup` serves the sign-in page, browser
+   GETs to any other path redirect to `/setup`, and API requests answer
+   503 with the setup URL.
 4. `POST /setup` checks `MCP_AUTH_TOKEN` first, then signs in through
    Obsidian's account API (the same request `ob login` makes, two-factor
    included).

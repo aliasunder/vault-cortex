@@ -35,19 +35,19 @@ Curious how the container is put together?
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex)
 
 Render asks for a card first if your workspace has none on file, then reads
-the Blueprint and asks for a **Blueprint Name** (any name) and three values
-before it creates anything:
+the Blueprint and asks for a **Blueprint Name** (any name) and four values
+before it creates anything. One is required; the rest are optional:
 
-| Field            | Value                                                                                                                                                                                                                           |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VAULT_NAME`     | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                                                                                       |
-| `VAULT_PASSWORD` | Only if your vault uses end-to-end encryption; otherwise leave empty                                                                                                                                                            |
-| `TZ`             | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
+| Field                 | Value                                                                                                                                                                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OBSIDIAN_AUTH_TOKEN` | Leave empty — you sign in through the setup page after deploy (see below). Or paste a token from `npx vault-cortex@latest get-sync-token` to skip the setup page                                                                |
+| `VAULT_NAME`          | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                                                                                       |
+| `VAULT_PASSWORD`      | Only if your vault uses end-to-end encryption; otherwise leave empty                                                                                                                                                            |
+| `TZ`                  | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
 
-![Render Blueprint form showing VAULT_NAME, VAULT_PASSWORD, and TZ fields](img/render-blueprint.jpg)
+![Render Blueprint form showing OBSIDIAN_AUTH_TOKEN, VAULT_NAME, VAULT_PASSWORD, and TZ fields](img/render-blueprint.jpg)
 
-Leave `OBSIDIAN_AUTH_TOKEN` empty — you sign in to Obsidian Sync through
-the setup page after the service starts (next section). Click **Deploy
+Fill in at least the vault name **before** the first deploy. Click **Deploy
 Blueprint**. Render creates the service and disk, pulls the image, and
 starts the first deploy. Everything else — the MCP token, the public URL,
 the port, the storage layout — is set by the Blueprint. The service is
