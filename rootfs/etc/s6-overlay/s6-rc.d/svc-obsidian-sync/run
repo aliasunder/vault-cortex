@@ -8,7 +8,7 @@ set -e
 # serve the /setup page. The container restarts into a normal boot once the
 # page has written the token.
 if [ "${SETUP_MODE:-}" = 1 ]; then
-  echo "[obsidian-sync] Setup mode — Obsidian Sync starts after you sign in at ${PUBLIC_URL:-http://<your-server>:${PORT:-8000}}/setup."
+  echo "[obsidian-sync] Setup mode — sign in at ${PUBLIC_URL:-http://<your-server>:${PORT:-8000}}/setup"
   exec sleep infinity
 fi
 

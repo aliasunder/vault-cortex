@@ -291,13 +291,13 @@ on**, not just its topic:
 - **`search/`** — SQLite FTS5 + sqlite-vec index, embedding pipeline, file watcher.
 - **`oauth/`** — the OAuth 2.1 server (distinct from the shared `src/auth.ts`
   token utilities).
-- **`setup/`** — the `:remote` image's setup mode: the sign-in page served
-  while the container has no working Obsidian Sync token, the Obsidian
-  account API client, and the token store. A sibling surface to `oauth/`, not a layer below it: it
-  builds on `config.ts`, `src/auth.ts`, and `utils/`, and nothing lower
-  imports it (lint-enforced like `oauth/`). Its entry point
-  (`setup-server.ts`) lives inside the folder — `svc-vault-mcp/run` picks it
-  over `server.ts` when `SETUP_MODE` is set.
+- **`setup/`** — the `:remote` image's setup mode. Contains the sign-in
+  page served while the container has no working Obsidian Sync token, the
+  Obsidian account API client, and the token store. A sibling surface to
+  `oauth/`, not a layer below it: builds on `config.ts`, `src/auth.ts`,
+  and `utils/`; nothing lower imports it (lint-enforced like `oauth/`).
+  `svc-vault-mcp/run` starts `setup-server.ts` instead of `server.ts`
+  when `SETUP_MODE` is set.
 - **`utils/`** (at `src/`) — generic cross-cutting helpers.
 
 Two rules keep this honest:
@@ -1176,8 +1176,8 @@ re-verify each contract against the new source before merging:
 - Files delivered by `sync --continuous` are recorded in that same
   table as they arrive, and a file deleted locally has its row removed.
   The stub's `sync-record` and `sync-forget` verbs mirror the two.
-- The setup page's pre-flight (`src/vault-mcp/setup/`) repeats two calls
-  `ob sync-setup` makes and must keep matching them: `/vault/list` (an
+- The setup page's pre-flight (`src/vault-mcp/setup/`) mirrors two calls
+  `ob sync-setup` makes on the next boot: `/vault/list` (an
   end-to-end encrypted vault comes back with `password: ""`) and
   `/vault/access` with the key hash — scrypt over the NFKC-normalized
   password and salt (N 32768, r 8, p 1, 32 bytes), then HKDF-SHA256 with
