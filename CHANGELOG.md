@@ -89,6 +89,21 @@
 
 
 
+
+## [0.48.0] — 2026-09-01
+
+### Features
+
+- **remote:** Setup mode — browser sign-in to Obsidian Sync when no token is configured (#500)
+
+### Bug Fixes
+
+- **docs:** Cache-bust stale Gitleaks badge (#515)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.47.0
+
 ## [0.47.0] — 2026-09-01
 
 ### Features
