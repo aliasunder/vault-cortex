@@ -1,8 +1,8 @@
 /** Setup-mode entry point — what svc-vault-mcp runs instead of server.ts
- *  while the container has no working Obsidian Sync token. Serves /setup and
- *  /healthz only; every other path redirects browsers to /setup or answers 503 with the setup URL. No
- *  index, no watcher, no OAuth: the page must be up seconds after the
- *  deploy, not after a vault download. */
+ *  while the container has no working Obsidian Sync token. Serves /setup
+ *  and /healthz only; every other path redirects browsers to /setup or
+ *  answers 503 with the setup URL. No index, no watcher, no OAuth: the
+ *  page must be up seconds after the deploy, not after a vault download. */
 
 import express from "express"
 import type { NextFunction, Request, Response } from "express"

@@ -94,7 +94,7 @@ After the deploy finishes, sign in to Obsidian Sync through the setup page:
 6. **Wait for "Your vault is ready."** The server signs in, validates your
    vault settings, writes the token, and restarts to download your vault
    and build the search index. The page follows the progress automatically.
-   A vault of a few thousand notes takes about three minutes; a large vault
+   A vault of a few thousand notes takes two to three minutes; a large vault
    can take longer.
 
 Once the page shows your MCP URL, the server is live and ready to connect.
@@ -183,7 +183,7 @@ each part is hardened.
 After you sign in on the setup page, the container restarts and runs the
 full startup sequence: it logs in to Obsidian Sync, downloads your vault,
 builds the search index, and then answers health checks and receives
-traffic. A vault of a few thousand notes takes about three minutes; the
+traffic. A vault of a few thousand notes takes two to three minutes; the
 template allows 15, and a large vault can take most of it.
 
 Watch the service's **Deployments → View logs**. Lines prefixed
