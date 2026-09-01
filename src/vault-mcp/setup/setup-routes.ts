@@ -306,12 +306,17 @@ export const createSetupRoutes = ({
     )
   }
 
-  const handleSignInForm = async (
-    req: Request,
-    res: Response,
-    body: Record<string, unknown>,
-    requestLogger: Logger,
-  ): Promise<void> => {
+  const handleSignInForm = async ({
+    req,
+    res,
+    body,
+    requestLogger,
+  }: {
+    req: Request
+    res: Response
+    body: Record<string, unknown>
+    requestLogger: Logger
+  }): Promise<void> => {
     // Whitespace-tolerant like the consent page: a token copied from a
     // dashboard or terminal can pick up a wrapped newline.
     const submittedToken = formField(body, "token").replace(/\s+/g, "")
@@ -358,12 +363,17 @@ export const createSetupRoutes = ({
     await completeSetup(result, res, requestLogger)
   }
 
-  const handleMfaForm = async (
-    req: Request,
-    res: Response,
-    body: Record<string, unknown>,
-    requestLogger: Logger,
-  ): Promise<void> => {
+  const handleMfaForm = async ({
+    req,
+    res,
+    body,
+    requestLogger,
+  }: {
+    req: Request
+    res: Response
+    body: Record<string, unknown>
+    requestLogger: Logger
+  }): Promise<void> => {
     const pending = takePendingSignIn(formField(body, "request_id"))
     if (!pending) {
       sendSignInPage(req, res, {
@@ -423,10 +433,10 @@ export const createSetupRoutes = ({
         clientIp: extractClientIp(req, trustForwardedHops),
       })
       if (formField(body, "request_id")) {
-        await handleMfaForm(req, res, body, requestLogger)
+        await handleMfaForm({ req, res, body, requestLogger })
         return
       }
-      await handleSignInForm(req, res, body, requestLogger)
+      await handleSignInForm({ req, res, body, requestLogger })
     },
   )
 
