@@ -294,9 +294,10 @@ accepts `https` URLs, so with an `http` PUBLIC_URL connect via Claude Code
 > it for you, so a `PUBLIC_URL` ending in `/mcp` becomes `…/mcp/mcp` and won't
 > connect.
 >
-> The base must be exactly the one clients reach the server through (scheme,
-> host, and any path prefix) — OAuth discovery metadata uses this URL, so a
-> mismatch causes authentication failures.
+> The base must be exactly the one clients reach the server through (scheme
+> and host, with no path — the server's routes live at the root) — OAuth
+> discovery metadata uses this URL, so a mismatch causes authentication
+> failures.
 
 ## Connect your MCP client
 

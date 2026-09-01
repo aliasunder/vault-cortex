@@ -3,6 +3,11 @@
 # All ob commands run as the obsidian user via s6-setuidgid.
 set -e
 
+if [ "${SETUP_MODE:-}" = 1 ]; then
+  echo "[obsidian-sync] Setup mode — skipping vault setup."
+  exit 0
+fi
+
 VAULT_PATH="${VAULT_PATH:-/vault}"
 mkdir -p "$VAULT_PATH"
 if ! cd "$VAULT_PATH"; then

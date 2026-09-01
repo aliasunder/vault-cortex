@@ -55,7 +55,7 @@ obsidian-headless/                     # Lockfile-pinned obsidian-headless for D
   package.json                         #   pins obsidian-headless version
   package-lock.json                    #   sha512 integrity hashes (supply-chain security)
 rootfs/                                # Container filesystem overlay (remote target)
-  etc/s6-overlay/                      #   init chain + svc-obsidian-sync + svc-vault-mcp
+  etc/s6-overlay/                      #   init chain + svc-obsidian-sync + svc-vault-mcp (run + finish: the setup-mode restart)
   usr/local/bin/get-sync-token         #   interactive Obsidian Sync token helper (manual flow)
 docker-compose.yml                     # Lightsail: single vault-cortex:remote service
 docker-compose.local.yml               # Contributor dev: builds from source
@@ -119,6 +119,7 @@ src/
     file-write-lock.ts                 # Per-file write locks — serializing, fail-fast, and multi-file fail-fast modes (TOCTOU prevention)
     map-with-concurrency.ts            # Bounded-concurrency async map (batch-based)
     describe-error.ts                  # describeError — message from an unknown throw
+    escape-html.ts                     # escapeHtml — the four characters that break out of HTML text or a quoted attribute
     fs.ts                              # readFileOrNull / readdirOrNull / fileExists / statOrNull (ENOENT-safe)
     assert-no-control-characters.ts    # Rejects C0 controls (except tab/LF/CR), DEL, and C1 controls in write params
     assert-path-has-extension.ts       # Generic path extension assertion (used by note-path validation)
@@ -197,6 +198,13 @@ src/
       oauth-provider.ts                # OAuthServerProvider — JWT tokens, SQLite persistence
       oauth-routes.ts                  # SDK auth router + consent form handler
       consent-page.ts                  # HTML consent page for OAuth authorization
+    setup/                             # Setup mode — browser sign-in to Obsidian Sync when the :remote image boots without a working token
+      setup-server.ts                  # Entry point svc-vault-mcp runs in setup mode (/setup + /healthz; every other path 503)
+      setup-routes.ts                  # GET/POST /setup — MCP-token gate, sign-in + 2FA, vault pre-flight, token write, restart signal
+      setup-page.ts                    # HTML for the flow (sign-in, 2FA, blocked, complete, already configured)
+      obsidian-api.ts                  # Obsidian's account API as the obsidian-headless CLI calls it (sign-in, vault list, vault key check)
+      vault-key.ts                     # Vault password → key hash, the derivation `ob sync-setup` uses (scrypt + HKDF; pure)
+      sync-token-store.ts              # Writes the token where the Sync client reads it (dir 0700, file 0600)
 ```
 
 ### Module layering
@@ -283,6 +291,13 @@ on**, not just its topic:
 - **`search/`** — SQLite FTS5 + sqlite-vec index, embedding pipeline, file watcher.
 - **`oauth/`** — the OAuth 2.1 server (distinct from the shared `src/auth.ts`
   token utilities).
+- **`setup/`** — the `:remote` image's setup mode. Contains the sign-in
+  page served while the container has no working Obsidian Sync token, the
+  Obsidian account API client, and the token store. A sibling surface to
+  `oauth/`, not a layer below it: builds on `config.ts`, `src/auth.ts`,
+  and `utils/`; nothing lower imports it (lint-enforced like `oauth/`).
+  `svc-vault-mcp/run` starts `setup-server.ts` instead of `server.ts`
+  when `SETUP_MODE` is set.
 - **`utils/`** (at `src/`) — generic cross-cutting helpers.
 
 Two rules keep this honest:
@@ -301,7 +316,8 @@ Two rules keep this honest:
   layers is the smell, not the goal — each file answers for one layer's view
   of its domain.
 - **Top level is wiring only.** Folders are domains; the only loose files at
-  `vault-mcp/` are the entry point (`server.ts`) and its `config.ts`.
+  `vault-mcp/` are the entry point (`server.ts`) and its `config.ts` — the
+  setup-mode entry point stays inside `setup/`.
 
 The dependency-direction rule is lint-enforced: `eslint.config.ts` bans runtime
 cross-layer imports per folder via `@typescript-eslint/no-restricted-imports`
@@ -950,7 +966,8 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   boot chain for the `:remote` target, not TypeScript modules, and
   vitest's include paths (`src/`, `cli/src/`, `scripts/`) don't reach
   `rootfs/`. Their tests live in
-  `src/vault-mcp/__tests__/` (`init-first-sync.test.ts`,
+  `src/vault-mcp/__tests__/` (`init-check-auth.test.ts`,
+  `init-obsidian-login.test.ts`, `init-first-sync.test.ts`,
   `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
   `print-derived-env.test.ts`). These script tests run the real
   script under `sh` with stub binaries on `PATH`, and name the script
@@ -1159,6 +1176,14 @@ re-verify each contract against the new source before merging:
 - Files delivered by `sync --continuous` are recorded in that same
   table as they arrive, and a file deleted locally has its row removed.
   The stub's `sync-record` and `sync-forget` verbs mirror the two.
+- The setup page's pre-flight (`src/vault-mcp/setup/`) mirrors two calls
+  `ob sync-setup` makes on the next boot: `/vault/list` (an
+  end-to-end encrypted vault comes back with `password: ""`) and
+  `/vault/access` with the key hash — scrypt over the NFKC-normalized
+  password and salt (N 32768, r 8, p 1, 32 bytes), then HKDF-SHA256 with
+  info `ObsidianKeyHash` for versions 2 and 3, SHA-256 for version 0. The
+  vectors in `vault-key.test.ts` were produced by the pinned CLI's own
+  functions; recompute them on a bump.
 
 The remote-boot tests never run the real CLI — they run the stub
 (`src/__tests__/docker/fixtures/ob`), which imitates the behaviour listed

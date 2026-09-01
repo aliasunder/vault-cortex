@@ -161,7 +161,8 @@ COPY rootfs/ /
 RUN chmod +x /usr/local/bin/get-sync-token \
     && chmod +x /etc/s6-overlay/scripts/* \
     && chmod +x /etc/s6-overlay/s6-rc.d/svc-obsidian-sync/run \
-       /etc/s6-overlay/s6-rc.d/svc-vault-mcp/run
+       /etc/s6-overlay/s6-rc.d/svc-vault-mcp/run \
+       /etc/s6-overlay/s6-rc.d/svc-vault-mcp/finish
 
 LABEL org.opencontainers.image.description="Standalone MCP server for Obsidian vaults with bundled Obsidian Sync — hybrid search, notes & files, memory, tasks, OAuth 2.1"
 

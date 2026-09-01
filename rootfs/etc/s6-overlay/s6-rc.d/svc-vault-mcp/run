@@ -14,4 +14,13 @@ set -e
 # s6 services do not inherit the Dockerfile WORKDIR; the server resolves
 # dist/ and package.json relative to /app.
 cd /app
+
+# Setup mode (no working Sync token yet): serve the /setup sign-in page
+# instead of the MCP server. The setup server exits 0 once the token file
+# is written; the finish script beside this file then stops the container
+# so the restart policy boots it again.
+if [ "${SETUP_MODE:-}" = 1 ]; then
+  exec s6-setuidgid obsidian node --enable-source-maps dist/src/vault-mcp/setup/setup-server.js
+fi
+
 exec s6-setuidgid obsidian node --enable-source-maps dist/src/vault-mcp/server.js

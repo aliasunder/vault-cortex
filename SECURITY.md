@@ -13,7 +13,10 @@ notes below describe what the maintainer uses.
 - **Authentication and authorization** — OAuth 2.1 (Authorization Code + PKCE),
   JWT tokens (HS256), static bearer token fallback, Express middleware (defense
   in depth)
-- **Express server** — handles MCP protocol messages, OAuth flows, consent page
+- **Express server** — handles MCP protocol messages, OAuth flows, and the
+  consent page. On the `:remote` image it also serves the `/setup` sign-in
+  page until a working Sync token is on the volume (see
+  [Setup mode](#setup-mode-remote-image))
 - **SQLite** — FTS5 search index and OAuth token persistence. User-supplied
   search queries are parameterized, not interpolated
 - **File system access** — vault reads and writes. Path traversal is blocked by
@@ -118,9 +121,10 @@ mechanism-level detail.
   vault content from breaking out of the `<vault-content>` data boundary
   in assembled prompts — relevant in shared/synced vaults where
   untrusted content could reach an LLM context
-- **XSS:** `escapeHtml()` on the OAuth consent page escapes `&`, `<`,
-  `>`, `"` in client-supplied values (client name, client ID, scopes,
-  error messages, request ID)
+- **XSS:** `escapeHtml()` on the OAuth consent page and the setup pages
+  escapes `&`, `<`, `>`, `"` in every interpolated value (client name,
+  client ID, scopes, error messages, request IDs, the Obsidian account
+  name, vault names, API error text)
 
 ### Data corruption prevention
 
@@ -169,6 +173,39 @@ mechanism-level detail.
   layer-cache bust in CI keeps patches current between base image rebuilds
 - Graceful shutdown: SIGTERM handler drains in-flight requests (10s
   timeout) before exiting
+
+### Setup mode (remote image)
+
+When the `:remote` image starts without a working Obsidian Sync token —
+none set, or the Sync client rejected the saved one — it serves a `/setup`
+page where the owner signs in to Obsidian from the browser instead of
+running `get-sync-token` on their own computer. The sign-in form is served only until the server has a token the
+Sync client accepts:
+
+- **Gated by `MCP_AUTH_TOKEN` before any upstream call** — the token is
+  checked (constant-time) before the server contacts Obsidian, so the
+  endpoint cannot be used to relay password guesses against Obsidian
+  accounts from the server's address. The two-factor step is tied to that
+  check by a random single-use id that only a token-checked sign-in
+  receives
+- **Rate-limited** — 5 requests per minute per client IP, the same budget
+  as the OAuth endpoints
+- **Credentials are never stored or logged** — the Obsidian email and
+  password go to Obsidian's API once; for a two-factor account they wait
+  in memory for the code (5-minute expiry, single use) and are never
+  rendered into a page. Log lines carry the error class and the API's
+  error text only
+- **`VAULT_PASSWORD` leaves the server only as a key hash** — the page
+  checks the password by sending Obsidian the same derived hash the Sync
+  client sends (scrypt + HKDF over the vault's salt); the password, salt,
+  and hash are never logged or rendered
+- **Only the Sync token is written**, where the Sync client keeps its own
+  copy (`<config home>/obsidian-headless/auth_token`, directory 0700,
+  file 0600, owned by UID 1000) — the same file `ob login` writes
+- **No re-entry once configured** — the full server answers `/setup` with a
+  static page; changing accounts goes through `OBSIDIAN_AUTH_TOKEN`
+- **Plain-HTTP warning** — the page tells the owner when it was served
+  without HTTPS from a non-local address, since the form carries a password
 
 ### Symlink safety
 
