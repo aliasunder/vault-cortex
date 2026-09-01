@@ -290,11 +290,10 @@ export const createSetupRoutes = ({
     }
     await syncTokenStore.writeSyncToken({ tokenFilePath, token }, requestLogger)
     requestLogger.info("setup_complete")
-    // The process exits only after the page has left, so the browser has
-    // the polling script before the server goes away. The token is on
-    // disk now, so the restart must also follow a browser that has gone:
-    // `close` fires after the page is delivered and on a dropped
-    // connection — possibly already, while the token was being written.
+    // Wait for the response to reach the browser before exiting, so the
+    // polling script arrives before the server dies. If the browser
+    // disconnected during the token write, `close` already fired and a
+    // listener would never trigger — `res.destroyed` catches that case.
     if (res.destroyed) {
       onSetupComplete()
       return
