@@ -884,42 +884,56 @@ update/delete writes.
 client itself uses: `OBSIDIAN_AUTH_TOKEN`, then the client's credential file
 (`<config home>/obsidian-headless/auth_token`). With neither, the boot enters
 setup mode — the owner signs in to Obsidian from the browser instead of
-running `get-sync-token` on their own computer:
+running `get-sync-token` on their own computer.
+
+```mermaid
+flowchart TD
+    A["init-check-auth"] -->|token found| B["normal boot:<br/>login → sync-setup →<br/>first sync → MCP server"]
+    A -->|no working token| C["setup mode"]
+    C --> D["/setup sign-in page<br/>on :8000"]
+    D -->|owner signs in| E["token written<br/>to volume"]
+    E --> F["container exits 1"]
+    F -->|restart policy| A
+```
 
 1. `init-check-auth` publishes `SETUP_MODE=1` to
-   `/run/s6/container_environment/`; the login, vault-setup, and first-sync
+   `/run/s6/container_environment/`. The login, vault-setup, and first-sync
    steps skip.
 2. `svc-obsidian-sync` holds its slot with `sleep` so `svc-vault-mcp` can
    start.
-3. `svc-vault-mcp` runs `src/vault-mcp/setup/setup-server.ts` instead of
-   `server.ts`: `/healthz` answers `{ ok: true, mode: "setup" }` within
-   seconds (so a platform deploy goes live), `/setup` serves the sign-in
-   page, and every other path answers 503 with the setup URL.
-4. `POST /setup` checks `MCP_AUTH_TOKEN` first, signs in through Obsidian's
-   account API (the same request `ob login` makes, two-factor included),
-   checks `VAULT_NAME` against the account's vault list and, for an
-   end-to-end encrypted vault, that `VAULT_PASSWORD` is set and that
-   Obsidian accepts the key derived from it (the same `/vault/access`
-   check `ob sync-setup` makes) — so a boot-breaking setting is reported on
-   the page rather than in a crash loop. Only a definite answer blocks: a
-   missing name, no match, Obsidian rejecting the key, or a key this
-   server cannot derive (an encryption version newer than the pinned Sync
-   client). When the list or the key check cannot be reached, sign-in
-   proceeds and the boot chain reports any problem as it does today. It
-   then writes the token where the Sync client reads it (directory 0700,
+3. `svc-vault-mcp` runs `setup-server.ts` instead of `server.ts`.
+   `/healthz` answers `{ ok: true, mode: "setup" }` within seconds (so a
+   platform deploy goes live), `/setup` serves the sign-in page, and every
+   other path answers 503 with the setup URL.
+4. `POST /setup` checks `MCP_AUTH_TOKEN` first, then signs in through
+   Obsidian's account API (the same request `ob login` makes, two-factor
+   included).
+5. Before writing the token, a pre-flight checks for settings that would
+   crash the next boot:
+   - `VAULT_NAME` is matched against the account's vault list.
+   - For an end-to-end encrypted vault, `VAULT_PASSWORD` must be set, and
+     Obsidian must accept the key derived from it (the same `/vault/access`
+     check `ob sync-setup` makes).
+   - A definite answer blocks: missing name, no match, Obsidian rejecting
+     the key, or an encryption version the pinned Sync client does not
+     support. When the list or the key check cannot be reached, sign-in
+     proceeds and the boot chain reports any problem.
+6. The token is written where the Sync client reads it (directory 0700,
    file 0600).
-5. The setup server exits; `svc-vault-mcp/finish` finds the token, writes
-   exit code 1 to `/run/s6-linux-init-container-results/exitcode`, and halts.
-   The restart policy boots the container again — a normal boot, with the
-   token on the volume. The exit code is 1 rather than 0 because Railway's
-   default policy ("On Failure") treats 0 as finished.
+7. The setup server exits. `svc-vault-mcp/finish` finds the token, writes
+   exit code 1 to `/run/s6-linux-init-container-results/exitcode`, and
+   halts. The restart policy boots the container again — a normal boot,
+   with the token on the volume. The exit code is 1 rather than 0 because
+   Railway's default policy ("On Failure") treats 0 as finished.
 
 A file-sourced token that `ob login` later rejects is kept:
 `init-obsidian-login` publishes `SETUP_MODE=1` and
-`SETUP_REASON=login-failed`, the sign-in page says the saved login stopped
-working, a fresh sign-in overwrites the file, and a restart retries it.
+`SETUP_REASON=login-failed`, and the sign-in page tells the owner their
+saved login stopped working. A fresh sign-in overwrites the file, and
+the next restart retries it.
+
 Once a token exists, `/setup` on the full server answers a static "already
-set up" page; a different account goes in through `OBSIDIAN_AUTH_TOKEN`,
+set up" page. Switching accounts requires setting `OBSIDIAN_AUTH_TOKEN`,
 which always wins over the file.
 
 #### Single-volume layout
