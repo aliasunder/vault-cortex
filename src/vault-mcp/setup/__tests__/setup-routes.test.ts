@@ -393,6 +393,7 @@ describe("POST /setup — sign-in outcomes", () => {
       message: "setup_signin_failed",
       data: {
         component: "setup-routes",
+        requestId: expect.any(String),
         clientIp: "127.0.0.1",
         error: "Invalid email or password",
       },
@@ -570,6 +571,7 @@ describe("POST /setup — vault pre-flight", () => {
       message: "setup_blocked",
       data: {
         component: "setup-routes",
+        requestId: expect.any(String),
         clientIp: "127.0.0.1",
         problem: "vault-not-found",
       },
@@ -642,6 +644,7 @@ describe("POST /setup — vault pre-flight", () => {
       message: "setup_blocked",
       data: {
         component: "setup-routes",
+        requestId: expect.any(String),
         clientIp: "127.0.0.1",
         problem: "vault-access-rejected",
       },
@@ -677,6 +680,7 @@ describe("POST /setup — vault pre-flight", () => {
         message: "setup_vault_key_check_skipped",
         data: {
           component: "setup-routes",
+          requestId: expect.any(String),
           clientIp: "127.0.0.1",
           reason:
             "Could not reach Obsidian's servers (Obsidian API answered HTTP 503).",
@@ -714,6 +718,7 @@ describe("POST /setup — vault pre-flight", () => {
       message: "setup_blocked",
       data: {
         component: "setup-routes",
+        requestId: expect.any(String),
         clientIp: "127.0.0.1",
         problem: "vault-key-underivable",
       },

@@ -432,6 +432,7 @@ export const createSetupRoutes = ({
     async (req: Request, res: Response) => {
       const body: Record<string, unknown> = req.body
       const requestLogger = routeLogger.child({
+        requestId: randomUUID(),
         clientIp: extractClientIp(req, trustForwardedHops),
       })
       if (formField(body, "request_id")) {
