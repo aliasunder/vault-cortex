@@ -105,7 +105,10 @@ export const createSetupRoutes = ({
     return requestId
   }
 
-  const takePendingSignIn = (requestId: string): PendingSignIn | undefined => {
+  /** Consumes the pending sign-in for this request — single use, returns undefined when expired or absent. */
+  const consumePendingSignIn = (
+    requestId: string,
+  ): PendingSignIn | undefined => {
     const pending = pendingSignIns.get(requestId)
     pendingSignIns.delete(requestId)
     if (!pending || pending.expiresAt <= DateTime.now()) return undefined
@@ -374,7 +377,7 @@ export const createSetupRoutes = ({
     body: Record<string, unknown>
     requestLogger: Logger
   }): Promise<void> => {
-    const pending = takePendingSignIn(formField(body, "request_id"))
+    const pending = consumePendingSignIn(formField(body, "request_id"))
     if (!pending) {
       sendSignInPage(req, res, {
         error: "That sign-in expired — start again.",
