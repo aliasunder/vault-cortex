@@ -245,7 +245,7 @@ export const createSetupRoutes = ({
   /** The deployment settings the next boot would fail on — checked before
    *  the token is written, so the user fixes them from this page instead
    *  of from a crash-looping container's logs. */
-  const checkVaultSettings = async (
+  const runVaultPreflight = async (
     token: string,
     requestLogger: Logger,
   ): Promise<PreflightProblem | undefined> => {
@@ -280,7 +280,7 @@ export const createSetupRoutes = ({
     res: Response,
     requestLogger: Logger,
   ): Promise<void> => {
-    const problem = await checkVaultSettings(token, requestLogger)
+    const problem = await runVaultPreflight(token, requestLogger)
     if (problem) {
       requestLogger.warn("setup_blocked", { problem: problem.kind })
       res
