@@ -41,6 +41,8 @@ The button opens the template's page. Click **Deploy Now**, then
 **Configure** on the `vault-cortex` service card to open the form. One of
 its fields is required; the rest are optional:
 
+![Railway deploy form showing TZ, VAULT_NAME, VAULT_PASSWORD, SYNC_FILE_TYPES, OBSIDIAN_AUTH_TOKEN, and SYNC_EXCLUDED_FOLDERS fields](img/railway-configure.jpg)
+
 | Field                   | Value                                                                                                                                                                                                                           |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `TZ`                    | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
@@ -62,14 +64,21 @@ the port, the storage layout — is set by the template.
   suffix — `https://vault-cortex-production-xxxx.up.railway.app`. The
   commands below write it as `<host>`; your MCP client connects at
   `https://<host>/mcp`.
+
+  ![Railway Settings page showing the service URL under Networking](img/railway-networking.jpg)
+
 - **Token:** click the `vault-cortex` card on the project canvas, open
   **Variables**, and use the eye or copy icon beside `MCP_AUTH_TOKEN`.
   Railway generated it for you; your MCP client enters it once on the
   consent page.
 
+  ![Railway Variables tab with MCP_AUTH_TOKEN and other environment variables](img/railway-variables.jpg)
+
 ## Sign in to Obsidian Sync
 
 After the deploy finishes, sign in to Obsidian Sync through the setup page:
+
+![The Connect Obsidian Sync setup page with MCP token, email, and password fields](../img/setup-sign-in.jpg)
 
 1. **Find your service URL** under **Settings → Networking** — the
    `https://vault-cortex-production-xxxx.up.railway.app` address.
@@ -79,6 +88,9 @@ After the deploy finishes, sign in to Obsidian Sync through the setup page:
 4. **Paste the `MCP_AUTH_TOKEN` value** in the token field.
 5. **Enter your Obsidian account email and password.** If you use
    two-factor authentication, the page asks for the code on the next step.
+
+   ![Two-factor code page with a single code field and Verify button](../img/setup-2fa.jpg)
+
 6. **Wait for "Your vault is ready."** The server signs in, validates your
    vault settings, writes the token, and restarts to download your vault
    and build the search index. The page follows the progress automatically.
@@ -86,6 +98,8 @@ After the deploy finishes, sign in to Obsidian Sync through the setup page:
    can take longer.
 
 Once the page shows your MCP URL, the server is live and ready to connect.
+
+![Setup complete — "Your vault is ready" with the MCP URL](img/railway-setup-complete.jpg)
 
 <details>
 <summary><strong>Already have a token?</strong></summary>
@@ -138,9 +152,14 @@ and the volume. Four steps close that, all from the dashboard:
    masked in the dashboard, but anyone with access can reveal them with the
    eye icon; sealing makes that impossible. Open the **⋮** menu beside
    `MCP_AUTH_TOKEN`, `OBSIDIAN_AUTH_TOKEN`, and `VAULT_PASSWORD` and choose
-   **Seal**. A sealed value still reaches the
+   **Seal**.
+
+   ![Railway variable context menu showing the Seal option](img/railway-seal.jpg)
+
+   A sealed value still reaches the
    container but can never be viewed again — to rotate it later, set a new
    value. These are the credentials that grant access to your vault.
+
 2. **Turn on two-factor authentication** for your Railway account
    (profile photo → **Account Settings → Account Security**).
 3. **Keep the project to yourself.** Workspace members you invite can reveal
@@ -172,6 +191,8 @@ Watch the service's **Deployments → View logs**. Lines prefixed
 show the storage layout and the public URL the container derived
 (`PUBLIC_URL derived from RAILWAY_PUBLIC_DOMAIN`); the structured JSON lines
 are the MCP server. `server started` means the deploy is about to go live.
+
+![Railway deploy logs showing rebuilt index, server started, and embedding model loaded](img/railway-logs.jpg)
 
 ## Connect your MCP client
 

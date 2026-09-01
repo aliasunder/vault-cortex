@@ -44,6 +44,8 @@ before it creates anything:
 | `VAULT_PASSWORD` | Only if your vault uses end-to-end encryption; otherwise leave empty                                                                                                                                                            |
 | `TZ`             | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
 
+![Render Blueprint form showing VAULT_NAME, VAULT_PASSWORD, and TZ fields](img/render-blueprint.jpg)
+
 Leave `OBSIDIAN_AUTH_TOKEN` empty — you sign in to Obsidian Sync through
 the setup page after the service starts (next section). Click **Deploy
 Blueprint**. Render creates the service and disk, pulls the image, and
@@ -59,12 +61,19 @@ ready in about 30 seconds.
   Render and the bare name is taken. Expect
   `https://vault-cortex-xxxx.onrender.com`. The commands below write it as
   `<host>`; your MCP client connects at `https://<host>/mcp`.
+
+  ![Render service page showing the URL, Live status, and deploy history](img/render-service.jpg)
+
 - **Token:** `MCP_AUTH_TOKEN` under the service's **Environment** tab. Render
   generated it for you; your MCP client enters it once on the consent page.
+
+  ![Render Environment tab with MCP_AUTH_TOKEN and other variables](img/render-environment.jpg)
 
 ## Sign in to Obsidian Sync
 
 After the deploy finishes, sign in to Obsidian Sync through the setup page:
+
+![The Connect Obsidian Sync setup page with MCP token, email, and password fields](../img/setup-sign-in.jpg)
 
 1. **Find your service URL** at the top of the service page — the
    `https://vault-cortex-xxxx.onrender.com` address.
@@ -74,6 +83,9 @@ After the deploy finishes, sign in to Obsidian Sync through the setup page:
 4. **Paste the `MCP_AUTH_TOKEN` value** in the token field.
 5. **Enter your Obsidian account email and password.** If you use
    two-factor authentication, the page asks for the code on the next step.
+
+   ![Two-factor code page with a single code field and Verify button](../img/setup-2fa.jpg)
+
 6. **Wait for "Your vault is ready."** The server signs in, validates your
    vault settings, writes the token, and restarts to download your vault
    and build the search index. The page follows the progress automatically.
@@ -81,6 +93,8 @@ After the deploy finishes, sign in to Obsidian Sync through the setup page:
    can take longer.
 
 Once the page shows your MCP URL, the server is live and ready to connect.
+
+![Setup complete — "Your vault is ready" with the MCP URL](img/render-setup-complete.jpg)
 
 <details>
 <summary><strong>Already have a token?</strong></summary>
@@ -161,6 +175,8 @@ and download; `[vault-cortex]` lines show the storage layout and the public
 URL the container derived (`PUBLIC_URL derived from RENDER_EXTERNAL_URL`);
 the structured JSON lines are the MCP server. `server started` means the
 deploy is about to go live.
+
+![Render logs showing rebuilt index, server started, and embedding model loaded](img/render-logs.jpg)
 
 ## Connect your MCP client
 
