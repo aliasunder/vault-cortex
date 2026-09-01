@@ -130,7 +130,6 @@ export const createSetupRoutes = ({
       })
       res.status(options.statusCode).send(options.message)
     },
-    validate: false,
   })
 
   // Express keeps the brackets on an IPv6 host, so `[::1]` is the loopback
