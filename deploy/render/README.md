@@ -50,8 +50,7 @@ before it creates anything. One is required; the rest are optional:
 Fill in at least the vault name **before** the first deploy. Click **Deploy
 Blueprint**. Render creates the service and disk, pulls the image, and
 starts the first deploy. Everything else — the MCP token, the public URL,
-the port, the storage layout — is set by the Blueprint. The service is
-ready in about 30 seconds.
+the port, the storage layout — is set by the Blueprint.
 
 ## Your URL and token
 
@@ -255,7 +254,7 @@ tab (each change triggers a redeploy):
 | `DEVICE_NAME`           | `vault-cortex`  | The device name that labels this container's changes in Obsidian's sync log.                                                                                                              |
 | `TRUST_PROXY_HOPS`      | `2`             | Render's network puts two proxies between a visitor and the container; this lets the server see the visitor's real address in its logs and rate limits.                                   |
 | `MCP_AUTH_TOKEN`        | generated       | Your MCP client's token. Change it here to rotate it — every connected client re-authorizes.                                                                                              |
-| `OBSIDIAN_AUTH_TOKEN`   | from setup page | Obsidian Sync login, filled by the setup page on first deploy. To re-sign-in, clear this value and redeploy — the setup page appears again.                                               |
+| `OBSIDIAN_AUTH_TOKEN`   | from setup page | Obsidian Sync login. Set by the setup page on first deploy (written to the disk). To re-sign-in, set a new token here — it always overrides the file on the disk.                         |
 | `VAULT_NAME`            | yours           | The vault this container syncs.                                                                                                                                                           |
 | `VAULT_PASSWORD`        | yours / empty   | End-to-end encryption password, if your vault has one.                                                                                                                                    |
 | `TZ`                    | yours / empty   | Timezone for daily notes, task due dates, and memory timestamps. Empty means UTC.                                                                                                         |

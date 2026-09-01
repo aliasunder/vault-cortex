@@ -169,6 +169,12 @@ const REMOTE_OPTIONAL_BLOCK = `# Optional ────────────�
 # "npx vault-cortex@latest restart" (plain docker restart does not
 # re-read this file).
 
+# Obsidian Sync auth token. Generate once with:
+#   docker run --rm -it --entrypoint get-sync-token \
+#     ghcr.io/aliasunder/vault-cortex:remote
+# Leave empty to sign in through the /setup page after starting the container.
+# OBSIDIAN_AUTH_TOKEN=
+
 # Your IANA timezone — affects daily note resolution and memory timestamps.
 # TZ=America/New_York
 

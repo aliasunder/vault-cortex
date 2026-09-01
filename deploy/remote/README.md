@@ -113,10 +113,13 @@ docker compose up -d
 No Compose? The **docker run (no Compose)** block below starts the same
 server directly.
 
-First start pulls the image, logs in to Obsidian Sync, and syncs your vault
-from Obsidian's servers — 30–120 seconds, depending on vault size. The MCP
-server waits for that sync to finish before starting, so it begins with
-your full vault, memory files included.
+If you set `OBSIDIAN_AUTH_TOKEN`, first start pulls the image, logs in to
+Obsidian Sync, and syncs your vault from Obsidian's servers — 30–120
+seconds, depending on vault size. The MCP server waits for that sync to
+finish before starting, so it begins with your full vault, memory files
+included. If you left the token empty, the container starts in setup mode
+and serves the `/setup` sign-in page instead; after you sign in there it
+restarts and performs this first sync.
 
 If the sync can't complete on a brand-new setup, the server stops instead
 of starting with an incomplete vault, and Docker retries automatically. On
