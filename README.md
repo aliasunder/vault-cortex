@@ -103,7 +103,7 @@ Your vault on a server, kept current by Obsidian Sync, reachable from your phone
 
 All three need an [Obsidian Sync](https://obsidian.md/sync) subscription. Whichever you pick, the server is replaceable and your vault isn't — it stays in plain Markdown in Obsidian Sync and on your devices; the container only holds a copy.
 
-**The setup page.** Deploy without an Obsidian Sync token and the server starts in setup mode: opening its URL in a browser lands on a sign-in page at `/setup`. Enter your Obsidian account credentials once (two-factor supported) — they go to Obsidian and are not kept; the server stores only the Sync token they return, restarts, and downloads your vault. The deploy guides walk through it with screenshots.
+**The setup page.** Deploy without an Obsidian Sync token and the server starts in setup mode: opening its URL in a browser lands on a sign-in page at `/setup`. Enter your Obsidian account credentials once (two-factor supported) — they go to Obsidian and are not kept; the server stores only the Sync token they return, restarts, and downloads your vault. The Railway and Render guides walk through it with screenshots.
 
 #### Self-hosted: your own VPS
 
