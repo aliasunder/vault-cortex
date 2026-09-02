@@ -84,10 +84,10 @@ docker run --rm -it --entrypoint get-sync-token \
 ```
 
 Or leave `OBSIDIAN_AUTH_TOKEN` blank in `.env` and sign in through the
-`/setup` page after starting the container — the server shows a browser
-form where you enter your Obsidian credentials directly. Configure
-[HTTPS access](#https-access) first, since the setup page sends your
-Obsidian password to the server.
+`/setup` page after starting the container — you sign in with Obsidian
+directly; the server keeps only the Sync token from that sign-in.
+Configure [HTTPS access](#https-access) first, since the sign-in form
+sends your Obsidian password to the server.
 
 **4. Create your `.env` file:**
 
