@@ -15,7 +15,7 @@ configuration. Both produce an identical container — restart policy, log
 rotation, and health check included — and Podman or any OCI-compatible
 container runtime works in place of Docker.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Daily Notes](#daily-notes) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Sign in](#sign-in-to-obsidian-sync) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Daily Notes](#daily-notes) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -83,6 +83,13 @@ docker run --rm -it --entrypoint get-sync-token \
   ghcr.io/aliasunder/vault-cortex:remote
 ```
 
+Or leave `OBSIDIAN_AUTH_TOKEN` blank in `.env` and sign in through the
+`/setup` page after starting the container — you sign in with Obsidian
+directly; the server keeps only the Sync token from that sign-in
+([Sign in to Obsidian Sync](#sign-in-to-obsidian-sync) walks through it).
+Configure [HTTPS access](#https-access) first, since the sign-in form
+sends your Obsidian password to the server.
+
 **4. Create your `.env` file:**
 
 ```bash
@@ -95,7 +102,7 @@ cp .env.example .env
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MCP_AUTH_TOKEN`      | Generate with `openssl rand -hex 32`                                                                                                                                                                     |
 | `PUBLIC_URL`          | Your server's public base URL, e.g. `https://vault.example.com` — no `/mcp` at the end; it's appended automatically, and clients connect at `<PUBLIC_URL>/mcp` (see [HTTPS access](#https-access) below) |
-| `OBSIDIAN_AUTH_TOKEN` | Output from step 3                                                                                                                                                                                       |
+| `OBSIDIAN_AUTH_TOKEN` | Output from step 3. Or leave empty to sign in through the `/setup` page after starting                                                                                                                   |
 | `VAULT_NAME`          | Your exact Obsidian vault name (case-sensitive)                                                                                                                                                          |
 
 **6. Start the server:**
@@ -107,10 +114,14 @@ docker compose up -d
 No Compose? The **docker run (no Compose)** block below starts the same
 server directly.
 
-First start pulls the image, logs in to Obsidian Sync, and syncs your vault
-from Obsidian's servers — 30–120 seconds, depending on vault size. The MCP
-server waits for that sync to finish before starting, so it begins with
-your full vault, memory files included.
+If you set `OBSIDIAN_AUTH_TOKEN`, first start pulls the image, logs in to
+Obsidian Sync, and syncs your vault from Obsidian's servers — 30–120
+seconds, depending on vault size. The MCP server waits for that sync to
+finish before starting, so it begins with your full vault, memory files
+included. If you left the token empty, the container starts in setup mode
+and serves the `/setup` sign-in page instead
+([Sign in to Obsidian Sync](#sign-in-to-obsidian-sync)); after you sign in
+there it restarts and performs this first sync.
 
 If the sync can't complete on a brand-new setup, the server stops instead
 of starting with an incomplete vault, and Docker retries automatically. On
@@ -298,6 +309,36 @@ accepts `https` URLs, so with an `http` PUBLIC_URL connect via Claude Code
 > and host, with no path — the server's routes live at the root) — OAuth
 > discovery metadata uses this URL, so a mismatch causes authentication
 > failures.
+
+## Sign in to Obsidian Sync
+
+Skip this section if you set `OBSIDIAN_AUTH_TOKEN` — the container signed
+in with it at first start.
+
+If you left it empty, the container is running in setup mode and serves a
+sign-in page until you connect it to Obsidian Sync. Do this over the
+[HTTPS access](#https-access) you just set up — the sign-in form sends
+your Obsidian password to the server:
+
+![The Connect Obsidian Sync setup page with MCP token, email, and password fields](../img/setup-sign-in.jpg)
+
+1. **Open the setup page**: visit your `PUBLIC_URL` in a browser — the
+   server sends your browser straight to the sign-in page. (Adding
+   `/setup` to the address goes to the same place.)
+2. **Paste your `MCP_AUTH_TOKEN`** — the value you set in `.env` — in the
+   token field.
+3. **Enter your Obsidian account email and password.** If you use
+   two-factor authentication, the page asks for the code on the next step.
+
+   ![Two-factor code page with a single code field and Verify button](../img/setup-2fa.jpg)
+
+4. **Wait for "Your vault is ready."** The server signs in, validates your
+   vault settings, writes the token, and restarts to download your vault
+   and build the search index. The page follows the progress automatically.
+   A vault of a few thousand notes takes two to three minutes; a large
+   vault can take longer.
+
+Once the page shows your MCP URL, the server is live and ready to connect.
 
 ## Connect your MCP client
 
@@ -514,8 +555,9 @@ with `docker run`, re-create the container as described in the
 
 ## Configuration
 
-Only `MCP_AUTH_TOKEN`, `PUBLIC_URL`, `OBSIDIAN_AUTH_TOKEN`, and `VAULT_NAME` are
-required. These optional settings are worth knowing about:
+Only `MCP_AUTH_TOKEN`, `PUBLIC_URL`, and `VAULT_NAME` are required.
+`OBSIDIAN_AUTH_TOKEN` can be filled via the `/setup` page when left blank.
+These optional settings are worth knowing about:
 
 | Setting                 | Default                       | What it does                                                                                                                                                                                                                                                                                        |
 | ----------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -19,7 +19,7 @@ Prefer your own VPS? Use the [remote quickstart](../remote/) instead.
 Curious how the container is put together?
 [ARCHITECTURE.md →](../../ARCHITECTURE.md#container-startup).
 
-**Contents** — [Prerequisites](#prerequisites) · [Deploy](#deploy) · [Your URL and token](#your-url-and-token) · [Security](#security) · [First start](#first-start) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Restart, stop, delete](#restart-stop-delete) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Deploy](#deploy) · [Your URL and token](#your-url-and-token) · [Sign in to Obsidian Sync](#sign-in-to-obsidian-sync) · [Security](#security) · [First start](#first-start) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Restart, stop, delete](#restart-stop-delete) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -32,86 +32,99 @@ Curious how the container is put together?
   [Railway's pricing](https://railway.com/pricing); a typical instance uses
   roughly 1–2 GB of memory.
 - An [Obsidian Sync](https://obsidian.md/sync) subscription
-- Your Obsidian Sync login token — see
-  [Getting your Obsidian Sync token](#getting-your-obsidian-sync-token)
-  below. It is the one step that happens on your own computer.
-
-### Getting your Obsidian Sync token
-
-The token lets the container log in to Obsidian Sync as you. Obsidian only
-hands it out after an interactive login, so this step runs in a terminal on
-your computer — once, before you click the button.
-
-1. **Open a terminal.** macOS: **Applications → Utilities → Terminal**.
-   Windows: search the Start menu for **Terminal** (or **PowerShell**).
-2. **Check that Node.js is installed** (version 20.12 or later):
-
-   ```bash
-   node -v
-   ```
-
-   If Node.js is missing, install it from [nodejs.org](https://nodejs.org/).
-
-3. **Paste this line and press Enter:**
-
-   ```bash
-   npx vault-cortex@latest get-sync-token
-   ```
-
-   It asks for your Obsidian account email, password, and two-factor code
-   (if you use one), then prints the token.
-
-4. **Copy the token.** The deploy form asks for it as `OBSIDIAN_AUTH_TOKEN`.
-
-<details>
-<summary><strong>Don't have Node.js?</strong></summary>
-
-Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-and run the login in a throwaway container instead:
-
-```bash
-docker run --rm -it --entrypoint get-sync-token ghcr.io/aliasunder/vault-cortex:remote
-```
-
-</details>
 
 ## Deploy
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/vault-cortex?referralCode=_ldHIU&utm_medium=integration&utm_source=template&utm_campaign=generic)
 
 The button opens the template's page. Click **Deploy Now**, then
-**Configure** on the `vault-cortex` service card to open the form. Two of
-its fields are required; the rest are optional:
+**Configure** on the `vault-cortex` service card to open the form. Only
+`VAULT_NAME` is required; the rest are optional:
+
+![Railway deploy form showing TZ, VAULT_NAME, VAULT_PASSWORD, SYNC_FILE_TYPES, OBSIDIAN_AUTH_TOKEN, and SYNC_EXCLUDED_FOLDERS fields](img/railway-configure.jpg)
 
 | Field                   | Value                                                                                                                                                                                                                           |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `TZ`                    | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
 | `VAULT_NAME`            | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                                                                                       |
 | `VAULT_PASSWORD`        | Only if your vault uses end-to-end encryption; otherwise leave empty                                                                                                                                                            |
-| `OBSIDIAN_AUTH_TOKEN`   | The token from [Getting your Obsidian Sync token](#getting-your-obsidian-sync-token)                                                                                                                                            |
-| `SYNC_EXCLUDED_FOLDERS` | Folders to leave out of sync, comma-separated — the same list as Obsidian's Sync → Excluded folders. Leave empty to sync everything                                                                                             |
 | `SYNC_FILE_TYPES`       | Attachment types to sync: `image`, `audio`, `video`, `pdf`, `unsupported`. Leave empty to keep the Sync client's default                                                                                                        |
+| `OBSIDIAN_AUTH_TOKEN`   | Leave empty — you sign in through the setup page after deploy (see [Sign in to Obsidian Sync](#sign-in-to-obsidian-sync)). Or paste a token from `npx vault-cortex@latest get-sync-token` to skip the setup page                |
+| `SYNC_EXCLUDED_FOLDERS` | Folders to leave out of sync, comma-separated — the same list as Obsidian's Sync → Excluded folders. Leave empty to sync everything                                                                                             |
 
-Fill in the token, vault name, timezone, and — for an encrypted vault — the
-vault password **before** the first deploy: a container that starts without
-the token, the vault name, or an encrypted vault's password stops at Obsidian
-Sync setup.
-
-Click **Deploy**. Railway creates the service and volume, pulls the image,
-and starts the first deploy. Everything else — the MCP token, the public
-URL, the port, the storage layout — is set by the template.
+Fill in at least the vault name **before** the first deploy. Click
+**Deploy**. Railway creates the service and volume, pulls the image, and
+starts the first deploy. Everything else — the MCP token, the public URL,
+the port, the storage layout — is set by the template.
 
 ## Your URL and token
 
-- **URL:** open the service, then **Settings → Networking**. Railway
-  generates the domain from the service and environment names plus a short
-  suffix — `https://vault-cortex-production-xxxx.up.railway.app`. The
-  commands below write it as `<host>`; your MCP client connects at
-  `https://<host>/mcp`.
-- **Token:** click the `vault-cortex` card on the project canvas, open
-  **Variables**, and use the eye or copy icon beside `MCP_AUTH_TOKEN`.
-  Railway generated it for you; your MCP client enters it once on the
-  consent page.
+- **URL:** click the `vault-cortex` card on the project canvas, then open
+  **Settings → Networking**. Railway generates the domain from the service
+  and environment names plus a short suffix —
+  `https://vault-cortex-production-xxxx.up.railway.app`. Wherever this
+  guide shows `<host>`, put your own domain in its place: `https://<host>/mcp`
+  becomes `https://vault-cortex-production-xxxx.up.railway.app/mcp`.
+
+  ![Railway Settings page showing the service URL under Networking](img/railway-networking.jpg)
+
+- **Token:** on the same card, open **Variables**, hover over the
+  `MCP_AUTH_TOKEN` value, and click the eye or copy icon. Railway generated
+  it for you; your MCP client enters it once on the consent page.
+
+  ![Railway Variables tab with MCP_AUTH_TOKEN and other environment variables](img/railway-variables.jpg)
+
+## Sign in to Obsidian Sync
+
+When the Activity panel shows **Deployment successful**, sign in to
+Obsidian Sync through the setup page:
+
+![The Connect Obsidian Sync setup page with MCP token, email, and password fields](../img/setup-sign-in.jpg)
+
+1. **Copy `MCP_AUTH_TOKEN`** from the service's **Variables** tab — hover
+   over the value and click the eye or copy icon.
+2. **Open the setup page**: under **Settings → Networking**, click your
+   `…up.railway.app` domain — the server sends your browser straight to the
+   sign-in page. (Adding `/setup` to the address goes to the same place.)
+3. **Paste the `MCP_AUTH_TOKEN` value** in the token field.
+4. **Enter your Obsidian account email and password.** If you use
+   two-factor authentication, the page asks for the code on the next step.
+
+   ![Two-factor code page with a single code field and Verify button](../img/setup-2fa.jpg)
+
+5. **Wait for "Your vault is ready."** The server signs in, validates your
+   vault settings, writes the token, and restarts to download your vault
+   and build the search index. The page follows the progress automatically.
+   A vault of a few thousand notes takes two to three minutes; a large vault
+   can take longer.
+
+Once the page shows your MCP URL, the server is live and ready to connect.
+
+![Setup complete — "Your vault is ready" with the MCP URL](img/railway-setup-complete.jpg)
+
+<details>
+<summary><strong>Already have a token?</strong></summary>
+
+<a id="getting-your-obsidian-sync-token"></a>
+
+If you already have an Obsidian Sync token (from a previous deploy, from the
+CLI, or from a manual login), paste it into `OBSIDIAN_AUTH_TOKEN` on the
+deploy form — the container skips the setup page and starts syncing
+immediately.
+
+To generate a token from the command line:
+
+```bash
+npx vault-cortex@latest get-sync-token
+```
+
+Or, if you don't have Node.js installed:
+
+```bash
+docker run --rm -it --entrypoint get-sync-token ghcr.io/aliasunder/vault-cortex:remote
+```
+
+</details>
 
 ## Security
 
@@ -139,10 +152,15 @@ and the volume. Four steps close that, all from the dashboard:
 1. **Seal the secrets** once you have copied `MCP_AUTH_TOKEN`. Values are
    masked in the dashboard, but anyone with access can reveal them with the
    eye icon; sealing makes that impossible. Open the **⋮** menu beside
-   `MCP_AUTH_TOKEN`, `OBSIDIAN_AUTH_TOKEN`, and `VAULT_PASSWORD` and choose
-   **Seal**. A sealed value still reaches the
+   `MCP_AUTH_TOKEN` — plus `OBSIDIAN_AUTH_TOKEN` and `VAULT_PASSWORD` if you
+   filled them in on the deploy form — and choose **Seal**.
+
+   ![Railway variable context menu showing the Seal option](img/railway-seal.jpg)
+
+   A sealed value still reaches the
    container but can never be viewed again — to rotate it later, set a new
    value. These are the credentials that grant access to your vault.
+
 2. **Turn on two-factor authentication** for your Railway account
    (profile photo → **Account Settings → Account Security**).
 3. **Keep the project to yourself.** Workspace members you invite can reveal
@@ -155,7 +173,7 @@ under **Variables**: `READONLY_MODE=true` removes every tool that writes to
 the vault, and `FILE_TOOLS_ENABLED=false` or `MEMORY_ENABLED=false` hide
 those tool groups entirely (see [Configuration](#configuration)).
 
-Rotating `MCP_AUTH_TOKEN` ends every session: access tokens issued under
+Changing `MCP_AUTH_TOKEN` ends every session: access tokens issued under
 the old value stop working, stored refresh tokens become unusable, and each
 client goes back through the consent page on its next request.
 [SECURITY.md](../../SECURITY.md) describes what the server exposes and how
@@ -163,11 +181,11 @@ each part is hardened.
 
 ## First start
 
-The first deploy takes longer than later ones. In order, the container logs
-in to Obsidian Sync, downloads your vault, builds the search index, and only
-then answers health checks and
-receives traffic. A vault of a few thousand notes takes about three
-minutes; the template allows 15, and a large vault can take most of it.
+After you sign in on the setup page, the container restarts and runs the
+full startup sequence: it logs in to Obsidian Sync, downloads your vault,
+builds the search index, and then answers health checks and receives
+traffic. A vault of a few thousand notes takes two to three minutes; the
+template allows 15 minutes, and a large vault can take most of it.
 
 Watch the service's **Deployments → View logs**. Lines prefixed
 `[obsidian-sync]` are the Sync setup and download; `[vault-cortex]` lines
@@ -181,7 +199,8 @@ The same three steps in every app:
 
 1. In Claude Desktop, claude.ai, Perplexity, or any app with an **Add custom
    connector** (remote MCP server) option, paste
-   `https://<host>/mcp`. Leave Client ID and Secret empty.
+   `https://<host>/mcp` — the MCP URL the setup page showed when it
+   finished. Leave Client ID and Secret empty.
 2. A consent page opens in your browser. Approve it with the
    `MCP_AUTH_TOKEN` Railway generated.
 3. Done — the client renews its own access from then on. Under the hood that
@@ -205,12 +224,15 @@ Client-by-client details are in the remote quickstart's
 
 ## Verify
 
+Open `https://<host>/healthz` in your browser — it answers `{"ok":true}`.
+Then, in your MCP client, run a search — results come from your vault.
+
+The same check from a terminal, if you prefer:
+
 ```bash
 curl https://<host>/healthz
 # → {"ok":true}
 ```
-
-In your MCP client, run a search — results come from your vault.
 
 ## Updating
 
@@ -235,9 +257,8 @@ release lists what changed since the last one, and an entry marked
 
 ## Restart, stop, delete
 
-All from the service page:
-
-- **Restart** — **Deployments → ⋮ → Restart**. Same container, same volume.
+- **Restart** — on the service, **Deployments → ⋮ → Restart**. Same
+  container, same volume.
 - **Stop** — **Deployments → ⋮ → Remove** stops the running deployment; the
   volume and variables stay. **Redeploy** brings it back.
 - **Delete** — **Settings → Delete Service**, then delete the volume from the
@@ -257,7 +278,7 @@ The template sets these; change them under the service's **Variables** tab
 | `TRUST_PROXY_HOPS`                | `2`             | Two Railway proxies sit between a visitor and the container; this lets the server see the visitor's real address in its logs and rate limits.                                             |
 | `RAILWAY_HEALTHCHECK_TIMEOUT_SEC` | `900`           | How long Railway waits for the first health check — the first start downloads the vault and builds the index.                                                                             |
 | `MCP_AUTH_TOKEN`                  | generated       | Your MCP client's token. Change it here to rotate it — every connected client re-authorizes.                                                                                              |
-| `OBSIDIAN_AUTH_TOKEN`             | yours           | Obsidian Sync login. Re-run `get-sync-token` and paste the new value if Sync ever rejects it.                                                                                             |
+| `OBSIDIAN_AUTH_TOKEN`             | from setup page | Obsidian Sync login. Set by the setup page on first deploy (written to the volume). To re-sign-in, set a new token here — it always overrides the file on the volume.                     |
 | `VAULT_NAME`                      | yours           | The vault this container syncs.                                                                                                                                                           |
 | `VAULT_PASSWORD`                  | yours / empty   | End-to-end encryption password, if your vault has one.                                                                                                                                    |
 | `TZ`                              | yours / empty   | Timezone for daily notes, task due dates, and memory timestamps. Empty means UTC.                                                                                                         |
@@ -292,19 +313,22 @@ Volume size is changed from the volume's settings on the project canvas
 
 ## Troubleshooting
 
-**The first deploy failed.** Open the deployment's logs and look at the last
-`[obsidian-sync]` lines:
+**The setup page shows an error after signing in.** The page tells you
+what went wrong:
 
-- `OBSIDIAN_AUTH_TOKEN is empty or unset` — the token wasn't entered. Add it
-  under **Variables**, then **Redeploy**.
-- `login was rejected` — the token is stale. Run `get-sync-token` again,
-  update `OBSIDIAN_AUTH_TOKEN`, then **Redeploy**.
-- `Password not provided.` then `ob sync-setup failed` — the vault is
-  end-to-end encrypted and `VAULT_PASSWORD` is missing. Add it under
-  **Variables**, then **Redeploy**.
-- `ob sync-setup failed` on its own — the vault name doesn't match Obsidian
-  Sync exactly (it is case-sensitive). Fix `VAULT_NAME`, then **Redeploy**.
-- `VAULT_NAME is not set` — add it under **Variables**, then **Redeploy**.
+- _login was rejected_ — wrong email, password, or two-factor code. Try
+  again on the same page.
+- _Vault "X" was not found_ — the vault name doesn't match Obsidian Sync
+  exactly (it is case-sensitive). Fix `VAULT_NAME` under the service's
+  **Variables** tab and apply the staged change — Railway redeploys with it.
+- _Vault password required_ — the vault is end-to-end encrypted and
+  `VAULT_PASSWORD` is missing. Add it under **Variables** and apply the
+  staged change.
+- _Wrong vault key_ — the vault password is incorrect. Fix
+  `VAULT_PASSWORD` under **Variables** and apply the staged change.
+
+**`VAULT_NAME is not set` in the logs.** Add it under **Variables** and
+apply the staged change — Railway redeploys with it.
 
 **The deploy timed out waiting for the health check.** The template allows
 15 minutes (`RAILWAY_HEALTHCHECK_TIMEOUT_SEC`) from container start. The

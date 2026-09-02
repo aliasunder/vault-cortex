@@ -798,6 +798,15 @@ describe("default config", () => {
         "To sign in with a different account, set <code>OBSIDIAN_AUTH_TOKEN</code>",
       )
     })
+
+    it("does not redirect a browser GET on the root once configured — that behavior belongs to setup mode only", async () => {
+      const response = await fetch(`http://127.0.0.1:${port}/`, {
+        headers: { accept: "text/html,application/xhtml+xml" },
+        redirect: "manual",
+      })
+
+      expect(response.status).toBe(404)
+    })
   })
 
   describe("OAuth rate limiting", () => {

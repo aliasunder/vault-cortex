@@ -1,8 +1,8 @@
 /** Setup-mode entry point — what svc-vault-mcp runs instead of server.ts
- *  while the container has no working Obsidian Sync token. Serves /setup and
- *  /healthz only; every other path answers 503 with the setup URL. No
- *  index, no watcher, no OAuth: the page must be up seconds after the
- *  deploy, not after a vault download. */
+ *  while the container has no working Obsidian Sync token. Serves /setup
+ *  and /healthz only; every other path redirects browsers to /setup or
+ *  answers 503 with the setup URL. No index, no watcher, no OAuth: the
+ *  page must be up seconds after the deploy, not after a vault download. */
 
 import express from "express"
 import type { NextFunction, Request, Response } from "express"
@@ -70,7 +70,17 @@ const startSetupServer = (): void => {
     }),
   )
 
-  app.use((_req: Request, res: Response) => {
+  // Browsers visiting the service URL land here and should see the setup
+  // page, not a raw JSON error. API clients (Accept: */* from fetch/curl,
+  // or application/json) still get the machine-readable 503.
+  app.use((req: Request, res: Response) => {
+    const acceptHeader = req.headers.accept ?? ""
+    const browserGet =
+      req.method === "GET" && /\btext\/html\b/.test(acceptHeader)
+    if (browserGet) {
+      res.redirect(302, setupUrl)
+      return
+    }
     res.status(503).json({ error: "setup required", setup_url: setupUrl })
   })
 
