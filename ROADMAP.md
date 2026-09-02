@@ -2,8 +2,7 @@
 
 Where vault-cortex is heading over roughly the next year — and what it
 deliberately won't do. Priorities shift with real-world usage, and this
-document is updated when they do. Delivered milestones are tracked in the
-[README's roadmap table](./README.md#roadmap).
+document is updated when they do.
 
 _Last updated: 2026-09-02._
 
@@ -14,6 +13,19 @@ AI tools durable memory and real task management on top of an Obsidian
 vault they own. The planned work clusters around that goal: making setup
 accessible, deepening the task and memory layers, and hardening the
 project for long-term use.
+
+## Delivered
+
+The foundations the planned work builds on:
+
+- Vault reads, writes, and surgical edits, with hybrid search (keyword +
+  semantic + cross-encoder reranking) and the About Me/ memory layer
+  with entry-level recall
+- A vault-wide task layer — structured queries and one-call updates in
+  both Tasks-plugin formats (emoji and Dataview)
+- OAuth 2.1 alongside static token auth
+- One-click Render and Railway deploys, with browser-based Obsidian Sync
+  sign-in when no token is configured
 
 ## Planned
 
