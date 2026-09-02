@@ -160,7 +160,7 @@ under **Environment**: `READONLY_MODE=true` removes every tool that writes
 to the vault, and `FILE_TOOLS_ENABLED=false` or `MEMORY_ENABLED=false` hide
 those tool groups entirely (see [Configuration](#configuration)).
 
-Changing (rotating) `MCP_AUTH_TOKEN` ends every session: access tokens issued under
+Changing `MCP_AUTH_TOKEN` ends every session: access tokens issued under
 the old value stop working, stored refresh tokens become unusable, and each
 client goes back through the consent page on its next request.
 [SECURITY.md](../../SECURITY.md) describes what the server exposes and how
