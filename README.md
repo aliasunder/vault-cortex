@@ -103,6 +103,8 @@ Your vault on a server, kept current by Obsidian Sync, reachable from your phone
 
 All three need an [Obsidian Sync](https://obsidian.md/sync) subscription. Whichever you pick, the server is replaceable and your vault isn't — it stays in plain Markdown in Obsidian Sync and on your devices; the container only holds a copy.
 
+**The setup page.** Deploy without an Obsidian Sync token and the server starts in setup mode: opening its URL in a browser lands on a sign-in page at `/setup`. Enter your Obsidian account credentials once (two-factor supported) — they go to Obsidian and are not kept; the server stores only the Sync token they return, restarts, and downloads your vault. The deploy guides walk through it with screenshots.
+
 #### Self-hosted: your own VPS
 
 The [vault-cortex CLI](./cli/) sets up the same container on any Linux box you run — you manage the server, the image, and updates. You need Node.js >= 20.12 for the CLI itself; the server runs in Docker.
@@ -130,6 +132,11 @@ cp .env.example .env
 # Edit .env — set MCP_AUTH_TOKEN, PUBLIC_URL, VAULT_NAME (OBSIDIAN_AUTH_TOKEN optional — /setup handles it)
 docker compose up -d
 ```
+
+Left `OBSIDIAN_AUTH_TOKEN` empty? Once the container is up, open
+`<PUBLIC_URL>/setup` in your browser and sign in — set up
+[HTTPS](./deploy/remote/#https-access) first, since the page sends your
+Obsidian password to the server ([full walkthrough →](./deploy/remote/#setup)).
 
 </details>
 
