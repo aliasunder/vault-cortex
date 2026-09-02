@@ -246,6 +246,14 @@ describe("setup-server entry point", () => {
       message: "setup server started",
       setupUrl: "/setup",
     })
+
+    const browserGet = await fetch(`http://127.0.0.1:${server.port}/anything`, {
+      headers: { Accept: "text/html,application/xhtml+xml" },
+      redirect: "manual",
+    })
+
+    expect(browserGet.status).toBe(302)
+    expect(browserGet.headers.get("location")).toBe("/setup")
   })
 
   it("redirects browser GET requests to /setup instead of 503 JSON", async () => {
