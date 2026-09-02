@@ -156,7 +156,7 @@ const problemCopy = (problem: PreflightProblem): string => {
   switch (problem.kind) {
     case "vault-name-unset":
       return `<p><code>VAULT_NAME</code> is not set, so the server does not know which vault to sync.</p>
-  <p>Add <code>VAULT_NAME</code> to your deployment's settings — your vault's name exactly as it appears in Obsidian Sync — then redeploy and sign in here again.</p>`
+  <p>Add <code>VAULT_NAME</code> to your deployment's settings — your vault's name, the same as it is in Obsidian — then redeploy and sign in here again.</p>`
     case "vault-not-found": {
       const vaultList = problem.vaultNames.length
         ? `<p>Your account's vaults:</p><ul>${problem.vaultNames
