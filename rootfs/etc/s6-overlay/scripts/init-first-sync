@@ -21,6 +21,11 @@
 # Sync is always configured here — init-setup-vault requires VAULT_NAME.
 set -e
 
+if [ "${SETUP_MODE:-}" = 1 ]; then
+  echo "[obsidian-sync] Setup mode — skipping the first sync."
+  exit 0
+fi
+
 VAULT_PATH="${VAULT_PATH:-/vault}"
 if ! cd "$VAULT_PATH"; then
   echo "[obsidian-sync] ERROR: Failed to change directory to VAULT_PATH='$VAULT_PATH'." >&2

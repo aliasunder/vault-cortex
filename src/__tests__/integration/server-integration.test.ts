@@ -399,10 +399,10 @@ describe("default config", () => {
       })
       expect(createResult.isError).not.toBe(true)
       const createJson = JSON.parse(textContent(createResult))
-      // Inserted at the top of the Tasks section: line 18 of the fixture
+      // Non-Kanban note: default position is bottom of the Tasks section
       expect(createJson).toEqual({
         path: "Projects/alpha.md",
-        line: 18,
+        line: 22,
         description: "Integration test task",
         block_id: "integ-test-task",
         heading: "Tasks",
@@ -482,11 +482,11 @@ describe("default config", () => {
       })
       expect(result.isError).not.toBe(true)
       const json = JSON.parse(textContent(result))
-      // Line 22, not the fixture's 21: the vault_create_task case above
-      // inserted a card at the top of the same Tasks section.
+      // Line 21: the vault_create_task case above appended to the bottom
+      // of the Tasks section, so this task's line is unchanged.
       expect(json).toEqual({
         path: "Projects/alpha.md",
-        line: 22,
+        line: 21,
         description: "Renamed second task",
         block_id: "alpha-task-2",
         heading: "Tasks",
@@ -783,6 +783,29 @@ describe("default config", () => {
     it("invalid token is rejected", async () => {
       const status = await mcpInitStatus(port, "Bearer wrong-token")
       expect(status).toBe(401)
+    })
+  })
+
+  describe("/setup route", () => {
+    it("serves the already-configured page so setup-guide links do not 404", async () => {
+      const response = await fetch(`http://127.0.0.1:${port}/setup`)
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get("content-type")).toContain("text/html")
+      const html = await response.text()
+      expect(html).toContain("<h1>Already set up</h1>")
+      expect(html).toContain(
+        "To sign in with a different account, set <code>OBSIDIAN_AUTH_TOKEN</code>",
+      )
+    })
+
+    it("does not redirect a browser GET on the root once configured — that behavior belongs to setup mode only", async () => {
+      const response = await fetch(`http://127.0.0.1:${port}/`, {
+        headers: { accept: "text/html,application/xhtml+xml" },
+        redirect: "manual",
+      })
+
+      expect(response.status).toBe(404)
     })
   })
 
@@ -1350,6 +1373,21 @@ describe("boot rejection", () => {
     expect(exitCode).toBe(1)
     expect(stderr).toContain("vault_fake_tool")
   }, 15_000)
+
+  it.each(["/vault*path", "/vault?path", "/vault[path]"])(
+    "VAULT_PATH=%s with glob characters exits with error",
+    async (vaultPath) => {
+      const { exitCode, stderr } = await startServerExpectingFailure(
+        await freePort(),
+        { VAULT_PATH: vaultPath },
+      )
+      expect(exitCode).toBe(1)
+      expect(stderr).toContain(
+        "VAULT_PATH must not contain glob characters (*, ?, [)",
+      )
+    },
+    15_000,
+  )
 
   it("PUBLIC_URL with embedded credentials exits with error", async () => {
     const { exitCode, stderr } = await startServerExpectingFailure(

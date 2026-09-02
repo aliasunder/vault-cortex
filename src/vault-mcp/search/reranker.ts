@@ -180,7 +180,8 @@ export const blendScores = (params: {
       throw new Error(`score array length mismatch at index ${index}`)
     }
 
-    const rrfWeight = rank <= 3 ? 0.75 : rank <= 10 ? 0.5 : 0.4
+    const midOrLowWeight = rank <= 10 ? 0.5 : 0.4
+    const rrfWeight = rank <= 3 ? 0.75 : midOrLowWeight
     const rerankWeight = 1 - rrfWeight
 
     return Number(

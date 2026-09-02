@@ -23,7 +23,7 @@ describe("extractPdfText", () => {
   describe("heading levels", () => {
     it("keeps the volume-dominant size as body even when smaller sizes exist", async () => {
       const pdfBuffer = buildPdf([
-        { text: "Tanisha Aberdeen", x: 72, y: 720, fontSize: 18 },
+        { text: "Sample Heading", x: 72, y: 720, fontSize: 18 },
         { text: "Senior Engineer", x: 72, y: 690, fontSize: 13 },
         {
           text: "This is the body of the letter with plenty of text in it.",
@@ -42,7 +42,7 @@ describe("extractPdfText", () => {
       const result = await extractPdfText(toPdfData(pdfBuffer))
       expect(result.text).toBe(
         `${HEADER}\n\n` +
-          "# Tanisha Aberdeen\n" +
+          "# Sample Heading\n" +
           "## Senior Engineer\n" +
           "This is the body of the letter with plenty of text in it.\n" +
           "It keeps going with more words than any other size has.\n" +

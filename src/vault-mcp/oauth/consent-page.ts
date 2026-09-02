@@ -1,5 +1,7 @@
 /** Minimal HTML consent page for OAuth authorization flow. */
 
+import { escapeHtml } from "../../utils/escape-html.js"
+
 type ConsentPageParams = {
   clientName: string
   clientId: string
@@ -15,13 +17,6 @@ export const renderConsentPage = ({
   requestId,
   error,
 }: ConsentPageParams): string => {
-  const escapeHtml = (text: string): string =>
-    text
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-
   const scopeList = scopes.length
     ? scopes.map((scope) => `<li>${escapeHtml(scope)}</li>`).join("")
     : "<li><em>No specific scopes requested</em></li>"

@@ -58,6 +58,8 @@ export default defineConfig(
       "@typescript-eslint/consistent-type-definitions": ["error", "type"],
       // AGENTS.md → Code style: early returns over nested if/else.
       "no-else-return": "error",
+      // AGENTS.md → Code style: no nested ternaries.
+      "no-nested-ternary": "error",
       // AGENTS.md → Code style: explicit names over abbreviations — no
       // single-char identifiers. Exceptions: `i` (loop index), `a`/`b`
       // (sort comparators), `k` (the RRF constant's literature name),
@@ -140,6 +142,7 @@ export default defineConfig(
                 "**/search/**",
                 "**/mcp-core/**",
                 "**/oauth/**",
+                "**/setup/**",
                 "**/utils/**",
                 "**/logger.js",
               ],
@@ -195,10 +198,15 @@ export default defineConfig(
         {
           patterns: [
             {
-              group: ["**/search/**", "**/mcp-core/**", "**/oauth/**"],
+              group: [
+                "**/search/**",
+                "**/mcp-core/**",
+                "**/oauth/**",
+                "**/setup/**",
+              ],
               allowTypeImports: true,
               message:
-                "vault-operations/ builds on parsers and utils only — no runtime imports of search/, mcp-core/, or oauth/ (AGENTS.md → Module layering)",
+                "vault-operations/ builds on parsers and utils only — no runtime imports of search/, mcp-core/, oauth/, or setup/ (AGENTS.md → Module layering)",
             },
           ],
         },
@@ -220,10 +228,11 @@ export default defineConfig(
                 "**/vault-operations/**",
                 "**/mcp-core/**",
                 "**/oauth/**",
+                "**/setup/**",
               ],
               allowTypeImports: true,
               message:
-                "search/ builds on parsers and utils only — never reaches sideways into vault-operations/ or up into mcp-core/ (AGENTS.md → Module layering)",
+                "search/ builds on parsers and utils only — no runtime imports of vault-operations/, mcp-core/, oauth/, or setup/ (AGENTS.md → Module layering)",
             },
           ],
         },

@@ -88,6 +88,46 @@
 
 
 
+
+
+## [0.48.0] — 2026-09-01
+
+### Features
+
+- **remote:** Setup mode — browser sign-in to Obsidian Sync when no token is configured (#500)
+
+### Bug Fixes
+
+- **docs:** Cache-bust stale Gitleaks badge (#515)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.47.0
+
+## [0.47.0] — 2026-09-01
+
+### Features
+
+- **tasks:** Add position param to create and update task tools (#512)
+- **oauth:** Revoke the grant on refresh-token reuse (#510)
+
+### Bug Fixes
+
+- **config:** Reject VAULT_PATH and STORAGE_ROOT containing glob characters (#513)
+- **oauth:** Re-enable express-rate-limit validation (#511)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.46.0
+
+### CI / Infrastructure
+
+- **gitleaks:** Scan only the ref under test, bump to 8.30.1 (#509)
+
+### Maintenance
+
+- **lint:** Enforce no-nested-ternary (#514)
+
 ## [0.46.0] — 2026-08-31
 
 ### Features

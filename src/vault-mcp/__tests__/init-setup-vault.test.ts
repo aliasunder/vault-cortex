@@ -62,6 +62,8 @@ type SetupRun = {
 }
 
 type SetupRunOptions = {
+  /** Run with SETUP_MODE=1 published by init-check-auth. */
+  setupMode?: boolean
   vaultName?: string
   vaultPassword?: string
   configDirName?: string
@@ -100,6 +102,7 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
       OB_CALL_LOG: callLogPath,
       OB_SYNC_SETUP_EXIT: String(options.syncSetupFails ? 1 : 0),
       OB_SYNC_CONFIG_FAIL_FLAG: options.syncConfigFailsFor ?? "",
+      ...(options.setupMode ? { SETUP_MODE: "1" } : {}),
       ...(options.vaultName === undefined
         ? {}
         : { VAULT_NAME: options.vaultName }),
@@ -137,6 +140,19 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
 }
 
 describe("init-setup-vault script", () => {
+  it("skips vault setup in setup mode, before the VAULT_NAME guard", () => {
+    // No vaultName: without setup mode this run exits 1, so the exit 0
+    // proves the guard ran first.
+    const run = runSetupScript({ setupMode: true })
+
+    expect(run.status).toBe(0)
+    expect(run.stdout).toBe(
+      "[obsidian-sync] Setup mode — skipping vault setup.\n",
+    )
+    expect(run.stderr).toBe("")
+    expect(run.obCalls).toEqual([])
+  })
+
   it("refuses to start when VAULT_NAME is unset", () => {
     const run = runSetupScript({})
 

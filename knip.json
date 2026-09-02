@@ -1,5 +1,5 @@
 {
-  "entry": ["cli/src/bin.ts"],
+  "entry": ["cli/src/bin.ts", "src/vault-mcp/setup/setup-server.ts"],
   "project": ["src/**/*.ts", "cli/src/**/*.ts", "scripts/**/*.ts"],
   "ignoreBinaries": ["optipng"]
 }

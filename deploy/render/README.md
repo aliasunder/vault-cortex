@@ -19,94 +19,111 @@ Prefer your own VPS? Use the [remote quickstart](../remote/) instead.
 Curious how the container is put together?
 [ARCHITECTURE.md →](../../ARCHITECTURE.md#container-startup).
 
-**Contents** — [Prerequisites](#prerequisites) · [Deploy](#deploy) · [Your URL and token](#your-url-and-token) · [Security](#security) · [First start](#first-start) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Restart, stop, delete](#restart-stop-delete) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Deploy](#deploy) · [Your URL and token](#your-url-and-token) · [Sign in to Obsidian Sync](#sign-in-to-obsidian-sync) · [Security](#security) · [First start](#first-start) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Updating](#updating) · [Restart, stop, delete](#restart-stop-delete) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
-- A [Render](https://render.com) account with a payment card on file. The
-  free Hobby workspace is enough; the **Standard** instance (1 CPU, 2 GB) and
-  the 5 GB disk the Blueprint creates are paid — about **$26 USD/month**
-  together, the instance billed by the second and the disk as its own line
-  item ([Render's pricing](https://render.com/pricing)).
+- A [Render](https://render.com) account with a payment card on file. You
+  don't need a paid Render plan — the free Hobby workspace works — but the
+  server itself is paid: the **Standard** instance (1 CPU, 2 GB) and the
+  5 GB disk the Blueprint creates cost about **$26 USD/month** together,
+  the instance billed by the second and the disk as its own line item
+  ([Render's pricing](https://render.com/pricing)).
 - An [Obsidian Sync](https://obsidian.md/sync) subscription
-- Your Obsidian Sync login token — see
-  [Getting your Obsidian Sync token](#getting-your-obsidian-sync-token)
-  below. It is the one step that happens on your own computer.
-
-### Getting your Obsidian Sync token
-
-The token lets the container log in to Obsidian Sync as you. Obsidian only
-hands it out after an interactive login, so this step runs in a terminal on
-your computer — once, before you click the button.
-
-1. **Open a terminal.** macOS: **Applications → Utilities → Terminal**.
-   Windows: search the Start menu for **Terminal** (or **PowerShell**).
-2. **Check that Node.js is installed** (version 20.12 or later):
-
-   ```bash
-   node -v
-   ```
-
-   If Node.js is missing, install it from [nodejs.org](https://nodejs.org/).
-
-3. **Paste this line and press Enter:**
-
-   ```bash
-   npx vault-cortex@latest get-sync-token
-   ```
-
-   It asks for your Obsidian account email, password, and two-factor code
-   (if you use one), then prints the token.
-
-4. **Copy the token.** The deploy form asks for it as `OBSIDIAN_AUTH_TOKEN`.
-
-<details>
-<summary><strong>Don't have Node.js?</strong></summary>
-
-Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-and run the login in a throwaway container instead:
-
-```bash
-docker run --rm -it --entrypoint get-sync-token ghcr.io/aliasunder/vault-cortex:remote
-```
-
-</details>
 
 ## Deploy
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/aliasunder/vault-cortex)
 
 Render asks for a card first if your workspace has none on file, then reads
-the Blueprint and asks for a **Blueprint Name** (any name) and four values
-before it creates anything:
+the Blueprint — Render's name for a ready-made deployment recipe stored in
+the repository — and asks for a **Blueprint Name** (any name) and four
+values before it creates anything. Only `VAULT_NAME` is required; the rest
+are optional:
 
 | Field                 | Value                                                                                                                                                                                                                           |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OBSIDIAN_AUTH_TOKEN` | The token from [Getting your Obsidian Sync token](#getting-your-obsidian-sync-token)                                                                                                                                            |
+| `OBSIDIAN_AUTH_TOKEN` | Leave empty — you sign in through the setup page after deploy (see [Sign in to Obsidian Sync](#sign-in-to-obsidian-sync)). Or paste a token from `npx vault-cortex@latest get-sync-token` to skip the setup page                |
 | `VAULT_NAME`          | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                                                                                       |
 | `VAULT_PASSWORD`      | Only if your vault uses end-to-end encryption; otherwise leave empty                                                                                                                                                            |
 | `TZ`                  | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
 
-Fill the token, vault name, and (for an encrypted vault) password in
-**before** the first deploy — a container that starts without them stops at
-Obsidian Sync setup. A value you missed is added later under the service's
-**Environment** tab, followed by **Manual Deploy** (see
-[Troubleshooting](#troubleshooting)).
+![Render Blueprint form showing OBSIDIAN_AUTH_TOKEN, VAULT_NAME, VAULT_PASSWORD, and TZ fields](img/render-blueprint.jpg)
 
-Click **Deploy Blueprint**. Render creates the service and disk, pulls the
-image, and starts the first deploy. Everything else — the MCP token, the public URL, the
-port, the storage layout — is set by the Blueprint.
+Fill in at least the vault name **before** the first deploy. Click **Deploy
+Blueprint**. Render creates the service and disk, pulls the image, and
+starts the first deploy. Everything else — the MCP token, the public URL,
+the port, the storage layout — is set by the Blueprint.
 
 ## Your URL and token
 
-- **URL:** shown at the top of the service page. Render builds it from the
-  service name the Blueprint sets, `vault-cortex`, plus four random
+- **URL:** shown as a link at the top of the service page. Render builds it
+  from the service name the Blueprint sets, `vault-cortex`, plus four random
   characters, because `onrender.com` subdomains are unique across all of
   Render and the bare name is taken. Expect
-  `https://vault-cortex-xxxx.onrender.com`. The commands below write it as
-  `<host>`; your MCP client connects at `https://<host>/mcp`.
+  `https://vault-cortex-xxxx.onrender.com`. Wherever this guide shows
+  `<host>`, put your own `vault-cortex-xxxx.onrender.com` address in its
+  place: `https://<host>/mcp` becomes
+  `https://vault-cortex-xxxx.onrender.com/mcp`.
+
+  ![Render service page showing the URL, Live status, and deploy history](img/render-service.jpg)
+
 - **Token:** `MCP_AUTH_TOKEN` under the service's **Environment** tab. Render
   generated it for you; your MCP client enters it once on the consent page.
+
+  ![Render Environment tab with MCP_AUTH_TOKEN and other variables](img/render-environment.jpg)
+
+## Sign in to Obsidian Sync
+
+When the service shows a green **Live** badge, sign in to Obsidian Sync
+through the setup page:
+
+![The Connect Obsidian Sync setup page with MCP token, email, and password fields](../img/setup-sign-in.jpg)
+
+1. **Copy `MCP_AUTH_TOKEN`** from the service's **Environment** tab — click
+   the eye icon to reveal it, then copy the value.
+2. **Open the setup page**: click the URL at the top of the service page —
+   the server sends your browser straight to the sign-in page. (Adding
+   `/setup` to the address goes to the same place.)
+3. **Paste the `MCP_AUTH_TOKEN` value** in the token field.
+4. **Enter your Obsidian account email and password.** If you use
+   two-factor authentication, the page asks for the code on the next step.
+
+   ![Two-factor code page with a single code field and Verify button](../img/setup-2fa.jpg)
+
+5. **Wait for "Your vault is ready."** The server signs in, validates your
+   vault settings, writes the token, and restarts to download your vault
+   and build the search index. The page follows the progress automatically.
+   A vault of a few thousand notes takes two to three minutes; a large vault
+   can take longer.
+
+Once the page shows your MCP URL, the server is live and ready to connect.
+
+![Setup complete — "Your vault is ready" with the MCP URL](img/render-setup-complete.jpg)
+
+<details>
+<summary><strong>Already have a token?</strong></summary>
+
+<a id="getting-your-obsidian-sync-token"></a>
+
+If you already have an Obsidian Sync token (from a previous deploy, from the
+CLI, or from a manual login), paste it into the `OBSIDIAN_AUTH_TOKEN` field
+on the Blueprint form — the container skips the setup page and starts
+syncing immediately.
+
+To generate a token from the command line:
+
+```bash
+npx vault-cortex@latest get-sync-token
+```
+
+Or, if you don't have Node.js installed:
+
+```bash
+docker run --rm -it --entrypoint get-sync-token ghcr.io/aliasunder/vault-cortex:remote
+```
+
+</details>
 
 ## Security
 
@@ -143,7 +160,7 @@ under **Environment**: `READONLY_MODE=true` removes every tool that writes
 to the vault, and `FILE_TOOLS_ENABLED=false` or `MEMORY_ENABLED=false` hide
 those tool groups entirely (see [Configuration](#configuration)).
 
-Rotating `MCP_AUTH_TOKEN` ends every session: access tokens issued under
+Changing `MCP_AUTH_TOKEN` ends every session: access tokens issued under
 the old value stop working, stored refresh tokens become unusable, and each
 client goes back through the consent page on its next request.
 [SECURITY.md](../../SECURITY.md) describes what the server exposes and how
@@ -151,12 +168,13 @@ each part is hardened.
 
 ## First start
 
-The first deploy takes longer than later ones. In order, the container logs
-in to Obsidian Sync, downloads your vault, builds the search index, and only
-then answers health checks and
-receives traffic. A vault of a few thousand notes takes two to three
-minutes; Render allows up to 15, and a large vault can take most of it.
-Until then the URL answers `502` — that is Render waiting, not a failure.
+After you sign in on the setup page, the container restarts and runs the
+full startup sequence: it logs in to Obsidian Sync, downloads your vault,
+builds the search index, and then answers health checks and receives
+traffic. A vault of a few thousand notes takes two to three minutes; Render
+allows up to 15 minutes, and a large vault can take most of it. Until the
+index is built, the URL answers `502` — that is Render waiting, not a
+failure.
 
 Watch the **Logs** tab. Lines prefixed `[obsidian-sync]` are the Sync setup
 and download; `[vault-cortex]` lines show the storage layout and the public
@@ -170,7 +188,8 @@ The same three steps in every app:
 
 1. In Claude Desktop, claude.ai, Perplexity, or any app with an **Add custom
    connector** (remote MCP server) option, paste
-   `https://<host>/mcp`. Leave Client ID and Secret empty.
+   `https://<host>/mcp` — the MCP URL the setup page showed when it
+   finished. Leave Client ID and Secret empty.
 2. A consent page opens in your browser. Approve it with the
    `MCP_AUTH_TOKEN` Render generated.
 3. Done — the client renews its own access from then on. Under the hood that
@@ -194,12 +213,15 @@ Client-by-client details are in the remote quickstart's
 
 ## Verify
 
+Open `https://<host>/healthz` in your browser — it answers `{"ok":true}`.
+Then, in your MCP client, run a search — results come from your vault.
+
+The same check from a terminal, if you prefer:
+
 ```bash
 curl https://<host>/healthz
 # → {"ok":true}
 ```
-
-In your MCP client, run a search — results come from your vault.
 
 ## Updating
 
@@ -217,19 +239,18 @@ release lists what changed since the last one, and an entry marked
 
 ## Restart, stop, delete
 
-All from the service page:
-
-- **Restart** — **Manual Deploy → Restart service**. Same container, same disk.
+- **Restart** — on the service, **Manual Deploy → Restart service**. Same
+  container, same disk.
 - **Stop** — **Settings → Suspend Service**. The instance stops billing;
   the disk and everything on it stay, and Render bills disks separately at
   $0.25 USD per GB per month — about $1.25 a month for the 5 GB disk — so
   expect that charge to continue until the service is deleted. **Resume**
   picks up where it left off.
 - **Delete** — two steps, because the Blueprint would otherwise re-create
-  the service: open the Blueprint (**Blueprints** in the left nav) →
-  **Settings → Disconnect Blueprint**, then the service → **Settings →
-  Delete Service**. Deleting the service deletes the disk too. Your vault in
-  Obsidian Sync is untouched — the container only held a copy.
+  the service: from the dashboard, open **Blueprints** in the left nav, open
+  your Blueprint → **Settings → Disconnect Blueprint**, then the service →
+  **Settings → Delete Service**. Deleting the service deletes the disk too.
+  Your vault in Obsidian Sync is untouched — the container only held a copy.
 
 ## Configuration
 
@@ -238,12 +259,12 @@ tab (each change triggers a redeploy):
 
 | Variable                | Value           | What it does                                                                                                                                                                              |
 | ----------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `STORAGE_ROOT`          | `/persist`      | Where the disk is mounted — the vault, search index, Sync device state, and logs live under it. Leave as is.                                                                              |
+| `STORAGE_ROOT`          | `/persist`      | Where the disk is mounted — the vault, search index, Sync device state, and logs live under it. Must not contain `*`, `?`, or `[`. Leave as is.                                           |
 | `PORT`                  | `8000`          | The port the image listens on. Leave as is.                                                                                                                                               |
 | `DEVICE_NAME`           | `vault-cortex`  | The device name that labels this container's changes in Obsidian's sync log.                                                                                                              |
 | `TRUST_PROXY_HOPS`      | `2`             | Render's network puts two proxies between a visitor and the container; this lets the server see the visitor's real address in its logs and rate limits.                                   |
 | `MCP_AUTH_TOKEN`        | generated       | Your MCP client's token. Change it here to rotate it — every connected client re-authorizes.                                                                                              |
-| `OBSIDIAN_AUTH_TOKEN`   | yours           | Obsidian Sync login. Re-run `get-sync-token` and paste the new value if Sync ever rejects it.                                                                                             |
+| `OBSIDIAN_AUTH_TOKEN`   | from setup page | Obsidian Sync login. Set by the setup page on first deploy (written to the disk). To re-sign-in, set a new token here — it always overrides the file on the disk.                         |
 | `VAULT_NAME`            | yours           | The vault this container syncs.                                                                                                                                                           |
 | `VAULT_PASSWORD`        | yours / empty   | End-to-end encryption password, if your vault has one.                                                                                                                                    |
 | `TZ`                    | yours / empty   | Timezone for daily notes, task due dates, and memory timestamps. Empty means UTC.                                                                                                         |
@@ -273,27 +294,27 @@ disk, never shrink it).
 
 ## Troubleshooting
 
-**The first deploy failed.** Open **Logs** and look at the last
-`[obsidian-sync]` lines:
+**The setup page shows an error after signing in.** The page tells you
+what went wrong:
 
-- `OBSIDIAN_AUTH_TOKEN is empty or unset` — the token wasn't entered. Add it
-  under **Environment**, then **Manual Deploy**.
-- `login was rejected` — the token is stale. Run `get-sync-token` again,
-  update `OBSIDIAN_AUTH_TOKEN`, then **Manual Deploy**.
-- `Password not provided.` then `ob sync-setup failed` — the vault is
-  end-to-end encrypted and `VAULT_PASSWORD` is missing. Add it under
-  **Environment**, then **Manual Deploy**.
-- `ob sync-setup failed` on its own — the vault name doesn't match Obsidian
-  Sync exactly (it is case-sensitive). Fix `VAULT_NAME`, then **Manual
-  Deploy**.
-- `VAULT_NAME is not set` — add it under **Environment**, then **Manual
-  Deploy**.
+- _login was rejected_ — wrong email, password, or two-factor code. Try
+  again on the same page.
+- _Vault "X" was not found_ — the vault name doesn't match Obsidian Sync
+  exactly (it is case-sensitive). Fix `VAULT_NAME` under the service's
+  **Environment** tab and save — saving redeploys the service.
+- _Vault password required_ — the vault is end-to-end encrypted and
+  `VAULT_PASSWORD` is missing. Add it under **Environment** and save.
+- _Wrong vault key_ — the vault password is incorrect. Fix
+  `VAULT_PASSWORD` under **Environment** and save.
+
+**`VAULT_NAME is not set` in the logs.** Add it under **Environment** and
+save — saving redeploys the service.
 
 **The deploy timed out waiting for the health check.** Render allows 15
 minutes from container start. The first start of a large vault — download
-plus search-index build — can exceed that. Click **Manual Deploy** again: the
-files and index that already reached the disk are reused, so the second
-attempt is much faster. For very large vaults, set `EMBEDDING_ENABLED=false`
+plus search-index build — can exceed that. Click **Manual Deploy → Deploy
+latest reference**: the files and index that already reached the disk are
+reused, so the second attempt is much faster. For very large vaults, set `EMBEDDING_ENABLED=false`
 for the first deploy and remove it once the vault has synced.
 
 **A redeploy took as long as the first deploy and downloaded the whole vault

@@ -1,14 +1,37 @@
 #!/command/with-contenv sh
-# Init-chain step: log obsidian-headless in to the Obsidian account, using
-# the OBSIDIAN_AUTH_TOKEN provided via the environment (validated by
-# init-check-auth, which runs before this step). Runs as the obsidian user
-# so the stored credentials are owned by the service account.
+# Init-chain step: log obsidian-headless in to the Obsidian account with the
+# token init-check-auth accepted — the OBSIDIAN_AUTH_TOKEN env var, or the
+# token file on the config volume (the client reads them in that order).
+# Runs as the obsidian user so the stored credentials are owned by the
+# service account.
 set -eu
 
+if [ "${SETUP_MODE:-}" = 1 ]; then
+  echo "[obsidian-sync] Setup mode — skipping login."
+  exit 0
+fi
+
 echo "[obsidian-sync] Authenticating with Obsidian..."
-s6-setuidgid obsidian ob login || {
+if s6-setuidgid obsidian ob login; then
+  echo "[obsidian-sync] Authenticated."
+  exit 0
+fi
+
+if [ -n "${OBSIDIAN_AUTH_TOKEN:-}" ]; then
   echo "[obsidian-sync] ERROR: login was rejected — the auth token may be" >&2
   echo "[obsidian-sync] stale. Generate a fresh one with get-sync-token." >&2
   exit 1
-}
-echo "[obsidian-sync] Authenticated."
+fi
+
+# The token came from the file the /setup page wrote. `ob login` exits the
+# same way for a revoked token and for an unreachable API, so the file is
+# kept: a fresh sign-in on /setup overwrites it, a restart retries it.
+# Setup mode is published for the later stages (they re-read the
+# environment directory when they start) and the boot continues into the
+# sign-in page rather than stopping.
+CONTAINER_ENVIRONMENT_DIR="${CONTAINER_ENVIRONMENT_DIR:-/run/s6/container_environment}"
+printf '%s' 1 > "$CONTAINER_ENVIRONMENT_DIR/SETUP_MODE"
+printf '%s' login-failed > "$CONTAINER_ENVIRONMENT_DIR/SETUP_REASON"
+echo "[obsidian-sync] WARNING: the saved Obsidian Sync login was rejected — starting in setup mode." >&2
+echo "[obsidian-sync] Sign in again at ${PUBLIC_URL:-http://<your-server>:${PORT:-8000}}/setup, or restart the container to retry the saved login." >&2
+exit 0

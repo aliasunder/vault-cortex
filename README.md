@@ -5,7 +5,7 @@
 <div align="center">
 
 [![CI](https://img.shields.io/github/actions/workflow/status/aliasunder/vault-cortex/ci.yml?branch=main&logo=github&label=CI&cacheSeconds=43200)](https://github.com/aliasunder/vault-cortex/actions/workflows/ci.yml)
-[![Gitleaks](https://img.shields.io/github/actions/workflow/status/aliasunder/vault-cortex/gitleaks.yml?branch=main&logo=github&label=Gitleaks&cacheSeconds=43200)](https://github.com/aliasunder/vault-cortex/actions/workflows/gitleaks.yml)
+[![Gitleaks](https://img.shields.io/github/actions/workflow/status/aliasunder/vault-cortex/gitleaks.yml?branch=main&logo=github&label=Gitleaks&cacheSeconds=43200&v=2)](https://github.com/aliasunder/vault-cortex/actions/workflows/gitleaks.yml)
 [![Trivy](https://img.shields.io/github/actions/workflow/status/aliasunder/vault-cortex/trivy.yml?branch=main&logo=github&label=Trivy&cacheSeconds=43200&v=1)](https://github.com/aliasunder/vault-cortex/actions/workflows/trivy.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/aliasunder/vault-cortex?cacheSeconds=43200)](https://github.com/aliasunder/vault-cortex/releases)
 [![npm](https://img.shields.io/npm/v/vault-cortex?logo=npm&label=npm&cacheSeconds=43200)](https://www.npmjs.com/package/vault-cortex)
@@ -63,7 +63,7 @@ npx vault-cortex@latest init
 
 That's it — the CLI asks for your vault path, generates the auth token and config files, starts the server, and prints the connection details for your MCP client ([CLI reference →](./cli/)).
 
-![npx vault-cortex@latest init — the interactive setup wizard picks a mode, finds your vault, offers the optional settings, generates the config, and starts the server](./assets/demo-cli-init.gif)
+<p align="center"><img src="./assets/demo-cli-init.gif" width="720" alt="npx vault-cortex@latest init — the interactive setup wizard picks a mode, finds your vault, offers the optional settings, generates the config, and starts the server"></p>
 
 **Set up with the CLI?** It manages the server from here on — `configure`, `upgrade`, `start`, `restart`, `logs`, `down` ([CLI reference →](./cli/)).
 
@@ -91,7 +91,7 @@ docker compose up
 
 ### Remote (access from anywhere)
 
-Your vault on a server, kept current by Obsidian Sync, reachable from your phone, claude.ai, or any MCP client. The one-click options ask for your Obsidian Sync token, vault name, and timezone (plus the vault password if your vault is encrypted), then handle HTTPS, restarts, a generated MCP token, and persistent storage for the vault and its index. On your own server the CLI asks for the public URL and vault name, captures the Sync token for you, and generates the MCP token; HTTPS is yours to set up.
+Your vault on a server, kept current by Obsidian Sync, reachable from your phone, claude.ai, or any MCP client. The one-click options ask for your vault name and timezone (plus the vault password if your vault is encrypted), then handle HTTPS, restarts, a generated MCP token, and persistent storage. Once deployed, a setup page walks you through signing in to Obsidian Sync in your browser. On your own server the CLI asks for the public URL and vault name, captures the Sync token for you, and generates the MCP token; HTTPS is yours to set up.
 
 |                | Railway                                                                                                                                                                             | Render                                                                                                                                                  | Self-hosted                                                  |
 | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
@@ -103,6 +103,12 @@ Your vault on a server, kept current by Obsidian Sync, reachable from your phone
 
 All three need an [Obsidian Sync](https://obsidian.md/sync) subscription. Whichever you pick, the server is replaceable and your vault isn't — it stays in plain Markdown in Obsidian Sync and on your devices; the container only holds a copy.
 
+**The setup page.** Deploy without an Obsidian Sync token and the server starts in setup mode: opening its URL in a browser lands on a sign-in page at `/setup`. Enter your Obsidian account credentials once (two-factor supported) — you sign in with Obsidian directly; the server keeps only the Sync token from that sign-in, restarts, and downloads your vault.
+
+<p align="center"><img src="./deploy/img/setup-sign-in.jpg" width="440" alt="The Connect Obsidian Sync setup page with MCP token, email, and password fields"></p>
+
+<p align="center"><em>The sign-in page, gated by your MCP token. Each deploy guide walks through the full flow.</em></p>
+
 #### Self-hosted: your own VPS
 
 The [vault-cortex CLI](./cli/) sets up the same container on any Linux box you run — you manage the server, the image, and updates. You need Node.js >= 20.12 for the CLI itself; the server runs in Docker.
@@ -112,7 +118,7 @@ The [vault-cortex CLI](./cli/) sets up the same container on any Linux box you r
 npx vault-cortex@latest init --mode remote
 ```
 
-That's it — the CLI walks through the public URL, Obsidian Sync token (it can run [`get-sync-token`](./cli/#get-sync-token) for you), vault name, the vault password for an encrypted vault, and auth config, then starts the server ([CLI reference →](./cli/)).
+That's it — the CLI walks through the public URL, Obsidian Sync token (it can run [`get-sync-token`](./cli/README.md#get-sync-token) for you), vault name, the vault password for an encrypted vault, and auth config, then starts the server ([CLI reference →](./cli/)).
 
 **Set up with the CLI?** It manages the server from here on — `configure`, `upgrade`, `start`, `restart`, `logs`, `down` ([CLI reference →](./cli/)).
 
@@ -127,9 +133,15 @@ mkdir -p /opt/vault-cortex && cd /opt/vault-cortex
 curl -O https://raw.githubusercontent.com/aliasunder/vault-cortex/main/deploy/remote/docker-compose.yml
 curl -O https://raw.githubusercontent.com/aliasunder/vault-cortex/main/deploy/remote/.env.example
 cp .env.example .env
-# Edit .env — set MCP_AUTH_TOKEN, PUBLIC_URL, OBSIDIAN_AUTH_TOKEN, VAULT_NAME
+# Edit .env — set MCP_AUTH_TOKEN, PUBLIC_URL, VAULT_NAME (OBSIDIAN_AUTH_TOKEN optional — /setup handles it)
 docker compose up -d
 ```
+
+Left `OBSIDIAN_AUTH_TOKEN` empty? Once the container is up, open
+`<PUBLIC_URL>/setup` in your browser and sign in — set up
+[HTTPS](./deploy/remote/#https-access) first, since the page sends your
+Obsidian password to the server
+([full walkthrough →](./deploy/remote/#sign-in-to-obsidian-sync)).
 
 </details>
 
@@ -359,12 +371,12 @@ All settings are environment variables with sensible defaults. Remote deployment
 | Variable                    | Required?   | Default                                                                          | Description                                                                                                                                                                                                                                                                                                                                     |
 | --------------------------- | ----------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `MCP_AUTH_TOKEN`            | Yes         | —                                                                                | Bearer token for authentication (also the JWT signing key)                                                                                                                                                                                                                                                                                      |
-| `VAULT_PATH`                | Local only  | —                                                                                | Host path to your vault (bind mount source; remote uses a named volume)                                                                                                                                                                                                                                                                         |
+| `VAULT_PATH`                | Local only  | —                                                                                | Host path to your vault (bind mount source; remote uses a named volume). Must not contain `*`, `?`, or `[` — rejected at startup.                                                                                                                                                                                                               |
 | `PUBLIC_URL`                | Remote only | —                                                                                | Public URL for OAuth discovery metadata. Filled in automatically on Render and Railway (from `RENDER_EXTERNAL_URL` or `RAILWAY_PUBLIC_DOMAIN`) when left unset                                                                                                                                                                                  |
-| `OBSIDIAN_AUTH_TOKEN`       | Remote only | —                                                                                | Obsidian Sync auth token — the CLI's [`get-sync-token`](./cli/#get-sync-token) captures it for you                                                                                                                                                                                                                                              |
+| `OBSIDIAN_AUTH_TOKEN`       | —           | —                                                                                | Obsidian Sync auth token. Leave empty to sign in through the `/setup` page after deploy; or the CLI's [`get-sync-token`](./cli/README.md#get-sync-token) captures it for you                                                                                                                                                                    |
 | `VAULT_NAME`                | Remote only | —                                                                                | Exact name of your Obsidian Sync vault (case-sensitive)                                                                                                                                                                                                                                                                                         |
 | `VAULT_PASSWORD`            | Remote only | —                                                                                | End-to-end encryption password, if your vault has one. Leave empty otherwise.                                                                                                                                                                                                                                                                   |
-| `STORAGE_ROOT`              | —           | —                                                                                | One directory for everything that must persist — the vault, the search index, and Obsidian Sync state — for container hosting platforms that allow a single persistent volume (Railway, Render). Mount the volume there and set this to the same path                                                                                           |
+| `STORAGE_ROOT`              | —           | —                                                                                | One directory for everything that must persist — the vault, the search index, and Obsidian Sync state — for container hosting platforms that allow a single persistent volume (Railway, Render). Mount the volume there and set this to the same path. Must not contain `*`, `?`, or `[` — rejected at startup.                                 |
 | `EMBEDDING_ENABLED`         | —           | `true`                                                                           | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching.                                                                                                                                                                           |
 | `RERANK_MODE`               | —           | `blended`                                                                        | Cross-encoder reranking mode: `blended` applies position-aware score blending after RRF fusion (~200ms added latency), `none` skips reranking. Only takes effect when `EMBEDDING_ENABLED` is true.                                                                                                                                              |
 | `MEMORY_ENABLED`            | —           | `true`                                                                           | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` is ignored when `false`.                                                                                                                                                                                   |

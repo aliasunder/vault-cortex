@@ -749,14 +749,16 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         // "top" inserts before the first existing bullet (newest-first ordering).
         // "bottom" inserts after the last existing bullet.
         // Empty sections (no bullets) fall back to bodyEndLine — appends at section end.
+        const topInsertIndex =
+          firstBulletOffset >= 0
+            ? match.bodyStartLine + firstBulletOffset
+            : match.bodyEndLine
+        const bottomInsertIndex =
+          lastBulletOffset >= 0
+            ? match.bodyStartLine + lastBulletOffset + 1
+            : match.bodyEndLine
         const insertIndex =
-          position === "top"
-            ? firstBulletOffset >= 0
-              ? match.bodyStartLine + firstBulletOffset
-              : match.bodyEndLine
-            : lastBulletOffset >= 0
-              ? match.bodyStartLine + lastBulletOffset + 1
-              : match.bodyEndLine
+          position === "top" ? topInsertIndex : bottomInsertIndex
 
         // Splice the new bullet into the content lines
         const updatedLines = [

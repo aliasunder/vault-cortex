@@ -931,19 +931,39 @@ title: Tasks
 
       expect(result).toEqual({
         path: "board.md",
-        line: 12,
+        line: 14,
         description: "Board task",
         block_id: "board-task",
         heading: "Up Next",
         changes: [`created: (none) → ${today()}`],
       })
       const content = await readTestNote(vault, "board.md")
-      // Task inserted at the top of Up Next, before the existing card
-      const upNextSection =
-        content.split("## Up Next")[1]?.split("## ")[0] ?? ""
-      expect(upNextSection).toBe(
-        `\n- [ ] Board task ➕ ${today()} ^board-task\n\n- [ ] Planned task ⏫ ➕ 2026-07-03 ^planned-task\n\n`,
-      )
+      // No setting → plugin default is append (bottom of lane)
+      expect(content).toBe(`---
+title: Board
+kanban-plugin: board
+---
+
+## Active
+
+- [/] In-progress task ➕ 2026-07-01 ^active-task
+- [ ] Second task ➕ 2026-07-02
+
+## Up Next
+
+- [ ] Planned task ⏫ ➕ 2026-07-03 ^planned-task
+- [ ] Board task ➕ ${today()} ^board-task
+
+## Done
+
+- [x] Completed ➕ 2026-06-01 ✅ 2026-06-15
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`)
     })
 
     it("creates a task with priority and dates", async () => {
@@ -2158,6 +2178,590 @@ kanban-plugin: board
 
 ## Done
 `)
+    })
+  })
+
+  // ── position param ──────────────────────────────────────────────
+
+  describe("position param", () => {
+    // ── createTask + position ───────────────────────────────────
+
+    describe("createTask position", () => {
+      it("non-Kanban + heading + no position → bottom (appends after existing tasks)", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Ideas\n\n- [ ] First ^first\n- [ ] Second ^second\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        const result = await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            description: "Third",
+            blockId: "third",
+            heading: "Ideas",
+          },
+          logger,
+        )
+
+        expect(result.heading).toBe("Ideas")
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Ideas\n\n- [ ] First ^first\n- [ ] Second ^second\n- [ ] Third ➕ ${today()} ^third\n`,
+        )
+      })
+
+      it("non-Kanban + heading + position=top → inserts before existing tasks", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Ideas\n\n- [ ] First ^first\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            description: "Prepended",
+            blockId: "prepended",
+            heading: "Ideas",
+            position: "top",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Ideas\n- [ ] Prepended ➕ ${today()} ^prepended\n\n- [ ] First ^first\n`,
+        )
+      })
+
+      it("Kanban + heading + no position + no setting → bottom (plugin default is append)", async () => {
+        const vault = await createVault()
+        await writeTestNote(vault, "board.md", KANBAN_BOARD)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "New card",
+            blockId: "new-card",
+            heading: "Up Next",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(`---
+title: Board
+kanban-plugin: board
+---
+
+## Active
+
+- [/] In-progress task ➕ 2026-07-01 ^active-task
+- [ ] Second task ➕ 2026-07-02
+
+## Up Next
+
+- [ ] Planned task ⏫ ➕ 2026-07-03 ^planned-task
+- [ ] New card ➕ ${today()} ^new-card
+
+## Done
+
+- [x] Completed ➕ 2026-06-01 ✅ 2026-06-15
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`)
+      })
+
+      it("Kanban + heading + no position + setting=append → bottom", async () => {
+        const vault = await createVault()
+        const board = `---
+kanban-plugin: board
+---
+
+## Active
+
+- [ ] Existing task ➕ 2026-07-01 ^existing
+
+## Done
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board","new-card-insertion-method":"append"}
+\`\`\`
+%%
+`
+        await writeTestNote(vault, "board.md", board)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Appended card",
+            blockId: "appended-card",
+            heading: "Active",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(`---
+kanban-plugin: board
+---
+
+## Active
+
+- [ ] Existing task ➕ 2026-07-01 ^existing
+- [ ] Appended card ➕ ${today()} ^appended-card
+
+## Done
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board","new-card-insertion-method":"append"}
+\`\`\`
+%%
+`)
+      })
+
+      it("Kanban + heading + no position + setting=prepend → top", async () => {
+        const vault = await createVault()
+        const board = `---
+kanban-plugin: board
+---
+
+## Active
+
+- [ ] Existing task ➕ 2026-07-01 ^existing
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board","new-card-insertion-method":"prepend"}
+\`\`\`
+%%
+`
+        await writeTestNote(vault, "board.md", board)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Prepended card",
+            blockId: "prepended-card",
+            heading: "Active",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(`---
+kanban-plugin: board
+---
+
+## Active
+- [ ] Prepended card ➕ ${today()} ^prepended-card
+
+- [ ] Existing task ➕ 2026-07-01 ^existing
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board","new-card-insertion-method":"prepend"}
+\`\`\`
+%%
+`)
+      })
+
+      it("Kanban + heading + explicit position=top overrides setting=append", async () => {
+        const vault = await createVault()
+        const board = `---
+kanban-plugin: board
+---
+
+## Active
+
+- [ ] Existing task ➕ 2026-07-01 ^existing
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board","new-card-insertion-method":"append"}
+\`\`\`
+%%
+`
+        await writeTestNote(vault, "board.md", board)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Top card",
+            blockId: "top-card",
+            heading: "Active",
+            position: "top",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(`---
+kanban-plugin: board
+---
+
+## Active
+- [ ] Top card ➕ ${today()} ^top-card
+
+- [ ] Existing task ➕ 2026-07-01 ^existing
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board","new-card-insertion-method":"append"}
+\`\`\`
+%%
+`)
+      })
+
+      it("position is silently ignored when a parent locator is present", async () => {
+        const vault = await createVault()
+        await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+        const result = await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Child task",
+            blockId: "child",
+            parentBlockId: "walk-dog",
+            position: "top",
+          },
+          logger,
+        )
+
+        expect(result.changes).toEqual([`created: (none) → ${today()}`])
+        const content = await readTestNote(vault, "tasks.md")
+        expect(content).toBe(
+          `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n  - [ ] Child task ➕ ${today()} ^child\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n`,
+        )
+      })
+
+      it("position is silently ignored when no heading on a non-Kanban note", async () => {
+        const vault = await createVault()
+        await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+        const result = await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "End task",
+            blockId: "end-task",
+            position: "top",
+          },
+          logger,
+        )
+
+        expect(result.line).toBe(9)
+        const content = await readTestNote(vault, "tasks.md")
+        expect(content).toBe(
+          `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] End task ➕ ${today()} ^end-task\n`,
+        )
+      })
+
+      it("bottom insertion into an empty section works", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n## Done\n`
+        await writeTestNote(vault, "board.md", note)
+
+        const result = await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "First card",
+            blockId: "first-card",
+            heading: "Active",
+            position: "bottom",
+          },
+          logger,
+        )
+
+        expect(result.heading).toBe("Active")
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n- [ ] First card ➕ ${today()} ^first-card\n\n## Done\n`,
+        )
+      })
+
+      it("bottom insertion lands after last task in a Complete-marked lane", async () => {
+        const vault = await createVault()
+        await writeTestNote(vault, "board.md", KANBAN_WITH_COMPLETE_MARKER)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "New done task",
+            blockId: "new-done",
+            heading: "Archive",
+            position: "bottom",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(`---
+kanban-plugin: board
+---
+
+## Active
+
+- [ ] Task A ➕ 2026-07-01 ^task-a
+
+## Archive
+
+**Complete**
+- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10
+- [ ] New done task ➕ ${today()} ^new-done
+`)
+      })
+
+      it("bottom insertion into the last lane of a board with kanban:settings stays before the settings block", async () => {
+        const vault = await createVault()
+        const board = `---
+kanban-plugin: board
+---
+
+## Done
+
+- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board","new-card-insertion-method":"append"}
+\`\`\`
+%%
+`
+        await writeTestNote(vault, "board.md", board)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "New card",
+            blockId: "new-card",
+            heading: "Done",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(`---
+kanban-plugin: board
+---
+
+## Done
+
+- [x] Old task ➕ 2026-06-01 ✅ 2026-06-10
+- [ ] New card ➕ ${today()} ^new-card
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board","new-card-insertion-method":"append"}
+\`\`\`
+%%
+`)
+      })
+
+      it("bottom insertion into a section ending with prose appends after the prose", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Tasks\n\n- [ ] First ^first\n\nSome notes about the tasks.\n\n## Other\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            description: "After prose",
+            blockId: "after-prose",
+            heading: "Tasks",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Tasks\n\n- [ ] First ^first\n\nSome notes about the tasks.\n- [ ] After prose ➕ ${today()} ^after-prose\n\n## Other\n`,
+        )
+      })
+    })
+
+    // ── updateTask + position ───────────────────────────────────
+
+    describe("updateTask position", () => {
+      it("heading move + no position → top (default preserved)", async () => {
+        const vault = await createVault()
+        await writeTestNote(vault, "board.md", KANBAN_BOARD)
+
+        await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "planned-task",
+            heading: "Active",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(`---
+title: Board
+kanban-plugin: board
+---
+
+## Active
+- [ ] Planned task ⏫ ➕ 2026-07-03 ^planned-task
+
+- [/] In-progress task ➕ 2026-07-01 ^active-task
+- [ ] Second task ➕ 2026-07-02
+
+## Up Next
+
+
+## Done
+
+- [x] Completed ➕ 2026-06-01 ✅ 2026-06-15
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`)
+      })
+
+      it("heading move + position=bottom → appends after existing tasks", async () => {
+        const vault = await createVault()
+        await writeTestNote(vault, "board.md", KANBAN_BOARD)
+
+        await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "planned-task",
+            heading: "Active",
+            position: "bottom",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(`---
+title: Board
+kanban-plugin: board
+---
+
+## Active
+
+- [/] In-progress task ➕ 2026-07-01 ^active-task
+- [ ] Second task ➕ 2026-07-02
+- [ ] Planned task ⏫ ➕ 2026-07-03 ^planned-task
+
+## Up Next
+
+
+## Done
+
+- [x] Completed ➕ 2026-06-01 ✅ 2026-06-15
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`)
+      })
+
+      it("status=done auto-move + no position → top of done lane", async () => {
+        const vault = await createVault()
+        await writeTestNote(vault, "board.md", KANBAN_BOARD)
+
+        await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "active-task",
+            status: "done",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(`---
+title: Board
+kanban-plugin: board
+---
+
+## Active
+
+- [ ] Second task ➕ 2026-07-02
+
+## Up Next
+
+- [ ] Planned task ⏫ ➕ 2026-07-03 ^planned-task
+
+## Done
+- [x] In-progress task ➕ 2026-07-01 ✅ ${today()} ^active-task
+
+- [x] Completed ➕ 2026-06-01 ✅ 2026-06-15
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`)
+      })
+
+      it("status=done auto-move + position=bottom → bottom of done lane", async () => {
+        const vault = await createVault()
+        await writeTestNote(vault, "board.md", KANBAN_BOARD)
+
+        await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "active-task",
+            status: "done",
+            position: "bottom",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(`---
+title: Board
+kanban-plugin: board
+---
+
+## Active
+
+- [ ] Second task ➕ 2026-07-02
+
+## Up Next
+
+- [ ] Planned task ⏫ ➕ 2026-07-03 ^planned-task
+
+## Done
+
+- [x] Completed ➕ 2026-06-01 ✅ 2026-06-15
+- [x] In-progress task ➕ 2026-07-01 ✅ ${today()} ^active-task
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board"}
+\`\`\`
+%%
+`)
+      })
     })
   })
 })
