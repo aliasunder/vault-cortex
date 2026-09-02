@@ -107,7 +107,7 @@ All three need an [Obsidian Sync](https://obsidian.md/sync) subscription. Whiche
 
 <p align="center"><img src="./deploy/img/setup-sign-in.jpg" width="440" alt="The Connect Obsidian Sync setup page with MCP token, email, and password fields"></p>
 
-<p align="center"><em>The sign-in page, gated by your MCP token. The Railway and Render guides walk through the full flow, screenshot by screenshot.</em></p>
+<p align="center"><em>The sign-in page, gated by your MCP token. Each deploy guide walks through the full flow.</em></p>
 
 #### Self-hosted: your own VPS
 
@@ -140,7 +140,8 @@ docker compose up -d
 Left `OBSIDIAN_AUTH_TOKEN` empty? Once the container is up, open
 `<PUBLIC_URL>/setup` in your browser and sign in — set up
 [HTTPS](./deploy/remote/#https-access) first, since the page sends your
-Obsidian password to the server ([full walkthrough →](./deploy/remote/#setup)).
+Obsidian password to the server
+([full walkthrough →](./deploy/remote/#sign-in-to-obsidian-sync)).
 
 </details>
 
