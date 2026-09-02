@@ -105,6 +105,8 @@ All three need an [Obsidian Sync](https://obsidian.md/sync) subscription. Whiche
 
 **The setup page.** Deploy without an Obsidian Sync token and the server starts in setup mode: opening its URL in a browser lands on a sign-in page at `/setup`. Enter your Obsidian account credentials once (two-factor supported) — they go to Obsidian and are not kept; the server stores only the Sync token they return, restarts, and downloads your vault. The Railway and Render guides walk through it with screenshots.
 
+<p align="center"><img src="./deploy/img/setup-sign-in.jpg" width="440" alt="The Connect Obsidian Sync setup page with MCP token, email, and password fields"></p>
+
 #### Self-hosted: your own VPS
 
 The [vault-cortex CLI](./cli/) sets up the same container on any Linux box you run — you manage the server, the image, and updates. You need Node.js >= 20.12 for the CLI itself; the server runs in Docker.
