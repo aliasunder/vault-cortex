@@ -532,6 +532,8 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 | **3b** | Memory recall — entry-granular retrieval across the memory layer's dated history                                          | Complete  |
 | **3c** | Graph queries — multi-hop traversal over the vault's existing wikilink graph (paths, neighborhoods)                       | Exploring |
 
+Forward-looking plans and non-goals live in [ROADMAP.md](./ROADMAP.md).
+
 ---
 
 ## Acknowledgments

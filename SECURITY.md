@@ -253,6 +253,23 @@ Base-image CVEs surfaced by Trivy are typically already tracked in the
 Security tab and handled through image updates. A report is still welcome if
 you've found a Vault Cortex–specific exploit path for one.
 
+## Secrets Management
+
+How project credentials (registry tokens, npm tokens, deployment
+credentials) are handled:
+
+- **Storage** — CI credentials live in GitHub Actions secrets; local and
+  deployment credentials live in gitignored env files. Secrets are never
+  committed to the repository.
+- **Access** — the maintainer is the only person with access to project
+  credentials; workflows receive only the scoped secrets they need (see
+  [GOVERNANCE.md](./GOVERNANCE.md) for the full access list).
+- **Rotation** — every credential can be rotated at any time by swapping
+  the env value and restarting the affected service. Any suspected
+  exposure triggers immediate rotation.
+- **Enforcement** — Gitleaks scans every PR and push to main for
+  committed secrets (see [Automated Scanning](#automated-scanning)).
+
 ## Release Signing
 
 Every server release (`v*` tags) includes a signed digest file (`digests.txt`
