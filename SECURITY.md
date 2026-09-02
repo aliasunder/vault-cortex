@@ -255,8 +255,8 @@ you've found a Vault Cortex–specific exploit path for one.
 
 ## Secrets Management
 
-How project credentials (registry tokens, npm tokens, deployment
-credentials) are handled:
+How project credentials (deployment credentials, publishing tokens, the
+server's own auth tokens) are handled:
 
 - **Storage** — CI credentials live in GitHub Actions secrets; local and
   deployment credentials live in gitignored env files. Secrets are never
@@ -264,8 +264,10 @@ credentials) are handled:
 - **Access** — the maintainer is the only person with access to project
   credentials; workflows receive only the scoped secrets they need (see
   [GOVERNANCE.md](./GOVERNANCE.md) for the full access list).
-- **Rotation** — every credential can be rotated at any time by swapping
-  the env value and restarting the affected service. Any suspected
+- **Rotation** — a CI credential is rotated by revoking it at its provider,
+  issuing a replacement, and updating the GitHub Actions secret; the next
+  workflow run uses the new value. A deployment credential is rotated by
+  swapping the env value and restarting the affected service. Any suspected
   exposure triggers immediate rotation.
 - **Enforcement** — Gitleaks scans every PR and push to main for
   committed secrets (see [Automated Scanning](#automated-scanning)).
