@@ -31,8 +31,8 @@ export type PreflightProblem =
 export type HostingPlatform = "render" | "railway"
 
 /** Where the reader finds the deployment's settings, as a noun phrase that
- *  slots after "from", "in", or "to". The platform phrases match the deploy
- *  guides word for word so the page and the guide agree. */
+ *  slots after "from", "in", or "to". The platform phrases use each deploy
+ *  guide's exact tab name so the page and the guide agree. */
 export const settingsLocation = (
   hostingPlatform: HostingPlatform | undefined,
 ): string => {
