@@ -45,8 +45,8 @@ services:
       # random value; read it from the service's Environment tab.
       - key: MCP_AUTH_TOKEN
         generateValue: true
-      # Prompted for when you click the button.
-      # Obsidian Sync login token: npx vault-cortex@latest get-sync-token
+      # Optional — leave empty to sign in through the /setup page after deploy.
+      # Or paste a token from: npx vault-cortex@latest get-sync-token
       - key: OBSIDIAN_AUTH_TOKEN
         sync: false
       # Your vault's name, exactly as shown in Obsidian Sync.

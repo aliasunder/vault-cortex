@@ -246,6 +246,76 @@ describe("setup-server entry point", () => {
       message: "setup server started",
       setupUrl: "/setup",
     })
+
+    const browserGet = await fetch(`http://127.0.0.1:${server.port}/anything`, {
+      headers: { Accept: "text/html,application/xhtml+xml" },
+      redirect: "manual",
+    })
+
+    expect(browserGet.status).toBe(302)
+    expect(browserGet.headers.get("location")).toBe("/setup")
+  })
+
+  it("redirects browser GET requests to /setup instead of 503 JSON", async () => {
+    const server = await spawnSetupServer({
+      HOME: tmpdir(),
+      MCP_AUTH_TOKEN: AUTH_TOKEN,
+      PUBLIC_URL: "https://vault.example.com",
+    })
+    await waitForStart(server)
+
+    const browserGet = await fetch(`http://127.0.0.1:${server.port}/anything`, {
+      headers: {
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+      redirect: "manual",
+    })
+
+    expect(browserGet.status).toBe(302)
+    expect(browserGet.headers.get("location")).toBe(
+      "https://vault.example.com/setup",
+    )
+  })
+
+  it("returns 503 JSON for GET with Accept: */* (fetch/curl default)", async () => {
+    const server = await spawnSetupServer({
+      HOME: tmpdir(),
+      MCP_AUTH_TOKEN: AUTH_TOKEN,
+      PUBLIC_URL: "https://vault.example.com",
+    })
+    await waitForStart(server)
+
+    const fetchDefault = await fetch(`http://127.0.0.1:${server.port}/anything`)
+
+    expect(fetchDefault.status).toBe(503)
+    await expect(fetchDefault.json()).resolves.toEqual({
+      error: "setup required",
+      setup_url: "https://vault.example.com/setup",
+    })
+  })
+
+  it("returns 503 JSON for POST with Accept: text/html (no redirect on POST)", async () => {
+    const server = await spawnSetupServer({
+      HOME: tmpdir(),
+      MCP_AUTH_TOKEN: AUTH_TOKEN,
+      PUBLIC_URL: "https://vault.example.com",
+    })
+    await waitForStart(server)
+
+    const browserPost = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
+      method: "POST",
+      headers: {
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+    })
+
+    expect(browserPost.status).toBe(503)
+    await expect(browserPost.json()).resolves.toEqual({
+      error: "setup required",
+      setup_url: "https://vault.example.com/setup",
+    })
   })
 
   it("shows the saved-login notice when SETUP_REASON is login-failed", async () => {
