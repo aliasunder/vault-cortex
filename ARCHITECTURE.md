@@ -905,7 +905,10 @@ flowchart TD
    `/healthz` answers `{ ok: true, mode: "setup" }` within seconds (so a
    platform deploy goes live), `/setup` serves the sign-in page, browser
    GETs to any other path redirect to `/setup`, and API requests answer
-   503 with the setup URL.
+   503 with the setup URL. When `RENDER_EXTERNAL_URL` or
+   `RAILWAY_PUBLIC_DOMAIN` identifies the host, the page names that
+   platform's settings tab wherever it tells the owner to find or fix a
+   variable.
 4. `POST /setup` checks `MCP_AUTH_TOKEN` first, then signs in through
    Obsidian's account API (the same request `ob login` makes, two-factor
    included).

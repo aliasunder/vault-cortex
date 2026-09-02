@@ -12,6 +12,17 @@ import { loadConfig } from "../config.js"
 import { logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
 import { createSetupRoutes } from "./setup-routes.js"
+import type { HostingPlatform } from "./setup-page.js"
+
+/** Which container hosting platform the page is served from, read from the
+ *  variable each platform sets on its services. Checked in the same order
+ *  as print-derived-env's PUBLIC_URL derivation, so the page never names a
+ *  different platform than the one the URL came from. */
+const detectHostingPlatform = (): HostingPlatform | undefined => {
+  if (env.get("RENDER_EXTERNAL_URL").asString()?.trim()) return "render"
+  if (env.get("RAILWAY_PUBLIC_DOMAIN").asString()?.trim()) return "railway"
+  return undefined
+}
 
 const startSetupServer = (): void => {
   // Validates the rest of the deployment's settings too, so a typo in an
@@ -39,6 +50,7 @@ const startSetupServer = (): void => {
   const vaultPassword = env.get("VAULT_PASSWORD").asString() || undefined
   const savedLoginRejected =
     env.get("SETUP_REASON").default("").asString() === "login-failed"
+  const hostingPlatform = detectHostingPlatform()
 
   const setupUrl = publicUrl ? new URL("/setup", publicUrl).href : "/setup"
 
@@ -61,6 +73,7 @@ const startSetupServer = (): void => {
       tokenFilePath,
       obsidianApiBaseUrl,
       savedLoginRejected,
+      hostingPlatform,
       trustForwardedHops: config.trustForwardedHops,
       onSetupComplete: () => {
         logger.info("setup server exiting for restart")
