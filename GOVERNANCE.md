@@ -38,6 +38,8 @@ resources:
   Actions secrets)
 - **Container registry** — publishing rights for
   `ghcr.io/aliasunder/vault-cortex`
+- **Docker Hub** — publishing rights for the `aliasunder/vault-cortex`
+  mirror (GHCR is the primary registry)
 - **npm** — publishing rights for the `vault-cortex` CLI package
 - **Reference deployment** — the maintainer's own AWS deployment (see
   [SECURITY.md](./SECURITY.md); not required by adopters)
@@ -52,8 +54,11 @@ Everything needed to continue the project is public:
 - Releases are built by GitHub Actions from tagged commits — there are no
   maintainer-local build steps
 
-A successor or fork would need to re-create the private pieces: CI
-secrets (registry and npm tokens) and any deployment infrastructure.
+A successor or fork would need to re-create the private pieces: the
+deploy workflows' secrets (deployment credentials, the Docker Hub
+mirror's token, the release bot's GitHub App keys) and an npm Trusted
+Publishing configuration of their own — GHCR publishing uses the
+workflow's built-in token, so no registry secret exists to hand over.
 None of these gate access to the code or the published images.
 
 ## Adding collaborators
