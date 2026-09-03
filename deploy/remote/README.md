@@ -98,12 +98,12 @@ cp .env.example .env
 
 **5. Fill in the required values:**
 
-| Variable              | Value                                                                                                                                                                                                    |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MCP_AUTH_TOKEN`      | Generate with `openssl rand -hex 32`                                                                                                                                                                     |
-| `PUBLIC_URL`          | Your server's public base URL, e.g. `https://vault.example.com` — no `/mcp` at the end; it's appended automatically, and clients connect at `<PUBLIC_URL>/mcp` (see [HTTPS access](#https-access) below) |
-| `OBSIDIAN_AUTH_TOKEN` | Output from step 3. Or leave empty to sign in through the `/setup` page after starting                                                                                                                   |
-| `VAULT_NAME`          | Your exact Obsidian vault name (case-sensitive)                                                                                                                                                          |
+| Variable              | Value                                                                                                                                                                                                                        |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MCP_AUTH_TOKEN`      | Generate with `openssl rand -hex 32`                                                                                                                                                                                         |
+| `PUBLIC_URL`          | Your server's public base URL, e.g. `https://vault.example.com` — no `/mcp` at the end; it's appended automatically, and clients connect at `<PUBLIC_URL>/mcp` (see [HTTPS access](#https-access) below)                     |
+| `OBSIDIAN_AUTH_TOKEN` | Output from step 3. Or leave empty to sign in through the `/setup` page after starting. To sign in with a different account, set a new token and re-create the container — it always overrides the saved login on the volume |
+| `VAULT_NAME`          | Your exact Obsidian vault name (case-sensitive)                                                                                                                                                                              |
 
 **6. Start the server:**
 

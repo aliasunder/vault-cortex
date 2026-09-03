@@ -273,7 +273,7 @@ const renderConfigured = (): string =>
   shell(
     "Already set up",
     `<h1>Already set up</h1>
-  <p>This server is signed in to Obsidian Sync. To sign in with a different account, set <code>OBSIDIAN_AUTH_TOKEN</code> in your deployment's settings (the <code>get-sync-token</code> command prints one) and redeploy.</p>`,
+  <p>This server is set up and running — there is nothing to do on this page.</p>`,
   )
 
 export const renderSetupPage = (view: SetupView): string => {
