@@ -221,4 +221,23 @@ describe("gatewayApiEndpointQuery", () => {
       expect(workflowContent).toContain(gatewayApiEndpointQuery("${SST_STAGE}"))
     },
   )
+
+  // sst.config.ts carries the chain in source (its gateway fallback is the
+  // deployed API's own URL, so it embeds no JMESPath) — pin its three steps
+  // as source fragments so an edit to the Lambda's derivation fails here
+  // instead of shipping a silent PUBLIC_URL mismatch that 403s every request.
+  it("matches the resolution chain sst.config.ts applies for the Lambda", () => {
+    const sstConfigSource = readFileSync(
+      new URL("../../sst.config.ts", import.meta.url),
+      "utf8",
+    )
+
+    expect(sstConfigSource).toContain(
+      "if (publicUrlOverride) return $output(publicUrlOverride)",
+    )
+    expect(sstConfigSource).toContain(
+      "if (customDomain) return $output(`https://${customDomain}`)",
+    )
+    expect(sstConfigSource).toContain("return api.url")
+  })
 })

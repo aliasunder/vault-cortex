@@ -4,6 +4,11 @@
  * rejects tokens minted for any other URL, so the two must resolve identically
  * — deploy.yml's "Resolve public URL" step applies this rule for CI deploys,
  * and these helpers apply it for laptop deploys (scripts/dev.ts lightsail:up).
+ *
+ * sst.config.ts's gateway fallback is `api.url` — the deployed API resource's
+ * own address, the ground truth. The JMESPath query below is how contexts
+ * without that resource reference (CI, this script) find the same gateway;
+ * the parity tests pin all three copies of the chain to each other.
  */
 
 type PublicUrlSource = "PUBLIC_URL" | "CUSTOM_DOMAIN" | "API Gateway"
