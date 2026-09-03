@@ -795,7 +795,7 @@ describe("default config", () => {
       const html = await response.text()
       expect(html).toContain("<h1>Already set up</h1>")
       expect(html).toContain(
-        "To sign in with a different account, set <code>OBSIDIAN_AUTH_TOKEN</code>",
+        "This server is set up and running — there is nothing to do on this page.",
       )
     })
 
