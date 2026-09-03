@@ -208,7 +208,8 @@ describe("envContentWithPublicUrl", () => {
 describe("gatewayApiEndpointQuery", () => {
   // The workflows embed the query with the ${SST_STAGE} shell variable where
   // dev.ts interpolates the stage — substituting that literal reproduces the
-  // exact string each workflow must carry.
+  // exact string each workflow must carry. toContain is deliberate: the
+  // workflow file is the haystack; only the embedded query is under test.
   it.each(["deploy.yml", "test_deploy.yml"])(
     "matches the query %s embeds, so CI and laptop deploys resolve the same gateway",
     (workflowFile) => {
