@@ -52,14 +52,14 @@ sed -i '' "s/^MCP_AUTH_TOKEN=.*/MCP_AUTH_TOKEN=$MCP_AUTH_TOKEN/" ~/.config/vault
 
 Then open `~/.config/vault-cortex/.env` and fill in the remaining values:
 
-| Variable              | Value                                                                                         |
-| --------------------- | --------------------------------------------------------------------------------------------- |
-| `PUBLIC_URL`          | API Gateway URL (from `sst deploy` output) — or your [custom domain](#custom-domain-optional) |
-| `GHCR_USER`           | Your GitHub username                                                                          |
-| `GHCR_TOKEN`          | Optional — only if your GHCR package is private (used to log the instance in for pulls)       |
-| `VAULT_NAME`          | Your Obsidian vault name (exact, case-sensitive)                                              |
-| `VAULT_PASSWORD`      | Only if vault has E2E encryption                                                              |
-| `OBSIDIAN_AUTH_TOKEN` | Generate with the command below                                                               |
+| Variable              | Value                                                                                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PUBLIC_URL`          | Leave empty — `lightsail:up` fills it in: your [custom domain](#custom-domain-optional) if configured, else the API Gateway URL. Set a value only to pin a hostname |
+| `GHCR_USER`           | Your GitHub username                                                                                                                                                |
+| `GHCR_TOKEN`          | Optional — only if your GHCR package is private (used to log the instance in for pulls)                                                                             |
+| `VAULT_NAME`          | Your Obsidian vault name (exact, case-sensitive)                                                                                                                    |
+| `VAULT_PASSWORD`      | Only if vault has E2E encryption                                                                                                                                    |
+| `OBSIDIAN_AUTH_TOKEN` | Generate with the command below                                                                                                                                     |
 
 The [`.env.example`](./.env.example) file also includes optional configuration for the embedding pipeline (`EMBEDDING_ENABLED`), the reranker (`RERANK_MODE`), the memory system (`MEMORY_ENABLED`, `MEMORY_DIR`, `PROTECTED_PATHS`, `ORPHAN_EXCLUDE_FOLDERS`), file tools (`FILE_TOOLS_ENABLED`), read-only mode (`READONLY_MODE`), daily notes (`DAILY_NOTES_FOLDER`, `DAILY_NOTES_FORMAT`, `SYNC_CONFIGS`), timezone (`TZ`), and OAuth metadata (`SERVICE_DOCUMENTATION_URL`). All have sensible defaults — see the [Configuration](./README.md#configuration) section in the README.
 
@@ -89,7 +89,7 @@ That runs, in order:
 
 1. `npx sst deploy` — provisions Lightsail VM, API Gateway, smart Lambda authorizer
 2. `npm run docker:publish` — builds (targeting linux/amd64) + pushes to GHCR
-3. `npm run lightsail:up` — ensures `/opt/vault-cortex` exists, waits for Docker (cloud-init), logs into GHCR on the instance, SCPs `docker-compose.yml` + `.env`, then `docker compose pull && up -d`
+3. `npm run lightsail:up` — ensures `/opt/vault-cortex` exists, waits for Docker (cloud-init), logs into GHCR on the instance, resolves `PUBLIC_URL` (explicit value, else `CUSTOM_DOMAIN`, else the gateway URL — the same rule the Lambda authorizer uses), SCPs `docker-compose.yml` + `.env` carrying that value, then `docker compose pull && up -d`
 
 On startup, Compose runs one `vault-cortex` container (the `:remote` image). Inside it, s6-overlay runs the init chain (Obsidian login → vault setup → first sync to completion) and then supervises two processes in order: the sync process (mirrors your vault) → the MCP server. Both drop to the same UID (1000, adjustable via PUID/PGID) so they share the `/vault` volume. See [ARCHITECTURE.md § Container Startup](./ARCHITECTURE.md#container-startup) for the full diagram.
 
@@ -775,7 +775,7 @@ curl https://mcp.example.com/healthz
 # → {"ok":true}
 ```
 
-**4. Move clients to the custom domain.** A CI deploy with `CUSTOM_DOMAIN` set derives `PUBLIC_URL` from it (unless the `PUBLIC_URL` secret pins another value), so OAuth discovery metadata advertises the custom domain and every access token is minted for it. Access tokens are bound to that URL: a client still connected through the execute-api URL is rejected on its next request (its token names the old audience) and reconnects on the custom domain, where it consents once. To stage the cutover, set the `PUBLIC_URL` secret to the execute-api URL until the CNAME resolves, then clear it and redeploy. For a laptop deploy, update `PUBLIC_URL` in the instance `.env` yourself and restart the stack; the Lambda and Express must derive the same value or every token gets a 403 at the gateway.
+**4. Move clients to the custom domain.** A CI deploy with `CUSTOM_DOMAIN` set derives `PUBLIC_URL` from it (unless the `PUBLIC_URL` secret pins another value), so OAuth discovery metadata advertises the custom domain and every access token is minted for it. Access tokens are bound to that URL: a client still connected through the execute-api URL is rejected on its next request (its token names the old audience) and reconnects on the custom domain, where it consents once. To stage the cutover, set the `PUBLIC_URL` secret to the execute-api URL until the CNAME resolves, then clear it and redeploy. A laptop deploy follows the same rule — `npm run lightsail:up` resolves `PUBLIC_URL` identically and writes it into the instance `.env`, so the Lambda and Express stay in agreement; stage the cutover by setting `PUBLIC_URL` in `~/.config/vault-cortex/.env` instead of the secret, and re-run both `npx sst deploy` and `npm run lightsail:up` when you clear it.
 
 **5. Close the default hostname (optional)** — once every client connects through the custom domain, set `DISABLE_EXECUTE_API_ENDPOINT=true` (a repo Variable for CI deploys, or on the command line) and redeploy. The gateway then answers only on the custom domain; a client still pointed at the execute-api URL gets a connection error until it is re-pointed. This is the precondition for `TRUST_FORWARDED_HOPS=2` when a CDN fronts the domain (see the **Client-IP trust with ORIGIN_URL** callout under [Port 8000 Hardening](#port-8000-hardening-optional)).
 
@@ -784,7 +784,7 @@ curl https://mcp.example.com/healthz
 ## Troubleshooting
 
 - **`npm run build` fails with `Property 'McpAuthToken' does not exist`** — `sst-env.d.ts` hasn't been generated. Run `npx sst deploy` (or `sst dev`) once for your stage.
-- **Every request gets `403` at the gateway while the instance is healthy** — the Lambda authorizer is rejecting every token, and clients do not recover on their own (they refresh on 401, not 403). Either the Lambda and Express disagree on `PUBLIC_URL` — the Lambda derives its value at `sst deploy` (the `PUBLIC_URL` env var, else `CUSTOM_DOMAIN`, else the gateway URL), Express reads the instance `.env`; make them match and redeploy or restart — or connected clients still hold tokens minted before audience binding (an upgrade that skipped the release that accepts them): each client recovers when its own token timer refreshes it, at most one access-token lifetime, or reconnect it now.
+- **Every request gets `403` at the gateway while the instance is healthy** — the Lambda authorizer is rejecting every token, and clients do not recover on their own (they refresh on 401, not 403). Either the Lambda and Express disagree on `PUBLIC_URL` — the Lambda derives its value at `sst deploy` (the `PUBLIC_URL` env var, else `CUSTOM_DOMAIN`, else the gateway URL), and Express reads the instance `.env`, which CI and `npm run lightsail:up` write with the same rule, so a disagreement means the instance `.env` was edited by hand or written by an older deploy; re-run the deploy (or `npm run lightsail:up`) so both derive the same value — or connected clients still hold tokens minted before audience binding (an upgrade that skipped the release that accepts them): each client recovers when its own token timer refreshes it, at most one access-token lifetime, or reconnect it now.
 - **`sst dev` errors with `SecretMissingError`** — set the secret first (one-time setup step 2).
 - **`curl <lightsailIp>` hangs** — use `:8000`. The firewall only allows ports 22 and 8000 by default (port 22 may be blocked if `SSH_CIDRS=none`, port 8000 may be blocked if `MCP_PORT_CIDRS=none`).
 - **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Verify `~/.ssh/vault-cortex` exists (generate with `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`), then redeploy. To also use your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.
