@@ -57,9 +57,10 @@ Everything needed to continue the project is public:
 
 A successor or fork would need to re-create the private pieces: the
 deploy workflows' secrets (deployment credentials, the Docker Hub
-mirror's token, the release bot's GitHub App keys) and an npm Trusted
-Publishing configuration of their own — GHCR publishing uses the
-workflow's built-in token, so no registry secret exists to hand over.
+mirror's token, the GitHub App keys for the release and review bots,
+and the review bot's LLM API key) and an npm Trusted Publishing
+configuration of their own — GHCR publishing uses the workflow's
+built-in token, so no registry secret exists to hand over.
 None of these gate access to the code or the published images.
 
 ## Adding collaborators
