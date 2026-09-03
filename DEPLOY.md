@@ -192,13 +192,13 @@ aws logs tail /aws/lambda/<authorizer-function> --since 24h
 
 ## Command reference
 
-| Command                  | What it does                                                                                                    |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `npm run deploy`         | `npx sst deploy` — creates/updates AWS infra. First run provisions everything; subsequent runs are incremental. |
-| `npm run docker:publish` | Builds the vault-cortex `:remote` image (linux/amd64) and pushes to GHCR.                                       |
-| `npm run lightsail:up`   | Bootstraps the VM (mkdir, Docker wait, GHCR login), SCPs config, pulls + restarts containers. Volumes persist.  |
-| `npm run deploy:dev`     | Full chain: `deploy` → `docker:publish` → `lightsail:up`.                                                       |
-| `npx sst remove`         | **Destructive** — deletes Lightsail VM, API Gateway, Lambda. Frees the ~$12–24 USD/mo Lightsail cost.           |
+| Command                  | What it does                                                                                                                                                                |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run deploy`         | `npx sst deploy` — creates/updates AWS infra. First run provisions everything; subsequent runs are incremental.                                                             |
+| `npm run docker:publish` | Builds the vault-cortex `:remote` image (linux/amd64) and pushes to GHCR.                                                                                                   |
+| `npm run lightsail:up`   | Resolves `PUBLIC_URL` (from `CUSTOM_DOMAIN` or the gateway), bootstraps the VM (mkdir, Docker wait, GHCR login), SCPs config, pulls + restarts containers. Volumes persist. |
+| `npm run deploy:dev`     | Full chain: `deploy` → `docker:publish` → `lightsail:up`.                                                                                                                   |
+| `npx sst remove`         | **Destructive** — deletes Lightsail VM, API Gateway, Lambda. Frees the ~$12–24 USD/mo Lightsail cost.                                                                       |
 
 All commands are idempotent and safe to run repeatedly.
 
