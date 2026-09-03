@@ -86,6 +86,7 @@ const waitForDocker = (ip: string, id: string, timeoutSec = 120): void => {
       console.log(`✓ Docker is ready`)
       return
     } catch {
+      // Expected — Docker isn't ready yet; sleep and retry.
       execSync("sleep 5")
     }
   }
