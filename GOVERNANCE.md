@@ -12,7 +12,8 @@ merge. There is no committee or voting process.
 
 Proposals and contributions are evaluated on:
 
-- Fit with the project's direction and non-goals ([ROADMAP.md](./ROADMAP.md))
+- Fit with the project's direction, staying clear of its non-goals
+  ([ROADMAP.md](./ROADMAP.md))
 - The conventions documented in [AGENTS.md](./AGENTS.md) and
   [CONTRIBUTING.md](./CONTRIBUTING.md)
 - Tests and documentation matching the change (see
@@ -26,8 +27,8 @@ Proposals and contributions are evaluated on:
 | Contributor | Anyone      | Opens issues and pull requests per [CONTRIBUTING.md](./CONTRIBUTING.md)                              |
 
 There are currently no additional committers. If the project grows to need
-them, a committer role would carry pull request review and merge rights,
-granted per the collaborator policy below.
+them, a committer — a contributor trusted with pull request review and
+merge rights — would be added per the collaborator policy below.
 
 ## Access
 
