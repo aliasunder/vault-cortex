@@ -535,14 +535,8 @@ npx skills add aliasunder/agent-skills --skill obsidian-vault
 
 ## Roadmap
 
-| Phase  | What                                                                                                                      | Status    |
-| ------ | ------------------------------------------------------------------------------------------------------------------------- | --------- |
-| **1**  | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1                                                              | Complete  |
-| **2a** | Hybrid search — FTS5 + vector + RRF fusion, heading-aware chunking                                                        | Complete  |
-| **2b** | Reranker — cross-encoder reranking, position-aware score blending                                                         | Complete  |
-| **3a** | Task layer — vault-wide task index, structured queries, and one-call task updates (Tasks plugin emoji + Dataview formats) | Complete  |
-| **3b** | Memory recall — entry-granular retrieval across the memory layer's dated history                                          | Complete  |
-| **3c** | Graph queries — multi-hop traversal over the vault's existing wikilink graph (paths, neighborhoods)                       | Exploring |
+Planned work, what's being explored, and explicit non-goals live in
+[ROADMAP.md](./ROADMAP.md).
 
 ---
 
