@@ -290,11 +290,16 @@ describe("renderSetupPage — complete", () => {
 })
 
 describe("renderSetupPage — configured", () => {
-  it("says the server is already signed in and how to switch accounts", () => {
+  it("says the server is set up, with no Obsidian Sync claims or instructions", () => {
     const html = renderSetupPage({ kind: "configured" })
 
     expect(html).toContain("<h1>Already set up</h1>")
-    expect(html).toContain("set <code>OBSIDIAN_AUTH_TOKEN</code>")
+    expect(html).toContain(
+      "This server is set up and running — there is nothing to do on this page.",
+    )
+    // The local image serves this page too and never touches Obsidian Sync,
+    // so the copy stays mode-neutral.
+    expect(html).not.toContain("Obsidian Sync")
     expect(html).not.toContain("<form")
   })
 })
