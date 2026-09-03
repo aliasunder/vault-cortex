@@ -264,13 +264,17 @@ server's own auth tokens) are handled:
 - **Access** — the maintainer is the only person with access to project
   credentials; workflows receive only the scoped secrets they need (see
   [GOVERNANCE.md](./GOVERNANCE.md) for the full access list).
-- **Rotation** — a CI credential is rotated by revoking it at its provider,
-  issuing a replacement, and updating the GitHub Actions secret; the next
-  workflow run uses the new value. A deployment credential is rotated by
-  swapping the env value and re-creating the service so the new value is
-  read — `docker compose up -d` with Compose, or the CLI's `restart`
-  command, which re-creates the container (a plain `docker restart` keeps
-  the old value). Any suspected exposure triggers immediate rotation.
+- **Rotation** — a CI credential (the Docker Hub token, a GitHub App
+  key) is rotated by revoking it at its provider, issuing a replacement,
+  and updating the GitHub Actions secret; the next workflow run uses the
+  new value. npm and GHCR publishing hold no long-lived credential — npm
+  releases use Trusted Publishing and GHCR the workflow's built-in
+  token. A deployment rotates the server's own tokens (`MCP_AUTH_TOKEN`,
+  `OBSIDIAN_AUTH_TOKEN`) by swapping the env value and re-creating the
+  service so the new value is read — `docker compose up -d` with
+  Compose, or the CLI's `restart` command, which re-creates the
+  container (a plain `docker restart` keeps the old value). Any
+  suspected exposure triggers immediate rotation.
 - **Enforcement** — Gitleaks scans every PR and push to main for
   committed secrets (see [Automated Scanning](#automated-scanning)).
 
