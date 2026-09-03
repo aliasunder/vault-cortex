@@ -751,7 +751,7 @@ DNS stays with your provider (Cloudflare, Route 53, anything) — SST only creat
 
 **1. Get an ACM certificate** in the same region as the API, covering the domain (exact name or a wildcard like `*.example.com`). Request it in the ACM console (or any IaC), add the DNS validation record at your DNS provider, and wait for status **Issued**. The cert is referenced by ARN — it can live in your account already.
 
-**2. Deploy with the domain configured:**
+**2. Deploy with the domain configured.** For a laptop deploy, first uncomment `CUSTOM_DOMAIN` and `CUSTOM_DOMAIN_CERT_ARN` in `~/.config/vault-cortex/.env` — `lightsail:up` reads the domain from there to derive the matching `PUBLIC_URL` for the instance — then deploy with the same values:
 
 ```bash
 CUSTOM_DOMAIN=mcp.example.com \
@@ -759,7 +759,7 @@ CUSTOM_DOMAIN_CERT_ARN=arn:aws:acm:us-east-1:<account>:certificate/<id> \
 npx sst deploy
 ```
 
-For CI deploys, set both as repo secrets — `deploy.yml` passes them through. Both must be set together; `CUSTOM_DOMAIN` without the cert ARN fails fast with an error.
+For CI deploys, set both as repo secrets instead — `deploy.yml` passes them through to both `sst deploy` and the instance `.env`. Both must be set together; `CUSTOM_DOMAIN` without the cert ARN fails fast with an error.
 
 **3. Point DNS at the gateway** — fetch the gateway's target hostname (a `d-xxxx.execute-api.<region>.amazonaws.com` name; deliberately not a deploy output, so it stays out of public CI logs):
 
