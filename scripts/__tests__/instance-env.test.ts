@@ -1,5 +1,10 @@
+import { readFileSync } from "node:fs"
 import { describe, it, expect, vi } from "vitest"
-import { envContentWithPublicUrl, resolvePublicUrl } from "../instance-env.js"
+import {
+  envContentWithPublicUrl,
+  gatewayApiEndpointQuery,
+  resolvePublicUrl,
+} from "../instance-env.js"
 
 describe("resolvePublicUrl", () => {
   it("returns an explicit PUBLIC_URL without querying the gateway", () => {
@@ -76,7 +81,11 @@ describe("resolvePublicUrl", () => {
       queryGatewayUrl,
     })
 
-    expect(resolved.source).toBe("API Gateway")
+    expect(resolved).toEqual({
+      url: "https://abc123.execute-api.us-east-1.amazonaws.com",
+      source: "API Gateway",
+    })
+    expect(queryGatewayUrl).toHaveBeenCalledTimes(1)
   })
 
   it("throws when the gateway query returns the aws CLI's literal None", () => {
@@ -180,4 +189,35 @@ describe("envContentWithPublicUrl", () => {
 
     expect(rewritten).toBe("PUBLIC_URL=https://mcp.example.com\n")
   })
+
+  it("keeps CRLF line endings intact when replacing", () => {
+    const envFileContent =
+      "MCP_AUTH_TOKEN=fake-token\r\nPUBLIC_URL=https://old.example.com\r\n"
+
+    const rewritten = envContentWithPublicUrl(
+      envFileContent,
+      "https://new.example.com",
+    )
+
+    expect(rewritten).toBe(
+      "MCP_AUTH_TOKEN=fake-token\r\nPUBLIC_URL=https://new.example.com\r\n",
+    )
+  })
+})
+
+describe("gatewayApiEndpointQuery", () => {
+  // The workflows embed the query with the ${SST_STAGE} shell variable where
+  // dev.ts interpolates the stage — substituting that literal reproduces the
+  // exact string each workflow must carry.
+  it.each(["deploy.yml", "test_deploy.yml"])(
+    "matches the query %s embeds, so CI and laptop deploys resolve the same gateway",
+    (workflowFile) => {
+      const workflowContent = readFileSync(
+        new URL(`../../.github/workflows/${workflowFile}`, import.meta.url),
+        "utf8",
+      )
+
+      expect(workflowContent).toContain(gatewayApiEndpointQuery("${SST_STAGE}"))
+    },
+  )
 })

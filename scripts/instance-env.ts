@@ -8,6 +8,18 @@
 
 type PublicUrlSource = "PUBLIC_URL" | "CUSTOM_DOMAIN" | "API Gateway"
 
+/**
+ * JMESPath picking the newest API Gateway whose name carries the stage's
+ * prefix — with removal "retain", an `sst remove` can leave an older API
+ * matching the same prefix, and picking it would bind tokens to a gateway
+ * the Lambda no longer fronts. CI's deploy workflows embed the same
+ * expression (with the `${SST_STAGE}` shell variable); the parity test in
+ * instance-env.test.ts fails when the two copies diverge.
+ */
+export const gatewayApiEndpointQuery = (stage: string): string => {
+  return `sort_by(Items[?starts_with(Name, 'vault-cortex-${stage}-VaultCortexApi')], &CreatedDate)[-1].ApiEndpoint`
+}
+
 export type ResolvedPublicUrl = {
   url: string
   source: PublicUrlSource
@@ -52,7 +64,11 @@ export const envContentWithPublicUrl = (
 
   if (hasPublicUrlLine) {
     return lines
-      .map((line) => (line.startsWith("PUBLIC_URL=") ? publicUrlLine : line))
+      .map((line) => {
+        if (!line.startsWith("PUBLIC_URL=")) return line
+        // Keep a CRLF file's trailing \r so the rewrite doesn't mix endings.
+        return line.endsWith("\r") ? `${publicUrlLine}\r` : publicUrlLine
+      })
       .join("\n")
   }
 

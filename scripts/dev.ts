@@ -32,6 +32,7 @@ import { join } from "node:path"
 
 import {
   envContentWithPublicUrl,
+  gatewayApiEndpointQuery,
   resolvePublicUrl,
   type ResolvedPublicUrl,
 } from "./instance-env.js"
@@ -144,17 +145,10 @@ const sshIdentity = (): string => {
 
 const sshOpts = "-o StrictHostKeyChecking=accept-new"
 
-// Newest match wins: with removal "retain", an `sst remove` can leave an
-// older API whose name matches the same prefix, and picking it would bind
-// tokens to a gateway the Lambda no longer fronts. Must stay identical to
-// deploy.yml's "Resolve public URL" query so CI and laptop deploys resolve
-// the same gateway.
 const fetchGatewayUrl = (): string => {
   const stage = readStage()
   return execSync(
-    `aws apigatewayv2 get-apis ` +
-      `--query "sort_by(Items[?starts_with(Name, 'vault-cortex-${stage}-VaultCortexApi')], &CreatedDate)[-1].ApiEndpoint" ` +
-      `--output text`,
+    `aws apigatewayv2 get-apis --query "${gatewayApiEndpointQuery(stage)}" --output text`,
     { env },
   )
     .toString()
@@ -199,6 +193,20 @@ switch (sub) {
       )
       process.exit(1)
     }
+    // The instance .env must carry the same PUBLIC_URL the Lambda authorizer
+    // derived at `sst deploy` — a mismatch 403s every request at the gateway.
+    // Resolved before anything touches the instance, so a failed resolution
+    // copies nothing (no partial deploy of new compose + stale .env).
+    const { url: resolvedPublicUrl, source: publicUrlSource } =
+      resolvePublicUrlForDeploy()
+    mask(resolvedPublicUrl)
+    if (publicUrlSource !== "PUBLIC_URL") {
+      console.log(`> PUBLIC_URL derived from ${publicUrlSource}`)
+    }
+    const shippedEnvContent = envContentWithPublicUrl(
+      readFileSync(ENV_PATH, "utf8"),
+      resolvedPublicUrl,
+    )
     const ip = sshHost()
     mask(ip)
     const id = sshIdentity()
@@ -226,20 +234,8 @@ switch (sub) {
     run(
       `scp ${id} ${sshOpts} docker-compose.yml ubuntu@${ip}:/opt/vault-cortex/`,
     )
-    // The instance .env must carry the same PUBLIC_URL the Lambda authorizer
-    // derived at `sst deploy` — a mismatch 403s every request at the gateway.
-    // Ship a copy with the resolved value instead of the local file verbatim,
-    // so a laptop deploy can't diverge from what CI would have written.
-    const { url: resolvedPublicUrl, source: publicUrlSource } =
-      resolvePublicUrlForDeploy()
-    mask(resolvedPublicUrl)
-    if (publicUrlSource !== "PUBLIC_URL") {
-      console.log(`> PUBLIC_URL derived from ${publicUrlSource}`)
-    }
-    const shippedEnvContent = envContentWithPublicUrl(
-      readFileSync(ENV_PATH, "utf8"),
-      resolvedPublicUrl,
-    )
+    // Ship a copy carrying the resolved PUBLIC_URL instead of the local file
+    // verbatim, so a laptop deploy can't diverge from what CI would write.
     const shippedEnvDir = mkdtempSync(join(tmpdir(), "vault-cortex-env-"))
     const shippedEnvPath = join(shippedEnvDir, ".env")
     try {
