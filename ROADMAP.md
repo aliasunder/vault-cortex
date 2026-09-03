@@ -9,8 +9,12 @@ _Last updated: 2026-09-02._
 ## Direction
 
 vault-cortex exists so that anyone — not just developers — can give their
-AI tools durable memory and real task management on top of an Obsidian
-vault they own. The planned work clusters around that goal: making setup
+AI tools durable memory, real task management, and ready access to their
+personal knowledge base on top of an Obsidian vault they own. A vault
+holds years of accumulated knowledge, not just tasks and memory — that
+knowledge should be reachable from wherever the person works, in a shape
+AI tools can navigate, and findable by meaning rather than exact
+keywords. The planned work clusters around those goals: making setup
 accessible, deepening the task and memory layers, and hardening the
 project for long-term use.
 
