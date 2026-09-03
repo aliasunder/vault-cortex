@@ -267,8 +267,10 @@ server's own auth tokens) are handled:
 - **Rotation** — a CI credential is rotated by revoking it at its provider,
   issuing a replacement, and updating the GitHub Actions secret; the next
   workflow run uses the new value. A deployment credential is rotated by
-  swapping the env value and restarting the affected service. Any suspected
-  exposure triggers immediate rotation.
+  swapping the env value and re-creating the service so the new value is
+  read — `docker compose up -d` with Compose, or the CLI's `restart`
+  command, which re-creates the container (a plain `docker restart` keeps
+  the old value). Any suspected exposure triggers immediate rotation.
 - **Enforcement** — Gitleaks scans every PR and push to main for
   committed secrets (see [Automated Scanning](#automated-scanning)).
 
