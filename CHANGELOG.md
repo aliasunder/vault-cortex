@@ -90,6 +90,18 @@
 
 
 
+
+## [0.48.1] — 2026-09-02
+
+### Documentation
+
+- **remote:** Setup mode guides — OBSIDIAN_AUTH_TOKEN optional (#516)
+- Update CHANGELOG.md for v0.48.0
+
+### CI / Infrastructure
+
+- Bump umm-actually to v0.3.14 (#518)
+
 ## [0.48.0] — 2026-09-01
 
 ### Features
