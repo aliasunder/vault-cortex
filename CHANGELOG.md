@@ -91,6 +91,19 @@
 
 
 
+
+## [0.48.2] — 2026-09-03
+
+### Bug Fixes
+
+- **deps:** Bump fast-uri to 3.1.7 and qs to 6.16.0 (#521)
+
+### Documentation
+
+- Add GOVERNANCE.md, ROADMAP.md, and a secrets-management policy (#517)
+- Describe VAULT_NAME as the vault's name in Obsidian, not Obsidian Sync (#519)
+- Update CHANGELOG.md for v0.48.1
+
 ## [0.48.1] — 2026-09-02
 
 ### Documentation
