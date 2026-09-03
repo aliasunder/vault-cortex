@@ -25,6 +25,24 @@ export type PreflightProblem =
       encryptionVersion: number | undefined
     }
 
+/** The container hosting platforms whose dashboards the page can name.
+ *  Undefined means unknown, and the copy falls back to "your deployment's
+ *  settings". */
+export type HostingPlatform = "render" | "railway"
+
+/** Where the reader finds the deployment's settings, as a noun phrase that
+ *  slots after "from", "in", or "to". The platform phrases use each deploy
+ *  guide's exact tab name so the page and the guide agree. */
+export const settingsLocation = (
+  hostingPlatform: HostingPlatform | undefined,
+): string => {
+  if (hostingPlatform === "render")
+    return "the service's Environment tab on Render"
+  if (hostingPlatform === "railway")
+    return "the service's Variables tab on Railway"
+  return "your deployment's settings"
+}
+
 export type SetupView =
   | {
       kind: "sign-in"
@@ -33,9 +51,15 @@ export type SetupView =
       savedLoginRejected: boolean
       /** The page arrived over plain HTTP from a non-local address. */
       insecureTransport: boolean
+      hostingPlatform?: HostingPlatform | undefined
     }
   | { kind: "mfa"; requestId: string; error?: string | undefined }
-  | { kind: "blocked"; accountEmail: string; problem: PreflightProblem }
+  | {
+      kind: "blocked"
+      accountEmail: string
+      problem: PreflightProblem
+      hostingPlatform?: HostingPlatform | undefined
+    }
   | {
       kind: "complete"
       accountEmail: string
@@ -90,19 +114,22 @@ ${body}
 const errorBox = (error: string | undefined): string =>
   error ? `<div class="error">${escapeHtml(error)}</div>` : ""
 
-const TOKEN_FIELD = `<div class="field">
+const tokenField = (
+  settingsLocationPhrase: string,
+): string => `<div class="field">
     <label class="label" for="token">MCP token</label>
     <div class="token-input">
       <input type="password" id="token" name="token" placeholder="MCP_AUTH_TOKEN" required autocomplete="off">
       <button type="button" class="reveal" aria-label="Show or hide token" onclick="var t=document.getElementById('token');var s=t.type==='password';t.type=s?'text':'password';this.textContent=s?'Hide':'Show'">Show</button>
     </div>
-    <div class="hint">The <code>MCP_AUTH_TOKEN</code> value from your deployment's settings — it proves this is your server.</div>
+    <div class="hint">The <code>MCP_AUTH_TOKEN</code> value from ${settingsLocationPhrase} — it proves this is your server.</div>
   </div>`
 
 const renderSignIn = ({
   error,
   savedLoginRejected,
   insecureTransport,
+  hostingPlatform,
 }: Extract<SetupView, { kind: "sign-in" }>): string =>
   shell(
     "Connect Obsidian Sync",
@@ -120,7 +147,7 @@ const renderSignIn = ({
   ${errorBox(error)}
   <p>Sign in with your Obsidian account so this server can sync your vault. Your email and password are sent to Obsidian once and not kept; only the Sync token they return is stored.</p>
   <form method="POST" action="/setup">
-  ${TOKEN_FIELD}
+  ${tokenField(settingsLocation(hostingPlatform))}
   <div class="field">
     <label class="label" for="email">Obsidian account email</label>
     <input type="email" id="email" name="email" required autocomplete="username">
@@ -152,11 +179,14 @@ const renderMfa = ({
   </form>`,
   )
 
-const problemCopy = (problem: PreflightProblem): string => {
+const problemCopy = (
+  problem: PreflightProblem,
+  settingsLocationPhrase: string,
+): string => {
   switch (problem.kind) {
     case "vault-name-unset":
       return `<p><code>VAULT_NAME</code> is not set, so the server does not know which vault to sync.</p>
-  <p>Add <code>VAULT_NAME</code> to your deployment's settings — your vault's name, the same as it is in Obsidian — then redeploy and sign in here again.</p>`
+  <p>Add <code>VAULT_NAME</code> to ${settingsLocationPhrase} — your vault's name, the same as it is in Obsidian — then redeploy and sign in here again.</p>`
     case "vault-not-found": {
       const vaultList = problem.vaultNames.length
         ? `<p>Your account's vaults:</p><ul>${problem.vaultNames
@@ -167,17 +197,17 @@ const problemCopy = (problem: PreflightProblem): string => {
         : `<p>Your account has no vaults in Obsidian Sync yet.</p>`
       return `<p>There is no vault named <code>${escapeHtml(problem.vaultName)}</code> in this Obsidian account (names are case-sensitive).</p>
   ${vaultList}
-  <p>Fix <code>VAULT_NAME</code> in your deployment's settings, redeploy, then sign in here again.</p>`
+  <p>Fix <code>VAULT_NAME</code> in ${settingsLocationPhrase}, redeploy, then sign in here again.</p>`
     }
     case "vault-name-ambiguous":
       return `<p>This Obsidian account has more than one vault named <code>${escapeHtml(problem.vaultName)}</code>, so the server cannot tell which one to sync.</p>
   <p>Rename one of them in Obsidian, then sign in here again.</p>`
     case "password-missing":
       return `<p>The vault <code>${escapeHtml(problem.vaultName)}</code> is end-to-end encrypted, and <code>VAULT_PASSWORD</code> is not set.</p>
-  <p>Add <code>VAULT_PASSWORD</code> — the vault's encryption password — to your deployment's settings, redeploy, then sign in here again.</p>`
+  <p>Add <code>VAULT_PASSWORD</code> — the vault's encryption password — to ${settingsLocationPhrase}, redeploy, then sign in here again.</p>`
     case "vault-access-rejected":
       return `<p>Obsidian did not accept <code>VAULT_PASSWORD</code> for the vault <code>${escapeHtml(problem.vaultName)}</code>: ${escapeHtml(problem.apiMessage)}</p>
-  <p>Fix <code>VAULT_PASSWORD</code> — the vault's encryption password — in your deployment's settings, redeploy, then sign in here again.</p>`
+  <p>Fix <code>VAULT_PASSWORD</code> — the vault's encryption password — in ${settingsLocationPhrase}, redeploy, then sign in here again.</p>`
     case "vault-key-underivable":
       return underivableKeyCopy(problem)
   }
@@ -202,12 +232,13 @@ const underivableKeyCopy = ({
 const renderBlocked = ({
   accountEmail,
   problem,
+  hostingPlatform,
 }: Extract<SetupView, { kind: "blocked" }>): string =>
   shell(
     "One more setting",
     `<h1>One more setting</h1>
   <p>Signed in as <strong>${escapeHtml(accountEmail)}</strong>.</p>
-  ${problemCopy(problem)}
+  ${problemCopy(problem, settingsLocation(hostingPlatform))}
   <p class="muted">Nothing was saved this time; the sign-in only takes a moment to repeat.</p>`,
   )
 
