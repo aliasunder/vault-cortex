@@ -8,10 +8,10 @@ _Last updated: 2026-09-02._
 
 ## Direction
 
-vault-cortex exists so that anyone can give their AI tools durable
-memory, real task management, and ready access to their personal
-knowledge base on top of an Obsidian vault they own. A vault holds years
-of accumulated knowledge — knowledge that should be reachable from
+vault-cortex exists so that anyone can give their AI tools ready access
+to their personal knowledge base, task management, and durable memory on
+top of an Obsidian vault they own. A vault holds years of accumulated
+knowledge — knowledge that should be reachable from
 wherever the person works, in a shape AI tools can navigate, and
 findable by meaning as well as by exact keywords. The planned work
 clusters around those goals: making setup accessible, deepening the task
