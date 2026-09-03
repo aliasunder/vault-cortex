@@ -82,13 +82,13 @@ describe("resolvePublicUrl", () => {
   it("throws when the gateway query returns the aws CLI's literal None", () => {
     const queryGatewayUrl = vi.fn().mockReturnValue("None")
 
-    expect(() =>
+    expect(() => {
       resolvePublicUrl({
         publicUrl: undefined,
         customDomain: undefined,
         queryGatewayUrl,
-      }),
-    ).toThrow(
+      })
+    }).toThrow(
       "could not resolve the public URL from PUBLIC_URL, CUSTOM_DOMAIN, or the API Gateway",
     )
   })
@@ -96,13 +96,13 @@ describe("resolvePublicUrl", () => {
   it("throws when the gateway query returns an empty string", () => {
     const queryGatewayUrl = vi.fn().mockReturnValue("")
 
-    expect(() =>
+    expect(() => {
       resolvePublicUrl({
         publicUrl: undefined,
         customDomain: undefined,
         queryGatewayUrl,
-      }),
-    ).toThrow(
+      })
+    }).toThrow(
       "could not resolve the public URL from PUBLIC_URL, CUSTOM_DOMAIN, or the API Gateway",
     )
   })
