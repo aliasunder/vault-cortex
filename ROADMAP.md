@@ -27,6 +27,11 @@ The foundations the planned work builds on:
 - A vault-wide task layer — structured queries and one-call updates in
   both Tasks-plugin formats (emoji and Dataview)
 - OAuth 2.1 alongside static token auth
+- One self-contained image for every deployment path — the MCP server
+  and Obsidian Sync in a single container, runnable by any OCI runtime
+  (Docker, Podman, nerdctl)
+- A guided CLI (`npx vault-cortex`) that walks through setup and handles
+  configuration, upgrades, restarts, and logs
 - One-click Render and Railway deploys, with browser-based Obsidian Sync
   sign-in when no token is configured
 
