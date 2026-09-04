@@ -74,9 +74,9 @@ const run = (cmd: string): void => {
   execSync(cmd, { stdio: "inherit", env })
 }
 
-// The target host is deliberately absent from both messages — like the
-// success line at the end of lightsail:up, keeping the instance address out
-// of logs entirely beats relying on CI masking.
+// The target host is deliberately absent from both messages — matching the
+// success line at the end of lightsail:up. The echoed ssh/scp commands still
+// print the address, so mask() is what keeps it out of public CI logs.
 const waitForDocker = (ip: string, id: string, timeoutSec = 120): void => {
   const deadline = Date.now() + timeoutSec * 1000
   console.log(`⏳ Waiting for Docker on the instance (up to ${timeoutSec}s)...`)
