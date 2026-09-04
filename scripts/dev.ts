@@ -80,7 +80,15 @@ const run = ({
   description: string
 }): void => {
   console.log(`> ${description}`)
-  execSync(cmd, { stdio: "inherit", env })
+  try {
+    execSync(cmd, { stdio: "inherit", env })
+  } catch {
+    // execSync's error message embeds the full command string, so it must
+    // not escape to the uncaught handler — the child's inherited output
+    // above already shows the real failure.
+    console.error(`✕ ${description} failed`)
+    process.exit(1)
+  }
 }
 
 // The target host is deliberately absent from both messages — matching the
@@ -247,10 +255,19 @@ switch (sub) {
     const ghcrToken = env.GHCR_TOKEN
     if (ghcrToken) {
       console.log("> docker login ghcr.io (on the instance)")
-      execSync(
-        `ssh ${id} ${sshOpts} ubuntu@${ip} 'docker login ghcr.io -u ${ghcrUser} --password-stdin'`,
-        { input: ghcrToken, stdio: ["pipe", "pipe", "pipe"], env },
-      )
+      // stdin carries the token, stdout stays quiet on success, stderr is
+      // inherited so a failure's cause is visible like every other step.
+      try {
+        execSync(
+          `ssh ${id} ${sshOpts} ubuntu@${ip} 'docker login ghcr.io -u ${ghcrUser} --password-stdin'`,
+          { input: ghcrToken, stdio: ["pipe", "pipe", "inherit"], env },
+        )
+      } catch {
+        // Same rule as run(): execSync's error message embeds the full
+        // command string, so it must not escape to the uncaught handler.
+        console.error("✕ docker login ghcr.io failed on the instance")
+        process.exit(1)
+      }
     } else {
       console.log(
         "> GHCR_TOKEN not set — clearing any stored GHCR credential on the instance (public images pull anonymously)",
