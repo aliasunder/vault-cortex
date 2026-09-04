@@ -407,3 +407,154 @@ describe("non-interactive commands", () => {
     expect(result.transcript).toContain("docker run failed")
   })
 })
+
+describe("input validation re-prompts", () => {
+  it("rejects glob characters in vault path and re-prompts", async () => {
+    const { vaultDir, configDir } = createPtyWorkDir()
+
+    const prompts: PtyPrompt[] = [
+      { match: "How do you want to run", send: "\r", label: "mode → local" },
+      {
+        match: "Path to your Obsidian vault",
+        send: "/path/to/*vault\r",
+        label: "vault path → glob (rejected)",
+      },
+      {
+        match: "glob characters",
+        send: `${vaultDir}\r`,
+        label: "re-prompt → valid path",
+      },
+      {
+        match: "Where should I put the config",
+        send: `${configDir}\r`,
+        label: "config dir",
+      },
+      {
+        match: "Any optional settings",
+        send: "\r",
+        label: "optional settings → skip",
+      },
+      { match: "Start the server now", send: "n\r", label: "start → no" },
+    ]
+
+    const result = await drivePty({
+      args: ["init"],
+      workDir: vaultDir,
+      prompts,
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.promptsAnswered).toBe(result.totalPrompts)
+    expect(result.transcript).toContain(
+      "Vault path must not contain glob characters",
+    )
+  })
+
+  it("rejects credentials in PUBLIC_URL and re-prompts", async () => {
+    const { vaultDir, configDir } = createPtyWorkDir()
+
+    const prompts: PtyPrompt[] = [
+      {
+        match: "How do you want to run",
+        send: `${DOWN}\r`,
+        label: "mode → remote",
+      },
+      {
+        match: "Where should I put the config",
+        send: `${configDir}\r`,
+        label: "config dir",
+      },
+      {
+        match: "Public base URL",
+        send: "https://user:pass@vault.example.com\r",
+        label: "PUBLIC_URL → credentials (rejected)",
+      },
+      {
+        match: "credentials",
+        send: "https://vault.example.com\r",
+        label: "re-prompt → valid URL",
+      },
+      {
+        match: "Exact name of your Obsidian vault",
+        send: "TestVault\r",
+        label: "vault name",
+      },
+      {
+        match: "Generate the token now",
+        send: "n\r",
+        label: "auto-capture → no",
+      },
+      { match: "end-to-end encryption", send: "n\r", label: "E2E → no" },
+      {
+        match: "Any optional settings",
+        send: "\r",
+        label: "optional settings → skip",
+      },
+    ]
+
+    const result = await drivePty({
+      args: ["init"],
+      workDir: vaultDir,
+      prompts,
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.promptsAnswered).toBe(result.totalPrompts)
+    expect(result.transcript).toContain(
+      "PUBLIC_URL must not contain credentials",
+    )
+  })
+
+  it("rejects a query string in PUBLIC_URL and re-prompts", async () => {
+    const { vaultDir, configDir } = createPtyWorkDir()
+
+    const prompts: PtyPrompt[] = [
+      {
+        match: "How do you want to run",
+        send: `${DOWN}\r`,
+        label: "mode → remote",
+      },
+      {
+        match: "Where should I put the config",
+        send: `${configDir}\r`,
+        label: "config dir",
+      },
+      {
+        match: "Public base URL",
+        send: "https://vault.example.com/?tab=2\r",
+        label: "PUBLIC_URL → query string (rejected)",
+      },
+      {
+        match: "query string",
+        send: "https://vault.example.com\r",
+        label: "re-prompt → valid URL",
+      },
+      {
+        match: "Exact name of your Obsidian vault",
+        send: "TestVault\r",
+        label: "vault name",
+      },
+      {
+        match: "Generate the token now",
+        send: "n\r",
+        label: "auto-capture → no",
+      },
+      { match: "end-to-end encryption", send: "n\r", label: "E2E → no" },
+      {
+        match: "Any optional settings",
+        send: "\r",
+        label: "optional settings → skip",
+      },
+    ]
+
+    const result = await drivePty({
+      args: ["init"],
+      workDir: vaultDir,
+      prompts,
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.promptsAnswered).toBe(result.totalPrompts)
+    expect(result.transcript).toContain("no query string")
+  })
+})
