@@ -29,6 +29,11 @@ export const validateVaultPath = (input: string): VaultPathValidation => {
   const trimmed = input.trim()
   if (trimmed === "")
     return { kind: "error", message: "Vault path is required." }
+  if (/[*?[]/.test(trimmed))
+    return {
+      kind: "error",
+      message: "Vault path must not contain glob characters (*, ?, [).",
+    }
 
   const absolutePath = resolve(expandTilde(trimmed))
   if (!existsSync(absolutePath)) {

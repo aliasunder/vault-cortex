@@ -144,6 +144,48 @@ const parseHttpUrl = (value: string): URL | null => {
   }
 }
 
+export type PublicUrlValidation =
+  { kind: "ok"; url: string } | { kind: "error"; message: string }
+
+/** Validates a PUBLIC_URL value: must be http(s), no credentials, no /mcp suffix. */
+export const validatePublicUrl = (input: string): PublicUrlValidation => {
+  const trimmed = input.trim()
+  const url = parseHttpUrl(trimmed)
+  if (!url) {
+    return {
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
+    }
+  }
+  if (url.username || url.password) {
+    return {
+      kind: "error",
+      message: "PUBLIC_URL must not contain credentials (user:password@).",
+    }
+  }
+  // Raw-string check: url.search/url.hash return "" for bare delimiters
+  // (WHATWG spec treats empty-string and null query/fragment identically),
+  // so a parsed-property check misses "https://host/?" and "https://host/#".
+  if (trimmed.includes("?") || trimmed.includes("#")) {
+    return {
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a bare origin or path — no query string (?...) or fragment (#...).",
+    }
+  }
+  if (TRAILING_MCP_PATH.test(url.pathname)) {
+    return {
+      kind: "error",
+      message:
+        "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
+    }
+  }
+  // Trim trailing slashes so the connect URL is `${base}/mcp`, never
+  // `${base}//mcp` — URL.href/.origin don't round-trip reverse-proxy subpaths.
+  return { kind: "ok", url: trimmed.replace(/\/+$/, "") }
+}
+
 /** Re-prompts until the answer is a valid base http(s) URL (no /mcp path). */
 const askPublicUrl = async (prompts: Prompts): Promise<string> => {
   const answer = await prompts.text(
@@ -152,27 +194,12 @@ const askPublicUrl = async (prompts: Prompts): Promise<string> => {
       placeholder: "https://vault.example.com or http://203.0.113.10:8000",
     },
   )
-  const trimmed = answer.trim()
-  const url = parseHttpUrl(trimmed)
-  if (url === null) {
-    prompts.error(
-      "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
-    )
+  const result = validatePublicUrl(answer)
+  if (result.kind === "error") {
+    prompts.error(result.message)
     return askPublicUrl(prompts)
   }
-  // Reject a re-included endpoint path instead of stripping it silently —
-  // PUBLIC_URL is the base origin and the server adds /mcp itself.
-  if (TRAILING_MCP_PATH.test(url.pathname)) {
-    prompts.error(
-      "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
-    )
-    return askPublicUrl(prompts)
-  }
-  // Store the input as typed, trimming only a trailing slash so the connect
-  // URL is `${base}/mcp`, never `${base}//mcp`. URL's own normalization is
-  // unusable here: `.href` adds a trailing slash and `.origin` drops the path,
-  // so neither round-trips a reverse-proxy subpath like https://host/api.
-  return trimmed.replace(/\/+$/, "")
+  return result.url
 }
 
 /** Re-prompts until non-empty. */

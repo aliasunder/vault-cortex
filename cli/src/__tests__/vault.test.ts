@@ -41,6 +41,33 @@ describe("validateVaultPath", () => {
     })
   })
 
+  it("rejects a path containing an asterisk glob character", () => {
+    const validation = validateVaultPath("/path/to/my*vault")
+
+    expect(validation).toEqual({
+      kind: "error",
+      message: "Vault path must not contain glob characters (*, ?, [).",
+    })
+  })
+
+  it("rejects a path containing a question-mark glob character", () => {
+    const validation = validateVaultPath("/path/to/my?vault")
+
+    expect(validation).toEqual({
+      kind: "error",
+      message: "Vault path must not contain glob characters (*, ?, [).",
+    })
+  })
+
+  it("rejects a path containing a bracket glob character", () => {
+    const validation = validateVaultPath("/path/to/my[vault")
+
+    expect(validation).toEqual({
+      kind: "error",
+      message: "Vault path must not contain glob characters (*, ?, [).",
+    })
+  })
+
   it("returns an error when the path does not exist", () => {
     const missingPath = join(tmpdir(), "vault-cortex-test-does-not-exist")
 
