@@ -320,3 +320,24 @@ jobs:
         env:
           PUBLIC_URL: ${{ steps.public-url.outputs.url }}
         run: curl -fsS --retry 6 --retry-delay 5 "$PUBLIC_URL/healthz"
+
+      # Non-blocking host hygiene report — same step as deploy.yml: apt broken
+      # (e.g. bad /tmp permissions), a security-update backlog, or a staged
+      # kernel waiting on a reboot. Warnings only; never fails the deploy.
+      - name: Host health report
+        continue-on-error: true
+        env:
+          IP: ${{ steps.ssh.outputs.host }}
+        run: |
+          ssh -o StrictHostKeyChecking=accept-new ubuntu@"$IP" '
+            if ! sudo apt-get update -qq; then
+              echo "::warning title=Instance apt broken::apt-get update failed on the instance — package updates are not flowing (check /tmp permissions and repo signatures)"
+            fi
+            upgradable=$(apt list --upgradable 2>/dev/null | tail -n +2 | wc -l)
+            if [ "$upgradable" -gt 20 ]; then
+              echo "::warning title=Instance update backlog::$upgradable packages upgradable on the instance — unattended-upgrades may be failing silently"
+            fi
+            if [ -f /var/run/reboot-required ]; then
+              echo "::warning title=Instance reboot pending::the instance has a staged kernel update — reboot when convenient"
+            fi
+          '
