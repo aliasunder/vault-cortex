@@ -557,4 +557,98 @@ describe("input validation re-prompts", () => {
     expect(result.promptsAnswered).toBe(result.totalPrompts)
     expect(result.transcript).toContain("no query string")
   })
+
+  it("rejects traversal in MEMORY_DIR and re-prompts", async () => {
+    const { vaultDir, configDir } = createPtyWorkDir()
+
+    // MEMORY_DIR is index 1 in the settings list: 1× down, space, enter
+    const selectMemoryDir = DOWN + " \r"
+
+    const prompts: PtyPrompt[] = [
+      { match: "How do you want to run", send: "\r", label: "mode → local" },
+      {
+        match: "Path to your Obsidian vault",
+        send: `${vaultDir}\r`,
+        label: "vault path",
+      },
+      {
+        match: "Where should I put the config",
+        send: `${configDir}\r`,
+        label: "config dir",
+      },
+      {
+        match: "Any optional settings",
+        send: selectMemoryDir,
+        label: "select MEMORY_DIR",
+      },
+      {
+        match: "Vault folder for the memory files",
+        send: "../secret\r",
+        label: "memory dir → traversal (rejected)",
+      },
+      {
+        match: "Path traversal",
+        send: "My Notes\r",
+        label: "re-prompt → valid folder",
+      },
+      { match: "Start the server now", send: "n\r", label: "start → no" },
+    ]
+
+    const result = await drivePty({
+      args: ["init"],
+      workDir: vaultDir,
+      prompts,
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.promptsAnswered).toBe(result.totalPrompts)
+    expect(result.transcript).toContain("Path traversal (..) is not allowed")
+  })
+
+  it("rejects digits outside brackets in DAILY_NOTES_FORMAT and re-prompts", async () => {
+    const { vaultDir, configDir } = createPtyWorkDir()
+
+    // DAILY_NOTES_FORMAT is index 3 in the settings list: 3× down, space, enter
+    const selectFormat = DOWN.repeat(3) + " \r"
+
+    const prompts: PtyPrompt[] = [
+      { match: "How do you want to run", send: "\r", label: "mode → local" },
+      {
+        match: "Path to your Obsidian vault",
+        send: `${vaultDir}\r`,
+        label: "vault path",
+      },
+      {
+        match: "Where should I put the config",
+        send: `${configDir}\r`,
+        label: "config dir",
+      },
+      {
+        match: "Any optional settings",
+        send: selectFormat,
+        label: "select DAILY_NOTES_FORMAT",
+      },
+      {
+        match: "Filename date format",
+        send: "2024-MM-DD\r",
+        label: "format → digits (rejected)",
+      },
+      {
+        match: "Moment tokens",
+        send: "YYYY-MM-DD\r",
+        label: "re-prompt → valid format",
+      },
+      { match: "Start the server now", send: "n\r", label: "start → no" },
+    ]
+
+    const result = await drivePty({
+      args: ["init"],
+      workDir: vaultDir,
+      prompts,
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.promptsAnswered).toBe(result.totalPrompts)
+    expect(result.transcript).toContain("Date format should use Moment tokens")
+  })
 })
