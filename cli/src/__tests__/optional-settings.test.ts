@@ -630,3 +630,186 @@ describe("askOptionalSettings per-setting prompts", () => {
     )
   })
 })
+
+describe("askFolder validation", () => {
+  it("rejects path traversal", async () => {
+    const scripted = createScriptedPrompts([
+      // chooser: pick MEMORY_DIR
+      ["MEMORY_DIR"],
+      // first answer: traversal → rejected, re-prompted
+      "../secret",
+      // second answer: valid
+      "My Notes",
+    ])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "MEMORY_DIR=About Me\n" },
+      scripted.prompts,
+    )
+
+    expect(scripted.errors).toEqual([
+      "Path traversal (..) is not allowed in folder names.",
+    ])
+    expect(overrides).toEqual({ MEMORY_DIR: "My Notes" })
+  })
+
+  it("rejects absolute paths", async () => {
+    const scripted = createScriptedPrompts([
+      ["MEMORY_DIR"],
+      "/var/data",
+      "My Notes",
+    ])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "MEMORY_DIR=About Me\n" },
+      scripted.prompts,
+    )
+
+    expect(scripted.errors).toEqual([
+      "Absolute paths are not allowed — use a vault-relative folder name.",
+    ])
+    expect(overrides).toEqual({ MEMORY_DIR: "My Notes" })
+  })
+})
+
+describe("DAILY_NOTES_FOLDER validate callback", () => {
+  it("rejects path traversal", async () => {
+    const scripted = createScriptedPrompts([
+      ["DAILY_NOTES_FOLDER"],
+      "../etc",
+      "Journal",
+    ])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(scripted.errors).toEqual([
+      "Path traversal (..) is not allowed in folder names.",
+    ])
+    expect(overrides).toEqual({ DAILY_NOTES_FOLDER: "Journal" })
+  })
+
+  it("rejects absolute paths", async () => {
+    const scripted = createScriptedPrompts([
+      ["DAILY_NOTES_FOLDER"],
+      "/var/notes",
+      "Journal",
+    ])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(scripted.errors).toEqual([
+      "Absolute paths are not allowed — use a vault-relative folder name.",
+    ])
+    expect(overrides).toEqual({ DAILY_NOTES_FOLDER: "Journal" })
+  })
+})
+
+describe("DAILY_NOTES_FORMAT validate callback", () => {
+  it("rejects path traversal", async () => {
+    const scripted = createScriptedPrompts([
+      ["DAILY_NOTES_FORMAT"],
+      "../YYYY-MM-DD",
+      "YYYY-MM-DD",
+    ])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(scripted.errors).toEqual([
+      "Date format must not contain path traversal (..).",
+    ])
+    expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY-MM-DD" })
+  })
+
+  it("rejects a leading path separator", async () => {
+    const scripted = createScriptedPrompts([
+      ["DAILY_NOTES_FORMAT"],
+      "/YYYY-MM-DD",
+      "YYYY-MM-DD",
+    ])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(scripted.errors).toEqual([
+      "Date format must not start with a path separator.",
+    ])
+    expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY-MM-DD" })
+  })
+
+  it("rejects a trailing path separator", async () => {
+    const scripted = createScriptedPrompts([
+      ["DAILY_NOTES_FORMAT"],
+      "YYYY-MM-DD/",
+      "YYYY-MM-DD",
+    ])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(scripted.errors).toEqual([
+      "Date format must not end with a path separator.",
+    ])
+    expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY-MM-DD" })
+  })
+
+  it("rejects digits outside bracket escapes", async () => {
+    const scripted = createScriptedPrompts([
+      ["DAILY_NOTES_FORMAT"],
+      "2024-MM-DD",
+      "YYYY-MM-DD",
+    ])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(scripted.errors).toEqual([
+      "Date format should use Moment tokens (YYYY, MM, DD), not digits — wrap literal text in [...] brackets.",
+    ])
+    expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY-MM-DD" })
+  })
+
+  it("accepts digits inside bracket escapes", async () => {
+    const scripted = createScriptedPrompts([
+      ["DAILY_NOTES_FORMAT"],
+      "YYYY-MM-DD [Day 1]",
+    ])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(scripted.errors).toEqual([])
+    expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY-MM-DD [Day 1]" })
+  })
+
+  it("accepts a valid format without digits", async () => {
+    const scripted = createScriptedPrompts([
+      ["DAILY_NOTES_FORMAT"],
+      "YYYY/MM/DD",
+    ])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(scripted.errors).toEqual([])
+    expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY/MM/DD" })
+  })
+})

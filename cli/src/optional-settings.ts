@@ -14,6 +14,8 @@ type OptionalSettingBase = {
   requiresToggle?: string
   /** Only offered in remote-mode flows (absent = offered in both modes). */
   remoteOnly?: true
+  /** Rejects a user-entered value — returns an error message, or undefined to accept. */
+  validate?: (value: string) => string | undefined
 }
 
 /**
@@ -50,6 +52,9 @@ type OptionalSetting =
       defaultValue: string
     })
 
+/** Matches Moment.js [...] literal escape groups, splitting format spans from literal content. */
+const MOMENT_BRACKET_ESCAPE = /\[([^\]]*)\]/g
+
 // The curated prompt set — settings users most often want without reading
 // .env comments. Everything else stays documented-only in the generated
 // optional block, deliberately: every extra prompt costs init flow length.
@@ -74,6 +79,13 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     label: "Daily notes folder",
     question: "Vault folder for daily notes:",
     placeholder: "blank = use your vault's daily notes settings",
+    validate: (value) => {
+      if (value.includes(".."))
+        return "Path traversal (..) is not allowed in folder names."
+      if (value.startsWith("/"))
+        return "Absolute paths are not allowed — use a vault-relative folder name."
+      return undefined
+    },
   },
   {
     kind: "optionalText",
@@ -81,6 +93,23 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     label: "Daily notes format",
     question: "Filename date format for daily notes (e.g. YYYY-MM-DD):",
     placeholder: "blank = use your vault's daily notes settings",
+    validate: (value) => {
+      if (value.includes(".."))
+        return "Date format must not contain path traversal (..)."
+      if (value.startsWith("/"))
+        return "Date format must not start with a path separator."
+      if (value.endsWith("/"))
+        return "Date format must not end with a path separator."
+      // Moment format tokens are all letters — digits outside of [...]
+      // bracket escapes are almost always a mistake.
+      const formatSegments = value.split(MOMENT_BRACKET_ESCAPE)
+      const hasDigitsInFormat = formatSegments.some(
+        (segment, index) => index % 2 === 0 && /\d/.test(segment),
+      )
+      if (hasDigitsInFormat)
+        return "Date format should use Moment tokens (YYYY, MM, DD), not digits — wrap literal text in [...] brackets."
+      return undefined
+    },
   },
   {
     kind: "toggle",
@@ -290,7 +319,19 @@ const askFolder = async (
       placeholder: defaultValue,
     })
   ).trim()
-  if (answer !== "") return answer
+  if (answer !== "") {
+    if (answer.includes("..")) {
+      prompts.error("Path traversal (..) is not allowed in folder names.")
+      return askFolder(params, prompts)
+    }
+    if (answer.startsWith("/")) {
+      prompts.error(
+        "Absolute paths are not allowed — use a vault-relative folder name.",
+      )
+      return askFolder(params, prompts)
+    }
+    return answer
+  }
   prompts.error("The folder name can't be empty.")
   return askFolder(params, prompts)
 }
@@ -366,8 +407,8 @@ const askSettingValue = async (
         },
         prompts,
       )
-    case "optionalText":
-      return askOptionalText(
+    case "optionalText": {
+      const value = await askOptionalText(
         {
           question: setting.question,
           placeholder: setting.placeholder,
@@ -375,6 +416,15 @@ const askSettingValue = async (
         },
         prompts,
       )
+      if (value && setting.validate) {
+        const error = setting.validate(value)
+        if (error) {
+          prompts.error(error)
+          return askSettingValue(params, prompts)
+        }
+      }
+      return value
+    }
     case "choice":
       return prompts.select(
         setting.question,
