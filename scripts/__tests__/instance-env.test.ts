@@ -190,6 +190,19 @@ describe("envContentWithPublicUrl", () => {
     expect(rewritten).toBe("PUBLIC_URL=https://mcp.example.com\n")
   })
 
+  it("appends with CRLF endings when the file uses CRLF", () => {
+    const envFileContent = "MCP_AUTH_TOKEN=fake-token\r\n"
+
+    const rewritten = envContentWithPublicUrl(
+      envFileContent,
+      "https://mcp.example.com",
+    )
+
+    expect(rewritten).toBe(
+      "MCP_AUTH_TOKEN=fake-token\r\nPUBLIC_URL=https://mcp.example.com\r\n",
+    )
+  })
+
   it("keeps CRLF line endings intact when replacing", () => {
     const envFileContent =
       "MCP_AUTH_TOKEN=fake-token\r\nPUBLIC_URL=https://old.example.com\r\n"

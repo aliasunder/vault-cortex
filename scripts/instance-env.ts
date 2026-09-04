@@ -77,7 +77,12 @@ export const envContentWithPublicUrl = (
       .join("\n")
   }
 
+  // Match the file's line endings so an appended line doesn't mix LF into a
+  // CRLF file — the replace branch preserves the matched line's \r the same way.
+  const lineEnding = envFileContent.includes("\r\n") ? "\r\n" : "\n"
   const separator =
-    envFileContent === "" || envFileContent.endsWith("\n") ? "" : "\n"
-  return `${envFileContent}${separator}${publicUrlLine}\n`
+    envFileContent === "" || envFileContent.endsWith(lineEnding)
+      ? ""
+      : lineEnding
+  return `${envFileContent}${separator}${publicUrlLine}${lineEnding}`
 }
