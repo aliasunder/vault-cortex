@@ -164,6 +164,13 @@ export const validatePublicUrl = (input: string): PublicUrlValidation => {
       message: "PUBLIC_URL must not contain credentials (user:password@).",
     }
   }
+  if (url.search || url.hash) {
+    return {
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a bare origin or path — no query string (?...) or fragment (#...).",
+    }
+  }
   if (TRAILING_MCP_PATH.test(url.pathname)) {
     return {
       kind: "error",

@@ -1493,4 +1493,20 @@ describe("validatePublicUrl", () => {
         "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
     })
   })
+
+  it("rejects a URL with a query string", () => {
+    expect(validatePublicUrl("https://vault.example.com/?tab=2")).toEqual({
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a bare origin or path — no query string (?...) or fragment (#...).",
+    })
+  })
+
+  it("rejects a URL with a hash fragment", () => {
+    expect(validatePublicUrl("https://vault.example.com/#section")).toEqual({
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a bare origin or path — no query string (?...) or fragment (#...).",
+    })
+  })
 })
