@@ -783,6 +783,42 @@ describe("DAILY_NOTES_FORMAT validate callback", () => {
     expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY-MM-DD" })
   })
 
+  it("rejects digits outside brackets even when brackets contain digits too", async () => {
+    const scripted = createScriptedPrompts([
+      ["DAILY_NOTES_FORMAT"],
+      "2024 [Day 2]",
+      "YYYY-MM-DD",
+    ])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(scripted.errors).toEqual([
+      "Date format should use Moment tokens (YYYY, MM, DD), not digits — wrap literal text in [...] brackets.",
+    ])
+    expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY-MM-DD" })
+  })
+
+  it("rejects trailing digits in a format string", async () => {
+    const scripted = createScriptedPrompts([
+      ["DAILY_NOTES_FORMAT"],
+      "YYYY-2024",
+      "YYYY-MM-DD",
+    ])
+
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "" },
+      scripted.prompts,
+    )
+
+    expect(scripted.errors).toEqual([
+      "Date format should use Moment tokens (YYYY, MM, DD), not digits — wrap literal text in [...] brackets.",
+    ])
+    expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY-MM-DD" })
+  })
+
   it("accepts digits inside bracket escapes", async () => {
     const scripted = createScriptedPrompts([
       ["DAILY_NOTES_FORMAT"],
