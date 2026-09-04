@@ -74,9 +74,12 @@ const run = (cmd: string): void => {
   execSync(cmd, { stdio: "inherit", env })
 }
 
+// The target host is deliberately absent from both messages — like the
+// success line at the end of lightsail:up, keeping the instance address out
+// of logs entirely beats relying on CI masking.
 const waitForDocker = (ip: string, id: string, timeoutSec = 120): void => {
   const deadline = Date.now() + timeoutSec * 1000
-  console.log(`⏳ Waiting for Docker on ${ip} (up to ${timeoutSec}s)...`)
+  console.log(`⏳ Waiting for Docker on the instance (up to ${timeoutSec}s)...`)
   while (Date.now() < deadline) {
     try {
       execSync(
@@ -91,7 +94,7 @@ const waitForDocker = (ip: string, id: string, timeoutSec = 120): void => {
     }
   }
   console.error(
-    `✕ Docker not available on ${ip} after ${timeoutSec}s. Check cloud-init logs.`,
+    `✕ Docker not available on the instance after ${timeoutSec}s. Check cloud-init logs.`,
   )
   process.exit(1)
 }
