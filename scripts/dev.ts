@@ -69,14 +69,31 @@ if (!ghcrUser) {
 }
 const image = `ghcr.io/${ghcrUser}/vault-cortex:remote`
 
-const run = (cmd: string): void => {
-  console.log(`> ${cmd}`)
-  execSync(cmd, { stdio: "inherit", env })
+// Echoes the description, never the command string — the ssh/scp commands
+// carry the instance address and key path, and not printing them at all
+// beats relying on mask() (the same rule as lightsail:up's success line).
+const run = ({
+  cmd,
+  description,
+}: {
+  cmd: string
+  description: string
+}): void => {
+  console.log(`> ${description}`)
+  try {
+    execSync(cmd, { stdio: "inherit", env })
+  } catch {
+    // execSync's error message embeds the full command string, so it must
+    // not escape to the uncaught handler — the child's inherited output
+    // above already shows the real failure.
+    console.error(`✕ ${description} failed`)
+    process.exit(1)
+  }
 }
 
 // The target host is deliberately absent from both messages — matching the
-// success line at the end of lightsail:up. The echoed ssh/scp commands still
-// print the address, so mask() is what keeps it out of public CI logs.
+// success line at the end of lightsail:up. Tool output (ssh errors, compose
+// logs) can still print the address, so mask() keeps it out of public CI logs.
 const waitForDocker = (ip: string, id: string, timeoutSec = 120): void => {
   const deadline = Date.now() + timeoutSec * 1000
   console.log(`⏳ Waiting for Docker on the instance (up to ${timeoutSec}s)...`)
@@ -176,16 +193,28 @@ const sub = process.argv[2]
 
 switch (sub) {
   case "docker:build":
-    run(`docker build --target remote --platform linux/amd64 -t ${image} .`)
+    run({
+      cmd: `docker build --target remote --platform linux/amd64 -t ${image} .`,
+      description: "docker build --target remote --platform linux/amd64",
+    })
     break
 
   case "docker:push":
-    run(`docker push ${image}`)
+    run({
+      cmd: `docker push ${image}`,
+      description: "docker push (remote image to GHCR)",
+    })
     break
 
   case "docker:publish":
-    run(`docker build --target remote --platform linux/amd64 -t ${image} .`)
-    run(`docker push ${image}`)
+    run({
+      cmd: `docker build --target remote --platform linux/amd64 -t ${image} .`,
+      description: "docker build --target remote --platform linux/amd64",
+    })
+    run({
+      cmd: `docker push ${image}`,
+      description: "docker push (remote image to GHCR)",
+    })
     break
 
   case "lightsail:up": {
@@ -214,9 +243,10 @@ switch (sub) {
     const ip = sshHost()
     mask(ip)
     const id = sshIdentity()
-    run(
-      `ssh ${id} ${sshOpts} ubuntu@${ip} 'sudo mkdir -p /opt/vault-cortex && sudo chown ubuntu:ubuntu /opt/vault-cortex'`,
-    )
+    run({
+      cmd: `ssh ${id} ${sshOpts} ubuntu@${ip} 'sudo mkdir -p /opt/vault-cortex && sudo chown ubuntu:ubuntu /opt/vault-cortex'`,
+      description: "ssh: create /opt/vault-cortex on the instance",
+    })
     waitForDocker(ip, id)
     // A public GHCR image pulls anonymously — GHCR_TOKEN is only needed when
     // the package is private (a fork's first push defaults to private).
@@ -225,34 +255,50 @@ switch (sub) {
     const ghcrToken = env.GHCR_TOKEN
     if (ghcrToken) {
       console.log("> docker login ghcr.io (on the instance)")
-      execSync(
-        `ssh ${id} ${sshOpts} ubuntu@${ip} 'docker login ghcr.io -u ${ghcrUser} --password-stdin'`,
-        { input: ghcrToken, stdio: ["pipe", "pipe", "pipe"], env },
-      )
+      // stdin carries the token, stdout stays quiet on success, stderr is
+      // inherited so a failure's cause is visible like every other step.
+      try {
+        execSync(
+          `ssh ${id} ${sshOpts} ubuntu@${ip} 'docker login ghcr.io -u ${ghcrUser} --password-stdin'`,
+          { input: ghcrToken, stdio: ["pipe", "pipe", "inherit"], env },
+        )
+      } catch {
+        // Same rule as run(): execSync's error message embeds the full
+        // command string, so it must not escape to the uncaught handler.
+        console.error("✕ docker login ghcr.io failed on the instance")
+        process.exit(1)
+      }
     } else {
       console.log(
         "> GHCR_TOKEN not set — clearing any stored GHCR credential on the instance (public images pull anonymously)",
       )
-      run(`ssh ${id} ${sshOpts} ubuntu@${ip} 'docker logout ghcr.io || true'`)
+      run({
+        cmd: `ssh ${id} ${sshOpts} ubuntu@${ip} 'docker logout ghcr.io || true'`,
+        description: "ssh: docker logout ghcr.io on the instance",
+      })
     }
-    run(
-      `scp ${id} ${sshOpts} docker-compose.yml ubuntu@${ip}:/opt/vault-cortex/`,
-    )
+    run({
+      cmd: `scp ${id} ${sshOpts} docker-compose.yml ubuntu@${ip}:/opt/vault-cortex/`,
+      description: "scp docker-compose.yml to the instance",
+    })
     // Ship a copy carrying the resolved PUBLIC_URL instead of the local file
     // verbatim, so a laptop deploy can't diverge from what CI would write.
     const shippedEnvDir = mkdtempSync(join(tmpdir(), "vault-cortex-env-"))
     const shippedEnvPath = join(shippedEnvDir, ".env")
     try {
       writeFileSync(shippedEnvPath, shippedEnvContent, { mode: 0o600 })
-      run(
-        `scp ${id} ${sshOpts} ${shippedEnvPath} ubuntu@${ip}:/opt/vault-cortex/.env`,
-      )
+      run({
+        cmd: `scp ${id} ${sshOpts} ${shippedEnvPath} ubuntu@${ip}:/opt/vault-cortex/.env`,
+        description: "scp .env (with the resolved PUBLIC_URL) to the instance",
+      })
     } finally {
       rmSync(shippedEnvDir, { recursive: true, force: true })
     }
-    run(
-      `ssh ${id} ${sshOpts} ubuntu@${ip} 'cd /opt/vault-cortex && docker compose pull && docker compose up -d --remove-orphans --wait --wait-timeout 300 && docker image prune -f'`,
-    )
+    run({
+      cmd: `ssh ${id} ${sshOpts} ubuntu@${ip} 'cd /opt/vault-cortex && docker compose pull && docker compose up -d --remove-orphans --wait --wait-timeout 300 && docker image prune -f'`,
+      description:
+        "ssh: docker compose pull && docker compose up -d on the instance",
+    })
     // Deliberately no IP in the success line — the instance IP is kept out
     // of logs (public CI) and is masked above, but not printing it at all is
     // the stronger guarantee.
