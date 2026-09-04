@@ -171,10 +171,8 @@ export const validatePublicUrl = (input: string): PublicUrlValidation => {
         "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
     }
   }
-  // Store the input as typed, trimming only a trailing slash so the connect
-  // URL is `${base}/mcp`, never `${base}//mcp`. URL's own normalization is
-  // unusable here: `.href` adds a trailing slash and `.origin` drops the path,
-  // so neither round-trips a reverse-proxy subpath like https://host/api.
+  // Trim trailing slashes so the connect URL is `${base}/mcp`, never
+  // `${base}//mcp` — URL.href/.origin don't round-trip reverse-proxy subpaths.
   return { kind: "ok", url: trimmed.replace(/\/+$/, "") }
 }
 
