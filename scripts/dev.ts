@@ -6,7 +6,9 @@
  *   docker:build    Build the vault-cortex image locally
  *   docker:push     Push to GHCR
  *   docker:publish  Build + push
- *   lightsail:up    SCP docker-compose.yml + ~/.config/vault-cortex/.env
+ *   lightsail:up    Resolve PUBLIC_URL (explicit value, else CUSTOM_DOMAIN,
+ *                   else the API Gateway URL), SCP docker-compose.yml + a
+ *                   copy of ~/.config/vault-cortex/.env carrying that value
  *                   to the VM, then `docker compose pull && up -d` over SSH
  *
  * The image is always `ghcr.io/${GHCR_USER}/vault-cortex:remote` — the
@@ -18,9 +20,22 @@
  */
 
 import { execSync } from "node:child_process"
-import { existsSync, readFileSync } from "node:fs"
-import { homedir } from "node:os"
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
+import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
+
+import {
+  envContentWithPublicUrl,
+  gatewayApiEndpointQuery,
+  resolvePublicUrl,
+  type ResolvedPublicUrl,
+} from "./instance-env.js"
 
 const ENV_PATH = join(homedir(), ".config", "vault-cortex", ".env")
 
@@ -71,6 +86,7 @@ const waitForDocker = (ip: string, id: string, timeoutSec = 120): void => {
       console.log(`✓ Docker is ready`)
       return
     } catch {
+      // Expected — Docker isn't ready yet; sleep and retry.
       execSync("sleep 5")
     }
   }
@@ -80,14 +96,18 @@ const waitForDocker = (ip: string, id: string, timeoutSec = 120): void => {
   process.exit(1)
 }
 
-const sshHost = (): string => {
-  if (env.LIGHTSAIL_SSH_HOST) return env.LIGHTSAIL_SSH_HOST
-
+const readStage = (): string => {
   if (!existsSync(".sst/stage")) {
     console.error("✕  .sst/stage not found. Run `npx sst deploy` first.")
     process.exit(1)
   }
-  const stage = readFileSync(".sst/stage", "utf8").trim()
+  return readFileSync(".sst/stage", "utf8").trim()
+}
+
+const sshHost = (): string => {
+  if (env.LIGHTSAIL_SSH_HOST) return env.LIGHTSAIL_SSH_HOST
+
+  const stage = readStage()
   // Fetched from AWS rather than read from SST outputs — the IP is
   // deliberately not an output, so deploys never print it (CI logs are
   // public). The static-ip name matches sst.config.ts
@@ -126,6 +146,29 @@ const sshIdentity = (): string => {
 
 const sshOpts = "-o StrictHostKeyChecking=accept-new"
 
+const fetchGatewayUrl = (): string => {
+  const stage = readStage()
+  return execSync(
+    `aws apigatewayv2 get-apis --query "${gatewayApiEndpointQuery(stage)}" --output text`,
+    { env },
+  )
+    .toString()
+    .trim()
+}
+
+const resolvePublicUrlForDeploy = (): ResolvedPublicUrl => {
+  try {
+    return resolvePublicUrl({
+      publicUrl: env.PUBLIC_URL,
+      customDomain: env.CUSTOM_DOMAIN,
+      queryGatewayUrl: fetchGatewayUrl,
+    })
+  } catch (error) {
+    console.error(`✕  ${error instanceof Error ? error.message : error}`)
+    process.exit(1)
+  }
+}
+
 const sub = process.argv[2]
 
 switch (sub) {
@@ -151,6 +194,20 @@ switch (sub) {
       )
       process.exit(1)
     }
+    // The instance .env must carry the same PUBLIC_URL the Lambda authorizer
+    // derived at `sst deploy` — a mismatch 403s every request at the gateway.
+    // Resolved before anything touches the instance, so a failed resolution
+    // copies nothing (no partial deploy of new compose + stale .env).
+    const { url: resolvedPublicUrl, source: publicUrlSource } =
+      resolvePublicUrlForDeploy()
+    mask(resolvedPublicUrl)
+    if (publicUrlSource !== "PUBLIC_URL") {
+      console.log(`> PUBLIC_URL derived from ${publicUrlSource}`)
+    }
+    const shippedEnvContent = envContentWithPublicUrl(
+      readFileSync(ENV_PATH, "utf8"),
+      resolvedPublicUrl,
+    )
     const ip = sshHost()
     mask(ip)
     const id = sshIdentity()
@@ -178,7 +235,18 @@ switch (sub) {
     run(
       `scp ${id} ${sshOpts} docker-compose.yml ubuntu@${ip}:/opt/vault-cortex/`,
     )
-    run(`scp ${id} ${sshOpts} ${ENV_PATH} ubuntu@${ip}:/opt/vault-cortex/.env`)
+    // Ship a copy carrying the resolved PUBLIC_URL instead of the local file
+    // verbatim, so a laptop deploy can't diverge from what CI would write.
+    const shippedEnvDir = mkdtempSync(join(tmpdir(), "vault-cortex-env-"))
+    const shippedEnvPath = join(shippedEnvDir, ".env")
+    try {
+      writeFileSync(shippedEnvPath, shippedEnvContent, { mode: 0o600 })
+      run(
+        `scp ${id} ${sshOpts} ${shippedEnvPath} ubuntu@${ip}:/opt/vault-cortex/.env`,
+      )
+    } finally {
+      rmSync(shippedEnvDir, { recursive: true, force: true })
+    }
     run(
       `ssh ${id} ${sshOpts} ubuntu@${ip} 'cd /opt/vault-cortex && docker compose pull && docker compose up -d --remove-orphans --wait --wait-timeout 300 && docker image prune -f'`,
     )

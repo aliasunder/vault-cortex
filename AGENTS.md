@@ -80,6 +80,7 @@ assets/                                # Static assets (not shipped in Docker)
     DejaVuSans.ttf                     #   Embedded in render script for deterministic text rendering
 scripts/                               # Dev/ops helpers (not shipped in Docker)
   dev.ts                               # Deployment helper (subcommands for SSH, sync, etc.)
+  instance-env.ts                      # PUBLIC_URL resolution for lightsail:up (same rule as deploy.yml + sst.config.ts)
   sync-cli-env-blocks.ts               # Syncs deploy/ .env.example optional blocks into cli/src/env.ts
   lobehub-manifest.ts                  # Builds lhm.plugin.json from the live MCP tool/prompt registry
   sync-lobehub-manifest.ts             # Writes the gitignored lhm.plugin.json (npm run sync:lobehub-manifest)
