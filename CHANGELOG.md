@@ -92,6 +92,26 @@
 
 
 
+
+## [0.48.3] — 2026-09-04
+
+### Features
+
+- **deploy:** Lightsail:up derives PUBLIC_URL from CUSTOM_DOMAIN or the gateway (#523)
+- **setup:** Name the platform's settings tab on the setup page (#520)
+
+### Bug Fixes
+
+- **setup:** Make the already-configured page mode-neutral (#522)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.48.2
+
+### CI / Infrastructure
+
+- **deploy:** Emit host health warnings after instance deploys (#524)
+
 ## [0.48.2] — 2026-09-03
 
 ### Bug Fixes
