@@ -1509,4 +1509,20 @@ describe("validatePublicUrl", () => {
         "PUBLIC_URL must be a bare origin or path — no query string (?...) or fragment (#...).",
     })
   })
+
+  it("rejects a bare trailing query delimiter", () => {
+    expect(validatePublicUrl("https://vault.example.com/?")).toEqual({
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a bare origin or path — no query string (?...) or fragment (#...).",
+    })
+  })
+
+  it("rejects a bare trailing hash delimiter", () => {
+    expect(validatePublicUrl("https://vault.example.com/#")).toEqual({
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a bare origin or path — no query string (?...) or fragment (#...).",
+    })
+  })
 })

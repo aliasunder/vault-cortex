@@ -164,7 +164,10 @@ export const validatePublicUrl = (input: string): PublicUrlValidation => {
       message: "PUBLIC_URL must not contain credentials (user:password@).",
     }
   }
-  if (url.search || url.hash) {
+  // Raw-string check: url.search/url.hash return "" for bare delimiters
+  // (WHATWG spec treats empty-string and null query/fragment identically),
+  // so a parsed-property check misses "https://host/?" and "https://host/#".
+  if (trimmed.includes("?") || trimmed.includes("#")) {
     return {
       kind: "error",
       message:
