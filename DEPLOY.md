@@ -754,10 +754,11 @@ DNS stays with your provider (Cloudflare, Route 53, anything) — SST only creat
 
 **1. Get an ACM certificate** in the same region as the API, covering the domain (exact name or a wildcard like `*.example.com`). Request it in the ACM console (or any IaC), add the DNS validation record at your DNS provider, and wait for status **Issued**. The cert is referenced by ARN — it can live in your account already.
 
-**2. Deploy with the domain configured.** For a laptop deploy, uncomment `CUSTOM_DOMAIN` and `CUSTOM_DOMAIN_CERT_ARN` in `~/.config/vault-cortex/.env` — `sst deploy` reads it via the repo-root symlink (setup step 3) and `lightsail:up` reads it directly, so one edit reaches both — then deploy:
+**2. Deploy with the domain configured.** For a laptop deploy, uncomment `CUSTOM_DOMAIN` and `CUSTOM_DOMAIN_CERT_ARN` in `~/.config/vault-cortex/.env` — `sst deploy` reads it via the repo-root symlink (setup step 3) and `lightsail:up` reads it directly, so one edit reaches both — then deploy both layers (the Lambda picks up the domain at `sst deploy`; `lightsail:up` rewrites the instance `.env` to the matching `PUBLIC_URL`):
 
 ```bash
 npx sst deploy
+npm run lightsail:up
 ```
 
 For CI deploys, set both as repo secrets instead — `deploy.yml` passes them through to both `sst deploy` and the instance `.env`. Both must be set together; `CUSTOM_DOMAIN` without the cert ARN fails fast with an error.

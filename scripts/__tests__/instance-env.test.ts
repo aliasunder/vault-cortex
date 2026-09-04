@@ -98,7 +98,9 @@ describe("resolvePublicUrl", () => {
         queryGatewayUrl,
       })
     }).toThrow(
-      "could not resolve the public URL from PUBLIC_URL, CUSTOM_DOMAIN, or the API Gateway",
+      // Anchored: toThrow(string) substring-matches; the message is a
+      // hardcoded literal and must match exactly.
+      /^could not resolve the public URL from PUBLIC_URL, CUSTOM_DOMAIN, or the API Gateway$/,
     )
   })
 
@@ -112,7 +114,7 @@ describe("resolvePublicUrl", () => {
         queryGatewayUrl,
       })
     }).toThrow(
-      "could not resolve the public URL from PUBLIC_URL, CUSTOM_DOMAIN, or the API Gateway",
+      /^could not resolve the public URL from PUBLIC_URL, CUSTOM_DOMAIN, or the API Gateway$/,
     )
   })
 })
@@ -245,12 +247,24 @@ describe("gatewayApiEndpointQuery", () => {
       "utf8",
     )
 
-    expect(sstConfigSource).toContain(
-      "if (publicUrlOverride) return $output(publicUrlOverride)",
-    )
-    expect(sstConfigSource).toContain(
-      "if (customDomain) return $output(`https://${customDomain}`)",
-    )
-    expect(sstConfigSource).toContain("return api.url")
+    const publicUrlClause =
+      "if (publicUrlOverride) return $output(publicUrlOverride)"
+    const customDomainClause =
+      "if (customDomain) return $output(`https://${customDomain}`)"
+    const gatewayClause = "return api.url"
+
+    expect(sstConfigSource).toContain(publicUrlClause)
+    expect(sstConfigSource).toContain(customDomainClause)
+    expect(sstConfigSource).toContain(gatewayClause)
+
+    // The order is the contract: an explicit PUBLIC_URL must win over
+    // CUSTOM_DOMAIN, which must win over the gateway fallback — swapped
+    // clauses would pass the existence checks while inverting precedence.
+    const publicUrlClausePosition = sstConfigSource.indexOf(publicUrlClause)
+    const customDomainClausePosition =
+      sstConfigSource.indexOf(customDomainClause)
+    const gatewayClausePosition = sstConfigSource.indexOf(gatewayClause)
+    expect(publicUrlClausePosition).toBeLessThan(customDomainClausePosition)
+    expect(customDomainClausePosition).toBeLessThan(gatewayClausePosition)
   })
 })
