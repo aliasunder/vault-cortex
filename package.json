@@ -94,16 +94,16 @@
     "chokidar": "5.0.0",
     "env-var": "7.5.0",
     "express": "5.2.1",
-    "express-rate-limit": "8.6.2",
+    "express-rate-limit": "8.7.0",
     "gray-matter": "4.0.3",
     "luxon": "3.7.2",
-    "pdfjs-dist": "6.2.108",
+    "pdfjs-dist": "6.3.289",
     "picomatch": "4.0.7",
-    "sharp": "0.35.3",
+    "sharp": "0.35.4",
     "sqlite-vec": "0.1.9",
     "unpdf": "1.8.1",
     "yaml": "2.9.0",
-    "zod": "4.4.3"
+    "zod": "4.5.4"
   },
   "overrides": {
     "adm-zip": "0.6.0",
