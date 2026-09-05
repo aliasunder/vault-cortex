@@ -196,6 +196,8 @@ export type TaskRow = {
   depth: number
   parent_line: number | null
   parent_block_id: string | null
+  subtask_done: number
+  subtask_total: number
   is_kanban_task: number
   kanban_done_lanes: string | null
 }
@@ -228,9 +230,17 @@ export type TaskEntry = {
   block_id?: string | undefined
   depth: number
   parent_block_id?: string | undefined
+  subtask_progress: SubtaskProgress
   is_kanban_task: boolean
   done_lanes?: string[] | undefined
 }
+
+/** Direct-children checklist progress, present on every task entry —
+ *  { done: 0, total: 0 } means the task has no checklist. done counts
+ *  status "done" only; cancelled children count toward total, not done.
+ *  Counts are unaffected by the query's filters — progress is a property
+ *  of the card, not of the query. */
+type SubtaskProgress = { done: number; total: number }
 
 /** Status filter vocabulary for listTasks. "not_done" (the default) covers
  *  todo + in_progress — the Tasks plugin's own `not done` semantics, which

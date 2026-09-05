@@ -9,7 +9,7 @@ created: 2026-01-15T10:00:00-05:00
 ## Active
 
 - [/] In-progress feature ⏫ ➕ 2026-01-15 ^board-active-1
-  - [ ] Stage 1
+  - [x] Stage 1
   - [ ] Stage 2
 
 ## Up Next

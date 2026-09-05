@@ -179,6 +179,7 @@ const versionATask = (): TaskEntry => ({
   depends_on: [],
   tags: [],
   depth: 0,
+  subtask_progress: { done: 0, total: 0 },
   is_kanban_task: false,
 })
 

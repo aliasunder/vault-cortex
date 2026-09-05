@@ -1062,17 +1062,33 @@ export const listTasks = (
 
   // Kanban detection: notes with kanban-plugin in frontmatter are Kanban boards,
   // so their tasks need lane moves (not checkbox toggles) to complete.
+  // The children join aggregates each task's DIRECT children over the whole
+  // tasks table — deliberately outside the WHERE, so a card's checklist
+  // progress is unaffected by the query's filters. The group key
+  // (note_path, parent_line) is unique per parent, so the join never
+  // multiplies rows.
   const sql = `
     SELECT t.note_path, t.line, t.status_char, t.status, t.description,
            t.created, t.scheduled, t.start, t.due, t.done, t.cancelled,
            t.priority, t.recurrence, t.on_completion, t.task_id, t.depends_on,
            t.tags, t.block_id, t.heading, t.folder,
            t.depth, t.parent_line, t.parent_block_id,
+           COALESCE(children.subtask_done, 0) AS subtask_done,
+           COALESCE(children.subtask_total, 0) AS subtask_total,
            CASE WHEN json_extract(n.properties, '$.kanban-plugin') IS NOT NULL
                 THEN 1 ELSE 0 END AS is_kanban_task,
            n.kanban_done_lanes
     FROM tasks t
     JOIN notes n ON n.path = t.note_path
+    LEFT JOIN (
+      SELECT note_path, parent_line,
+             SUM(status = 'done') AS subtask_done,
+             COUNT(*) AS subtask_total
+      FROM tasks
+      WHERE parent_line IS NOT NULL
+      GROUP BY note_path, parent_line
+    ) children ON children.note_path = t.note_path
+               AND children.parent_line = t.line
     ${whereClause}
     ORDER BY ${orderBy}, t.note_path ASC, t.line ASC
     LIMIT ?

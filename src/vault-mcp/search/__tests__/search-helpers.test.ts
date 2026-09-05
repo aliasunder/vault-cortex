@@ -169,6 +169,8 @@ const makeTaskRow = (overrides: Partial<TaskRow> = {}): TaskRow => ({
   depth: 0,
   parent_line: null,
   parent_block_id: null,
+  subtask_done: 0,
+  subtask_total: 0,
   is_kanban_task: 0,
   kanban_done_lanes: null,
   ...overrides,
@@ -247,6 +249,7 @@ describe("rowToTaskEntry", () => {
       depends_on: ["def456"],
       tags: ["bug"],
       depth: 0,
+      subtask_progress: { done: 0, total: 0 },
       is_kanban_task: false,
     })
   })
@@ -273,6 +276,7 @@ describe("rowToTaskEntry", () => {
       depends_on: ["def456"],
       tags: ["bug"],
       depth: 0,
+      subtask_progress: { done: 0, total: 0 },
       is_kanban_task: true,
       done_lanes: ["Done"],
     })

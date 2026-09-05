@@ -102,6 +102,7 @@ describe("task indexing lifecycle", () => {
       tags: [],
       block_id: "fix-login",
       depth: 0,
+      subtask_progress: { done: 0, total: 0 },
       is_kanban_task: true,
     }
     expect(fixLoginTask).toEqual(expectedEntry)
@@ -131,6 +132,7 @@ describe("task indexing lifecycle", () => {
       depends_on: ["id-1", "id-2"],
       tags: ["home", "home/kitchen"],
       depth: 0,
+      subtask_progress: { done: 0, total: 0 },
       is_kanban_task: false,
     }
     expect(result.tasks).toEqual([expectedEntry])
@@ -173,6 +175,7 @@ describe("task indexing lifecycle", () => {
       depends_on: [],
       tags: [],
       depth: 0,
+      subtask_progress: { done: 0, total: 0 },
       is_kanban_task: true,
       done_lanes: ["Done"],
     })
@@ -1420,5 +1423,111 @@ describe("comment block exclusion", () => {
 
     const result = index.listTasks({ sortBy: "position" }, logger)
     expect(result.total).toBe(2)
+  })
+})
+
+describe("listTasks subtask_progress", () => {
+  /** A card with a mixed-status checklist (2 done, 1 todo, 1 cancelled)
+   *  plus a leaf card with no checklist. */
+  const CHECKLIST_NOTE = [
+    "- [ ] Ship the feature ^ship-feature",
+    "  - [x] Design",
+    "  - [x] Implement",
+    "  - [ ] Test",
+    "  - [-] Abandoned stage",
+    "- [ ] Leaf card ^leaf-card",
+  ].join("\n")
+
+  const indexWithChecklist = () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "tasks.md",
+        rawContent: CHECKLIST_NOTE,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    return index
+  }
+
+  it("reports { done: 0, total: 0 } on a task with no checklist", () => {
+    const index = indexWithChecklist()
+
+    const result = index.listTasks({ sortBy: "position" }, logger)
+    const leafCard = result.tasks.find(
+      (entry) => entry.block_id === "leaf-card",
+    )
+    expect(leafCard?.subtask_progress).toEqual({ done: 0, total: 0 })
+  })
+
+  it("counts done children only — cancelled counts toward total, not done", () => {
+    const index = indexWithChecklist()
+
+    // The default not_done filter excludes the done and cancelled children
+    // from the result rows; the parent's counts must include them anyway —
+    // this fails if the aggregate ever inherits the query's filters.
+    const result = index.listTasks({ sortBy: "position" }, logger)
+    expect(
+      result.tasks.map((entry) => ({
+        block_id: entry.block_id,
+        subtask_progress: entry.subtask_progress,
+      })),
+    ).toEqual([
+      { block_id: "ship-feature", subtask_progress: { done: 2, total: 4 } },
+      { subtask_progress: { done: 0, total: 0 } }, // the todo child "Test"
+      { block_id: "leaf-card", subtask_progress: { done: 0, total: 0 } },
+    ])
+  })
+
+  it("counts a grandchild toward its direct parent only", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "tasks.md",
+        rawContent: [
+          "- [ ] Parent ^parent",
+          "  - [ ] Child A ^child-a",
+          "    - [x] Grandchild ^grandchild",
+          "  - [x] Child B ^child-b",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = index.listTasks(
+      { status: "all", sortBy: "position" },
+      logger,
+    )
+    expect(
+      result.tasks.map((entry) => ({
+        block_id: entry.block_id,
+        subtask_progress: entry.subtask_progress,
+      })),
+    ).toEqual([
+      { block_id: "parent", subtask_progress: { done: 1, total: 2 } },
+      { block_id: "child-a", subtask_progress: { done: 1, total: 1 } },
+      { block_id: "grandchild", subtask_progress: { done: 0, total: 0 } },
+      { block_id: "child-b", subtask_progress: { done: 0, total: 0 } },
+    ])
+  })
+
+  it("top_level_only rows still carry checklist progress", () => {
+    const index = indexWithChecklist()
+
+    const result = index.listTasks(
+      { topLevelOnly: true, sortBy: "position" },
+      logger,
+    )
+    expect(
+      result.tasks.map((entry) => ({
+        block_id: entry.block_id,
+        subtask_progress: entry.subtask_progress,
+      })),
+    ).toEqual([
+      { block_id: "ship-feature", subtask_progress: { done: 2, total: 4 } },
+      { block_id: "leaf-card", subtask_progress: { done: 0, total: 0 } },
+    ])
   })
 })

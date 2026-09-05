@@ -184,6 +184,7 @@ export const rowToTaskEntry = (row: TaskRow): TaskEntry => ({
   block_id: row.block_id ?? undefined,
   depth: row.depth,
   parent_block_id: row.parent_block_id ?? undefined,
+  subtask_progress: { done: row.subtask_done, total: row.subtask_total },
   is_kanban_task: Boolean(row.is_kanban_task),
   done_lanes: row.kanban_done_lanes
     ? parseStringArray(row.kanban_done_lanes)
