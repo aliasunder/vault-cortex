@@ -586,6 +586,15 @@ export const createSearchIndex = (
     db.exec(`ALTER TABLE tasks ADD COLUMN parent_block_id TEXT`)
   }
 
+  // Created after the parent_line migration — the column may not exist when
+  // the base schema runs. Partial over child rows only, ordered to match the
+  // subtask_progress aggregate's GROUP BY, so listTasks scans just this small
+  // index instead of hash-aggregating the whole tasks table on every call.
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_tasks_parent_line
+       ON tasks(note_path, parent_line) WHERE parent_line IS NOT NULL`,
+  )
+
   // Same idempotent migration for non_md_files.bytes: a warm database from
   // before the column existed would fail the upsert. Nullable — NULL means
   // "not yet statted"; the startup rebuild backfills every row.
