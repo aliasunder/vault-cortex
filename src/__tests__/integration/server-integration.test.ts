@@ -485,12 +485,15 @@ describe("default config", () => {
       const json = JSON.parse(textContent(result))
 
       // board.md fixture: the in-progress card has one done + one todo
-      // checklist item; the other cards have none.
+      // checklist item; the other cards have no checklist, so the
+      // serialized entries carry no subtask_progress key at all.
       expect(
         json.tasks.map(
           (task: { block_id: string; subtask_progress: unknown }) => ({
             block_id: task.block_id,
-            subtask_progress: task.subtask_progress,
+            ...("subtask_progress" in task
+              ? { subtask_progress: task.subtask_progress }
+              : {}),
           }),
         ),
       ).toEqual([
@@ -498,8 +501,8 @@ describe("default config", () => {
           block_id: "board-active-1",
           subtask_progress: { done: 1, total: 2 },
         },
-        { block_id: "board-next-1", subtask_progress: { done: 0, total: 0 } },
-        { block_id: "board-done-1", subtask_progress: { done: 0, total: 0 } },
+        { block_id: "board-next-1" },
+        { block_id: "board-done-1" },
       ])
     })
 

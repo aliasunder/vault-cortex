@@ -230,13 +230,13 @@ export type TaskEntry = {
   block_id?: string | undefined
   depth: number
   parent_block_id?: string | undefined
-  subtask_progress: SubtaskProgress
+  subtask_progress?: SubtaskProgress | undefined
   is_kanban_task: boolean
   done_lanes?: string[] | undefined
 }
 
-/** Direct-children checklist progress, present on every task entry —
- *  { done: 0, total: 0 } means the task has no checklist. done counts
+/** Direct-children checklist progress, present only on tasks that have a
+ *  checklist — an absent field means no checklist items. done counts
  *  status "done" only; cancelled children count toward total, not done.
  *  Counts are unaffected by the query's filters — progress is a property
  *  of the card, not of the query. */

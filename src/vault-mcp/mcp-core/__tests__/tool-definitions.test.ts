@@ -1330,7 +1330,6 @@ describe("vault_list_tasks handler", () => {
       depends_on: [],
       tags: [],
       depth: 0,
-      subtask_progress: { done: 0, total: 0 },
       is_kanban_task: false,
     })
   })
@@ -1354,7 +1353,6 @@ describe("vault_list_tasks handler", () => {
         depends_on: [],
         tags: [],
         depth: 0,
-        subtask_progress: { done: 0, total: 0 },
         is_kanban_task: false,
       },
     ])
@@ -1383,7 +1381,6 @@ describe("vault_list_tasks handler", () => {
         depends_on: ["dep-1", "dep-2"],
         tags: ["errand"],
         depth: 0,
-        subtask_progress: { done: 0, total: 0 },
         is_kanban_task: false,
       },
     ])

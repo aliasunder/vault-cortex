@@ -102,7 +102,6 @@ describe("task indexing lifecycle", () => {
       tags: [],
       block_id: "fix-login",
       depth: 0,
-      subtask_progress: { done: 0, total: 0 },
       is_kanban_task: true,
     }
     expect(fixLoginTask).toEqual(expectedEntry)
@@ -132,7 +131,6 @@ describe("task indexing lifecycle", () => {
       depends_on: ["id-1", "id-2"],
       tags: ["home", "home/kitchen"],
       depth: 0,
-      subtask_progress: { done: 0, total: 0 },
       is_kanban_task: false,
     }
     expect(result.tasks).toEqual([expectedEntry])
@@ -175,7 +173,6 @@ describe("task indexing lifecycle", () => {
       depends_on: [],
       tags: [],
       depth: 0,
-      subtask_progress: { done: 0, total: 0 },
       is_kanban_task: true,
       done_lanes: ["Done"],
     })
@@ -1451,14 +1448,15 @@ describe("listTasks subtask_progress", () => {
     return index
   }
 
-  it("reports { done: 0, total: 0 } on a task with no checklist", () => {
+  it("omits subtask_progress on a task with no checklist", () => {
     const index = indexWithChecklist()
 
     const result = index.listTasks({ sortBy: "position" }, logger)
     const leafCard = result.tasks.find(
       (entry) => entry.block_id === "leaf-card",
     )
-    expect(leafCard?.subtask_progress).toEqual({ done: 0, total: 0 })
+    expect(leafCard?.description).toBe("Leaf card")
+    expect(leafCard?.subtask_progress).toBeUndefined()
   })
 
   it("counts done children only — cancelled counts toward total, not done", () => {
@@ -1475,8 +1473,8 @@ describe("listTasks subtask_progress", () => {
       })),
     ).toEqual([
       { block_id: "ship-feature", subtask_progress: { done: 2, total: 4 } },
-      { subtask_progress: { done: 0, total: 0 } }, // the todo child "Test"
-      { block_id: "leaf-card", subtask_progress: { done: 0, total: 0 } },
+      {}, // the todo child "Test" — no block_id, no checklist
+      { block_id: "leaf-card" },
     ])
   })
 
@@ -1508,8 +1506,8 @@ describe("listTasks subtask_progress", () => {
     ).toEqual([
       { block_id: "parent", subtask_progress: { done: 1, total: 2 } },
       { block_id: "child-a", subtask_progress: { done: 1, total: 1 } },
-      { block_id: "grandchild", subtask_progress: { done: 0, total: 0 } },
-      { block_id: "child-b", subtask_progress: { done: 0, total: 0 } },
+      { block_id: "grandchild" },
+      { block_id: "child-b" },
     ])
   })
 
@@ -1527,7 +1525,7 @@ describe("listTasks subtask_progress", () => {
       })),
     ).toEqual([
       { block_id: "ship-feature", subtask_progress: { done: 2, total: 4 } },
-      { block_id: "leaf-card", subtask_progress: { done: 0, total: 0 } },
+      { block_id: "leaf-card" },
     ])
   })
 })

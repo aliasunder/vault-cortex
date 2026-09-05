@@ -249,9 +249,15 @@ describe("rowToTaskEntry", () => {
       depends_on: ["def456"],
       tags: ["bug"],
       depth: 0,
-      subtask_progress: { done: 0, total: 0 },
       is_kanban_task: false,
     })
+  })
+
+  it("maps subtask counts to subtask_progress when the task has children", () => {
+    const entry = rowToTaskEntry(
+      makeTaskRow({ subtask_done: 2, subtask_total: 4 }),
+    )
+    expect(entry.subtask_progress).toEqual({ done: 2, total: 4 })
   })
 
   it("maps done_lanes for Kanban tasks", () => {
@@ -276,7 +282,6 @@ describe("rowToTaskEntry", () => {
       depends_on: ["def456"],
       tags: ["bug"],
       depth: 0,
-      subtask_progress: { done: 0, total: 0 },
       is_kanban_task: true,
       done_lanes: ["Done"],
     })
