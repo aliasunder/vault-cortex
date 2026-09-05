@@ -116,7 +116,7 @@ jobs:
           # order: diff → changed files → import-traced related files →
           # priority docs → mention-matched docs. (Conventions file has its
           # own separate cap inside the action.)
-          context_budget_tokens: ${{ vars.UMM_CONTEXT_BUDGET_TOKENS || '80000' }}
+          context_budget_tokens: ${{ vars.UMM_CONTEXT_BUDGET_TOKENS || '300000' }}
           # true | false — import-tracing (caller regressions) and
           # doc-mention scanning (staleness)
           trace_related_files: ${{ vars.UMM_TRACE_RELATED_FILES || 'true' }}
