@@ -69,11 +69,19 @@ jobs:
   # The cli package targets older runtimes than the server (engines >=22.12),
   # but the repo's @types/node tracks the server's Node version — so only a
   # runtime smoke test catches accidental use of too-new APIs in the CLI.
+  # The floor row pins 22.12 so the oldest supported API surface actually
+  # runs; label keeps the required-check name at the major, so the ruleset
+  # contexts survive future floor bumps.
   cli-smoke:
+    name: cli-smoke (${{ matrix.label }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [22, 24]
+        include:
+          - node-version: "22.12"
+            label: "22"
+          - node-version: "24"
+            label: "24"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

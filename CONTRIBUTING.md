@@ -144,8 +144,8 @@ truth. Key points:
    each blocks the merge and the finding details are in its job log:
    - `checks` — prettier, lint, markdownlint, knip, test, and build
    - `cli-smoke (22)` / `cli-smoke (24)` — builds the
-     CLI and runs `init` on each supported Node major, catching APIs too
-     new for the CLI's `engines` range
+     CLI and runs `init` on the engines floor (22.12) and the newest
+     major (24), catching APIs too new for the CLI's `engines` range
    - `arch-smoke (amd64)` / `arch-smoke (arm64)` — builds the Docker image
      and boots it on a native runner for each architecture, then boots the
      remote image with a stubbed Sync client to run its init chain
