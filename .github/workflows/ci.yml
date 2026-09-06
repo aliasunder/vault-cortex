@@ -66,14 +66,22 @@ jobs:
 
       - run: npm run build
 
-  # The cli package targets older runtimes than the server (engines >=20.12),
+  # The cli package targets older runtimes than the server (engines >=22.12),
   # but the repo's @types/node tracks the server's Node version — so only a
   # runtime smoke test catches accidental use of too-new APIs in the CLI.
+  # The floor row pins 22.12 so the oldest supported API surface actually
+  # runs; label keeps the required-check name at the major, so the ruleset
+  # contexts survive future floor bumps.
   cli-smoke:
+    name: cli-smoke (${{ matrix.label }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [20, 22, 24]
+        include:
+          - node-version: "22.12"
+            label: "22"
+          - node-version: "24"
+            label: "24"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -98,3 +106,22 @@ jobs:
           mkdir -p /tmp/smoke-vault/.obsidian
           node cli/dist/bin.js init --yes --vault-path /tmp/smoke-vault --dir /tmp/smoke-out
           grep -q "VAULT_PATH=/tmp/smoke-vault" /tmp/smoke-out/.env
+
+      # The refusal branch never executes on supported majors, so the floor
+      # row re-runs the built CLI on EOL Node 20 and asserts the refusal
+      # shape: nonzero exit, the floor in the message, both setup pointers.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: matrix.label == '22'
+        with:
+          node-version: 20
+
+      - name: Refusal smoke on Node 20
+        if: matrix.label == '22'
+        run: |
+          if node cli/dist/bin.js --help > refusal-output.txt 2>&1; then
+            echo "expected the CLI to refuse Node 20"
+            exit 1
+          fi
+          grep -F "requires Node.js >= 22.12.0" refusal-output.txt
+          grep -F "deploy/local/README.md" refusal-output.txt
+          grep -F "deploy/remote/README.md" refusal-output.txt
