@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
-import { minimumNodeVersion, satisfiesMinimum } from "../node-version.js"
+import {
+  minimumNodeVersion,
+  nodeVersionRefusalMessage,
+  satisfiesMinimum,
+} from "../node-version.js"
 
 describe("minimumNodeVersion", () => {
   it("extracts the floor from a >= range", () => {
@@ -93,5 +97,21 @@ describe("satisfiesMinimum", () => {
     const satisfied = satisfiesMinimum(current, minimum)
 
     expect(satisfied).toBe(expected)
+  })
+})
+
+describe("nodeVersionRefusalMessage", () => {
+  it("names the floor, the running version, and both no-Node setup guides", () => {
+    const message = nodeVersionRefusalMessage({
+      minimum: "22.12.0",
+      current: "20.20.2",
+    })
+
+    expect(message).toBe(
+      "vault-cortex requires Node.js >= 22.12.0 (you have 20.20.2).\n" +
+        "Upgrade at https://nodejs.org — or use a no-Node manual setup:\n" +
+        "  local:  https://github.com/aliasunder/vault-cortex/blob/main/deploy/local/README.md\n" +
+        "  remote: https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md",
+    )
   })
 })

@@ -2,7 +2,11 @@
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
-import { minimumNodeVersion, satisfiesMinimum } from "./node-version.js"
+import {
+  minimumNodeVersion,
+  nodeVersionRefusalMessage,
+  satisfiesMinimum,
+} from "./node-version.js"
 
 const pkg: { version: string; engines: { node: string } } = JSON.parse(
   readFileSync(
@@ -19,10 +23,10 @@ const { version, engines } = pkg
 const requiredNodeVersion = minimumNodeVersion(engines.node)
 if (!satisfiesMinimum(process.versions.node, requiredNodeVersion)) {
   console.error(
-    `vault-cortex requires Node.js >= ${requiredNodeVersion} (you have ${process.versions.node}).\n` +
-      `Upgrade at https://nodejs.org — or use a no-Node manual setup:\n` +
-      `  local:  https://github.com/aliasunder/vault-cortex/blob/main/deploy/local/README.md\n` +
-      `  remote: https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md`,
+    nodeVersionRefusalMessage({
+      minimum: requiredNodeVersion,
+      current: process.versions.node,
+    }),
   )
   process.exit(1)
 }
