@@ -8,8 +8,7 @@ const VERSION_IN_RANGE = /(\d+)\.(\d+)(?:\.(\d+))?/
  */
 export const minimumNodeVersion = (enginesRange: string): string => {
   const match = VERSION_IN_RANGE.exec(enginesRange)
-  if (match === null)
-    throw new Error(`Cannot parse engines range: ${enginesRange}`)
+  if (!match) throw new Error(`Cannot parse engines range: ${enginesRange}`)
   const [, major, minor, patch] = match
   return `${major}.${minor}.${patch ?? "0"}`
 }
