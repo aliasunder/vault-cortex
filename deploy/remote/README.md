@@ -39,7 +39,7 @@ starts the server and prints the connection details for your MCP client
 <details>
 <summary><strong>Don't have Node.js installed?</strong></summary>
 
-The CLI needs Node.js >= 20.12 (the server itself runs in Docker). On Ubuntu/Debian:
+The CLI needs Node.js >= 22.12 (the server itself runs in Docker). On Ubuntu/Debian:
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
@@ -68,7 +68,7 @@ Or clone the repo and `cd deploy/remote`.
 
 **3. Generate your Obsidian Sync auth token** (one-time):
 
-If you have Node.js >= 20.12 on this machine, the CLI signs in to your
+If you have Node.js >= 22.12 on this machine, the CLI signs in to your
 Obsidian account and captures the token:
 
 ```bash

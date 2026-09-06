@@ -66,14 +66,14 @@ jobs:
 
       - run: npm run build
 
-  # The cli package targets older runtimes than the server (engines >=20.12),
+  # The cli package targets older runtimes than the server (engines >=22.12),
   # but the repo's @types/node tracks the server's Node version — so only a
   # runtime smoke test catches accidental use of too-new APIs in the CLI.
   cli-smoke:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [20, 22, 24]
+        node-version: [22, 24]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

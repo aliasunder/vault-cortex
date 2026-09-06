@@ -140,10 +140,10 @@ truth. Key points:
    ```
 
 4. **Fill out the PR template** — the checklist mirrors CI
-5. **Required checks must pass** — the `main` ruleset requires all eight;
+5. **Required checks must pass** — the `main` ruleset requires all seven;
    each blocks the merge and the finding details are in its job log:
    - `checks` — prettier, lint, markdownlint, knip, test, and build
-   - `cli-smoke (20)` / `cli-smoke (22)` / `cli-smoke (24)` — builds the
+   - `cli-smoke (22)` / `cli-smoke (24)` — builds the
      CLI and runs `init` on each supported Node major, catching APIs too
      new for the CLI's `engines` range
    - `arch-smoke (amd64)` / `arch-smoke (arm64)` — builds the Docker image

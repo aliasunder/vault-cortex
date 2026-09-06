@@ -27,7 +27,7 @@ describe("minimumNodeVersion", () => {
 
     const minimum = minimumNodeVersion(manifest.engines.node)
 
-    expect(minimum).toBe("20.12.0")
+    expect(minimum).toBe("22.12.0")
   })
 
   it("throws on a range with no version in it", () => {

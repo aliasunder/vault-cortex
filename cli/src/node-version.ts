@@ -1,8 +1,8 @@
-/** Matches the first dotted version number in an engines range like ">=20.12.0". */
+/** Matches the first dotted version number in an engines range like ">=22.12.0". */
 const VERSION_IN_RANGE = /(\d+)\.(\d+)(?:\.(\d+))?/
 
 /**
- * Extracts the minimum version from a simple engines range (">=20.12.0").
+ * Extracts the minimum version from a simple engines range (">=22.12.0").
  * The CLI only ever declares a floor, so the first version in the string
  * is the minimum.
  */
