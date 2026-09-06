@@ -324,9 +324,10 @@ Each row carries its attribution — note path, full parent folder, 1-based file
 - **Filters** — status; six date fields (due, scheduled, start, created, done, cancelled), each with before/on/after bounds; priority; folder, tag, heading, and path scoping; `top_level_only`, which excludes sub-tasks from board reads.
 - **Sort keys** — `due`, `scheduled`, `start`, `created`, `done`, `priority`, `note_mtime`, `position`.
 
-Three design choices shape the query surface:
+Four design choices shape the query surface:
 
 - **Array params for status and heading** — both accept `string | string[]`, OR-combined. This collapses multi-lane Kanban queries (e.g. Active + Up Next + Waiting On) into a single call instead of N sequential reads.
+- **Checklist progress on parent entries** — `subtask_progress: { done, total }` aggregates each task's direct children in the same query (a grouped self-join on the parent line), so filtered or `top_level_only` reads still show how far along a card's checklist is. The field appears only on tasks that have a checklist; `done` counts status done only, and the counts ignore the query's filters — progress belongs to the card, not the query.
 - **Date cascade sorting** — when the primary sort date is absent on a task, actionable date sorts fall back through the remaining fields in urgency order (due → scheduled → start → created), each using its own natural direction. (`done`, a terminal-state date, stands alone.) Tasks with sparse dates sort usably instead of clustering at the end.
 - **Kanban awareness** — each task carries an `is_kanban_task` flag, derived via `json_extract` on the parent note's `kanban-plugin` frontmatter (no schema changes). When true, `heading` carries the lane name, and `sort_by: "position"` (file path then line number) preserves the board's card arrangement as the sort order. A `done_lanes` field (populated at index time by scanning for the Kanban plugin's `**Complete**` marker between headings and list items) tells agents which lane(s) represent task completion.
 

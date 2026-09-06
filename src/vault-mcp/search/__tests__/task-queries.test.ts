@@ -1422,3 +1422,110 @@ describe("comment block exclusion", () => {
     expect(result.total).toBe(2)
   })
 })
+
+describe("listTasks subtask_progress", () => {
+  /** A card with a mixed-status checklist (2 done, 1 todo, 1 cancelled)
+   *  plus a leaf card with no checklist. */
+  const CHECKLIST_NOTE = [
+    "- [ ] Ship the feature ^ship-feature",
+    "  - [x] Design",
+    "  - [x] Implement",
+    "  - [ ] Test",
+    "  - [-] Abandoned stage",
+    "- [ ] Leaf card ^leaf-card",
+  ].join("\n")
+
+  const indexWithChecklist = () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "tasks.md",
+        rawContent: CHECKLIST_NOTE,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    return index
+  }
+
+  it("omits subtask_progress on a task with no checklist", () => {
+    const index = indexWithChecklist()
+
+    const result = index.listTasks({ sortBy: "position" }, logger)
+    const leafCard = result.tasks.find(
+      (entry) => entry.block_id === "leaf-card",
+    )
+    expect(leafCard?.description).toBe("Leaf card")
+    expect(leafCard?.subtask_progress).toBeUndefined()
+  })
+
+  it("counts done children only — cancelled counts toward total, not done", () => {
+    const index = indexWithChecklist()
+
+    // The default not_done filter excludes the done and cancelled children
+    // from the result rows; the parent's counts must include them anyway —
+    // this fails if the aggregate ever inherits the query's filters.
+    const result = index.listTasks({ sortBy: "position" }, logger)
+    expect(
+      result.tasks.map((entry) => ({
+        block_id: entry.block_id,
+        subtask_progress: entry.subtask_progress,
+      })),
+    ).toEqual([
+      { block_id: "ship-feature", subtask_progress: { done: 2, total: 4 } },
+      {}, // the todo child "Test" — no block_id, no checklist
+      { block_id: "leaf-card" },
+    ])
+  })
+
+  it("counts a grandchild toward its direct parent only", () => {
+    const index = createTestIndex()
+    index.upsertNote(
+      {
+        filePath: "tasks.md",
+        rawContent: [
+          "- [ ] Parent ^parent",
+          "  - [ ] Child A ^child-a",
+          "    - [x] Grandchild ^grandchild",
+          "  - [x] Child B ^child-b",
+        ].join("\n"),
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = index.listTasks(
+      { status: "all", sortBy: "position" },
+      logger,
+    )
+    expect(
+      result.tasks.map((entry) => ({
+        block_id: entry.block_id,
+        subtask_progress: entry.subtask_progress,
+      })),
+    ).toEqual([
+      { block_id: "parent", subtask_progress: { done: 1, total: 2 } },
+      { block_id: "child-a", subtask_progress: { done: 1, total: 1 } },
+      { block_id: "grandchild" },
+      { block_id: "child-b" },
+    ])
+  })
+
+  it("top_level_only rows still carry checklist progress", () => {
+    const index = indexWithChecklist()
+
+    const result = index.listTasks(
+      { topLevelOnly: true, sortBy: "position" },
+      logger,
+    )
+    expect(
+      result.tasks.map((entry) => ({
+        block_id: entry.block_id,
+        subtask_progress: entry.subtask_progress,
+      })),
+    ).toEqual([
+      { block_id: "ship-feature", subtask_progress: { done: 2, total: 4 } },
+      { block_id: "leaf-card" },
+    ])
+  })
+})
