@@ -20,8 +20,9 @@ const requiredNodeVersion = minimumNodeVersion(engines.node)
 if (!satisfiesMinimum(process.versions.node, requiredNodeVersion)) {
   console.error(
     `vault-cortex requires Node.js >= ${requiredNodeVersion} (you have ${process.versions.node}).\n` +
-      `Upgrade at https://nodejs.org — or use the no-Node manual setup:\n` +
-      `https://github.com/aliasunder/vault-cortex/blob/main/deploy/local/README.md`,
+      `Upgrade at https://nodejs.org — or use a no-Node manual setup:\n` +
+      `  local:  https://github.com/aliasunder/vault-cortex/blob/main/deploy/local/README.md\n` +
+      `  remote: https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md`,
   )
   process.exit(1)
 }
