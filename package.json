@@ -67,6 +67,7 @@
     "markdownlint": "markdownlint-cli2 \"**/*.md\"",
     "markdownlint:fix": "markdownlint-cli2 --fix \"**/*.md\"",
     "test": "vitest run",
+    "snapshot:update": "vitest run -u src/vault-mcp/mcp-core/__tests__/tool-surface-snapshot.test.ts",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
     "test:cli-pty": "vitest run --config vitest.cli-pty.config.ts",

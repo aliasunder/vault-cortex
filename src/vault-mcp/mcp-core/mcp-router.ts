@@ -48,7 +48,7 @@ const SERVER_WEBSITE_URL = "https://github.com/aliasunder/vault-cortex"
  *  enabled set so they track every gating axis; the capability framing
  *  (read-only notice, memory-layer mention, search flavor) keys on config —
  *  those describe the deployment, not a specific tool. */
-const buildServerMetadata = (
+export const buildServerMetadata = (
   config: VaultConfig,
   enabledToolNames: ReadonlySet<ToolName>,
 ): { instructions: string; description: string } => {
