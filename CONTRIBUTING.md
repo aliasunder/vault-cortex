@@ -145,7 +145,8 @@ truth. Key points:
    - `checks` — prettier, lint, markdownlint, knip, test, and build
    - `cli-smoke (22)` / `cli-smoke (24)` — builds the
      CLI and runs `init` on the engines floor (22.12) and the newest
-     major (24), catching APIs too new for the CLI's `engines` range
+     major (24), catching APIs too new for the CLI's `engines` range;
+     the floor row also asserts the too-old refusal on Node 20
    - `arch-smoke (amd64)` / `arch-smoke (arm64)` — builds the Docker image
      and boots it on a native runner for each architecture, then boots the
      remote image with a stubbed Sync client to run its init chain

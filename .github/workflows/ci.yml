@@ -106,3 +106,22 @@ jobs:
           mkdir -p /tmp/smoke-vault/.obsidian
           node cli/dist/bin.js init --yes --vault-path /tmp/smoke-vault --dir /tmp/smoke-out
           grep -q "VAULT_PATH=/tmp/smoke-vault" /tmp/smoke-out/.env
+
+      # The refusal branch never executes on supported majors, so the floor
+      # row re-runs the built CLI on EOL Node 20 and asserts the refusal
+      # shape: nonzero exit, the floor in the message, both setup pointers.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: matrix.label == '22'
+        with:
+          node-version: 20
+
+      - name: Refusal smoke on Node 20
+        if: matrix.label == '22'
+        run: |
+          if node cli/dist/bin.js --help > refusal-output.txt 2>&1; then
+            echo "expected the CLI to refuse Node 20"
+            exit 1
+          fi
+          grep -F "requires Node.js >= 22.12.0" refusal-output.txt
+          grep -F "deploy/local/README.md" refusal-output.txt
+          grep -F "deploy/remote/README.md" refusal-output.txt
