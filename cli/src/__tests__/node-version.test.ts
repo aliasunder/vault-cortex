@@ -32,7 +32,7 @@ describe("minimumNodeVersion", () => {
 
   it("throws on a range with no version in it", () => {
     expect(() => minimumNodeVersion("latest")).toThrow(
-      "Cannot parse engines range",
+      "Cannot parse engines range: latest",
     )
   })
 })
