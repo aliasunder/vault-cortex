@@ -69,12 +69,11 @@ const comboFromFlippedAxes = (
   }
 }
 
-/** The 16 axis combos plus one DISABLED_TOOLS representative. vault_patch_note
- *  is cross-referenced from several other tools' descriptions, so that combo
- *  pins that references disappear with their target. No code branches on a
- *  conjunction of axes today; the conjunction combos pin rendered states that
- *  exist only there (several description clauses drop together) and
- *  future-proof later conjunction branching, at near-zero capture cost. */
+/** The 16 axis combos plus one DISABLED_TOOLS representative:
+ *  - vault_patch_note is cross-referenced from other tools' descriptions, so
+ *    its combo verifies those references disappear when the tool is disabled.
+ *  - Conjunction combos pin rendered states that exist only in multi-flip
+ *    configs (several description clauses drop together). */
 export const SURFACE_COMBOS: readonly SurfaceCombo[] = [
   ...axisSubsets.map(comboFromFlippedAxes),
   { name: "disabled-tools", env: { DISABLED_TOOLS: "vault_patch_note" } },
