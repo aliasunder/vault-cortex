@@ -94,6 +94,34 @@
 
 
 
+
+## [0.49.1] — 2026-09-08
+
+### ⚠ BREAKING CHANGES
+
+- the CLI now requires Node.js >= 22.12. On Node 20 it exits with an upgrade message instead of running. The server image is unaffected.
+
+### Features
+
+- **cli:** Drop Node 20, require Node >= 22.12 (#538)
+
+### Bug Fixes
+
+- **deps:** Bump hono to 4.13.7 and js-yaml override to 4.3.2 (#542)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.49.0
+
+### CI / Infrastructure
+
+- Expose diff_exclude_paths and respect_linguist_generated in umm_review.yml (#541)
+
+### Maintenance
+
+- Bump umm-actually to v0.4.1 (#540)
+- **deps-dev:** Bump the development group with 5 updates (#539)
+
 ## [0.49.0] — 2026-09-06
 
 ### Features
