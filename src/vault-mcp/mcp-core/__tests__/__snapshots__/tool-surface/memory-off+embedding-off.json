@@ -3,6 +3,7 @@
     "MEMORY_ENABLED": "false",
     "EMBEDDING_ENABLED": "false"
   },
+  "description": "Read, write, and search an Obsidian vault. Provides full-text search, tag queries, and property-based filtering.",
   "instructions": "Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_write_note for writes.\n\nVault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.",
   "tools": [
     {

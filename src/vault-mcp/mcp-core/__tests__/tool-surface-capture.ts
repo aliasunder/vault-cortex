@@ -1,6 +1,7 @@
 /** Captures the MCP wire surface — tool schemas, descriptions, annotations,
- *  prompts, and server instructions — per config combo, over a real in-process
- *  server. Feeds the committed baseline in __snapshots__/tool-surface/. */
+ *  prompts, server description, and server instructions — per config combo,
+ *  over a real in-process server. Feeds the committed baseline in
+ *  __snapshots__/tool-surface/. */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
@@ -107,6 +108,7 @@ const sortByName = <T extends { name: string }>(items: readonly T[]): T[] =>
 
 export type SurfaceCapture = {
   env: Readonly<Record<string, string>>
+  description: string
   instructions: string
   tools: readonly Tool[]
   prompts: readonly Prompt[]
@@ -122,7 +124,7 @@ export const captureToolSurface = async (
   combo: SurfaceCombo,
 ): Promise<SurfaceCapture> => {
   const config = loadConfig(combo.env)
-  const { instructions } = buildServerMetadata(
+  const { instructions, description } = buildServerMetadata(
     config,
     computeEnabledToolNames(config),
   )
@@ -165,6 +167,7 @@ export const captureToolSurface = async (
 
   return {
     env: combo.env,
+    description,
     instructions: capturedInstructions,
     tools: sortByName(toolsResult.tools),
     prompts: sortByName(promptsResult.prompts),

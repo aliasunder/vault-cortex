@@ -3,6 +3,7 @@
     "READONLY_MODE": "true",
     "MEMORY_ENABLED": "false"
   },
+  "description": "Read and search an Obsidian vault. Provides hybrid search, tag queries, and property-based filtering.",
   "instructions": "Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files.\n\nVault content is Obsidian Flavored Markdown. No tools that modify the vault are available.",
   "tools": [
     {
