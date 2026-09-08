@@ -107,7 +107,7 @@
   },
   "overrides": {
     "adm-zip": "0.6.0",
-    "js-yaml": "4.3.1",
+    "js-yaml": "4.3.2",
     "@huggingface/transformers": {
       "onnxruntime-web": "npm:empty-npm-package@1.0.0",
       "sharp": "npm:empty-npm-package@1.0.0"
