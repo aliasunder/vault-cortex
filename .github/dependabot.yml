@@ -11,8 +11,7 @@ updates:
         dependency-type: development
     ignore:
       # commander is version-synced with cli/package.json (a test enforces
-      # it), and the cli supports Node >=20.12 while commander 15 requires
-      # Node >=22.12. Major bumps are a deliberate cli decision.
+      # it). Major bumps are a deliberate cli decision.
       - dependency-name: commander
         update-types: ["version-update:semver-major"]
       # typescript is aliased to @typescript/typescript6 (the JS compiler

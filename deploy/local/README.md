@@ -8,7 +8,7 @@ Obsidian Sync — just Docker and a folder of `.md` files.
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) (v20.10+)
-- Node.js >= 20.12 — only for the CLI setup below; the
+- Node.js >= 22.12 — only for the CLI setup below; the
   [manual setup](#setup) needs just Docker
 - An Obsidian vault (or any folder of Markdown files)
 

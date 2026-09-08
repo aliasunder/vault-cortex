@@ -93,6 +93,34 @@
 
 
 
+
+## [0.49.0] — 2026-09-06
+
+### Features
+
+- **tasks:** Add subtask_progress to every vault_list_tasks entry (#536)
+- **cli:** Validate env vars up front in init and configure (#533)
+
+### Bug Fixes
+
+- Align context_budget_tokens fallback with v0.4.0 default (300K) (#535)
+- **scripts:** Echo command descriptions instead of raw command strings in dev.ts (#526)
+- **scripts:** Keep the instance host out of waitForDocker log lines (#525)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.48.3
+
+### Maintenance
+
+- **deps:** Bump umm-actually to v0.4.0 (#534)
+- **deps:** Bump the production group across 1 directory with 4 updates (#529)
+- **deps:** Bump aws-actions/configure-aws-credentials from 6.2.3 to 6.2.4 (#527)
+- **deps:** Bump github/codeql-action/upload-sarif from 4.37.8 to 4.37.9 (#530)
+- **deps:** Bump node from `0711b54` to `50c3b2f` (#528)
+- **deps-dev:** Bump the development group with 5 updates (#531)
+- **deps:** Bump docker/setup-qemu-action from 4.2.0 to 4.3.0 (#532)
+
 ## [0.48.3] — 2026-09-04
 
 ### Features

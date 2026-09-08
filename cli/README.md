@@ -206,7 +206,7 @@ During `init --mode remote`, this flow is offered automatically.
 
 ## Requirements
 
-- Node.js >= 20.12 (only for this CLI — the server itself runs in Docker)
+- Node.js >= 22.12 (only for this CLI — the server itself runs in Docker)
 - [Docker](https://docs.docker.com/get-docker/) or a Docker-compatible
   runtime (e.g. OrbStack, Colima, Podman) to run the server — the CLI
   manages the container through the `docker` command (on Linux, see

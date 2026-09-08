@@ -1,6 +1,6 @@
 {
   "name": "vault-cortex",
-  "version": "0.48.3",
+  "version": "0.49.0",
   "private": true,
   "description": "Standalone MCP server for Obsidian vaults — hybrid search, notes & files, memory, tasks, OAuth 2.1",
   "license": "MIT",
@@ -117,14 +117,14 @@
   "devDependencies": {
     "@clack/prompts": "1.7.0",
     "@eslint/js": "10.0.1",
-    "@types/aws-lambda": "8.10.162",
+    "@types/aws-lambda": "8.10.163",
     "@types/better-sqlite3": "9.6.0",
     "@types/express": "5.0.6",
     "@types/luxon": "3.7.5",
-    "@types/node": "26.4.0",
+    "@types/node": "26.4.1",
     "@types/picomatch": "4.0.3",
     "@typescript/native": "npm:typescript@7.0.2",
-    "@vitest/coverage-v8": "4.1.11",
+    "@vitest/coverage-v8": "5.0.0",
     "commander": "14.0.3",
     "eslint": "10.9.1",
     "eslint-config-prettier": "10.1.8",
@@ -135,12 +135,12 @@
     "markdownlint-cli2": "0.23.2",
     "node-pty": "1.1.0",
     "prettier": "3.9.6",
-    "puppeteer": "25.9.0",
+    "puppeteer": "25.10.0",
     "sst": "4.17.1",
     "tsx": "4.23.13",
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "typescript-eslint": "8.69.0",
-    "vitest": "4.1.11"
+    "vitest": "5.0.0"
   },
   "allowScripts": {
     "puppeteer@25.8.0": true,
