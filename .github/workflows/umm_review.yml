@@ -138,5 +138,14 @@ jobs:
           # scan — invisible to import-tracing and doc-mention matching.
           # Changed files and priority_docs are never excluded.
           exclude_paths: ${{ vars.UMM_EXCLUDE_PATHS }}
+          # Comma-separated folder prefixes or globs removed from the review
+          # diff before the token budget check — excluded files are named in
+          # the review but their content is not reviewed. Extends the built-in
+          # generated-file list (lockfiles, *.min.js, *.min.css, *.map); a
+          # leading `none` drops it. Empty = built-in list only
+          diff_exclude_paths: ${{ vars.UMM_DIFF_EXCLUDE_PATHS }}
+          # true | false — also exclude changed files the root .gitattributes
+          # marks linguist-generated=true
+          respect_linguist_generated: ${{ vars.UMM_RESPECT_LINGUIST_GENERATED || 'true' }}
           # true | false — per-run cost report in the workflow step summary
           cost_summary: ${{ vars.UMM_COST_SUMMARY || 'true' }}
