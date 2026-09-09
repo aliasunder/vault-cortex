@@ -442,14 +442,13 @@ const resolveTrashPath = async (params: {
   const trashRelativePath = `.trash/${params.relativePath}`
   const trashFullPath = join(params.vaultPath, trashRelativePath)
 
+  // Name is free — use it as-is
   if (!(await fileExists(trashFullPath))) {
     return { trashFullPath, trashRelativePath }
   }
 
+  // Name is taken — try note 1.md, note 2.md, … until one is free
   const { dir, name, ext } = parse(params.relativePath)
-
-  // This name is already in .trash/ — try note 1.md, note 2.md, …
-  // until an unused name is found.
   for (let suffix = 1; suffix <= 100; suffix++) {
     const candidateRelative = `.trash/${join(dir, `${name} ${suffix}${ext}`)}`
     const candidateFull = join(params.vaultPath, candidateRelative)
