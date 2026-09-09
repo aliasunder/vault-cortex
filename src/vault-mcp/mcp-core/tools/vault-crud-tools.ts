@@ -1009,13 +1009,13 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
             ...(trashLocation ? { trash_location: trashLocation } : {}),
           })
           const folderLabel = prunedEmptyFolders > 1 ? "folders" : "folder"
-          const pruneNote =
+          const pruneSuffix =
             prunedEmptyFolders > 0
               ? ` (removed ${prunedEmptyFolders} empty ${folderLabel})`
               : ""
           return trashLocation
-            ? `Moved ${path} to trash (${trashLocation})${pruneNote}`
-            : `Deleted ${path}${pruneNote}`
+            ? `Moved ${path} to trash (${trashLocation})${pruneSuffix}`
+            : `Deleted ${path}${pruneSuffix}`
         },
       )
     },

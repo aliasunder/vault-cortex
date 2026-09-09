@@ -435,25 +435,28 @@ type DeleteNoteResult = {
 
 /** Resolves a collision-free path inside `.trash/`. Appends a numeric
  *  suffix to the stem (`note 1.md`, `note 2.md`) when the target exists. */
-const resolveTrashPath = async (
-  vaultPath: string,
-  relativePath: string,
-): Promise<{ trashFullPath: string; trashRelativePath: string }> => {
-  const trashRelativePath = `.trash/${relativePath}`
-  const trashFullPath = join(vaultPath, trashRelativePath)
+const resolveTrashPath = async (params: {
+  vaultPath: string
+  relativePath: string
+}): Promise<{ trashFullPath: string; trashRelativePath: string }> => {
+  const trashRelativePath = `.trash/${params.relativePath}`
+  const trashFullPath = join(params.vaultPath, trashRelativePath)
 
   if (!(await fileExists(trashFullPath))) {
     return { trashFullPath, trashRelativePath }
   }
 
-  const extensionIndex = relativePath.lastIndexOf(".")
+  const extensionIndex = params.relativePath.lastIndexOf(".")
   const stem =
-    extensionIndex > 0 ? relativePath.slice(0, extensionIndex) : relativePath
-  const extension = extensionIndex > 0 ? relativePath.slice(extensionIndex) : ""
+    extensionIndex > 0
+      ? params.relativePath.slice(0, extensionIndex)
+      : params.relativePath
+  const extension =
+    extensionIndex > 0 ? params.relativePath.slice(extensionIndex) : ""
 
   for (let suffix = 1; suffix <= 100; suffix++) {
     const candidateRelative = `.trash/${stem} ${suffix}${extension}`
-    const candidateFull = join(vaultPath, candidateRelative)
+    const candidateFull = join(params.vaultPath, candidateRelative)
     if (!(await fileExists(candidateFull))) {
       return {
         trashFullPath: candidateFull,
@@ -463,23 +466,23 @@ const resolveTrashPath = async (
   }
 
   throw new Error(
-    `cannot move "${relativePath}" to trash — 100 collisions in .trash/`,
+    `cannot move "${params.relativePath}" to trash — 100 collisions in .trash/`,
   )
 }
 
 /** Moves a note to `.trash/`, creating parent directories as needed.
  *  Returns the vault-relative trash path. */
-const moveNoteToTrash = async (
-  vaultPath: string,
-  relativePath: string,
-  fullPath: string,
-): Promise<string> => {
-  const { trashFullPath, trashRelativePath } = await resolveTrashPath(
-    vaultPath,
-    relativePath,
-  )
+const moveNoteToTrash = async (params: {
+  vaultPath: string
+  relativePath: string
+  fullPath: string
+}): Promise<string> => {
+  const { trashFullPath, trashRelativePath } = await resolveTrashPath({
+    vaultPath: params.vaultPath,
+    relativePath: params.relativePath,
+  })
   await mkdir(dirname(trashFullPath), { recursive: true })
-  await rename(fullPath, trashFullPath)
+  await rename(params.fullPath, trashFullPath)
   return trashRelativePath
 }
 
@@ -525,7 +528,11 @@ const deleteNote = async (
     // path the guard rejects. Safe: `path` was already validated above.
     const trashLocation =
       params.trashOption === "local"
-        ? await moveNoteToTrash(params.vaultPath, path, fullPath)
+        ? await moveNoteToTrash({
+            vaultPath: params.vaultPath,
+            relativePath: path,
+            fullPath,
+          })
         : undefined
 
     if (!trashLocation) {

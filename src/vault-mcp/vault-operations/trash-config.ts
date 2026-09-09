@@ -45,7 +45,6 @@ export const readTrashConfig = async (
       : "system"
 
     cachedOption = trashOption
-    logger.info("trash config loaded", { trashOption })
     return trashOption
   } catch (error) {
     if (!isErrnoException(error, "ENOENT")) {
