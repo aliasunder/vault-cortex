@@ -1264,6 +1264,82 @@ describe("vault_memory_recall handler", () => {
   })
 })
 
+describe("vault_search handler", () => {
+  const mockExtra = { requestId: "test-1", sessionId: "session-1" }
+
+  /** Registers tools against a real in-memory index seeded with three notes,
+   *  so handler tests can observe the effect of top-level presentation params
+   *  (limit, snippet_tokens, include_leading_callout) that were un-nested
+   *  from filters in the v1 rename sweep. */
+  const registerWithSearchIndex = (): RegisterToolCall => {
+    const searchIndex = createSearchIndex(":memory:")
+    for (const [filePath, rawContent] of [
+      [
+        "Projects/alpha.md",
+        "---\ntitle: Alpha\ntags: [project]\n---\n# Alpha\n\nFirst project notes.",
+      ],
+      [
+        "Projects/beta.md",
+        "---\ntitle: Beta\ntags: [project]\n---\n# Beta\n\nSecond project notes.",
+      ],
+      [
+        "Projects/gamma.md",
+        "---\ntitle: Gamma\ntags: [project]\n---\n# Gamma\n\nThird project notes.",
+      ],
+    ] as const) {
+      searchIndex.upsertNote(
+        { filePath, rawContent, fileStat: { mtimeMs: 1000, size: 100 } },
+        logger,
+      )
+    }
+    const searchMockServer = { registerTool: vi.fn() }
+    registerTools({
+      server: searchMockServer as unknown as McpServer,
+      vaultPath: "/test-vault",
+      search: searchIndex,
+      logger,
+      config: loadConfig({}),
+    })
+    const searchCalls = searchMockServer.registerTool.mock
+      .calls as RegisterToolCall[]
+    const call = searchCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_SEARCH,
+    )
+    if (!call) throw new Error("vault_search not registered")
+    return call
+  }
+
+  it("maps top-level limit to the search layer", async () => {
+    const [, , handler] = registerWithSearchIndex()
+    const result = (await handler(
+      { query: "project", limit: 1 },
+      mockExtra,
+    )) as { content: Array<{ text: string }>; isError?: boolean }
+    expect(result.isError).toBeUndefined()
+    const text = result.content[0]?.text
+    if (!text) throw new Error("expected text content from vault_search")
+    const payload = JSON.parse(text) as {
+      results: Array<{ path: string }>
+      total: number
+    }
+    // Three notes match "project"; limit: 1 at the top level must reach the
+    // search layer (the cap is only observable if the merge worked).
+    expect(payload.total).toBe(1)
+    expect(payload.results).toHaveLength(1)
+
+    // Guard against vacuous pass: without limit, all three appear.
+    const unlimitedResult = (await handler(
+      { query: "project" },
+      mockExtra,
+    )) as { content: Array<{ text: string }> }
+    const unlimitedText = unlimitedResult.content[0]?.text
+    if (!unlimitedText)
+      throw new Error("expected text content from unlimited vault_search")
+    const unlimitedPayload = JSON.parse(unlimitedText) as { total: number }
+    expect(unlimitedPayload.total).toBe(3)
+  })
+})
+
 describe("vault_list_tasks handler", () => {
   const mockExtra = { requestId: "test-1", sessionId: "session-1" }
 
