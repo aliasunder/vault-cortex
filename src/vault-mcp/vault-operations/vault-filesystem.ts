@@ -433,8 +433,6 @@ type DeleteNoteResult = {
   trashLocation?: string
 }
 
-/** Appends a numeric suffix (`note 1.md`, `note 2.md`) when the name
- *  is taken — without it, rename silently overwrites the previous copy. */
 const resolveTrashPath = async (params: {
   vaultPath: string
   relativePath: string
@@ -447,7 +445,9 @@ const resolveTrashPath = async (params: {
     return { trashFullPath, trashRelativePath }
   }
 
-  // Name is taken — try note 1.md, note 2.md, … until one is free
+  // Name is taken — append a numeric suffix (note 1.md, note 2.md, …)
+  // until one is free. Without this, rename silently overwrites the
+  // previous copy.
   const { dir, name, ext } = parse(params.relativePath)
   for (let suffix = 1; suffix <= 100; suffix++) {
     const candidateRelative = `.trash/${join(dir, `${name} ${suffix}${ext}`)}`
