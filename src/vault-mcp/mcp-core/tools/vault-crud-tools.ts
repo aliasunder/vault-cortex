@@ -962,7 +962,7 @@ Errors:
 - "note not found: …" — the note does not exist; verify the path with vault_list_notes before deleting
 - "cannot move … to trash — 100 collisions in .trash/" — the note's name already exists 100 times in .trash/; clear old trash files to free the name
 - "cannot move … to trash" — the .trash/ move failed (e.g. a plain file blocks a needed directory); the note remains at its original path
-- "cannot read trash config from .obsidian/app.json: …" — the config file exists but is unreadable (permissions, corruption); the delete is blocked to prevent accidental permanent deletion when the user may have configured .trash/ retention
+- "cannot read trash config from .obsidian/app.json" — the config file exists but is unreadable (permissions, corruption); the delete is blocked to prevent accidental permanent deletion when the user may have configured .trash/ retention
 
 Returns: Confirmation message naming the outcome — "Deleted" for permanent removal, "Moved to trash" when the note landed in .trash/. Notes how many empty folders were pruned when any were.`,
       inputSchema: {
