@@ -717,14 +717,19 @@ describe("loadConfig", () => {
   })
 
   describe("obsidianSyncPresent", () => {
-    it("defaults to false when OBSIDIAN_AUTH_TOKEN is unset", () => {
+    it("defaults to false when VAULT_NAME is unset", () => {
       const config = loadConfig(EMPTY_ENV)
       expect(config.obsidianSyncPresent).toBe(false)
     })
 
-    it("is true when OBSIDIAN_AUTH_TOKEN is set", () => {
-      const config = loadConfig({ OBSIDIAN_AUTH_TOKEN: "fake-token" })
+    it("is true when VAULT_NAME is set", () => {
+      const config = loadConfig({ VAULT_NAME: "my-vault" })
       expect(config.obsidianSyncPresent).toBe(true)
+    })
+
+    it("is false when VAULT_NAME is empty", () => {
+      const config = loadConfig({ VAULT_NAME: "" })
+      expect(config.obsidianSyncPresent).toBe(false)
     })
   })
 })

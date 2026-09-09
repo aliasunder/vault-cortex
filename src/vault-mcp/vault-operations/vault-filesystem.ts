@@ -471,7 +471,8 @@ const resolveTrashPath = async (params: {
 }
 
 /** Moves a note to `.trash/`, creating parent directories as needed.
- *  Returns the vault-relative trash path. */
+ *  Returns the vault-relative trash path. Wraps fs errors so they
+ *  never leak the absolute container path to the client. */
 const moveNoteToTrash = async (params: {
   vaultPath: string
   relativePath: string
@@ -481,8 +482,15 @@ const moveNoteToTrash = async (params: {
     vaultPath: params.vaultPath,
     relativePath: params.relativePath,
   })
-  await mkdir(dirname(trashFullPath), { recursive: true })
-  await rename(params.fullPath, trashFullPath)
+  try {
+    await mkdir(dirname(trashFullPath), { recursive: true })
+    await rename(params.fullPath, trashFullPath)
+  } catch (error) {
+    throw new Error(
+      `cannot move "${params.relativePath}" to trash: ${describeError(error)}`,
+      { cause: error },
+    )
+  }
   return trashRelativePath
 }
 
