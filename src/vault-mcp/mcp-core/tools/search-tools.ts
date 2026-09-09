@@ -147,12 +147,10 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
       })
       reqLogger.info("tool_call", {
         query,
-        ...(filters ? { filters } : {}),
-        ...(limit !== undefined ? { limit } : {}),
-        ...(snippet_tokens !== undefined ? { snippet_tokens } : {}),
-        ...(include_leading_callout !== undefined
-          ? { include_leading_callout }
-          : {}),
+        filters,
+        limit,
+        snippet_tokens,
+        include_leading_callout,
       })
       const mergedFilters = {
         ...filters,
