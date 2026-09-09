@@ -946,6 +946,29 @@ describe("deleteNote — trash behavior", () => {
     )
     expect(content).toBe("protected")
   })
+
+  it("throws a vault-relative error when .trash/ mkdir fails and preserves the source note", async () => {
+    await mkdir(join(vault, "Projects"), { recursive: true })
+    await writeFile(join(vault, "Projects", "deep.md"), "keep me", "utf8")
+    await mkdir(join(vault, ".trash"), { recursive: true })
+    await writeFile(join(vault, ".trash", "Projects"), "blocker", "utf8")
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "Projects/deep.md",
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+          trashOption: "local",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('cannot move "Projects/deep.md" to trash')
+
+    const content = await readFile(join(vault, "Projects", "deep.md"), "utf8")
+    expect(content).toBe("keep me")
+  })
 })
 
 describe("listNotes", () => {

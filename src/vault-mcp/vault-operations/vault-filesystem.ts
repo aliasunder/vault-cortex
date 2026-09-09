@@ -478,19 +478,19 @@ const moveNoteToTrash = async (params: {
   relativePath: string
   fullPath: string
 }): Promise<string> => {
-  const { trashFullPath, trashRelativePath } = await resolveTrashPath({
-    vaultPath: params.vaultPath,
-    relativePath: params.relativePath,
-  })
   try {
+    const { trashFullPath, trashRelativePath } = await resolveTrashPath({
+      vaultPath: params.vaultPath,
+      relativePath: params.relativePath,
+    })
     await mkdir(dirname(trashFullPath), { recursive: true })
     await rename(params.fullPath, trashFullPath)
+    return trashRelativePath
   } catch (error) {
     throw new Error(`cannot move "${params.relativePath}" to trash`, {
       cause: error,
     })
   }
-  return trashRelativePath
 }
 
 /** Deletes or trashes a note depending on the vault's Deleted files setting.
