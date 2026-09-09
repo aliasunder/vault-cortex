@@ -178,6 +178,10 @@ const storedRevokedClients = (
     .all()
 
 describe("OAuth refresh token sliding expiry", () => {
+  // Matches production's REFRESH_TOKEN_TTL_S — test-owned so the test
+  // catches a production change and avoids calendar-vs-seconds DST drift.
+  const REFRESH_TOKEN_TTL_S = 60 * 24 * 60 * 60
+
   let dir: string
   let dbPath: string
   let oauth: OAuthProvider
@@ -216,8 +220,7 @@ describe("OAuth refresh token sliding expiry", () => {
       "fresh-token",
     )
 
-    expect(typeof tokens.refresh_token).toBe("string")
-    expect(tokens.refresh_token!.length).toBeGreaterThan(0)
+    if (!tokens.refresh_token) throw new Error("no refresh token issued")
     expect(tokens.refresh_token).not.toBe("fresh-token")
     expect(tokens.scope).toBe("vault")
   })
@@ -276,7 +279,9 @@ describe("OAuth refresh token sliding expiry", () => {
 
     // The new token's expires_at should be ~60 days from "now" — i.e.
     // a fresh window, not inherited from the old token's expires_at.
-    const expected = DateTime.now().plus({ days: 60 }).toUnixInteger()
+    const expected = DateTime.now()
+      .plus({ seconds: REFRESH_TOKEN_TTL_S })
+      .toUnixInteger()
     expect(row.expires_at).toBeGreaterThanOrEqual(expected - 5)
     expect(row.expires_at).toBeLessThanOrEqual(expected + 5)
   })
