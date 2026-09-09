@@ -174,13 +174,13 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 ### Search
 
-| Tool                     | Input                        | Annotation   |
-| ------------------------ | ---------------------------- | ------------ |
-| `vault_search`           | `query, filters?`            | readOnlyHint |
-| `vault_search_by_tag`    | `tag, exact?`                | readOnlyHint |
-| `vault_search_by_folder` | `folder, recursive?, limit?` | readOnlyHint |
-| `vault_list_tags`        | —                            | readOnlyHint |
-| `vault_recent_notes`     | `sort_by?, limit?`           | readOnlyHint |
+| Tool                     | Input                                                                | Annotation   |
+| ------------------------ | -------------------------------------------------------------------- | ------------ |
+| `vault_search`           | `query, filters?, limit?, snippet_tokens?, include_leading_callout?` | readOnlyHint |
+| `vault_search_by_tag`    | `tag, exact?`                                                        | readOnlyHint |
+| `vault_search_by_folder` | `folder, recursive?, limit?`                                         | readOnlyHint |
+| `vault_list_tags`        | —                                                                    | readOnlyHint |
+| `vault_recent_notes`     | `sort_by?, limit?`                                                   | readOnlyHint |
 
 `vault_search` is the entry point to the full hybrid ranking pipeline — keyword, vector, and cross-encoder reranking — described in [Hybrid Search](#hybrid-search).
 
@@ -188,7 +188,8 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 - `folder`, `tags`, `related`, `type`, and `properties` (arbitrary frontmatter keys)
 - `created` / `modified` — date bounds `{ before, on, after }` in YYYY-MM-DD, both server-local (before/after exclusive, on exact). `created` matches the frontmatter created day and never matches notes without a parseable value for the property; `modified` matches the filesystem-mtime day
-- `limit`, `snippet_tokens`, and `include_leading_callout` (opt-in; adds each result's top-of-file callout)
+
+`limit`, `snippet_tokens`, and `include_leading_callout` are top-level pagination/projection params alongside `query`, not inside `filters`.
 
 `vault_recent_notes` sorts by `sort_by` — `"created"` or `"modified"` (default `"modified"`).
 

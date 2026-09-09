@@ -1966,11 +1966,9 @@ describe("DISABLED_TOOLS", () => {
 
   it("a disabled tool disappears from availability-keyed cross-references", () => {
     // vault_read_note's edit guidance is an availability-keyed reference:
-    // it names vault_patch_note only while that tool is served. (Mentions in
-    // prose that was never flag-conditional — e.g. vault_write_note's
-    // partial-edit error remediation — deliberately stay; DISABLED_TOOLS is
-    // an escape hatch, and re-templating every sibling mention isn't worth
-    // the description churn.)
+    // it names vault_patch_note only while that tool is served. Sibling
+    // tools (vault_write_note, vault_replace_in_note, vault_move_note) gate
+    // their vault_patch_note mentions the same way.
     const registeredCalls = registerWithConfig({
       DISABLED_TOOLS: "vault_patch_note",
     })
