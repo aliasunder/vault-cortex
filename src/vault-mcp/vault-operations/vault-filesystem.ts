@@ -433,6 +433,7 @@ type DeleteNoteResult = {
   trashLocation?: string
 }
 
+/** Finds an available path inside `.trash/` for a note being trashed. */
 const resolveTrashPath = async (params: {
   vaultPath: string
   relativePath: string
