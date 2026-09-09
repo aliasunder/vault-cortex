@@ -725,9 +725,15 @@ describe("OAuth audit logging", () => {
 
     const event = logs.find((log) => log.message === "oauth_client_registered")
     if (!event) throw new Error("expected oauth_client_registered log event")
-    expect(event.level).toBe("info")
-    expect(event.data.clientId).toBe(registered.client_id)
-    expect(event.data.clientName).toBe("Audit Test Client")
+    expect(event).toEqual({
+      level: "info",
+      message: "oauth_client_registered",
+      data: {
+        component: "oauth",
+        clientId: registered.client_id,
+        clientName: "Audit Test Client",
+      },
+    })
   })
 
   it("logs oauth_code_exchanged on successful authorization code exchange", async () => {
@@ -743,8 +749,15 @@ describe("OAuth audit logging", () => {
 
     const event = logs.find((log) => log.message === "oauth_code_exchanged")
     if (!event) throw new Error("expected oauth_code_exchanged log event")
-    expect(event.level).toBe("info")
-    expect(event.data.clientId).toBe(client.client_id)
+    expect(event).toEqual({
+      level: "info",
+      message: "oauth_code_exchanged",
+      data: {
+        component: "oauth",
+        clientId: client.client_id,
+        scopes: ["vault"],
+      },
+    })
   })
 
   it("logs oauth_code_exchange_failed when auth code is expired", async () => {
@@ -758,8 +771,11 @@ describe("OAuth audit logging", () => {
       (log) => log.message === "oauth_code_exchange_failed",
     )
     if (!event) throw new Error("expected oauth_code_exchange_failed log event")
-    expect(event.level).toBe("warn")
-    expect(event.data.reason).toBe("expired_or_invalid")
+    expect(event).toEqual({
+      level: "warn",
+      message: "oauth_code_exchange_failed",
+      data: { component: "oauth", reason: "expired_or_invalid" },
+    })
   })
 
   it("logs oauth_token_refreshed on successful refresh", async () => {
@@ -777,8 +793,15 @@ describe("OAuth audit logging", () => {
 
     const event = logs.find((log) => log.message === "oauth_token_refreshed")
     if (!event) throw new Error("expected oauth_token_refreshed log event")
-    expect(event.level).toBe("info")
-    expect(event.data.clientId).toBe(client.client_id)
+    expect(event).toEqual({
+      level: "info",
+      message: "oauth_token_refreshed",
+      data: {
+        component: "oauth",
+        clientId: client.client_id,
+        scopes: ["vault"],
+      },
+    })
   })
 
   it("logs oauth_token_refresh_failed when refresh token is invalid", async () => {
@@ -792,8 +815,15 @@ describe("OAuth audit logging", () => {
       (log) => log.message === "oauth_token_refresh_failed",
     )
     if (!event) throw new Error("expected oauth_token_refresh_failed log event")
-    expect(event.level).toBe("warn")
-    expect(event.data.reason).toBe("expired_or_invalid")
+    expect(event).toEqual({
+      level: "warn",
+      message: "oauth_token_refresh_failed",
+      data: {
+        component: "oauth",
+        reason: "expired_or_invalid",
+        clientId: client.client_id,
+      },
+    })
   })
 
   it("logs oauth_token_revoked with the client and an unknown token type when nothing matched", async () => {
@@ -864,8 +894,11 @@ describe("OAuth audit logging", () => {
 
     const event = logs.find((log) => log.message === "oauth_token_rejected")
     if (!event) throw new Error("expected oauth_token_rejected log event")
-    expect(event.level).toBe("warn")
-    expect(event.data.reason).toBe("revoked")
+    expect(event).toEqual({
+      level: "warn",
+      message: "oauth_token_rejected",
+      data: { component: "oauth", reason: "revoked" },
+    })
   })
 
   it("logs oauth_consent_approved on consent approval", async () => {
@@ -881,9 +914,15 @@ describe("OAuth audit logging", () => {
 
     const event = logs.find((log) => log.message === "oauth_consent_approved")
     if (!event) throw new Error("expected oauth_consent_approved log event")
-    expect(event.level).toBe("info")
-    expect(event.data.clientId).toBe(client.client_id)
-    expect(event.data.requestId).toBe(requestId)
+    expect(event).toEqual({
+      level: "info",
+      message: "oauth_consent_approved",
+      data: {
+        clientIp: "127.0.0.1",
+        requestId,
+        clientId: client.client_id,
+      },
+    })
   })
 
   it("logs oauth_consent_approve_failed when no pending request exists", async () => {
@@ -899,8 +938,11 @@ describe("OAuth audit logging", () => {
     )
     if (!event)
       throw new Error("expected oauth_consent_approve_failed log event")
-    expect(event.level).toBe("warn")
-    expect(event.data.reason).toBe("no_pending_request")
+    expect(event).toEqual({
+      level: "warn",
+      message: "oauth_consent_approve_failed",
+      data: { requestId: "nonexistent", reason: "no_pending_request" },
+    })
   })
 })
 
