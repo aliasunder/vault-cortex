@@ -213,7 +213,7 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 | `vault_update_memory`     | `file, section, entry, options?` | !destructiveHint |
 | `vault_delete_memory`     | `file, section, date, entry`     | destructiveHint  |
 | `vault_list_memory_files` | —                                | readOnlyHint     |
-| `vault_memory_recall`     | `query, file?, max_results?`     | readOnlyHint     |
+| `vault_memory_recall`     | `query, file?, limit?`           | readOnlyHint     |
 
 **Entry-granular recall:** `vault_memory_recall` retrieves individual dated
 entries — the granularity the other layers miss (`vault_get_memory` returns

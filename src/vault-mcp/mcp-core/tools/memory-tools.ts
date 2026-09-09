@@ -208,7 +208,7 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
       reqLogger.info("tool_call", {
         query,
         ...(file !== undefined ? { file } : {}),
-        ...(limit ? { limit } : {}),
+        ...(limit !== undefined ? { limit } : {}),
       })
       return safeHandler(
         reqLogger,
