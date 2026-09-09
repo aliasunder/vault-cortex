@@ -433,8 +433,8 @@ type DeleteNoteResult = {
   trashLocation?: string
 }
 
-/** Resolves a collision-free path inside `.trash/`. Appends a numeric
- *  suffix to the stem (`note 1.md`, `note 2.md`) when the target exists. */
+/** Appends a numeric suffix (`note 1.md`, `note 2.md`) when the name
+ *  is taken — without it, rename silently overwrites the previous copy. */
 const resolveTrashPath = async (params: {
   vaultPath: string
   relativePath: string
