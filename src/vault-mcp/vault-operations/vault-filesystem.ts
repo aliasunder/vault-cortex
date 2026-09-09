@@ -462,37 +462,24 @@ const resolveTrashPath = async (params: {
   }
 
   throw new Error(
-    `cannot move "${params.relativePath}" to trash — 100 collisions in .trash/`,
+    `cannot move to trash "${params.relativePath}" — 100 collisions in .trash/`,
   )
 }
 
 /** Moves a note to `.trash/`, creating parent directories as needed.
- *  Returns the vault-relative trash path. Wraps fs errors so they
- *  never leak the absolute container path to the client. */
+ *  Returns the vault-relative trash path. */
 const moveNoteToTrash = async (params: {
   vaultPath: string
   relativePath: string
   fullPath: string
 }): Promise<string> => {
-  try {
-    const { trashFullPath, trashRelativePath } = await resolveTrashPath({
-      vaultPath: params.vaultPath,
-      relativePath: params.relativePath,
-    })
-    await mkdir(dirname(trashFullPath), { recursive: true })
-    await rename(params.fullPath, trashFullPath)
-    return trashRelativePath
-  } catch (error) {
-    // The collision error from resolveTrashPath is already vault-relative
-    // and client-safe — re-throw it as-is. Only wrap raw fs errors (which
-    // contain absolute container paths) in the generic message.
-    if (error instanceof Error && error.message.startsWith("cannot move")) {
-      throw error
-    }
-    throw new Error(`cannot move "${params.relativePath}" to trash`, {
-      cause: error,
-    })
-  }
+  const { trashFullPath, trashRelativePath } = await resolveTrashPath({
+    vaultPath: params.vaultPath,
+    relativePath: params.relativePath,
+  })
+  await mkdir(dirname(trashFullPath), { recursive: true })
+  await rename(params.fullPath, trashFullPath)
+  return trashRelativePath
 }
 
 /** Deletes or trashes a note depending on the vault's Deleted files setting.
@@ -535,17 +522,31 @@ const deleteNote = async (
 
     // The trash path bypasses resolveSafePath because .trash/ is a hidden
     // path the guard rejects. Safe: `path` was already validated above.
-    const trashLocation =
-      params.trashOption === "local"
-        ? await moveNoteToTrash({
-            vaultPath: params.vaultPath,
-            relativePath: path,
-            fullPath,
-          })
-        : undefined
-
-    if (!trashLocation) {
-      await unlink(fullPath)
+    // Assigned inside the try — const can't span the catch boundary
+    let trashLocation: string | undefined
+    try {
+      if (params.trashOption === "local") {
+        trashLocation = await moveNoteToTrash({
+          vaultPath: params.vaultPath,
+          relativePath: path,
+          fullPath,
+        })
+      } else {
+        await unlink(fullPath)
+      }
+    } catch (error) {
+      // Collision errors from resolveTrashPath are already vault-relative
+      if (error instanceof Error && error.message.startsWith("cannot move")) {
+        throw error
+      }
+      // Log the raw fs detail (errno, absolute path) for the operator;
+      // surface only a vault-relative message to the client.
+      const action = params.trashOption === "local" ? "move to trash" : "delete"
+      logger.warn(`failed to ${action} note`, {
+        path,
+        error: describeError(error),
+      })
+      throw new Error(`cannot ${action} "${path}"`, { cause: error })
     }
 
     const prunedEmptyFolders = params.pruneEmptyFolders

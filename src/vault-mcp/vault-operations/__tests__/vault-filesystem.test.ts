@@ -911,7 +911,7 @@ describe("deleteNote — trash behavior", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'cannot move "crowded.md" to trash — 100 collisions in .trash/',
+      'cannot move to trash "crowded.md" — 100 collisions in .trash/',
     )
 
     // Source file stays untouched — the move never happened
@@ -964,7 +964,7 @@ describe("deleteNote — trash behavior", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('cannot move "Projects/deep.md" to trash')
+    ).rejects.toThrow('cannot move to trash "Projects/deep.md"')
 
     const content = await readFile(join(vault, "Projects", "deep.md"), "utf8")
     expect(content).toBe("keep me")
