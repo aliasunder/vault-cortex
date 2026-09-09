@@ -1,9 +1,11 @@
 /** Trash config — reads Obsidian's "Deleted files" setting.
  *
  *  Obsidian stores the setting as `trashOption` in `.obsidian/app.json`.
- *  When the file is absent (`.obsidian/` not synced to the server) or the
- *  key is missing (user never changed the default), defaults to `"system"`.
- *  The default matches Obsidian's own default: "Move to system trash." */
+ *  When the file is absent or the key is missing, defaults to `"system"`
+ *  (Obsidian's own default: "Move to system trash"). On `:remote` deploys
+ *  with Obsidian Sync, the handler skips this reader entirely — `.trash/`
+ *  is never synced, so recovery is through Sync's version history, not a
+ *  local trash folder. */
 
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
