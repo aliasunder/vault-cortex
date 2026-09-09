@@ -486,10 +486,9 @@ const moveNoteToTrash = async (params: {
     await mkdir(dirname(trashFullPath), { recursive: true })
     await rename(params.fullPath, trashFullPath)
   } catch (error) {
-    throw new Error(
-      `cannot move "${params.relativePath}" to trash: ${describeError(error)}`,
-      { cause: error },
-    )
+    throw new Error(`cannot move "${params.relativePath}" to trash`, {
+      cause: error,
+    })
   }
   return trashRelativePath
 }
