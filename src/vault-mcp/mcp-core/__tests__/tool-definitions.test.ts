@@ -1225,10 +1225,10 @@ describe("vault_memory_recall handler", () => {
     return call
   }
 
-  it("maps max_results to the query layer and reports truncation", async () => {
+  it("maps limit to the query layer and reports truncation", async () => {
     const [, , handler] = registerWithMemoryIndex()
     const result = (await handler(
-      { query: "mutation", max_results: 2 },
+      { query: "mutation", limit: 2 },
       mockExtra,
     )) as { content: Array<{ text: string }>; isError?: boolean }
     expect(result.isError).toBeUndefined()
@@ -1238,7 +1238,7 @@ describe("vault_memory_recall handler", () => {
       truncated: boolean
       search_mode: string
     }
-    // Three entries match "mutation"; max_results: 2 must reach the query
+    // Three entries match "mutation"; limit: 2 must reach the query
     // layer (the truncation is only observable if the mapping worked).
     expect(payload.total).toBe(3)
     expect(payload.truncated).toBe(true)

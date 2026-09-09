@@ -157,7 +157,7 @@ Errors:
 - No matching entries returns { entries: [], total: 0 }, not an error
 - An unknown file returns empty results — call vault_list_memory_files to discover valid names
 
-Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. entries ascend by date (oldest first). total counts all matched entries; truncated=true means max_results dropped the least-relevant matches — never a date range — so raise max_results or narrow the query for the complete set. search_mode is "hybrid" when vector matching contributed, "fts" when the entries came from keyword matching alone — including the any-term fallback that rescues a would-be-empty result; reranked is true when the cross-encoder relevance cut was applied.`
+Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. entries ascend by date (oldest first). total counts all matched entries; truncated=true means limit dropped the least-relevant matches — never a date range — so raise limit or narrow the query for the complete set. search_mode is "hybrid" when vector matching contributed, "fts" when the entries came from keyword matching alone — including the any-term fallback that rescues a would-be-empty result; reranked is true when the cross-encoder relevance cut was applied.`
     : `Recall memory entries about a topic — entry-granular keyword retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns every matching dated entry sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off — EMBEDDING_ENABLED=false), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching before returning empty.
 
 Example: vault_memory_recall({ query: "working hours and pacing" })
@@ -169,7 +169,7 @@ Errors:
 - No matching entries returns { entries: [], total: 0 }, not an error
 - An unknown file returns empty results — call vault_list_memory_files to discover valid names
 
-Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. entries ascend by date (oldest first). total counts all matched entries; truncated=true means max_results dropped the least-relevant matches — never a date range. search_mode is always "fts" and reranked always false in keyword-only mode.`
+Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. entries ascend by date (oldest first). total counts all matched entries; truncated=true means limit dropped the least-relevant matches — never a date range. search_mode is always "fts" and reranked always false in keyword-only mode.`
 
   registerTool(
     TOOL_NAMES.VAULT_MEMORY_RECALL,
@@ -192,7 +192,7 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
           .describe(
             'Optional: restrict to one memory file, name without .md (e.g. "Opinions"). Omit for cross-file recall — the default and usual choice.',
           ),
-        max_results: z
+        limit: z
           .number()
           .optional()
           .describe(
@@ -200,7 +200,7 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
           ),
       },
     },
-    async ({ query, file, max_results }, extra) => {
+    async ({ query, file, limit }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_MEMORY_RECALL,
@@ -208,15 +208,11 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
       reqLogger.info("tool_call", {
         query,
         ...(file !== undefined ? { file } : {}),
-        ...(max_results !== undefined ? { max_results } : {}),
+        ...(limit ? { limit } : {}),
       })
       return safeHandler(
         reqLogger,
-        () =>
-          search.memoryRecall(
-            { query, file, maxResults: max_results },
-            reqLogger,
-          ),
+        () => search.memoryRecall({ query, file, limit }, reqLogger),
         (recallResult) => {
           reqLogger.info("tool_result", {
             resultCount: recallResult.entries.length,

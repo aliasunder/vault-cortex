@@ -270,11 +270,11 @@ describe("memoryRecall", () => {
       reranker: createTopicMockReranker(),
     })
     // Mock logits: crunch/blocks entries score 6; the walk entry scores -1 —
-    // kept by the cut (sigmoid ≈ 0.27) but least relevant, so max_results: 2
+    // kept by the cut (sigmoid ≈ 0.27) but least relevant, so limit: 2
     // drops it even though it is the NEWEST entry — truncation follows
     // relevance, never a date end.
     const { entries, total, truncated } = await index.memoryRecall(
-      { query: "pacing recovery", maxResults: 2 },
+      { query: "pacing recovery", limit: 2 },
       logger,
     )
     expect(total).toBe(3)
@@ -385,13 +385,13 @@ describe("memoryRecall", () => {
     ])
   })
 
-  it("floors maxResults to 1 so the result is never artificially empty", async () => {
+  it("floors limit to 1 so the result is never artificially empty", async () => {
     const index = await createRecallIndex()
     const result = await index.memoryRecall(
-      { query: "pacing recovery", maxResults: 0 },
+      { query: "pacing recovery", limit: 0 },
       logger,
     )
-    // Three entries match but maxResults: 0 floors to 1 — exactly 1 survives.
+    // Three entries match but limit: 0 floors to 1 — exactly 1 survives.
     expect(result.entries).toHaveLength(1)
     expect(result.total).toBe(3)
     expect(result.truncated).toBe(true)

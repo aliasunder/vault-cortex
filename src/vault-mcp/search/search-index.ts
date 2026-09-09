@@ -290,7 +290,7 @@ export type MemoryRecallEntry = {
   text: string
 }
 
-/** memoryRecall response: entries is the max_results-capped evidence set in
+/** memoryRecall response: entries is the limit-capped evidence set in
  *  ascending date order; total counts every entry that survived the
  *  relevance cut, so truncated = total > entries.length tells the client the
  *  set is incomplete (the least-relevant matches were dropped — never a date

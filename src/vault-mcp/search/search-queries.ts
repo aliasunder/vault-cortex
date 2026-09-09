@@ -351,7 +351,7 @@ const MEMORY_RECALL_RELATIVE_RATIO = 0.1
  *  is the documented cost of running without the reranker. */
 const MEMORY_RECALL_DISTANCE_MARGIN = 0.15
 
-/** Default max_results — ≈15% of today's corpus (~2.5k tokens), comfortably
+/** Default limit — ≈15% of today's corpus (~2.5k tokens), comfortably
  *  holding any realistic evolution arc. */
 const DEFAULT_MEMORY_RECALL_LIMIT = 50
 
@@ -509,7 +509,7 @@ const memoryEntryRowToWireEntry = (row: MemoryEntryRow): MemoryRecallEntry => ({
   text: row.entry_text,
 })
 
-/** Orders kept candidates most-relevant-first, truncates to maxResults, and
+/** Orders kept candidates most-relevant-first, truncates to limit, and
  *  sorts the survivors chronologically. Selection is relevance-based but
  *  output is chronological — truncation must drop the LEAST-RELEVANT
  *  entries, never a date end: cutting oldest silently destroys arc origins,
@@ -517,14 +517,14 @@ const memoryEntryRowToWireEntry = (row: MemoryEntryRow): MemoryRecallEntry => ({
 const buildMemoryRecallResult = (
   keptCandidates: readonly MemoryRecallCandidate[],
   relevance: (candidate: MemoryRecallCandidate) => number,
-  maxResults: number,
+  limit: number,
   searchMode: "hybrid" | "fts",
   reranked: boolean,
 ): MemoryRecallResult => {
   const byRelevanceDescending = [...keptCandidates].sort(
     (a, b) => relevance(b) - relevance(a),
   )
-  const survivors = byRelevanceDescending.slice(0, maxResults)
+  const survivors = byRelevanceDescending.slice(0, limit)
   const entries = survivors
     .map((candidate) => candidate.row)
     .sort(compareMemoryEntriesChronologically)
@@ -553,7 +553,7 @@ export const memoryRecall = async (
   params: {
     query: string
     file?: string | undefined
-    maxResults?: number | undefined
+    limit?: number | undefined
   },
   logger: Logger,
 ): Promise<MemoryRecallResult> => {
@@ -563,9 +563,9 @@ export const memoryRecall = async (
       "memory recall is not available: the memory layer is disabled (MEMORY_ENABLED=false)",
     )
   }
-  const maxResults = Math.max(
+  const limit = Math.max(
     1,
-    Math.floor(params.maxResults ?? DEFAULT_MEMORY_RECALL_LIMIT),
+    Math.floor(params.limit ?? DEFAULT_MEMORY_RECALL_LIMIT),
   )
   const matchesFileFilter = (row: MemoryEntryRow): boolean =>
     params.file === undefined || row.file === params.file
@@ -604,7 +604,7 @@ export const memoryRecall = async (
     const result = buildMemoryRecallResult(
       lexicalCandidates,
       (candidate) => candidate.fusedScore,
-      maxResults,
+      limit,
       "fts",
       false,
     )
@@ -694,7 +694,7 @@ export const memoryRecall = async (
       const result = buildMemoryRecallResult(
         rescueCandidates,
         (candidate) => candidate.fusedScore,
-        maxResults,
+        limit,
         "fts",
         false,
       )
@@ -704,7 +704,7 @@ export const memoryRecall = async (
     const result = buildMemoryRecallResult(
       rerankOutcome.kept,
       rerankOutcome.relevance,
-      maxResults,
+      limit,
       "hybrid",
       true,
     )
@@ -724,7 +724,7 @@ export const memoryRecall = async (
   const result = buildMemoryRecallResult(
     marginCutCandidates,
     (candidate) => candidate.fusedScore,
-    maxResults,
+    limit,
     "hybrid",
     false,
   )
