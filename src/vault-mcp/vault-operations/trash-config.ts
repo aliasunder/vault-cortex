@@ -54,10 +54,10 @@ export const readTrashConfig = async (
     }
     // Non-ENOENT failures (EACCES, EIO) must not silently fall back to
     // permanent delete — the user may have configured .trash/ retention.
-    throw new Error(
-      `cannot read trash config from .obsidian/app.json: ${describeError(error)}`,
-      { cause: error },
-    )
+    logger.warn("cannot read trash config", { error: describeError(error) })
+    throw new Error("cannot read trash config from .obsidian/app.json", {
+      cause: error,
+    })
   }
 }
 

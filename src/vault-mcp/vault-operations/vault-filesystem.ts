@@ -487,6 +487,12 @@ const moveNoteToTrash = async (params: {
     await rename(params.fullPath, trashFullPath)
     return trashRelativePath
   } catch (error) {
+    // The collision error from resolveTrashPath is already vault-relative
+    // and client-safe — re-throw it as-is. Only wrap raw fs errors (which
+    // contain absolute container paths) in the generic message.
+    if (error instanceof Error && error.message.startsWith("cannot move")) {
+      throw error
+    }
     throw new Error(`cannot move "${params.relativePath}" to trash`, {
       cause: error,
     })
