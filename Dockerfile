@@ -176,7 +176,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
 
 # Stop the container if any init oneshot fails (bad token, failed login) —
 # the restart policy owns retry.
-ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2 HOME=/home/obsidian
+ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2 HOME=/home/obsidian OBSIDIAN_SYNC=true
 VOLUME ["/vault", "/data", "/home/obsidian/.config"]
 ENTRYPOINT ["/init"]
 

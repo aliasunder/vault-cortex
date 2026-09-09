@@ -717,18 +717,18 @@ describe("loadConfig", () => {
   })
 
   describe("obsidianSyncEnabled", () => {
-    it("defaults to false when VAULT_NAME is unset", () => {
+    it("defaults to false when OBSIDIAN_SYNC is unset", () => {
       const config = loadConfig(EMPTY_ENV)
       expect(config.obsidianSyncEnabled).toBe(false)
     })
 
-    it("is true when VAULT_NAME is set", () => {
-      const config = loadConfig({ VAULT_NAME: "my-vault" })
+    it("is true when OBSIDIAN_SYNC is true", () => {
+      const config = loadConfig({ OBSIDIAN_SYNC: "true" })
       expect(config.obsidianSyncEnabled).toBe(true)
     })
 
-    it("is false when VAULT_NAME is empty", () => {
-      const config = loadConfig({ VAULT_NAME: "" })
+    it("is false when OBSIDIAN_SYNC is false", () => {
+      const config = loadConfig({ OBSIDIAN_SYNC: "false" })
       expect(config.obsidianSyncEnabled).toBe(false)
     })
   })

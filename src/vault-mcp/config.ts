@@ -166,8 +166,8 @@ export type VaultConfig = Readonly<{
    *  vault_read_file. The per-page byte budget is maxImageOutputBytes divided
    *  evenly across the rendered pages. Set via MAX_PDF_RENDER_PAGES. */
   maxPdfRenderPages: number
-  /** True when this is a `:remote` deploy with Obsidian Sync. Derived from
-   *  VAULT_NAME presence — required for `:remote`, never set for `:latest`. */
+  /** True when this is a `:remote` deploy with Obsidian Sync. Set by
+   *  `ENV OBSIDIAN_SYNC=true` baked into the `:remote` Docker target. */
   obsidianSyncEnabled: boolean
 }>
 
@@ -341,6 +341,10 @@ export const loadConfig = (
     maxFileBytes,
     maxImageOutputBytes,
     maxPdfRenderPages,
-    obsidianSyncEnabled: Boolean(env.VAULT_NAME),
+    obsidianSyncEnabled: envVar
+      .from(env)
+      .get("OBSIDIAN_SYNC")
+      .default("false")
+      .asBool(),
   })
 }
