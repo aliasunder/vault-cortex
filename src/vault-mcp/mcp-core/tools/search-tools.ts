@@ -145,7 +145,15 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_SEARCH,
       })
-      reqLogger.info("tool_call", { query, ...(filters ? { filters } : {}) })
+      reqLogger.info("tool_call", {
+        query,
+        ...(filters ? { filters } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+        ...(snippet_tokens !== undefined ? { snippet_tokens } : {}),
+        ...(include_leading_callout !== undefined
+          ? { include_leading_callout }
+          : {}),
+      })
       const mergedFilters = {
         ...filters,
         limit,
