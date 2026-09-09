@@ -279,12 +279,18 @@ const tryRerank = async (params: {
  *  embeddings are available. */
 export const hybridSearch = async (
   context: SearchQueryContext,
-  params: { query: string; filters?: SearchFilters | undefined },
+  params: {
+    query: string
+    filters?: SearchFilters | undefined
+    limit?: number | undefined
+    snippet_tokens?: number | undefined
+    include_leading_callout?: boolean | undefined
+  },
   logger: Logger,
 ): Promise<HybridSearchResult> => {
-  const userLimit = Math.max(0, Math.floor(params.filters?.limit ?? 20))
-  const snippetTokens = params.filters?.snippet_tokens ?? 30
-  const includeLeadingCallout = params.filters?.include_leading_callout ?? false
+  const userLimit = Math.max(0, Math.floor(params.limit ?? 20))
+  const snippetTokens = params.snippet_tokens ?? 30
+  const includeLeadingCallout = params.include_leading_callout ?? false
   const candidateLimit = Math.min(Math.max(1, userLimit * 3), 100)
   // One LIKE pattern shared by every leg that scopes to a folder in SQL —
   // the file-content FTS leg and both KNN legs (fullTextSearch builds its own
@@ -298,7 +304,10 @@ export const hybridSearch = async (
     context,
     {
       query: params.query,
-      filters: { ...params.filters, limit: candidateLimit },
+      filters: params.filters,
+      limit: candidateLimit,
+      snippet_tokens: params.snippet_tokens,
+      include_leading_callout: params.include_leading_callout,
     },
     logger,
   )

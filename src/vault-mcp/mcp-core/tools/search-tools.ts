@@ -152,17 +152,11 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
         snippet_tokens,
         include_leading_callout,
       })
-      const mergedFilters = {
-        ...filters,
-        limit,
-        snippet_tokens,
-        include_leading_callout,
-      }
       return safeHandler(
         reqLogger,
         async () => {
           return search.hybridSearch(
-            { query, filters: mergedFilters },
+            { query, filters, limit, snippet_tokens, include_leading_callout },
             reqLogger,
           )
         },

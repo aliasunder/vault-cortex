@@ -618,7 +618,7 @@ Content about quarterly planning and roadmaps.
       )
 
       const { results } = await hybridIndex.hybridSearch(
-        { query: "project", filters: { limit: 1 } },
+        { query: "project", limit: 1 },
         logger,
       )
 
@@ -702,10 +702,7 @@ The main content discusses RESTful API design and GraphQL alternatives.
       )
 
       const { results } = await hybridIndex.hybridSearch(
-        {
-          query: "API design patterns",
-          filters: { include_leading_callout: true },
-        },
+        { query: "API design patterns", include_leading_callout: true },
         logger,
       )
 
@@ -846,7 +843,7 @@ This is a note with many words that should be truncated when using a small snipp
 
       // Query that won't match via FTS — forces vector-only result path
       const { results } = await hybridIndex.hybridSearch(
-        { query: "zzz_no_fts_match", filters: { snippet_tokens: 5 } },
+        { query: "zzz_no_fts_match", snippet_tokens: 5 },
         logger,
       )
 
@@ -1486,7 +1483,7 @@ describe("hybridSearch — file content FTS folder filter", () => {
     )
 
     const { results, search_mode } = await fileIndex.hybridSearch(
-      { query: "deployment", filters: { folder: "Docs", limit: 1 } },
+      { query: "deployment", filters: { folder: "Docs" }, limit: 1 },
       logger,
     )
 
@@ -1591,7 +1588,7 @@ describe("hybridSearch — folder-scoped vector candidate window", () => {
 
     // No lexical overlap with anything seeded — vector legs only
     const { results, search_mode } = await hybridIndex.hybridSearch(
-      { query: "zzqq", filters: { folder: "Work", limit: 1 } },
+      { query: "zzqq", filters: { folder: "Work" }, limit: 1 },
       logger,
     )
 
@@ -1630,7 +1627,7 @@ describe("hybridSearch — folder-scoped vector candidate window", () => {
     await fileIndex.embedFileContent({ filePath: "Docs/inside.txt" }, logger)
 
     const { results, search_mode } = await fileIndex.hybridSearch(
-      { query: "zzqq", filters: { folder: "Docs", limit: 1 } },
+      { query: "zzqq", filters: { folder: "Docs" }, limit: 1 },
       logger,
     )
 

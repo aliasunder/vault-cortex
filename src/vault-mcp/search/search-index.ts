@@ -151,9 +151,6 @@ export type SearchFilters = {
   properties?: Record<string, string | number | boolean> | undefined
   created?: DateFilter | undefined
   modified?: DateFilter | undefined
-  limit?: number | undefined
-  snippet_tokens?: number | undefined
-  include_leading_callout?: boolean | undefined
 }
 
 export type NoteRow = {

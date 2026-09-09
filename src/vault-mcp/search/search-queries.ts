@@ -156,7 +156,13 @@ const assertFilterDate = (value: string, filterName: string): void => {
 
 export const fullTextSearch = (
   context: SearchQueryContext,
-  params: { query: string; filters?: SearchFilters | undefined },
+  params: {
+    query: string
+    filters?: SearchFilters | undefined
+    limit?: number | undefined
+    snippet_tokens?: number | undefined
+    include_leading_callout?: boolean | undefined
+  },
   logger: Logger,
 ): SearchResult[] => {
   // Build WHERE clause dynamically: each filter appends a condition + its bind params
@@ -248,11 +254,11 @@ export const fullTextSearch = (
     }
   }
 
-  const limit = Math.max(0, Math.floor(params.filters?.limit ?? 20))
-  const snippetTokens = params.filters?.snippet_tokens ?? 30
+  const limit = Math.max(0, Math.floor(params.limit ?? 20))
+  const snippetTokens = params.snippet_tokens ?? 30
   // Opt-in: the leading callout is omitted by default to keep this hot-path
   // result lean; callers triaging which note to open can request it.
-  const includeLeadingCallout = params.filters?.include_leading_callout ?? false
+  const includeLeadingCallout = params.include_leading_callout ?? false
   queryParams.push(limit)
 
   // FTS5 rank is negative (lower = better), negated for human-friendly scoring
