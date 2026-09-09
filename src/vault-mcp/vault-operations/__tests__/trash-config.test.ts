@@ -103,6 +103,19 @@ describe("readTrashConfig", () => {
     expect(afterConfig).toBe("local")
   })
 
+  it("retries when app.json exists but key is absent — a later Sync delivery is picked up", async () => {
+    resetTrashConfigCache()
+    const vault = await createVault()
+    await writeAppConfig(vault, { someOtherSetting: true })
+
+    const beforeKey = await readTrashConfig(vault)
+    expect(beforeKey).toBe("system")
+
+    await writeAppConfig(vault, { trashOption: "local" })
+    const afterKey = await readTrashConfig(vault)
+    expect(afterKey).toBe("local")
+  })
+
   it("caches a successful read — later file changes are not re-read", async () => {
     resetTrashConfigCache()
     const vault = await createVault()

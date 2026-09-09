@@ -43,13 +43,14 @@ export const readTrashConfig = async (
     const parsed: Record<string, unknown> = JSON.parse(fileContent)
 
     const rawOption = parsed.trashOption
-    const trashOption: TrashOption = isTrashOption(rawOption)
-      ? rawOption
-      : "system"
-
-    cachedOption = trashOption
-    logger.info("trash config loaded", { trashOption })
-    return trashOption
+    if (isTrashOption(rawOption)) {
+      cachedOption = rawOption
+      logger.info("trash config loaded", { trashOption: rawOption })
+      return rawOption
+    }
+    // Key absent or unrecognized — return the default but don't cache,
+    // so a later Sync delivery of the real value is picked up.
+    return "system"
   } catch (error) {
     if (isErrnoException(error, "ENOENT")) {
       return "system"
