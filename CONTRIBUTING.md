@@ -188,6 +188,14 @@ merge even when the body is dropped. The `BREAKING CHANGE:` footer is preferred
 because it carries the descriptive line; the label and `!` only flag that a change
 is breaking.
 
+The committed tool-surface baseline
+(`src/vault-mcp/mcp-core/__tests__/__snapshots__/tool-surface/`) is the
+byte-level record of the MCP wire surface. A PR that changes tool schemas,
+descriptions, prompts, or server instructions regenerates it with
+`npm run snapshot:update`, and the baseline diff is where reviewers judge
+whether the change is breaking. The baseline captured at each release commit is
+the stability contract's regression reference.
+
 ## Release Process
 
 Releases are cut by the maintainer. Two paths:

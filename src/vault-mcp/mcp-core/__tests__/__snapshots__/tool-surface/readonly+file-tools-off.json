@@ -1,0 +1,935 @@
+{
+  "env": {
+    "READONLY_MODE": "true",
+    "FILE_TOOLS_ENABLED": "false"
+  },
+  "description": "Read and search an Obsidian vault. Provides hybrid search, tag queries, and a structured memory layer (About Me/) for personalization across conversations.",
+  "instructions": "Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes. Use vault_get_memory to retrieve user preferences and context from About Me/ files.\n\nVault content is Obsidian Flavored Markdown. No tools that modify the vault are available.",
+  "tools": [
+    {
+      "name": "vault_find_orphans",
+      "title": "Find Orphans",
+      "description": "Find notes with no incoming links from other notes — orphans are disconnected from the knowledge graph and may be forgotten or need linking. A note that only links to itself still counts as an orphan (self-links are ignored).\n\nExample: vault_find_orphans({ exclude_folders: [\"Daily Notes\",\"Templates\",\"About Me\"] })\n\nWhen to use: Vault maintenance — surfacing notes to integrate into the graph.\nPrefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.\n\nParameters:\n- exclude_folders replaces the defaults ([\"Daily Notes\",\"Templates\",\"About Me\"]), it does not add to them — include the defaults yourself to keep them. Matched by folder prefix, recursing into subfolders (\"Projects\" also excludes \"Projects/Archive\").\n- limit (default 50) caps results after sorting by most-recently-modified.\n\nErrors:\n- An empty array means no orphans were found (after exclusions), not an error.\n\nReturns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "exclude_folders": {
+            "description": "Folders to exclude — replaces the defaults ([\"Daily Notes\",\"Templates\",\"About Me\"]), not merged",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "limit": {
+            "description": "Max results (default 50)",
+            "type": "number"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_get_backlinks",
+      "title": "Get Backlinks",
+      "description": "Find all notes and files that link to a given note or canvas — captures [[wikilinks]], [markdown](links), ![[embeds]], wikilinks inside frontmatter properties (e.g. related:), and canvas file-node references. Heading anchors ([[note#heading]]) and aliases ([[note|alias]]) resolve as backlinks to the base note. Links inside code blocks are ignored; a note linking to itself appears in its own backlinks.\n\nExample: vault_get_backlinks({ path: \"Projects/vault-cortex.md\" })\nExample: vault_get_backlinks({ path: \"Diagrams/architecture.canvas\" })\n\nWhen to use: Understanding what references a note or canvas, assessing its connectivity before editing or deleting, or finding related notes via the graph.\nFor outgoing links (what a note links TO), use vault_get_outgoing_links. To find notes with no backlinks at all, use vault_find_orphans.\n\nParameters:\n- path: exact vault-relative path including .md or .canvas extension, case-sensitive.\n\nReturns: JSON with path (the queried note or canvas), backlinks (array of { path, title, bytes } sorted by title), and count. Backlink sources may be notes (.md) or canvas files (.canvas).\n\nErrors: Rejects paths that don't end in .md or .canvas. A non-indexed path returns an empty result (count 0), not an error — use vault_list_notes or vault_search to discover valid paths.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact vault-relative path including .md or .canvas extension (e.g. \"Projects/vault-cortex.md\"). Case-sensitive."
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_get_daily_note",
+      "title": "Get Daily Note",
+      "description": "Read a daily note by date, using the vault's configured Daily Notes folder and filename date format. Each setting comes from the DAILY_NOTES_FOLDER / DAILY_NOTES_FORMAT env vars, falling back to the vault's .obsidian/daily-notes.json, then to \"Daily Notes\" and YYYY-MM-DD. Defaults to today if no date is provided.\n\nExample: vault_get_daily_note({ date: \"2026-05-13\" })\nExample: vault_get_daily_note({}) — returns today's daily note\n\nWhen to use: When you need today's or a specific date's daily note. Handles path resolution automatically using the vault's Obsidian config — you don't need to know the folder name or filename format. Use vault_recent_notes to review recent vault activity around a date (not date-filtered — returns globally recent notes).\n\nParameters:\n- date is ISO YYYY-MM-DD (e.g. \"2026-05-13\"). Defaults to today in the server's local timezone. Past and future dates are both valid — the tool resolves the configured path for any date and reports exists: false if the note hasn't been created yet. The path is derived from the server's daily-notes settings, so callers never need to construct daily note paths manually.\n\nErrors:\n- \"invalid date\" — use YYYY-MM-DD format (e.g. \"2026-05-13\", not \"May 13\")\n- \"daily note format contains unsupported token(s): ...\" — the configured format uses tokens the server cannot reproduce (ordinals like Do/Mo, dd, d, e, k/kk, or the L-family localized formats); change the format in Obsidian or set DAILY_NOTES_FORMAT to a supported alternative\n\nReturns: JSON with path (string — resolved vault-relative path), content (string|null — full note body, or null when the note doesn't exist), and exists (boolean). When exists is false, the note has not been created yet.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "description": "YYYY-MM-DD (e.g. \"2026-05-13\", \"2025-12-31\"). Defaults to today in the server's timezone. Invalid formats like \"May 13\" return an error.",
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_get_memory",
+      "title": "Get Memory",
+      "description": "Read semantic memory from About Me/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: single file content. With file+section: just that H2 section's entries. No args: all files concatenated (frontmatter stripped) — can be large. Returns empty string when no memory files exist yet.\n\nExample: vault_get_memory({ file: \"Principles\", section: \"Decision heuristics (newest first)\" })\n\nWhen to use: Reading user preferences, principles, opinions, or other persistent context stored in About Me/ files. Call vault_list_memory_files first to discover valid file and section names.\nPrefer vault_read_note for reading non-memory notes.\n\nErrors:\n- \"section requires a file\" — section was provided without file; pass both or just file\n- \"memory file not found\" — file does not exist in About Me/; call vault_list_memory_files to discover valid names\n- \"memory file must not start with a dot\" — a dot-prefixed name would be a hidden file; memory files are always visible notes\n- \"section not found: …\" — no H2 heading matches; the error lists the file's available sections\n\nReturns: Raw markdown text.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "description": "Memory file name without .md (e.g. \"Principles\", \"Opinions\")",
+            "type": "string",
+            "minLength": 1
+          },
+          "section": {
+            "description": "H2 section heading (e.g. \"Decision heuristics (newest first)\"). Matched case-insensitively, with or without the \"(newest first)\" suffix. Call vault_list_memory_files first to discover valid names.",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_get_outgoing_links",
+      "title": "Get Outgoing Links",
+      "description": "Find all notes and files a given note or canvas links to. For notes: outgoing [[wikilinks]] and [markdown](links). For canvas files: file-node references (vault-relative paths embedded in the canvas). Links inside code blocks are ignored; self-links are included.\n\nExample: vault_get_outgoing_links({ path: \"Projects/vault-cortex.md\" })\nExample: vault_get_outgoing_links({ path: \"Diagrams/architecture.canvas\" })\n\nWhen to use: Navigating the graph forward, auditing broken links in one note or canvas, or checking dependencies before editing.\nFor incoming links (what links TO a note), use vault_get_backlinks.\n\nParameters:\n- path: exact vault-relative path including .md or .canvas extension, case-sensitive. Matched against the search index, so the note or canvas must be indexed (file watcher processes new/moved files within seconds).\n\nReturns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. Each link carries exists (boolean) and kind (\"note\"|\"file\"): exists+note = readable via vault_read_note; exists+file = non-markdown file (.canvas, image, PDF); !exists+note = broken link. daily_note_forward_ref is true on broken links into the vault's daily notes folder — expected \"create on click\" navigation to a daily note that doesn't exist yet, not genuine breakage. bytes is the on-disk file size for notes and files alike (null for broken links).\n\nErrors: Rejects paths that don't end in .md or .canvas. A path not in the index returns an empty result (count 0), not an error — indistinguishable from a note with no outbound links.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact vault-relative path including .md or .canvas extension (e.g. \"Projects/vault-cortex.md\"). Case-sensitive."
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_list_memory_files",
+      "title": "List Memory Files",
+      "description": "Discovery tool — lists About Me/ memory files with their H1/H2 heading structure, per-section entry counts, entry policy, and each file's leading callout (by convention a \"Scope of this file\" block describing what belongs in it). Does NOT return actual entries.\n\nExample: vault_list_memory_files() returns file outlines with headings like \"Decision heuristics (newest first)\", entry counts, each file's entry policy, and its scope callout.\n\nWhen to use: Discovering what memory files and sections exist — and what each file is for — BEFORE calling vault_get_memory. Always call this first to get valid file and section names.\n\nErrors:\n- An empty or nonexistent memory folder returns an empty array, not an error.\n\nReturns: JSON array of file outlines, each { file, title, bytes, entry_policy, leading_callout, headings } — bytes is the on-disk file size; entry_policy is \"append-only\" (the default — entries are never edited or deleted) or \"living\" (a current-state file whose expired entries may be pruned; declared via `entry-policy` frontmatter); leading_callout is the file's top-of-file callout ({ type, title, body }), by convention a \"Scope of this file\" block, or null.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_list_notes",
+      "title": "List Notes",
+      "description": "List .md file paths in the vault, optionally filtered by folder and/or glob pattern. Returns paths only — not content or metadata.\n\nExample: vault_list_notes({ folder: \"Projects\" })\nExample: vault_list_notes({ glob: \"**/*session-log*.md\" })\n\nWhen to use: Browsing what exists in a folder by filename, or finding notes matching a path pattern.\nPrefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery. Use vault_read_note to read a note from the results.\n\nParameters:\n- folder scopes the listing to a path prefix (\"Projects\" includes \"Projects/Archive\"). When combined with glob, the glob pattern is applied within the folder's scope.\n- glob supports * (any filename chars) and ** (any path depth). Applied to vault-relative paths.\n\nErrors:\n- A nonexistent folder or no glob matches returns an empty array, not an error.\n- \"hidden path blocked\" — the folder is hidden (dot-prefixed, like \".obsidian\"); hidden folders are not listable, matching Obsidian.\n\nReturns: JSON array of vault-relative path strings (e.g. [\"Projects/plan.md\", \"Notes/idea.md\"]).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "description": "Folder path prefix (e.g. \"About Me\", \"Projects\"). Includes all subfolders.",
+            "type": "string"
+          },
+          "glob": {
+            "description": "Glob pattern for path filtering (e.g. \"**/*session-log*.md\"). Supports * and ** wildcards. Combined with folder when both are set.",
+            "type": "string"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_list_property_keys",
+      "title": "List Property Keys",
+      "description": "Discover all property keys in the vault with note counts and sample values. Lets you understand the vault's metadata schema without reading individual notes.\n\nExample: vault_list_property_keys() returns [{ key: \"tags\", count: 342, sample_values: [\"session-log\", \"project\"] }, ...]\n\nWhen to use: Discovering what properties exist before searching by property. Good first step for vault orientation alongside vault_list_tags.\nPrefer vault_list_property_values when you need the full list of values for a specific key. Prefer vault_search_by_property to find notes matching a specific key-value pair.\n\nParameters:\n- folder is matched as a path prefix and recurses into subfolders (\"Projects\" also covers \"Projects/Archive\"); omit it to scan the entire vault.\n\nReturns: JSON array of { key, count, sample_values } sorted by count descending. sample_values shows the top 3 most common values per key for quick orientation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "description": "Restrict to a folder (e.g. \"Projects\")",
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_list_property_values",
+      "title": "List Property Values",
+      "description": "List distinct values for a specific property key with note counts. Useful for discovering the range of values a property takes before searching.\n\nExample: vault_list_property_values({ key: \"status\" }) returns [{ value: \"active\", count: 47 }, { value: \"done\", count: 211 }, ...]\n\nWhen to use: Enumerating possible values for a property key before calling vault_search_by_property. Handles both scalar properties (status: \"active\") and array properties (tags: [\"a\", \"b\"]) — array elements are unpacked and counted individually, so the sum of counts may exceed the note count. An unknown key or empty folder returns an empty array, not an error. Call vault_list_property_keys first to discover valid key names.\n\nParameters:\n- key is case-sensitive and must match exactly as returned by vault_list_property_keys. Values are always strings — numeric and boolean properties are stringified for counting.\n- folder + key interact: folder restricts counting to a subtree, so the same key can return different value distributions depending on folder scope.\n- limit (default 50) applies after sorting by count descending, so you always get the most-used values first. Increase for high-cardinality keys like \"title\" or \"created\".\n\nReturns: JSON array of { value, count } sorted by count descending.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Property key name — use vault_list_property_keys to discover valid keys (e.g. \"status\", \"type\", \"tags\")."
+          },
+          "folder": {
+            "description": "Restrict to a folder prefix (e.g. \"Projects\")",
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "description": "Max values to return (default 50). Increase for high-cardinality properties.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_list_tags",
+      "title": "List Tags",
+      "description": "List all tags in the vault with note counts, ordered by count descending. Only frontmatter tags are counted (inline #tags in note bodies are not indexed). Each hierarchical tag (e.g. \"project/vault-cortex\") appears as one full entry, not split into segments. Count is unique notes, not occurrences. A vault with no tagged notes returns an empty array.\n\nExample: vault_list_tags() returns [{ tag: \"session-log\", count: 42 }, { tag: \"project/vault-cortex\", count: 8 }, ...]\n\nWhen to use: Discovering what tags exist before searching by tag. Good first step for vault orientation.\nPrefer vault_search_by_tag once you know which tag to query — it supports hierarchical prefix matching (\"project\" matches \"project/*\").\n\nReturns: JSON array of { tag, count } sorted by count descending. tag omits the \"#\" prefix; count is unique notes with this tag.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_list_tasks",
+      "title": "List Tasks",
+      "description": "List checkbox tasks across the whole vault with structured filters — the Tasks-plugin data model over MCP. Both task metadata formats are indexed: emoji signifiers (📅 due, ⏳ scheduled, 🛫 start, ➕ created, ✅ done, ❌ cancelled, 🔺⏫🔼🔽⏬ priority, 🔁 recurrence, 🆔/⛔ dependencies) and Dataview inline fields ([due:: 2026-07-04], [priority:: high], ...). Every result carries its attribution — note path, folder, line number, and the nearest heading when the task sits under one (the lane on a Kanban board) — so no follow-up reads are needed to locate a task. Task lines inside fenced code blocks and %% %% comment blocks are not indexed.\n\nExample: vault_list_tasks({ due: { before: \"2026-07-04\" } }) — overdue triage; the default status (not_done) and sort (due ascending) make this the \"what's overdue?\" call\nExample: vault_list_tasks({ path: \"Code Projects/vault-cortex/TASKS.md\", heading: [\"Active\", \"Up Next\", \"Waiting On\"], sort_by: \"position\" }) — actionable Kanban lanes in board order; position is the natural sort for boards (file path then line number, preserving card arrangement)\nExample: vault_list_tasks({ folder: \"Code Projects/vault-cortex\" }) — all open tasks across a project tree (TASKS.md + task-notes/ subdirectories); folder is a recursive prefix match\nExample: vault_list_tasks({ status: \"done\", done: { after: \"2026-06-26\" } }) — what got completed this week\nExample: vault_list_tasks({ top_level_only: true, path: \"TASKS.md\" }) — board cards only, excluding checklist sub-items\n\nWhen to use: Any vault-wide task triage question — \"what's overdue?\", \"what's open per project?\", \"what did I finish this week?\" — in one call instead of per-board reads.\nPrefer vault_read_note (heading mode) to read one specific board lane verbatim. Prefer vault_search for full-text queries over note content.\n\nParameters:\n- status: a single value or an array of values, OR-combined (default \"not_done\"). Values: \"not_done\" (todo + in_progress, excludes done AND cancelled), \"todo\", \"in_progress\", \"done\", \"cancelled\", \"all\". Virtual values expand in arrays: [\"not_done\", \"done\"] matches todo + in_progress + done.\n- due / scheduled / start / done / created / cancelled: date filters, each { before, on, after } in YYYY-MM-DD — before/after are exclusive, on is exact. A date filter only matches tasks that HAVE that date.\n- priority: array of \"highest\" | \"high\" | \"medium\" | \"low\" | \"lowest\" | \"none\", OR-combined (\"none\" = tasks with no priority signifier).\n- folder: recursive note-path prefix. tag: bare inline-task-tag name; a parent tag matches children. heading: exact heading text or array of headings, case-sensitive, OR-combined. path: one note, must end in \".md\".\n- top_level_only: boolean (default false). When true, only top-level tasks (depth 0) are returned — excludes indented sub-tasks and checklist items.\n- sort_by: \"due\" (default) | \"scheduled\" | \"start\" | \"created\" | \"done\" | \"priority\" | \"note_mtime\" | \"position\". \"position\" sorts by file path then line number — the natural order for Kanban boards.\n- limit: max results (default 50). The total field always reports the full match count.\n\nErrors:\n- A malformed or calendar-invalid date filter throws with remediation text (\"Use YYYY-MM-DD\")\n- path without the \".md\" extension is rejected\n- No matches returns { total: 0, tasks: [] }, not an error\n\nReturns: JSON { total, tasks }. Every task carries path, line, status, status_char, description, folder, depth (0 for top-level, 1+ for sub-tasks), is_kanban_task, depends_on, and tags (the arrays are [] when empty). Every other field appears only when the task has it: heading (nearest heading above the task), created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, block_id, parent_block_id (sub-tasks whose parent carries a ^block-id), done_lanes (Kanban boards only), and subtask_progress — { done, total } over the task's DIRECT checklist children, present only when the task has a checklist (absent = no checklist items); done counts status \"done\" only (a cancelled child counts toward total, not done), and the counts ignore the query's filters — so a filtered or top_level_only read still shows each card's checklist progress.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "description": "Status filter, OR-combined (default \"not_done\" = todo + in_progress, excluding done and cancelled). Virtual values expand in arrays: \"not_done\" adds todo + in_progress, \"all\" includes every status.",
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "not_done",
+                  "todo",
+                  "in_progress",
+                  "done",
+                  "cancelled",
+                  "all"
+                ]
+              },
+              {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "not_done",
+                    "todo",
+                    "in_progress",
+                    "done",
+                    "cancelled",
+                    "all"
+                  ]
+                }
+              }
+            ]
+          },
+          "due": {
+            "description": "Due date (📅 / [due:: ]) bounds",
+            "type": "object",
+            "properties": {
+              "before": {
+                "description": "Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates",
+                "type": "string",
+                "minLength": 1
+              },
+              "on": {
+                "description": "Exact date match (YYYY-MM-DD)",
+                "type": "string",
+                "minLength": 1
+              },
+              "after": {
+                "description": "Exclusive lower bound (YYYY-MM-DD) — strictly later dates",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "scheduled": {
+            "description": "Scheduled date (⏳ / [scheduled:: ]) bounds",
+            "type": "object",
+            "properties": {
+              "before": {
+                "description": "Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates",
+                "type": "string",
+                "minLength": 1
+              },
+              "on": {
+                "description": "Exact date match (YYYY-MM-DD)",
+                "type": "string",
+                "minLength": 1
+              },
+              "after": {
+                "description": "Exclusive lower bound (YYYY-MM-DD) — strictly later dates",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "start": {
+            "description": "Start date (🛫 / [start:: ]) bounds",
+            "type": "object",
+            "properties": {
+              "before": {
+                "description": "Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates",
+                "type": "string",
+                "minLength": 1
+              },
+              "on": {
+                "description": "Exact date match (YYYY-MM-DD)",
+                "type": "string",
+                "minLength": 1
+              },
+              "after": {
+                "description": "Exclusive lower bound (YYYY-MM-DD) — strictly later dates",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "done": {
+            "description": "Done date (✅ / [completion:: ]) bounds",
+            "type": "object",
+            "properties": {
+              "before": {
+                "description": "Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates",
+                "type": "string",
+                "minLength": 1
+              },
+              "on": {
+                "description": "Exact date match (YYYY-MM-DD)",
+                "type": "string",
+                "minLength": 1
+              },
+              "after": {
+                "description": "Exclusive lower bound (YYYY-MM-DD) — strictly later dates",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "created": {
+            "description": "Created date (➕ / [created:: ]) bounds",
+            "type": "object",
+            "properties": {
+              "before": {
+                "description": "Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates",
+                "type": "string",
+                "minLength": 1
+              },
+              "on": {
+                "description": "Exact date match (YYYY-MM-DD)",
+                "type": "string",
+                "minLength": 1
+              },
+              "after": {
+                "description": "Exclusive lower bound (YYYY-MM-DD) — strictly later dates",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "cancelled": {
+            "description": "Cancelled date (❌ / [cancelled:: ]) bounds",
+            "type": "object",
+            "properties": {
+              "before": {
+                "description": "Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates",
+                "type": "string",
+                "minLength": 1
+              },
+              "on": {
+                "description": "Exact date match (YYYY-MM-DD)",
+                "type": "string",
+                "minLength": 1
+              },
+              "after": {
+                "description": "Exclusive lower bound (YYYY-MM-DD) — strictly later dates",
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          "priority": {
+            "description": "Priority levels, OR-combined; \"none\" selects tasks with no priority signifier",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "highest",
+                "high",
+                "medium",
+                "low",
+                "lowest",
+                "none"
+              ]
+            }
+          },
+          "folder": {
+            "description": "Restrict to a note-path prefix (e.g. \"Code Projects/vault-cortex\")",
+            "type": "string",
+            "minLength": 1
+          },
+          "tag": {
+            "description": "Inline task tag, bare name without \"#\"; parent tags match children",
+            "type": "string",
+            "minLength": 1
+          },
+          "heading": {
+            "description": "Exact heading text or array of headings, OR-combined, case-sensitive (e.g. \"Active\" or [\"Active\", \"Up Next\"])",
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            ]
+          },
+          "path": {
+            "description": "Restrict to one note (vault-relative path ending \".md\")",
+            "type": "string",
+            "minLength": 1
+          },
+          "top_level_only": {
+            "description": "When true, only top-level tasks (depth 0) are returned — excludes indented sub-tasks and checklist items. Default false.",
+            "type": "boolean"
+          },
+          "limit": {
+            "description": "Max results (default 50); total always reports the full match count",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "sort_by": {
+            "description": "Sort key (default \"due\"). Date sorts cascade through related fields when the primary is absent; each fallback uses its own natural direction. \"position\" sorts by file path then line number — the natural order for Kanban boards.",
+            "type": "string",
+            "enum": [
+              "due",
+              "scheduled",
+              "start",
+              "created",
+              "done",
+              "priority",
+              "note_mtime",
+              "position"
+            ]
+          },
+          "sort_direction": {
+            "description": "Sort direction. Default per field: \"asc\" for due/scheduled/priority/position, \"desc\" for start/created/done/note_mtime. Within a date cascade, each fallback uses its own default; an explicit value overrides all fields uniformly.",
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_memory_recall",
+      "title": "Memory Recall",
+      "description": "Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL About Me/ files and ALL time. Returns every relevant dated entry sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries and judge relevance yourself when synthesizing an answer. Content-word queries (\"testing philosophy\", \"sustainable pacing\") rank best; a meta-framed query (\"opinions on testing\") whose relevance cut would come back empty degrades to relaxed any-term keyword matching instead of returning nothing.\n\nExample: vault_memory_recall({ query: \"working hours and pacing\" })\nExample: vault_memory_recall({ query: \"opinions on testing\", file: \"Opinions\" })\n\nWhen to use: Answering \"what does my memory say about X?\" or \"how has my view on Y evolved?\" — topic-based recall across memory files. Prefer vault_get_memory to read a known file or section verbatim; prefer vault_search for notes outside the memory layer.\n\nErrors:\n- No matching entries returns { entries: [], total: 0 }, not an error\n- An unknown file returns empty results — call vault_list_memory_files to discover valid names\n\nReturns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included); file and section feed directly into vault_get_memory. entries ascend by date (oldest first). total counts all matched entries; truncated=true means max_results dropped the least-relevant matches — never a date range — so raise max_results or narrow the query for the complete set. search_mode is \"hybrid\" when vector matching contributed, \"fts\" when the entries came from keyword matching alone — including the any-term fallback that rescues a would-be-empty result; reranked is true when the cross-encoder relevance cut was applied.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Topic to recall — natural language works best (semantic matching bridges phrasing drift across months); content words about the topic rank better than meta framing (\"testing philosophy\" over \"opinions on testing\")"
+          },
+          "file": {
+            "description": "Optional: restrict to one memory file, name without .md (e.g. \"Opinions\"). Omit for cross-file recall — the default and usual choice.",
+            "type": "string",
+            "minLength": 1
+          },
+          "max_results": {
+            "description": "Cap on returned entries (default 50). When more match, the least-relevant are dropped and truncated=true — never a date range.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_read_note",
+      "title": "Read Note",
+      "description": "Read a markdown note by its vault-relative path. By default returns the full raw content including properties; optional modes return just the properties, just the heading outline, or just one section — so large notes don't blow the token budget.\n\nExample: vault_read_note({ path: \"Projects/vault-cortex.md\" })\nExample: vault_read_note({ path: \"Projects/vault-cortex.md\", properties_only: true })\nExample: vault_read_note({ path: \"TASKS.md\", outline: true })\nExample: vault_read_note({ path: \"TASKS.md\", heading: \"Active\" })\nExample: vault_read_note({ path: \"TASKS.md\", heading: \"Done\", heading_level: 2 }) // disambiguate when several \"Done\" headings exist\nExample: vault_read_note({ path: \"TASKS.md\", heading: \"Done\", start_line: 1, limit: 20 }) // first 20 lines of an oversized section\n\nWhen to use: You know the exact path and need a specific note's content. For a large note (a long board or doc), use outline: true to see its headings and any text sitting above them, then heading: \"...\" to read just the one section you need — both far cheaper than pulling the whole file. Use properties_only: true when you only need properties. For an oversized note or section, page it with start_line and limit to read a window at a time. To check a note's or section's line count, request start_line: 1 with limit: 1 — one line plus the total.\nPrefer vault_search when you don't know the path. Prefer vault_get_memory for About Me/ files (returns content without properties). To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links.\n\nSection boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included. Modes are mutually exclusive — set at most one of properties_only, outline, or heading. Paged reads normalize line endings to LF; unpaged reads stay byte-identical.\n\nErrors:\n- \"heading not found\" — no heading matches the text; error lists available headings\n- \"ambiguous heading\" — multiple headings match; use heading_level to disambiguate\n- \"outline, heading, and properties_only are mutually exclusive\" — only one mode per call\n- \"line paging is not available in outline mode\" / \"... properties_only mode\" — start_line/limit only work on text renditions (full read or heading section)\n- \"start line past the end\" — start_line exceeds the rendition's line count; error states the total\n- 'path must end in \".md\"' — the path names a non-markdown file\n- \"hidden path blocked\" — the path targets a hidden (dot-prefixed) file or folder like \".obsidian/\"; hidden paths are not accessible, matching Obsidian\n\nReturns: Raw markdown string (default); JSON object of properties (properties_only); JSON outline object (outline); raw markdown of the section, heading line included (heading). When start_line or limit is given, the result is preceded by a window-metadata text block (\"path — lines 1–20 of 250 (continue with start_line: 21)\").\n\nOutline shape: { leading_callout?, leading_content?, headings } — headings is [{ level, text, bytes }]; leading_callout ({ type, title, body }) is the note's top-of-file callout; leading_content is the rest of the body text above the first heading, with the callout's own lines excluded so the two never repeat the same text. Either key is omitted when the note has none. Empty headings (\"##\" with no text) appear with text: \"\" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section (which includes child headings) or the full note.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"About Me/Principles.md\")"
+          },
+          "properties_only": {
+            "description": "If true, returns parsed properties as JSON instead of full note content",
+            "type": "boolean"
+          },
+          "outline": {
+            "description": "If true, returns { leading_callout?, leading_content?, headings } as JSON instead of body content — a cheap structure fetch for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
+            "type": "boolean"
+          },
+          "heading": {
+            "description": "Return only this section (heading line + body, through the next same-or-higher heading). Case-sensitive exact match.",
+            "type": "string",
+            "minLength": 1
+          },
+          "heading_level": {
+            "description": "Heading level (1-6) for disambiguation when multiple headings share the same text; only applies with heading",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          },
+          "start_line": {
+            "description": "First line to return, 1-based (default 1). Pages the delivered rendition (full body or a heading section). Not valid for outline or properties_only (JSON modes).",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "limit": {
+            "description": "Maximum lines returned (default: all remaining). A paged read's metadata line states the window, the total line count, and the next start_line.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_recent_notes",
+      "title": "Recent Notes",
+      "description": "List recently modified or created notes, sorted by timestamp — a time-ordered window into the vault, not a date-range filter.\n\nExample: vault_recent_notes({ sort_by: \"modified\", limit: 10 })\nExample: vault_recent_notes({ sort_by: \"created\", limit: 5 })\n\nWhen to use: Catching up on vault changes, finding recent work, or orienting after a break.\nPrefer vault_search for content-based discovery. Prefer vault_search_by_folder for browsing a specific folder.\n\nParameters:\n- sort_by + limit interact: \"modified\" (default) uses filesystem mtime, so every note has a value and limit works predictably. \"created\" uses the frontmatter created property — notes without it sort last (not excluded), so a small limit may return only notes that have the property; increase limit or use \"modified\" for broader coverage.\n- \"modified\" includes any file write (content edits, property changes, sync touches), so recently-synced notes appear recent even without user edits.\n\nErrors:\n- An empty vault returns an empty array, not an error.\n\nReturns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted descending by chosen timestamp. created is null when the property is missing; bytes is on-disk file size.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sort_by": {
+            "description": "Sort order (default \"modified\")",
+            "type": "string",
+            "enum": [
+              "created",
+              "modified"
+            ]
+          },
+          "limit": {
+            "description": "Max results (default 20, no upper cap)",
+            "type": "number"
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_search",
+      "title": "Search Notes",
+      "description": "Hybrid search across all vault notes, ranked by combined keyword and semantic relevance using Reciprocal Rank Fusion (RRF) — combining FTS5 keyword matching with vector similarity. Results are refined by a cross-encoder reranker using position-aware score blending when available. Semantic matching finds notes even when exact keywords differ — \"career aspirations\" finds notes about \"goals\" and \"targets\". Falls back to keyword-only (FTS5 BM25) transparently while embeddings are being built. Combine a text query with structured filters to narrow results by metadata — the \"narrow by metadata, search by text\" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.\n\nFilters — all conditions AND-combine with each other and the text query:\n- folder: path prefix (e.g. \"Projects\")\n- tags: require all listed tags (AND)\n- type: exact match on frontmatter type (e.g. \"person\", \"session-log\")\n- related: require all listed related links (AND)\n- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: \"active\" })\n- created: date bounds { before, on, after } in YYYY-MM-DD on the frontmatter created property — before/after are exclusive, on is exact (calendar-day match, server-local). Notes without a parseable created property never match\n- modified: date bounds { before, on, after } in YYYY-MM-DD on filesystem modified time (server-local day boundaries) — before/after match strictly earlier/later days, on matches within the day\n\nExample: vault_search({ query: \"kubernetes networking\", filters: { tags: [\"reference\"] } })\nExample: vault_search({ query: \"meeting notes\", filters: { type: \"meeting\", folder: \"Work\" } })\nExample: vault_search({ query: \"decision\", filters: { modified: { after: \"2026-06-30\" } } }) — matching notes touched in July or later\nExample: vault_search({ query: \"how the server watches for file changes\" }) — semantic: finds notes about chokidar and file watchers even without those exact terms\n\nWhen to use: The primary discovery tool for content-based queries, optionally constrained by metadata. Semantic matching bridges vocabulary gaps — try natural-language queries, not just keywords.\nPrefer vault_search_by_tag for tag-only queries without text. Prefer vault_search_by_folder for browsing a folder. Prefer vault_search_by_property for metadata-only queries. Prefer vault_recent_notes for time-based browsing.\n\nErrors:\n- No matches returns { results: [], total: 0 }, not an error\n- Malformed query syntax is sanitized automatically — the tool never throws a query syntax error\n- A malformed or calendar-invalid created/modified date filter throws with remediation text (\"Use YYYY-MM-DD\")\n\nReturns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total count, search_mode (\"hybrid\" or \"fts\"), and reranked (boolean — true when cross-encoder reranking refined the ordering). search_mode indicates which ranking was used — \"hybrid\" when vector embeddings contributed, \"fts\" when only keyword matching was available. score reflects combined relevance (higher = more relevant). kind is \"note\" for markdown notes or \"file\" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. \".canvas\", \".pdf\", \".txt\"). created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Search query text — unquoted terms use implicit AND with stemming; wrap in double quotes for exact phrases"
+          },
+          "filters": {
+            "description": "Optional structured filters — all conditions AND-combine with each other and with the text query",
+            "type": "object",
+            "properties": {
+              "folder": {
+                "description": "Restrict to a folder path prefix (e.g. \"Projects\")",
+                "type": "string",
+                "minLength": 1
+              },
+              "tags": {
+                "description": "Require all listed tags (AND — every tag must be present)",
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "related": {
+                "description": "Require all listed related links",
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "type": {
+                "description": "Match the frontmatter type field (exact match, e.g. \"person\", \"meeting\")",
+                "type": "string",
+                "minLength": 1
+              },
+              "properties": {
+                "description": "Match arbitrary frontmatter properties by key-value (e.g. { status: \"active\", priority: 1 })",
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ]
+                }
+              },
+              "created": {
+                "description": "Created date bounds (YYYY-MM-DD) on the frontmatter \"created\" property — notes without a parseable value never match",
+                "type": "object",
+                "properties": {
+                  "before": {
+                    "description": "Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "on": {
+                    "description": "Exact date match (YYYY-MM-DD)",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "after": {
+                    "description": "Exclusive lower bound (YYYY-MM-DD) — strictly later dates",
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "modified": {
+                "description": "Modified date bounds (YYYY-MM-DD) on filesystem modified time, server-local day boundaries",
+                "type": "object",
+                "properties": {
+                  "before": {
+                    "description": "Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "on": {
+                    "description": "Exact date match (YYYY-MM-DD)",
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "after": {
+                    "description": "Exclusive lower bound (YYYY-MM-DD) — strictly later dates",
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "limit": {
+                "description": "Max results (default 20)",
+                "type": "number"
+              },
+              "snippet_tokens": {
+                "description": "Snippet length in tokens (default 30)",
+                "type": "number"
+              },
+              "include_leading_callout": {
+                "description": "If true, each result includes its leading_callout ({ type, title, body }) when present. Off by default to keep results lean.",
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_search_by_folder",
+      "title": "Search by Folder",
+      "description": "Browse notes in a folder with full metadata (tags, type, related, created, modified) — unlike vault_list_notes, which returns paths only.\n\nExample: vault_search_by_folder({ folder: \"Projects\" }) or vault_search_by_folder({ folder: \"About Me\", recursive: false })\n\nWhen to use: Exploring a folder's contents with full context for vault orientation.\nPrefer vault_list_notes when you only need paths. Prefer vault_search when you have a text query. Use vault_get_backlinks or vault_get_outgoing_links to explore how notes in a folder connect to the rest of the vault.\n\nParameters:\n- folder is matched as a path prefix; pass it without a trailing slash (\"Projects\").\n- recursive (default true) includes all nested subfolders; set false to list only the folder's top level.\n- limit (default 20) caps results.\n\nErrors:\n- An empty or nonexistent folder returns an empty array, not an error.\n\nReturns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "folder": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Folder path (e.g. \"Projects\", \"About Me\")"
+          },
+          "recursive": {
+            "description": "Include subfolders (default: true)",
+            "type": "boolean"
+          },
+          "limit": {
+            "description": "Max results (default 20)",
+            "type": "number"
+          }
+        },
+        "required": [
+          "folder"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_search_by_property",
+      "title": "Search by Property",
+      "description": "Find notes where a frontmatter property matches a value — metadata-only search, no text query needed. Handles both scalar properties (status: \"active\") and array properties (tags, related): for arrays, matches if any element equals the value (contains check, not exact array match). Matching is exact and case-sensitive; an unknown key or unmatched value returns an empty array, not an error.\n\nExample: vault_search_by_property({ key: \"status\", value: \"in-progress\" })\nExample: vault_search_by_property({ key: \"type\", value: \"session-log\", folder: \"Code Projects\" })\n\nWhen to use: Finding notes by metadata when you don't have a text query.\nPrefer vault_search when you also have a text query (it supports property filters too). Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching). Use vault_list_property_keys to discover valid keys and vault_list_property_values to see what values a key takes.\n\nParameters:\n- key + value are both exact and case-sensitive — no partial matching or globbing. All property values are compared as strings, so numeric or boolean properties must be passed as their string representation.\n- For array properties (tags, related), value is tested against each element individually (contains check) — \"blog\" matches a note with tags: [\"blog\", \"draft\"] but not tags: [\"my-blog\"].\n- folder narrows results to a subtree; omit for vault-wide search. Combined with key+value, this lets you check how a property is used within a specific area.\n\nReturns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by filesystem mtime descending — recently-synced notes may sort ahead of older content edits.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Property key name (e.g. \"status\", \"type\", \"tags\"). Use vault_list_property_keys to discover valid keys."
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Value to match (exact, case-sensitive, e.g. \"active\", \"session-log\"). Use vault_list_property_values to discover valid values for a key."
+          },
+          "folder": {
+            "description": "Restrict to a folder prefix (e.g. \"Projects\")",
+            "type": "string",
+            "minLength": 1
+          },
+          "limit": {
+            "description": "Max results (default 20). Increase for broad metadata queries.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "key",
+          "value"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "vault_search_by_tag",
+      "title": "Search by Tag",
+      "description": "Find notes with a specific tag. By default uses hierarchical prefix matching — a parent tag matches all children (e.g. \"project\" matches \"project/vault-cortex\", \"project/blog\"). Set exact=true for exact match only.\n\nExample: vault_search_by_tag({ tag: \"project\" }) returns all notes tagged project or project/*.\n\nWhen to use: Exploring tag hierarchies or finding all notes with a specific tag, without needing a text query.\nPrefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.\n\nParameters:\n- tag is the bare tag name without a leading \"#\" (\"project\", not \"#project\"). Hierarchical tags use \"/\" separators (\"project/vault-cortex\").\n- tag + exact interact: with exact=false (default), \"project\" matches \"project\", \"project/vault-cortex\", \"project/blog\" — the match is prefix-based on the \"/\" separator, so \"project\" does NOT match \"my-project\" or \"projects\". Set exact=true to match only the literal tag, excluding children.\n\nErrors:\n- An unknown tag or no matches returns an empty array, not an error — don't use as an existence check.\n\nReturns: JSON array of up to 20 notes' metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "tag": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Tag name without \"#\" prefix (e.g. \"project\", \"session-log\"). Hierarchical tags use \"/\" separators (e.g. \"project/vault-cortex\")."
+          },
+          "exact": {
+            "description": "Exact match only (default: false, prefix match)",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "tag"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    }
+  ],
+  "prompts": [
+    {
+      "name": "daily-review",
+      "title": "Daily review & reconciliation",
+      "description": "Reconcile a day — daily note, vault-wide task status (due/overdue, scheduled), modified notes, and links — surface what happened, what's open, and durable facts worth saving to About Me/ memory.",
+      "arguments": [
+        {
+          "name": "date",
+          "description": "Day to review in YYYY-MM-DD format (defaults to today)",
+          "required": false
+        },
+        {
+          "name": "max_chars",
+          "description": "Optional cap on embedded content length (characters); omit for full content",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "vault-orientation",
+      "title": "Orient to this vault",
+      "description": "Survey this vault's structure and health — stats, folders, tags, properties (with adoption rates), orphans, recent notes, and the About Me/ memory layer."
+    }
+  ]
+}

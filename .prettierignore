@@ -4,6 +4,9 @@ node_modules/
 # Fixture vault content is byte-exact test data — reformatting it changes
 # what the integration tests exercise
 src/__tests__/integration/fixtures/vault/
+# Tool-surface baseline files are byte-exact snapshots written by vitest —
+# reformatting them fails the drift test
+src/vault-mcp/mcp-core/__tests__/__snapshots__/
 *.db
 *.sqlite
 CHANGELOG.md
