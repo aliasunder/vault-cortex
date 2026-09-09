@@ -42,6 +42,7 @@ import {
 } from "../obsidian-markdown/lines.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import type { TrashOption } from "./trash-config.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
 import type { Logger } from "../../logger.js"
 
@@ -427,16 +428,71 @@ type DeleteNoteResult = {
   /** Number of now-empty parent folders removed. Always 0 unless
    *  pruneEmptyFolders was set. */
   prunedEmptyFolders: number
+  /** Vault-relative path in `.trash/` when the note was moved to trash.
+   *  Undefined when permanently deleted. */
+  trashLocation?: string
 }
 
-/** Deletes a note. Rejects paths under the configured protected paths. When
- *  pruneEmptyFolders is set, removes any parent folders the deletion empties. */
+/** Resolves a collision-free path inside `.trash/`. Appends a numeric
+ *  suffix to the stem (`note 1.md`, `note 2.md`) when the target exists. */
+const resolveTrashPath = async (
+  vaultPath: string,
+  relativePath: string,
+): Promise<{ trashFullPath: string; trashRelativePath: string }> => {
+  const trashRelativePath = `.trash/${relativePath}`
+  const trashFullPath = join(vaultPath, trashRelativePath)
+
+  if (!(await fileExists(trashFullPath))) {
+    return { trashFullPath, trashRelativePath }
+  }
+
+  const extensionIndex = relativePath.lastIndexOf(".")
+  const stem =
+    extensionIndex > 0 ? relativePath.slice(0, extensionIndex) : relativePath
+  const extension = extensionIndex > 0 ? relativePath.slice(extensionIndex) : ""
+
+  for (let suffix = 1; suffix <= 100; suffix++) {
+    const candidateRelative = `.trash/${stem} ${suffix}${extension}`
+    const candidateFull = join(vaultPath, candidateRelative)
+    if (!(await fileExists(candidateFull))) {
+      return {
+        trashFullPath: candidateFull,
+        trashRelativePath: candidateRelative,
+      }
+    }
+  }
+
+  throw new Error(
+    `cannot move "${relativePath}" to trash — 100 collisions in .trash/`,
+  )
+}
+
+/** Moves a note to `.trash/`, creating parent directories as needed.
+ *  Returns the vault-relative trash path. */
+const moveNoteToTrash = async (
+  vaultPath: string,
+  relativePath: string,
+  fullPath: string,
+): Promise<string> => {
+  const { trashFullPath, trashRelativePath } = await resolveTrashPath(
+    vaultPath,
+    relativePath,
+  )
+  await mkdir(dirname(trashFullPath), { recursive: true })
+  await rename(fullPath, trashFullPath)
+  return trashRelativePath
+}
+
+/** Deletes or trashes a note depending on the vault's Deleted files setting.
+ *  Rejects paths under the configured protected paths. When pruneEmptyFolders
+ *  is set, removes any parent folders the operation empties. */
 const deleteNote = async (
   params: {
     vaultPath: string
     path: string
     protectedPaths: readonly string[]
     pruneEmptyFolders: boolean
+    trashOption: TrashOption
   },
   logger: Logger,
 ): Promise<DeleteNoteResult> => {
@@ -464,15 +520,31 @@ const deleteNote = async (
     if (!(await fileExists(fullPath))) {
       throw new Error(`note not found: "${path}"`)
     }
-    await unlink(fullPath)
+
+    // The trash path bypasses resolveSafePath because .trash/ is a hidden
+    // path the guard rejects. Safe: `path` was already validated above.
+    const trashLocation =
+      params.trashOption === "local"
+        ? await moveNoteToTrash(params.vaultPath, path, fullPath)
+        : undefined
+
+    if (!trashLocation) {
+      await unlink(fullPath)
+    }
+
     const prunedEmptyFolders = params.pruneEmptyFolders
       ? await pruneEmptyParents({ vaultPath: params.vaultPath, path }, logger)
       : 0
-    logger.info("deleted note", {
+
+    logger.info(trashLocation ? "trashed note" : "deleted note", {
       path,
+      ...(trashLocation ? { trash_location: trashLocation } : {}),
       pruned_empty_folders: prunedEmptyFolders,
     })
-    return { prunedEmptyFolders }
+    return {
+      prunedEmptyFolders,
+      ...(trashLocation ? { trashLocation } : {}),
+    }
   })
 }
 

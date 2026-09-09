@@ -733,6 +733,34 @@ describe("default config", () => {
     })
   })
 
+  describe("trash on delete", () => {
+    it("moves to .trash/ when trashOption is local and reports the trash location", async () => {
+      await callTool({
+        client,
+        name: "vault_write_note",
+        args: { path: "Scratch/trash-test.md", body: "trash me" },
+      })
+
+      const deleteResult = await callTool({
+        client,
+        name: "vault_delete_note",
+        args: { path: "Scratch/trash-test.md" },
+      })
+
+      expect(deleteResult.isError).not.toBe(true)
+      expect(textContent(deleteResult)).toBe(
+        "Moved Scratch/trash-test.md to trash (.trash/Scratch/trash-test.md)",
+      )
+
+      const afterDelete = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Scratch/trash-test.md" },
+      })
+      expect(afterDelete.isError).toBe(true)
+    })
+  })
+
   describe("asset tools", () => {
     it("vault_list_files", async () => {
       const result = await callTool({ client, name: "vault_list_files" })

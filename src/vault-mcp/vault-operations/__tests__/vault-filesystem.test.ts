@@ -167,6 +167,7 @@ describe("path traversal", () => {
             path,
             protectedPaths: [],
             pruneEmptyFolders: false,
+            trashOption: "system",
           },
           logger,
         ),
@@ -226,6 +227,7 @@ describe("markdown path requirement", () => {
           path: "Projects/Plan",
           protectedPaths: [],
           pruneEmptyFolders: false,
+          trashOption: "system",
         },
         logger,
       ),
@@ -468,6 +470,7 @@ describe("deleteNote", () => {
         path: "delete-me.md",
         protectedPaths: DEFAULT_PROTECTED,
         pruneEmptyFolders: false,
+        trashOption: "system",
       },
       logger,
     )
@@ -486,6 +489,7 @@ describe("deleteNote", () => {
             path,
             protectedPaths: DEFAULT_PROTECTED,
             pruneEmptyFolders: false,
+            trashOption: "system",
           },
           logger,
         ),
@@ -503,6 +507,7 @@ describe("deleteNote", () => {
             path,
             protectedPaths: DEFAULT_PROTECTED,
             pruneEmptyFolders: false,
+            trashOption: "system",
           },
           logger,
         ),
@@ -520,6 +525,7 @@ describe("deleteNote", () => {
           path: "Secrets/keys.md",
           protectedPaths: ["Secrets"],
           pruneEmptyFolders: false,
+          trashOption: "system",
         },
         logger,
       ),
@@ -534,6 +540,7 @@ describe("deleteNote", () => {
         path: "ok.md",
         protectedPaths: ["Locked"],
         pruneEmptyFolders: false,
+        trashOption: "system",
       },
       logger,
     )
@@ -548,6 +555,7 @@ describe("deleteNote", () => {
           path: "ghost.md",
           protectedPaths: DEFAULT_PROTECTED,
           pruneEmptyFolders: false,
+          trashOption: "system",
         },
         logger,
       ),
@@ -567,6 +575,7 @@ describe("deleteNote", () => {
           path: "decoy/../About Me/Principles.md",
           protectedPaths: DEFAULT_PROTECTED,
           pruneEmptyFolders: false,
+          trashOption: "system",
         },
         logger,
       ),
@@ -590,6 +599,7 @@ describe("deleteNote", () => {
           path: "About Me\\Principles.md",
           protectedPaths: DEFAULT_PROTECTED,
           pruneEmptyFolders: false,
+          trashOption: "system",
         },
         logger,
       ),
@@ -617,6 +627,7 @@ describe("deleteNote", () => {
           path,
           protectedPaths: DEFAULT_PROTECTED,
           pruneEmptyFolders: true,
+          trashOption: "system",
         },
         logger,
       )
@@ -631,6 +642,7 @@ describe("deleteNote", () => {
           path: "Folder/only.md",
           protectedPaths: DEFAULT_PROTECTED,
           pruneEmptyFolders: false,
+          trashOption: "system",
         },
         logger,
       )
@@ -718,6 +730,186 @@ describe("deleteNote", () => {
         expect.objectContaining({ folder: "NotADir" }),
       )
     })
+  })
+})
+
+describe("deleteNote — trash behavior", () => {
+  it('moves the note to .trash/ when trashOption is "local"', async () => {
+    await writeFile(join(vault, "trash-me.md"), "content", "utf8")
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "trash-me.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/trash-me.md")
+    const trashedContent = await readFile(
+      join(vault, ".trash", "trash-me.md"),
+      "utf8",
+    )
+    expect(trashedContent).toBe("content")
+    await expect(stat(join(vault, "trash-me.md"))).rejects.toThrow(/ENOENT/)
+  })
+
+  it("creates .trash/ subdirectories matching the source path", async () => {
+    await mkdir(join(vault, "Projects"), { recursive: true })
+    await writeFile(join(vault, "Projects", "deep.md"), "nested", "utf8")
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "Projects/deep.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/Projects/deep.md")
+    const trashedContent = await readFile(
+      join(vault, ".trash", "Projects", "deep.md"),
+      "utf8",
+    )
+    expect(trashedContent).toBe("nested")
+  })
+
+  it("appends a numeric suffix on name collision", async () => {
+    await mkdir(join(vault, ".trash"), { recursive: true })
+    await writeFile(join(vault, ".trash", "dup.md"), "first", "utf8")
+    await writeFile(join(vault, "dup.md"), "second", "utf8")
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "dup.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/dup 1.md")
+    const trashedContent = await readFile(
+      join(vault, ".trash", "dup 1.md"),
+      "utf8",
+    )
+    expect(trashedContent).toBe("second")
+  })
+
+  it("skips past multiple collisions to find a free suffix", async () => {
+    await mkdir(join(vault, ".trash"), { recursive: true })
+    await writeFile(join(vault, ".trash", "multi.md"), "v0", "utf8")
+    await writeFile(join(vault, ".trash", "multi 1.md"), "v1", "utf8")
+    await writeFile(join(vault, ".trash", "multi 2.md"), "v2", "utf8")
+    await writeFile(join(vault, "multi.md"), "current", "utf8")
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "multi.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/multi 3.md")
+  })
+
+  it('permanently deletes when trashOption is "system"', async () => {
+    await writeFile(join(vault, "perm.md"), "gone", "utf8")
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "perm.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "system",
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBeUndefined()
+    await expect(stat(join(vault, "perm.md"))).rejects.toThrow(/ENOENT/)
+    await expect(stat(join(vault, ".trash", "perm.md"))).rejects.toThrow(
+      /ENOENT/,
+    )
+  })
+
+  it('permanently deletes when trashOption is "none"', async () => {
+    await writeFile(join(vault, "perm-none.md"), "gone", "utf8")
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "perm-none.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "none",
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBeUndefined()
+    await expect(stat(join(vault, "perm-none.md"))).rejects.toThrow(/ENOENT/)
+  })
+
+  it("prunes empty source parents after a trash move", async () => {
+    await mkdir(join(vault, "Empty", "Sub"), { recursive: true })
+    await writeFile(join(vault, "Empty", "Sub", "leaf.md"), "x", "utf8")
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "Empty/Sub/leaf.md",
+        protectedPaths: [],
+        pruneEmptyFolders: true,
+        trashOption: "local",
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/Empty/Sub/leaf.md")
+    expect(result.prunedEmptyFolders).toBe(2)
+    await expect(stat(join(vault, "Empty"))).rejects.toThrow(/ENOENT/)
+  })
+
+  it("protected path check fires before trash logic", async () => {
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(
+      join(vault, "About Me", "Principles.md"),
+      "protected",
+      "utf8",
+    )
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "About Me/Principles.md",
+          protectedPaths: DEFAULT_PROTECTED,
+          pruneEmptyFolders: false,
+          trashOption: "local",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("cannot delete protected path")
+
+    const content = await readFile(
+      join(vault, "About Me", "Principles.md"),
+      "utf8",
+    )
+    expect(content).toBe("protected")
   })
 })
 
@@ -1715,6 +1907,7 @@ describe("concurrent writes (exclusive lock)", () => {
           path: "doomed.md",
           protectedPaths: [],
           pruneEmptyFolders: false,
+          trashOption: "system",
         },
         logger,
       ),
@@ -1724,6 +1917,7 @@ describe("concurrent writes (exclusive lock)", () => {
           path: "doomed.md",
           protectedPaths: [],
           pruneEmptyFolders: false,
+          trashOption: "system",
         },
         logger,
       ),
@@ -1767,6 +1961,7 @@ describe("concurrent writes (exclusive lock)", () => {
           path: "contested.md",
           protectedPaths: [],
           pruneEmptyFolders: false,
+          trashOption: "system",
         },
         logger,
       ),
@@ -1797,6 +1992,7 @@ describe("concurrent writes (exclusive lock)", () => {
           path: "vanishing.md",
           protectedPaths: [],
           pruneEmptyFolders: false,
+          trashOption: "system",
         },
         logger,
       ),
@@ -1836,6 +2032,7 @@ describe("concurrent writes (exclusive lock)", () => {
         path: "reborn.md",
         protectedPaths: [],
         pruneEmptyFolders: false,
+        trashOption: "system",
       },
       logger,
     )
@@ -2038,6 +2235,7 @@ describe("hidden paths", () => {
           path: ".trash/secret.md",
           protectedPaths: [],
           pruneEmptyFolders: false,
+          trashOption: "system",
         },
         logger,
       ),

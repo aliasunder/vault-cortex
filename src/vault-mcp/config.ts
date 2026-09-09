@@ -166,6 +166,9 @@ export type VaultConfig = Readonly<{
    *  vault_read_file. The per-page byte budget is maxImageOutputBytes divided
    *  evenly across the rendered pages. Set via MAX_PDF_RENDER_PAGES. */
   maxPdfRenderPages: number
+  /** True when the `:remote` image's Obsidian Sync client is configured.
+   *  Derived from OBSIDIAN_AUTH_TOKEN presence — not a user-facing switch. */
+  obsidianSyncPresent: boolean
 }>
 
 // ── Loader ─────────────────────────────────────────────────────
@@ -338,5 +341,6 @@ export const loadConfig = (
     maxFileBytes,
     maxImageOutputBytes,
     maxPdfRenderPages,
+    obsidianSyncPresent: Boolean(env.OBSIDIAN_AUTH_TOKEN),
   })
 }
