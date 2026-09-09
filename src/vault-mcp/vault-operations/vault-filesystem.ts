@@ -448,11 +448,11 @@ const resolveTrashPath = async (params: {
 
   const extensionIndex = params.relativePath.lastIndexOf(".")
   const stem =
-    extensionIndex > 0
+    extensionIndex >= 0
       ? params.relativePath.slice(0, extensionIndex)
       : params.relativePath
   const extension =
-    extensionIndex > 0 ? params.relativePath.slice(extensionIndex) : ""
+    extensionIndex >= 0 ? params.relativePath.slice(extensionIndex) : ""
 
   for (let suffix = 1; suffix <= 100; suffix++) {
     const candidateRelative = `.trash/${stem} ${suffix}${extension}`
