@@ -220,8 +220,7 @@ describe("OAuth refresh token sliding expiry", () => {
       "fresh-token",
     )
 
-    expect(typeof tokens.refresh_token).toBe("string")
-    expect(tokens.refresh_token!.length).toBeGreaterThan(0)
+    if (!tokens.refresh_token) throw new Error("no refresh token issued")
     expect(tokens.refresh_token).not.toBe("fresh-token")
     expect(tokens.scope).toBe("vault")
   })
