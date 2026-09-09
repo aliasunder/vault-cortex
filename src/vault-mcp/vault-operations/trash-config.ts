@@ -27,7 +27,7 @@ const isTrashOption = (value: unknown): value is TrashOption => {
 let cachedOption: TrashOption | null = null
 
 /** Reads the `trashOption` setting from `.obsidian/app.json`. Falls back
- *  to `"system"` (uncached — see cache comment) when the file is missing,
+ *  to `"system"` when the file is missing (uncached — retried on next call),
  *  the key is absent, or the value is unrecognized. */
 export const readTrashConfig = async (
   vaultPath: string,

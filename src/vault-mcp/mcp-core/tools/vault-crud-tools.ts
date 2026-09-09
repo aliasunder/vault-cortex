@@ -945,7 +945,7 @@ Returns: Confirmation message "Inserted <N> lines <before|after> anchor in <path
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
-      description: `Delete a markdown note, honoring the vault's Obsidian "Deleted files" setting (\`trashOption\` in \`.obsidian/app.json\`). When set to "Move to Obsidian trash (.trash folder)" (\`local\`), the note is moved to \`.trash/\` inside the vault instead of being permanently removed. All other settings — including the default "Move to system trash" — permanently delete, because Docker containers have no system trash. After deletion, links to it from other notes become broken (detectable via vault_get_backlinks). Protected paths (${describeProtectedPaths(config)}) are refused.
+      description: `Delete a markdown note, honoring the vault's Obsidian "Deleted files" setting (\`trashOption\` in \`.obsidian/app.json\`) when the vault is served locally. When set to "Move to Obsidian trash (.trash folder)" (\`local\`), the note is moved to \`.trash/\` inside the vault instead of being permanently removed. All other settings — including the default "Move to system trash" — permanently delete, because Docker containers have no system trash. When Obsidian Sync is configured, the trash setting is bypassed and notes are always permanently deleted — recovery is through Sync's version history, not .trash/. After deletion, links to it from other notes become broken (detectable via vault_get_backlinks). Protected paths (${describeProtectedPaths(config)}) are refused.
 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also remove "Archive/2024" (and "Archive") if deleting the note empties them.
@@ -960,6 +960,7 @@ Errors:
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not deletable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; retry
 - "note not found: …" — the note does not exist; verify the path with vault_list_notes before deleting
+- "cannot move … to trash — 100 collisions in .trash/" — the note's name already exists 100 times in .trash/; clear old trash files to free the name
 
 Returns: Confirmation message naming the outcome — "Deleted" for permanent removal, "Moved to trash" when the note landed in .trash/. Notes how many empty folders were pruned when any were.`,
       inputSchema: {
