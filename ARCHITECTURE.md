@@ -189,7 +189,7 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 - `folder`, `tags`, `related`, `type`, and `properties` (arbitrary frontmatter keys)
 - `created` / `modified` — date bounds `{ before, on, after }` in YYYY-MM-DD, both server-local (before/after exclusive, on exact). `created` matches the frontmatter created day and never matches notes without a parseable value for the property; `modified` matches the filesystem-mtime day
 
-`limit`, `snippet_tokens`, and `include_leading_callout` are top-level pagination/projection params alongside `query`, not inside `filters`.
+`limit`, `snippet_tokens`, and `include_leading_callout` are top-level pagination/projection params alongside `query`.
 
 `vault_recent_notes` sorts by `sort_by` — `"created"` or `"modified"` (default `"modified"`).
 
