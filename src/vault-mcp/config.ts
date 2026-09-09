@@ -168,7 +168,7 @@ export type VaultConfig = Readonly<{
   maxPdfRenderPages: number
   /** True when this is a `:remote` deploy with Obsidian Sync. Derived from
    *  VAULT_NAME presence — required for `:remote`, never set for `:latest`. */
-  obsidianSyncPresent: boolean
+  obsidianSyncEnabled: boolean
 }>
 
 // ── Loader ─────────────────────────────────────────────────────
@@ -341,6 +341,6 @@ export const loadConfig = (
     maxFileBytes,
     maxImageOutputBytes,
     maxPdfRenderPages,
-    obsidianSyncPresent: Boolean(env.VAULT_NAME),
+    obsidianSyncEnabled: Boolean(env.VAULT_NAME),
   })
 }

@@ -996,7 +996,7 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
           )
           // On :remote (Obsidian Sync), skip the config — recovery is
           // through Sync's version history, not .trash/.
-          const trashOption = config.obsidianSyncPresent
+          const trashOption = config.obsidianSyncEnabled
             ? "system"
             : await readTrashConfig(vaultPath)
           return vaultFs.deleteNote(
