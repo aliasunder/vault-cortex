@@ -10,7 +10,7 @@ import {
   rmdir,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
-import { join, dirname, relative, resolve, posix } from "node:path"
+import { join, dirname, relative, resolve, parse, posix } from "node:path"
 import picomatch from "picomatch"
 import { describeError } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
@@ -446,16 +446,10 @@ const resolveTrashPath = async (params: {
     return { trashFullPath, trashRelativePath }
   }
 
-  const extensionIndex = params.relativePath.lastIndexOf(".")
-  const stem =
-    extensionIndex >= 0
-      ? params.relativePath.slice(0, extensionIndex)
-      : params.relativePath
-  const extension =
-    extensionIndex >= 0 ? params.relativePath.slice(extensionIndex) : ""
+  const { dir, name, ext } = parse(params.relativePath)
 
   for (let suffix = 1; suffix <= 100; suffix++) {
-    const candidateRelative = `.trash/${stem} ${suffix}${extension}`
+    const candidateRelative = `.trash/${join(dir, `${name} ${suffix}${ext}`)}`
     const candidateFull = join(params.vaultPath, candidateRelative)
     if (!(await fileExists(candidateFull))) {
       return {
