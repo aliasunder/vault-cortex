@@ -715,4 +715,16 @@ describe("loadConfig", () => {
       expect(warnSpy).not.toHaveBeenCalled()
     })
   })
+
+  describe("obsidianSyncPresent", () => {
+    it("defaults to false when OBSIDIAN_AUTH_TOKEN is unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.obsidianSyncPresent).toBe(false)
+    })
+
+    it("is true when OBSIDIAN_AUTH_TOKEN is set", () => {
+      const config = loadConfig({ OBSIDIAN_AUTH_TOKEN: "fake-token" })
+      expect(config.obsidianSyncPresent).toBe(true)
+    })
+  })
 })

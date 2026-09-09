@@ -884,6 +884,41 @@ describe("deleteNote — trash behavior", () => {
     await expect(stat(join(vault, "Empty"))).rejects.toThrow(/ENOENT/)
   })
 
+  it("rejects when 100 collisions exhaust the suffix space", async () => {
+    const trashDir = join(vault, ".trash")
+    await mkdir(trashDir, { recursive: true })
+    await writeFile(join(vault, "crowded.md"), "content", "utf8")
+    // Seed the base name and suffixes 1–100 in .trash/
+    await writeFile(join(trashDir, "crowded.md"), "v0", "utf8")
+    const writes = Array.from({ length: 100 }, (_, index) => {
+      return writeFile(
+        join(trashDir, `crowded ${index + 1}.md`),
+        `v${index + 1}`,
+        "utf8",
+      )
+    })
+    await Promise.all(writes)
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "crowded.md",
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+          trashOption: "local",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'cannot move "crowded.md" to trash — 100 collisions in .trash/',
+    )
+
+    // Source file stays untouched — the move never happened
+    const content = await readFile(join(vault, "crowded.md"), "utf8")
+    expect(content).toBe("content")
+  })
+
   it("protected path check fires before trash logic", async () => {
     await mkdir(join(vault, "About Me"), { recursive: true })
     await writeFile(
