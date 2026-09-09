@@ -28,7 +28,8 @@ let cachedOption: TrashOption | null = null
 
 /** Reads the `trashOption` setting from `.obsidian/app.json`. Falls back
  *  to `"system"` when the file is missing (uncached — retried on next call),
- *  the key is absent, or the value is unrecognized. */
+ *  the key is absent, or the value is unrecognized. Throws on non-ENOENT
+ *  read failures so a broken config never silently causes permanent delete. */
 export const readTrashConfig = async (
   vaultPath: string,
 ): Promise<TrashOption> => {
@@ -45,14 +46,18 @@ export const readTrashConfig = async (
       : "system"
 
     cachedOption = trashOption
+    logger.info("trash config loaded", { trashOption })
     return trashOption
   } catch (error) {
-    if (!isErrnoException(error, "ENOENT")) {
-      logger.debug("failed to read trash config, using default", {
-        error: describeError(error),
-      })
+    if (isErrnoException(error, "ENOENT")) {
+      return "system"
     }
-    return "system"
+    // Non-ENOENT failures (EACCES, EIO) must not silently fall back to
+    // permanent delete — the user may have configured .trash/ retention.
+    throw new Error(
+      `cannot read trash config from .obsidian/app.json: ${describeError(error)}`,
+      { cause: error },
+    )
   }
 }
 

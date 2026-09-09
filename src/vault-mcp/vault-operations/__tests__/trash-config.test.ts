@@ -79,16 +79,16 @@ describe("readTrashConfig", () => {
     expect(result).toBe("system")
   })
 
-  it('defaults to "system" on malformed JSON', async () => {
+  it("throws on malformed JSON so a broken config never silently causes permanent delete", async () => {
     resetTrashConfigCache()
     const vault = await createVault()
     const obsidianDir = join(vault, ".obsidian")
     await mkdir(obsidianDir, { recursive: true })
     await writeFile(join(obsidianDir, "app.json"), "not valid json{{{", "utf8")
 
-    const result = await readTrashConfig(vault)
-
-    expect(result).toBe("system")
+    await expect(readTrashConfig(vault)).rejects.toThrow(
+      "cannot read trash config from .obsidian/app.json",
+    )
   })
 
   it("retries after ENOENT — a config appearing later is picked up without a restart", async () => {
