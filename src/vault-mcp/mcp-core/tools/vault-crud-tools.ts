@@ -952,7 +952,7 @@ Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: t
 
 When to use: Removing a note you no longer need.${whenToolEnabledText("vault_delete_memory", `\nPrefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.`)}
 
-Behavior: With prune_empty_folders, pruning is best-effort and runs after the delete — it never fails the call, so the note is always removed even if a folder can't be removed. If your vault uses Obsidian Sync, deleted notes are recoverable from Sync's version history (1 month on Standard, 12 months on Plus).
+Behavior: With prune_empty_folders, pruning is best-effort and runs after the delete or trash move — it never fails the call, so the note is always gone from its original path even if a folder can't be removed. If your vault uses Obsidian Sync, deleted notes are recoverable from Sync's version history (1 month on Standard, 12 months on Plus).
 
 Errors:
 - "cannot delete protected path" — the path sits under a protected folder${whenToolEnabledText("vault_delete_memory", "; use vault_delete_memory for memory entries")}
