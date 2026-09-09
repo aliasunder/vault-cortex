@@ -164,6 +164,7 @@ src/
       daily-notes.ts                   # Daily note config reader + path resolver (env settings > daily-notes.json)
       task-mutations.ts                # Task create + state mutations (status, priority, heading moves, sub-tasks)
       task-format-config.ts            # Tasks-plugin format config reader (emoji vs Dataview)
+      trash-config.ts                  # Obsidian "Deleted files" config reader (trashOption from .obsidian/app.json)
       asset-operations.ts              # Asset read dispatch + browsing (image fit, canvas linearize/raw, extension filter, statted slice)
     mcp-core/                          # MCP protocol surface
       mcp-router.ts                    # /mcp session routes + transport lifecycle
@@ -386,7 +387,7 @@ goes in `obsidian-markdown/`, never `utils/`.
 - **Parser, small-helper, and config-reader modules** — the
   `obsidian-markdown/` parsers (`frontmatter`, `headings`, `callouts`,
   `lines`), `utils/`, and the config readers (`daily-notes`,
-  `task-format-config`) — export **named functions**. The shape tracks whether
+  `task-format-config`, `trash-config`) — export **named functions**. The shape tracks whether
   a module _performs operations_ (→ namespace) or _parses/reads
   configuration_ (→ named), **not** whether it does I/O: the parsers are pure,
   while the config readers do light I/O, yet both use named exports because
