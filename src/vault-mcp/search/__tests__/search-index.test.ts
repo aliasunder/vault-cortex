@@ -867,10 +867,7 @@ describe("fullTextSearch", () => {
   })
 
   it("respects limit", () => {
-    const results = index.fullTextSearch(
-      { query: "notes", limit: 1 },
-      logger,
-    )
+    const results = index.fullTextSearch({ query: "notes", limit: 1 }, logger)
     expect(results).toHaveLength(1)
   })
 
