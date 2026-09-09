@@ -448,6 +448,7 @@ const resolveTrashPath = async (params: {
 
   const { dir, name, ext } = parse(params.relativePath)
 
+  // Target already exists — find a free name: note 1.md, note 2.md, …
   for (let suffix = 1; suffix <= 100; suffix++) {
     const candidateRelative = `.trash/${join(dir, `${name} ${suffix}${ext}`)}`
     const candidateFull = join(params.vaultPath, candidateRelative)
