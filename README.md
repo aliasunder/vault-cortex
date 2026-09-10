@@ -300,7 +300,7 @@ See [ARCHITECTURE.md → Files](./ARCHITECTURE.md#files) for the image pipeline 
 |                 | `vault_replace_span`         | Replace a block of lines by short anchors with new content                              |
 |                 | `vault_insert_at_anchor`     | Insert content before or after a line identified by a short anchor                      |
 |                 | `vault_list_notes`           | List notes with optional glob/folder filter                                             |
-|                 | `vault_delete_note`          | Delete a note (protected paths enforced)                                                |
+|                 | `vault_delete_note`          | Delete a note, honoring the vault's trash setting (protected paths enforced)            |
 |                 | `vault_move_note`            | Move or rename a note, rewriting links across the vault                                 |
 | **Search**      | `vault_search`               | Hybrid search with tag/folder/property/date filters                                     |
 |                 | `vault_search_by_tag`        | Find notes by tag (exact or prefix match)                                               |
@@ -431,6 +431,7 @@ Vault Cortex writes to personal notes — the file safety layer is built to prev
 - **Per-file mutex** — concurrent MCP tool calls serialize or fail-fast per file. Moves lock the source, destination, and every backlink source as one unit.
 - **Path traversal blocked** — `resolveSafePath()` resolves then prefix-checks every path. Protected-path deletion is refused after normalization. Memory file names reject separators at the boundary.
 - **Hidden paths are off-limits** — files and folders starting with a dot (`.obsidian/`, `.trash/`) never appear in listings or search, and any tool call that targets one directly is rejected, matching Obsidian. Plugin configs and their API keys stay out of reach.
+- **Deletes honor Obsidian's trash setting** — with "Deleted files" set to "Move to Obsidian trash", a deleted note moves to `.trash/` inside the vault instead of being removed; every other setting deletes permanently, because a container has no system trash. On Obsidian Sync deployments deletes are always permanent and sync to every device — recovery is Sync's version history.
 - **Injection prevention** — search queries are parameterized and FTS5-sanitized; prompt content is wrapped in XML data markers with closing-tag escaping to prevent tag-breakout injection.
 - **Container hardening** — non-root user, PID 1 init, no package managers in the runtime image, digest-pinned base, graceful shutdown.
 
