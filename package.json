@@ -107,7 +107,7 @@
     "zod": "4.5.4"
   },
   "overrides": {
-    "adm-zip": "0.6.0",
+    "adm-zip": "npm:empty-npm-package@1.0.0",
     "js-yaml": "4.3.2",
     "smol-toml": "1.8.0",
     "@huggingface/transformers": {

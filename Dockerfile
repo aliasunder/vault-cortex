@@ -38,7 +38,8 @@ FROM node:24-trixie-slim@sha256:6950b66b4c0cb0151ce89fa75074673850763d096b044f42
 WORKDIR /app
 RUN apt-get update -qq && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json* ./
-RUN npm ci
+# Without the env var, onnxruntime-node's postinstall downloads CUDA binaries on linux/x64.
+RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci
 COPY tsconfig.json sst-env.d.ts ./
 COPY src/ ./src/
 # Server compile only — cli/ is npm-distributed and never copied into the image.
