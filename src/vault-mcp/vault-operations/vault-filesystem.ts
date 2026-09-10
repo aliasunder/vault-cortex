@@ -42,14 +42,15 @@ import {
 } from "../obsidian-markdown/lines.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import { caseFoldPath } from "../../utils/case-fold-path.js"
 import type { TrashOption } from "./trash-config.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
 import type { Logger } from "../../logger.js"
 
-/** Canonicalizes a path for the protected-path prefix check: converts Windows
- *  backslashes to forward slashes, then collapses "./" and "../" so a separator
- *  or traversal variant can't evade the check. Absolute or vault-escaping paths
- *  are left for resolveSafePath. */
+/** Normalizes a note path's spelling: converts Windows backslashes to forward
+ *  slashes, then collapses "./" and "../" segments. Purely lexical — absolute
+ *  and vault-escaping paths pass through unchanged, so safety checks belong to
+ *  resolveSafePath and prefix guards to resolveVaultRelativePath. */
 export const toVaultRelativePath = (input: string): string =>
   posix.normalize(input.replace(/\\/g, "/"))
 
@@ -73,6 +74,32 @@ export const resolveSafePath = (
     )
   }
   return resolved
+}
+
+/** Canonical vault-relative form of a note path — prefix guards must run on
+ *  this form so path aliases (absolute, separator, traversal) can't evade
+ *  them. Throws resolveSafePath's traversal/hidden errors for unsafe input. */
+export const resolveVaultRelativePath = (params: {
+  vaultPath: string
+  notePath: string
+}): string => {
+  const normalizedInput = toVaultRelativePath(params.notePath)
+  const resolvedPath = resolveSafePath(params.vaultPath, normalizedInput)
+  return relative(resolve(params.vaultPath), resolvedPath)
+}
+
+/** True when the path sits under one of the protected folders (memory, daily
+ *  notes). The comparison is case-folded so a case-aliased spelling can't slip
+ *  past the guard on a case-insensitive filesystem (macOS/Windows bind
+ *  mounts); the path must already be canonical (resolveVaultRelativePath). */
+export const isProtectedPath = (params: {
+  path: string
+  protectedPaths: readonly string[]
+}): boolean => {
+  const foldedPath = caseFoldPath(params.path)
+  return params.protectedPaths
+    .map((folder) => (folder.endsWith("/") ? folder : `${folder}/`))
+    .some((prefix) => foldedPath.startsWith(caseFoldPath(prefix)))
 }
 
 /**
@@ -496,15 +523,16 @@ const deleteNote = async (
   logger: Logger,
 ): Promise<DeleteNoteResult> => {
   assertPathHasExtension(params.path, ".md")
-  // Normalize before the protected-path check so a traversal path like
-  // "X/../About Me/Principles.md" can't evade the prefix test yet still resolve
-  // into a protected folder.
-  const path = toVaultRelativePath(params.path)
+  // Canonicalize before the protected-path check so an aliased spelling —
+  // absolute ("/vault/About Me/x.md"), traversal ("X/../About Me/x.md"), or
+  // separator variant — can't evade the prefix test yet still resolve into a
+  // protected folder.
+  const path = resolveVaultRelativePath({
+    vaultPath: params.vaultPath,
+    notePath: params.path,
+  })
 
-  const protectedPrefixes = params.protectedPaths.map((folder) =>
-    folder.endsWith("/") ? folder : `${folder}/`,
-  )
-  if (protectedPrefixes.some((prefix) => path.startsWith(prefix))) {
+  if (isProtectedPath({ path, protectedPaths: params.protectedPaths })) {
     throw new Error(`cannot delete protected path "${path}"`)
   }
 

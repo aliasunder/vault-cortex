@@ -21,6 +21,8 @@ import { dirname, posix } from "node:path"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import {
   resolveSafePath,
+  resolveVaultRelativePath,
+  isProtectedPath,
   atomicWriteFile,
   atomicWriteFileExclusive,
   pruneEmptyParents,
@@ -452,15 +454,6 @@ const rewriteNoteContent = (
 
 // ── Orchestration ───────────────────────────────────────────────
 
-/** True when path sits under one of the protected folders (memory, daily notes). */
-const isProtected = (
-  path: string,
-  protectedPaths: readonly string[],
-): boolean =>
-  protectedPaths
-    .map((folder) => (folder.endsWith("/") ? folder : `${folder}/`))
-    .some((prefix) => path.startsWith(prefix))
-
 /** Caps concurrent file handles during rewriting and filesystem scanning. */
 const REWRITE_CONCURRENCY = 10
 
@@ -583,19 +576,28 @@ const moveNote = async (
     allAssetPaths,
     pruneEmptyFolders,
   } = params
-  // Normalize before any guard or comparison — see toVaultRelativePath.
-  const oldPath = toVaultRelativePath(params.oldPath)
-  const newPath = toVaultRelativePath(params.newPath)
+  assertPathHasExtension(params.oldPath, ".md")
+  assertPathHasExtension(params.newPath, ".md")
+  // Canonicalize before every guard and comparison — an aliased spelling
+  // (absolute, traversal, separator variant) must not evade the protected
+  // check or the same-path comparison, and every downstream use (index
+  // queries, link rewriting, reported paths) expects the canonical form.
+  const oldPath = resolveVaultRelativePath({
+    vaultPath,
+    notePath: params.oldPath,
+  })
+  const newPath = resolveVaultRelativePath({
+    vaultPath,
+    notePath: params.newPath,
+  })
 
   if (oldPath === newPath) {
     throw new Error("source and destination are the same path")
   }
-  assertPathHasExtension(oldPath, ".md")
-  assertPathHasExtension(newPath, ".md")
-  if (isProtected(oldPath, protectedPaths)) {
+  if (isProtectedPath({ path: oldPath, protectedPaths })) {
     throw new Error(`cannot move protected path "${oldPath}"`)
   }
-  if (isProtected(newPath, protectedPaths)) {
+  if (isProtectedPath({ path: newPath, protectedPaths })) {
     throw new Error(`cannot move into protected path "${newPath}"`)
   }
 

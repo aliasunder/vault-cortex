@@ -2,6 +2,7 @@
  *  verified over real HTTP transport against a real server. */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest"
+import { join } from "node:path"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
   startServer,
@@ -26,11 +27,15 @@ const expectToolError = (
 
 let client: Client
 let cleanup: (() => Promise<void>) | undefined
+// The server's on-disk vault root — lets a test address a note by its
+// absolute container path, the aliasing route the protected-path tests pin.
+let serverVaultPath: string
 
 beforeAll(async () => {
   const port = await freePort()
   const server = await startServer(port)
   cleanup = server.cleanup
+  serverVaultPath = server.vaultPath
   client = await createTestClient(server.port)
 }, 30_000)
 
@@ -40,6 +45,46 @@ afterAll(async () => {
   } finally {
     if (cleanup) await cleanup()
   }
+})
+
+// ── Protected paths ──────────────────────────────────────────
+
+describe("protected path refusals", () => {
+  it("vault_delete_note refuses a note under a protected folder", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "About Me/Preferences.md" },
+    })
+    expectToolError(
+      result,
+      'cannot delete protected path "About Me/Preferences.md"',
+    )
+  })
+
+  it("vault_delete_note refuses an absolute container path into a protected folder", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: join(serverVaultPath, "About Me/Preferences.md") },
+    })
+    expectToolError(
+      result,
+      'cannot delete protected path "About Me/Preferences.md"',
+    )
+  })
+
+  it("vault_move_note refuses a source under a protected folder", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: "About Me/Preferences.md", new_path: "Elsewhere.md" },
+    })
+    expectToolError(
+      result,
+      'cannot move protected path "About Me/Preferences.md"',
+    )
+  })
 })
 
 // ── Path traversal ───────────────────────────────────────────

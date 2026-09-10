@@ -53,9 +53,11 @@ mechanism-level detail.
 
 - `resolveSafePath()` resolves then prefix-checks every user-supplied
   path — `../../etc/passwd` throws before any filesystem access
-- `toVaultRelativePath()` normalizes backslashes and collapses `../`
-  before protected-path checks (prevents evasion via
-  `X/../Protected/file.md`)
+- Protected-path checks run on the canonical vault-relative form of the
+  resolved path (`resolveVaultRelativePath()`), with a case-folded
+  comparison — an aliased spelling (absolute container path, `\`
+  separators, `X/../Protected/file.md`, or a case variant on a
+  case-insensitive filesystem) cannot evade the guard
 - `vaultFolderName` Zod schema rejects `..`, absolute paths, and blank
   names at config parse time
 - Memory file names reject `/` and `\` — prevents `../../outside`-style

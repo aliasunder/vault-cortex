@@ -4,7 +4,7 @@ import { z } from "zod"
 import type { VaultConfig } from "../../config.js"
 import {
   vaultFs,
-  toVaultRelativePath,
+  resolveVaultRelativePath,
 } from "../../vault-operations/vault-filesystem.js"
 import { noteMover } from "../../vault-operations/note-mover.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
@@ -1095,11 +1095,17 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
       return safeHandler(
         reqLogger,
         async () => {
-          // Normalize to the canonical vault-relative form before the index
-          // lookup so a non-canonical input (e.g. "A/../Note.md") still finds its
-          // backlinks — the same normalization moveNote applies internally.
-          const normalizedOldPath = toVaultRelativePath(oldPath)
-          const normalizedNewPath = toVaultRelativePath(newPath)
+          // Canonicalize before the index lookup so an aliased input (an
+          // absolute container path, or "A/../Note.md") still finds its
+          // backlinks — the same canonicalization moveNote applies internally.
+          const normalizedOldPath = resolveVaultRelativePath({
+            vaultPath,
+            notePath: oldPath,
+          })
+          const normalizedNewPath = resolveVaultRelativePath({
+            vaultPath,
+            notePath: newPath,
+          })
           const backlinks = search.getBacklinks(
             { path: normalizedOldPath },
             reqLogger,

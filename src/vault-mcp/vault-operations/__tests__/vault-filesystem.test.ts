@@ -17,7 +17,7 @@ import {
   stat,
   symlink,
 } from "node:fs/promises"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { tmpdir } from "node:os"
 import {
   vaultFs,
@@ -609,6 +609,94 @@ describe("deleteNote", () => {
     )
   })
 
+  it("rejects an absolute container path into a protected folder", async () => {
+    // An absolute path never matches a vault-relative prefix, so the guard
+    // must canonicalize before comparing — otherwise this deletes the note.
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8")
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: join(vault, "About Me/Principles.md"),
+          protectedPaths: DEFAULT_PROTECTED,
+          pruneEmptyFolders: false,
+          trashOption: "system",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('cannot delete protected path "About Me/Principles.md"')
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      "protected",
+    )
+  })
+
+  it("rejects a traversal path that escapes and re-enters the vault into a protected folder", async () => {
+    // "../<vault dir>/About Me/..." leaves the root and comes back in under
+    // the vault's own directory name — it resolves inside the vault, so the
+    // traversal check passes, and only the canonical-form guard catches it.
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8")
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: join("..", basename(vault), "About Me/Principles.md"),
+          protectedPaths: DEFAULT_PROTECTED,
+          pruneEmptyFolders: false,
+          trashOption: "system",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('cannot delete protected path "About Me/Principles.md"')
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      "protected",
+    )
+  })
+
+  it("rejects a case-aliased spelling of a protected path", async () => {
+    // On a case-insensitive filesystem (macOS/Windows bind mounts)
+    // "about me/" names the same folder as "About Me/" — the guard's
+    // comparison is case-folded so the alias cannot slip past it.
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8")
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "about me/Principles.md",
+          protectedPaths: DEFAULT_PROTECTED,
+          pruneEmptyFolders: false,
+          trashOption: "system",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('cannot delete protected path "about me/Principles.md"')
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      "protected",
+    )
+  })
+
+  it("deletes a note named by an absolute container path", async () => {
+    await writeFile(join(vault, "abs-delete.md"), "bye", "utf8")
+    await deleteNote(
+      {
+        vaultPath: vault,
+        path: join(vault, "abs-delete.md"),
+        protectedPaths: DEFAULT_PROTECTED,
+        pruneEmptyFolders: false,
+        trashOption: "system",
+      },
+      logger,
+    )
+    await expect(readFile(join(vault, "abs-delete.md"))).rejects.toThrow(
+      /ENOENT/,
+    )
+  })
+
   describe("empty-folder prune", () => {
     /** True when a folder still exists in the vault — used to assert pruning. */
     const folderExists = async (path: string): Promise<boolean> => {
@@ -755,6 +843,33 @@ describe("deleteNote — trash behavior", () => {
     )
     expect(trashedContent).toBe("content")
     await expect(stat(join(vault, "trash-me.md"))).rejects.toThrow(/ENOENT/)
+  })
+
+  it("trashes a note named by an absolute container path at the canonical trash location", async () => {
+    // The trash path is built from the vault-relative form — before the guard
+    // canonicalized it, an absolute input produced a nested ".trash/<vault
+    // dir>/…" layout with the container path baked in.
+    await mkdir(join(vault, "Notes"), { recursive: true })
+    await writeFile(join(vault, "Notes", "x.md"), "content", "utf8")
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: join(vault, "Notes/x.md"),
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/Notes/x.md")
+    const trashedContent = await readFile(
+      join(vault, ".trash", "Notes", "x.md"),
+      "utf8",
+    )
+    expect(trashedContent).toBe("content")
+    await expect(stat(join(vault, "Notes", "x.md"))).rejects.toThrow(/ENOENT/)
   })
 
   it("creates .trash/ subdirectories matching the source path", async () => {

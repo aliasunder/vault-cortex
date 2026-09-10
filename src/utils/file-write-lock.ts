@@ -23,27 +23,22 @@
  *  where they ARE the same file (macOS/Windows bind mounts). */
 
 import { resolve } from "node:path"
+import { caseFoldPath } from "./case-fold-path.js"
 
 // One promise per file path — that file's most recent write. Entries are
 // removed once a file's writes settle and no later write is queued (see
 // forgetIfStillTail), so the map only holds files with a write in flight.
 const fileWriteLocks = new Map<string, Promise<unknown>>()
 
-/** Canonical lock-map key: resolved, NFC-normalized, case-folded — on every
- *  platform. On case-insensitive filesystems (macOS/Windows bind mounts) two
- *  spellings of one file must share a lock key or concurrent writes lose
- *  updates. Folding unconditionally is safe because keys never touch disk
- *  and over-merging is benign: genuinely distinct case-colliding files on a
+/** Canonical lock-map key: resolved then case-folded — on every platform.
+ *  On case-insensitive filesystems (macOS/Windows bind mounts) two spellings
+ *  of one file must share a lock key or concurrent writes lose updates.
+ *  Folding unconditionally is safe because keys never touch disk and
+ *  over-merging is benign: genuinely distinct case-colliding files on a
  *  Linux vault at worst hit a spurious fail-fast rejection or a harmless
- *  queue. The upper-then-lower double map folds the pairs a bare toLowerCase
- *  misses ("ς"/"σ", "ß"/"ss"); the trailing NFC re-normalizes because case
- *  mapping does not always preserve normalization form. */
+ *  queue. */
 const lockKeyForPath = (filePath: string): string =>
-  resolve(filePath)
-    .normalize("NFC")
-    .toUpperCase()
-    .toLowerCase()
-    .normalize("NFC")
+  caseFoldPath(resolve(filePath))
 
 /** Cleanup helper — removes the map entry once the write settles, but only
  *  if no later write has queued behind it (i.e. we're still the tail). */
