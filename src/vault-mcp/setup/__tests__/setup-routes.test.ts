@@ -387,8 +387,11 @@ describe("POST /setup — sign-in outcomes", () => {
       .spyOn(syncTokenStore, "writeSyncToken")
       .mockImplementation(async (params, logger) => {
         abortController.abort()
-        await vi.waitFor(async () =>
-          expect(await harness.openConnections()).toBe(0),
+        // Socket teardown and the completion chain take milliseconds locally
+        // but can exceed vi.waitFor's default 1s budget on slow containers.
+        await vi.waitFor(
+          async () => expect(await harness.openConnections()).toBe(0),
+          { timeout: 10_000 },
         )
         return writeSyncToken(params, logger)
       })
@@ -398,8 +401,9 @@ describe("POST /setup — sign-in outcomes", () => {
       harness.postForm(CREDENTIALS, abortController.signal),
     ).rejects.toThrow("This operation was aborted")
 
-    await vi.waitFor(() =>
-      expect(harness.onSetupComplete).toHaveBeenCalledTimes(1),
+    await vi.waitFor(
+      () => expect(harness.onSetupComplete).toHaveBeenCalledTimes(1),
+      { timeout: 10_000 },
     )
     expect(await readFile(harness.tokenFilePath, "utf8")).toBe("sync-tok")
   })
