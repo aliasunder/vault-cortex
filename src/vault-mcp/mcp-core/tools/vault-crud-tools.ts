@@ -419,6 +419,7 @@ Returns: Confirmation message.`,
         overwrite: z
           .boolean()
           .optional()
+          .default(false)
           .describe(
             "Allow overwriting an existing note (default: false — errors if file exists).",
           ),
@@ -628,6 +629,7 @@ Returns: Confirmation message with replacement count (number of occurrences repl
         replace_all_occurrences: z
           .boolean()
           .optional()
+          .default(false)
           .describe(
             "Replace all occurrences (default: false — replaces first occurrence only)",
           ),
@@ -716,6 +718,7 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
         first_match: z
           .boolean()
           .optional()
+          .default(false)
           .describe(
             "If an anchor matches more than one line, delete using the first match instead of erroring (default: false — ambiguity is an error).",
           ),
@@ -811,6 +814,7 @@ Returns: Confirmation message "Replaced <N> lines with <M> lines in <path>" — 
         first_match: z
           .boolean()
           .optional()
+          .default(false)
           .describe(
             "If an anchor matches more than one line, use the first match instead of erroring (default: false — ambiguity is an error).",
           ),
@@ -904,6 +908,7 @@ Returns: Confirmation message "Inserted <N> lines <before|after> anchor in <path
         first_match: z
           .boolean()
           .optional()
+          .default(false)
           .describe(
             "If the anchor matches more than one line, use the first match instead of erroring (default: false — ambiguity is an error).",
           ),

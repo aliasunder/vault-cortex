@@ -124,14 +124,24 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
           .describe(
             "Optional structured filters — all conditions AND-combine with each other and with the text query",
           ),
-        limit: z.number().optional().describe("Max results (default 20)"),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .default(20)
+          .describe("Max results (default 20)"),
         snippet_tokens: z
           .number()
+          .int()
+          .min(1)
           .optional()
+          .default(30)
           .describe("Snippet length in tokens (default 30)"),
         include_leading_callout: z
           .boolean()
           .optional()
+          .default(false)
           .describe(
             "If true, each result includes its leading_callout ({ type, title, body }) when present. Off by default to keep results lean.",
           ),
@@ -204,6 +214,7 @@ Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, fol
         exact: z
           .boolean()
           .optional()
+          .default(false)
           .describe("Exact match only (default: false, prefix match)"),
       },
     },
@@ -279,10 +290,14 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
         sort_by: z
           .enum(["created", "modified"])
           .optional()
+          .default("modified")
           .describe('Sort order (default "modified")'),
         limit: z
           .number()
+          .int()
+          .min(1)
           .optional()
+          .default(20)
           .describe("Max results (default 20, no upper cap)"),
       },
     },
@@ -333,8 +348,15 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
         recursive: z
           .boolean()
           .optional()
+          .default(true)
           .describe("Include subfolders (default: true)"),
-        limit: z.number().optional().describe("Max results (default 20)"),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .default(20)
+          .describe("Max results (default 20)"),
       },
     },
     async ({ folder, recursive, limit }, extra) => {
@@ -425,7 +447,10 @@ Returns: JSON array of { value, count } sorted by count descending.`,
           .describe('Restrict to a folder prefix (e.g. "Projects")'),
         limit: z
           .number()
+          .int()
+          .min(1)
           .optional()
+          .default(50)
           .describe(
             "Max values to return (default 50). Increase for high-cardinality properties.",
           ),
@@ -487,7 +512,10 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .describe('Restrict to a folder prefix (e.g. "Projects")'),
         limit: z
           .number()
+          .int()
+          .min(1)
           .optional()
+          .default(20)
           .describe(
             "Max results (default 20). Increase for broad metadata queries.",
           ),
@@ -646,7 +674,13 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .describe(
             `Folders to exclude — replaces the defaults (${JSON.stringify(config.orphanExcludeFolders)}), not merged`,
           ),
-        limit: z.number().optional().describe("Max results (default 50)"),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .default(50)
+          .describe("Max results (default 50)"),
       },
     },
     async ({ exclude_folders, limit }, extra) => {
