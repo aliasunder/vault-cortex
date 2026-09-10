@@ -223,7 +223,9 @@
           "limit": {
             "default": 50,
             "description": "Max results (default 50)",
-            "type": "number"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           }
         },
         "$schema": "http://json-schema.org/draft-07/schema#"
@@ -445,7 +447,9 @@
           "limit": {
             "default": 50,
             "description": "Max values to return (default 50). Increase for high-cardinality properties.",
-            "type": "number"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           }
         },
         "required": [
@@ -919,7 +923,9 @@
           "limit": {
             "default": 20,
             "description": "Max results (default 20, no upper cap)",
-            "type": "number"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           }
         },
         "$schema": "http://json-schema.org/draft-07/schema#"
@@ -1139,12 +1145,16 @@
           "limit": {
             "default": 20,
             "description": "Max results (default 20)",
-            "type": "number"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           },
           "snippet_tokens": {
             "default": 30,
             "description": "Snippet length in tokens (default 30)",
-            "type": "number"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           },
           "include_leading_callout": {
             "default": false,
@@ -1187,7 +1197,9 @@
           "limit": {
             "default": 20,
             "description": "Max results (default 20)",
-            "type": "number"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           }
         },
         "required": [
@@ -1230,7 +1242,9 @@
           "limit": {
             "default": 20,
             "description": "Max results (default 20). Increase for broad metadata queries.",
-            "type": "number"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           }
         },
         "required": [

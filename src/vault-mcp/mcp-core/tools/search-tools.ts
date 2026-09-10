@@ -126,11 +126,15 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
           ),
         limit: z
           .number()
+          .int()
+          .min(1)
           .optional()
           .default(20)
           .describe("Max results (default 20)"),
         snippet_tokens: z
           .number()
+          .int()
+          .min(1)
           .optional()
           .default(30)
           .describe("Snippet length in tokens (default 30)"),
@@ -290,6 +294,8 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .describe('Sort order (default "modified")'),
         limit: z
           .number()
+          .int()
+          .min(1)
           .optional()
           .default(20)
           .describe("Max results (default 20, no upper cap)"),
@@ -346,6 +352,8 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .describe("Include subfolders (default: true)"),
         limit: z
           .number()
+          .int()
+          .min(1)
           .optional()
           .default(20)
           .describe("Max results (default 20)"),
@@ -439,6 +447,8 @@ Returns: JSON array of { value, count } sorted by count descending.`,
           .describe('Restrict to a folder prefix (e.g. "Projects")'),
         limit: z
           .number()
+          .int()
+          .min(1)
           .optional()
           .default(50)
           .describe(
@@ -502,6 +512,8 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .describe('Restrict to a folder prefix (e.g. "Projects")'),
         limit: z
           .number()
+          .int()
+          .min(1)
           .optional()
           .default(20)
           .describe(
@@ -664,6 +676,8 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           ),
         limit: z
           .number()
+          .int()
+          .min(1)
           .optional()
           .default(50)
           .describe("Max results (default 50)"),

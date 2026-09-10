@@ -194,6 +194,8 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
           ),
         limit: z
           .number()
+          .int()
+          .min(1)
           .optional()
           .default(50)
           .describe(
