@@ -70,6 +70,9 @@ jobs:
           cache: npm
 
       - run: npm ci
+        # Without this, onnxruntime-node's postinstall downloads CUDA binaries on linux/x64
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
 
       - name: Configure AWS credentials (OIDC)
         if: ${{ !inputs.skip_instance }}

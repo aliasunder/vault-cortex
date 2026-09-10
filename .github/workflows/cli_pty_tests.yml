@@ -22,6 +22,9 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+        # Without this, onnxruntime-node's postinstall downloads CUDA binaries on linux/x64
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
       - run: npx tsc -p cli/tsconfig.json
       - run: npx tsc -p cli/tsconfig.test.json
       - name: CLI interactive tests (node-pty)
