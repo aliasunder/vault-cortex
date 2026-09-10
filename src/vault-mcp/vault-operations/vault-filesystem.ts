@@ -553,7 +553,7 @@ const deleteNote = async (
       ? await pruneEmptyParents({ vaultPath: params.vaultPath, path }, logger)
       : 0
 
-    logger.info(trashLocation ? "trashed note" : "deleted note", {
+    logger.info("deleted note", {
       path,
       ...(trashLocation ? { trash_location: trashLocation } : {}),
       pruned_empty_folders: prunedEmptyFolders,
