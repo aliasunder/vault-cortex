@@ -251,6 +251,7 @@ Returns: JSON with files (array of { path, extension, bytes }, sorted by path), 
           .int()
           .min(1)
           .optional()
+          .default(50)
           .describe("Max entries returned (default 50)."),
       },
     },
@@ -264,7 +265,7 @@ Returns: JSON with files (array of { path, extension, bytes }, sorted by path), 
         reqLogger,
         async () => {
           const listing = await assetOperations.buildAssetListing(
-            { vaultPath, folder, extensions, limit: limit ?? 50 },
+            { vaultPath, folder, extensions, limit },
             reqLogger,
           )
           return {

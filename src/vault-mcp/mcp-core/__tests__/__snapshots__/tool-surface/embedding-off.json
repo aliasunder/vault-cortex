@@ -227,6 +227,7 @@
             "minLength": 1
           },
           "first_match": {
+            "default": false,
             "description": "If an anchor matches more than one line, delete using the first match instead of erroring (default: false — ambiguity is an error).",
             "type": "boolean"
           }
@@ -263,8 +264,11 @@
             }
           },
           "limit": {
+            "default": 50,
             "description": "Max results (default 50)",
-            "type": "number"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           }
         },
         "$schema": "http://json-schema.org/draft-07/schema#"
@@ -420,6 +424,7 @@
             "description": "Content to insert (one or more lines), inserted verbatim as whole lines — blank lines are kept, and a trailing newline adds a blank line after the block."
           },
           "first_match": {
+            "default": false,
             "description": "If the anchor matches more than one line, use the first match instead of erroring (default: false — ambiguity is an error).",
             "type": "boolean"
           }
@@ -463,6 +468,7 @@
             }
           },
           "limit": {
+            "default": 50,
             "description": "Max entries returned (default 50).",
             "type": "integer",
             "minimum": 1,
@@ -571,8 +577,11 @@
             "minLength": 1
           },
           "limit": {
+            "default": 50,
             "description": "Max values to return (default 50). Increase for high-cardinality properties.",
-            "type": "number"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           }
         },
         "required": [
@@ -617,6 +626,7 @@
         "type": "object",
         "properties": {
           "status": {
+            "default": "not_done",
             "description": "Status filter, OR-combined (default \"not_done\" = todo + in_progress, excluding done and cancelled). Virtual values expand in arrays: \"not_done\" adds todo + in_progress, \"all\" includes every status.",
             "anyOf": [
               {
@@ -821,16 +831,19 @@
             "minLength": 1
           },
           "top_level_only": {
+            "default": false,
             "description": "When true, only top-level tasks (depth 0) are returned — excludes indented sub-tasks and checklist items. Default false.",
             "type": "boolean"
           },
           "limit": {
+            "default": 50,
             "description": "Max results (default 50); total always reports the full match count",
             "type": "integer",
             "minimum": 1,
             "maximum": 9007199254740991
           },
           "sort_by": {
+            "default": "due",
             "description": "Sort key (default \"due\"). Date sorts cascade through related fields when the primary is absent; each fallback uses its own natural direction. \"position\" sorts by file path then line number — the natural order for Kanban boards.",
             "type": "string",
             "enum": [
@@ -883,8 +896,11 @@
             "minLength": 1
           },
           "limit": {
+            "default": 50,
             "description": "Cap on returned entries (default 50). When more match, the least-relevant are dropped and truncated=true — never a date range.",
-            "type": "number"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           }
         },
         "required": [
@@ -1112,6 +1128,7 @@
         "type": "object",
         "properties": {
           "sort_by": {
+            "default": "modified",
             "description": "Sort order (default \"modified\")",
             "type": "string",
             "enum": [
@@ -1120,8 +1137,11 @@
             ]
           },
           "limit": {
+            "default": 20,
             "description": "Max results (default 20, no upper cap)",
-            "type": "number"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           }
         },
         "$schema": "http://json-schema.org/draft-07/schema#"
@@ -1158,6 +1178,7 @@
             "description": "Replacement text. Empty string (\"\") deletes the matched text."
           },
           "replace_all_occurrences": {
+            "default": false,
             "description": "Replace all occurrences (default: false — replaces first occurrence only)",
             "type": "boolean"
           }
@@ -1207,6 +1228,7 @@
             "description": "Replacement content (one or more lines) — replaces every line of the matched span. Must be non-empty; use vault_delete_span to delete without replacement."
           },
           "first_match": {
+            "default": false,
             "description": "If an anchor matches more than one line, use the first match instead of erroring (default: false — ambiguity is an error).",
             "type": "boolean"
           }
@@ -1337,14 +1359,21 @@
             }
           },
           "limit": {
+            "default": 20,
             "description": "Max results (default 20)",
-            "type": "number"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           },
           "snippet_tokens": {
+            "default": 30,
             "description": "Snippet length in tokens (default 30)",
-            "type": "number"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           },
           "include_leading_callout": {
+            "default": false,
             "description": "If true, each result includes its leading_callout ({ type, title, body }) when present. Off by default to keep results lean.",
             "type": "boolean"
           }
@@ -1377,12 +1406,16 @@
             "description": "Folder path (e.g. \"Projects\", \"About Me\")"
           },
           "recursive": {
+            "default": true,
             "description": "Include subfolders (default: true)",
             "type": "boolean"
           },
           "limit": {
+            "default": 20,
             "description": "Max results (default 20)",
-            "type": "number"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           }
         },
         "required": [
@@ -1423,8 +1456,11 @@
             "minLength": 1
           },
           "limit": {
+            "default": 20,
             "description": "Max results (default 20). Increase for broad metadata queries.",
-            "type": "number"
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
           }
         },
         "required": [
@@ -1456,6 +1492,7 @@
             "description": "Tag name without \"#\" prefix (e.g. \"project\", \"session-log\"). Hierarchical tags use \"/\" separators (e.g. \"project/vault-cortex\")."
           },
           "exact": {
+            "default": false,
             "description": "Exact match only (default: false, prefix match)",
             "type": "boolean"
           }
@@ -1507,6 +1544,7 @@
                 "minLength": 1
               },
               "position": {
+                "default": "top",
                 "description": "Insert position (default \"top\" = newest first)",
                 "type": "string",
                 "enum": [
@@ -1724,6 +1762,7 @@
             "minLength": 1
           },
           "position": {
+            "default": "top",
             "description": "Where within the target heading the task lands after a heading move or auto-done-lane move. Defaults to \"top\". Ignored when no heading move occurs.",
             "type": "string",
             "enum": [
@@ -1781,6 +1820,7 @@
             "additionalProperties": {}
           },
           "overwrite": {
+            "default": false,
             "description": "Allow overwriting an existing note (default: false — errors if file exists).",
             "type": "boolean"
           }
