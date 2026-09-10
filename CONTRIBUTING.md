@@ -17,6 +17,13 @@ to get started.
    npx sst install
    ```
 
+   **Linux (x64):** run the install as
+   `ONNXRUNTIME_NODE_INSTALL=skip npm install`. Without the variable,
+   `onnxruntime-node`'s install script downloads GPU binaries the server
+   never uses, and the download fails — its archive extractor (`adm-zip`)
+   is stubbed out to resolve a security advisory. macOS and arm64 Linux
+   skip the download on their own.
+
    **Windows:** this repo uses symlinks (`CLAUDE.md → AGENTS.md`). Run
    `git config core.symlinks true` before cloning, or re-clone after
    setting it — otherwise Git checks out symlinks as plain text files

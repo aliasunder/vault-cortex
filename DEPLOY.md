@@ -27,6 +27,9 @@ SST manages the AWS infrastructure declared in `sst.config.ts`, with each develo
 npm install
 ```
 
+On Linux (x64), run `ONNXRUNTIME_NODE_INSTALL=skip npm install` instead —
+see the Linux note in [CONTRIBUTING.md](./CONTRIBUTING.md#quick-start).
+
 **2. Generate MCP auth token and set SST secret:**
 
 ```bash
