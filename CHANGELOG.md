@@ -95,6 +95,38 @@
 
 
 
+
+## [0.50.0] — 2026-09-10
+
+### ⚠ BREAKING CHANGES
+
+- `vault_memory_recall` param `max_results` renamed to `limit`. `vault_search` params `limit`, `snippet_tokens`, and `include_leading_callout` moved from `filters` to top level — old clients sending `filters.limit` etc. will have the values silently stripped (hard error once deep-strict lands in `^strict-tool-inputs`).
+
+### Features
+
+- **vault-crud:** Honor Obsidian's Deleted files setting in vault_delete_note (#543)
+- **mcp-core:** Explicit .default() on 24 tool params (#547)
+- V1 rename sweep — max_results→limit, un-nest search presentation params, gate patch-note refs (#545)
+
+### Bug Fixes
+
+- **oauth:** Use seconds-based TTL in sliding-expiry test assertion (#544)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.49.1
+
+### Maintenance
+
+- **deps:** Bump node from `50c3b2f` to `6950b66` (#549)
+- **deps-dev:** Bump the development group with 2 updates (#550)
+
+### Other Changes
+
+- **deps:** Bump commander to 15.0.0 and drop its Dependabot major ignore (#548)
+- **oauth:** Clean up guard-hook warnings in oauth-provider.test.ts (#546)
+- **mcp-core:** Pin the MCP wire surface with a per-combo snapshot baseline (#537)
+
 ## [0.49.1] — 2026-09-08
 
 ### ⚠ BREAKING CHANGES
