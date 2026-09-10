@@ -380,13 +380,15 @@ describe("POST /setup — sign-in outcomes", () => {
       },
     })
     const writeSyncToken = syncTokenStore.writeSyncToken
-    const abortController = new AbortController()
+    // node:http request whose socket we can destroy — Node 24's fetch
+    // abort does not reliably close the server-side TCP socket.
+    let clientRequest: ReturnType<typeof httpRequest> | undefined
     // Hold the token write until the browser's connection is gone, so the
     // completion page can only ever be sent to a closed connection.
     const writeSpy = vi
       .spyOn(syncTokenStore, "writeSyncToken")
       .mockImplementation(async (params, logger) => {
-        abortController.abort()
+        clientRequest?.destroy()
         // Socket teardown and the completion chain take milliseconds locally
         // but can exceed vi.waitFor's default 1s budget on slow containers.
         await vi.waitFor(
@@ -397,9 +399,24 @@ describe("POST /setup — sign-in outcomes", () => {
       })
     onTestFinished(() => writeSpy.mockRestore())
 
+    const body = new URLSearchParams(CREDENTIALS).toString()
     await expect(
-      harness.postForm(CREDENTIALS, abortController.signal),
-    ).rejects.toThrow("This operation was aborted")
+      new Promise<void>((resolve, reject) => {
+        clientRequest = httpRequest(
+          `${harness.baseUrl}/setup`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/x-www-form-urlencoded",
+              "content-length": Buffer.byteLength(body).toString(),
+            },
+          },
+          () => resolve(),
+        )
+        clientRequest.on("error", reject)
+        clientRequest.end(body)
+      }),
+    ).rejects.toThrow("socket hang up")
 
     await vi.waitFor(
       () => expect(harness.onSetupComplete).toHaveBeenCalledTimes(1),
