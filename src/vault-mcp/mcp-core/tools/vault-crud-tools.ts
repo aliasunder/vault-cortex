@@ -8,6 +8,7 @@ import {
 } from "../../vault-operations/vault-filesystem.js"
 import { noteMover } from "../../vault-operations/note-mover.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
+import { readTrashConfig } from "../../vault-operations/trash-config.js"
 import { vaultPatcher } from "../../vault-operations/vault-patcher.js"
 import type { DisplacedLeadingContent } from "../../vault-operations/vault-patcher.js"
 import { pageTextByLines } from "../../obsidian-markdown/lines.js"
@@ -949,14 +950,14 @@ Returns: Confirmation message "Inserted <N> lines <before|after> anchor in <path
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
-      description: `Permanently delete a markdown note — removed from disk directly (no trash, no undo). After deletion, links to it from other notes become broken (detectable via vault_get_backlinks). Protected paths (${describeProtectedPaths(config)}) are refused.
+      description: `Delete a markdown note, honoring the vault's Obsidian "Deleted files" setting (\`trashOption\` in \`.obsidian/app.json\`) when the vault is served locally. When set to "Move to Obsidian trash (.trash folder)" (\`local\`), the note is moved to \`.trash/\` inside the vault instead of being permanently removed. All other settings — including the default "Move to system trash" — permanently delete, because Docker containers have no system trash. When Obsidian Sync is configured, the trash setting is bypassed and notes are always permanently deleted — recovery is through Sync's version history, not .trash/. After deletion, links to it from other notes become broken (detectable via vault_get_backlinks). Protected paths (${describeProtectedPaths(config)}) are refused.
 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also remove "Archive/2024" (and "Archive") if deleting the note empties them.
 
 When to use: Removing a note you no longer need.${whenToolEnabledText("vault_delete_memory", `\nPrefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.`)}
 
-Behavior: With prune_empty_folders, pruning is best-effort and runs after the delete — it never fails the call, so the note is always removed even if a folder can't be removed.
+Behavior: With prune_empty_folders, pruning is best-effort and runs after the delete or trash move — it never fails the call, so the note is always gone from its original path even if a folder can't be removed. If your vault uses Obsidian Sync, deleted notes are recoverable from Sync's version history (1 month on Standard, 12 months on Plus).
 
 Errors:
 - "cannot delete protected path" — the path sits under a protected folder${whenToolEnabledText("vault_delete_memory", "; use vault_delete_memory for memory entries")}
@@ -964,8 +965,12 @@ Errors:
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not deletable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; retry
 - "note not found: …" — the note does not exist; verify the path with vault_list_notes before deleting
+- "cannot move to trash … — 100 collisions in .trash/" — the note's name already exists 100 times in .trash/; clear old trash files to free the name
+- "cannot move to trash …" — the .trash/ move failed (e.g. a plain file blocks a needed directory); the note remains at its original path
+- "cannot delete …" — permanent delete failed (e.g. permissions); the note remains at its original path
+- "cannot read trash config from .obsidian/app.json" — the config file exists but is unreadable (permissions, corruption); the delete is blocked to prevent accidental permanent deletion when the user may have configured .trash/ retention
 
-Returns: Confirmation message, noting how many empty folders were pruned when any were.`,
+Returns: Confirmation message naming the outcome — "Deleted" for permanent removal, "Moved to trash" when the note landed in .trash/. Notes how many empty folders were pruned when any were.`,
       inputSchema: {
         path: z
           .string()
@@ -995,19 +1000,31 @@ Returns: Confirmation message, noting how many empty folders were pruned when an
             config,
             vaultPath,
           )
+          // On :remote (Obsidian Sync), skip the config — recovery is
+          // through Sync's version history, not .trash/.
+          const trashOption = config.obsidianSyncEnabled
+            ? "system"
+            : await readTrashConfig(vaultPath)
           return vaultFs.deleteNote(
-            { vaultPath, path, protectedPaths, pruneEmptyFolders },
+            { vaultPath, path, protectedPaths, pruneEmptyFolders, trashOption },
             reqLogger,
           )
         },
-        ({ prunedEmptyFolders }) => {
+        ({ prunedEmptyFolders, trashLocation }) => {
+          const outcome = trashLocation ? "trashed" : "deleted"
           reqLogger.info("tool_result", {
-            outcome: "deleted",
+            outcome,
             prunedEmptyFolders,
+            ...(trashLocation ? { trash_location: trashLocation } : {}),
           })
-          return prunedEmptyFolders > 0
-            ? `Deleted ${path} (removed ${prunedEmptyFolders} empty folder${prunedEmptyFolders > 1 ? "s" : ""})`
-            : `Deleted ${path}`
+          const folderLabel = prunedEmptyFolders > 1 ? "folders" : "folder"
+          const pruneSuffix =
+            prunedEmptyFolders > 0
+              ? ` (removed ${prunedEmptyFolders} empty ${folderLabel})`
+              : ""
+          return trashLocation
+            ? `Moved ${path} to trash (${trashLocation})${pruneSuffix}`
+            : `Deleted ${path}${pruneSuffix}`
         },
       )
     },

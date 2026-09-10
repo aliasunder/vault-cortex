@@ -1107,8 +1107,8 @@ Docker hardening, and durability seatbelts above.
   filter, file watcher, and index rebuild — one definition of "hidden",
   every layer ("one rule, every layer", like `assertPathHasExtension`).
   The internal `.obsidian/` config readers (`daily-notes.ts`,
-  `task-format-config.ts`) deliberately bypass this guard via direct
-  `readFile`.
+  `task-format-config.ts`, `trash-config.ts`) deliberately bypass this
+  guard via direct `readFile`.
 - **`toVaultRelativePath()`** (`vault-filesystem.ts`): normalizes
   backslashes and collapses `../` _before_ the protected-path prefix
   check, so `X/../About Me/Principles.md` cannot evade protection.

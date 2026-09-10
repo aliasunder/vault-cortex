@@ -10,7 +10,7 @@ import {
   rmdir,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
-import { join, dirname, relative, resolve, posix } from "node:path"
+import { join, dirname, relative, resolve, parse, posix } from "node:path"
 import picomatch from "picomatch"
 import { describeError } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
@@ -42,6 +42,7 @@ import {
 } from "../obsidian-markdown/lines.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import type { TrashOption } from "./trash-config.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
 import type { Logger } from "../../logger.js"
 
@@ -427,16 +428,70 @@ type DeleteNoteResult = {
   /** Number of now-empty parent folders removed. Always 0 unless
    *  pruneEmptyFolders was set. */
   prunedEmptyFolders: number
+  /** Vault-relative path in `.trash/` when the note was moved to trash.
+   *  Undefined when permanently deleted. */
+  trashLocation?: string
 }
 
-/** Deletes a note. Rejects paths under the configured protected paths. When
- *  pruneEmptyFolders is set, removes any parent folders the deletion empties. */
+/** Finds an available path inside `.trash/` for a note being trashed. */
+const resolveTrashPath = async (params: {
+  vaultPath: string
+  relativePath: string
+}): Promise<{ trashFullPath: string; trashRelativePath: string }> => {
+  const trashRelativePath = `.trash/${params.relativePath}`
+  const trashFullPath = join(params.vaultPath, trashRelativePath)
+
+  // Name is free — use it as-is
+  if (!(await fileExists(trashFullPath))) {
+    return { trashFullPath, trashRelativePath }
+  }
+
+  // Name is taken — append a numeric suffix (note 1.md, note 2.md, …)
+  // until one is free. Without this, rename silently overwrites the
+  // previous copy.
+  const { dir, name, ext } = parse(params.relativePath)
+  for (let suffix = 1; suffix <= 100; suffix++) {
+    const candidateRelative = `.trash/${join(dir, `${name} ${suffix}${ext}`)}`
+    const candidateFull = join(params.vaultPath, candidateRelative)
+    if (!(await fileExists(candidateFull))) {
+      return {
+        trashFullPath: candidateFull,
+        trashRelativePath: candidateRelative,
+      }
+    }
+  }
+
+  throw new Error(
+    `cannot move to trash "${params.relativePath}" — 100 collisions in .trash/`,
+  )
+}
+
+/** Moves a note to `.trash/`, creating parent directories as needed.
+ *  Returns the vault-relative trash path. */
+const moveNoteToTrash = async (params: {
+  vaultPath: string
+  relativePath: string
+  fullPath: string
+}): Promise<string> => {
+  const { trashFullPath, trashRelativePath } = await resolveTrashPath({
+    vaultPath: params.vaultPath,
+    relativePath: params.relativePath,
+  })
+  await mkdir(dirname(trashFullPath), { recursive: true })
+  await rename(params.fullPath, trashFullPath)
+  return trashRelativePath
+}
+
+/** Deletes or trashes a note depending on the vault's Deleted files setting.
+ *  Rejects paths under the configured protected paths. When pruneEmptyFolders
+ *  is set, removes any parent folders the operation empties. */
 const deleteNote = async (
   params: {
     vaultPath: string
     path: string
     protectedPaths: readonly string[]
     pruneEmptyFolders: boolean
+    trashOption: TrashOption
   },
   logger: Logger,
 ): Promise<DeleteNoteResult> => {
@@ -456,7 +511,8 @@ const deleteNote = async (
   const fullPath = resolveSafePath(params.vaultPath, path)
   // Locked so a concurrent read-modify-write (patch/replace) can't recreate
   // the note via its atomic-rename write after the unlink, and so a delete
-  // rejects while a note move holds this path.
+  // throws while a note move holds this path — the lock fails fast, it never
+  // waits.
   return withExclusiveFileLock(fullPath, async () => {
     // Checked inside the lock, mirroring moveNote — a clean vault-relative
     // "note not found" instead of unlink's raw ENOENT (whose message would
@@ -464,15 +520,51 @@ const deleteNote = async (
     if (!(await fileExists(fullPath))) {
       throw new Error(`note not found: "${path}"`)
     }
-    await unlink(fullPath)
+
+    // The trash path bypasses resolveSafePath because .trash/ is a hidden
+    // path the guard rejects. Safe: `path` was already validated above.
+    // Assigned inside the try — const can't span the catch boundary
+    let trashLocation: string | undefined
+    try {
+      // Only "local" has a destination here. "system" trash doesn't exist
+      // inside a container and "none" means delete, so both unlink for good.
+      if (params.trashOption === "local") {
+        trashLocation = await moveNoteToTrash({
+          vaultPath: params.vaultPath,
+          relativePath: path,
+          fullPath,
+        })
+      } else {
+        await unlink(fullPath)
+      }
+    } catch (error) {
+      // Collision errors from resolveTrashPath are already vault-relative
+      if (error instanceof Error && error.message.startsWith("cannot move")) {
+        throw error
+      }
+      // Log the raw fs detail (errno, absolute path) for the operator;
+      // surface only a vault-relative message to the client.
+      const action = params.trashOption === "local" ? "move to trash" : "delete"
+      logger.warn(`failed to ${action} note`, {
+        path,
+        error: describeError(error),
+      })
+      throw new Error(`cannot ${action} "${path}"`, { cause: error })
+    }
+
     const prunedEmptyFolders = params.pruneEmptyFolders
       ? await pruneEmptyParents({ vaultPath: params.vaultPath, path }, logger)
       : 0
+
     logger.info("deleted note", {
       path,
+      ...(trashLocation ? { trash_location: trashLocation } : {}),
       pruned_empty_folders: prunedEmptyFolders,
     })
-    return { prunedEmptyFolders }
+    return {
+      prunedEmptyFolders,
+      ...(trashLocation ? { trashLocation } : {}),
+    }
   })
 }
 

@@ -90,7 +90,7 @@ See [ARCHITECTURE.md → Files](https://github.com/aliasunder/vault-cortex/blob/
 |  | `vault_replace_span` | Replace a block of lines by short anchors with new content |
 |  | `vault_insert_at_anchor` | Insert content before or after a line identified by a short anchor |
 |  | `vault_list_notes` | List notes with optional glob/folder filter |
-|  | `vault_delete_note` | Delete a note (protected paths enforced) |
+|  | `vault_delete_note` | Delete a note, honoring the vault's trash setting (protected paths enforced) |
 |  | `vault_move_note` | Move or rename a note, rewriting links across the vault |
 | **Search** | `vault_search` | Hybrid search with tag/folder/property/date filters |
 |  | `vault_search_by_tag` | Find notes by tag (exact or prefix match) |

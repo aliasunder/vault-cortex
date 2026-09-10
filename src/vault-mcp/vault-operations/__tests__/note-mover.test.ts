@@ -1343,6 +1343,7 @@ describe("moveNote — concurrent write locking", () => {
           path: "Foo.md",
           protectedPaths: PROTECTED,
           pruneEmptyFolders: false,
+          trashOption: "system",
         },
         logger,
       ),

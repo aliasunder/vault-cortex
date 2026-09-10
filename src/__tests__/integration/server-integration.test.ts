@@ -717,17 +717,50 @@ describe("default config", () => {
       })
       expect(textContent(afterMoveNew)).toContain("Span-replaced line.")
 
-      // delete — verify the note is gone
+      // delete — the fixture vault sets trashOption "local", so the note
+      // moves to .trash/ rather than being unlinked; assert that outcome
+      // so the read failure below can't come from anything else
       const deleteResult = await callTool({
         client,
         name: "vault_delete_note",
         args: { path: "Scratch/test-moved.md" },
       })
       expect(deleteResult.isError).not.toBe(true)
+      expect(textContent(deleteResult)).toBe(
+        "Moved Scratch/test-moved.md to trash (.trash/Scratch/test-moved.md)",
+      )
       const afterDelete = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Scratch/test-moved.md" },
+      })
+      expect(afterDelete.isError).toBe(true)
+    })
+  })
+
+  describe("trash on delete", () => {
+    it("moves to .trash/ when trashOption is local and reports the trash location", async () => {
+      await callTool({
+        client,
+        name: "vault_write_note",
+        args: { path: "Scratch/trash-test.md", body: "trash me" },
+      })
+
+      const deleteResult = await callTool({
+        client,
+        name: "vault_delete_note",
+        args: { path: "Scratch/trash-test.md" },
+      })
+
+      expect(deleteResult.isError).not.toBe(true)
+      expect(textContent(deleteResult)).toBe(
+        "Moved Scratch/trash-test.md to trash (.trash/Scratch/trash-test.md)",
+      )
+
+      const afterDelete = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Scratch/trash-test.md" },
       })
       expect(afterDelete.isError).toBe(true)
     })
