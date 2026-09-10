@@ -31,6 +31,7 @@ import {
 import { links } from "../obsidian-markdown/links.js"
 import { classifyLines } from "../obsidian-markdown/lines.js"
 import { withExclusiveMultiFileLock } from "../../utils/file-write-lock.js"
+import { caseFoldPath } from "../../utils/case-fold-path.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import { describeError } from "../../utils/describe-error.js"
 import { fileExists } from "../../utils/fs.js"
@@ -454,6 +455,30 @@ const rewriteNoteContent = (
 
 // ── Orchestration ───────────────────────────────────────────────
 
+/** The index's spelling for a path the index does not contain verbatim.
+ *  Backlink queries, rewrite planning, and the vault-wide scan all key on the
+ *  index's on-disk spelling, so a case-aliased input — same file on a
+ *  case-insensitive filesystem (macOS/Windows bind mounts), different string —
+ *  would silently miss every backlink. The disk probe keeps case-sensitive
+ *  filesystems exact: there the aliased file does not exist, the input passes
+ *  through unchanged, and the move fails cleanly at its not-found check. */
+const indexedSpellingForAliasedPath = async (params: {
+  vaultPath: string
+  path: string
+  allNotePaths: readonly string[]
+}): Promise<string> => {
+  const pathExistsOnDisk = await fileExists(
+    resolveSafePath(params.vaultPath, params.path),
+  )
+  if (!pathExistsOnDisk) return params.path
+
+  const foldedPath = caseFoldPath(params.path)
+  const indexedSpelling = params.allNotePaths.find(
+    (notePath) => caseFoldPath(notePath) === foldedPath,
+  )
+  return indexedSpelling ?? params.path
+}
+
 /** Caps concurrent file handles during rewriting and filesystem scanning. */
 const REWRITE_CONCURRENCY = 10
 
@@ -582,7 +607,7 @@ const moveNote = async (
   // (absolute, traversal, separator variant) must not evade the protected
   // check or the same-path comparison, and every downstream use (index
   // queries, link rewriting, reported paths) expects the canonical form.
-  const oldPath = resolveVaultRelativePath({
+  const canonicalOldPath = resolveVaultRelativePath({
     vaultPath,
     notePath: params.oldPath,
   })
@@ -591,15 +616,28 @@ const moveNote = async (
     notePath: params.newPath,
   })
 
-  if (oldPath === newPath) {
+  if (canonicalOldPath === newPath) {
     throw new Error("source and destination are the same path")
   }
-  if (isProtectedPath({ path: oldPath, protectedPaths })) {
-    throw new Error(`cannot move protected path "${oldPath}"`)
+  if (isProtectedPath({ path: canonicalOldPath, protectedPaths })) {
+    throw new Error(`cannot move protected path "${canonicalOldPath}"`)
   }
   if (isProtectedPath({ path: newPath, protectedPaths })) {
     throw new Error(`cannot move into protected path "${newPath}"`)
   }
+
+  // Guards above run on the caller's canonical spelling (stable error
+  // messages on every platform); everything below keys on the index's
+  // spelling. Indexed inputs take the ternary's sync arm — no await before
+  // the lock — so lock acquisition stays synchronous for the normal path,
+  // which the concurrent-locking behavior depends on.
+  const oldPath = allNotePaths.includes(canonicalOldPath)
+    ? canonicalOldPath
+    : await indexedSpellingForAliasedPath({
+        vaultPath,
+        path: canonicalOldPath,
+        allNotePaths,
+      })
 
   const oldFullPath = resolveSafePath(vaultPath, oldPath)
   const newFullPath = resolveSafePath(vaultPath, newPath)

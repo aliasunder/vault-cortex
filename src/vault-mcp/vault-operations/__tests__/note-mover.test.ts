@@ -996,6 +996,44 @@ describe("moveNote — guards", () => {
     expect(await readNote("Foo.md")).toBe("content\n")
   })
 
+  it("moves a case-aliased old path via the on-disk spelling and rewrites backlinks", async (testContext) => {
+    // Only meaningful where the filesystem resolves case-aliased paths to the
+    // same file (macOS/Windows bind mounts) — the sibling test below covers
+    // the case-sensitive branch, so exactly one of the two runs per platform.
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+    await writeFixture("Projects/todo.md", "content\n")
+    if (!(await noteExists("projects/todo.md"))) testContext.skip()
+    await writeFixture("Hub.md", "Links [[todo]].\n")
+
+    const result = await moveNote({
+      oldPath: "projects/todo.md",
+      newPath: "Archive/done.md",
+    })
+
+    expect(result).toEqual({
+      moved_to: "Archive/done.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await noteExists("Projects/todo.md")).toBe(false)
+    expect(await readNote("Archive/done.md")).toBe("content\n")
+    expect(await readNote("Hub.md")).toBe("Links [[done]].\n")
+  })
+
+  it("refuses a case-aliased old path when the filesystem is case-sensitive", async (testContext) => {
+    // The inverse platform branch: on a case-sensitive filesystem the aliased
+    // spelling names a file that does not exist, and nothing may be moved.
+    const { writeFixture, moveNote, noteExists } = setupVault()
+    await writeFixture("Projects/todo.md", "content\n")
+    if (await noteExists("projects/todo.md")) testContext.skip()
+
+    await expect(
+      moveNote({ oldPath: "projects/todo.md", newPath: "Archive/done.md" }),
+    ).rejects.toThrow('note not found: "projects/todo.md"')
+    expect(await noteExists("Projects/todo.md")).toBe(true)
+  })
+
   it("moves a note named by an absolute container path and rewrites its backlinks", async () => {
     // Downstream of the guard, link rewriting and the reported paths key on
     // the vault-relative form — an absolute input must produce the same
