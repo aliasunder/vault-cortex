@@ -47,7 +47,7 @@ Errors:
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 - A malformed or calendar-invalid created/modified date filter throws with remediation text ("Use YYYY-MM-DD")
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total count, search_mode ("hybrid" or "fts"), and reranked (boolean — true when cross-encoder reranking refined the ordering). search_mode indicates which ranking was used — "hybrid" when vector embeddings contributed, "fts" when only keyword matching was available. score reflects combined relevance (higher = more relevant). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
+Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total count, search_mode ("hybrid" or "fts"), and reranked (boolean — true when cross-encoder reranking refined the ordering). search_mode indicates which ranking was used — "hybrid" when vector embeddings contributed, "fts" when only keyword matching was available. score reflects combined relevance (higher = more relevant). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
         : `Full-text search across all vault notes, ranked by relevance. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
 
 Filters — all conditions AND-combine with each other and the text query:
@@ -72,7 +72,7 @@ Errors:
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 - A malformed or calendar-invalid created/modified date filter throws with remediation text ("Use YYYY-MM-DD")
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total count, search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With filters.include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
+Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total count, search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
       inputSchema: {
         query: z
           .string()
@@ -119,33 +119,47 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
             modified: dateFilterSchema.describe(
               "Modified date bounds (YYYY-MM-DD) on filesystem modified time, server-local day boundaries",
             ),
-            limit: z.number().optional().describe("Max results (default 20)"),
-            snippet_tokens: z
-              .number()
-              .optional()
-              .describe("Snippet length in tokens (default 30)"),
-            include_leading_callout: z
-              .boolean()
-              .optional()
-              .describe(
-                "If true, each result includes its leading_callout ({ type, title, body }) when present. Off by default to keep results lean.",
-              ),
           })
           .optional()
           .describe(
             "Optional structured filters — all conditions AND-combine with each other and with the text query",
           ),
+        limit: z.number().optional().describe("Max results (default 20)"),
+        snippet_tokens: z
+          .number()
+          .optional()
+          .describe("Snippet length in tokens (default 30)"),
+        include_leading_callout: z
+          .boolean()
+          .optional()
+          .describe(
+            "If true, each result includes its leading_callout ({ type, title, body }) when present. Off by default to keep results lean.",
+          ),
       },
     },
-    async ({ query, filters }, extra) => {
+    async (
+      { query, filters, limit, snippet_tokens, include_leading_callout },
+      extra,
+    ) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_SEARCH,
       })
-      reqLogger.info("tool_call", { query, ...(filters ? { filters } : {}) })
+      reqLogger.info("tool_call", {
+        query,
+        filters,
+        limit,
+        snippet_tokens,
+        include_leading_callout,
+      })
       return safeHandler(
         reqLogger,
-        async () => search.hybridSearch({ query, filters }, reqLogger),
+        async () => {
+          return search.hybridSearch(
+            { query, filters, limit, snippet_tokens, include_leading_callout },
+            reqLogger,
+          )
+        },
         (searchResult) => {
           reqLogger.info("tool_result", {
             resultCount: searchResult.results.length,

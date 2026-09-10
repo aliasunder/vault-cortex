@@ -1225,10 +1225,10 @@ describe("vault_memory_recall handler", () => {
     return call
   }
 
-  it("maps max_results to the query layer and reports truncation", async () => {
+  it("maps limit to the query layer and reports truncation", async () => {
     const [, , handler] = registerWithMemoryIndex()
     const result = (await handler(
-      { query: "mutation", max_results: 2 },
+      { query: "mutation", limit: 2 },
       mockExtra,
     )) as { content: Array<{ text: string }>; isError?: boolean }
     expect(result.isError).toBeUndefined()
@@ -1238,7 +1238,7 @@ describe("vault_memory_recall handler", () => {
       truncated: boolean
       search_mode: string
     }
-    // Three entries match "mutation"; max_results: 2 must reach the query
+    // Three entries match "mutation"; limit: 2 must reach the query
     // layer (the truncation is only observable if the mapping worked).
     expect(payload.total).toBe(3)
     expect(payload.truncated).toBe(true)
@@ -1261,6 +1261,82 @@ describe("vault_memory_recall handler", () => {
     expect(payload.entries).toEqual([])
     expect(payload.total).toBe(0)
     expect(payload.truncated).toBe(false)
+  })
+})
+
+describe("vault_search handler", () => {
+  const mockExtra = { requestId: "test-1", sessionId: "session-1" }
+
+  /** Registers tools against a real in-memory index seeded with three notes,
+   *  so handler tests can observe the effect of top-level presentation params
+   *  (limit, snippet_tokens, include_leading_callout) that were un-nested
+   *  from filters in the v1 rename sweep. */
+  const registerWithSearchIndex = (): RegisterToolCall => {
+    const searchIndex = createSearchIndex(":memory:")
+    for (const [filePath, rawContent] of [
+      [
+        "Projects/alpha.md",
+        "---\ntitle: Alpha\ntags: [project]\n---\n# Alpha\n\nFirst project notes.",
+      ],
+      [
+        "Projects/beta.md",
+        "---\ntitle: Beta\ntags: [project]\n---\n# Beta\n\nSecond project notes.",
+      ],
+      [
+        "Projects/gamma.md",
+        "---\ntitle: Gamma\ntags: [project]\n---\n# Gamma\n\nThird project notes.",
+      ],
+    ] as const) {
+      searchIndex.upsertNote(
+        { filePath, rawContent, fileStat: { mtimeMs: 1000, size: 100 } },
+        logger,
+      )
+    }
+    const searchMockServer = { registerTool: vi.fn() }
+    registerTools({
+      server: searchMockServer as unknown as McpServer,
+      vaultPath: "/test-vault",
+      search: searchIndex,
+      logger,
+      config: loadConfig({}),
+    })
+    const searchCalls = searchMockServer.registerTool.mock
+      .calls as RegisterToolCall[]
+    const call = searchCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_SEARCH,
+    )
+    if (!call) throw new Error("vault_search not registered")
+    return call
+  }
+
+  it("maps top-level limit to the search layer", async () => {
+    const [, , handler] = registerWithSearchIndex()
+    const result = (await handler(
+      { query: "project", limit: 1 },
+      mockExtra,
+    )) as { content: Array<{ text: string }>; isError?: boolean }
+    expect(result.isError).toBeUndefined()
+    const text = result.content[0]?.text
+    if (!text) throw new Error("expected text content from vault_search")
+    const payload = JSON.parse(text) as {
+      results: Array<{ path: string }>
+      total: number
+    }
+    // Three notes match "project"; limit: 1 at the top level must reach the
+    // search layer (the cap is only observable if the merge worked).
+    expect(payload.total).toBe(1)
+    expect(payload.results).toHaveLength(1)
+
+    // Guard against vacuous pass: without limit, all three appear.
+    const unlimitedResult = (await handler(
+      { query: "project" },
+      mockExtra,
+    )) as { content: Array<{ text: string }> }
+    const unlimitedText = unlimitedResult.content[0]?.text
+    if (!unlimitedText)
+      throw new Error("expected text content from unlimited vault_search")
+    const unlimitedPayload = JSON.parse(unlimitedText) as { total: number }
+    expect(unlimitedPayload.total).toBe(3)
   })
 })
 
@@ -1890,11 +1966,9 @@ describe("DISABLED_TOOLS", () => {
 
   it("a disabled tool disappears from availability-keyed cross-references", () => {
     // vault_read_note's edit guidance is an availability-keyed reference:
-    // it names vault_patch_note only while that tool is served. (Mentions in
-    // prose that was never flag-conditional — e.g. vault_write_note's
-    // partial-edit error remediation — deliberately stay; DISABLED_TOOLS is
-    // an escape hatch, and re-templating every sibling mention isn't worth
-    // the description churn.)
+    // it names vault_patch_note only while that tool is served. Sibling
+    // tools (vault_write_note, vault_replace_in_note, vault_move_note) gate
+    // their vault_patch_note mentions the same way.
     const registeredCalls = registerWithConfig({
       DISABLED_TOOLS: "vault_patch_note",
     })

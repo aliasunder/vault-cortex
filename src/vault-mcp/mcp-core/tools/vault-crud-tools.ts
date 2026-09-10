@@ -389,7 +389,7 @@ Prefer vault_update_properties for property-only edits (no body round-trip).${wh
 Limitation: Writes the entire body. Do not use for surgical edits to large files — existing content will be lost unless you include it in the body parameter.
 
 Errors:
-- "note already exists" — a note already lives at this path; set overwrite: true to replace it, or use vault_patch_note / vault_replace_in_note for partial edits
+- "note already exists" — a note already lives at this path; set overwrite: true to replace it, or use ${whenToolEnabledText("vault_patch_note", "vault_patch_note / ")}vault_replace_in_note for partial edits
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not writable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "body contains a control character" — body includes a non-printable control byte; remove it before writing
@@ -588,7 +588,7 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
 Example: vault_replace_in_note({ path: "Projects/plan.md", old_text: "TODO: write summary", new_text: "Summary complete." })
 
 When to use: Targeted text changes within a single location — fixing typos, updating values, renaming terms, or removing a short line (new_text=""). Replaces text in place; does not move content across sections.
-To delete a large multi-line block, prefer vault_delete_span (short anchors instead of full old_text).${whenToolEnabledText("vault_replace_span", " To replace a large block by anchors instead of reproducing the full old_text, use vault_replace_span.")} To relocate content between headings, vault_patch_note to add at the target first, then remove from source (new_text="") — add-before-delete, so a failure duplicates the block instead of losing it.
+To delete a large multi-line block, prefer vault_delete_span (short anchors instead of full old_text).${whenToolEnabledText("vault_replace_span", " To replace a large block by anchors instead of reproducing the full old_text, use vault_replace_span.")}${whenToolEnabledText("vault_patch_note", ' To relocate content between headings, vault_patch_note to add at the target first, then remove from source (new_text="") — add-before-delete, so a failure duplicates the block instead of losing it.')}
 
 Parameters:
 - old_text is matched in the body only — frontmatter properties are never searched. Include enough surrounding context to ensure uniqueness when the target text appears in multiple places.
@@ -1019,7 +1019,7 @@ Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.m
 Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md", prune_empty_folders: true }) — also remove "Inbox" if the move empties it.
 
 When to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.
-Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink. To only change a note's body or properties, use vault_patch_note or vault_update_properties. Protected paths (${describeProtectedPaths(config)}) cannot be moved.
+Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink. To only change a note's body or properties, use ${whenToolEnabledText("vault_patch_note", "vault_patch_note or ")}vault_update_properties. Protected paths (${describeProtectedPaths(config)}) cannot be moved.
 
 Errors:
 - "destination exists: …" — a note already lives at new_path; this tool never overwrites. Pick a free path or delete the existing note first.

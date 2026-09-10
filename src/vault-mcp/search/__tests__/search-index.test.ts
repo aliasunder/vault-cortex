@@ -262,7 +262,7 @@ describe("leading callout", () => {
     expect(withoutFlag[0]?.leading_callout).toBeUndefined()
 
     const withFlag = index.fullTextSearch(
-      { query: "burnout", filters: { include_leading_callout: true } },
+      { query: "burnout", include_leading_callout: true },
       logger,
     )
     expect(withFlag[0]?.leading_callout?.title).toBe("Scope of this file")
@@ -819,11 +819,11 @@ describe("fullTextSearch", () => {
 
   it("respects custom snippet_tokens", () => {
     const short = index.fullTextSearch(
-      { query: "burnout", filters: { snippet_tokens: 5 } },
+      { query: "burnout", snippet_tokens: 5 },
       logger,
     )
     const long = index.fullTextSearch(
-      { query: "burnout", filters: { snippet_tokens: 60 } },
+      { query: "burnout", snippet_tokens: 60 },
       logger,
     )
     expect(long[0]?.snippet?.length).toBeGreaterThan(
@@ -867,10 +867,7 @@ describe("fullTextSearch", () => {
   })
 
   it("respects limit", () => {
-    const results = index.fullTextSearch(
-      { query: "notes", filters: { limit: 1 } },
-      logger,
-    )
+    const results = index.fullTextSearch({ query: "notes", limit: 1 }, logger)
     expect(results).toHaveLength(1)
   })
 
