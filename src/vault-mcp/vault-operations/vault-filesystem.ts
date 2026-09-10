@@ -511,7 +511,8 @@ const deleteNote = async (
   const fullPath = resolveSafePath(params.vaultPath, path)
   // Locked so a concurrent read-modify-write (patch/replace) can't recreate
   // the note via its atomic-rename write after the unlink, and so a delete
-  // rejects while a note move holds this path.
+  // throws while a note move holds this path — the lock fails fast, it never
+  // waits.
   return withExclusiveFileLock(fullPath, async () => {
     // Checked inside the lock, mirroring moveNote — a clean vault-relative
     // "note not found" instead of unlink's raw ENOENT (whose message would
@@ -525,6 +526,8 @@ const deleteNote = async (
     // Assigned inside the try — const can't span the catch boundary
     let trashLocation: string | undefined
     try {
+      // Only "local" has a destination here. "system" trash doesn't exist
+      // inside a container and "none" means delete, so both unlink for good.
       if (params.trashOption === "local") {
         trashLocation = await moveNoteToTrash({
           vaultPath: params.vaultPath,
