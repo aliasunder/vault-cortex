@@ -195,6 +195,7 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
         limit: z
           .number()
           .optional()
+          .default(50)
           .describe(
             "Cap on returned entries (default 50). When more match, the least-relevant are dropped and truncated=true — never a date range.",
           ),
@@ -208,7 +209,7 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
       reqLogger.info("tool_call", {
         query,
         ...(file !== undefined ? { file } : {}),
-        ...(limit !== undefined ? { limit } : {}),
+        limit,
       })
       return safeHandler(
         reqLogger,
@@ -280,6 +281,7 @@ Returns: Confirmation message (notes when an identical entry already existed and
             position: z
               .enum(["top", "bottom"])
               .optional()
+              .default("top")
               .describe('Insert position (default "top" = newest first)'),
           })
           .optional()

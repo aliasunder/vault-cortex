@@ -23,6 +23,7 @@
             }
           },
           "limit": {
+            "default": 50,
             "description": "Max results (default 50)",
             "type": "number"
           }
@@ -140,6 +141,7 @@
             }
           },
           "limit": {
+            "default": 50,
             "description": "Max entries returned (default 50).",
             "type": "integer",
             "minimum": 1,
@@ -229,6 +231,7 @@
             "minLength": 1
           },
           "limit": {
+            "default": 50,
             "description": "Max values to return (default 50). Increase for high-cardinality properties.",
             "type": "number"
           }
@@ -275,6 +278,7 @@
         "type": "object",
         "properties": {
           "status": {
+            "default": "not_done",
             "description": "Status filter, OR-combined (default \"not_done\" = todo + in_progress, excluding done and cancelled). Virtual values expand in arrays: \"not_done\" adds todo + in_progress, \"all\" includes every status.",
             "anyOf": [
               {
@@ -479,16 +483,19 @@
             "minLength": 1
           },
           "top_level_only": {
+            "default": false,
             "description": "When true, only top-level tasks (depth 0) are returned — excludes indented sub-tasks and checklist items. Default false.",
             "type": "boolean"
           },
           "limit": {
+            "default": 50,
             "description": "Max results (default 50); total always reports the full match count",
             "type": "integer",
             "minimum": 1,
             "maximum": 9007199254740991
           },
           "sort_by": {
+            "default": "due",
             "description": "Sort key (default \"due\"). Date sorts cascade through related fields when the primary is absent; each fallback uses its own natural direction. \"position\" sorts by file path then line number — the natural order for Kanban boards.",
             "type": "string",
             "enum": [
@@ -634,6 +641,7 @@
         "type": "object",
         "properties": {
           "sort_by": {
+            "default": "modified",
             "description": "Sort order (default \"modified\")",
             "type": "string",
             "enum": [
@@ -642,6 +650,7 @@
             ]
           },
           "limit": {
+            "default": 20,
             "description": "Max results (default 20, no upper cap)",
             "type": "number"
           }
@@ -767,14 +776,17 @@
             }
           },
           "limit": {
+            "default": 20,
             "description": "Max results (default 20)",
             "type": "number"
           },
           "snippet_tokens": {
+            "default": 30,
             "description": "Snippet length in tokens (default 30)",
             "type": "number"
           },
           "include_leading_callout": {
+            "default": false,
             "description": "If true, each result includes its leading_callout ({ type, title, body }) when present. Off by default to keep results lean.",
             "type": "boolean"
           }
@@ -807,10 +819,12 @@
             "description": "Folder path (e.g. \"Projects\")"
           },
           "recursive": {
+            "default": true,
             "description": "Include subfolders (default: true)",
             "type": "boolean"
           },
           "limit": {
+            "default": 20,
             "description": "Max results (default 20)",
             "type": "number"
           }
@@ -853,6 +867,7 @@
             "minLength": 1
           },
           "limit": {
+            "default": 20,
             "description": "Max results (default 20). Increase for broad metadata queries.",
             "type": "number"
           }
@@ -886,6 +901,7 @@
             "description": "Tag name without \"#\" prefix (e.g. \"project\", \"session-log\"). Hierarchical tags use \"/\" separators (e.g. \"project/vault-cortex\")."
           },
           "exact": {
+            "default": false,
             "description": "Exact match only (default: false, prefix match)",
             "type": "boolean"
           }
