@@ -1152,8 +1152,10 @@ describe("deleteNote — trash behavior", () => {
   it("concurrent deletes contending for one trash name both land without loss", async () => {
     await mkdir(join(vault, ".trash"), { recursive: true })
     await writeFile(join(vault, ".trash", "dup.md"), "seed", "utf8")
-    // Both deletes resolve to ".trash/dup 1.md": "dup.md" finds its base name
-    // occupied by the seed, and "dup 1.md" targets it as its base name.
+    // Both deletes contend for ".trash/dup 1.md": deleting "dup.md" finds its
+    // base name occupied by the seed and advances to "dup 1.md", while
+    // deleting "dup 1.md" targets that same name directly. Whichever loses
+    // the claim advances once more ("dup 2.md" or "dup 1 1.md").
     await writeFile(join(vault, "dup.md"), "payload-a", "utf8")
     await writeFile(join(vault, "dup 1.md"), "payload-b", "utf8")
 
@@ -1219,7 +1221,7 @@ describe("deleteNote — trash behavior", () => {
       /ENOENT/,
     )
     expect(await readFile(join(vault, "renamefail.md"), "utf8")).toBe("keep me")
-    expect(warnSpy).toHaveBeenCalledWith("failed to move to trash note", {
+    expect(warnSpy).toHaveBeenCalledWith("failed to move to trash", {
       path: "renamefail.md",
       error: "[Error]: EIO: injected rename failure",
     })

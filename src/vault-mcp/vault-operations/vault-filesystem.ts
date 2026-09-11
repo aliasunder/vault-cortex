@@ -433,6 +433,11 @@ type DeleteNoteResult = {
   trashLocation?: string
 }
 
+/** Lead-in of the collision-exhaustion error, shared by the throw in
+ *  moveNoteToTrash and the rethrow guard in deleteNote — one constant so a
+ *  message edit can't silently break the guard's prefix match. */
+const TRASH_COLLISION_ERROR_PREFIX = "cannot move to trash"
+
 /** Claims a trash destination with an exclusive create — the empty placeholder
  *  appears atomically iff nothing occupies the name. Returns false when the
  *  name is occupied by anything: a regular file, a directory, or a symlink
@@ -462,10 +467,10 @@ const moveNoteToTrash = async (params: {
   const { dir, name, ext } = parse(params.relativePath)
   const candidateRelativePaths = [
     `.trash/${params.relativePath}`,
-    ...Array.from(
-      { length: 100 },
-      (_, index) => `.trash/${join(dir, `${name} ${index + 1}${ext}`)}`,
-    ),
+    ...Array.from({ length: 100 }, (_, index) => {
+      const suffixedFileName = `${name} ${index + 1}${ext}`
+      return `.trash/${join(dir, suffixedFileName)}`
+    }),
   ]
 
   await mkdir(join(params.vaultPath, ".trash", dir), { recursive: true })
@@ -486,7 +491,7 @@ const moveNoteToTrash = async (params: {
   }
 
   throw new Error(
-    `cannot move to trash "${params.relativePath}" — 100 collisions in .trash/`,
+    `${TRASH_COLLISION_ERROR_PREFIX} "${params.relativePath}" — 100 collisions in .trash/`,
   )
 }
 
@@ -531,7 +536,8 @@ const deleteNote = async (
 
     // The trash path bypasses resolveSafePath because .trash/ is a hidden
     // path the guard rejects. Safe: `path` was already validated above.
-    // Assigned inside the try — const can't span the catch boundary
+    // Assigned inside the try, read after it — pruning and the completion
+    // log below need the value, so const can't span the catch boundary
     let trashLocation: string | undefined
     try {
       // Only "local" has a destination here. "system" trash doesn't exist
@@ -547,13 +553,16 @@ const deleteNote = async (
       }
     } catch (error) {
       // Collision-exhaustion errors from moveNoteToTrash are already vault-relative
-      if (error instanceof Error && error.message.startsWith("cannot move")) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith(TRASH_COLLISION_ERROR_PREFIX)
+      ) {
         throw error
       }
       // Log the raw fs detail (errno, absolute path) for the operator;
       // surface only a vault-relative message to the client.
       const action = params.trashOption === "local" ? "move to trash" : "delete"
-      logger.warn(`failed to ${action} note`, {
+      logger.warn(`failed to ${action}`, {
         path,
         error: describeError(error),
       })
