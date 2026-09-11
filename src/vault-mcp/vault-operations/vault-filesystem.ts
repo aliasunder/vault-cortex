@@ -167,14 +167,13 @@ export const pruneEmptyParents = async (
  * must not already exist.
  */
 export const atomicWriteFile = async (
-  filePath: string,
-  content: string,
+  params: { filePath: string; content: string },
   logger: Logger,
 ): Promise<void> => {
-  const tmpPath = `${filePath}.${randomUUID()}.tmp`
+  const tmpPath = `${params.filePath}.${randomUUID()}.tmp`
   try {
-    await writeFile(tmpPath, content, "utf8")
-    await rename(tmpPath, filePath)
+    await writeFile(tmpPath, params.content, "utf8")
+    await rename(tmpPath, params.filePath)
   } catch (err) {
     // Best-effort cleanup so a failed write never strands a temp file. A
     // failed cleanup is logged, not thrown, so the write failure propagates.
@@ -210,38 +209,42 @@ export const atomicWriteFile = async (
  * than `link`, so it works where hard links don't.
  */
 export const atomicWriteFileExclusive = async (
-  filePath: string,
-  content: string,
+  params: {
+    filePath: string
+    content: string
+    hardLinksSupported?: boolean
+  },
   logger: Logger,
-  options?: { hardLinksSupported?: boolean },
 ): Promise<void> => {
-  const tmpPath = `${filePath}.${randomUUID()}.tmp`
-  const hardLinksSupported = options?.hardLinksSupported ?? true
+  const tmpPath = `${params.filePath}.${randomUUID()}.tmp`
+  const hardLinksSupported = params.hardLinksSupported ?? true
   try {
-    await writeFile(tmpPath, content, "utf8")
+    await writeFile(tmpPath, params.content, "utf8")
     if (hardLinksSupported) {
       // Atomic no-clobber create — link throws EEXIST if filePath exists.
-      await link(tmpPath, filePath)
+      await link(tmpPath, params.filePath)
       return
     }
     // No hard links on this filesystem. Reserve the target atomically
     // (O_EXCL) — it throws EEXIST if the target exists, with no separate
     // check, so there's no TOCTOU window in which a concurrent writer's file
     // could be clobbered.
-    await writeFile(filePath, "", { flag: "wx" })
+    await writeFile(params.filePath, "", { flag: "wx" })
     try {
       // Swap the fully-staged content over the empty placeholder.
-      await rename(tmpPath, filePath)
+      await rename(tmpPath, params.filePath)
     } catch (renameError) {
       // The reservation took but the swap failed — drop the placeholder so a
       // failed write never strands a 0-byte note at the destination. A failed
       // cleanup is logged, not thrown, so the swap failure propagates.
-      await rm(filePath, { force: true }).catch((cleanupError: unknown) => {
-        logger.warn("failed to remove reservation placeholder", {
-          path: filePath,
-          error: describeError(cleanupError),
-        })
-      })
+      await rm(params.filePath, { force: true }).catch(
+        (cleanupError: unknown) => {
+          logger.warn("failed to remove reservation placeholder", {
+            path: params.filePath,
+            error: describeError(cleanupError),
+          })
+        },
+      )
       throw renameError
     }
   } finally {
@@ -447,7 +450,7 @@ const writeNote = async (
       throw new Error(`note already exists: "${params.path}"`)
     }
     const serialized = serializeNote(existing, params.body, params.properties)
-    await atomicWriteFile(fullPath, serialized, logger)
+    await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
     logger.info("wrote note", {
       path: params.path,
       beforeBytes: existing ? Buffer.byteLength(existing, "utf8") : 0,
@@ -475,7 +478,7 @@ const updateProperties = async (
     const parsed = parseNote(existing)
     const mergedProperties = mergeFrontmatter(parsed.data, params.properties)
     const serialized = stringifyNote(parsed.content, mergedProperties)
-    await atomicWriteFile(fullPath, serialized, logger)
+    await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
     logger.info("updated properties", {
       path: params.path,
       beforeBytes: Buffer.byteLength(existing, "utf8"),

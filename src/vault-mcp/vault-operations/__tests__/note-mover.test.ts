@@ -1211,16 +1211,14 @@ describe("moveNote — guards", () => {
 
     const newFullPath = join(vault, "foo.md")
     vi.mocked(atomicWriteFile).mockImplementation(
-      async (filePath, content, writeLogger) => {
-        if (filePath === newFullPath) throw new Error("ENOSPC: no space left")
+      async (writeParams, writeLogger) => {
+        if (writeParams.filePath === newFullPath) {
+          throw new Error("ENOSPC: no space left")
+        }
         const actualVaultFilesystem = await vi.importActual<
           typeof import("../vault-filesystem.js")
         >("../vault-filesystem.js")
-        return actualVaultFilesystem.atomicWriteFile(
-          filePath,
-          content,
-          writeLogger,
-        )
+        return actualVaultFilesystem.atomicWriteFile(writeParams, writeLogger)
       },
     )
     onTestFinished(() => vi.mocked(atomicWriteFile).mockRestore())
@@ -1244,16 +1242,14 @@ describe("moveNote — guards", () => {
 
     const hubFullPath = join(vault, "Hub.md")
     vi.mocked(atomicWriteFile).mockImplementation(
-      async (filePath, content, writeLogger) => {
-        if (filePath === hubFullPath) throw new Error("ENOSPC: no space left")
+      async (writeParams, writeLogger) => {
+        if (writeParams.filePath === hubFullPath) {
+          throw new Error("ENOSPC: no space left")
+        }
         const actualVaultFilesystem = await vi.importActual<
           typeof import("../vault-filesystem.js")
         >("../vault-filesystem.js")
-        return actualVaultFilesystem.atomicWriteFile(
-          filePath,
-          content,
-          writeLogger,
-        )
+        return actualVaultFilesystem.atomicWriteFile(writeParams, writeLogger)
       },
     )
     onTestFinished(() => vi.mocked(atomicWriteFile).mockRestore())

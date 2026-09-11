@@ -174,7 +174,7 @@ const writePatchedNote = async (
   logger: Logger,
 ): Promise<number> => {
   const serialized = stringifyNote(lines.join("\n"), data)
-  await atomicWriteFile(fullPath, serialized, logger)
+  await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
   return Buffer.byteLength(serialized, "utf8")
 }
 

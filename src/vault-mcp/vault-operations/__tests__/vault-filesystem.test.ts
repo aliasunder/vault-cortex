@@ -65,12 +65,18 @@ afterEach(async () => {
 describe("atomicWriteFile", () => {
   it("writes the exact content to the target path", async () => {
     const target = join(vault, "atomic.md")
-    await atomicWriteFile(target, "exact content\n", logger)
+    await atomicWriteFile(
+      { filePath: target, content: "exact content\n" },
+      logger,
+    )
     expect(await readFile(target, "utf8")).toBe("exact content\n")
   })
 
   it("leaves no .tmp staging file behind on success", async () => {
-    await atomicWriteFile(join(vault, "clean.md"), "body\n", logger)
+    await atomicWriteFile(
+      { filePath: join(vault, "clean.md"), content: "body\n" },
+      logger,
+    )
     const entries = await readdir(vault)
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
   })
@@ -81,9 +87,9 @@ describe("atomicWriteFile", () => {
     // the catch-and-cleanup branch, not the initial writeFile.
     const target = join(vault, "occupied")
     await mkdir(target)
-    await expect(atomicWriteFile(target, "body\n", logger)).rejects.toThrow(
-      /EISDIR/,
-    )
+    await expect(
+      atomicWriteFile({ filePath: target, content: "body\n" }, logger),
+    ).rejects.toThrow(/EISDIR/)
     const entries = await readdir(vault)
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
   })
@@ -98,9 +104,9 @@ describe("atomicWriteFile", () => {
       throw new Error("EPERM: injected cleanup failure")
     })
 
-    await expect(atomicWriteFile(target, "body\n", logger)).rejects.toThrow(
-      /EISDIR/,
-    )
+    await expect(
+      atomicWriteFile({ filePath: target, content: "body\n" }, logger),
+    ).rejects.toThrow(/EISDIR/)
 
     // The temp path carries a random UUID, so only its shape is assertable
     expect(warnSpy).toHaveBeenCalledTimes(1)
@@ -114,32 +120,41 @@ describe("atomicWriteFile", () => {
 describe("atomicWriteFileExclusive", () => {
   it("writes the exact content to a new target path", async () => {
     const target = join(vault, "created.md")
-    await atomicWriteFileExclusive(target, "fresh content\n", logger)
+    await atomicWriteFileExclusive(
+      { filePath: target, content: "fresh content\n" },
+      logger,
+    )
     expect(await readFile(target, "utf8")).toBe("fresh content\n")
   })
 
   it("throws EEXIST and leaves existing content untouched when the target exists", async () => {
     const target = join(vault, "taken.md")
-    await atomicWriteFile(target, "original\n", logger)
+    await atomicWriteFile({ filePath: target, content: "original\n" }, logger)
 
     await expect(
-      atomicWriteFileExclusive(target, "overwrite\n", logger),
+      atomicWriteFileExclusive(
+        { filePath: target, content: "overwrite\n" },
+        logger,
+      ),
     ).rejects.toMatchObject({ code: "EEXIST" })
     // The no-clobber guard must not have modified the existing file.
     expect(await readFile(target, "utf8")).toBe("original\n")
   })
 
   it("leaves no .tmp staging file behind on success", async () => {
-    await atomicWriteFileExclusive(join(vault, "clean.md"), "body\n", logger)
+    await atomicWriteFileExclusive(
+      { filePath: join(vault, "clean.md"), content: "body\n" },
+      logger,
+    )
     const entries = await readdir(vault)
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
   })
 
   it("leaves no .tmp staging file behind when the target already exists", async () => {
     const target = join(vault, "exists.md")
-    await atomicWriteFile(target, "original\n", logger)
+    await atomicWriteFile({ filePath: target, content: "original\n" }, logger)
     await expect(
-      atomicWriteFileExclusive(target, "body\n", logger),
+      atomicWriteFileExclusive({ filePath: target, content: "body\n" }, logger),
     ).rejects.toMatchObject({ code: "EEXIST" })
     const entries = await readdir(vault)
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
@@ -150,20 +165,30 @@ describe("atomicWriteFileExclusive", () => {
   describe("hardLinksSupported: false (rename strategy)", () => {
     it("writes the exact content to a new target path via rename", async () => {
       const target = join(vault, "created.md")
-      await atomicWriteFileExclusive(target, "fresh content\n", logger, {
-        hardLinksSupported: false,
-      })
+      await atomicWriteFileExclusive(
+        {
+          filePath: target,
+          content: "fresh content\n",
+          hardLinksSupported: false,
+        },
+        logger,
+      )
       expect(await readFile(target, "utf8")).toBe("fresh content\n")
     })
 
     it("throws EEXIST and leaves existing content untouched when the target exists", async () => {
       const target = join(vault, "taken.md")
-      await atomicWriteFile(target, "original\n", logger)
+      await atomicWriteFile({ filePath: target, content: "original\n" }, logger)
 
       await expect(
-        atomicWriteFileExclusive(target, "overwrite\n", logger, {
-          hardLinksSupported: false,
-        }),
+        atomicWriteFileExclusive(
+          {
+            filePath: target,
+            content: "overwrite\n",
+            hardLinksSupported: false,
+          },
+          logger,
+        ),
       ).rejects.toMatchObject({ code: "EEXIST" })
       // The no-clobber guard must not have modified the existing file.
       expect(await readFile(target, "utf8")).toBe("original\n")
@@ -171,12 +196,12 @@ describe("atomicWriteFileExclusive", () => {
 
     it("leaves no .tmp staging file behind on success", async () => {
       await atomicWriteFileExclusive(
-        join(vault, "clean.md"),
-        "body\n",
-        logger,
         {
+          filePath: join(vault, "clean.md"),
+          content: "body\n",
           hardLinksSupported: false,
         },
+        logger,
       )
       const entries = await readdir(vault)
       expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
@@ -196,9 +221,10 @@ describe("atomicWriteFileExclusive", () => {
       })
 
       await expect(
-        atomicWriteFileExclusive(target, "body\n", logger, {
-          hardLinksSupported: false,
-        }),
+        atomicWriteFileExclusive(
+          { filePath: target, content: "body\n", hardLinksSupported: false },
+          logger,
+        ),
       ).rejects.toThrow("EIO: injected swap failure")
 
       expect(warnSpy).toHaveBeenCalledTimes(1)
