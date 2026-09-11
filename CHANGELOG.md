@@ -96,6 +96,24 @@
 
 
 
+
+## [0.50.1] — 2026-09-11
+
+### Bug Fixes
+
+- **test:** Use node:http request.destroy() for browser-disconnect test (#554)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.50.0
+
+### Other Changes
+
+- Register temp-dir cleanup in the init-setup-user spec (#555)
+- **setup:** Give the disconnect-survival test explicit waitFor budgets (#553)
+- **deps:** Stub adm-zip with empty-npm-package to clear GHSA-vwc7-r8mq-g2x9 (#552)
+- **deps:** Override smol-toml to 1.8.0 to clear GHSA-7w5x-hrqm-74c2 (#551)
+
 ## [0.50.0] — 2026-09-10
 
 ### ⚠ BREAKING CHANGES
