@@ -132,8 +132,9 @@ const displayRoundTripValue = (value: string | null): string => {
 }
 
 /** The clause describing how a written description parses back — shared by
- *  the parent-line and subtask advisory sentences. `storedTextNoun` names
- *  the text being described ("the stored description" / "its stored text"). */
+ *  the parent-line and subtask advisory sentences. `storedTextNoun` is the
+ *  subject phrase spliced into the sentence ("the stored description" reads
+ *  "…" / "its stored text" reads "…"). */
 const parsedDescriptionClause = ({
   parsedBack,
   consumedTail,
@@ -194,6 +195,8 @@ const roundTripAdvisories = ({
 
 /** Advisory for one subtask whose description text truncated into fields. */
 const buildSubtaskAdvisory = (subtaskText: string): string[] => {
+  // The written subtask line carries indentation; the diff strips the whole
+  // checkbox prefix before parsing, so a bare synthetic line reads the same.
   const divergences = tasks.diffTaskRoundTrip({
     taskLine: `- [ ] ${subtaskText}`,
     priorTaskLine: null,
@@ -1282,6 +1285,10 @@ const updateTask = async (
             {
               apply: (taskLine: string) =>
                 tasks.replaceTaskLineDescription({ taskLine, newDescription }),
+              // The after-value previews the swap on the ORIGINAL line. The
+              // field edits above never move the description/metadata
+              // boundary (the old description is still in place while they
+              // run), so this preview parses the same as the final line.
               change: formatChange({
                 field: "description",
                 before: taskBefore.description,

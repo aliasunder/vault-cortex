@@ -936,6 +936,8 @@ type TaskLineParts = {
 /** Splits a task line at the parser's description/metadata boundary.
  *  Returns null when the line is not a task line. */
 const splitTaskLine = (taskLine: string): TaskLineParts | null => {
+  // Same prefix grammar as TASK_LINE_RE, captured up to and including the
+  // checkbox — the two must stay in sync on what counts as the prefix.
   const checkboxMatch = /^([\s\t>]*(?:[-*+]|[0-9]+[.)]) +\[.\] *)/.exec(
     taskLine,
   )
@@ -1205,7 +1207,9 @@ const consumedDescriptionTail = ({
  *    would otherwise flag every description edit on a tagged line.
  *  - Not submitted: prior PARSER view vs after PARSER view — both sides
  *    tag-enriched identically, so a trailing tag migrating into the slot
- *    when the last metadata field is cleared reads as no change. */
+ *    when the last metadata field is cleared reads as no change.
+ *  Example, for the line `- [ ] Buy groceries 📅 2026-09-15 #errand`:
+ *  the slot is "Buy groceries"; the parser view is "Buy groceries #errand". */
 const descriptionDivergences = ({
   afterReading,
   priorReading,
@@ -1388,7 +1392,7 @@ const buildTaskLine = (
 const applyCompletionDate = (params: {
   taskLine: string
   shouldStamp: boolean
-  dateField: string
+  dateFieldText: string
   dateRegex: RegExp
 }): string => {
   return mapMetadataTail(params.taskLine, (metadata) => {
@@ -1399,7 +1403,7 @@ const applyCompletionDate = (params: {
     if (!params.shouldStamp) return metadataWithoutStamp
     return appendField({
       metadata: metadataWithoutStamp,
-      fieldText: params.dateField,
+      fieldText: params.dateFieldText,
     })
   })
 }
@@ -1426,7 +1430,7 @@ const updateTaskLineStatus = (params: {
     return applyCompletionDate({
       taskLine: stripMetadataField(withNewCheckbox, CANCELLED_DATE_INLINE_RE),
       shouldStamp: params.config.setDoneDate,
-      dateField: formatDoneDate(params.today, params.config.taskFormat),
+      dateFieldText: formatDoneDate(params.today, params.config.taskFormat),
       dateRegex: DONE_DATE_INLINE_RE,
     })
   }
@@ -1435,7 +1439,10 @@ const updateTaskLineStatus = (params: {
     return applyCompletionDate({
       taskLine: stripMetadataField(withNewCheckbox, DONE_DATE_INLINE_RE),
       shouldStamp: params.config.setCancelledDate,
-      dateField: formatCancelledDate(params.today, params.config.taskFormat),
+      dateFieldText: formatCancelledDate(
+        params.today,
+        params.config.taskFormat,
+      ),
       dateRegex: CANCELLED_DATE_INLINE_RE,
     })
   }
