@@ -167,20 +167,23 @@ export const pruneEmptyParents = async (
  * must not already exist.
  */
 export const atomicWriteFile = async (
-  filePath: string,
-  content: string,
+  params: { filePath: string; content: string },
+  logger: Logger,
 ): Promise<void> => {
-  const tmpPath = `${filePath}.${randomUUID()}.tmp`
+  const tmpPath = `${params.filePath}.${randomUUID()}.tmp`
   try {
-    await writeFile(tmpPath, content, "utf8")
-    await rename(tmpPath, filePath)
+    await writeFile(tmpPath, params.content, "utf8")
+    await rename(tmpPath, params.filePath)
   } catch (err) {
-    // Best-effort cleanup so a failed write never strands a temp file. Swallow
-    // any cleanup error so the original write/rename failure is still thrown.
+    // Best-effort cleanup so a failed write never strands a temp file. A
+    // failed cleanup is logged, not thrown, so the write failure propagates.
     try {
       await rm(tmpPath, { force: true })
-    } catch {
-      // ignore — preserving the root-cause error below matters more
+    } catch (cleanupError) {
+      logger.warn("failed to remove temp file", {
+        path: tmpPath,
+        error: describeError(cleanupError),
+      })
     }
     throw err
   }
@@ -206,37 +209,54 @@ export const atomicWriteFile = async (
  * than `link`, so it works where hard links don't.
  */
 export const atomicWriteFileExclusive = async (
-  filePath: string,
-  content: string,
-  options?: { hardLinksSupported?: boolean },
+  params: {
+    filePath: string
+    content: string
+    hardLinksSupported?: boolean
+  },
+  logger: Logger,
 ): Promise<void> => {
-  const tmpPath = `${filePath}.${randomUUID()}.tmp`
-  const hardLinksSupported = options?.hardLinksSupported ?? true
+  const tmpPath = `${params.filePath}.${randomUUID()}.tmp`
+  const hardLinksSupported = params.hardLinksSupported ?? true
   try {
-    await writeFile(tmpPath, content, "utf8")
+    await writeFile(tmpPath, params.content, "utf8")
     if (hardLinksSupported) {
       // Atomic no-clobber create — link throws EEXIST if filePath exists.
-      await link(tmpPath, filePath)
+      await link(tmpPath, params.filePath)
       return
     }
     // No hard links on this filesystem. Reserve the target atomically
     // (O_EXCL) — it throws EEXIST if the target exists, with no separate
     // check, so there's no TOCTOU window in which a concurrent writer's file
     // could be clobbered.
-    await writeFile(filePath, "", { flag: "wx" })
+    await writeFile(params.filePath, "", { flag: "wx" })
     try {
       // Swap the fully-staged content over the empty placeholder.
-      await rename(tmpPath, filePath)
+      await rename(tmpPath, params.filePath)
     } catch (renameError) {
       // The reservation took but the swap failed — drop the placeholder so a
-      // failed write never strands a 0-byte note at the destination.
-      await rm(filePath, { force: true }).catch(() => {})
+      // failed write never strands a 0-byte note at the destination. A failed
+      // cleanup is logged, not thrown, so the swap failure propagates.
+      await rm(params.filePath, { force: true }).catch(
+        (cleanupError: unknown) => {
+          logger.warn("failed to remove reservation placeholder", {
+            path: params.filePath,
+            error: describeError(cleanupError),
+          })
+        },
+      )
       throw renameError
     }
   } finally {
     // Always drop the temp file — renamed away on success, redundant otherwise.
-    // Swallow cleanup errors so the original failure (e.g. EEXIST) propagates.
-    await rm(tmpPath, { force: true }).catch(() => {})
+    // A failed cleanup is logged, not thrown, so the original failure (e.g.
+    // EEXIST) propagates.
+    await rm(tmpPath, { force: true }).catch((cleanupError: unknown) => {
+      logger.warn("failed to remove temp file", {
+        path: tmpPath,
+        error: describeError(cleanupError),
+      })
+    })
   }
 }
 
@@ -430,7 +450,7 @@ const writeNote = async (
       throw new Error(`note already exists: "${params.path}"`)
     }
     const serialized = serializeNote(existing, params.body, params.properties)
-    await atomicWriteFile(fullPath, serialized)
+    await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
     logger.info("wrote note", {
       path: params.path,
       beforeBytes: existing ? Buffer.byteLength(existing, "utf8") : 0,
@@ -458,7 +478,7 @@ const updateProperties = async (
     const parsed = parseNote(existing)
     const mergedProperties = mergeFrontmatter(parsed.data, params.properties)
     const serialized = stringifyNote(parsed.content, mergedProperties)
-    await atomicWriteFile(fullPath, serialized)
+    await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
     logger.info("updated properties", {
       path: params.path,
       beforeBytes: Buffer.byteLength(existing, "utf8"),
@@ -506,11 +526,14 @@ const claimTrashTarget = async (targetPath: string): Promise<boolean> => {
  *  claim and takes the next suffix instead. The claim itself is the
  *  existence check — no stat-based precheck decides whether a name is
  *  safe. Returns the vault-relative trash path. */
-const moveNoteToTrash = async (params: {
-  vaultPath: string
-  relativePath: string
-  fullPath: string
-}): Promise<string> => {
+const moveNoteToTrash = async (
+  params: {
+    vaultPath: string
+    relativePath: string
+    fullPath: string
+  },
+  logger: Logger,
+): Promise<string> => {
   const { dir, name, ext } = parse(params.relativePath)
   const candidateRelativePaths = [
     `.trash/${params.relativePath}`,
@@ -529,9 +552,16 @@ const moveNoteToTrash = async (params: {
       await rename(params.fullPath, candidateFullPath)
     } catch (renameError) {
       // The claim took but the move failed — drop our placeholder so it
-      // doesn't strand a 0-byte file occupying a suffix. Swallow cleanup
-      // errors so the rename failure propagates.
-      await rm(candidateFullPath, { force: true }).catch(() => {})
+      // doesn't strand a 0-byte file occupying a suffix. A failed cleanup is
+      // logged, not thrown, so the rename failure propagates as the cause.
+      await rm(candidateFullPath, { force: true }).catch(
+        (cleanupError: unknown) => {
+          logger.warn("failed to remove claim placeholder", {
+            path: candidateRelativePath,
+            error: describeError(cleanupError),
+          })
+        },
+      )
       throw renameError
     }
     return candidateRelativePath
@@ -591,11 +621,14 @@ const deleteNote = async (
       // Only "local" has a destination here. "system" trash doesn't exist
       // inside a container and "none" means delete, so both unlink for good.
       if (params.trashOption === "local") {
-        trashLocation = await moveNoteToTrash({
-          vaultPath: params.vaultPath,
-          relativePath: path,
-          fullPath,
-        })
+        trashLocation = await moveNoteToTrash(
+          {
+            vaultPath: params.vaultPath,
+            relativePath: path,
+            fullPath,
+          },
+          logger,
+        )
       } else {
         await unlink(fullPath)
       }

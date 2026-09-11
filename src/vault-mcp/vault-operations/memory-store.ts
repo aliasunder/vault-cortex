@@ -660,7 +660,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
             section: newSection,
             bullet,
           })
-          await atomicWriteFile(filePath, content)
+          await atomicWriteFile({ filePath, content }, logger)
           logger.info("created memory file", {
             file: params.file,
             section: newSection,
@@ -699,8 +699,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           const afterBytes = Buffer.byteLength(serialized, "utf8")
           guardAgainstShrink(beforeBytes, afterBytes, "creating memory section")
           await atomicWriteFile(
-            memoryFilePath(params.vaultPath, params.file),
-            serialized,
+            {
+              filePath: memoryFilePath(params.vaultPath, params.file),
+              content: serialized,
+            },
+            logger,
           )
           logger.info("created memory section", {
             file: params.file,
@@ -773,8 +776,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         const afterBytes = Buffer.byteLength(serialized, "utf8")
         guardAgainstShrink(beforeBytes, afterBytes, "updating memory entry")
         await atomicWriteFile(
-          memoryFilePath(params.vaultPath, params.file),
-          serialized,
+          {
+            filePath: memoryFilePath(params.vaultPath, params.file),
+            content: serialized,
+          },
+          logger,
         )
         logger.info("updated memory", {
           file: params.file,
@@ -932,8 +938,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         const afterBytes = Buffer.byteLength(serialized, "utf8")
         guardAgainstShrink(beforeBytes, afterBytes, "deleting memory entry")
         await atomicWriteFile(
-          memoryFilePath(params.vaultPath, params.file),
-          serialized,
+          {
+            filePath: memoryFilePath(params.vaultPath, params.file),
+            content: serialized,
+          },
+          logger,
         )
         logger.info("deleted memory entry", {
           file: params.file,
@@ -969,8 +978,11 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     await Promise.all(
       templates.map((template) =>
         atomicWriteFile(
-          join(dirPath, `${template.fileName}.md`),
-          template.content,
+          {
+            filePath: join(dirPath, `${template.fileName}.md`),
+            content: template.content,
+          },
+          logger,
         ),
       ),
     )
