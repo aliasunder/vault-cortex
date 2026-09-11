@@ -550,6 +550,43 @@ describe("default config", () => {
       })
       expect(textContent(readback)).toMatch(/First task for Alpha.*⏫/)
     })
+
+    it("vault_update_task — completing a recurring task spawns the next occurrence", async () => {
+      const result = await callTool({
+        client,
+        name: "vault_update_task",
+        args: {
+          path: "Projects/recurring.md",
+          block_id: "water-plants",
+          status: "done",
+        },
+      })
+      expect(result.isError).not.toBe(true)
+      const json = JSON.parse(textContent(result))
+      expect(json).toEqual({
+        path: "Projects/recurring.md",
+        line: 8,
+        description: "Water plants",
+        block_id: "water-plants",
+        heading: "Habits",
+        next_occurrence: {
+          line: 7,
+          description: "Water plants",
+          due: "2026-01-12",
+        },
+        changes: ["status: todo → done", "next_occurrence: (none) → line 7"],
+      })
+
+      const completionDate = DateTime.now().toISODate()
+      const readback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/recurring.md", heading: "Habits" },
+      })
+      expect(textContent(readback)).toBe(
+        `## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ ${completionDate} ^water-plants\n`,
+      )
+    })
   })
 
   describe("daily note tool", () => {

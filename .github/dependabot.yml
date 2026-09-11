@@ -16,6 +16,11 @@ updates:
       # alias with a direct typescript@7.x dependency.
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
+      # rrule is pinned to the exact version the Obsidian Tasks plugin
+      # ships, so recurrence computation matches the plugin by
+      # construction. A bump is a deliberate parity re-verification (see
+      # "Upgrading rrule" in AGENTS.md), not routine dependency churn.
+      - dependency-name: rrule
 
   # obsidian-headless is installed from its own lockfile into the Docker
   # remote target — not in the root package.json. Dependabot needs a

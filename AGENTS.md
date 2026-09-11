@@ -151,6 +151,7 @@ src/
       headings.ts                      # Shared H1–H6 section-span parser — ATX + setext (read + patch)
       links.ts                         # Link grammar: parse, extract, resolve (wikilinks + md; notes + assets)
       tasks.ts                         # Tasks-plugin task-line grammar + mutation (emoji + Dataview fields)
+      recurrence.ts                    # Tasks-plugin 🔁 rule parsing + next-occurrence dates (rrule, pinned to the plugin's version)
       memory-entries.ts                # Memory-entry grammar (dated bullets in About Me/ files)
       canvas.ts                        # .canvas linearizer (JSON Canvas 1.0 → readable markdown)
       pdf-engine.ts                    # pdfjs bootstrap — swaps in the pdfjs-dist Node build, font-independent proxies
@@ -1166,6 +1167,32 @@ pulls SST's platform source into the program, and that source does not
 compile under the repo's stricter checks. `.sst/platform` exists only after
 `npx sst install` — CI runs it before the build; run it once locally on a
 fresh clone.
+
+## Upgrading rrule (recurrence parity)
+
+`recurrence.ts` transliterates the Tasks plugin's recurrence logic
+(`Recurrence.ts` + `Occurrence.ts`) and pins `rrule` to the exact version
+the plugin declares, so rule parsing and next-hit computation match the
+plugin by construction. The pin is deliberately excluded from Dependabot.
+On any rrule bump — or when re-verifying against a newer Tasks plugin
+release — re-check each of these against the plugin source before merging:
+
+- The rule grammar split (`/^([a-zA-Z0-9, !]+?)( when done)?$/i`) and the
+  `parseText` try/null handling.
+- Reference-date priority (due → scheduled → start; flipped to due →
+  start → scheduled under `removeScheduledDateOnRecurrence`).
+- The month/year overflow walk-back: dtstart moves with each step, and
+  the `" on "` exemption applies to the month branch only.
+- The spawn's field handling in `createNextOccurrence`: block link, 🆔,
+  and ⛔ cleared; created date replaced per `setCreatedDate`, never
+  carried forward.
+- The `recurrence.test.ts` vectors lifted from the plugin's own
+  `Recurrence.test.ts` — refresh them from the new release's tests.
+
+Two deliberate divergences are contracted in `recurrence.ts`'s docstring
+and pinned by tests (exhausted finite rules complete without spawning;
+calendar-invalid dates are nulled at parse time), so a behavior change
+there is a decision, not a drift fix.
 
 ## Upgrading obsidian-headless
 

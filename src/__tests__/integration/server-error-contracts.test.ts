@@ -805,6 +805,22 @@ describe("task errors", () => {
     expectToolError(result, "no done lane detected")
   })
 
+  it("vault_update_task with an unrecognized recurrence rule", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/alpha.md",
+        block_id: "alpha-task-1",
+        recurrence: "whenever I remember",
+      },
+    })
+    expectToolError(
+      result,
+      'unrecognized recurrence rule "whenever I remember" (use the Tasks plugin\'s natural language, e.g. "every week", "every 2 weeks when done")',
+    )
+  })
+
   it("vault_update_task with a nonexistent block_id", async () => {
     const result = await callTool({
       client,
