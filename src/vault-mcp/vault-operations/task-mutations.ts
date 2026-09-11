@@ -586,7 +586,12 @@ type RecurrenceSpawn =
  *  DONE-typed checkbox chars from the status registry count as done), with
  *  the recurrence rule and dates read from the task line AFTER every
  *  non-status edit — so an update that changes dates or the rule and
- *  completes in one call advances from the edited values. */
+ *  completes in one call advances from the edited values.
+ *
+ *  Deliberate divergence from the plugin: the plugin's `isCompleted()`
+ *  includes CANCELLED and NON_TASK, so it spawns on cancellation too.
+ *  Here only `status: "done"` triggers a spawn — cancelling a recurring
+ *  task completes it without advancing the series. */
 const resolveRecurrenceSpawn = ({
   status,
   taskBefore,
