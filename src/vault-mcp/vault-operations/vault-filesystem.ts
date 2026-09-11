@@ -476,53 +476,70 @@ type DeleteNoteResult = {
   trashLocation?: string
 }
 
-/** Finds an available path inside `.trash/` for a note being trashed. */
-const resolveTrashPath = async (params: {
-  vaultPath: string
-  relativePath: string
-}): Promise<{ trashFullPath: string; trashRelativePath: string }> => {
-  const trashRelativePath = `.trash/${params.relativePath}`
-  const trashFullPath = join(params.vaultPath, trashRelativePath)
+/** Ties moveNoteToTrash's collision-exhaustion throw to deleteNote's rethrow
+ *  guard — both use this lead-in, so a message edit can't silently break the
+ *  guard's prefix match. */
+const TRASH_COLLISION_ERROR_PREFIX = "cannot move to trash"
 
-  // Name is free — use it as-is
-  if (!(await fileExists(trashFullPath))) {
-    return { trashFullPath, trashRelativePath }
+/** Claims a trash destination with an exclusive create — the empty placeholder
+ *  appears atomically, and only when nothing occupies the name. Returns false
+ *  when the name is occupied by anything: a regular file, a directory, or a
+ *  symlink (even dangling, which a stat-based existence check would report as
+ *  free). */
+const claimTrashTarget = async (targetPath: string): Promise<boolean> => {
+  try {
+    // "wx" opens with O_CREAT|O_EXCL — the create succeeds only when nothing
+    // occupies the path and fails with EEXIST otherwise. The check and the
+    // create are one atomic operation, so two claimants can't both win.
+    await writeFile(targetPath, "", { flag: "wx" })
+    return true
+  } catch (error) {
+    if (isErrnoException(error, "EEXIST")) return false
+    throw error
   }
-
-  // Name is taken — append a numeric suffix (note 1.md, note 2.md, …)
-  // until one is free. Without this, rename silently overwrites the
-  // previous copy.
-  const { dir, name, ext } = parse(params.relativePath)
-  for (let suffix = 1; suffix <= 100; suffix++) {
-    const candidateRelative = `.trash/${join(dir, `${name} ${suffix}${ext}`)}`
-    const candidateFull = join(params.vaultPath, candidateRelative)
-    if (!(await fileExists(candidateFull))) {
-      return {
-        trashFullPath: candidateFull,
-        trashRelativePath: candidateRelative,
-      }
-    }
-  }
-
-  throw new Error(
-    `cannot move to trash "${params.relativePath}" — 100 collisions in .trash/`,
-  )
 }
 
 /** Moves a note to `.trash/`, creating parent directories as needed.
- *  Returns the vault-relative trash path. */
+ *  Each candidate name — the original, then `note 1.md` … `note 100.md` —
+ *  is claimed with an exclusive create before the move, so an existing
+ *  trash copy can never be overwritten; a concurrent delete loses the
+ *  claim and takes the next suffix instead. The claim itself is the
+ *  existence check — no stat-based precheck decides whether a name is
+ *  safe. Returns the vault-relative trash path. */
 const moveNoteToTrash = async (params: {
   vaultPath: string
   relativePath: string
   fullPath: string
 }): Promise<string> => {
-  const { trashFullPath, trashRelativePath } = await resolveTrashPath({
-    vaultPath: params.vaultPath,
-    relativePath: params.relativePath,
-  })
-  await mkdir(dirname(trashFullPath), { recursive: true })
-  await rename(params.fullPath, trashFullPath)
-  return trashRelativePath
+  const { dir, name, ext } = parse(params.relativePath)
+  const candidateRelativePaths = [
+    `.trash/${params.relativePath}`,
+    ...Array.from({ length: 100 }, (_, index) => {
+      const suffixedFileName = `${name} ${index + 1}${ext}`
+      return `.trash/${join(dir, suffixedFileName)}`
+    }),
+  ]
+
+  await mkdir(join(params.vaultPath, ".trash", dir), { recursive: true })
+
+  for (const candidateRelativePath of candidateRelativePaths) {
+    const candidateFullPath = join(params.vaultPath, candidateRelativePath)
+    if (!(await claimTrashTarget(candidateFullPath))) continue
+    try {
+      await rename(params.fullPath, candidateFullPath)
+    } catch (renameError) {
+      // The claim took but the move failed — drop our placeholder so it
+      // doesn't strand a 0-byte file occupying a suffix. Swallow cleanup
+      // errors so the rename failure propagates.
+      await rm(candidateFullPath, { force: true }).catch(() => {})
+      throw renameError
+    }
+    return candidateRelativePath
+  }
+
+  throw new Error(
+    `${TRASH_COLLISION_ERROR_PREFIX} "${params.relativePath}" — 100 collisions in .trash/`,
+  )
 }
 
 /** Deletes or trashes a note depending on the vault's Deleted files setting.
@@ -566,9 +583,9 @@ const deleteNote = async (
     }
 
     // The trash path bypasses resolveSafePath because .trash/ is a hidden
-    // path the guard rejects — safe, since `path` was already validated
-    // above.
-    // Assigned inside the try — const can't span the catch boundary
+    // path the guard rejects. Safe: `path` was already validated above.
+    // Assigned inside the try, read after it — pruning and the completion
+    // log below need the value, so const can't span the catch boundary
     let trashLocation: string | undefined
     try {
       // Only "local" has a destination here. "system" trash doesn't exist
@@ -583,14 +600,17 @@ const deleteNote = async (
         await unlink(fullPath)
       }
     } catch (error) {
-      // Collision errors from resolveTrashPath are already vault-relative
-      if (error instanceof Error && error.message.startsWith("cannot move")) {
+      // Collision-exhaustion errors from moveNoteToTrash are already vault-relative
+      const isTrashCollisionError =
+        error instanceof Error &&
+        error.message.startsWith(TRASH_COLLISION_ERROR_PREFIX)
+      if (isTrashCollisionError) {
         throw error
       }
       // Log the raw fs detail (errno, absolute path) for the operator;
       // surface only a vault-relative message to the client.
       const action = params.trashOption === "local" ? "move to trash" : "delete"
-      logger.warn(`failed to ${action} note`, {
+      logger.warn(`failed to ${action}`, {
         path,
         error: describeError(error),
       })

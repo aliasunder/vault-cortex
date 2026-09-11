@@ -15,10 +15,20 @@ import {
   readFile,
   readdir,
   stat,
+  lstat,
+  chmod,
+  utimes,
+  rename,
   symlink,
 } from "node:fs/promises"
 import { basename, join } from "node:path"
 import { tmpdir } from "node:os"
+
+// Every node:fs/promises export becomes a pass-through spy — real behavior
+// everywhere, and a test can inject a one-shot competitor or failure at the
+// exact call the production code makes (the forced-collision and
+// rename-failure trash tests).
+vi.mock("node:fs/promises", { spy: true })
 import {
   vaultFs,
   atomicWriteFile,
@@ -1098,6 +1108,286 @@ describe("deleteNote — trash behavior", () => {
 
     const content = await readFile(join(vault, "Projects", "deep.md"), "utf8")
     expect(content).toBe("keep me")
+  })
+
+  it("advances past a directory occupying the trash target", async () => {
+    await mkdir(join(vault, ".trash", "dirocc.md"), { recursive: true })
+    await writeFile(join(vault, "dirocc.md"), "payload", "utf8")
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "dirocc.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/dirocc 1.md")
+    expect(await readFile(join(vault, ".trash", "dirocc 1.md"), "utf8")).toBe(
+      "payload",
+    )
+    const occupantStat = await stat(join(vault, ".trash", "dirocc.md"))
+    expect(occupantStat.isDirectory()).toBe(true)
+  })
+
+  it("advances past a dangling symlink occupying the trash target", async () => {
+    await mkdir(join(vault, ".trash"), { recursive: true })
+    await symlink(
+      join(vault, ".trash", "missing-target"),
+      join(vault, ".trash", "dang.md"),
+    )
+    await writeFile(join(vault, "dang.md"), "payload", "utf8")
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "dang.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/dang 1.md")
+    expect(await readFile(join(vault, ".trash", "dang 1.md"), "utf8")).toBe(
+      "payload",
+    )
+    const occupantStat = await lstat(join(vault, ".trash", "dang.md"))
+    expect(occupantStat.isSymbolicLink()).toBe(true)
+  })
+
+  it("uses suffix 100 when it is the only free name", async () => {
+    const trashDir = join(vault, ".trash")
+    await mkdir(trashDir, { recursive: true })
+    await writeFile(join(vault, "edge.md"), "payload", "utf8")
+    await writeFile(join(trashDir, "edge.md"), "v0", "utf8")
+    const seeds = Array.from({ length: 99 }, (_, index) => {
+      return writeFile(
+        join(trashDir, `edge ${index + 1}.md`),
+        `v${index + 1}`,
+        "utf8",
+      )
+    })
+    await Promise.all(seeds)
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "edge.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/edge 100.md")
+    expect(await readFile(join(trashDir, "edge 100.md"), "utf8")).toBe(
+      "payload",
+    )
+  })
+
+  it("preserves raw bytes, mode, and mtime through the trash move", async () => {
+    const sourcePath = join(vault, "bytes.md")
+    // 0xff 0xfe is not valid UTF-8 — a text-based copy would re-encode it
+    const rawBytes = Buffer.from([0x68, 0x69, 0xff, 0xfe, 0x0a])
+    await writeFile(sourcePath, rawBytes)
+    await chmod(sourcePath, 0o640)
+    // The mtime is pinned to 2020-01-02T03:04:05Z (epoch seconds) so the
+    // test can assert it survives the move
+    const fixedTimeSeconds = 1_577_934_245
+    await utimes(sourcePath, fixedTimeSeconds, fixedTimeSeconds)
+    const sourceStat = await stat(sourcePath)
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "bytes.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/bytes.md")
+    const trashedPath = join(vault, ".trash", "bytes.md")
+    expect(await readFile(trashedPath)).toEqual(rawBytes)
+    const trashedStat = await stat(trashedPath)
+    expect(trashedStat.mode).toBe(sourceStat.mode)
+    expect(trashedStat.mtimeMs).toBe(sourceStat.mtimeMs)
+  })
+
+  it("moves a symlink note as a symlink, leaving its target untouched", async () => {
+    await writeFile(join(vault, "target.md"), "target content", "utf8")
+    await symlink(join(vault, "target.md"), join(vault, "linknote.md"))
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "linknote.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/linknote.md")
+    const movedStat = await lstat(join(vault, ".trash", "linknote.md"))
+    expect(movedStat.isSymbolicLink()).toBe(true)
+    expect(await readFile(join(vault, "target.md"), "utf8")).toBe(
+      "target content",
+    )
+  })
+
+  it("does not overwrite a competitor that lands mid-operation — the claim, not a stale check, decides", async () => {
+    await mkdir(join(vault, ".trash"), { recursive: true })
+    await writeFile(join(vault, "raced.md"), "mine", "utf8")
+    // Plant the competitor between parent-directory creation and the claim.
+    // A check-then-rename flow decides the base name is free before this
+    // window, so restoring plain rename makes this test fail by overwriting
+    // "competitor". The .trash/ directory already exists, so skipping the
+    // real mkdir is a faithful no-op.
+    vi.mocked(mkdir).mockImplementationOnce(async () => {
+      await writeFile(join(vault, ".trash", "raced.md"), "competitor", "utf8")
+      return undefined
+    })
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "raced.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+      },
+      logger,
+    )
+
+    // The injection ran — without this the test could pass vacuously
+    expect(await readFile(join(vault, ".trash", "raced.md"), "utf8")).toBe(
+      "competitor",
+    )
+    expect(result.trashLocation).toBe(".trash/raced 1.md")
+    expect(await readFile(join(vault, ".trash", "raced 1.md"), "utf8")).toBe(
+      "mine",
+    )
+  })
+
+  it("concurrent deletes contending for one trash name both land without loss", async () => {
+    await mkdir(join(vault, ".trash"), { recursive: true })
+    await writeFile(join(vault, ".trash", "dup.md"), "seed", "utf8")
+    // Both deletes contend for ".trash/dup 1.md" — deleting "dup.md" finds
+    // its base name occupied by the seed and advances to "dup 1.md", while
+    // deleting "dup 1.md" targets that name directly. Whichever loses the
+    // claim advances once more ("dup 2.md" or "dup 1 1.md").
+    await writeFile(join(vault, "dup.md"), "payload-a", "utf8")
+    await writeFile(join(vault, "dup 1.md"), "payload-b", "utf8")
+
+    const [resultA, resultB] = await Promise.all([
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "dup.md",
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+          trashOption: "local",
+        },
+        logger,
+      ),
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "dup 1.md",
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+          trashOption: "local",
+        },
+        logger,
+      ),
+    ])
+
+    if (!resultA.trashLocation || !resultB.trashLocation) {
+      throw new Error("expected both deletes to report a trash location")
+    }
+    expect(resultA.trashLocation).not.toBe(resultB.trashLocation)
+    expect(await readFile(join(vault, ".trash", "dup.md"), "utf8")).toBe("seed")
+    expect(await readFile(join(vault, resultA.trashLocation), "utf8")).toBe(
+      "payload-a",
+    )
+    expect(await readFile(join(vault, resultB.trashLocation), "utf8")).toBe(
+      "payload-b",
+    )
+  })
+
+  it("removes its claim placeholder and preserves the source when the rename fails", async () => {
+    await writeFile(join(vault, "renamefail.md"), "keep me", "utf8")
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    vi.mocked(rename).mockImplementationOnce(async () => {
+      throw new Error("EIO: injected rename failure")
+    })
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "renamefail.md",
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+          trashOption: "local",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('cannot move to trash "renamefail.md"')
+
+    // The claim placeholder is gone — no 0-byte file occupies the name
+    await expect(stat(join(vault, ".trash", "renamefail.md"))).rejects.toThrow(
+      /ENOENT/,
+    )
+    expect(await readFile(join(vault, "renamefail.md"), "utf8")).toBe("keep me")
+    expect(warnSpy).toHaveBeenCalledWith("failed to move to trash", {
+      path: "renamefail.md",
+      error: "[Error]: EIO: injected rename failure",
+    })
+  })
+
+  it("surfaces a vault-relative error and preserves the source when the claim fails for a non-EEXIST reason", async () => {
+    await writeFile(join(vault, "claimfail.md"), "keep me", "utf8")
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    // The next writeFile call is the claim's exclusive create inside
+    // deleteNote — a non-EEXIST failure (e.g. EACCES on .trash/) must
+    // rethrow, not read as occupancy and silently advance the suffix loop.
+    vi.mocked(writeFile).mockImplementationOnce(async () => {
+      throw new Error("EACCES: injected claim failure")
+    })
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "claimfail.md",
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+          trashOption: "local",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('cannot move to trash "claimfail.md"')
+
+    // The failed create left nothing behind, and no suffixed copy was made
+    expect(await readdir(join(vault, ".trash"))).toEqual([])
+    expect(await readFile(join(vault, "claimfail.md"), "utf8")).toBe("keep me")
+    expect(warnSpy).toHaveBeenCalledWith("failed to move to trash", {
+      path: "claimfail.md",
+      error: "[Error]: EACCES: injected claim failure",
+    })
   })
 })
 
