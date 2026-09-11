@@ -30,13 +30,13 @@ import { caseFoldPath } from "./case-fold-path.js"
 // forgetIfStillTail), so the map only holds files with a write in flight.
 const fileWriteLocks = new Map<string, Promise<unknown>>()
 
-/** Canonical lock-map key: resolved then case-folded — on every platform.
- *  On case-insensitive filesystems (macOS/Windows bind mounts) two spellings
- *  of one file must share a lock key or concurrent writes lose updates.
- *  Folding unconditionally is safe because keys never touch disk and
- *  over-merging is benign: genuinely distinct case-colliding files on a
- *  Linux vault at worst hit a spurious fail-fast rejection or a harmless
- *  queue. */
+/** Builds the canonical lock-map key — the path resolved, then case-folded,
+ *  on every platform. On case-insensitive filesystems (macOS/Windows bind
+ *  mounts) two spellings of one file must share a lock key or concurrent
+ *  writes lose updates. Folding unconditionally is safe because keys never
+ *  touch disk, and over-merging is benign — genuinely distinct case-colliding
+ *  files on a Linux vault at worst hit a spurious fail-fast rejection or a
+ *  harmless queue. */
 const lockKeyForPath = (filePath: string): string =>
   caseFoldPath(resolve(filePath))
 

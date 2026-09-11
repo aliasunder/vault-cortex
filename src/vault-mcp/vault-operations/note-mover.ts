@@ -632,8 +632,8 @@ const moveNote = async (
   // messages on every platform); everything below keys on the index's
   // spelling. Indexed inputs take the ternary's sync arm — no await before
   // the lock — so lock acquisition stays synchronous for the normal path.
-  // An await here would break that: two concurrent moves could interleave
-  // their lock checks in the gap and both proceed on the same file.
+  // An await here would let two concurrent moves interleave their lock
+  // checks in the gap and both proceed on the same file.
   const oldPath = allNotePaths.includes(canonicalOldPath)
     ? canonicalOldPath
     : await indexedSpellingForAliasedPath({

@@ -997,9 +997,10 @@ describe("moveNote — guards", () => {
   })
 
   it("moves a case-aliased old path via the on-disk spelling and rewrites backlinks", async (testContext) => {
-    // Only meaningful where the filesystem resolves case-aliased paths to the
-    // same file (macOS/Windows bind mounts) — the sibling test below covers
-    // the case-sensitive branch, so exactly one of the two runs per platform.
+    // This test is only meaningful where the filesystem resolves case-aliased
+    // paths to the same file (macOS/Windows bind mounts) — the sibling test
+    // below covers the case-sensitive branch, so exactly one of the two runs
+    // per platform.
     const { writeFixture, moveNote, noteExists, readNote } = setupVault()
     await writeFixture("Projects/todo.md", "content\n")
     if (!(await noteExists("projects/todo.md"))) testContext.skip()
@@ -1022,8 +1023,9 @@ describe("moveNote — guards", () => {
   })
 
   it("refuses a case-aliased old path when the filesystem is case-sensitive", async (testContext) => {
-    // The inverse platform branch: on a case-sensitive filesystem the aliased
-    // spelling names a file that does not exist, and nothing may be moved.
+    // On a case-sensitive filesystem the aliased spelling names a file that
+    // does not exist, so nothing may be moved — the inverse platform branch
+    // of the sibling test above.
     const { writeFixture, moveNote, noteExists } = setupVault()
     await writeFixture("Projects/todo.md", "content\n")
     if (await noteExists("projects/todo.md")) testContext.skip()

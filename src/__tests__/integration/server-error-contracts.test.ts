@@ -27,8 +27,8 @@ const expectToolError = (
 
 let client: Client
 let cleanup: (() => Promise<void>) | undefined
-// The server's on-disk vault root — lets a test address a note by its
-// absolute container path, the aliasing route the protected-path tests pin.
+// The server's on-disk vault root, so a test can address a note by its
+// absolute container path — the aliasing route the protected-path tests pin.
 let serverVaultPath: string
 
 beforeAll(async () => {

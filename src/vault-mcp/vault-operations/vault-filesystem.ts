@@ -47,10 +47,10 @@ import type { TrashOption } from "./trash-config.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
 import type { Logger } from "../../logger.js"
 
-/** Normalizes a note path's spelling: converts Windows backslashes to forward
- *  slashes, then collapses "./" and "../" segments. Purely lexical — absolute
- *  and vault-escaping paths pass through unchanged, so safety checks belong to
- *  resolveSafePath and prefix guards to resolveVaultRelativePath. */
+/** Normalizes a note path's spelling by converting Windows backslashes to
+ *  forward slashes and collapsing "./" and "../" segments. Purely lexical —
+ *  absolute and vault-escaping paths pass through unchanged, so safety checks
+ *  belong to resolveSafePath and prefix guards to resolveVaultRelativePath. */
 export const toVaultRelativePath = (input: string): string =>
   posix.normalize(input.replace(/\\/g, "/"))
 
