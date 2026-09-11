@@ -111,8 +111,8 @@ describe("atomicWriteFileExclusive", () => {
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
   })
 
-  // The rename fallback path taken on filesystems without hard-link support
-  // (e.g. a Windows-drive Docker bind mount).
+  // Covers the rename fallback path taken on filesystems without hard-link
+  // support (e.g. a Windows-drive Docker bind mount).
   describe("hardLinksSupported: false (rename strategy)", () => {
     it("writes the exact content to a new target path via rename", async () => {
       const target = join(vault, "created.md")
@@ -1345,9 +1345,9 @@ describe("updateProperties", () => {
   })
 
   it("preserves a body that opens with a horizontal rule", async () => {
-    // The serializer must not re-parse the body: an HR-leading body read
+    // The serializer must not re-parse the body — an HR-leading body read
     // back through gray-matter's string form is consumed as an unclosed
-    // frontmatter fence and erased
+    // frontmatter fence and erased.
     await writeFile(
       join(vault, "rules.md"),
       "---\ntitle: Original\n---\n---\nbody after rule\n",
@@ -2085,8 +2085,8 @@ describe("concurrent writes (exclusive lock)", () => {
   it("rejects the second delete when two deleteNote calls target the same note", async () => {
     await writeFile(join(vault, "doomed.md"), "body\n", "utf8")
 
-    // The lock — not the unlink — must reject the loser: the second call
-    // fails with the concurrent-write message, not the ENOENT the second
+    // The lock — not the unlink — must reject the loser. The second call
+    // fails with the concurrent-write message, not the ENOENT a second
     // unlink of an already-deleted file would raise.
     const [first, second] = await Promise.allSettled([
       deleteNote(
@@ -2120,8 +2120,8 @@ describe("concurrent writes (exclusive lock)", () => {
         }),
       }),
     )
-    // ENOENT specifically — proving the first delete removed the file, not
-    // that the read failed for some unrelated reason.
+    // Assert ENOENT specifically — it proves the first delete removed the
+    // file, not that the read failed for some unrelated reason.
     await expect(readFile(join(vault, "doomed.md"), "utf8")).rejects.toThrow(
       /ENOENT/,
     )
@@ -2130,7 +2130,7 @@ describe("concurrent writes (exclusive lock)", () => {
   it("rejects a delete while a write is in flight on the same note", async () => {
     await writeFile(join(vault, "contested.md"), "original\n", "utf8")
 
-    // Without the delete lock this interleaving resurrects the note: the
+    // Without the delete lock this interleaving resurrects the note — the
     // write reads the file, the delete unlinks it, and the write's
     // atomic-rename recreates it. The delete must fail fast instead.
     const [write, del] = await Promise.allSettled([

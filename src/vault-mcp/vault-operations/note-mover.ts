@@ -193,7 +193,7 @@ const rewriteTarget = (
       ? context.newTargetPath
       : resolvedBefore
 
-  // Resolver against the post-move vault from the source's new location —
+  // Resolves against the post-move vault from the source's new location —
   // shared by the "already resolves" check and the candidate verifier.
   const resolveFromNewSource = (candidate: string): string | null =>
     targetKind === "note"
@@ -212,10 +212,10 @@ const rewriteTarget = (
   const resolvedAfter = resolveFromNewSource(rawTarget)
   if (resolvedAfter === desiredTarget) return null
 
-  // The replacement keeps the original link's extension state: the extension
-  // is kept only when the original carried the resolved file's real
-  // extension (markdown links always keep theirs; a wikilink to a note never
-  // carries ".md"; a stem-form asset link stays extensionless).
+  // The replacement keeps the original link's extension state — the
+  // extension is kept only when the original carried the resolved file's
+  // real extension (markdown links always keep theirs; a wikilink to a note
+  // never carries ".md"; a stem-form asset link stays extensionless).
   const resolvedExtension = posix.extname(desiredTarget)
   const keepExtension =
     (targetKind === "asset" || grammar === "markdown") &&
@@ -266,7 +266,8 @@ const applyLinkEdits = (text: string, edits: LinkEdit[]): string => {
     (left, right) => left.start - right.start,
   )
 
-  // Splice replacements left-to-right; sequential cursor state, so a plain loop.
+  // Splice replacements left-to-right; the cursor state is sequential, so a
+  // plain loop.
   let result = ""
   let cursor = 0
   for (const edit of orderedEdits) {
@@ -347,7 +348,7 @@ const rewriteBody = (
   rewriteLink: RewriteLink,
 ): { body: string; linksRewritten: number } => {
   // Code lines (fence delimiters and fenced content) pass through verbatim;
-  // links.classifyLines owns the fence state machine. A running tally over a
+  // links.classifyLines owns the fence state machine. The tally runs over a
   // sequential line walk, so a plain loop with mutable counters.
   let linksRewritten = 0
   const outputLines: string[] = []
@@ -558,7 +559,8 @@ const discoverBacklinksFromFilesystem = async (
     concurrency: REWRITE_CONCURRENCY,
     mapper: async (candidatePath): Promise<string | null> => {
       try {
-        // Cheap substring pre-filter — skip notes that can't contain a link
+        // Skip notes whose text can't contain a link — a cheap substring
+        // pre-filter before the full parse below.
         const fullPath = resolveSafePath(params.vaultPath, candidatePath)
         const content = await readFile(fullPath, "utf8")
         const lowercaseContent = content.toLowerCase()
@@ -568,7 +570,8 @@ const discoverBacklinksFromFilesystem = async (
           lowercaseContent.includes(lowercaseParenEncodedStem)
         if (!couldContainLink) return null
 
-        // Full parse + resolve — confirm the candidate actually links to the target
+        // Parse and resolve in full to confirm the candidate actually links
+        // to the target.
         const parsed = parseNote(content)
         const frontmatter: Record<string, unknown> = parsed.data
         const linkTargets = links.extractAll(parsed.content, frontmatter)
@@ -699,7 +702,7 @@ const moveNote = async (
   const newFullPath = resolveSafePath(vaultPath, newPath)
 
   // ── Backlink verification + retry loop ──────────────────────────
-  // The index-derived backlink set (from the tool handler) may be stale: a
+  // The index-derived backlink set (from the tool handler) may be stale — a
   // note written moments ago might not be indexed yet. Under the lock, the
   // filesystem is scanned to verify completeness. If new sources are found,
   // the lock releases, the set expands, and the lock reacquires — capped at
@@ -729,8 +732,8 @@ const moveNote = async (
         )
       }
     })
-    // Dedupe by resolved path: duplicate or alias spellings of the same file
-    // must not produce two rewrite plans (double writes, over-counted
+    // Dedupe by resolved path — duplicate or alias spellings of the same
+    // file must not produce two rewrite plans (double writes, over-counted
     // links_updated). The moved note is excluded by resolved path too, so an
     // alias of old_path can't slip in as a backlink source and receive a
     // wrong-context rewrite.
@@ -935,7 +938,7 @@ const moveNote = async (
           }
         }
 
-        // Mutable: tracks progress so a mid-commit failure can report how far it got.
+        // Mutable so a mid-commit failure can report how far the writes got.
         let sourcesWritten = 0
         await mapWithConcurrency({
           items: plannedRewrites,

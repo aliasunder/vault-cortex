@@ -215,13 +215,14 @@ export const atomicWriteFileExclusive = async (
   try {
     await writeFile(tmpPath, content, "utf8")
     if (hardLinksSupported) {
-      // Atomic no-clobber create: throws EEXIST if filePath already exists.
+      // Atomic no-clobber create — link throws EEXIST if filePath exists.
       await link(tmpPath, filePath)
       return
     }
-    // No hard links on this filesystem. Reserve the target atomically (O_EXCL):
-    // throws EEXIST if it already exists, with no separate check — so there's no
-    // TOCTOU window in which a concurrent writer's file could be clobbered.
+    // No hard links on this filesystem. Reserve the target atomically
+    // (O_EXCL) — it throws EEXIST if the target exists, with no separate
+    // check, so there's no TOCTOU window in which a concurrent writer's file
+    // could be clobbered.
     await writeFile(filePath, "", { flag: "wx" })
     try {
       // Swap the fully-staged content over the empty placeholder.
@@ -322,8 +323,8 @@ const readNoteOutline = async (
   // Everything above the first heading that the callout doesn't already cover,
   // so the two fields describe the region without repeating bytes. Filtering by
   // index (rather than subtracting spans) keeps the callout-after-a-leading-H1
-  // case safe: that span sits outside the region entirely, so no index matches
-  // and nothing is removed — no negative slice is possible.
+  // case safe, because that span sits outside the region entirely — no index
+  // matches, nothing is removed, and no negative slice is possible.
   const regionLines = linesBeforeFirstHeading(lines, headings)
   const regionOutsideCallout = regionLines.filter(
     (_line, index) =>
@@ -334,8 +335,9 @@ const readNoteOutline = async (
   const leadingContent = trimBlankEdgeLines(regionOutsideCallout).join("\n")
 
   const outline = headings.map((heading) => {
-    // Section span = heading line through bodyEndLine (the same span a section
-    // read returns), so the size hint matches what reading it would cost.
+    // The section span runs from the heading line through bodyEndLine (the
+    // same span a section read returns), so the size hint matches what
+    // reading it would cost.
     const sectionText = lines
       .slice(heading.startLine, heading.bodyEndLine)
       .join("\n")
@@ -556,15 +558,16 @@ const deleteNote = async (
   // throws while a note move holds this path — the lock fails fast, it never
   // waits.
   return withExclusiveFileLock(fullPath, async () => {
-    // Checked inside the lock, mirroring moveNote — a clean vault-relative
-    // "note not found" instead of unlink's raw ENOENT (whose message would
-    // leak the absolute container path to the client).
+    // The existence check runs inside the lock, mirroring moveNote — a clean
+    // vault-relative "note not found" instead of unlink's raw ENOENT (whose
+    // message would leak the absolute container path to the client).
     if (!(await fileExists(fullPath))) {
       throw new Error(`note not found: "${path}"`)
     }
 
     // The trash path bypasses resolveSafePath because .trash/ is a hidden
-    // path the guard rejects. Safe: `path` was already validated above.
+    // path the guard rejects — safe, since `path` was already validated
+    // above.
     // Assigned inside the try — const can't span the catch boundary
     let trashLocation: string | undefined
     try {
@@ -733,13 +736,14 @@ const readAsset = async (
     }
   })()
   try {
-    // One sentinel byte past the statted size: if the file grew after the
-    // stat, the sentinel fills and the read is rejected as unstable.
+    // The buffer is one sentinel byte longer than the statted size — if the
+    // file grew after the stat, the sentinel fills and the read is rejected
+    // as unstable.
     const readBuffer = Buffer.alloc(
       Math.min(fileStats.size, params.maxBytes) + 1,
     )
-    // Sequential fill loop — a single read() may return short on some
-    // platforms, so accumulate until EOF or the buffer is full.
+    // A single read() may return short on some platforms, so the loop
+    // accumulates until EOF or the buffer is full.
     let totalBytesRead = 0
     while (totalBytesRead < readBuffer.length) {
       const { bytesRead } = await fileHandle.read(

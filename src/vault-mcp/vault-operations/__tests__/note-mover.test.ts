@@ -10,9 +10,9 @@ import { withExclusiveFileLock } from "../../../utils/file-write-lock.js"
 import { fileExists, statOrNull } from "../../../utils/fs.js"
 import type { Logger } from "../../../logger.js"
 
-// Spy-wrapped so single tests can shape the aliased-path disk probes and
-// fail specific rename/write calls while every other call keeps the real
-// implementation.
+// The modules are spy-wrapped so single tests can shape the aliased-path
+// disk probes and fail specific rename/write calls while every other call
+// keeps the real implementation.
 vi.mock("../../../utils/fs.js", { spy: true })
 vi.mock("node:fs/promises", { spy: true })
 vi.mock("../vault-filesystem.js", { spy: true })
@@ -852,7 +852,8 @@ describe("moveNote — counts and summary", () => {
   it("rewrites every source when there are more than one batch of them", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
-    // 25 sources spans three batches of 10 — exercises the batch-boundary logic.
+    // 25 sources span three batches of 10, exercising the batch-boundary
+    // logic.
     const sources = Array.from({ length: 25 }, (_unused, index) => {
       const padded = String(index).padStart(2, "0")
       return `src-${padded}.md`
@@ -1539,7 +1540,7 @@ describe("moveNote — Windows mode (rename-based exclusive write)", () => {
         windowsBindMount: true,
       }),
     ).rejects.toThrow('destination exists: "Bar.md"')
-    // Both notes untouched — the failed move wrote nothing.
+    // Both notes are untouched — the failed move wrote nothing.
     expect(await readNote("Bar.md")).toBe("occupied\n")
     expect(await readNote("Foo.md")).toBe("content\n")
   })
@@ -1553,7 +1554,8 @@ describe("moveNote — concurrent write locking", () => {
    *  synchronously before moveNote's first await, so the locks are already
    *  held when this returns. Callers pass a pre-fetched path list so nothing
    *  yields the event loop before acquisition — deliberately a plain (not
-   *  async) function: an async wrapper would flatten the returned promise. */
+   *  async) function, because an async wrapper would flatten the returned
+   *  promise. */
   const startMove = (params: {
     vault: string
     logger: Logger
@@ -1730,7 +1732,7 @@ describe("moveNote — concurrent write locking", () => {
     })
     await expect(movePromise).rejects.toThrow("concurrent write in progress")
 
-    // Fail-fast means fail-clean: nothing was moved or rewritten.
+    // Fail-fast means fail-clean — nothing was moved or rewritten.
     await holdHubLock
     expect(await noteExists("Foo.md")).toBe(true)
     expect(await noteExists("Bar.md")).toBe(false)
@@ -1787,8 +1789,8 @@ describe("moveNote — concurrent write locking", () => {
     await writeFixture("Bar.md", "occupied\n")
     await writeFixture("Hub.md", "Links [[Foo]].\n")
 
-    // Fails inside the lock, after acquisition — the existence check runs
-    // within the locked span.
+    // The move fails inside the lock, after acquisition — the existence
+    // check runs within the locked span.
     await expect(
       moveNote({
         oldPath: "Foo.md",
@@ -1857,7 +1859,7 @@ describe("moveNote — backlink source hygiene", () => {
 
   it("excludes an alias spelling of the moved note from the backlink sources", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
-    // A self-link makes the difference observable: as the moved note it is
+    // A self-link makes the difference observable — as the moved note it is
     // rewritten once (counted in links_updated); if "./Foo.md" slipped past
     // the old-path filter it would also get a backlink-source rewrite plan,
     // inflating links_updated to 2 and listing "./Foo.md" in updated_notes.
@@ -1958,7 +1960,7 @@ describe("moveNote — filesystem backlink verification", () => {
   it("does not false-positive on notes containing the basename as prose", async () => {
     const { writeFixture, moveNote, logger } = setupVault()
     await writeFixture("Foo.md", "# Foo\n")
-    // Contains "Foo" as prose text, not as a link
+    // The fixture contains "Foo" as prose text, not as a link.
     await writeFixture("Prose.md", "The Foo concept is clear.\n")
 
     const result = await moveNote({
@@ -2061,7 +2063,7 @@ describe("moveNote — filesystem backlink verification", () => {
   it("discovers a markdown-link backlink via percent-encoded pre-filter", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("My Note.md", "# My Note\n")
-    // Markdown link with percent-encoded space — the raw content contains
+    // The link carries a percent-encoded space — the raw content contains
     // "My%20Note" but not "My Note" as a contiguous substring in the URL part.
     // The pre-filter's encodedStem check catches this.
     await writeFixture("Linker.md", "See [here](My%20Note.md) for info.\n")
