@@ -1,18 +1,21 @@
 import { describe, it, expect, vi, onTestFinished } from "vitest"
-import { rm, writeFile, mkdir, readFile, stat } from "node:fs/promises"
+import { rm, writeFile, mkdir, readFile, stat, rename } from "node:fs/promises"
 import { mkdtempSync } from "node:fs"
 import { basename, join, dirname } from "node:path"
 import { tmpdir } from "node:os"
 import { noteMover } from "../note-mover.js"
-import { vaultFs } from "../vault-filesystem.js"
+import { vaultFs, atomicWriteFile } from "../vault-filesystem.js"
 import { vaultPatcher } from "../vault-patcher.js"
 import { withExclusiveFileLock } from "../../../utils/file-write-lock.js"
 import { fileExists, statOrNull } from "../../../utils/fs.js"
 import type { Logger } from "../../../logger.js"
 
-// Spy-wrapped so single tests can shape the aliased-path disk probes while
-// every other call keeps the real implementation.
+// Spy-wrapped so single tests can shape the aliased-path disk probes and
+// fail specific rename/write calls while every other call keeps the real
+// implementation.
 vi.mock("../../../utils/fs.js", { spy: true })
+vi.mock("node:fs/promises", { spy: true })
+vi.mock("../vault-filesystem.js", { spy: true })
 
 const PROTECTED = ["About Me", "Daily Notes"] as const
 
@@ -1112,6 +1115,21 @@ describe("moveNote — guards", () => {
     expect(await noteExists("Archive/done.md")).toBe(false)
   })
 
+  /** Redirects the stat probe for the lowercase spelling to the real file,
+   *  putting the move on the case-only rename branch on every host. */
+  const forceCaseOnlyRenameDetection = (vault: string): void => {
+    const lowercaseFullPath = join(vault, "foo.md")
+    const realFullPath = join(vault, "Foo.md")
+    vi.mocked(statOrNull).mockImplementation(async (path) => {
+      const actualFs = await vi.importActual<
+        typeof import("../../../utils/fs.js")
+      >("../../../utils/fs.js")
+      if (path === lowercaseFullPath) return actualFs.statOrNull(realFullPath)
+      return actualFs.statOrNull(path)
+    })
+    onTestFinished(() => vi.mocked(statOrNull).mockRestore())
+  }
+
   it("performs a case-only rename and rewrites links to the new casing", async () => {
     // The stat probe reports the same inode for both spellings, as a
     // case-insensitive filesystem would; on a case-sensitive filesystem the
@@ -1120,17 +1138,7 @@ describe("moveNote — guards", () => {
     const { vault, writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "Self [[Foo]].\n")
     await writeFixture("Hub.md", "Links [[Foo]].\n")
-
-    const actualFs = await vi.importActual<
-      typeof import("../../../utils/fs.js")
-    >("../../../utils/fs.js")
-    const lowercaseFullPath = join(vault, "foo.md")
-    const realFullPath = join(vault, "Foo.md")
-    vi.mocked(statOrNull).mockImplementation((path) => {
-      if (path === lowercaseFullPath) return actualFs.statOrNull(realFullPath)
-      return actualFs.statOrNull(path)
-    })
-    onTestFinished(() => vi.mocked(statOrNull).mockRestore())
+    forceCaseOnlyRenameDetection(vault)
 
     const result = await moveNote({
       oldPath: "Foo.md",
@@ -1161,6 +1169,91 @@ describe("moveNote — guards", () => {
     expect(result.moved_to).toBe("foo.md")
     expect(await noteExists("Foo.md")).toBe(false)
     expect(await readNote("foo.md")).toBe("content\n")
+  })
+
+  it("aborts a case-only rename when the filesystem rename fails", async () => {
+    const { vault, writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    forceCaseOnlyRenameDetection(vault)
+
+    const oldFullPath = join(vault, "Foo.md")
+    const newFullPath = join(vault, "foo.md")
+    vi.mocked(rename).mockImplementation(async (source, destination) => {
+      if (source === oldFullPath && destination === newFullPath) {
+        throw new Error("EACCES: permission denied")
+      }
+      const actualFsPromises =
+        await vi.importActual<typeof import("node:fs/promises")>(
+          "node:fs/promises",
+        )
+      return actualFsPromises.rename(source, destination)
+    })
+    onTestFinished(() => vi.mocked(rename).mockRestore())
+
+    await expect(
+      moveNote({ oldPath: "Foo.md", newPath: "foo.md" }),
+    ).rejects.toThrow(
+      'move aborted: could not rename to "foo.md". Nothing was written.',
+    )
+    expect(await readNote("Foo.md")).toBe("content\n")
+  })
+
+  it("reports the renamed-but-stale-links state when the post-rename write fails", async () => {
+    const { vault, writeFixture, moveNote, readNote } = setupVault()
+    // The self-link makes the post-rename content write happen.
+    await writeFixture("Foo.md", "Self [[Foo]].\n")
+    forceCaseOnlyRenameDetection(vault)
+
+    const newFullPath = join(vault, "foo.md")
+    vi.mocked(atomicWriteFile).mockImplementation(async (filePath, content) => {
+      if (filePath === newFullPath) throw new Error("ENOSPC: no space left")
+      const actualVaultFilesystem = await vi.importActual<
+        typeof import("../vault-filesystem.js")
+      >("../vault-filesystem.js")
+      return actualVaultFilesystem.atomicWriteFile(filePath, content)
+    })
+    onTestFinished(() => vi.mocked(atomicWriteFile).mockRestore())
+
+    await expect(
+      moveNote({ oldPath: "Foo.md", newPath: "foo.md" }),
+    ).rejects.toThrow(
+      'move incomplete: renamed to "foo.md" but its own links still use the old casing. Edit the note to update them.',
+    )
+    // The rename itself went through — the note lives at the new spelling
+    // with its original content.
+    expect(await readNote("foo.md")).toBe("Self [[Foo]].\n")
+  })
+
+  it("names the already-renamed state when a backlink write fails after a case-only rename", async () => {
+    const { vault, writeFixture, moveNote, readNote } = setupVault()
+    // No self-link, so the only atomicWriteFile call is the backlink source.
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "Links [[Foo]].\n")
+    forceCaseOnlyRenameDetection(vault)
+
+    const hubFullPath = join(vault, "Hub.md")
+    vi.mocked(atomicWriteFile).mockImplementation(async (filePath, content) => {
+      if (filePath === hubFullPath) throw new Error("ENOSPC: no space left")
+      const actualVaultFilesystem = await vi.importActual<
+        typeof import("../vault-filesystem.js")
+      >("../vault-filesystem.js")
+      return actualVaultFilesystem.atomicWriteFile(filePath, content)
+    })
+    onTestFinished(() => vi.mocked(atomicWriteFile).mockRestore())
+
+    await expect(
+      moveNote({
+        oldPath: "Foo.md",
+        newPath: "foo.md",
+        backlinkSources: ["Hub.md"],
+      }),
+    ).rejects.toThrow(
+      'move incomplete: failed updating "Hub.md" (0/1 sources written). ' +
+        'The note was already renamed to "foo.md"; update the remaining ' +
+        "links directly.",
+    )
+    expect(await readNote("foo.md")).toBe("content\n")
+    expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n")
   })
 
   it("moves a note named by an absolute container path and rewrites its backlinks", async () => {
