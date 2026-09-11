@@ -1064,11 +1064,11 @@ export type TaskRoundTripDivergence = Readonly<{
   consumedTail?: string | undefined
 }>
 
-/** Everything the round-trip diff reads back from one written line. The
- *  description comes from the SLOT (the text before the metadata boundary),
- *  not the parser's description: the parser re-appends #tags found in the
- *  metadata tail, so a slot that survived intact would look changed on any
- *  tagged line. Truncation still shows — a consumed tail shortens the slot. */
+/** Everything the round-trip diff reads back from one written line: the
+ *  full metadata parse, plus the description SLOT (the text before the
+ *  metadata boundary, without the #tags the parser re-appends from the
+ *  tail). Which description representation a comparison uses is decided in
+ *  descriptionDivergences — the two modes need different ones. */
 type RoundTripLineReading = {
   metadata: TaskMetadata
   descriptionSlot: string | null
@@ -1181,6 +1181,23 @@ const expectedRoundTripValue = ({
   return { expected: null, expectedSource: "none" }
 }
 
+/** The part of a submitted description that parsed as metadata — defined
+ *  when the parsed-back description is a strict prefix of the submitted one
+ *  (the end-anchored stripping loop only ever consumes from the right). */
+const consumedDescriptionTail = ({
+  expected,
+  parsedBack,
+}: {
+  expected: string | null
+  parsedBack: string | null
+}): string | undefined => {
+  if (expected === null) return undefined
+  if (parsedBack === null) return expected
+  if (!expected.startsWith(parsedBack)) return undefined
+  const tail = expected.slice(parsedBack.length).trim()
+  return tail === "" ? undefined : tail
+}
+
 /** The description divergence, computed outside the field table because the
  *  two comparison modes read different representations:
  *  - Submitted this call: trimmed submitted text vs the after SLOT — the
@@ -1235,23 +1252,6 @@ const descriptionDivergences = ({
       parsedBack,
     },
   ]
-}
-
-/** The part of a submitted description that parsed as metadata — defined
- *  when the parsed-back description is a strict prefix of the submitted one
- *  (the end-anchored stripping loop only ever consumes from the right). */
-const consumedDescriptionTail = ({
-  expected,
-  parsedBack,
-}: {
-  expected: string | null
-  parsedBack: string | null
-}): string | undefined => {
-  if (expected === null) return undefined
-  if (parsedBack === null) return expected
-  if (!expected.startsWith(parsedBack)) return undefined
-  const tail = expected.slice(parsedBack.length).trim()
-  return tail === "" ? undefined : tail
 }
 
 /** Diffs a written task line against what the call's inputs say it should
