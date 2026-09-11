@@ -2979,6 +2979,30 @@ describe("round-trip advisories", () => {
       )
     })
 
+    it("reports a prior-sourced advisory when a description signifier overwrites a pre-existing field", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Old ➕ 2026-09-01 📅 2026-01-01 ^t1\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "t1",
+          description: "Fix 📅 2026-12-31",
+        },
+        logger,
+      )
+
+      expect(result.advisories).toEqual([
+        'description: the line was written as submitted, but the stored description reads "Fix" when parsed — the trailing "📅 2026-12-31" was read as task metadata',
+        'due: previously "2026-01-01", but the stored line now parses back "2026-12-31" without this call setting it',
+      ])
+    })
+
     it("names a truncating add_subtasks item in the advisories", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)

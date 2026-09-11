@@ -2315,6 +2315,22 @@ describe("tasks.diffTaskRoundTrip", () => {
     expect(divergences).toEqual([])
   })
 
+  it("reports a prior-sourced divergence when a field disappears without the call clearing it", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] T ^t",
+      priorTaskLine: "- [ ] T 📅 2026-01-01 ^t",
+      submitted: {},
+    })
+    expect(divergences).toEqual([
+      {
+        field: "due",
+        expected: "2026-01-01",
+        expectedSource: "prior",
+        parsedBack: null,
+      },
+    ])
+  })
+
   it("returns an empty array for a non-task line", () => {
     const divergences = tasks.diffTaskRoundTrip({
       taskLine: "just a paragraph",
