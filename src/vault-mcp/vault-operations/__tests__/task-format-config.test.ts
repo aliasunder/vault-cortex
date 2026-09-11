@@ -27,6 +27,15 @@ const writePluginConfig = async (
   await writeFile(join(pluginDir, "data.json"), JSON.stringify(config), "utf8")
 }
 
+/** The recurrence-behavior fields at the plugin's defaults — what a config
+ *  file that doesn't mention them must produce. */
+const DEFAULT_RECURRENCE_FIELDS = {
+  setCreatedDate: false,
+  recurrenceOnNextLine: false,
+  removeScheduledDateOnRecurrence: false,
+  doneStatusSymbols: [],
+}
+
 describe("readTaskFormatConfig", () => {
   it("reads emoji format from a valid config file", async () => {
     resetTaskFormatConfigCache()
@@ -43,7 +52,88 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "emoji",
       setDoneDate: true,
       setCancelledDate: false,
+      ...DEFAULT_RECURRENCE_FIELDS,
     })
+  })
+
+  it("reads the recurrence-behavior settings from the config file", async () => {
+    resetTaskFormatConfigCache()
+    const vault = await createVault()
+    await writePluginConfig(vault, {
+      taskFormat: "tasksPluginEmoji",
+      setCreatedDate: true,
+      recurrenceOnNextLine: true,
+      removeScheduledDateOnRecurrence: true,
+    })
+
+    const config = await readTaskFormatConfig(vault)
+
+    expect(config).toEqual({
+      taskFormat: "emoji",
+      setDoneDate: true,
+      setCancelledDate: true,
+      setCreatedDate: true,
+      recurrenceOnNextLine: true,
+      removeScheduledDateOnRecurrence: true,
+      doneStatusSymbols: [],
+    })
+  })
+
+  it("collects DONE-typed checkbox symbols from the status registry", async () => {
+    resetTaskFormatConfigCache()
+    const vault = await createVault()
+    await writePluginConfig(vault, {
+      statusSettings: {
+        coreStatuses: [
+          { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
+          { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
+        ],
+        customStatuses: [
+          {
+            symbol: "D",
+            name: "Deployed",
+            nextStatusSymbol: " ",
+            type: "DONE",
+          },
+          { symbol: "!", name: "Urgent", nextStatusSymbol: "x", type: "TODO" },
+        ],
+      },
+    })
+
+    const config = await readTaskFormatConfig(vault)
+
+    expect(config.doneStatusSymbols).toEqual(["x", "D"])
+  })
+
+  it("ignores the legacy pre-type status format", async () => {
+    resetTaskFormatConfigCache()
+    const vault = await createVault()
+    await writePluginConfig(vault, {
+      statusSettings: {
+        customStatusTypes: [
+          { indicator: "P", name: "Pro", nextStatusIndicator: "C" },
+        ],
+      },
+    })
+
+    const config = await readTaskFormatConfig(vault)
+
+    expect(config.doneStatusSymbols).toEqual([])
+  })
+
+  it("ignores malformed status-registry entries", async () => {
+    resetTaskFormatConfigCache()
+    const vault = await createVault()
+    await writePluginConfig(vault, {
+      statusSettings: {
+        coreStatuses: ["not-an-object", { type: "DONE" }, { symbol: 3 }],
+        customStatuses: "not-an-array",
+      },
+    })
+
+    const config = await readTaskFormatConfig(vault)
+
+    expect(config.doneStatusSymbols).toEqual([])
   })
 
   it("reads dataview format from a valid config file", async () => {
@@ -61,6 +151,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "dataview",
       setDoneDate: false,
       setCancelledDate: true,
+      ...DEFAULT_RECURRENCE_FIELDS,
     })
   })
 
@@ -74,6 +165,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "emoji",
       setDoneDate: true,
       setCancelledDate: true,
+      ...DEFAULT_RECURRENCE_FIELDS,
     })
   })
 
@@ -95,6 +187,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "emoji",
       setDoneDate: true,
       setCancelledDate: true,
+      ...DEFAULT_RECURRENCE_FIELDS,
     })
   })
 
@@ -107,6 +200,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "emoji",
       setDoneDate: true,
       setCancelledDate: true,
+      ...DEFAULT_RECURRENCE_FIELDS,
     })
 
     await writePluginConfig(vault, {
@@ -119,6 +213,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "dataview",
       setDoneDate: false,
       setCancelledDate: false,
+      ...DEFAULT_RECURRENCE_FIELDS,
     })
   })
 
@@ -136,6 +231,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "dataview",
       setDoneDate: true,
       setCancelledDate: true,
+      ...DEFAULT_RECURRENCE_FIELDS,
     })
 
     await writePluginConfig(vault, {
@@ -148,6 +244,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "dataview",
       setDoneDate: true,
       setCancelledDate: true,
+      ...DEFAULT_RECURRENCE_FIELDS,
     })
   })
 })

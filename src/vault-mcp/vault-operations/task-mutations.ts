@@ -19,8 +19,17 @@ import type {
   TaskStatus,
   TaskPriority,
   DateFieldKey,
+  ParsedTask,
 } from "../obsidian-markdown/tasks.js"
-import { readTaskFormatConfig } from "./task-format-config.js"
+import {
+  parseRecurrenceRule,
+  nextOccurrenceDates,
+  type NextOccurrenceDates,
+} from "../obsidian-markdown/recurrence.js"
+import {
+  readTaskFormatConfig,
+  type TaskFormatConfig,
+} from "./task-format-config.js"
 import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
@@ -82,6 +91,17 @@ type UpdateTaskParams = {
   format?: "emoji" | "dataview" | undefined
 }
 
+/** The spawned next occurrence of a completed recurring task. It carries no
+ *  block id, so `line` is its only handle. Date fields are present only when
+ *  the occurrence has them. */
+type NextOccurrencePosition = {
+  line: number
+  description: string
+  due?: string | undefined
+  scheduled?: string | undefined
+  start?: string | undefined
+}
+
 type UpdateTaskResult = {
   path: string
   line: number
@@ -89,6 +109,9 @@ type UpdateTaskResult = {
   block_id?: string | undefined
   heading?: string | undefined
   subtasks?: SubtaskPosition[] | undefined
+  next_occurrence?: NextOccurrencePosition | undefined
+  /** Non-blocking notices about the write — omitted when there are none. */
+  advisories?: string[] | undefined
   changes: string[]
 }
 
@@ -452,7 +475,15 @@ const moveTaskBlock = ({
   targetLane: string
   headings: readonly HeadingInfo[]
   position?: "top" | "bottom"
-}): { lines: readonly string[]; taskLineIndex: number; change?: string } => {
+}): {
+  lines: readonly string[]
+  taskLineIndex: number
+  change?: string
+  /** Lines the move relocated (task + sub-items) — how far the splices
+   *  shifted every line between the block's old and new positions. Absent
+   *  when the task already sat in the target lane and nothing moved. */
+  movedBlockLength?: number
+} => {
   const targetHeading = headings.find((heading) => heading.text === targetLane)
   if (!targetHeading) {
     const availableHeadings = headings.map((heading) => heading.text).join(", ")
@@ -494,6 +525,7 @@ const moveTaskBlock = ({
       before: currentLane,
       after: targetLane,
     }),
+    movedBlockLength: taskBlock.length,
   }
 }
 
@@ -537,6 +569,100 @@ const appendSubtasks = ({
       after: existingSubtaskCount + descriptions.length,
     }),
   }
+}
+
+/** What completing a recurring task produces: a spawned next-occurrence
+ *  line, an advisory when the rule yields no next occurrence, or nothing
+ *  (the task is not recurring, or is not transitioning to done). */
+type RecurrenceSpawn =
+  | { kind: "spawn"; spawnedLine: string; nextDates: NextOccurrenceDates }
+  | { kind: "advisory"; advisory: string }
+  | { kind: "none" }
+
+/** Resolves the recurrence spawn for an update, mirroring the Tasks plugin:
+ *  spawn only on a transition to done from a not-done status (custom
+ *  DONE-typed checkbox chars from the status registry count as done), with
+ *  the recurrence rule and dates read from the task line AFTER every
+ *  non-status edit — so an update that changes dates or the rule and
+ *  completes in one call advances from the edited values. */
+const resolveRecurrenceSpawn = ({
+  status,
+  taskBefore,
+  editedTaskLine,
+  today,
+  config,
+}: {
+  status: TaskStatus | undefined
+  taskBefore: ParsedTask
+  editedTaskLine: string
+  today: string
+  config: TaskFormatConfig
+}): RecurrenceSpawn => {
+  if (status !== "done") return { kind: "none" }
+
+  const wasAlreadyDone =
+    taskBefore.status === "done" ||
+    config.doneStatusSymbols.includes(taskBefore.statusChar)
+  if (wasAlreadyDone) return { kind: "none" }
+
+  const editedTask = tasks.extractTasks(editedTaskLine).at(0)
+  if (!editedTask?.recurrence) return { kind: "none" }
+  const recurrenceText = editedTask.recurrence
+
+  if (parseRecurrenceRule(recurrenceText) === null) {
+    return {
+      kind: "advisory",
+      advisory: `The task was completed, but its recurrence rule "${recurrenceText}" is not a rule the Tasks plugin recognizes, so no next occurrence was created.`,
+    }
+  }
+
+  const nextDates = nextOccurrenceDates({
+    recurrenceText,
+    startDate: editedTask.startDate,
+    scheduledDate: editedTask.scheduledDate,
+    dueDate: editedTask.dueDate,
+    today,
+    removeScheduledDateOnRecurrence: config.removeScheduledDateOnRecurrence,
+  })
+  if (nextDates === null) {
+    return {
+      kind: "advisory",
+      advisory: `The task was completed, but its recurrence rule "${recurrenceText}" produced no next occurrence, so none was created.`,
+    }
+  }
+
+  return {
+    kind: "spawn",
+    spawnedLine: tasks.buildNextOccurrenceLine({
+      taskLine: editedTaskLine,
+      nextDates,
+      today,
+      config,
+    }),
+    nextDates,
+  }
+}
+
+/** The spawned line's index after the done-lane move's two splices (block
+ *  removal, then reinsertion under the target heading) — tracked
+ *  arithmetically, never by content search: a vault can hold two
+ *  byte-identical recurring lines, and a search would find the wrong one. */
+const spawnIndexAfterMove = ({
+  spawnIndex,
+  moveStart,
+  movedBlockLength,
+  insertAt,
+}: {
+  spawnIndex: number
+  moveStart: number
+  movedBlockLength: number
+  insertAt: number
+}): number => {
+  const indexAfterRemoval =
+    spawnIndex < moveStart ? spawnIndex : spawnIndex - movedBlockLength
+  return insertAt <= indexAfterRemoval
+    ? indexAfterRemoval + movedBlockLength
+    : indexAfterRemoval
 }
 
 /** Detects the done lane for auto-completion: checks for **Complete**
@@ -740,9 +866,8 @@ const createTask = async (
     const isKanbanBoard = Boolean(parsed.data["kanban-plugin"])
     const pluginConfig = await readTaskFormatConfig(vaultPath)
     const formatConfig = {
+      ...pluginConfig,
       taskFormat: format ?? pluginConfig.taskFormat,
-      setDoneDate: pluginConfig.setDoneDate,
-      setCancelledDate: pluginConfig.setCancelledDate,
     }
 
     const today = todayIsoDate()
@@ -1008,159 +1133,220 @@ const updateTask = async (
     // Resolve format config: explicit param > plugin config > emoji default
     const pluginConfig = await readTaskFormatConfig(vaultPath)
     const formatConfig = {
+      ...pluginConfig,
       taskFormat: format ?? pluginConfig.taskFormat,
-      setDoneDate: pluginConfig.setDoneDate,
-      setCancelledDate: pluginConfig.setCancelledDate,
     }
 
-    // In-line edits, in the order they are applied to the task line. Each
-    // carries its own `changes` entry; description's after-value is read
-    // through the parser so tags match the result's `description`.
-    const lineEdits: LineEdit[] = [
-      ...(newDescription !== undefined
-        ? [
-            {
-              apply: (taskLine: string) =>
-                tasks.replaceTaskLineDescription({ taskLine, newDescription }),
-              change: formatChange({
-                field: "description",
-                before: taskBefore.description,
-                after: tasks.describeTaskLine(
-                  tasks.replaceTaskLineDescription({
-                    taskLine: originalTaskLine,
-                    newDescription,
-                  }),
-                ),
-              }),
-            },
-          ]
-        : []),
-      ...(status
-        ? [
-            {
-              apply: (taskLine: string) =>
-                tasks.updateTaskLineStatus({
-                  taskLine,
-                  newStatus: status,
-                  today: todayIsoDate(),
-                  config: formatConfig,
+    const today = todayIsoDate()
+
+    // In-line edits. Every non-status edit applies first so the recurrence
+    // spawn reads post-edit state — an update that changes dates and
+    // completes in one call advances from the edited values; the status
+    // edit applies last (it touches only the checkbox and completion
+    // dates, so the final line is the same either way). Each edit carries
+    // its own `changes` entry; description's after-value is read through
+    // the parser so tags match the result's `description`.
+    const descriptionEdit: LineEdit | undefined =
+      newDescription !== undefined
+        ? {
+            apply: (taskLine: string) =>
+              tasks.replaceTaskLineDescription({ taskLine, newDescription }),
+            change: formatChange({
+              field: "description",
+              before: taskBefore.description,
+              after: tasks.describeTaskLine(
+                tasks.replaceTaskLineDescription({
+                  taskLine: originalTaskLine,
+                  newDescription,
                 }),
-              change: formatChange({
-                field: "status",
-                before: taskBefore.status,
-                after: status,
+              ),
+            }),
+          }
+        : undefined
+    const statusEdit: LineEdit | undefined = status
+      ? {
+          apply: (taskLine: string) =>
+            tasks.updateTaskLineStatus({
+              taskLine,
+              newStatus: status,
+              today,
+              config: formatConfig,
+            }),
+          change: formatChange({
+            field: "status",
+            before: taskBefore.status,
+            after: status,
+          }),
+        }
+      : undefined
+    const priorityEdit: LineEdit | undefined =
+      priority !== undefined
+        ? {
+            apply: (taskLine: string) =>
+              tasks.updateTaskLinePriority({
+                taskLine,
+                newPriority: priority,
+                config: formatConfig,
               }),
-            },
-          ]
-        : []),
-      ...(priority !== undefined
-        ? [
+            change: formatChange({
+              field: "priority",
+              before: taskBefore.priority,
+              after: priority,
+            }),
+          }
+        : undefined
+    const dateEdits: LineEdit[] = dateParams.flatMap(({ field, value }) =>
+      value === undefined
+        ? []
+        : [
             {
               apply: (taskLine: string) =>
-                tasks.updateTaskLinePriority({
+                tasks.updateTaskLineDate({
                   taskLine,
-                  newPriority: priority,
-                  config: formatConfig,
-                }),
-              change: formatChange({
-                field: "priority",
-                before: taskBefore.priority,
-                after: priority,
-              }),
-            },
-          ]
-        : []),
-      ...dateParams.flatMap(({ field, value }) =>
-        value === undefined
-          ? []
-          : [
-              {
-                apply: (taskLine: string) =>
-                  tasks.updateTaskLineDate({
-                    taskLine,
-                    field,
-                    date: value,
-                    config: formatConfig,
-                  }),
-                change: formatChange({
                   field,
-                  before: taskBefore[`${field}Date`],
-                  after: value,
-                }),
-              },
-            ],
-      ),
-      ...(taskId !== undefined
-        ? [
-            {
-              apply: (taskLine: string) =>
-                tasks.updateTaskLineTaskId({
-                  taskLine,
-                  taskId,
+                  date: value,
                   config: formatConfig,
                 }),
               change: formatChange({
-                field: "task_id",
-                before: taskBefore.taskId,
-                after: taskId,
+                field,
+                before: taskBefore[`${field}Date`],
+                after: value,
               }),
             },
-          ]
-        : []),
-      ...(dependsOn !== undefined
-        ? [
-            {
-              apply: (taskLine: string) =>
-                tasks.updateTaskLineDependsOn({
-                  taskLine,
-                  dependsOn,
-                  config: formatConfig,
-                }),
-              change: formatChange({
-                field: "depends_on",
-                before: formatDependsOn(taskBefore.dependsOn),
-                after: formatDependsOn(dependsOn),
+          ],
+    )
+    const taskIdEdit: LineEdit | undefined =
+      taskId !== undefined
+        ? {
+            apply: (taskLine: string) =>
+              tasks.updateTaskLineTaskId({
+                taskLine,
+                taskId,
+                config: formatConfig,
               }),
-            },
-          ]
-        : []),
-      ...(newBlockId
-        ? [
-            {
-              apply: (taskLine: string) =>
-                tasks.assignBlockId({ taskLine, blockId: newBlockId }),
-              change: formatChange({
-                field: "block_id",
-                before: taskBefore.blockId,
-                after: newBlockId,
+            change: formatChange({
+              field: "task_id",
+              before: taskBefore.taskId,
+              after: taskId,
+            }),
+          }
+        : undefined
+    const dependsOnEdit: LineEdit | undefined =
+      dependsOn !== undefined
+        ? {
+            apply: (taskLine: string) =>
+              tasks.updateTaskLineDependsOn({
+                taskLine,
+                dependsOn,
+                config: formatConfig,
               }),
-            },
-          ]
-        : []),
-    ]
-    const mutatedLine = lineEdits.reduce(
+            change: formatChange({
+              field: "depends_on",
+              before: formatDependsOn(taskBefore.dependsOn),
+              after: formatDependsOn(dependsOn),
+            }),
+          }
+        : undefined
+    const blockIdEdit: LineEdit | undefined = newBlockId
+      ? {
+          apply: (taskLine: string) =>
+            tasks.assignBlockId({ taskLine, blockId: newBlockId }),
+          change: formatChange({
+            field: "block_id",
+            before: taskBefore.blockId,
+            after: newBlockId,
+          }),
+        }
+      : undefined
+
+    const preStatusEdits = [
+      descriptionEdit,
+      priorityEdit,
+      ...dateEdits,
+      taskIdEdit,
+      dependsOnEdit,
+      blockIdEdit,
+    ].filter((edit) => edit !== undefined)
+    const editedLineBeforeStatus = preStatusEdits.reduce(
       (taskLine, edit) => edit.apply(taskLine),
       originalTaskLine,
     )
-    const lineChanges = lineEdits.map((edit) => edit.change)
+    const mutatedLine = statusEdit
+      ? statusEdit.apply(editedLineBeforeStatus)
+      : editedLineBeforeStatus
+
+    // `changes` keeps its documented order (status second) even though the
+    // status edit applies last.
+    const lineChanges = [
+      descriptionEdit,
+      statusEdit,
+      priorityEdit,
+      ...dateEdits,
+      taskIdEdit,
+      dependsOnEdit,
+      blockIdEdit,
+    ]
+      .filter((edit) => edit !== undefined)
+      .map((edit) => edit.change)
+
+    const recurrenceSpawn = resolveRecurrenceSpawn({
+      status,
+      taskBefore,
+      editedTaskLine: editedLineBeforeStatus,
+      today,
+      config: formatConfig,
+    })
+
+    const linesWithEdits = bodyLines.with(taskLineIndex, mutatedLine)
+
+    // The spawned occurrence is written adjacent to the completed line —
+    // above it by default, below with recurrenceOnNextLine — and never
+    // rides the done-lane move: a recurring card's next instance stays in
+    // the source lane.
+    const spawnInsertIndex = formatConfig.recurrenceOnNextLine
+      ? taskLineIndex + 1
+      : taskLineIndex
+    const linesWithSpawn =
+      recurrenceSpawn.kind === "spawn"
+        ? linesWithEdits.toSpliced(
+            spawnInsertIndex,
+            0,
+            recurrenceSpawn.spawnedLine,
+          )
+        : linesWithEdits
+    const completedIndexAfterSpawn =
+      recurrenceSpawn.kind === "spawn" && !formatConfig.recurrenceOnNextLine
+        ? taskLineIndex + 1
+        : taskLineIndex
+
+    // The spawn insert shifts every heading below it by one line — the lane
+    // move must see re-parsed positions or it lands on a stale boundary.
+    const headingsAfterSpawn =
+      recurrenceSpawn.kind === "spawn"
+        ? parseHeadings(linesWithSpawn)
+        : headings
 
     // Heading move — an explicit heading, or the done lane when completing
     // a top-level card on a Kanban board.
     const autoDoneLane =
       !targetHeadingParam && status === "done" && isKanbanBoard && !isSubtask
     const targetLane = autoDoneLane
-      ? detectDoneLane(bodyLines, headings)
+      ? detectDoneLane(linesWithSpawn, headingsAfterSpawn)
       : targetHeadingParam
-    const linesWithEdits = bodyLines.with(taskLineIndex, mutatedLine)
     const moved = targetLane
       ? moveTaskBlock({
-          lines: linesWithEdits,
-          taskLineIndex,
+          lines: linesWithSpawn,
+          taskLineIndex: completedIndexAfterSpawn,
           targetLane,
-          headings,
+          headings: headingsAfterSpawn,
           position: position ?? "top",
         })
-      : { lines: linesWithEdits, taskLineIndex, change: undefined }
+      : {
+          lines: linesWithSpawn,
+          taskLineIndex: completedIndexAfterSpawn,
+          change: undefined,
+          movedBlockLength: undefined,
+        }
 
     // Checklist items go after every parent-line edit and the move, so they
     // land under the card's final position.
@@ -1175,10 +1361,64 @@ const updateTask = async (
 
     const resultLines = withSubtasks.lines
     const finalTaskIndex = moved.taskLineIndex
-    const changes = [...lineChanges, moved.change, withSubtasks.change].filter(
-      (change) => change !== undefined,
-    )
     const subtaskPositions = withSubtasks.subtaskPositions
+
+    // The spawned line's final index, adjusted through the lane move's
+    // splices and the checklist insert (which shifts it only when the
+    // checklist lands at or above it — the on-next-line case).
+    const spawnIndexUnmoved =
+      recurrenceSpawn.kind === "spawn" ? spawnInsertIndex : undefined
+    const spawnIndexPostMove =
+      spawnIndexUnmoved !== undefined && moved.movedBlockLength !== undefined
+        ? spawnIndexAfterMove({
+            spawnIndex: spawnIndexUnmoved,
+            moveStart: completedIndexAfterSpawn,
+            movedBlockLength: moved.movedBlockLength,
+            insertAt: moved.taskLineIndex,
+          })
+        : spawnIndexUnmoved
+    const firstSubtaskPosition = subtaskPositions?.at(0)
+    const subtaskInsertIndex = firstSubtaskPosition
+      ? firstSubtaskPosition.line - bodyStartLine - 1
+      : undefined
+    const spawnFinalIndex =
+      spawnIndexPostMove !== undefined &&
+      subtaskInsertIndex !== undefined &&
+      subtaskInsertIndex <= spawnIndexPostMove
+        ? spawnIndexPostMove + (addSubtasks?.length ?? 0)
+        : spawnIndexPostMove
+
+    const nextOccurrence: NextOccurrencePosition | undefined =
+      recurrenceSpawn.kind === "spawn" && spawnFinalIndex !== undefined
+        ? {
+            line: bodyStartLine + spawnFinalIndex + 1,
+            description: tasks.describeTaskLine(recurrenceSpawn.spawnedLine),
+            ...(recurrenceSpawn.nextDates.dueDate
+              ? { due: recurrenceSpawn.nextDates.dueDate }
+              : {}),
+            ...(recurrenceSpawn.nextDates.scheduledDate
+              ? { scheduled: recurrenceSpawn.nextDates.scheduledDate }
+              : {}),
+            ...(recurrenceSpawn.nextDates.startDate
+              ? { start: recurrenceSpawn.nextDates.startDate }
+              : {}),
+          }
+        : undefined
+
+    const changes = [
+      ...lineChanges,
+      moved.change,
+      withSubtasks.change,
+      ...(nextOccurrence
+        ? [
+            formatChange({
+              field: "next_occurrence",
+              before: null,
+              after: `line ${nextOccurrence.line}`,
+            }),
+          ]
+        : []),
+    ].filter((change) => change !== undefined)
 
     // Write atomically
     const serialized = stringifyNote(resultLines.join("\n"), parsed.data)
@@ -1204,6 +1444,11 @@ const updateTask = async (
       block_id: finalBlockId,
       heading: finalHeading?.text,
       subtasks: subtaskPositions,
+      next_occurrence: nextOccurrence,
+      advisories:
+        recurrenceSpawn.kind === "advisory"
+          ? [recurrenceSpawn.advisory]
+          : undefined,
       changes,
     }
   })

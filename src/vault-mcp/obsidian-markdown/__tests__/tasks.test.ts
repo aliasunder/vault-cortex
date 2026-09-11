@@ -1,11 +1,21 @@
 import { describe, it, expect } from "vitest"
 import { tasks, type ParsedTask, type TaskFormatConfig } from "../tasks.js"
 
+/** The recurrence-behavior settings at their plugin defaults, shared by
+ *  every config literal in this file. */
+const DEFAULT_RECURRENCE_SETTINGS = {
+  setCreatedDate: false,
+  recurrenceOnNextLine: false,
+  removeScheduledDateOnRecurrence: false,
+  doneStatusSymbols: [],
+}
+
 /** Default emoji format config for mutation tests. */
 const EMOJI_CONFIG: TaskFormatConfig = {
   taskFormat: "emoji",
   setDoneDate: true,
   setCancelledDate: true,
+  ...DEFAULT_RECURRENCE_SETTINGS,
 }
 
 /** Dataview format config for format-specific tests. */
@@ -13,6 +23,7 @@ const DATAVIEW_CONFIG: TaskFormatConfig = {
   taskFormat: "dataview",
   setDoneDate: true,
   setCancelledDate: true,
+  ...DEFAULT_RECURRENCE_SETTINGS,
 }
 
 /** Builds a full ParsedTask from overrides so assertions compare whole
@@ -995,6 +1006,7 @@ describe("task line mutations", () => {
         taskFormat: "emoji",
         setDoneDate: false,
         setCancelledDate: true,
+        ...DEFAULT_RECURRENCE_SETTINGS,
       }
       const result = tasks.updateTaskLineStatus({
         taskLine: "- [ ] Task ➕ 2026-07-01",
@@ -1010,6 +1022,7 @@ describe("task line mutations", () => {
         taskFormat: "emoji",
         setDoneDate: true,
         setCancelledDate: false,
+        ...DEFAULT_RECURRENCE_SETTINGS,
       }
       const result = tasks.updateTaskLineStatus({
         taskLine: "- [ ] Task ➕ 2026-07-01",
@@ -1518,11 +1531,7 @@ describe("task line mutations", () => {
         taskLine: line,
         field: "scheduled",
         date: "2026-09-10",
-        config: {
-          taskFormat: "dataview",
-          setDoneDate: true,
-          setCancelledDate: true,
-        },
+        config: DATAVIEW_CONFIG,
       })
       expect(result).toBe(
         "- [ ] My task [created:: 2026-08-01] [scheduled:: 2026-09-10] ^my-task",
@@ -1607,11 +1616,7 @@ describe("task line mutations", () => {
       const result = tasks.updateTaskLineTaskId({
         taskLine: line,
         taskId: "xyz789",
-        config: {
-          taskFormat: "dataview",
-          setDoneDate: true,
-          setCancelledDate: true,
-        },
+        config: DATAVIEW_CONFIG,
       })
       expect(result).toBe(
         "- [ ] My task [created:: 2026-08-01] [id:: xyz789] ^my-task",
@@ -1698,7 +1703,7 @@ describe("task line mutations", () => {
           created: "2026-08-25",
           due: "2026-09-01",
         },
-        { taskFormat: "dataview", setDoneDate: true, setCancelledDate: true },
+        DATAVIEW_CONFIG,
       )
       expect(line).toBe(
         "- [ ] Dataview task [created:: 2026-08-25] [due:: 2026-09-01] ^dv-task",
@@ -1750,11 +1755,7 @@ describe("task line mutations", () => {
     })
 
     it("round-trips dataview format", () => {
-      const dvConfig = {
-        taskFormat: "dataview" as const,
-        setDoneDate: true,
-        setCancelledDate: true,
-      }
+      const dvConfig = DATAVIEW_CONFIG
       const builtLine = tasks.buildTaskLine(
         {
           description: "DV round-trip",
