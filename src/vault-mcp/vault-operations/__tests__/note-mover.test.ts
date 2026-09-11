@@ -1086,10 +1086,10 @@ describe("moveNote — guards", () => {
 
   it("does not substitute a case-variant sibling that is a different file", async () => {
     // Simulates a case-sensitive vault holding two case-distinct files where
-    // the requested one is not yet indexed: the stat probe reports a real but
-    // different inode for the input, and its existence check stays false. The
-    // reconciliation must decline — matching by folded name alone would move
-    // and unlink the sibling, the wrong user-visible note.
+    // the requested one is not yet indexed — the stat probe reports a real
+    // but different inode for the input, and its existence check stays false.
+    // The reconciliation must decline, because matching by folded name alone
+    // would move and unlink the sibling, the wrong user-visible note.
     const { vault, writeFixture, moveNote, noteExists, readNote } = setupVault()
     await writeFixture("Projects/todo.md", "sibling content\n")
     await writeFixture("Hub.md", "Links [[todo]].\n")

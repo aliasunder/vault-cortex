@@ -1099,9 +1099,9 @@ Docker hardening, and durability seatbelts above.
 
 - **`resolveSafePath()`** (`vault-filesystem.ts`): `resolve()` +
   prefix check. Every vault-relative path passes through it before any
-  filesystem access. Throws on absolute paths (`/vault/Note.md` — every
-  vault path is relative to the vault root, and an absolute spelling
-  would tie behavior to the deployment's mount point), on traversal
+  filesystem access. Throws on absolute paths (`/vault/Note.md` — vault
+  paths are always vault-relative, and an absolute spelling would tie
+  behavior to the deployment's mount point), on traversal
   (`../../etc/passwd`), and on
   hidden paths — any dot-prefixed segment (`.obsidian/x`, `.trash/y.md`),
   checked on the resolved relative path so `a/../.obsidian/x` is caught

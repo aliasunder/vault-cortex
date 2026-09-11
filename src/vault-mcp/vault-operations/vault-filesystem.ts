@@ -64,10 +64,11 @@ export const resolveSafePath = (
   notePath: string,
 ): string => {
   // Vault paths are relative to the vault root — Obsidian has no other
-  // form. An absolute input is rejected even when it lands inside the vault:
-  // accepting it would tie behavior to the deployment's mount point, and a
-  // vault root whose name shadows a top-level folder (root "/vault", folder
-  // "vault/") would let one leading slash silently select the wrong file.
+  // form. An absolute input is rejected even when it lands inside the vault,
+  // because accepting it would tie behavior to the deployment's mount point,
+  // and a vault root whose name shadows a top-level folder (root "/vault",
+  // folder "vault/") would let one leading slash silently select the wrong
+  // file.
   if (posix.isAbsolute(notePath)) {
     throw new Error(
       `absolute path blocked: "${notePath}" must be vault-relative`,
