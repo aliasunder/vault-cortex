@@ -166,8 +166,15 @@ const nextAfterCapped = ({
   const monthMatch = MONTHLY_RULE_TEXT_RE.exec(canonicalRuleText)
   const yearMatch = YEARLY_RULE_TEXT_RE.exec(canonicalRuleText)
 
+  // " on " in the canonical text means the rule fixes an explicit day
+  // ("every month on the 31st") — rrule's native month-skipping is correct
+  // for those, so the walk-back stands down. The plugin checks this for
+  // month rules only; year rules walk back unconditionally (its reachable
+  // yearly grammar never carries " on " in canonical text — "every January
+  // on the 31st" canonicalizes without the word "year").
+  const ruleFixesAnExplicitDay = canonicalRuleText.includes(" on ")
   const monthIntervalToEnforce =
-    monthMatch && !canonicalRuleText.includes(" on ")
+    monthMatch && !ruleFixesAnExplicitDay
       ? Number.parseInt(monthMatch[1]?.trim() ?? "1", 10)
       : null
   const yearIntervalToEnforce = yearMatch
@@ -179,6 +186,10 @@ const nextAfterCapped = ({
 
   // Walk-back loop — sequential by nature: each iteration re-queries from
   // one day earlier and the loop condition reads the newest answer.
+  // afterDay starts at the query point's end-of-day and becomes start-of-day
+  // after the first step (walkBackOneDay normalizes it); harmless, because
+  // the loop reads only month/year components, which are the same at either
+  // end of a calendar day.
   let afterDay: DateTime = DateTime.fromJSDate(after, { zone: "utc" })
   let next = naiveNext
   for (let iteration = 0; iteration < WALK_BACK_ITERATION_CAP; iteration++) {

@@ -613,6 +613,8 @@ const resolveRecurrenceSpawn = ({
     config.doneStatusSymbols.includes(taskBefore.statusChar)
   if (wasAlreadyDone) return { kind: "none" }
 
+  // The note-level parser handles a bare task line: no frontmatter means a
+  // body offset of zero and the one line parses to a one-element array.
   const editedTask = tasks.extractTasks(editedTaskLine).at(0)
   if (!editedTask?.recurrence) return { kind: "none" }
   const recurrenceText = editedTask.recurrence
@@ -651,26 +653,40 @@ const resolveRecurrenceSpawn = ({
   }
 }
 
-/** The spawned line's index after the done-lane move's two splices (block
- *  removal, then reinsertion under the target heading) — tracked
- *  arithmetically, never by content search: a vault can hold two
- *  byte-identical recurring lines, and a search would find the wrong one. */
-const spawnIndexAfterMove = ({
+/** The spawned line's index after every splice that follows its insert:
+ *  the done-lane move (block removal, then reinsertion under the target
+ *  heading) and the checklist append. Tracked arithmetically, never by
+ *  content search — a vault can hold two byte-identical recurring lines,
+ *  and a search would find the wrong one.
+ *
+ *  Worked example: spawn at 5; the completed block [3, 5) moves to
+ *  insertAt 8. The removal shifts the spawn to 5 − 2 = 3; the reinsertion
+ *  at 8 lands below 3, so no shift. A checklist appended at or above the
+ *  spawn (the on-next-line layout) shifts it once more. */
+const spawnIndexAfterSplices = ({
   spawnIndex,
-  moveStart,
-  movedBlockLength,
-  insertAt,
+  move,
+  checklistInsert,
 }: {
   spawnIndex: number
-  moveStart: number
-  movedBlockLength: number
-  insertAt: number
+  move?:
+    | { moveStart: number; movedBlockLength: number; insertAt: number }
+    | undefined
+  checklistInsert?: { insertIndex: number; lineCount: number } | undefined
 }): number => {
-  const indexAfterRemoval =
-    spawnIndex < moveStart ? spawnIndex : spawnIndex - movedBlockLength
-  return insertAt <= indexAfterRemoval
-    ? indexAfterRemoval + movedBlockLength
-    : indexAfterRemoval
+  const afterRemoval =
+    !move || spawnIndex < move.moveStart
+      ? spawnIndex
+      : spawnIndex - move.movedBlockLength
+  const reinsertionShift =
+    move && move.insertAt <= afterRemoval ? move.movedBlockLength : 0
+  const afterMove = afterRemoval + reinsertionShift
+
+  const checklistShift =
+    checklistInsert && checklistInsert.insertIndex <= afterMove
+      ? checklistInsert.lineCount
+      : 0
+  return afterMove + checklistShift
 }
 
 /** Detects the done lane for auto-completion: checks for **Complete**
@@ -1347,14 +1363,14 @@ const updateTask = async (
 
     const linesWithEdits = bodyLines.with(taskLineIndex, mutatedLine)
 
-    // The spawned occurrence is written adjacent to the completed line —
-    // above it by default, below with recurrenceOnNextLine — and never
-    // rides the done-lane move: a recurring card's next instance stays in
-    // the source lane. Adjacency is plugin parity: with recurrenceOnNextLine
-    // the pair is completed-then-spawn, so the completed card's checklist
-    // sits structurally under the SPAWN — in Obsidian too — and the
-    // done-lane move takes the completed line alone, leaving the checklist
-    // with the next occurrence in the source lane.
+    // The spawned occurrence is written on the line directly adjacent to
+    // the completed task line — above it by default, directly below it
+    // with recurrenceOnNextLine — matching how the plugin writes the pair.
+    // Below-placement puts the spawn between the completed line and its
+    // checklist, so the checklist belongs to the spawn from then on (in
+    // Obsidian too) and the later done-lane move takes the completed line
+    // alone. The spawn never rides that move: the next instance stays in
+    // the source lane.
     const spawnInsertIndex = formatConfig.recurrenceOnNextLine
       ? taskLineIndex + 1
       : taskLineIndex
@@ -1415,30 +1431,28 @@ const updateTask = async (
     const finalTaskIndex = moved.taskLineIndex
     const subtaskPositions = withSubtasks.subtaskPositions
 
-    // The spawned line's final index, adjusted through the lane move's
-    // splices and the checklist insert (which shifts it only when the
-    // checklist lands at or above it — the on-next-line case).
-    const spawnIndexUnmoved =
-      recurrenceSpawn.kind === "spawn" ? spawnInsertIndex : undefined
-    const spawnIndexPostMove =
-      spawnIndexUnmoved !== undefined && moved.movedBlockLength !== undefined
-        ? spawnIndexAfterMove({
-            spawnIndex: spawnIndexUnmoved,
-            moveStart: completedIndexAfterSpawn,
-            movedBlockLength: moved.movedBlockLength,
-            insertAt: moved.taskLineIndex,
-          })
-        : spawnIndexUnmoved
     const firstSubtaskPosition = subtaskPositions?.at(0)
-    const subtaskInsertIndex = firstSubtaskPosition
-      ? firstSubtaskPosition.line - bodyStartLine - 1
-      : undefined
     const spawnFinalIndex =
-      spawnIndexPostMove !== undefined &&
-      subtaskInsertIndex !== undefined &&
-      subtaskInsertIndex <= spawnIndexPostMove
-        ? spawnIndexPostMove + (addSubtasks?.length ?? 0)
-        : spawnIndexPostMove
+      recurrenceSpawn.kind === "spawn"
+        ? spawnIndexAfterSplices({
+            spawnIndex: spawnInsertIndex,
+            move:
+              moved.movedBlockLength !== undefined
+                ? {
+                    moveStart: completedIndexAfterSpawn,
+                    movedBlockLength: moved.movedBlockLength,
+                    insertAt: moved.taskLineIndex,
+                  }
+                : undefined,
+            checklistInsert:
+              firstSubtaskPosition && addSubtasks
+                ? {
+                    insertIndex: firstSubtaskPosition.line - bodyStartLine - 1,
+                    lineCount: addSubtasks.length,
+                  }
+                : undefined,
+          })
+        : undefined
 
     const nextOccurrence: NextOccurrencePosition | undefined =
       recurrenceSpawn.kind === "spawn" && spawnFinalIndex !== undefined
