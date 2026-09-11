@@ -160,6 +160,36 @@ describe("atomicWriteFileExclusive", () => {
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
   })
 
+  it("logs the temp-file cleanup failure when the claim fails and the cleanup fails", async () => {
+    const target = join(vault, "taken.md")
+    await atomicWriteFile({ filePath: target, content: "original\n" }, logger)
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    // The next rm call is the finally block's temp-file cleanup, reached
+    // after link throws EEXIST on the occupied target
+    vi.mocked(rm).mockImplementationOnce(async () => {
+      throw new Error("EPERM: injected cleanup failure")
+    })
+
+    await expect(
+      atomicWriteFileExclusive(
+        { filePath: target, content: "overwrite\n" },
+        logger,
+      ),
+    ).rejects.toMatchObject({ code: "EEXIST" })
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("failed to remove temp file", {
+      path: expect.stringMatching(/taken\.md\..+\.tmp$/),
+      error: "[Error]: EPERM: injected cleanup failure",
+    })
+    // The intercepted cleanup genuinely left the staging file on disk, and
+    // the occupied target survives untouched
+    const entries = await readdir(vault)
+    expect(entries.filter((name) => name.endsWith(".tmp"))).toHaveLength(1)
+    expect(await readFile(target, "utf8")).toBe("original\n")
+  })
+
   // Covers the rename fallback path taken on filesystems without hard-link
   // support (e.g. a Windows-drive Docker bind mount).
   describe("hardLinksSupported: false (rename strategy)", () => {
