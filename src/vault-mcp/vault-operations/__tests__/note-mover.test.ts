@@ -7,7 +7,12 @@ import { noteMover } from "../note-mover.js"
 import { vaultFs } from "../vault-filesystem.js"
 import { vaultPatcher } from "../vault-patcher.js"
 import { withExclusiveFileLock } from "../../../utils/file-write-lock.js"
+import { fileExists } from "../../../utils/fs.js"
 import type { Logger } from "../../../logger.js"
+
+// Spy-wrapped so one test can force the aliased-path disk probe true while
+// every other call keeps the real implementation.
+vi.mock("../../../utils/fs.js", { spy: true })
 
 const PROTECTED = ["About Me", "Daily Notes"] as const
 
@@ -1034,6 +1039,41 @@ describe("moveNote — guards", () => {
       moveNote({ oldPath: "projects/todo.md", newPath: "Archive/done.md" }),
     ).rejects.toThrow('note not found: "projects/todo.md"')
     expect(await noteExists("Projects/todo.md")).toBe(true)
+  })
+
+  it("reconciles a case-aliased old path to the index's spelling on any host", async () => {
+    // The disk probe is forced true for the aliased spelling so the
+    // index-reconciliation branch runs on every host — CI's case-sensitive
+    // filesystem would otherwise never execute it. The platform-gated pair
+    // above covers the real-filesystem behavior.
+    const { vault, writeFixture, moveNote, noteExists, readNote } = setupVault()
+    await writeFixture("Projects/todo.md", "content\n")
+    await writeFixture("Hub.md", "Links [[todo]].\n")
+
+    const actualFs = await vi.importActual<
+      typeof import("../../../utils/fs.js")
+    >("../../../utils/fs.js")
+    const aliasedFullPath = join(vault, "projects/todo.md")
+    vi.mocked(fileExists).mockImplementation((path) => {
+      if (path === aliasedFullPath) return Promise.resolve(true)
+      return actualFs.fileExists(path)
+    })
+    onTestFinished(() => vi.mocked(fileExists).mockRestore())
+
+    const result = await moveNote({
+      oldPath: "projects/todo.md",
+      newPath: "Archive/done.md",
+    })
+
+    expect(result).toEqual({
+      moved_to: "Archive/done.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await noteExists("Projects/todo.md")).toBe(false)
+    expect(await readNote("Archive/done.md")).toBe("content\n")
+    expect(await readNote("Hub.md")).toBe("Links [[done]].\n")
   })
 
   it("moves a note named by an absolute container path and rewrites its backlinks", async () => {
