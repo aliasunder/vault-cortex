@@ -433,15 +433,16 @@ type DeleteNoteResult = {
   trashLocation?: string
 }
 
-/** Lead-in of the collision-exhaustion error, shared by the throw in
- *  moveNoteToTrash and the rethrow guard in deleteNote — one constant so a
- *  message edit can't silently break the guard's prefix match. */
+/** Ties moveNoteToTrash's collision-exhaustion throw to deleteNote's rethrow
+ *  guard — both use this lead-in, so a message edit can't silently break the
+ *  guard's prefix match. */
 const TRASH_COLLISION_ERROR_PREFIX = "cannot move to trash"
 
 /** Claims a trash destination with an exclusive create — the empty placeholder
- *  appears atomically iff nothing occupies the name. Returns false when the
- *  name is occupied by anything: a regular file, a directory, or a symlink
- *  (even dangling, which a stat-based existence check would report as free). */
+ *  appears atomically, and only when nothing occupies the name. Returns false
+ *  when the name is occupied by anything: a regular file, a directory, or a
+ *  symlink (even dangling, which a stat-based existence check would report as
+ *  free). */
 const claimTrashTarget = async (targetPath: string): Promise<boolean> => {
   try {
     await writeFile(targetPath, "", { flag: "wx" })
@@ -455,10 +456,10 @@ const claimTrashTarget = async (targetPath: string): Promise<boolean> => {
 /** Moves a note to `.trash/`, creating parent directories as needed.
  *  Each candidate name — the original, then `note 1.md` … `note 100.md` —
  *  is claimed with an exclusive create before the move, so an existing
- *  trash copy can never be overwritten: a concurrent delete loses the
- *  claim and takes the next suffix instead. The claim IS the existence
- *  check — no stat-based precheck decides whether a name is safe.
- *  Returns the vault-relative trash path. */
+ *  trash copy can never be overwritten; a concurrent delete loses the
+ *  claim and takes the next suffix instead. The claim itself is the
+ *  existence check — no stat-based precheck decides whether a name is
+ *  safe. Returns the vault-relative trash path. */
 const moveNoteToTrash = async (params: {
   vaultPath: string
   relativePath: string

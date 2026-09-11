@@ -24,10 +24,10 @@ import {
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 
-// Pass-through spies over the real fs — every function keeps its real
-// behavior, but individual tests can inject a one-shot competitor or failure
-// (the forced-collision and rename-failure trash tests) at the exact call the
-// production code makes.
+// Every node:fs/promises export becomes a pass-through spy — real behavior
+// everywhere, and a test can inject a one-shot competitor or failure at the
+// exact call the production code makes (the forced-collision and
+// rename-failure trash tests).
 vi.mock("node:fs/promises", { spy: true })
 import {
   vaultFs,
@@ -1067,7 +1067,8 @@ describe("deleteNote — trash behavior", () => {
     const rawBytes = Buffer.from([0x68, 0x69, 0xff, 0xfe, 0x0a])
     await writeFile(sourcePath, rawBytes)
     await chmod(sourcePath, 0o640)
-    // Epoch seconds for 2020-01-02T03:04:05Z — a fixed, obviously-past mtime
+    // The mtime is pinned to 2020-01-02T03:04:05Z (epoch seconds) so the
+    // test can assert it survives the move
     const fixedTimeSeconds = 1_577_934_245
     await utimes(sourcePath, fixedTimeSeconds, fixedTimeSeconds)
     const sourceStat = await stat(sourcePath)
@@ -1117,12 +1118,11 @@ describe("deleteNote — trash behavior", () => {
   it("does not overwrite a competitor that lands mid-operation — the claim, not a stale check, decides", async () => {
     await mkdir(join(vault, ".trash"), { recursive: true })
     await writeFile(join(vault, "raced.md"), "mine", "utf8")
-    // Plant the competitor during the trash move, between parent-directory
-    // creation and the claim — the window where the previous check-then-rename
-    // flow had already decided the base name was free. Restoring a plain
-    // rename over the claim makes this test fail by overwriting "competitor".
-    // The .trash/ directory already exists, so skipping the real mkdir is a
-    // faithful no-op.
+    // Plant the competitor between parent-directory creation and the claim.
+    // A check-then-rename flow decides the base name is free before this
+    // window, so restoring plain rename makes this test fail by overwriting
+    // "competitor". The .trash/ directory already exists, so skipping the
+    // real mkdir is a faithful no-op.
     vi.mocked(mkdir).mockImplementationOnce(async () => {
       await writeFile(join(vault, ".trash", "raced.md"), "competitor", "utf8")
       return undefined
@@ -1152,10 +1152,10 @@ describe("deleteNote — trash behavior", () => {
   it("concurrent deletes contending for one trash name both land without loss", async () => {
     await mkdir(join(vault, ".trash"), { recursive: true })
     await writeFile(join(vault, ".trash", "dup.md"), "seed", "utf8")
-    // Both deletes contend for ".trash/dup 1.md": deleting "dup.md" finds its
-    // base name occupied by the seed and advances to "dup 1.md", while
-    // deleting "dup 1.md" targets that same name directly. Whichever loses
-    // the claim advances once more ("dup 2.md" or "dup 1 1.md").
+    // Both deletes contend for ".trash/dup 1.md" — deleting "dup.md" finds
+    // its base name occupied by the seed and advances to "dup 1.md", while
+    // deleting "dup 1.md" targets that name directly. Whichever loses the
+    // claim advances once more ("dup 2.md" or "dup 1 1.md").
     await writeFile(join(vault, "dup.md"), "payload-a", "utf8")
     await writeFile(join(vault, "dup 1.md"), "payload-b", "utf8")
 
@@ -1216,7 +1216,7 @@ describe("deleteNote — trash behavior", () => {
       ),
     ).rejects.toThrow('cannot move to trash "renamefail.md"')
 
-    // The claim placeholder was cleaned up — no 0-byte file occupies the name
+    // The claim placeholder is gone — no 0-byte file occupies the name
     await expect(stat(join(vault, ".trash", "renamefail.md"))).rejects.toThrow(
       /ENOENT/,
     )
