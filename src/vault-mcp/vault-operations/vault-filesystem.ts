@@ -169,18 +169,22 @@ export const pruneEmptyParents = async (
 export const atomicWriteFile = async (
   filePath: string,
   content: string,
+  logger: Logger,
 ): Promise<void> => {
   const tmpPath = `${filePath}.${randomUUID()}.tmp`
   try {
     await writeFile(tmpPath, content, "utf8")
     await rename(tmpPath, filePath)
   } catch (err) {
-    // Best-effort cleanup so a failed write never strands a temp file. Swallow
-    // any cleanup error so the original write/rename failure is still thrown.
+    // Best-effort cleanup so a failed write never strands a temp file. A
+    // failed cleanup is logged, not thrown, so the write failure propagates.
     try {
       await rm(tmpPath, { force: true })
-    } catch {
-      // ignore — preserving the root-cause error below matters more
+    } catch (cleanupError) {
+      logger.warn("failed to remove temp file", {
+        path: tmpPath,
+        error: describeError(cleanupError),
+      })
     }
     throw err
   }
@@ -208,6 +212,7 @@ export const atomicWriteFile = async (
 export const atomicWriteFileExclusive = async (
   filePath: string,
   content: string,
+  logger: Logger,
   options?: { hardLinksSupported?: boolean },
 ): Promise<void> => {
   const tmpPath = `${filePath}.${randomUUID()}.tmp`
@@ -229,14 +234,26 @@ export const atomicWriteFileExclusive = async (
       await rename(tmpPath, filePath)
     } catch (renameError) {
       // The reservation took but the swap failed — drop the placeholder so a
-      // failed write never strands a 0-byte note at the destination.
-      await rm(filePath, { force: true }).catch(() => {})
+      // failed write never strands a 0-byte note at the destination. A failed
+      // cleanup is logged, not thrown, so the swap failure propagates.
+      await rm(filePath, { force: true }).catch((cleanupError: unknown) => {
+        logger.warn("failed to remove reservation placeholder", {
+          path: filePath,
+          error: describeError(cleanupError),
+        })
+      })
       throw renameError
     }
   } finally {
     // Always drop the temp file — renamed away on success, redundant otherwise.
-    // Swallow cleanup errors so the original failure (e.g. EEXIST) propagates.
-    await rm(tmpPath, { force: true }).catch(() => {})
+    // A failed cleanup is logged, not thrown, so the original failure (e.g.
+    // EEXIST) propagates.
+    await rm(tmpPath, { force: true }).catch((cleanupError: unknown) => {
+      logger.warn("failed to remove temp file", {
+        path: tmpPath,
+        error: describeError(cleanupError),
+      })
+    })
   }
 }
 
@@ -430,7 +447,7 @@ const writeNote = async (
       throw new Error(`note already exists: "${params.path}"`)
     }
     const serialized = serializeNote(existing, params.body, params.properties)
-    await atomicWriteFile(fullPath, serialized)
+    await atomicWriteFile(fullPath, serialized, logger)
     logger.info("wrote note", {
       path: params.path,
       beforeBytes: existing ? Buffer.byteLength(existing, "utf8") : 0,
@@ -458,7 +475,7 @@ const updateProperties = async (
     const parsed = parseNote(existing)
     const mergedProperties = mergeFrontmatter(parsed.data, params.properties)
     const serialized = stringifyNote(parsed.content, mergedProperties)
-    await atomicWriteFile(fullPath, serialized)
+    await atomicWriteFile(fullPath, serialized, logger)
     logger.info("updated properties", {
       path: params.path,
       beforeBytes: Buffer.byteLength(existing, "utf8"),

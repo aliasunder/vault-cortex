@@ -660,7 +660,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
             section: newSection,
             bullet,
           })
-          await atomicWriteFile(filePath, content)
+          await atomicWriteFile(filePath, content, logger)
           logger.info("created memory file", {
             file: params.file,
             section: newSection,
@@ -701,6 +701,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           await atomicWriteFile(
             memoryFilePath(params.vaultPath, params.file),
             serialized,
+            logger,
           )
           logger.info("created memory section", {
             file: params.file,
@@ -775,6 +776,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         await atomicWriteFile(
           memoryFilePath(params.vaultPath, params.file),
           serialized,
+          logger,
         )
         logger.info("updated memory", {
           file: params.file,
@@ -934,6 +936,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         await atomicWriteFile(
           memoryFilePath(params.vaultPath, params.file),
           serialized,
+          logger,
         )
         logger.info("deleted memory entry", {
           file: params.file,
@@ -971,6 +974,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         atomicWriteFile(
           join(dirPath, `${template.fileName}.md`),
           template.content,
+          logger,
         ),
       ),
     )

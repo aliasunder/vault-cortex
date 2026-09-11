@@ -65,12 +65,12 @@ afterEach(async () => {
 describe("atomicWriteFile", () => {
   it("writes the exact content to the target path", async () => {
     const target = join(vault, "atomic.md")
-    await atomicWriteFile(target, "exact content\n")
+    await atomicWriteFile(target, "exact content\n", logger)
     expect(await readFile(target, "utf8")).toBe("exact content\n")
   })
 
   it("leaves no .tmp staging file behind on success", async () => {
-    await atomicWriteFile(join(vault, "clean.md"), "body\n")
+    await atomicWriteFile(join(vault, "clean.md"), "body\n", logger)
     const entries = await readdir(vault)
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
   })
@@ -81,41 +81,65 @@ describe("atomicWriteFile", () => {
     // the catch-and-cleanup branch, not the initial writeFile.
     const target = join(vault, "occupied")
     await mkdir(target)
-    await expect(atomicWriteFile(target, "body\n")).rejects.toThrow(/EISDIR/)
+    await expect(atomicWriteFile(target, "body\n", logger)).rejects.toThrow(
+      /EISDIR/,
+    )
     const entries = await readdir(vault)
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+  })
+
+  it("logs the temp-file cleanup failure when both the rename and the cleanup fail", async () => {
+    const target = join(vault, "occupied")
+    await mkdir(target)
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    // The next rm call is the temp-file cleanup after the EISDIR rename
+    vi.mocked(rm).mockImplementationOnce(async () => {
+      throw new Error("EPERM: injected cleanup failure")
+    })
+
+    await expect(atomicWriteFile(target, "body\n", logger)).rejects.toThrow(
+      /EISDIR/,
+    )
+
+    // The temp path carries a random UUID, so only its shape is assertable
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("failed to remove temp file", {
+      path: expect.stringMatching(/occupied\..+\.tmp$/),
+      error: "[Error]: EPERM: injected cleanup failure",
+    })
   })
 })
 
 describe("atomicWriteFileExclusive", () => {
   it("writes the exact content to a new target path", async () => {
     const target = join(vault, "created.md")
-    await atomicWriteFileExclusive(target, "fresh content\n")
+    await atomicWriteFileExclusive(target, "fresh content\n", logger)
     expect(await readFile(target, "utf8")).toBe("fresh content\n")
   })
 
   it("throws EEXIST and leaves existing content untouched when the target exists", async () => {
     const target = join(vault, "taken.md")
-    await atomicWriteFile(target, "original\n")
+    await atomicWriteFile(target, "original\n", logger)
 
     await expect(
-      atomicWriteFileExclusive(target, "overwrite\n"),
+      atomicWriteFileExclusive(target, "overwrite\n", logger),
     ).rejects.toMatchObject({ code: "EEXIST" })
     // The no-clobber guard must not have modified the existing file.
     expect(await readFile(target, "utf8")).toBe("original\n")
   })
 
   it("leaves no .tmp staging file behind on success", async () => {
-    await atomicWriteFileExclusive(join(vault, "clean.md"), "body\n")
+    await atomicWriteFileExclusive(join(vault, "clean.md"), "body\n", logger)
     const entries = await readdir(vault)
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
   })
 
   it("leaves no .tmp staging file behind when the target already exists", async () => {
     const target = join(vault, "exists.md")
-    await atomicWriteFile(target, "original\n")
+    await atomicWriteFile(target, "original\n", logger)
     await expect(
-      atomicWriteFileExclusive(target, "body\n"),
+      atomicWriteFileExclusive(target, "body\n", logger),
     ).rejects.toMatchObject({ code: "EEXIST" })
     const entries = await readdir(vault)
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
@@ -126,7 +150,7 @@ describe("atomicWriteFileExclusive", () => {
   describe("hardLinksSupported: false (rename strategy)", () => {
     it("writes the exact content to a new target path via rename", async () => {
       const target = join(vault, "created.md")
-      await atomicWriteFileExclusive(target, "fresh content\n", {
+      await atomicWriteFileExclusive(target, "fresh content\n", logger, {
         hardLinksSupported: false,
       })
       expect(await readFile(target, "utf8")).toBe("fresh content\n")
@@ -134,10 +158,10 @@ describe("atomicWriteFileExclusive", () => {
 
     it("throws EEXIST and leaves existing content untouched when the target exists", async () => {
       const target = join(vault, "taken.md")
-      await atomicWriteFile(target, "original\n")
+      await atomicWriteFile(target, "original\n", logger)
 
       await expect(
-        atomicWriteFileExclusive(target, "overwrite\n", {
+        atomicWriteFileExclusive(target, "overwrite\n", logger, {
           hardLinksSupported: false,
         }),
       ).rejects.toMatchObject({ code: "EEXIST" })
@@ -146,11 +170,45 @@ describe("atomicWriteFileExclusive", () => {
     })
 
     it("leaves no .tmp staging file behind on success", async () => {
-      await atomicWriteFileExclusive(join(vault, "clean.md"), "body\n", {
-        hardLinksSupported: false,
-      })
+      await atomicWriteFileExclusive(
+        join(vault, "clean.md"),
+        "body\n",
+        logger,
+        {
+          hardLinksSupported: false,
+        },
+      )
       const entries = await readdir(vault)
       expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
+    })
+
+    it("logs the placeholder cleanup failure when both the swap and the cleanup fail", async () => {
+      const target = join(vault, "reserved.md")
+      const warnSpy = vi.spyOn(logger, "warn")
+      onTestFinished(() => warnSpy.mockRestore())
+      vi.mocked(rename).mockImplementationOnce(async () => {
+        throw new Error("EIO: injected swap failure")
+      })
+      // The next rm call is the reservation-placeholder cleanup; the finally
+      // block's temp-file rm runs unmocked afterward and succeeds
+      vi.mocked(rm).mockImplementationOnce(async () => {
+        throw new Error("EPERM: injected cleanup failure")
+      })
+
+      await expect(
+        atomicWriteFileExclusive(target, "body\n", logger, {
+          hardLinksSupported: false,
+        }),
+      ).rejects.toThrow("EIO: injected swap failure")
+
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(warnSpy).toHaveBeenCalledWith(
+        "failed to remove reservation placeholder",
+        {
+          path: target,
+          error: "[Error]: EPERM: injected cleanup failure",
+        },
+      )
     })
   })
 })

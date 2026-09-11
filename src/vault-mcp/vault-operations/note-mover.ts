@@ -906,7 +906,7 @@ const moveNote = async (
           }
           if (movedLinksRewritten > 0) {
             try {
-              await atomicWriteFile(newFullPath, movedContent)
+              await atomicWriteFile(newFullPath, movedContent, logger)
             } catch (error) {
               logger.error(
                 "note move failed while rewriting the renamed note's links",
@@ -920,7 +920,7 @@ const moveNote = async (
           }
         } else {
           try {
-            await atomicWriteFileExclusive(newFullPath, movedContent, {
+            await atomicWriteFileExclusive(newFullPath, movedContent, logger, {
               hardLinksSupported: !params.windowsBindMount,
             })
           } catch (error) {
@@ -947,7 +947,7 @@ const moveNote = async (
           concurrency: REWRITE_CONCURRENCY,
           mapper: async (planned) => {
             try {
-              await atomicWriteFile(planned.fullPath, planned.content)
+              await atomicWriteFile(planned.fullPath, planned.content, logger)
               sourcesWritten += 1
             } catch (error) {
               logger.error("note move failed while writing a backlink source", {
