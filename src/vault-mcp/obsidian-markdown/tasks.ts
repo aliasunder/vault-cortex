@@ -1485,18 +1485,19 @@ const updateTaskLinePriority = ({
 
   const priorityField = formatPriority(newPriority, config.taskFormat)
 
-  if (hasExistingPriority) {
-    return joinTaskLine({
-      ...parts,
-      metadata: parts.metadata.replace(PRIORITY_INLINE_RE, priorityField),
-    })
-  }
-
-  // Priority leads the metadata tail — right after the description,
-  // before dates.
+  // Strip the LAST existing signifier (a first-match replace would rewrite a
+  // description-origin emoji at the front of a hijacked tail and leave the
+  // real field as a duplicate), then lead the tail with the new priority —
+  // its canonical position, right after the description, before dates.
+  const metadataWithoutPriority = stripLastField(
+    parts.metadata,
+    PRIORITY_INLINE_RE,
+  )
   return joinTaskLine({
     ...parts,
-    metadata: [priorityField, parts.metadata].filter(Boolean).join(" "),
+    metadata: [priorityField, metadataWithoutPriority]
+      .filter(Boolean)
+      .join(" "),
   })
 }
 

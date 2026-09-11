@@ -1061,6 +1061,17 @@ describe("task line mutations", () => {
       expect(result).toBe("- [ ] Task ➕ 2026-07-01")
     })
 
+    it("replaces the real priority, not a prose emoji at the front of a hijacked tail", () => {
+      // The description's trailing 🔼 parses as metadata, so it sits at the
+      // front of the tail; the real ⏫ to its right is the field to replace.
+      const result = tasks.updateTaskLinePriority({
+        taskLine: "- [ ] Deploy 🔼 ⏫ ➕ 2026-09-01 ^x",
+        newPriority: "low",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] Deploy 🔽 🔼 ➕ 2026-09-01 ^x")
+    })
+
     it("returns the line unchanged when removing priority that does not exist", () => {
       const line = "- [ ] No priority task ➕ 2026-07-01"
       const result = tasks.updateTaskLinePriority({
