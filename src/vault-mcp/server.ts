@@ -8,6 +8,7 @@ import { createSearchIndex } from "./search/search-index.js"
 import { createEmbedder } from "./search/embedder.js"
 import { createReranker } from "./search/reranker.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
+import { trashSweeper } from "./vault-operations/trash-sweeper.js"
 import { startFileWatcher } from "./search/file-watcher.js"
 import { createOAuthProvider } from "./oauth/oauth-provider.js"
 import { createOAuthRoutes } from "./oauth/oauth-routes.js"
@@ -118,6 +119,7 @@ const startServer = async (): Promise<void> => {
     windowsBindMount: config.windowsBindMount,
     trustProxyHops: config.trustProxyHops,
     trustForwardedHops: config.trustForwardedHops,
+    trashRetentionDays: config.trashRetentionDays ?? "none",
   })
 
   const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
@@ -203,6 +205,25 @@ const startServer = async (): Promise<void> => {
     }
     logger.info("server started", { host, port })
   })
+
+  // Started after listen so a large trash backlog (unlinks at bind-mount
+  // latency) can never stall /healthz past container health-check budgets.
+  // Sync deploys never trash (the delete handler bypasses to "none") and a
+  // read-only server never modifies the vault, so neither sweeps.
+  if (
+    config.trashRetentionDays !== null &&
+    !config.readOnlyMode &&
+    !config.obsidianSyncEnabled
+  ) {
+    trashSweeper.startTrashSweepSchedule(
+      {
+        vaultPath,
+        retentionDays: config.trashRetentionDays,
+        trashEntryStore: search,
+      },
+      logger,
+    )
+  }
 
   process.on("SIGTERM", createShutdownHandler(httpServer))
 }

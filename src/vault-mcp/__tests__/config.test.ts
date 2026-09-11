@@ -650,6 +650,35 @@ describe("loadConfig", () => {
     })
   })
 
+  describe("TRASH_RETENTION_DAYS", () => {
+    it("defaults to 30 when unset", () => {
+      const config = loadConfig(EMPTY_ENV)
+      expect(config.trashRetentionDays).toBe(30)
+    })
+
+    it("accepts a custom positive integer", () => {
+      const config = loadConfig({ TRASH_RETENTION_DAYS: "7" })
+      expect(config.trashRetentionDays).toBe(7)
+    })
+
+    it('maps the "none" sentinel to null (keep forever)', () => {
+      const config = loadConfig({ TRASH_RETENTION_DAYS: "none" })
+      expect(config.trashRetentionDays).toBeNull()
+    })
+
+    it("rejects a non-integer value", () => {
+      expect(() => loadConfig({ TRASH_RETENTION_DAYS: "soon" })).toThrow(
+        /TRASH_RETENTION_DAYS/,
+      )
+    })
+
+    it.each(["0", "-1", "1.5"])("rejects non-positive-integer %s", (value) => {
+      expect(() => loadConfig({ TRASH_RETENTION_DAYS: value })).toThrow(
+        /TRASH_RETENTION_DAYS/,
+      )
+    })
+  })
+
   describe("TRUST_PROXY_HOPS", () => {
     it("defaults to 0 when unset", () => {
       const config = loadConfig(EMPTY_ENV)

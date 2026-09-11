@@ -11,6 +11,9 @@ import {
   vi,
 } from "vitest"
 import { DateTime } from "luxon"
+import { writeFile } from "node:fs/promises"
+import { join } from "node:path"
+import Database from "better-sqlite3"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
   startServer,
@@ -1481,5 +1484,115 @@ describe("boot rejection", () => {
     expect(exitCode).toBe(1)
     expect(stderr).toContain('"message":"server failed to listen"')
     expect(stderr).toContain("EADDRINUSE")
+  }, 30_000)
+})
+
+// ── Trash retention: the system default, the local option, and sync ───
+//
+// Each scenario boots its own server: readTrashConfig caches a successful
+// read per process, so a vault's trash setting is fixed the moment the
+// first delete reads it.
+
+/** Every trash_entries row in a server's index DB, read directly from the
+ *  data dir the harness created (WAL mode allows a concurrent reader). */
+const readTrashEntryRows = (dataDir: string): string[] => {
+  const db = new Database(join(dataDir, "search.db"), { readonly: true })
+  try {
+    return db
+      .prepare<[], { trash_path: string }>(
+        "SELECT trash_path FROM trash_entries ORDER BY trash_path",
+      )
+      .all()
+      .map((row) => row.trash_path)
+  } finally {
+    db.close()
+  }
+}
+
+describe("trash retention over real HTTP", () => {
+  it("a delete under the system default lands in .trash/ and records a trash entry", async () => {
+    const server = await startServer(await freePort())
+    onTestFinished(() => server.cleanup())
+    // The shared fixture pins trashOption "local"; blanking the config makes
+    // the absent key read as "system" (Obsidian's default). Rewritten before
+    // any delete so no "local" read has been cached.
+    await writeFile(
+      join(server.vaultPath, ".obsidian", "app.json"),
+      "{}",
+      "utf8",
+    )
+    const client = await createTestClient(server.port)
+    onTestFinished(() => client.close())
+
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Scratch/system-trash.md", body: "kept for 30 days" },
+    })
+    const deleteResult = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Scratch/system-trash.md" },
+    })
+
+    expect(deleteResult.isError).not.toBe(true)
+    expect(textContent(deleteResult)).toBe(
+      "Moved Scratch/system-trash.md to trash (.trash/Scratch/system-trash.md)",
+    )
+    expect(readTrashEntryRows(server.dataDir)).toEqual([
+      ".trash/Scratch/system-trash.md",
+    ])
+  }, 30_000)
+
+  it("a delete under the explicit local option records no trash entry", async () => {
+    // "local" means Obsidian's own keep-forever trash — the retention sweep
+    // must never learn about these moves.
+    const server = await startServer(await freePort())
+    onTestFinished(() => server.cleanup())
+    const client = await createTestClient(server.port)
+    onTestFinished(() => client.close())
+
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Scratch/local-trash.md", body: "kept forever" },
+    })
+    const deleteResult = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Scratch/local-trash.md" },
+    })
+
+    expect(deleteResult.isError).not.toBe(true)
+    expect(textContent(deleteResult)).toBe(
+      "Moved Scratch/local-trash.md to trash (.trash/Scratch/local-trash.md)",
+    )
+    expect(readTrashEntryRows(server.dataDir)).toEqual([])
+  }, 30_000)
+
+  it("a sync-mode delete permanently removes the note and records no trash entry", async () => {
+    // The sync bypass maps to "none" — a server-side .trash/ would never
+    // sync back to the user, and the sweep never runs on sync deploys.
+    const server = await startServer(await freePort(), {
+      OBSIDIAN_SYNC: "true",
+    })
+    onTestFinished(() => server.cleanup())
+    const client = await createTestClient(server.port)
+    onTestFinished(() => client.close())
+
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Scratch/sync-delete.md", body: "gone for good" },
+    })
+    const deleteResult = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Scratch/sync-delete.md" },
+    })
+
+    expect(deleteResult.isError).not.toBe(true)
+    expect(textContent(deleteResult)).toBe("Deleted Scratch/sync-delete.md")
+    expect(readTrashEntryRows(server.dataDir)).toEqual([])
   }, 30_000)
 })

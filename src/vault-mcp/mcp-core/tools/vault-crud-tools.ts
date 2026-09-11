@@ -958,7 +958,7 @@ Returns: Confirmation message "Inserted <N> lines <before|after> anchor in <path
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
-      description: `Delete a markdown note, honoring the vault's Obsidian "Deleted files" setting (\`trashOption\` in \`.obsidian/app.json\`) when the vault is served locally. When set to "Move to Obsidian trash (.trash folder)" (\`local\`), the note is moved to \`.trash/\` inside the vault instead of being permanently removed. All other settings — including the default "Move to system trash" — permanently delete, because Docker containers have no system trash. When Obsidian Sync is configured, the trash setting is bypassed and notes are always permanently deleted — recovery is through Sync's version history, not .trash/. After deletion, links to it from other notes become broken (detectable via vault_get_backlinks). Protected paths (${describeProtectedPaths(config)}) are refused.
+      description: `Delete a markdown note, honoring the vault's Obsidian "Deleted files" setting (\`trashOption\` in \`.obsidian/app.json\`) when the vault is served locally. "Move to system trash" — Obsidian's default, and what an absent setting means — moves the note to \`.trash/\` inside the vault (a container has no system trash, and \`.trash/\` is Obsidian's own fallback for that), where the server cleans up its copies after a retention window (TRASH_RETENTION_DAYS, default 30 days; \`none\` keeps them forever). "Move to Obsidian trash (.trash folder)" (\`local\`) also moves the note to \`.trash/\`, kept forever — matching Obsidian. "Permanently delete" (\`none\`) removes the note for good. Only notes this server moved to \`.trash/\` under the system setting are subject to the retention window — notes Obsidian itself trashed are never touched. When Obsidian Sync is configured, the trash setting is bypassed and notes are always permanently deleted — recovery is through Sync's version history, not .trash/. After deletion, links to it from other notes become broken (detectable via vault_get_backlinks). Protected paths (${describeProtectedPaths(config)}) are refused.
 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also remove "Archive/2024" (and "Archive") if deleting the note empties them.
@@ -1009,13 +1009,26 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
             config,
             vaultPath,
           )
-          // On :remote (Obsidian Sync), skip the config — recovery is
-          // through Sync's version history, not .trash/.
+          // On :remote (Obsidian Sync), skip the config and delete for good —
+          // recovery is through Sync's version history, and a server-side
+          // .trash/ would never sync back to the user. "none" (not "system")
+          // because "system" now lands in .trash/.
           const trashOption = config.obsidianSyncEnabled
-            ? "system"
+            ? "none"
             : await readTrashConfig(vaultPath)
+          // Retention bookkeeping rides only the "system" mapping: an
+          // explicit "local" choice means Obsidian's own keep-forever trash,
+          // so those moves are never recorded and never swept.
           return vaultFs.deleteNote(
-            { vaultPath, path, protectedPaths, pruneEmptyFolders, trashOption },
+            {
+              vaultPath,
+              path,
+              protectedPaths,
+              pruneEmptyFolders,
+              trashOption,
+              recordTrashEntry:
+                trashOption === "system" ? search.recordTrashEntry : undefined,
+            },
             reqLogger,
           )
         },

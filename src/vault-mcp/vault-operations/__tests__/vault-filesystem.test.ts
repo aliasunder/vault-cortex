@@ -1079,13 +1079,15 @@ describe("deleteNote — trash behavior", () => {
     expect(result.trashLocation).toBe(".trash/multi 3.md")
   })
 
-  it('permanently deletes when trashOption is "system"', async () => {
-    await writeFile(join(vault, "perm.md"), "gone", "utf8")
+  it('moves the note to .trash/ when trashOption is "system"', async () => {
+    // "system" is Obsidian's default and what an absent setting reads as —
+    // inside a container it maps to Obsidian's own .trash/ fallback.
+    await writeFile(join(vault, "sys.md"), "kept", "utf8")
 
     const result = await deleteNote(
       {
         vaultPath: vault,
-        path: "perm.md",
+        path: "sys.md",
         protectedPaths: [],
         pruneEmptyFolders: false,
         trashOption: "system",
@@ -1093,11 +1095,75 @@ describe("deleteNote — trash behavior", () => {
       logger,
     )
 
-    expect(result.trashLocation).toBeUndefined()
-    await expect(stat(join(vault, "perm.md"))).rejects.toThrow(/ENOENT/)
-    await expect(stat(join(vault, ".trash", "perm.md"))).rejects.toThrow(
-      /ENOENT/,
+    expect(result.trashLocation).toBe(".trash/sys.md")
+    const trashedContent = await readFile(
+      join(vault, ".trash", "sys.md"),
+      "utf8",
     )
+    expect(trashedContent).toBe("kept")
+    await expect(stat(join(vault, "sys.md"))).rejects.toThrow(/ENOENT/)
+  })
+
+  it("reports the landed trash path to recordTrashEntry exactly once, suffixes included", async () => {
+    // The recorded path must be where the file actually landed — a collision
+    // shifts it to a suffixed name, and recording the original would make the
+    // retention sweep act on someone else's trash copy.
+    await mkdir(join(vault, ".trash"), { recursive: true })
+    await writeFile(join(vault, ".trash", "rec.md"), "older copy", "utf8")
+    await writeFile(join(vault, "rec.md"), "fresh", "utf8")
+    const recordTrashEntry = vi.fn()
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "rec.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "system",
+        recordTrashEntry,
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/rec 1.md")
+    expect(recordTrashEntry).toHaveBeenCalledTimes(1)
+    expect(recordTrashEntry).toHaveBeenCalledWith(".trash/rec 1.md")
+  })
+
+  it("contains a throwing recordTrashEntry — warns, and the delete still succeeds with the note intact in .trash/", async () => {
+    // Recording is fail-open: the rename has already happened, so a throw
+    // must not reach the claim-cleanup path, which would delete the moved
+    // note itself. An unrecorded entry is simply never swept.
+    await writeFile(join(vault, "unrec.md"), "survives", "utf8")
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    const recordTrashEntry = vi.fn(() => {
+      throw new Error("db unavailable")
+    })
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "unrec.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "system",
+        recordTrashEntry,
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/unrec.md")
+    const trashedContent = await readFile(
+      join(vault, ".trash", "unrec.md"),
+      "utf8",
+    )
+    expect(trashedContent).toBe("survives")
+    expect(recordTrashEntry).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("failed to record trash entry", {
+      path: ".trash/unrec.md",
+      error: "[Error]: db unavailable",
+    })
   })
 
   it('permanently deletes when trashOption is "none"', async () => {
