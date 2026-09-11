@@ -483,6 +483,9 @@ const indexedSpellingForAliasedPath = async (params: {
   const indexedStats = await statOrNull(
     resolveSafePath(params.vaultPath, indexedSpelling),
   )
+  // Same file = same inode number (ino — the file's on-disk identity,
+  // independent of what it's named) on the same filesystem (dev — inode
+  // numbers are only unique within one device, so ino alone can collide).
   const namesSameFile =
     indexedStats !== null &&
     indexedStats.ino === inputStats.ino &&
@@ -501,6 +504,9 @@ const namesSameFileOnDisk = async (params: {
     statOrNull(resolveSafePath(params.vaultPath, params.pathA)),
     statOrNull(resolveSafePath(params.vaultPath, params.pathB)),
   ])
+  // Same file = same inode number (ino — the file's on-disk identity,
+  // independent of what it's named) on the same filesystem (dev — inode
+  // numbers are only unique within one device, so ino alone can collide).
   return (
     statsA !== null &&
     statsB !== null &&
