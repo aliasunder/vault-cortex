@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, onTestFinished } from "vitest"
 import {
+  chmod,
   mkdtemp,
   mkdir,
   readFile,
@@ -207,6 +208,40 @@ describe("sweepExpiredTrashEntries", () => {
     expect(warnSpy).toHaveBeenCalledWith(
       "trash entry parent escapes .trash — skipped",
       { trashPath: ".trash/linkdir/live.md" },
+    )
+  })
+
+  it("keeps the row and warns when unlink fails with a non-ENOENT error", async () => {
+    // A permission error during unlink keeps the row so the next sweep
+    // retries; one bad row never aborts the sweep.
+    const vault = await createTestVault()
+    const lockedDir = join(vault, ".trash", "locked")
+    await mkdir(lockedDir, { recursive: true })
+    await writeFile(join(lockedDir, "stuck.md"), "perm error", "utf8")
+    const index = createSearchIndex(":memory:")
+    recordEntryDaysAgo(index, ".trash/locked/stuck.md", 31)
+    // Remove write permission from the parent so unlink fails with EACCES.
+    await chmod(lockedDir, 0o555)
+    onTestFinished(() => chmod(lockedDir, 0o755))
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
+
+    expect(index.getTrashEntry(".trash/locked/stuck.md")?.trashPath).toBe(
+      ".trash/locked/stuck.md",
+    )
+    const content = await readFile(join(lockedDir, "stuck.md"), "utf8")
+    expect(content).toBe("perm error")
+    expect(warnSpy).toHaveBeenCalledWith(
+      "failed to remove expired trash entry",
+      {
+        trashPath: ".trash/locked/stuck.md",
+        error: expect.stringMatching(/EACCES.*stuck\.md/),
+      },
     )
   })
 
