@@ -27,8 +27,11 @@ on:
           - beta
           - none
 
+# Shares the server release/deploy group: both release flows push to
+# main, and a CLI release racing a server release loses its push. A run
+# dispatched while a server release is in flight queues until it's done.
 concurrency:
-  group: cli-release
+  group: deploy-prod
   cancel-in-progress: false
 
 # Top-level token is read-only; the job declares its writes.
@@ -143,11 +146,19 @@ jobs:
             git add cli/package.json
             git commit -m "release(cli): v$NEXT"
           fi
+          # Branch before tag, as separate pushes: refs in one push succeed
+          # or fail independently, so a rejected branch push alongside
+          # --tags leaves a tag pointing at a commit that never reached
+          # main — which then blocks the next release until it's deleted.
+          if ! git push "https://x-access-token:${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD; then
+            echo "::error::Push rejected — main gained commits during this run. Dispatch the workflow again (a re-run of this run reuses its stale checkout and cannot succeed)."
+            exit 1
+          fi
           # Tag may already exist when re-running after a failed publish.
           if ! git rev-parse -q --verify "refs/tags/cli-v$NEXT" > /dev/null; then
             git tag "cli-v$NEXT"
           fi
-          git push "https://x-access-token:${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD --tags
+          git push "https://x-access-token:${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "refs/tags/cli-v$NEXT"
 
       - name: Publish to npm (Trusted Publishing / OIDC)
         env:
