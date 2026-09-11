@@ -3068,6 +3068,30 @@ describe("recurring-task completion", () => {
     )
   })
 
+  it("completes into a Complete-marked lane below the spawn insertion", async () => {
+    const vault = await createVault()
+    // The done lane is detected by its **Complete** marker, whose position
+    // is read from heading spans — the spawn insert shifts every line below
+    // it, so the spans must be re-parsed after the insert.
+    await writeTestNote(
+      vault,
+      "board.md",
+      `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-05 ^weekly\n\n## Archive\n\n**Complete**\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
+    )
+
+    const result = await taskMutations.updateTask(
+      { vaultPath: vault, path: "board.md", blockId: "weekly", status: "done" },
+      logger,
+    )
+
+    expect(result.heading).toBe("Archive")
+    expect(result.next_occurrence?.line).toBe(7)
+    const content = await readTestNote(vault, "board.md")
+    expect(content).toBe(
+      `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12\n\n## Archive\n\n**Complete**\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
+    )
+  })
+
   it("reports the spawned line correctly when the Done lane sits before the source lane", async () => {
     const vault = await createVault()
     await writeTestNote(

@@ -40,7 +40,7 @@
     },
     {
       "title": "Obsidian Markdown Parsing",
-      "purpose": "The pure parser layer in obsidian-markdown/ — no filesystem I/O: links.ts, lines.ts, frontmatter.ts, callouts.ts, headings.ts, tasks.ts, memory-entries.ts, canvas.ts, plaintext.ts, moment-format.ts. This layer encodes the Obsidian-parity behavior (every link form and 'New link format' mode Obsidian recognizes; both Tasks-plugin formats) that distinguishes Vault Cortex from simpler file-based integrations.",
+      "purpose": "The pure parser layer in obsidian-markdown/ — no filesystem I/O: links.ts, lines.ts, frontmatter.ts, callouts.ts, headings.ts, tasks.ts, recurrence.ts, memory-entries.ts, canvas.ts, plaintext.ts, moment-format.ts. This layer encodes the Obsidian-parity behavior (every link form and 'New link format' mode Obsidian recognizes; both Tasks-plugin formats) that distinguishes Vault Cortex from simpler file-based integrations.",
       "parent": "Architecture"
     },
     {
@@ -60,7 +60,7 @@
     },
     {
       "title": "Task Management",
-      "purpose": "The Tasks-plugin domain across layers: the task-line grammar in obsidian-markdown/tasks.ts (emoji and Dataview inline-field formats, read and write), task-mutations.ts mutations, task-format-config.ts (the user's Tasks-plugin format configuration), the tasks table in the search index, and the task tools under mcp-core/tools/. Derive status, priority, and date-signifier specifics from the source at index time.",
+      "purpose": "The Tasks-plugin domain across layers: the task-line grammar in obsidian-markdown/tasks.ts (emoji and Dataview inline-field formats, read and write), the recurrence engine in obsidian-markdown/recurrence.ts, task-mutations.ts mutations, task-format-config.ts (the user's Tasks-plugin format and recurrence-behavior configuration), the tasks table in the search index, and the task tools under mcp-core/tools/. Derive status, priority, and date-signifier specifics from the source at index time.",
       "parent": "Architecture"
     },
     {
