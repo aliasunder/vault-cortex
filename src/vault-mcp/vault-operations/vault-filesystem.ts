@@ -488,8 +488,8 @@ const TRASH_COLLISION_ERROR_PREFIX = "cannot move to trash"
  *  free). */
 const claimTrashTarget = async (targetPath: string): Promise<boolean> => {
   try {
-    // "wx" opens with O_CREAT|O_EXCL: create the file only if nothing exists
-    // at the path, failing with EEXIST otherwise. The existence check and the
+    // "wx" opens with O_CREAT|O_EXCL — the create succeeds only when nothing
+    // occupies the path and fails with EEXIST otherwise. The check and the
     // create are one atomic operation, so two claimants can't both win.
     await writeFile(targetPath, "", { flag: "wx" })
     return true
