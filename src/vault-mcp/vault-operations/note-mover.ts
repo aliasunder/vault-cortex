@@ -457,14 +457,16 @@ const rewriteNoteContent = (
 // ── Orchestration ───────────────────────────────────────────────
 
 /** The index's spelling for a path the index does not contain verbatim.
- *  Backlink queries, rewrite planning, and the vault-wide scan all key on the
- *  index's on-disk spelling, so a case-aliased input — same file on a
- *  case-insensitive filesystem (macOS/Windows bind mounts), different string —
- *  would silently miss every backlink. Reconciliation requires the input and
- *  the indexed spelling to name the same file (inode comparison), so on a
- *  case-sensitive filesystem a distinct case-variant sibling is never
- *  substituted for the requested note; an unmatched input passes through
- *  unchanged and the move fails cleanly at its not-found check. */
+ *
+ *  - Why: backlink queries, rewrite planning, and the vault-wide scan key on
+ *    the index's on-disk spelling, so a case-aliased input (one file, two
+ *    spellings on a case-insensitive filesystem) would silently miss every
+ *    backlink.
+ *  - Guard: the input and the indexed spelling must name the same file
+ *    (inode comparison), so on a case-sensitive filesystem a distinct
+ *    case-variant sibling is never substituted for the requested note.
+ *  - No match: the input passes through unchanged and the move fails
+ *    cleanly at its not-found check. */
 const indexedSpellingForAliasedPath = async (params: {
   vaultPath: string
   path: string
