@@ -1356,6 +1356,39 @@ describe("deleteNote — trash behavior", () => {
       error: "[Error]: EIO: injected rename failure",
     })
   })
+
+  it("surfaces a vault-relative error and preserves the source when the claim fails for a non-EEXIST reason", async () => {
+    await writeFile(join(vault, "claimfail.md"), "keep me", "utf8")
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    // The next writeFile call is the claim's exclusive create inside
+    // deleteNote — a non-EEXIST failure (e.g. EACCES on .trash/) must
+    // rethrow, not read as occupancy and silently advance the suffix loop.
+    vi.mocked(writeFile).mockImplementationOnce(async () => {
+      throw new Error("EACCES: injected claim failure")
+    })
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "claimfail.md",
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+          trashOption: "local",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('cannot move to trash "claimfail.md"')
+
+    // The failed create left nothing behind, and no suffixed copy was made
+    expect(await readdir(join(vault, ".trash"))).toEqual([])
+    expect(await readFile(join(vault, "claimfail.md"), "utf8")).toBe("keep me")
+    expect(warnSpy).toHaveBeenCalledWith("failed to move to trash", {
+      path: "claimfail.md",
+      error: "[Error]: EACCES: injected claim failure",
+    })
+  })
 })
 
 describe("listNotes", () => {
