@@ -112,6 +112,12 @@ jobs:
           # No count cap — bounded only by the shared token budget below;
           # docs that don't fit are named in the review's context notes
           priority_docs: ${{ vars.UMM_PRIORITY_DOCS || 'README.md' }}
+          # How the review dimensions are dispatched: combined (one model
+          # call carrying every dimension) | parallel (three focused calls
+          # at once — deeper reads, roughly triple the prompt tokens) |
+          # sequential (the same three calls in order, each seeing the
+          # earlier findings). Empty = combined
+          phases: ${{ vars.UMM_PHASES }}
           # One shared token pool for all prompt context, spent in priority
           # order: diff → changed files → import-traced related files →
           # priority docs → mention-matched docs. (Conventions file has its
