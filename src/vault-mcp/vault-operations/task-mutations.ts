@@ -192,29 +192,32 @@ const roundTripAdvisories = ({
     .map(describeRoundTripDivergence)
 }
 
+/** Advisory for one subtask whose description text truncated into fields. */
+const buildSubtaskAdvisory = (subtaskText: string): string[] => {
+  const divergences = tasks.diffTaskRoundTrip({
+    taskLine: `- [ ] ${subtaskText}`,
+    priorTaskLine: null,
+    submitted: { description: subtaskText },
+  })
+  const descriptionDivergence = divergences.find(
+    (divergence) => divergence.field === "description",
+  )
+  if (!descriptionDivergence) return []
+  const clause = parsedDescriptionClause({
+    parsedBack: descriptionDivergence.parsedBack,
+    consumedTail: descriptionDivergence.consumedTail,
+    storedTextNoun: "its stored text",
+  })
+  return [`subtask "${subtaskText}": written as submitted, but ${clause}`]
+}
+
 /** Description-only advisories for newly written checklist lines — a
  *  checklist item carries no metadata params, so the only divergence worth
  *  reporting is its text truncating into fields. */
 const subtaskRoundTripAdvisories = (
   subtaskDescriptions: readonly string[],
 ): string[] => {
-  return subtaskDescriptions.flatMap((subtaskText) => {
-    const divergences = tasks.diffTaskRoundTrip({
-      taskLine: `- [ ] ${subtaskText}`,
-      priorTaskLine: null,
-      submitted: { description: subtaskText },
-    })
-    const descriptionDivergence = divergences.find(
-      (divergence) => divergence.field === "description",
-    )
-    if (!descriptionDivergence) return []
-    const clause = parsedDescriptionClause({
-      parsedBack: descriptionDivergence.parsedBack,
-      consumedTail: descriptionDivergence.consumedTail,
-      storedTextNoun: "its stored text",
-    })
-    return [`subtask "${subtaskText}": written as submitted, but ${clause}`]
-  })
+  return subtaskDescriptions.flatMap(buildSubtaskAdvisory)
 }
 
 /** The done/cancelled-date expectations a status change implies — the same
