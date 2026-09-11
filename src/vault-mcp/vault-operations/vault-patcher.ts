@@ -171,9 +171,10 @@ const writePatchedNote = async (
   fullPath: string,
   data: Record<string, unknown>,
   lines: readonly string[],
+  logger: Logger,
 ): Promise<number> => {
   const serialized = stringifyNote(lines.join("\n"), data)
-  await atomicWriteFile(fullPath, serialized)
+  await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
   return Buffer.byteLength(serialized, "utf8")
 }
 
@@ -309,7 +310,12 @@ const patchNote = async (
         operation === "append"
           ? [...lines, ...contentLines]
           : [...contentLines, ...lines]
-      const afterBytes = await writePatchedNote(fullPath, data, updatedLines)
+      const afterBytes = await writePatchedNote(
+        fullPath,
+        data,
+        updatedLines,
+        logger,
+      )
       logger.info("patched note", {
         path,
         operation,
@@ -369,7 +375,12 @@ const patchNote = async (
       operation,
     )
 
-    const afterBytes = await writePatchedNote(fullPath, data, updatedLines)
+    const afterBytes = await writePatchedNote(
+      fullPath,
+      data,
+      updatedLines,
+      logger,
+    )
     logger.info("patched note", {
       path,
       operation,
@@ -435,7 +446,12 @@ const replaceInNote = async (
       newText.length === 0 ? collapseBlankRuns(updatedBody) : updatedBody
 
     const updatedLines = normalizedBody.split("\n")
-    const afterBytes = await writePatchedNote(fullPath, data, updatedLines)
+    const afterBytes = await writePatchedNote(
+      fullPath,
+      data,
+      updatedLines,
+      logger,
+    )
     logger.info("replaced in note", { path, count, beforeBytes, afterBytes })
     return {
       message: `Replaced ${count} occurrence${count > 1 ? "s" : ""} in ${path}`,
@@ -493,6 +509,7 @@ const deleteSpan = async (
       fullPath,
       data,
       normalizedBody.split("\n"),
+      logger,
     )
 
     logger.info("deleted span", {
@@ -562,6 +579,7 @@ const replaceSpan = async (
       fullPath,
       data,
       normalizedBody.split("\n"),
+      logger,
     )
 
     logger.info("replaced span", {
@@ -622,7 +640,12 @@ const insertAtAnchor = async (
     const insertIndex = position === "before" ? anchorLine : anchorLine + 1
     const updatedLines = lines.toSpliced(insertIndex, 0, ...contentLines)
 
-    const afterBytes = await writePatchedNote(fullPath, data, updatedLines)
+    const afterBytes = await writePatchedNote(
+      fullPath,
+      data,
+      updatedLines,
+      logger,
+    )
 
     logger.info("inserted at anchor", {
       path,
