@@ -674,6 +674,13 @@ const TASK_ID_INLINE_RE =
 const DEPENDS_ON_INLINE_RE =
   /⛔️? *[a-zA-Z0-9_-]+(?:,\s*[a-zA-Z0-9_-]+)*|[[(] *dependsOn:: *[a-zA-Z0-9_-]+(?:,\s*[a-zA-Z0-9_-]+)* *[\])](?: *,)?/u
 
+/** Matches a recurrence rule in either format: `🔁 rule text` (emoji) or
+ *  `[repeat:: rule text]` / `(repeat:: rule text)` (Dataview). The value
+ *  charset mirrors the parser's rule grammar, so the match ends where the
+ *  next signifier begins. */
+const RECURRENCE_INLINE_RE =
+  /🔁️? *[a-zA-Z0-9, !]+|[[(] *repeat:: *[a-zA-Z0-9, !]+ *[\])](?: *,)?/u
+
 /** Matches any priority signifier in either format: emoji (🔺⏫🔼🔽⏬)
  *  or Dataview (`[priority:: level]` / `(priority:: level)`). */
 const PRIORITY_INLINE_RE =
@@ -739,6 +746,15 @@ const formatPriority = (
 /** Formats a task ID (🆔) in the configured format. */
 const formatTaskId = (taskId: string, format: "emoji" | "dataview"): string =>
   format === "dataview" ? `[id:: ${taskId}]` : `🆔 ${taskId}`
+
+/** Formats a recurrence rule (🔁) in the configured format. */
+const formatRecurrence = (
+  recurrenceText: string,
+  format: "emoji" | "dataview",
+): string =>
+  format === "dataview"
+    ? `[repeat:: ${recurrenceText}]`
+    : `🔁 ${recurrenceText}`
 
 /** Formats a depends-on list (⛔) in the configured format. */
 const formatDependsOn = (
@@ -880,6 +896,34 @@ const updateTaskLineTaskId = ({
       metadata: metadataWithoutTaskId,
       fieldText: formatTaskId(taskId, config.taskFormat),
       laterFieldRegexes: [DEPENDS_ON_INLINE_RE],
+    })
+  })
+}
+
+/** Sets or clears the 🔁 / `[repeat:: ]` recurrence rule on a task line.
+ *  A new rule is inserted after the priority and before the dates — the
+ *  plugin's field order. The rule text is written verbatim; callers
+ *  validate it parses before writing. */
+const updateTaskLineRecurrence = ({
+  taskLine,
+  recurrenceText,
+  config,
+}: {
+  taskLine: string
+  recurrenceText: string | null
+  config: TaskFormatConfig
+}): string => {
+  return mapMetadataTail(taskLine, (metadata) => {
+    const metadataWithoutRecurrence = stripField(metadata, RECURRENCE_INLINE_RE)
+    if (recurrenceText === null) return metadataWithoutRecurrence
+    return insertFieldBefore({
+      metadata: metadataWithoutRecurrence,
+      fieldText: formatRecurrence(recurrenceText, config.taskFormat),
+      laterFieldRegexes: [
+        ...DATE_FIELD_INFO.map((dateField) => dateField.inlineRegex),
+        TASK_ID_INLINE_RE,
+        DEPENDS_ON_INLINE_RE,
+      ],
     })
   })
 }
@@ -1081,6 +1125,7 @@ type BuildTaskLineParams = {
   description: string
   blockId: string
   priority?: TaskPriority | undefined
+  recurrence?: string | undefined
   created: string
   start?: string | undefined
   scheduled?: string | undefined
@@ -1091,8 +1136,8 @@ type BuildTaskLineParams = {
 }
 
 /** Assembles a complete task line in the correct field ordering:
- *  description → priority → ➕ created → 🛫 start → ⏳ scheduled →
- *  📅 due → 🆔 task_id → ⛔ depends_on → ^block_id */
+ *  description → priority → 🔁 recurrence → ➕ created → 🛫 start →
+ *  ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id */
 const buildTaskLine = (
   params: BuildTaskLineParams,
   config: TaskFormatConfig,
@@ -1113,6 +1158,7 @@ const buildTaskLine = (
   const parts = [
     `${params.indent ?? ""}- [ ] ${params.description}`,
     ...(params.priority ? [formatPriority(params.priority, format)] : []),
+    ...(params.recurrence ? [formatRecurrence(params.recurrence, format)] : []),
     formatDateField({ field: "created", date: params.created, format }),
     ...optionalDateFields,
     ...(params.taskId ? [formatTaskId(params.taskId, format)] : []),
@@ -1395,6 +1441,7 @@ export const tasks = {
   updateTaskLinePriority,
   updateTaskLineDate,
   updateTaskLineTaskId,
+  updateTaskLineRecurrence,
   updateTaskLineDependsOn,
   replaceTaskLineDescription,
   describeTaskLine,

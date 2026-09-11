@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime } from "luxon"
 import { taskMutations } from "../task-mutations.js"
+import { resetTaskFormatConfigCache } from "../task-format-config.js"
 import { logger } from "../../../logger.js"
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -2763,5 +2764,705 @@ kanban-plugin: board
 `)
       })
     })
+  })
+})
+
+// ── Recurring-task completion ───────────────────────────────────
+
+/** Writes the Tasks plugin's data.json and clears the process-wide config
+ *  cache so this vault's settings are actually read; the cache is cleared
+ *  again at test end so later tests see defaults. */
+const writeTasksPluginConfig = async (
+  vaultPath: string,
+  config: Record<string, unknown>,
+): Promise<void> => {
+  resetTaskFormatConfigCache()
+  onTestFinished(resetTaskFormatConfigCache)
+  const pluginDir = join(
+    vaultPath,
+    ".obsidian",
+    "plugins",
+    "obsidian-tasks-plugin",
+  )
+  await mkdir(pluginDir, { recursive: true })
+  await writeFile(join(pluginDir, "data.json"), JSON.stringify(config), "utf8")
+}
+
+const RECURRING_NOTE = `---
+title: Tasks
+---
+
+- [ ] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ^water-plants
+`
+
+describe("recurring-task completion", () => {
+  it("spawns the next occurrence above the completed task", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "tasks.md", RECURRING_NOTE)
+
+    const result = await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "water-plants",
+        status: "done",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Water plants",
+      block_id: "water-plants",
+      next_occurrence: {
+        line: 5,
+        description: "Water plants",
+        due: "2026-01-12",
+      },
+      changes: ["status: todo → done", "next_occurrence: (none) → line 5"],
+    })
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n- [x] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ✅ ${today()} ^water-plants\n`,
+    )
+  })
+
+  it("spawns below the completed task with recurrenceOnNextLine", async () => {
+    const vault = await createVault()
+    await writeTasksPluginConfig(vault, { recurrenceOnNextLine: true })
+    await writeTestNote(vault, "tasks.md", RECURRING_NOTE)
+
+    const result = await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "water-plants",
+        status: "done",
+      },
+      logger,
+    )
+
+    expect(result.line).toBe(5)
+    expect(result.next_occurrence?.line).toBe(6)
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [x] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ✅ ${today()} ^water-plants\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n`,
+    )
+  })
+
+  it("keeps id and dependencies on the completed task and drops them from the spawn", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] Sync backups 🔁 every month 📅 2026-01-31 🆔 sync1 ⛔ prep1 ^sync-task\n",
+    )
+
+    await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "sync-task",
+        status: "done",
+      },
+      logger,
+    )
+
+    // The monthly rule also exercises the Jan 31 → Feb 28 walk-back clamp.
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Sync backups 🔁 every month 📅 2026-02-28\n- [x] Sync backups 🔁 every month 📅 2026-01-31 🆔 sync1 ⛔ prep1 ✅ ${today()} ^sync-task\n`,
+    )
+  })
+
+  it("strips every copy of a duplicated field from the spawn", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] Dup 🔁 every week 🆔 a1 📅 2026-01-05 🆔 a2 ^dup-task\n",
+    )
+
+    await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "dup-task",
+        status: "done",
+      },
+      logger,
+    )
+
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Dup 🔁 every week 📅 2026-01-12\n- [x] Dup 🔁 every week 🆔 a1 📅 2026-01-05 🆔 a2 ✅ ${today()} ^dup-task\n`,
+    )
+  })
+
+  it("stamps a fresh created date on the spawn under setCreatedDate", async () => {
+    const vault = await createVault()
+    await writeTasksPluginConfig(vault, { setCreatedDate: true })
+    await writeTestNote(vault, "tasks.md", RECURRING_NOTE)
+
+    await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "water-plants",
+        status: "done",
+      },
+      logger,
+    )
+
+    // The original ➕ is never carried forward — replaced with today.
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Water plants 🔁 every week ➕ ${today()} 📅 2026-01-12\n- [x] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ✅ ${today()} ^water-plants\n`,
+    )
+  })
+
+  it("spawns for a task line ending in a markdown hard break", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] Habit 🔁 every week 📅 2026-01-05 ^habit  \n",
+    )
+
+    // Two trailing spaces once hid the block link — and with it every
+    // metadata field — from the parser; the spawn depends on the fix.
+    const result = await taskMutations.updateTask(
+      { vaultPath: vault, path: "tasks.md", blockId: "habit", status: "done" },
+      logger,
+    )
+
+    expect(result.next_occurrence?.due).toBe("2026-01-12")
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Habit 🔁 every week 📅 2026-01-12\n- [x] Habit 🔁 every week 📅 2026-01-05 ✅ ${today()} ^habit\n`,
+    )
+  })
+
+  it("advances from the new due date when a due edit and completion combine", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] Report 🔁 every week 📅 2026-01-27 ^report\n",
+    )
+
+    const result = await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "report",
+        status: "done",
+        due: "2026-02-03",
+      },
+      logger,
+    )
+
+    expect(result.changes).toEqual([
+      "status: todo → done",
+      "due: 2026-01-27 → 2026-02-03",
+      "next_occurrence: (none) → line 5",
+    ])
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Report 🔁 every week 📅 2026-02-10\n- [x] Report 🔁 every week 📅 2026-02-03 ✅ ${today()} ^report\n`,
+    )
+  })
+
+  it("spawns on a cancelled → done transition and strips the cancelled date everywhere", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [-] Stretch 🔁 every week 📅 2026-01-05 ❌ 2026-01-06 ^stretch\n",
+    )
+
+    await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "stretch",
+        status: "done",
+      },
+      logger,
+    )
+
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Stretch 🔁 every week 📅 2026-01-12\n- [x] Stretch 🔁 every week 📅 2026-01-05 ✅ ${today()} ^stretch\n`,
+    )
+  })
+
+  it("does not spawn when the task's custom checkbox char is DONE-typed in the status registry", async () => {
+    const vault = await createVault()
+    await writeTasksPluginConfig(vault, {
+      statusSettings: {
+        customStatuses: [
+          {
+            symbol: "D",
+            name: "Deployed",
+            nextStatusSymbol: " ",
+            type: "DONE",
+          },
+        ],
+      },
+    })
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [D] Deploy check 🔁 every week 📅 2026-01-05 ^deploy\n",
+    )
+
+    const result = await taskMutations.updateTask(
+      { vaultPath: vault, path: "tasks.md", blockId: "deploy", status: "done" },
+      logger,
+    )
+
+    // The plugin treats a DONE-typed char as already done — no re-spawn.
+    expect(result.next_occurrence).toBeUndefined()
+    expect(result.advisories).toBeUndefined()
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [x] Deploy check 🔁 every week 📅 2026-01-05 ✅ ${today()} ^deploy\n`,
+    )
+  })
+
+  it("spawns for an unknown custom char when the registry has no DONE typing for it", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [?] Odd habit 🔁 every week 📅 2026-01-05 ^odd\n",
+    )
+
+    const result = await taskMutations.updateTask(
+      { vaultPath: vault, path: "tasks.md", blockId: "odd", status: "done" },
+      logger,
+    )
+
+    expect(result.next_occurrence?.due).toBe("2026-01-12")
+  })
+
+  it("keeps the spawn in the source lane while the completed card moves to Done", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "board.md",
+      `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-05 ^weekly\n- [ ] Other task ➕ 2026-07-01\n\n## Done\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
+    )
+
+    const result = await taskMutations.updateTask(
+      { vaultPath: vault, path: "board.md", blockId: "weekly", status: "done" },
+      logger,
+    )
+
+    expect(result.next_occurrence?.line).toBe(7)
+    const content = await readTestNote(vault, "board.md")
+    expect(content).toBe(
+      `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12\n- [ ] Other task ➕ 2026-07-01\n\n## Done\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
+    )
+  })
+
+  it("reports the spawned line correctly when the Done lane sits before the source lane", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "board.md",
+      `---\nkanban-plugin: board\n---\n\n## Done\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-05 ^weekly\n`,
+    )
+
+    const result = await taskMutations.updateTask(
+      { vaultPath: vault, path: "board.md", blockId: "weekly", status: "done" },
+      logger,
+    )
+
+    // The completed card's reinsertion under Done sits above the spawn and
+    // shifts it by one line — the reported line must account for that.
+    expect(result.next_occurrence?.line).toBe(12)
+    const content = await readTestNote(vault, "board.md")
+    expect(content).toBe(
+      `---\nkanban-plugin: board\n---\n\n## Done\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12\n`,
+    )
+  })
+
+  it("reports the spawned line, not an identical earlier line", async () => {
+    const vault = await createVault()
+    // The first line is byte-identical to what the spawn will produce — a
+    // content search would find it instead of the real spawn.
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] Daily standup 🔁 every day 📅 2026-01-06\n- [ ] Daily standup 🔁 every day 📅 2026-01-05\n",
+    )
+
+    const result = await taskMutations.updateTask(
+      { vaultPath: vault, path: "tasks.md", line: 6, status: "done" },
+      logger,
+    )
+
+    expect(result.next_occurrence?.line).toBe(6)
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Daily standup 🔁 every day 📅 2026-01-06\n- [ ] Daily standup 🔁 every day 📅 2026-01-06\n- [x] Daily standup 🔁 every day 📅 2026-01-05 ✅ ${today()}\n`,
+    )
+  })
+
+  it("advances the series twice when a line-addressed completion is retried", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] Daily log 🔁 every day 📅 2026-01-05\n",
+    )
+
+    await taskMutations.updateTask(
+      { vaultPath: vault, path: "tasks.md", line: 5, status: "done" },
+      logger,
+    )
+    // The spawn now occupies line 5, so a blind retry completes the NEW
+    // occurrence — the documented non-idempotence of line addressing.
+    await taskMutations.updateTask(
+      { vaultPath: vault, path: "tasks.md", line: 5, status: "done" },
+      logger,
+    )
+
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Daily log 🔁 every day 📅 2026-01-07\n- [x] Daily log 🔁 every day 📅 2026-01-06 ✅ ${today()}\n- [x] Daily log 🔁 every day 📅 2026-01-05 ✅ ${today()}\n`,
+    )
+  })
+
+  it("spawns a recurring sub-task in place at its own indent", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] Parent card ➕ 2026-07-01 ^parent\n  - [ ] Daily child 🔁 every day 📅 2026-01-05\n",
+    )
+
+    const result = await taskMutations.updateTask(
+      { vaultPath: vault, path: "tasks.md", line: 6, status: "done" },
+      logger,
+    )
+
+    expect(result.next_occurrence?.line).toBe(6)
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Parent card ➕ 2026-07-01 ^parent\n  - [ ] Daily child 🔁 every day 📅 2026-01-06\n  - [x] Daily child 🔁 every day 📅 2026-01-05 ✅ ${today()}\n`,
+    )
+  })
+
+  it("completes with an advisory and no spawn for an unrecognized rule", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] Fuzzy habit 🔁 whenever 📅 2026-01-05 ^fuzzy\n",
+    )
+
+    const result = await taskMutations.updateTask(
+      { vaultPath: vault, path: "tasks.md", blockId: "fuzzy", status: "done" },
+      logger,
+    )
+
+    expect(result.next_occurrence).toBeUndefined()
+    expect(result.advisories).toEqual([
+      'The task was completed, but its recurrence rule "whenever" is not a rule the Tasks plugin recognizes, so no next occurrence was created.',
+    ])
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [x] Fuzzy habit 🔁 whenever 📅 2026-01-05 ✅ ${today()} ^fuzzy\n`,
+    )
+  })
+
+  it("completes with an advisory when a finite rule is exhausted", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] One-shot 🔁 every day for 1 times 📅 2026-01-05 ^one-shot\n",
+    )
+
+    const result = await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "one-shot",
+        status: "done",
+      },
+      logger,
+    )
+
+    expect(result.next_occurrence).toBeUndefined()
+    expect(result.advisories).toEqual([
+      'The task was completed, but its recurrence rule "every day for 1 times" produced no next occurrence, so none was created.',
+    ])
+  })
+
+  it("does not spawn or advise when an already-done task is set to done again", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [x] Done habit 🔁 every week 📅 2026-01-05 ✅ 2026-01-05 ^done-habit\n",
+    )
+
+    const result = await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "done-habit",
+        status: "done",
+      },
+      logger,
+    )
+
+    expect(result.next_occurrence).toBeUndefined()
+    expect(result.advisories).toBeUndefined()
+  })
+
+  it("does not spawn or advise when a recurring task is cancelled", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "tasks.md", RECURRING_NOTE)
+
+    const result = await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "water-plants",
+        status: "cancelled",
+      },
+      logger,
+    )
+
+    expect(result.next_occurrence).toBeUndefined()
+    expect(result.advisories).toBeUndefined()
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [-] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ❌ ${today()} ^water-plants\n`,
+    )
+  })
+
+  it("spawns Dataview-format fields for a Dataview-format task", async () => {
+    const vault = await createVault()
+    await writeTasksPluginConfig(vault, { taskFormat: "dataview" })
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] DV habit [repeat:: every week] [due:: 2026-01-05] ^dv\n",
+    )
+
+    await taskMutations.updateTask(
+      { vaultPath: vault, path: "tasks.md", blockId: "dv", status: "done" },
+      logger,
+    )
+
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] DV habit [repeat:: every week] [due:: 2026-01-12]\n- [x] DV habit [repeat:: every week] [due:: 2026-01-05] [completion:: ${today()}] ^dv\n`,
+    )
+  })
+
+  it("sets a recurrence rule on an existing task", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] Chore ➕ 2026-01-01 📅 2026-01-05 ^chore\n",
+    )
+
+    const result = await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "chore",
+        recurrence: "every week",
+      },
+      logger,
+    )
+
+    expect(result.changes).toEqual(["recurrence: (none) → every week"])
+    // The rule lands before the dates, matching the create-path field order.
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      "---\ntitle: Tasks\n---\n\n- [ ] Chore 🔁 every week ➕ 2026-01-01 📅 2026-01-05 ^chore\n",
+    )
+  })
+
+  it("clears a recurrence rule with null", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "tasks.md", RECURRING_NOTE)
+
+    const result = await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "water-plants",
+        recurrence: null,
+      },
+      logger,
+    )
+
+    expect(result.changes).toEqual(["recurrence: every week → (none)"])
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      "---\ntitle: Tasks\n---\n\n- [ ] Water plants 📅 2026-01-05 ➕ 2026-01-01 ^water-plants\n",
+    )
+  })
+
+  it("rejects a recurrence rule the plugin's grammar cannot read", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "tasks.md", RECURRING_NOTE)
+
+    await expect(
+      taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "water-plants",
+          recurrence: "whenever I remember",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'unrecognized recurrence rule "whenever I remember" (use the Tasks plugin\'s natural language, e.g. "every week", "every 2 weeks when done")',
+    )
+  })
+
+  it("completes without spawning when the same call clears the recurrence", async () => {
+    const vault = await createVault()
+    await writeTestNote(vault, "tasks.md", RECURRING_NOTE)
+
+    const result = await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "water-plants",
+        status: "done",
+        recurrence: null,
+      },
+      logger,
+    )
+
+    // The spawn reads post-edit state: the rule is gone before completion.
+    expect(result.next_occurrence).toBeUndefined()
+    expect(result.advisories).toBeUndefined()
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [x] Water plants 📅 2026-01-05 ➕ 2026-01-01 ✅ ${today()} ^water-plants\n`,
+    )
+  })
+
+  it("spawns when the same call sets a recurrence and completes", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] Chore 📅 2026-01-05 ^chore\n",
+    )
+
+    const result = await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "chore",
+        status: "done",
+        recurrence: "every week",
+      },
+      logger,
+    )
+
+    expect(result.next_occurrence?.due).toBe("2026-01-12")
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Chore 🔁 every week 📅 2026-01-12\n- [x] Chore 🔁 every week 📅 2026-01-05 ✅ ${today()} ^chore\n`,
+    )
+  })
+
+  it("creates a task with a recurrence rule in canonical field order", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] Existing ➕ 2026-01-01\n",
+    )
+
+    const result = await taskMutations.createTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        description: "Weekly chore",
+        blockId: "weekly-chore",
+        recurrence: "every week",
+        due: "2026-01-05",
+      },
+      logger,
+    )
+
+    expect(result.changes).toEqual([
+      `created: (none) → ${today()}`,
+      "recurrence: (none) → every week",
+      "due: (none) → 2026-01-05",
+    ])
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Existing ➕ 2026-01-01\n\n- [ ] Weekly chore 🔁 every week ➕ ${today()} 📅 2026-01-05 ^weekly-chore\n`,
+    )
+  })
+
+  it("rejects an unreadable recurrence rule at creation", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] Existing ➕ 2026-01-01\n",
+    )
+
+    await expect(
+      taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "Bad rule",
+          blockId: "bad-rule",
+          recurrence: "sometimes",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('unrecognized recurrence rule "sometimes"')
+  })
+
+  it("bases the recurrence on the next-priority date when the due date is calendar-invalid", async () => {
+    const vault = await createVault()
+    // Parse-layer divergence from the plugin, pinned deliberately: our
+    // parser nulls a calendar-invalid date at read time, so the recurrence
+    // falls through to the scheduled date; the plugin would drop the
+    // recurrence entirely when its highest-priority date is invalid.
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] Odd dates 🔁 every week 📅 2026-02-30 ⏳ 2026-01-05 ^odd-dates\n",
+    )
+
+    const result = await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "odd-dates",
+        status: "done",
+      },
+      logger,
+    )
+
+    expect(result.next_occurrence?.scheduled).toBe("2026-01-12")
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Odd dates 🔁 every week ⏳ 2026-01-12\n- [x] Odd dates 🔁 every week 📅 2026-02-30 ⏳ 2026-01-05 ✅ ${today()} ^odd-dates\n`,
+    )
   })
 })

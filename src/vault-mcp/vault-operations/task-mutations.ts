@@ -44,6 +44,7 @@ type CreateTaskParams = {
   parentLine?: number | undefined
   position?: "top" | "bottom" | undefined
   priority?: TaskPriority | undefined
+  recurrence?: string | undefined
   due?: string | undefined
   scheduled?: string | undefined
   start?: string | undefined
@@ -77,6 +78,7 @@ type UpdateTaskParams = {
   line?: number | undefined
   status?: TaskStatus | undefined
   priority?: TaskPriority | null | undefined
+  recurrence?: string | null | undefined
   heading?: string | undefined
   position?: "top" | "bottom" | undefined
   description?: string | undefined
@@ -735,6 +737,19 @@ const assertTaskIdGrammar = ({
   }
 }
 
+/** Rejects a recurrence rule the plugin's grammar cannot read — written
+ *  as-is it would parse as a recurrence that silently never recurs. */
+const assertRecurrenceRuleGrammar = (
+  recurrenceText: string | null | undefined,
+): void => {
+  if (!recurrenceText) return
+  if (parseRecurrenceRule(recurrenceText) === null) {
+    throw new Error(
+      `unrecognized recurrence rule "${recurrenceText}" (use the Tasks plugin's natural language, e.g. "every week", "every 2 weeks when done")`,
+    )
+  }
+}
+
 /** Matches CR/LF anywhere in a string — a task is one file line, so a line
  *  break in its text would split the metadata onto a line the parser never
  *  reads as part of the task. */
@@ -805,6 +820,7 @@ const createTask = async (
     parentLine,
     position,
     priority,
+    recurrence,
     due,
     scheduled,
     start,
@@ -839,6 +855,7 @@ const createTask = async (
     throw new Error("dependsOn cannot be empty")
   }
   assertTaskIdGrammar({ taskId, dependsOn })
+  assertRecurrenceRuleGrammar(recurrence)
   if (subtasks?.some((subtaskText) => !subtaskText.trim())) {
     throw new Error("subtasks cannot contain an empty item")
   }
@@ -879,6 +896,7 @@ const createTask = async (
     }> = [
       { field: "created", value: today },
       { field: "priority", value: priority },
+      { field: "recurrence", value: recurrence },
       { field: "due", value: due },
       { field: "scheduled", value: scheduled },
       { field: "start", value: start },
@@ -910,6 +928,7 @@ const createTask = async (
         description,
         blockId,
         priority,
+        recurrence,
         created: today,
         start,
         scheduled,
@@ -994,6 +1013,7 @@ const updateTask = async (
     line,
     status,
     priority,
+    recurrence,
     heading: targetHeadingParam,
     position,
     format,
@@ -1021,6 +1041,7 @@ const updateTask = async (
   const hasMutation =
     status !== undefined ||
     priority !== undefined ||
+    recurrence !== undefined ||
     targetHeadingParam !== undefined ||
     newDescription !== undefined ||
     due !== undefined ||
@@ -1033,7 +1054,7 @@ const updateTask = async (
     newBlockId !== undefined
   if (!hasMutation) {
     throw new Error(
-      "at least one mutation (status, priority, heading, description, due, scheduled, start, created, taskId, dependsOn, addSubtasks, or assignBlockId) is required",
+      "at least one mutation (status, priority, recurrence, heading, description, due, scheduled, start, created, taskId, dependsOn, addSubtasks, or assignBlockId) is required",
     )
   }
 
@@ -1079,6 +1100,7 @@ const updateTask = async (
     throw new Error("dependsOn cannot be empty (use null to clear)")
   }
   assertTaskIdGrammar({ taskId, dependsOn })
+  assertRecurrenceRuleGrammar(recurrence)
 
   const fullPath = resolveNotePath({ vaultPath, path })
 
@@ -1215,6 +1237,22 @@ const updateTask = async (
             },
           ],
     )
+    const recurrenceEdit: LineEdit | undefined =
+      recurrence !== undefined
+        ? {
+            apply: (taskLine: string) =>
+              tasks.updateTaskLineRecurrence({
+                taskLine,
+                recurrenceText: recurrence,
+                config: formatConfig,
+              }),
+            change: formatChange({
+              field: "recurrence",
+              before: taskBefore.recurrence,
+              after: recurrence,
+            }),
+          }
+        : undefined
     const taskIdEdit: LineEdit | undefined =
       taskId !== undefined
         ? {
@@ -1263,6 +1301,7 @@ const updateTask = async (
       descriptionEdit,
       priorityEdit,
       ...dateEdits,
+      recurrenceEdit,
       taskIdEdit,
       dependsOnEdit,
       blockIdEdit,
@@ -1282,6 +1321,7 @@ const updateTask = async (
       statusEdit,
       priorityEdit,
       ...dateEdits,
+      recurrenceEdit,
       taskIdEdit,
       dependsOnEdit,
       blockIdEdit,
