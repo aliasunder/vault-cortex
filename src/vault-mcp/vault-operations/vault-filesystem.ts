@@ -506,11 +506,14 @@ const claimTrashTarget = async (targetPath: string): Promise<boolean> => {
  *  claim and takes the next suffix instead. The claim itself is the
  *  existence check — no stat-based precheck decides whether a name is
  *  safe. Returns the vault-relative trash path. */
-const moveNoteToTrash = async (params: {
-  vaultPath: string
-  relativePath: string
-  fullPath: string
-}): Promise<string> => {
+const moveNoteToTrash = async (
+  params: {
+    vaultPath: string
+    relativePath: string
+    fullPath: string
+  },
+  logger: Logger,
+): Promise<string> => {
   const { dir, name, ext } = parse(params.relativePath)
   const candidateRelativePaths = [
     `.trash/${params.relativePath}`,
@@ -529,9 +532,16 @@ const moveNoteToTrash = async (params: {
       await rename(params.fullPath, candidateFullPath)
     } catch (renameError) {
       // The claim took but the move failed — drop our placeholder so it
-      // doesn't strand a 0-byte file occupying a suffix. Swallow cleanup
-      // errors so the rename failure propagates.
-      await rm(candidateFullPath, { force: true }).catch(() => {})
+      // doesn't strand a 0-byte file occupying a suffix. A failed cleanup is
+      // logged, not thrown, so the rename failure propagates as the cause.
+      await rm(candidateFullPath, { force: true }).catch(
+        (cleanupError: unknown) => {
+          logger.warn("failed to remove claim placeholder", {
+            path: candidateRelativePath,
+            error: describeError(cleanupError),
+          })
+        },
+      )
       throw renameError
     }
     return candidateRelativePath
@@ -591,11 +601,14 @@ const deleteNote = async (
       // Only "local" has a destination here. "system" trash doesn't exist
       // inside a container and "none" means delete, so both unlink for good.
       if (params.trashOption === "local") {
-        trashLocation = await moveNoteToTrash({
-          vaultPath: params.vaultPath,
-          relativePath: path,
-          fullPath,
-        })
+        trashLocation = await moveNoteToTrash(
+          {
+            vaultPath: params.vaultPath,
+            relativePath: path,
+            fullPath,
+          },
+          logger,
+        )
       } else {
         await unlink(fullPath)
       }

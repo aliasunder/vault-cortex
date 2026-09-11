@@ -1357,6 +1357,47 @@ describe("deleteNote — trash behavior", () => {
     })
   })
 
+  it("logs the placeholder cleanup failure when both the rename and the cleanup fail", async () => {
+    await writeFile(join(vault, "cleanupfail.md"), "keep me", "utf8")
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    vi.mocked(rename).mockImplementationOnce(async () => {
+      throw new Error("EIO: injected rename failure")
+    })
+    // The next rm call is the placeholder cleanup inside moveNoteToTrash
+    vi.mocked(rm).mockImplementationOnce(async () => {
+      throw new Error("EPERM: injected cleanup failure")
+    })
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "cleanupfail.md",
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+          trashOption: "local",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('cannot move to trash "cleanupfail.md"')
+
+    // The failed cleanup is visible in the logs, and the placeholder it could
+    // not remove genuinely survives — proof the injected rm was the cleanup
+    expect(warnSpy).toHaveBeenCalledWith("failed to remove claim placeholder", {
+      path: ".trash/cleanupfail.md",
+      error: "[Error]: EPERM: injected cleanup failure",
+    })
+    expect(warnSpy).toHaveBeenCalledWith("failed to move to trash", {
+      path: "cleanupfail.md",
+      error: "[Error]: EIO: injected rename failure",
+    })
+    expect((await stat(join(vault, ".trash", "cleanupfail.md"))).size).toBe(0)
+    expect(await readFile(join(vault, "cleanupfail.md"), "utf8")).toBe(
+      "keep me",
+    )
+  })
+
   it("surfaces a vault-relative error and preserves the source when the claim fails for a non-EEXIST reason", async () => {
     await writeFile(join(vault, "claimfail.md"), "keep me", "utf8")
     const warnSpy = vi.spyOn(logger, "warn")
