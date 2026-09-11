@@ -16,7 +16,7 @@
  *       attempt runs under a multi-file lock; the lock releases and
  *       reacquires when verification widens the source set. */
 
-import { readFile, mkdir, unlink } from "node:fs/promises"
+import { readFile, mkdir, rename, unlink } from "node:fs/promises"
 import { dirname, posix } from "node:path"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import {
@@ -490,6 +490,25 @@ const indexedSpellingForAliasedPath = async (params: {
   return namesSameFile ? indexedSpelling : params.path
 }
 
+/** True when both spellings resolve to one existing file (inode equality) —
+ *  a case-variant pair on a case-insensitive filesystem. */
+const namesSameFileOnDisk = async (params: {
+  vaultPath: string
+  pathA: string
+  pathB: string
+}): Promise<boolean> => {
+  const [statsA, statsB] = await Promise.all([
+    statOrNull(resolveSafePath(params.vaultPath, params.pathA)),
+    statOrNull(resolveSafePath(params.vaultPath, params.pathB)),
+  ])
+  return (
+    statsA !== null &&
+    statsB !== null &&
+    statsA.ino === statsB.ino &&
+    statsA.dev === statsB.dev
+  )
+}
+
 /** Caps concurrent file handles during rewriting and filesystem scanning. */
 const REWRITE_CONCURRENCY = 10
 
@@ -639,6 +658,22 @@ const moveNote = async (
     throw new Error(`cannot move into protected path "${newPath}"`)
   }
 
+  // A case-variant pair may name one file on a case-insensitive filesystem —
+  // the move is then a case-only rename of that file (Obsidian supports it),
+  // and the commit renames in place instead of write-then-delete, because the
+  // destination check would see the source and the trailing unlink would
+  // delete the renamed file. Only this rare branch awaits before the lock;
+  // ordinary moves keep the synchronous path to acquisition.
+  const namesDifferOnlyByCase =
+    caseFoldPath(canonicalOldPath) === caseFoldPath(newPath)
+  const isCaseOnlyRename =
+    namesDifferOnlyByCase &&
+    (await namesSameFileOnDisk({
+      vaultPath,
+      pathA: canonicalOldPath,
+      pathB: newPath,
+    }))
+
   // Guards above run on the caller's canonical spelling (stable error
   // messages on every platform); everything below keys on the index's
   // spelling. Indexed inputs take the ternary's sync arm — no await before
@@ -733,7 +768,9 @@ const moveNote = async (
         if (!(await fileExists(oldFullPath))) {
           throw new Error(`note not found: "${oldPath}"`)
         }
-        if (await fileExists(newFullPath)) {
+        // A case-only rename's destination is the source itself, so the
+        // collision check does not apply.
+        if (!isCaseOnlyRename && (await fileExists(newFullPath))) {
           throw new Error(`destination exists: "${newPath}"`)
         }
 
@@ -838,24 +875,57 @@ const moveNote = async (
         // ── Commit: all reads succeeded — write destination, update sources, delete original last. ──
 
         await mkdir(dirname(newFullPath), { recursive: true })
-        try {
-          await atomicWriteFileExclusive(newFullPath, movedContent, {
-            hardLinksSupported: !params.windowsBindMount,
-          })
-        } catch (error) {
-          if (isErrnoException(error, "EEXIST")) {
-            throw new Error(`destination exists: "${newPath}"`, {
-              cause: error,
-            })
+        if (isCaseOnlyRename) {
+          // Both spellings name one file, so rename changes the casing
+          // atomically and the rewritten content (when any links changed)
+          // overwrites in place. The exclusive write would collide with the
+          // source, so this branch replaces it.
+          try {
+            await rename(oldFullPath, newFullPath)
+          } catch (error) {
+            logger.error(
+              "note move aborted: could not rename the note's casing",
+              { from: oldPath, to: newPath, error: describeError(error) },
+            )
+            throw new Error(
+              `move aborted: could not rename to "${newPath}". Nothing was written.`,
+              { cause: error },
+            )
           }
-          logger.error(
-            "note move aborted: could not write the note to its new path",
-            { from: oldPath, to: newPath, error: describeError(error) },
-          )
-          throw new Error(
-            `move aborted: could not write to "${newPath}". Nothing was written.`,
-            { cause: error },
-          )
+          if (movedLinksRewritten > 0) {
+            try {
+              await atomicWriteFile(newFullPath, movedContent)
+            } catch (error) {
+              logger.error(
+                "note move failed while rewriting the renamed note's links",
+                { from: oldPath, to: newPath, error: describeError(error) },
+              )
+              throw new Error(
+                `move incomplete: renamed to "${newPath}" but its own links still use the old casing. Edit the note to update them.`,
+                { cause: error },
+              )
+            }
+          }
+        } else {
+          try {
+            await atomicWriteFileExclusive(newFullPath, movedContent, {
+              hardLinksSupported: !params.windowsBindMount,
+            })
+          } catch (error) {
+            if (isErrnoException(error, "EEXIST")) {
+              throw new Error(`destination exists: "${newPath}"`, {
+                cause: error,
+              })
+            }
+            logger.error(
+              "note move aborted: could not write the note to its new path",
+              { from: oldPath, to: newPath, error: describeError(error) },
+            )
+            throw new Error(
+              `move aborted: could not write to "${newPath}". Nothing was written.`,
+              { cause: error },
+            )
+          }
         }
 
         // Mutable: tracks progress so a mid-commit failure can report how far it got.
@@ -876,8 +946,13 @@ const moveNote = async (
                 sources_planned: plannedRewrites.length,
                 error: describeError(error),
               })
+              // A case-only rename has already renamed the note, so re-running
+              // the same move would fail not-found on the old spelling.
+              const partialStateRemediation = isCaseOnlyRename
+                ? `The note was already renamed to "${newPath}"; update the remaining links directly.`
+                : "Original not deleted — re-run to finish."
               throw new Error(
-                `move incomplete: failed updating "${planned.source}" (${sourcesWritten}/${plannedRewrites.length} sources written). Original not deleted — re-run to finish.`,
+                `move incomplete: failed updating "${planned.source}" (${sourcesWritten}/${plannedRewrites.length} sources written). ${partialStateRemediation}`,
                 { cause: error },
               )
             }
@@ -888,21 +963,25 @@ const moveNote = async (
           .reduce((sum, count) => sum + count, 0)
         const linksUpdated = movedLinksRewritten + backlinkLinksRewritten
 
-        // Delete the original last — if this fails, both copies exist but no data is lost.
-        try {
-          await unlink(oldFullPath)
-        } catch (error) {
-          logger.error("note move failed while deleting the original note", {
-            from: oldPath,
-            to: newPath,
-            sources_updated: plannedRewrites.length,
-            links_updated: linksUpdated,
-            error: describeError(error),
-          })
-          throw new Error(
-            `move incomplete: "${newPath}" written but could not delete "${oldPath}". Delete "${oldPath}" manually to finish.`,
-            { cause: error },
-          )
+        // Delete the original last — if this fails, both copies exist but no
+        // data is lost. A case-only rename has no second copy — old and new
+        // are one file, and unlinking the old spelling would delete it.
+        if (!isCaseOnlyRename) {
+          try {
+            await unlink(oldFullPath)
+          } catch (error) {
+            logger.error("note move failed while deleting the original note", {
+              from: oldPath,
+              to: newPath,
+              sources_updated: plannedRewrites.length,
+              links_updated: linksUpdated,
+              error: describeError(error),
+            })
+            throw new Error(
+              `move incomplete: "${newPath}" written but could not delete "${oldPath}". Delete "${oldPath}" manually to finish.`,
+              { cause: error },
+            )
+          }
         }
 
         // Prune from the OLD note's folder — a same-folder rename or a move into a

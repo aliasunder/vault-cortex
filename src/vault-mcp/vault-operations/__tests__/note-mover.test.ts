@@ -1112,6 +1112,57 @@ describe("moveNote — guards", () => {
     expect(await noteExists("Archive/done.md")).toBe(false)
   })
 
+  it("performs a case-only rename and rewrites links to the new casing", async () => {
+    // The stat probe reports the same inode for both spellings, as a
+    // case-insensitive filesystem would; on a case-sensitive filesystem the
+    // real rename behaves as an ordinary move, so the assertions hold on
+    // both hosts.
+    const { vault, writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "Self [[Foo]].\n")
+    await writeFixture("Hub.md", "Links [[Foo]].\n")
+
+    const actualFs = await vi.importActual<
+      typeof import("../../../utils/fs.js")
+    >("../../../utils/fs.js")
+    const lowercaseFullPath = join(vault, "foo.md")
+    const realFullPath = join(vault, "Foo.md")
+    vi.mocked(statOrNull).mockImplementation((path) => {
+      if (path === lowercaseFullPath) return actualFs.statOrNull(realFullPath)
+      return actualFs.statOrNull(path)
+    })
+    onTestFinished(() => vi.mocked(statOrNull).mockRestore())
+
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "foo.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(result).toEqual({
+      moved_to: "foo.md",
+      links_updated: 2,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("foo.md")).toBe("Self [[foo]].\n")
+    expect(await readNote("Hub.md")).toBe("Links [[foo]].\n")
+  })
+
+  it("moves between case-variant names when the filesystem treats them as distinct files", async (testContext) => {
+    // Runs only where the filesystem is case-sensitive — the pair are then
+    // two real paths, the same-file probe declines, and the move proceeds as
+    // an ordinary move.
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    if (await noteExists("foo.md")) testContext.skip()
+
+    const result = await moveNote({ oldPath: "Foo.md", newPath: "foo.md" })
+
+    expect(result.moved_to).toBe("foo.md")
+    expect(await noteExists("Foo.md")).toBe(false)
+    expect(await readNote("foo.md")).toBe("content\n")
+  })
+
   it("moves a note named by an absolute container path and rewrites its backlinks", async () => {
     // Downstream of the guard, link rewriting and the reported paths key on
     // the vault-relative form — an absolute input must produce the same
