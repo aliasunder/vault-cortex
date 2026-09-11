@@ -444,6 +444,22 @@ describe("tasks.extractTasks", () => {
         }),
       ])
     })
+
+    it("parses metadata behind a block ID hidden by a trailing hard break", () => {
+      // Two trailing spaces form a markdown hard break that once hid the
+      // block link — and with it every metadata field after the description.
+      const extracted = tasks.extractTasks(
+        "- [ ] Habit 🔁 every week 📅 2026-01-05 ^habit  ",
+      )
+      expect(extracted).toEqual([
+        task({
+          description: "Habit",
+          recurrence: "every week",
+          dueDate: "2026-01-05",
+          blockId: "habit",
+        }),
+      ])
+    })
   })
 
   describe("inline tags", () => {
@@ -1624,6 +1640,70 @@ describe("task line mutations", () => {
     })
   })
 
+  // ── updateTaskLineRecurrence ──────────────────────────────────
+
+  describe("updateTaskLineRecurrence", () => {
+    it("sets a recurrence rule (emoji format)", () => {
+      const line = "- [ ] My task ➕ 2026-08-01 📅 2026-09-01 ^my-task"
+      const result = tasks.updateTaskLineRecurrence({
+        taskLine: line,
+        recurrenceText: "every week",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] My task 🔁 every week ➕ 2026-08-01 📅 2026-09-01 ^my-task",
+      )
+    })
+
+    it("sets a recurrence rule (dataview format)", () => {
+      const line =
+        "- [ ] My task [created:: 2026-08-01] [due:: 2026-09-01] ^my-task"
+      const result = tasks.updateTaskLineRecurrence({
+        taskLine: line,
+        recurrenceText: "every 2 weeks when done",
+        config: DATAVIEW_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] My task [repeat:: every 2 weeks when done] [created:: 2026-08-01] [due:: 2026-09-01] ^my-task",
+      )
+    })
+
+    it("clears a recurrence rule", () => {
+      const line =
+        "- [ ] My task 🔁 every week ➕ 2026-08-01 📅 2026-09-01 ^my-task"
+      const result = tasks.updateTaskLineRecurrence({
+        taskLine: line,
+        recurrenceText: null,
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 📅 2026-09-01 ^my-task")
+    })
+
+    it("replaces an existing recurrence rule", () => {
+      const line =
+        "- [ ] My task 🔁 every week ➕ 2026-08-01 📅 2026-09-01 ^my-task"
+      const result = tasks.updateTaskLineRecurrence({
+        taskLine: line,
+        recurrenceText: "every month when done",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] My task 🔁 every month when done ➕ 2026-08-01 📅 2026-09-01 ^my-task",
+      )
+    })
+
+    it("strips every copy of a duplicated recurrence field", () => {
+      const line =
+        "- [ ] My task 🔁 every week 🔁 every day ➕ 2026-08-01 ^my-task"
+      const result = tasks.updateTaskLineRecurrence({
+        taskLine: line,
+        recurrenceText: "every month",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task 🔁 every month ➕ 2026-08-01 ^my-task")
+    })
+  })
+
   // ── updateTaskLineDependsOn ───────────────────────────────────
 
   describe("updateTaskLineDependsOn", () => {
@@ -1779,6 +1859,124 @@ describe("task line mutations", () => {
           blockId: "dv-rt",
         }),
       ])
+    })
+  })
+
+  // ── buildNextOccurrenceLine ──────────────────────────────────
+
+  describe("buildNextOccurrenceLine", () => {
+    it("resets to todo and replaces dates with the next occurrence", () => {
+      const result = tasks.buildNextOccurrenceLine({
+        taskLine:
+          "- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ 2026-01-05 ^water",
+        nextDates: {
+          startDate: null,
+          scheduledDate: null,
+          dueDate: "2026-01-12",
+        },
+        today: "2026-01-05",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] Water plants 🔁 every week 📅 2026-01-12")
+    })
+
+    it("strips the block link, task id, and depends-on from the spawn", () => {
+      const result = tasks.buildNextOccurrenceLine({
+        taskLine:
+          "- [x] Sync 🔁 every month 📅 2026-01-31 🆔 sync1 ⛔ prep1 ✅ 2026-01-31 ^sync",
+        nextDates: {
+          startDate: null,
+          scheduledDate: null,
+          dueDate: "2026-02-28",
+        },
+        today: "2026-01-31",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] Sync 🔁 every month 📅 2026-02-28")
+    })
+
+    it("stamps a fresh created date when setCreatedDate is on", () => {
+      const configWithCreated = {
+        ...EMOJI_CONFIG,
+        setCreatedDate: true,
+      }
+      const result = tasks.buildNextOccurrenceLine({
+        taskLine:
+          "- [x] Habit 🔁 every week ➕ 2026-01-01 📅 2026-01-05 ✅ 2026-01-05 ^habit",
+        nextDates: {
+          startDate: null,
+          scheduledDate: null,
+          dueDate: "2026-01-12",
+        },
+        today: "2026-01-05",
+        config: configWithCreated,
+      })
+      expect(result).toBe(
+        "- [ ] Habit 🔁 every week ➕ 2026-01-05 📅 2026-01-12",
+      )
+    })
+
+    it("strips the original created date when setCreatedDate is off", () => {
+      const result = tasks.buildNextOccurrenceLine({
+        taskLine:
+          "- [x] Habit 🔁 every week ➕ 2026-01-01 📅 2026-01-05 ✅ 2026-01-05 ^habit",
+        nextDates: {
+          startDate: null,
+          scheduledDate: null,
+          dueDate: "2026-01-12",
+        },
+        today: "2026-01-05",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] Habit 🔁 every week 📅 2026-01-12")
+    })
+
+    it("shifts all three dates for the next occurrence", () => {
+      const result = tasks.buildNextOccurrenceLine({
+        taskLine:
+          "- [x] Report 🔁 every week 🛫 2026-01-03 ⏳ 2026-01-08 📅 2026-01-10 ✅ 2026-01-10",
+        nextDates: {
+          startDate: "2026-01-10",
+          scheduledDate: "2026-01-15",
+          dueDate: "2026-01-17",
+        },
+        today: "2026-01-10",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] Report 🔁 every week 🛫 2026-01-10 ⏳ 2026-01-15 📅 2026-01-17",
+      )
+    })
+
+    it("preserves the indentation of the completed line", () => {
+      const result = tasks.buildNextOccurrenceLine({
+        taskLine: "  - [x] Sub-task 🔁 every day 📅 2026-01-05 ✅ 2026-01-05",
+        nextDates: {
+          startDate: null,
+          scheduledDate: null,
+          dueDate: "2026-01-06",
+        },
+        today: "2026-01-05",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("  - [ ] Sub-task 🔁 every day 📅 2026-01-06")
+    })
+
+    it("produces Dataview-format fields for a Dataview config", () => {
+      const result = tasks.buildNextOccurrenceLine({
+        taskLine:
+          "- [x] DV task [repeat:: every week] [due:: 2026-01-05] [completion:: 2026-01-05] ^dv",
+        nextDates: {
+          startDate: null,
+          scheduledDate: null,
+          dueDate: "2026-01-12",
+        },
+        today: "2026-01-05",
+        config: DATAVIEW_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] DV task [repeat:: every week] [due:: 2026-01-12]",
+      )
     })
   })
 

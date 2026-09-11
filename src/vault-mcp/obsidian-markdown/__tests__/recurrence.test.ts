@@ -250,8 +250,11 @@ describe("nextOccurrenceDates", () => {
       removeScheduledDateOnRecurrence: true,
       zone: "utc",
     })
-    expect(next?.startDate).toBe("2022-01-13")
-    expect(next?.scheduledDate).toBeNull()
+    expect(next).toEqual({
+      startDate: "2022-01-13",
+      scheduledDate: null,
+      dueDate: null,
+    })
   })
 
   it("returns null for an unparseable rule", () => {
