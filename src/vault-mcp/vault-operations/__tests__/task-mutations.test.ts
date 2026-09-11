@@ -3069,6 +3069,38 @@ describe("round-trip advisories", () => {
       ])
     })
 
+    it("restamps the real completion date, not a prose date at the front of a hijacked tail, and restamps stably", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Finish ✅ 2026-05-05 ➕ 2026-07-01 ^fin\n",
+      )
+
+      await taskMutations.updateTask(
+        { vaultPath: vault, path: "tasks.md", blockId: "fin", status: "done" },
+        logger,
+      )
+      const contentAfterFirstStamp = await readTestNote(vault, "tasks.md")
+      expect(contentAfterFirstStamp).toBe(
+        `---\ntitle: Tasks\n---\n\n- [x] Finish ➕ 2026-07-01 ✅ ${today()} ^fin\n`,
+      )
+
+      const secondResult = await taskMutations.updateTask(
+        { vaultPath: vault, path: "tasks.md", blockId: "fin", status: "done" },
+        logger,
+      )
+      const contentAfterSecondStamp = await readTestNote(vault, "tasks.md")
+      expect(contentAfterSecondStamp).toBe(contentAfterFirstStamp)
+      expect(secondResult).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Finish",
+        block_id: "fin",
+        changes: ["status: done → done"],
+      })
+    })
+
     it("names a truncating add_subtasks item in the advisories", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)

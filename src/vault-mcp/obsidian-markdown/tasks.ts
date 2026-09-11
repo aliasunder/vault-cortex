@@ -1382,9 +1382,9 @@ const buildTaskLine = (
   return parts.join(" ")
 }
 
-/** Stamps or strips a completion-style date field on a task line.
- *  When stamping is enabled, replaces an existing field or appends it
- *  to the metadata tail; when disabled, strips any existing field. */
+/** Stamps or strips a completion-style date field on a task line. Stamping
+ *  removes any existing stamp and appends the new one at the end of the
+ *  metadata tail; disabled stamping just removes any existing stamp. */
 const applyCompletionDate = (params: {
   taskLine: string
   shouldStamp: boolean
@@ -1392,10 +1392,15 @@ const applyCompletionDate = (params: {
   dateRegex: RegExp
 }): string => {
   return mapMetadataTail(params.taskLine, (metadata) => {
-    if (!params.shouldStamp) return stripLastField(metadata, params.dateRegex)
-    return params.dateRegex.test(metadata)
-      ? metadata.replace(params.dateRegex, params.dateField)
-      : appendField({ metadata, fieldText: params.dateField })
+    // Stamping strips the LAST existing occurrence and appends — a
+    // first-match replace would rewrite a description-origin prose date at
+    // the front of a hijacked tail and leave the real stamp untouched.
+    const metadataWithoutStamp = stripLastField(metadata, params.dateRegex)
+    if (!params.shouldStamp) return metadataWithoutStamp
+    return appendField({
+      metadata: metadataWithoutStamp,
+      fieldText: params.dateField,
+    })
   })
 }
 
