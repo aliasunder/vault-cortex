@@ -1099,7 +1099,10 @@ Docker hardening, and durability seatbelts above.
 
 - **`resolveSafePath()`** (`vault-filesystem.ts`): `resolve()` +
   prefix check. Every vault-relative path passes through it before any
-  filesystem access. Throws on traversal (`../../etc/passwd`) and on
+  filesystem access. Throws on absolute paths (`/vault/Note.md` — vault
+  paths are always vault-relative, and an absolute spelling would tie
+  behavior to the deployment's mount point), on traversal
+  (`../../etc/passwd`), and on
   hidden paths — any dot-prefixed segment (`.obsidian/x`, `.trash/y.md`),
   checked on the resolved relative path so `a/../.obsidian/x` is caught
   while `notes/./plan.md` passes. The predicate
@@ -1109,9 +1112,11 @@ Docker hardening, and durability seatbelts above.
   The internal `.obsidian/` config readers (`daily-notes.ts`,
   `task-format-config.ts`, `trash-config.ts`) deliberately bypass this
   guard via direct `readFile`.
-- **`toVaultRelativePath()`** (`vault-filesystem.ts`): normalizes
-  backslashes and collapses `../` _before_ the protected-path prefix
-  check, so `X/../About Me/Principles.md` cannot evade protection.
+- **`resolveVaultRelativePath()`** (`vault-filesystem.ts`): the
+  canonical vault-relative form of a note path — normalize, resolve
+  through `resolveSafePath()`, then take the path relative to the vault
+  root. Prefix guards run on this form, so an aliased spelling (`\`
+  separators, or `X/../About Me/Principles.md`) cannot evade protection.
 - **`vaultFolderName`** (Zod schema in `config.ts`): config-time
   validation rejects absolute paths, traversal (`..`), and blank names
   before they reach any file operation.
@@ -1123,7 +1128,10 @@ Docker hardening, and durability seatbelts above.
 - **Protected paths**: `PROTECTED_PATHS` (default: `MEMORY_DIR` plus
   `DAILY_NOTES_FOLDER`, falling back to `Daily Notes`) blocks deleting
   notes in, moving notes out of, and moving notes into configured
-  folders, checked after normalization.
+  folders. The check (`isProtectedPath()`, shared by delete and move)
+  runs on the canonical vault-relative path with a case-folded
+  comparison, so a case-aliased spelling on a case-insensitive
+  filesystem is refused too.
 
 #### SQL + search safety
 

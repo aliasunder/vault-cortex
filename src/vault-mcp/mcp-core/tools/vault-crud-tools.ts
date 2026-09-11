@@ -4,7 +4,7 @@ import { z } from "zod"
 import type { VaultConfig } from "../../config.js"
 import {
   vaultFs,
-  toVaultRelativePath,
+  resolveVaultRelativePath,
 } from "../../vault-operations/vault-filesystem.js"
 import { noteMover } from "../../vault-operations/note-mover.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
@@ -97,6 +97,7 @@ Errors:
 - "line paging is not available in outline mode" / "... properties_only mode" — start_line/limit only work on text renditions (full read or heading section)
 - "start line past the end" — start_line exceeds the rendition's line count; error states the total
 - 'path must end in ".md"' — the path names a non-markdown file${whenToolEnabledText("vault_read_file", "; read files (images, .canvas, data files) with vault_read_file instead")}
+- "absolute path blocked" — the path starts at the filesystem root; use a vault-relative path
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not accessible, matching Obsidian
 
 Returns: Raw markdown string (default); JSON object of properties (properties_only); JSON outline object (outline); raw markdown of the section, heading line included (heading). When start_line or limit is given, the result is preceded by a window-metadata text block ("path — lines 1–20 of 250 (continue with start_line: 21)").
@@ -341,6 +342,7 @@ Parameters:
 
 Errors:
 - A nonexistent folder or no glob matches returns an empty array, not an error.
+- "absolute path blocked" — the folder starts at the filesystem root; use a vault-relative folder path.
 - "hidden path blocked" — the folder is hidden (dot-prefixed, like ".obsidian"); hidden folders are not listable, matching Obsidian.
 
 Returns: JSON array of vault-relative path strings (e.g. ["Projects/plan.md", "Notes/idea.md"]).`,
@@ -391,6 +393,7 @@ Limitation: Writes the entire body. Do not use for surgical edits to large files
 
 Errors:
 - "note already exists" — a note already lives at this path; set overwrite: true to replace it, or use ${whenToolEnabledText("vault_patch_note", "vault_patch_note / ")}vault_replace_in_note for partial edits
+- "absolute path blocked" — the path starts at the filesystem root; use a vault-relative path
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not writable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "body contains a control character" — body includes a non-printable control byte; remove it before writing
@@ -488,6 +491,7 @@ Errors:
 - "operation … requires a heading target" — replace and insert_before need a heading
 - "content begins with the heading … which would duplicate it" — content's first line repeats the target heading; omit it (the matched heading is kept automatically)
 - "section … has N child headings …" — the target section contains child headings that replace would destroy; pass include_children: true to confirm, or target the child heading directly
+- "absolute path blocked" — the path starts at the filesystem root; use a vault-relative path
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not editable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
@@ -601,6 +605,7 @@ Errors:
 - "note not found" — path does not exist; check vault_list_notes for valid paths
 - "text not found" — old_text does not appear in the note body; verify exact text with vault_read_note
 - "oldText cannot be empty" — old_text must be at least one character
+- "absolute path blocked" — the path starts at the filesystem root; use a vault-relative path
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not editable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "new_text contains a control character" — new_text includes a non-printable control byte; remove it before writing
@@ -691,6 +696,7 @@ Errors:
 - "note not found" — verify path with vault_list_notes
 - "anchor not found" — fragment not on any line; verify with vault_read_note
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
+- "absolute path blocked" — the path starts at the filesystem root; use a vault-relative path
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not editable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 
@@ -778,6 +784,7 @@ Errors:
 - "note not found" — verify path with vault_list_notes
 - "anchor not found" — fragment not on any line; verify with vault_read_note
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
+- "absolute path blocked" — the path starts at the filesystem root; use a vault-relative path
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not editable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
@@ -874,6 +881,7 @@ Errors:
 - "note not found" — verify path with vault_list_notes
 - "anchor not found" — fragment not on any line; verify with vault_read_note
 - "ambiguous anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
+- "absolute path blocked" — the path starts at the filesystem root; use a vault-relative path
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not editable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
@@ -961,6 +969,7 @@ Behavior: With prune_empty_folders, pruning is best-effort and runs after the de
 
 Errors:
 - "cannot delete protected path" — the path sits under a protected folder${whenToolEnabledText("vault_delete_memory", "; use vault_delete_memory for memory entries")}
+- "absolute path blocked" — the path starts at the filesystem root; use a vault-relative path
 - "path traversal blocked" — path escapes the vault root; use a vault-relative path
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not deletable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; retry
@@ -1037,6 +1046,7 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
       description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and frontmatter links (e.g. related:) — are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]], ![img](../assets/photo.png)). A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone. Without this tool a move silently breaks every backlink.
 
 Example: vault_move_note({ old_path: "Inbox/Draft.md", new_path: "Inbox/Spec.md" }) — pure rename.
+Example: vault_move_note({ old_path: "Inbox/spec.md", new_path: "Inbox/Spec.md" }) — case-only rename; works even where the filesystem treats both spellings as one file.
 Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md" }) — move to another folder, updating links and the note's own relative links.
 Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.md", prune_empty_folders: true }) — also remove "Inbox" if the move empties it.
 
@@ -1048,11 +1058,12 @@ Errors:
 - "note not found: …" — old_path does not exist; verify it with vault_list_notes.
 - "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder.
 - "path must end in …" — old_path or new_path is missing the .md extension; both paths must end in .md.
+- "absolute path blocked" — old_path or new_path starts at the filesystem root; use vault-relative paths.
 - "path traversal blocked" — a path escapes the vault root; use vault-relative paths.
 - "hidden path blocked" — old_path or new_path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; notes cannot be moved from or into hidden paths, matching Obsidian.
 - "concurrent write in progress" — a write is in flight on the note, the destination, or one of its backlink sources (the move locks all of them as one unit); retry the move.
 - "backlink set did not stabilize" — the vault was modified during the move and new backlink sources kept appearing across retries; nothing was written; retry the move.
-- Mid-move I/O failure (rare, e.g. a permission or disk error while writing) — the move aborts and the original note is deleted only after the destination and all backlinks are written, so a failure never loses data. The error message names what failed and the resulting state: if a backlink write failed, new_path exists and the original is intact (re-run the move, deleting the partial new_path first, to finish); if the final delete failed, both old_path and new_path exist (delete old_path to finish).
+- Mid-move I/O failure (rare, e.g. a permission or disk error while writing) — no failure loses data, and the error message names what failed and the resulting state. An ordinary move deletes the original only after the destination and all backlinks are written: if a backlink write failed, new_path exists and the original is intact (re-run the move, deleting the partial new_path first, to finish); if the final delete failed, both old_path and new_path exist (delete old_path to finish). A case-only rename commits by renaming in place instead: if the rename itself failed, nothing was written; if a later write failed, the note already lives at new_path — fix the remaining links in place (the error names them) rather than re-running the move, whose old_path no longer exists.
 
 Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text. Only the target path is changed.
 
@@ -1095,11 +1106,18 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
       return safeHandler(
         reqLogger,
         async () => {
-          // Normalize to the canonical vault-relative form before the index
-          // lookup so a non-canonical input (e.g. "A/../Note.md") still finds its
-          // backlinks — the same normalization moveNote applies internally.
-          const normalizedOldPath = toVaultRelativePath(oldPath)
-          const normalizedNewPath = toVaultRelativePath(newPath)
+          // Canonicalize before the index lookup so an aliased input (e.g.
+          // "A/../Note.md") still finds its backlinks; absolute input throws
+          // here. moveNote re-canonicalizes internally (idempotent on
+          // canonical input) — this call serves the backlinks lookup only.
+          const normalizedOldPath = resolveVaultRelativePath({
+            vaultPath,
+            notePath: oldPath,
+          })
+          const normalizedNewPath = resolveVaultRelativePath({
+            vaultPath,
+            notePath: newPath,
+          })
           const backlinks = search.getBacklinks(
             { path: normalizedOldPath },
             reqLogger,
@@ -1150,6 +1168,7 @@ Prefer vault_write_note when creating a new note, or replacing the body (with ov
 
 Errors:
 - "note not found" — path does not exist; create the note first with vault_write_note
+- "absolute path blocked" — the path starts at the filesystem root; use a vault-relative path
 - "path traversal blocked" — path escapes vault root
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not editable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry

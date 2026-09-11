@@ -124,6 +124,7 @@ src/
     fs.ts                              # readFileOrNull / readdirOrNull / fileExists / statOrNull (ENOENT-safe)
     assert-no-control-characters.ts    # Rejects C0 controls (except tab/LF/CR), DEL, and C1 controls in write params
     assert-path-has-extension.ts       # Generic path extension assertion (used by note-path validation)
+    case-fold-path.ts                  # Case- and Unicode-normalization-fold a path for comparison (macOS/Windows bind mounts)
     has-hidden-path-segment.ts         # Shared "is hidden path" predicate (listings, watcher, index, path guard)
     filter-valid-symlinks.ts           # Filters out broken symlinks from directory listings
     fit-image-to-byte-budget.ts        # Downscale/recompress an image buffer to fit a byte budget (sharp)

@@ -42,26 +42,38 @@ import {
 } from "../obsidian-markdown/lines.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import { caseFoldPath } from "../../utils/case-fold-path.js"
 import type { TrashOption } from "./trash-config.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
 import type { Logger } from "../../logger.js"
 
-/** Canonicalizes a path for the protected-path prefix check: converts Windows
- *  backslashes to forward slashes, then collapses "./" and "../" so a separator
- *  or traversal variant can't evade the check. Absolute or vault-escaping paths
- *  are left for resolveSafePath. */
+/** Normalizes a note path's spelling by converting Windows backslashes to
+ *  forward slashes and collapsing "./" and "../" segments. Purely lexical —
+ *  absolute and vault-escaping paths pass through unchanged, so safety checks
+ *  belong to resolveSafePath and prefix guards to resolveVaultRelativePath. */
 export const toVaultRelativePath = (input: string): string =>
   posix.normalize(input.replace(/\\/g, "/"))
 
-/** Resolves a note path within the vault; throws on traversal and hidden
- *  paths (dot-prefixed segments — Obsidian ignores them). Hidden is checked
- *  on the resolved relative path (so "./" and "../" normalize) before any
- *  fs access (no existence leak). Internal ".obsidian/" config readers
- *  deliberately bypass this via direct readFile. */
+/** Resolves a note path within the vault; throws on absolute paths,
+ *  traversal, and hidden paths (dot-prefixed segments — Obsidian ignores
+ *  them). Hidden is checked on the resolved relative path (so "./" and "../"
+ *  normalize) before any fs access (no existence leak). Internal ".obsidian/"
+ *  config readers deliberately bypass this via direct readFile. */
 export const resolveSafePath = (
   vaultPath: string,
   notePath: string,
 ): string => {
+  // Vault paths are relative to the vault root — Obsidian has no other
+  // form. An absolute input is rejected even when it lands inside the vault,
+  // because accepting it would tie behavior to the deployment's mount point,
+  // and a vault root whose name shadows a top-level folder (root "/vault",
+  // folder "vault/") would let one leading slash silently select the wrong
+  // file.
+  if (posix.isAbsolute(notePath)) {
+    throw new Error(
+      `absolute path blocked: "${notePath}" must be vault-relative`,
+    )
+  }
   const normalizedVault = resolve(vaultPath)
   const resolved = resolve(normalizedVault, notePath)
   if (!resolved.startsWith(normalizedVault + "/")) {
@@ -73,6 +85,35 @@ export const resolveSafePath = (
     )
   }
   return resolved
+}
+
+/** Canonical vault-relative form of a note path — prefix guards must run on
+ *  this form so path aliases (separator variants, traversal segments) can't
+ *  evade them. Throws resolveSafePath's absolute/traversal/hidden errors for
+ *  unsafe input. */
+export const resolveVaultRelativePath = (params: {
+  vaultPath: string
+  notePath: string
+}): string => {
+  const normalizedInput = toVaultRelativePath(params.notePath)
+  // resolveSafePath is called for its safety guards; its absolute result is
+  // an intermediate, converted straight back to vault-relative.
+  const resolvedPath = resolveSafePath(params.vaultPath, normalizedInput)
+  return relative(resolve(params.vaultPath), resolvedPath)
+}
+
+/** True when the path sits under one of the protected folders (memory, daily
+ *  notes). The comparison is case-folded so a case-aliased spelling can't slip
+ *  past the guard on a case-insensitive filesystem (macOS/Windows bind
+ *  mounts); the path must already be canonical (resolveVaultRelativePath). */
+export const isProtectedPath = (params: {
+  path: string
+  protectedPaths: readonly string[]
+}): boolean => {
+  const foldedPath = caseFoldPath(params.path)
+  return params.protectedPaths
+    .map((folder) => (folder.endsWith("/") ? folder : `${folder}/`))
+    .some((prefix) => foldedPath.startsWith(caseFoldPath(prefix)))
 }
 
 /**
@@ -174,13 +215,14 @@ export const atomicWriteFileExclusive = async (
   try {
     await writeFile(tmpPath, content, "utf8")
     if (hardLinksSupported) {
-      // Atomic no-clobber create: throws EEXIST if filePath already exists.
+      // Atomic no-clobber create — link throws EEXIST if filePath exists.
       await link(tmpPath, filePath)
       return
     }
-    // No hard links on this filesystem. Reserve the target atomically (O_EXCL):
-    // throws EEXIST if it already exists, with no separate check — so there's no
-    // TOCTOU window in which a concurrent writer's file could be clobbered.
+    // No hard links on this filesystem. Reserve the target atomically
+    // (O_EXCL) — it throws EEXIST if the target exists, with no separate
+    // check, so there's no TOCTOU window in which a concurrent writer's file
+    // could be clobbered.
     await writeFile(filePath, "", { flag: "wx" })
     try {
       // Swap the fully-staged content over the empty placeholder.
@@ -281,8 +323,8 @@ const readNoteOutline = async (
   // Everything above the first heading that the callout doesn't already cover,
   // so the two fields describe the region without repeating bytes. Filtering by
   // index (rather than subtracting spans) keeps the callout-after-a-leading-H1
-  // case safe: that span sits outside the region entirely, so no index matches
-  // and nothing is removed — no negative slice is possible.
+  // case safe, because that span sits outside the region entirely — no index
+  // matches, nothing is removed, and no negative slice is possible.
   const regionLines = linesBeforeFirstHeading(lines, headings)
   const regionOutsideCallout = regionLines.filter(
     (_line, index) =>
@@ -293,8 +335,9 @@ const readNoteOutline = async (
   const leadingContent = trimBlankEdgeLines(regionOutsideCallout).join("\n")
 
   const outline = headings.map((heading) => {
-    // Section span = heading line through bodyEndLine (the same span a section
-    // read returns), so the size hint matches what reading it would cost.
+    // The section span runs from the heading line through bodyEndLine (the
+    // same span a section read returns), so the size hint matches what
+    // reading it would cost.
     const sectionText = lines
       .slice(heading.startLine, heading.bodyEndLine)
       .join("\n")
@@ -496,15 +539,16 @@ const deleteNote = async (
   logger: Logger,
 ): Promise<DeleteNoteResult> => {
   assertPathHasExtension(params.path, ".md")
-  // Normalize before the protected-path check so a traversal path like
-  // "X/../About Me/Principles.md" can't evade the prefix test yet still resolve
-  // into a protected folder.
-  const path = toVaultRelativePath(params.path)
+  // Canonicalize before the protected-path check so an aliased spelling —
+  // traversal ("X/../About Me/x.md") or separator variant — can't evade the
+  // prefix test yet still resolve into a protected folder. Absolute input
+  // throws here.
+  const path = resolveVaultRelativePath({
+    vaultPath: params.vaultPath,
+    notePath: params.path,
+  })
 
-  const protectedPrefixes = params.protectedPaths.map((folder) =>
-    folder.endsWith("/") ? folder : `${folder}/`,
-  )
-  if (protectedPrefixes.some((prefix) => path.startsWith(prefix))) {
+  if (isProtectedPath({ path, protectedPaths: params.protectedPaths })) {
     throw new Error(`cannot delete protected path "${path}"`)
   }
 
@@ -514,15 +558,16 @@ const deleteNote = async (
   // throws while a note move holds this path — the lock fails fast, it never
   // waits.
   return withExclusiveFileLock(fullPath, async () => {
-    // Checked inside the lock, mirroring moveNote — a clean vault-relative
-    // "note not found" instead of unlink's raw ENOENT (whose message would
-    // leak the absolute container path to the client).
+    // The existence check runs inside the lock, mirroring moveNote — a clean
+    // vault-relative "note not found" instead of unlink's raw ENOENT (whose
+    // message would leak the absolute container path to the client).
     if (!(await fileExists(fullPath))) {
       throw new Error(`note not found: "${path}"`)
     }
 
     // The trash path bypasses resolveSafePath because .trash/ is a hidden
-    // path the guard rejects. Safe: `path` was already validated above.
+    // path the guard rejects — safe, since `path` was already validated
+    // above.
     // Assigned inside the try — const can't span the catch boundary
     let trashLocation: string | undefined
     try {
@@ -691,13 +736,14 @@ const readAsset = async (
     }
   })()
   try {
-    // One sentinel byte past the statted size: if the file grew after the
-    // stat, the sentinel fills and the read is rejected as unstable.
+    // The buffer is one sentinel byte longer than the statted size — if the
+    // file grew after the stat, the sentinel fills and the read is rejected
+    // as unstable.
     const readBuffer = Buffer.alloc(
       Math.min(fileStats.size, params.maxBytes) + 1,
     )
-    // Sequential fill loop — a single read() may return short on some
-    // platforms, so accumulate until EOF or the buffer is full.
+    // A single read() may return short on some platforms, so the loop
+    // accumulates until EOF or the buffer is full.
     let totalBytesRead = 0
     while (totalBytesRead < readBuffer.length) {
       const { bytesRead } = await fileHandle.read(

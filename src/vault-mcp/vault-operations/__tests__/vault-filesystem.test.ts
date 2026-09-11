@@ -17,7 +17,7 @@ import {
   stat,
   symlink,
 } from "node:fs/promises"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { tmpdir } from "node:os"
 import {
   vaultFs,
@@ -111,8 +111,8 @@ describe("atomicWriteFileExclusive", () => {
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
   })
 
-  // The rename fallback path taken on filesystems without hard-link support
-  // (e.g. a Windows-drive Docker bind mount).
+  // Covers the rename fallback path taken on filesystems without hard-link
+  // support (e.g. a Windows-drive Docker bind mount).
   describe("hardLinksSupported: false (rename strategy)", () => {
     it("writes the exact content to a new target path via rename", async () => {
       const target = join(vault, "created.md")
@@ -174,6 +174,36 @@ describe("path traversal", () => {
       ).rejects.toThrow("path traversal blocked")
     },
   )
+})
+
+describe("absolute paths", () => {
+  it("readNote rejects an absolute container path", async () => {
+    await writeFile(join(vault, "note.md"), "content", "utf8")
+    await expect(
+      readNote({ vaultPath: vault, path: `${vault}/note.md` }, logger),
+    ).rejects.toThrow(
+      `absolute path blocked: "${vault}/note.md" must be vault-relative`,
+    )
+  })
+
+  it("deleteNote rejects an absolute container path and leaves the note in place", async () => {
+    await writeFile(join(vault, "note.md"), "content", "utf8")
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: `${vault}/note.md`,
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+          trashOption: "system",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      `absolute path blocked: "${vault}/note.md" must be vault-relative`,
+    )
+    expect(await readFile(join(vault, "note.md"), "utf8")).toBe("content")
+  })
 })
 
 describe("markdown path requirement", () => {
@@ -609,6 +639,79 @@ describe("deleteNote", () => {
     )
   })
 
+  it("rejects an absolute container path into a protected folder", async () => {
+    // Absolute inputs are rejected outright — the old bypass route into
+    // protected folders never reaches the guard or the filesystem.
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8")
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: `${vault}/About Me/Principles.md`,
+          protectedPaths: DEFAULT_PROTECTED,
+          pruneEmptyFolders: false,
+          trashOption: "system",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      `absolute path blocked: "${vault}/About Me/Principles.md" must be vault-relative`,
+    )
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      "protected",
+    )
+  })
+
+  it("rejects a traversal path that escapes and re-enters the vault into a protected folder", async () => {
+    // "../<vault dir>/About Me/..." leaves the root and comes back in under
+    // the vault's own directory name — it resolves inside the vault, so the
+    // traversal check passes, and only the canonical-form guard catches it.
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8")
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: join("..", basename(vault), "About Me/Principles.md"),
+          protectedPaths: DEFAULT_PROTECTED,
+          pruneEmptyFolders: false,
+          trashOption: "system",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('cannot delete protected path "About Me/Principles.md"')
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      "protected",
+    )
+  })
+
+  it("rejects a case-aliased spelling of a protected path", async () => {
+    // On a case-insensitive filesystem (macOS/Windows bind mounts)
+    // "about me/" names the same folder as "About Me/" — the guard's
+    // comparison is case-folded so the alias cannot slip past it.
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8")
+
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: "about me/Principles.md",
+          protectedPaths: DEFAULT_PROTECTED,
+          pruneEmptyFolders: false,
+          trashOption: "system",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('cannot delete protected path "about me/Principles.md"')
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
+      "protected",
+    )
+  })
+
   describe("empty-folder prune", () => {
     /** True when a folder still exists in the vault — used to assert pruning. */
     const folderExists = async (path: string): Promise<boolean> => {
@@ -755,6 +858,33 @@ describe("deleteNote — trash behavior", () => {
     )
     expect(trashedContent).toBe("content")
     await expect(stat(join(vault, "trash-me.md"))).rejects.toThrow(/ENOENT/)
+  })
+
+  it("trashes a note named by a re-entrant traversal path at the canonical trash location", async () => {
+    // The trash path is built from the vault-relative form — before the guard
+    // canonicalized it, an aliased input baked its alias segments into the
+    // ".trash/…" layout.
+    await mkdir(join(vault, "Notes"), { recursive: true })
+    await writeFile(join(vault, "Notes", "x.md"), "content", "utf8")
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: join("..", basename(vault), "Notes/x.md"),
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/Notes/x.md")
+    const trashedContent = await readFile(
+      join(vault, ".trash", "Notes", "x.md"),
+      "utf8",
+    )
+    expect(trashedContent).toBe("content")
+    await expect(stat(join(vault, "Notes", "x.md"))).rejects.toThrow(/ENOENT/)
   })
 
   it("creates .trash/ subdirectories matching the source path", async () => {
@@ -1215,9 +1345,9 @@ describe("updateProperties", () => {
   })
 
   it("preserves a body that opens with a horizontal rule", async () => {
-    // The serializer must not re-parse the body: an HR-leading body read
+    // The serializer must not re-parse the body — an HR-leading body read
     // back through gray-matter's string form is consumed as an unclosed
-    // frontmatter fence and erased
+    // frontmatter fence and erased.
     await writeFile(
       join(vault, "rules.md"),
       "---\ntitle: Original\n---\n---\nbody after rule\n",
@@ -1955,8 +2085,8 @@ describe("concurrent writes (exclusive lock)", () => {
   it("rejects the second delete when two deleteNote calls target the same note", async () => {
     await writeFile(join(vault, "doomed.md"), "body\n", "utf8")
 
-    // The lock — not the unlink — must reject the loser: the second call
-    // fails with the concurrent-write message, not the ENOENT the second
+    // The lock — not the unlink — must reject the loser. The second call
+    // fails with the concurrent-write message, not the ENOENT a second
     // unlink of an already-deleted file would raise.
     const [first, second] = await Promise.allSettled([
       deleteNote(
@@ -1990,8 +2120,8 @@ describe("concurrent writes (exclusive lock)", () => {
         }),
       }),
     )
-    // ENOENT specifically — proving the first delete removed the file, not
-    // that the read failed for some unrelated reason.
+    // Assert ENOENT specifically — it proves the first delete removed the
+    // file, not that the read failed for some unrelated reason.
     await expect(readFile(join(vault, "doomed.md"), "utf8")).rejects.toThrow(
       /ENOENT/,
     )
@@ -2000,7 +2130,7 @@ describe("concurrent writes (exclusive lock)", () => {
   it("rejects a delete while a write is in flight on the same note", async () => {
     await writeFile(join(vault, "contested.md"), "original\n", "utf8")
 
-    // Without the delete lock this interleaving resurrects the note: the
+    // Without the delete lock this interleaving resurrects the note — the
     // write reads the file, the delete unlinks it, and the write's
     // atomic-rename recreates it. The delete must fail fast instead.
     const [write, del] = await Promise.allSettled([
