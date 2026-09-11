@@ -84,6 +84,8 @@ export const resolveVaultRelativePath = (params: {
   notePath: string
 }): string => {
   const normalizedInput = toVaultRelativePath(params.notePath)
+  // resolveSafePath is called for its traversal/hidden guards; its absolute
+  // result is an intermediate, converted straight back to vault-relative.
   const resolvedPath = resolveSafePath(params.vaultPath, normalizedInput)
   return relative(resolve(params.vaultPath), resolvedPath)
 }

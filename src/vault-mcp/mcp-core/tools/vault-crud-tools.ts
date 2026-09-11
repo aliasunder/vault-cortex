@@ -1097,7 +1097,8 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
         async () => {
           // Canonicalize before the index lookup so an aliased input (an
           // absolute container path, or "A/../Note.md") still finds its
-          // backlinks — the same canonicalization moveNote applies internally.
+          // backlinks. moveNote re-canonicalizes internally (idempotent on
+          // canonical input) — this call serves the backlinks lookup only.
           const normalizedOldPath = resolveVaultRelativePath({
             vaultPath,
             notePath: oldPath,

@@ -611,6 +611,8 @@ const moveNote = async (
     vaultPath,
     notePath: params.oldPath,
   })
+  // The destination doesn't exist yet, so newPath has no index-alias variant
+  // — this canonical form is final, unlike oldPath, which is rebound below.
   const newPath = resolveVaultRelativePath({
     vaultPath,
     notePath: params.newPath,
@@ -629,8 +631,9 @@ const moveNote = async (
   // Guards above run on the caller's canonical spelling (stable error
   // messages on every platform); everything below keys on the index's
   // spelling. Indexed inputs take the ternary's sync arm — no await before
-  // the lock — so lock acquisition stays synchronous for the normal path,
-  // which the concurrent-locking behavior depends on.
+  // the lock — so lock acquisition stays synchronous for the normal path.
+  // An await here would break that: two concurrent moves could interleave
+  // their lock checks in the gap and both proceed on the same file.
   const oldPath = allNotePaths.includes(canonicalOldPath)
     ? canonicalOldPath
     : await indexedSpellingForAliasedPath({
