@@ -3092,6 +3092,31 @@ describe("recurring-task completion", () => {
     )
   })
 
+  it("moves the completed line alone under recurrenceOnNextLine, leaving its checklist with the spawn", async () => {
+    const vault = await createVault()
+    await writeTasksPluginConfig(vault, { recurrenceOnNextLine: true })
+    // Plugin parity: with recurrenceOnNextLine the pair is completed-then-
+    // spawn as adjacent lines, so the checklist sits structurally under the
+    // spawn — the done-lane move takes the completed line alone, and the
+    // next occurrence inherits the checklist in the source lane.
+    await writeTestNote(
+      vault,
+      "board.md",
+      `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-05 ^weekly\n  - [ ] Prep notes\n\n## Done\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
+    )
+
+    const result = await taskMutations.updateTask(
+      { vaultPath: vault, path: "board.md", blockId: "weekly", status: "done" },
+      logger,
+    )
+
+    expect(result.next_occurrence?.line).toBe(7)
+    const content = await readTestNote(vault, "board.md")
+    expect(content).toBe(
+      `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12\n  - [ ] Prep notes\n\n## Done\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
+    )
+  })
+
   it("reports the spawned line correctly when the Done lane sits before the source lane", async () => {
     const vault = await createVault()
     await writeTestNote(

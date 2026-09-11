@@ -1350,7 +1350,11 @@ const updateTask = async (
     // The spawned occurrence is written adjacent to the completed line —
     // above it by default, below with recurrenceOnNextLine — and never
     // rides the done-lane move: a recurring card's next instance stays in
-    // the source lane.
+    // the source lane. Adjacency is plugin parity: with recurrenceOnNextLine
+    // the pair is completed-then-spawn, so the completed card's checklist
+    // sits structurally under the SPAWN — in Obsidian too — and the
+    // done-lane move takes the completed line alone, leaving the checklist
+    // with the next occurrence in the source lane.
     const spawnInsertIndex = formatConfig.recurrenceOnNextLine
       ? taskLineIndex + 1
       : taskLineIndex
