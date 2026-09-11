@@ -961,6 +961,7 @@ Behavior: With prune_empty_folders, pruning is best-effort and runs after the de
 
 Errors:
 - "cannot delete protected path" — the path sits under a protected folder${whenToolEnabledText("vault_delete_memory", "; use vault_delete_memory for memory entries")}
+- "absolute path blocked" — the path starts at the filesystem root; use a vault-relative path
 - "path traversal blocked" — path escapes the vault root; use a vault-relative path
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not deletable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; retry
@@ -1049,6 +1050,7 @@ Errors:
 - "note not found: …" — old_path does not exist; verify it with vault_list_notes.
 - "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder.
 - "path must end in …" — old_path or new_path is missing the .md extension; both paths must end in .md.
+- "absolute path blocked" — old_path or new_path starts at the filesystem root; use vault-relative paths.
 - "path traversal blocked" — a path escapes the vault root; use vault-relative paths.
 - "hidden path blocked" — old_path or new_path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; notes cannot be moved from or into hidden paths, matching Obsidian.
 - "concurrent write in progress" — a write is in flight on the note, the destination, or one of its backlink sources (the move locks all of them as one unit); retry the move.
@@ -1096,9 +1098,9 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
       return safeHandler(
         reqLogger,
         async () => {
-          // Canonicalize before the index lookup so an aliased input (an
-          // absolute container path, or "A/../Note.md") still finds its
-          // backlinks. moveNote re-canonicalizes internally (idempotent on
+          // Canonicalize before the index lookup so an aliased input (e.g.
+          // "A/../Note.md") still finds its backlinks; absolute input throws
+          // here. moveNote re-canonicalizes internally (idempotent on
           // canonical input) — this call serves the backlinks lookup only.
           const normalizedOldPath = resolveVaultRelativePath({
             vaultPath,
@@ -1158,6 +1160,7 @@ Prefer vault_write_note when creating a new note, or replacing the body (with ov
 
 Errors:
 - "note not found" — path does not exist; create the note first with vault_write_note
+- "absolute path blocked" — the path starts at the filesystem root; use a vault-relative path
 - "path traversal blocked" — path escapes vault root
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not editable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry

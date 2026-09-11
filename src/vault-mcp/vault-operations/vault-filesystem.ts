@@ -54,15 +54,25 @@ import type { Logger } from "../../logger.js"
 export const toVaultRelativePath = (input: string): string =>
   posix.normalize(input.replace(/\\/g, "/"))
 
-/** Resolves a note path within the vault; throws on traversal and hidden
- *  paths (dot-prefixed segments — Obsidian ignores them). Hidden is checked
- *  on the resolved relative path (so "./" and "../" normalize) before any
- *  fs access (no existence leak). Internal ".obsidian/" config readers
- *  deliberately bypass this via direct readFile. */
+/** Resolves a note path within the vault; throws on absolute paths,
+ *  traversal, and hidden paths (dot-prefixed segments — Obsidian ignores
+ *  them). Hidden is checked on the resolved relative path (so "./" and "../"
+ *  normalize) before any fs access (no existence leak). Internal ".obsidian/"
+ *  config readers deliberately bypass this via direct readFile. */
 export const resolveSafePath = (
   vaultPath: string,
   notePath: string,
 ): string => {
+  // Vault paths are relative to the vault root — Obsidian has no other
+  // form. An absolute input is rejected even when it lands inside the vault:
+  // accepting it would tie behavior to the deployment's mount point, and a
+  // vault root whose name shadows a top-level folder (root "/vault", folder
+  // "vault/") would let one leading slash silently select the wrong file.
+  if (posix.isAbsolute(notePath)) {
+    throw new Error(
+      `absolute path blocked: "${notePath}" must be vault-relative`,
+    )
+  }
   const normalizedVault = resolve(vaultPath)
   const resolved = resolve(normalizedVault, notePath)
   if (!resolved.startsWith(normalizedVault + "/")) {
@@ -77,15 +87,16 @@ export const resolveSafePath = (
 }
 
 /** Canonical vault-relative form of a note path — prefix guards must run on
- *  this form so path aliases (absolute, separator, traversal) can't evade
- *  them. Throws resolveSafePath's traversal/hidden errors for unsafe input. */
+ *  this form so path aliases (separator variants, traversal segments) can't
+ *  evade them. Throws resolveSafePath's absolute/traversal/hidden errors for
+ *  unsafe input. */
 export const resolveVaultRelativePath = (params: {
   vaultPath: string
   notePath: string
 }): string => {
   const normalizedInput = toVaultRelativePath(params.notePath)
-  // resolveSafePath is called for its traversal/hidden guards; its absolute
-  // result is an intermediate, converted straight back to vault-relative.
+  // resolveSafePath is called for its safety guards; its absolute result is
+  // an intermediate, converted straight back to vault-relative.
   const resolvedPath = resolveSafePath(params.vaultPath, normalizedInput)
   return relative(resolve(params.vaultPath), resolvedPath)
 }
@@ -526,9 +537,9 @@ const deleteNote = async (
 ): Promise<DeleteNoteResult> => {
   assertPathHasExtension(params.path, ".md")
   // Canonicalize before the protected-path check so an aliased spelling —
-  // absolute ("/vault/About Me/x.md"), traversal ("X/../About Me/x.md"), or
-  // separator variant — can't evade the prefix test yet still resolve into a
-  // protected folder.
+  // traversal ("X/../About Me/x.md") or separator variant — can't evade the
+  // prefix test yet still resolve into a protected folder. Absolute input
+  // throws here.
   const path = resolveVaultRelativePath({
     vaultPath: params.vaultPath,
     notePath: params.path,

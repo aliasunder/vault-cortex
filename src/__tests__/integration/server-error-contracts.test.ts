@@ -2,7 +2,6 @@
  *  verified over real HTTP transport against a real server. */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest"
-import { join } from "node:path"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
   startServer,
@@ -28,7 +27,7 @@ const expectToolError = (
 let client: Client
 let cleanup: (() => Promise<void>) | undefined
 // The server's on-disk vault root, so a test can address a note by its
-// absolute container path — the aliasing route the protected-path tests pin.
+// absolute container path — the input form the absolute-path tests pin.
 let serverVaultPath: string
 
 beforeAll(async () => {
@@ -62,18 +61,6 @@ describe("protected path refusals", () => {
     )
   })
 
-  it("vault_delete_note refuses an absolute container path into a protected folder", async () => {
-    const result = await callTool({
-      client,
-      name: "vault_delete_note",
-      args: { path: join(serverVaultPath, "About Me/Preferences.md") },
-    })
-    expectToolError(
-      result,
-      'cannot delete protected path "About Me/Preferences.md"',
-    )
-  })
-
   it("vault_move_note refuses a source under a protected folder", async () => {
     const result = await callTool({
       client,
@@ -83,6 +70,22 @@ describe("protected path refusals", () => {
     expectToolError(
       result,
       'cannot move protected path "About Me/Preferences.md"',
+    )
+  })
+})
+
+// ── Absolute paths ───────────────────────────────────────────
+
+describe("absolute path blocked", () => {
+  it("vault_delete_note rejects an absolute container path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: `${serverVaultPath}/About Me/Preferences.md` },
+    })
+    expectToolError(
+      result,
+      `absolute path blocked: "${serverVaultPath}/About Me/Preferences.md" must be vault-relative`,
     )
   })
 })

@@ -640,9 +640,10 @@ const moveNote = async (
   assertPathHasExtension(params.oldPath, ".md")
   assertPathHasExtension(params.newPath, ".md")
   // Canonicalize before every guard and comparison — an aliased spelling
-  // (absolute, traversal, separator variant) must not evade the protected
-  // check or the same-path comparison, and every downstream use (index
-  // queries, link rewriting, reported paths) expects the canonical form.
+  // (traversal, separator variant) must not evade the protected check or the
+  // same-path comparison, and every downstream use (index queries, link
+  // rewriting, reported paths) expects the canonical form. Absolute input
+  // throws here.
   const canonicalOldPath = resolveVaultRelativePath({
     vaultPath,
     notePath: params.oldPath,

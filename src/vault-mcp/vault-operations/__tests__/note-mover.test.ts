@@ -935,26 +935,30 @@ describe("moveNote — guards", () => {
     expect(await noteExists("Daily Notes/Foo.md")).toBe(false)
   })
 
-  it("refuses an absolute container path to a protected source", async () => {
-    // An absolute path never matches a vault-relative prefix — the guard must
-    // canonicalize before comparing, or this moves the note out of memory.
+  it("rejects an absolute container path as the source", async () => {
+    // Absolute inputs are rejected outright — the old bypass route into
+    // protected folders never reaches a guard or the filesystem.
     const { vault, writeFixture, moveNote, noteExists } = setupVault()
     await writeFixture("About Me/Me.md", "memory\n")
 
     await expect(
-      moveNote({ oldPath: join(vault, "About Me/Me.md"), newPath: "Bar.md" }),
-    ).rejects.toThrow('cannot move protected path "About Me/Me.md"')
+      moveNote({ oldPath: `${vault}/About Me/Me.md`, newPath: "Bar.md" }),
+    ).rejects.toThrow(
+      `absolute path blocked: "${vault}/About Me/Me.md" must be vault-relative`,
+    )
     expect(await noteExists("About Me/Me.md")).toBe(true)
     expect(await noteExists("Bar.md")).toBe(false)
   })
 
-  it("refuses an absolute container path to a protected destination", async () => {
+  it("rejects an absolute container path as the destination", async () => {
     const { vault, writeFixture, moveNote, noteExists } = setupVault()
     await writeFixture("Foo.md", "content\n")
 
     await expect(
-      moveNote({ oldPath: "Foo.md", newPath: join(vault, "About Me/Foo.md") }),
-    ).rejects.toThrow('cannot move into protected path "About Me/Foo.md"')
+      moveNote({ oldPath: "Foo.md", newPath: `${vault}/About Me/Foo.md` }),
+    ).rejects.toThrow(
+      `absolute path blocked: "${vault}/About Me/Foo.md" must be vault-relative`,
+    )
     expect(await noteExists("Foo.md")).toBe(true)
     expect(await noteExists("About Me/Foo.md")).toBe(false)
   })
@@ -994,12 +998,12 @@ describe("moveNote — guards", () => {
     ).rejects.toThrow("source and destination are the same path")
   })
 
-  it("recognizes an absolute and a relative spelling of the same note as the same path", async () => {
-    const { vault, writeFixture, moveNote, readNote } = setupVault()
+  it("recognizes a traversal and a plain spelling of the same note as the same path", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
 
     await expect(
-      moveNote({ oldPath: join(vault, "Foo.md"), newPath: "Foo.md" }),
+      moveNote({ oldPath: "Inbox/../Foo.md", newPath: "Foo.md" }),
     ).rejects.toThrow("source and destination are the same path")
     expect(await readNote("Foo.md")).toBe("content\n")
   })
@@ -1254,31 +1258,6 @@ describe("moveNote — guards", () => {
     )
     expect(await readNote("foo.md")).toBe("content\n")
     expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n")
-  })
-
-  it("moves a note named by an absolute container path and rewrites its backlinks", async () => {
-    // Downstream of the guard, link rewriting and the reported paths key on
-    // the vault-relative form — an absolute input must produce the same
-    // result as its relative spelling.
-    const { vault, writeFixture, moveNote, noteExists, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "Links [[Foo]].\n")
-
-    const result = await moveNote({
-      oldPath: join(vault, "Foo.md"),
-      newPath: "Bar.md",
-      backlinkSources: ["Hub.md"],
-    })
-
-    expect(result).toEqual({
-      moved_to: "Bar.md",
-      links_updated: 1,
-      updated_notes: ["Hub.md"],
-      pruned_empty_folders: 0,
-    })
-    expect(await noteExists("Foo.md")).toBe(false)
-    expect(await readNote("Bar.md")).toBe("content\n")
-    expect(await readNote("Hub.md")).toBe("Links [[Bar]].\n")
   })
 
   it("throws when a path does not end in .md", async () => {

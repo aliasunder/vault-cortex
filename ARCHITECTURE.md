@@ -1099,7 +1099,10 @@ Docker hardening, and durability seatbelts above.
 
 - **`resolveSafePath()`** (`vault-filesystem.ts`): `resolve()` +
   prefix check. Every vault-relative path passes through it before any
-  filesystem access. Throws on traversal (`../../etc/passwd`) and on
+  filesystem access. Throws on absolute paths (`/vault/Note.md` — every
+  vault path is relative to the vault root, and an absolute spelling
+  would tie behavior to the deployment's mount point), on traversal
+  (`../../etc/passwd`), and on
   hidden paths — any dot-prefixed segment (`.obsidian/x`, `.trash/y.md`),
   checked on the resolved relative path so `a/../.obsidian/x` is caught
   while `notes/./plan.md` passes. The predicate
@@ -1112,9 +1115,8 @@ Docker hardening, and durability seatbelts above.
 - **`resolveVaultRelativePath()`** (`vault-filesystem.ts`): the
   canonical vault-relative form of a note path — normalize, resolve
   through `resolveSafePath()`, then take the path relative to the vault
-  root. Prefix guards run on this form, so an aliased spelling (an
-  absolute container path, `\` separators, or
-  `X/../About Me/Principles.md`) cannot evade protection.
+  root. Prefix guards run on this form, so an aliased spelling (`\`
+  separators, or `X/../About Me/Principles.md`) cannot evade protection.
 - **`vaultFolderName`** (Zod schema in `config.ts`): config-time
   validation rejects absolute paths, traversal (`..`), and blank names
   before they reach any file operation.

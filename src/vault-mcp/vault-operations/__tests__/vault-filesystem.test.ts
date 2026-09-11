@@ -176,6 +176,36 @@ describe("path traversal", () => {
   )
 })
 
+describe("absolute paths", () => {
+  it("readNote rejects an absolute container path", async () => {
+    await writeFile(join(vault, "note.md"), "content", "utf8")
+    await expect(
+      readNote({ vaultPath: vault, path: `${vault}/note.md` }, logger),
+    ).rejects.toThrow(
+      `absolute path blocked: "${vault}/note.md" must be vault-relative`,
+    )
+  })
+
+  it("deleteNote rejects an absolute container path and leaves the note in place", async () => {
+    await writeFile(join(vault, "note.md"), "content", "utf8")
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path: `${vault}/note.md`,
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+          trashOption: "system",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      `absolute path blocked: "${vault}/note.md" must be vault-relative`,
+    )
+    expect(await readFile(join(vault, "note.md"), "utf8")).toBe("content")
+  })
+})
+
 describe("markdown path requirement", () => {
   it("readNote rejects a path without the .md extension", async () => {
     await expect(
@@ -610,8 +640,8 @@ describe("deleteNote", () => {
   })
 
   it("rejects an absolute container path into a protected folder", async () => {
-    // An absolute path never matches a vault-relative prefix, so the guard
-    // must canonicalize before comparing — otherwise this deletes the note.
+    // Absolute inputs are rejected outright — the old bypass route into
+    // protected folders never reaches the guard or the filesystem.
     await mkdir(join(vault, "About Me"), { recursive: true })
     await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8")
 
@@ -619,14 +649,16 @@ describe("deleteNote", () => {
       deleteNote(
         {
           vaultPath: vault,
-          path: join(vault, "About Me/Principles.md"),
+          path: `${vault}/About Me/Principles.md`,
           protectedPaths: DEFAULT_PROTECTED,
           pruneEmptyFolders: false,
           trashOption: "system",
         },
         logger,
       ),
-    ).rejects.toThrow('cannot delete protected path "About Me/Principles.md"')
+    ).rejects.toThrow(
+      `absolute path blocked: "${vault}/About Me/Principles.md" must be vault-relative`,
+    )
     expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
       "protected",
     )
@@ -677,23 +709,6 @@ describe("deleteNote", () => {
     ).rejects.toThrow('cannot delete protected path "about me/Principles.md"')
     expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
       "protected",
-    )
-  })
-
-  it("deletes a note named by an absolute container path", async () => {
-    await writeFile(join(vault, "abs-delete.md"), "bye", "utf8")
-    await deleteNote(
-      {
-        vaultPath: vault,
-        path: join(vault, "abs-delete.md"),
-        protectedPaths: DEFAULT_PROTECTED,
-        pruneEmptyFolders: false,
-        trashOption: "system",
-      },
-      logger,
-    )
-    await expect(readFile(join(vault, "abs-delete.md"))).rejects.toThrow(
-      /ENOENT/,
     )
   })
 
@@ -845,17 +860,17 @@ describe("deleteNote — trash behavior", () => {
     await expect(stat(join(vault, "trash-me.md"))).rejects.toThrow(/ENOENT/)
   })
 
-  it("trashes a note named by an absolute container path at the canonical trash location", async () => {
+  it("trashes a note named by a re-entrant traversal path at the canonical trash location", async () => {
     // The trash path is built from the vault-relative form — before the guard
-    // canonicalized it, an absolute input produced a nested ".trash/<vault
-    // dir>/…" layout with the container path baked in.
+    // canonicalized it, an aliased input baked its alias segments into the
+    // ".trash/…" layout.
     await mkdir(join(vault, "Notes"), { recursive: true })
     await writeFile(join(vault, "Notes", "x.md"), "content", "utf8")
 
     const result = await deleteNote(
       {
         vaultPath: vault,
-        path: join(vault, "Notes/x.md"),
+        path: join("..", basename(vault), "Notes/x.md"),
         protectedPaths: [],
         pruneEmptyFolders: false,
         trashOption: "local",
