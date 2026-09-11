@@ -3292,6 +3292,38 @@ describe("recurring-task completion", () => {
     )
   })
 
+  it("keeps a signifier-shaped description byte-intact through a combined field edit", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] Old text ➕ 2026-01-01 ^prose\n",
+    )
+
+    // The new description ends in text the parser reads as a done date. The
+    // due edit applies BEFORE the description edit, so no metadata edit can
+    // rewrite the typed prose — the description lands byte-intact.
+    const result = await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "prose",
+        description: "Ship it ✅ 2026-01-01",
+        due: "2026-05-01",
+      },
+      logger,
+    )
+
+    expect(result.changes).toEqual([
+      "description: Old text → Ship it",
+      "due: (none) → 2026-05-01",
+    ])
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      "---\ntitle: Tasks\n---\n\n- [ ] Ship it ✅ 2026-01-01 ➕ 2026-01-01 📅 2026-05-01 ^prose\n",
+    )
+  })
+
   it("sets a recurrence rule on an existing task", async () => {
     const vault = await createVault()
     await writeTestNote(

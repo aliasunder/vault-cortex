@@ -584,14 +584,15 @@ type RecurrenceSpawn =
 /** Resolves the recurrence spawn for an update, mirroring the Tasks plugin:
  *  spawn only on a transition to done from a not-done status (custom
  *  DONE-typed checkbox chars from the status registry count as done), with
- *  the recurrence rule and dates read from the task line AFTER every
- *  non-status edit — so an update that changes dates or the rule and
- *  completes in one call advances from the edited values.
+ *  the recurrence rule and dates read from the fully edited task line — so
+ *  an update that changes dates or the rule and completes in one call
+ *  advances from the edited values. The status edit on that line is
+ *  harmless here: the spawned copy strips completion dates and resets the
+ *  checkbox itself.
  *
- *  Deliberate divergence from the plugin: the plugin's `isCompleted()`
- *  includes CANCELLED and NON_TASK, so it spawns on cancellation too.
- *  Here only `status: "done"` triggers a spawn — cancelling a recurring
- *  task completes it without advancing the series. */
+ *  Cancelling never spawns, in the plugin too: its spawn gate is
+ *  `Status.isCompleted()`, which is true for the DONE status type only —
+ *  not CANCELLED (`Task.isDone` is a different, broader method). */
 const resolveRecurrenceSpawn = ({
   status,
   taskBefore,
@@ -1166,13 +1167,17 @@ const updateTask = async (
 
     const today = todayIsoDate()
 
-    // In-line edits. Every non-status edit applies first so the recurrence
-    // spawn reads post-edit state — an update that changes dates and
-    // completes in one call advances from the edited values; the status
-    // edit applies last (it touches only the checkbox and completion
-    // dates, so the final line is the same either way). Each edit carries
-    // its own `changes` entry; description's after-value is read through
-    // the parser so tags match the result's `description`.
+    // In-line edits. Metadata edits (status included) apply first and the
+    // description edit applies LAST: every metadata edit splits the line at
+    // the description/metadata boundary, and prose in a new description can
+    // be indistinguishable from trailing metadata — a splitting edit running
+    // after the description edit could rewrite what the caller typed. The
+    // recurrence spawn reads the fully edited line (its gate uses the
+    // pre-edit parse, and the spawned copy strips completion dates itself),
+    // so an update that changes dates or the rule and completes in one call
+    // advances from the edited values. Each edit carries its own `changes`
+    // entry; description's after-value is read through the parser so tags
+    // match the result's `description`.
     const descriptionEdit: LineEdit | undefined =
       newDescription !== undefined
         ? {
@@ -1302,25 +1307,23 @@ const updateTask = async (
         }
       : undefined
 
-    const preStatusEdits = [
-      descriptionEdit,
+    const orderedEdits = [
       priorityEdit,
       ...dateEdits,
       recurrenceEdit,
       taskIdEdit,
       dependsOnEdit,
       blockIdEdit,
+      statusEdit,
+      descriptionEdit,
     ].filter((edit) => edit !== undefined)
-    const editedLineBeforeStatus = preStatusEdits.reduce(
+    const mutatedLine = orderedEdits.reduce(
       (taskLine, edit) => edit.apply(taskLine),
       originalTaskLine,
     )
-    const mutatedLine = statusEdit
-      ? statusEdit.apply(editedLineBeforeStatus)
-      : editedLineBeforeStatus
 
-    // `changes` keeps its documented order (status second) even though the
-    // status edit applies last.
+    // `changes` keeps its documented order (description first, status
+    // second) regardless of the application order above.
     const lineChanges = [
       descriptionEdit,
       statusEdit,
@@ -1337,7 +1340,7 @@ const updateTask = async (
     const recurrenceSpawn = resolveRecurrenceSpawn({
       status,
       taskBefore,
-      editedTaskLine: editedLineBeforeStatus,
+      editedTaskLine: mutatedLine,
       today,
       config: formatConfig,
     })
