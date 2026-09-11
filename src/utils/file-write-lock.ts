@@ -30,11 +30,12 @@ import { caseFoldPath } from "./case-fold-path.js"
 // forgetIfStillTail), so the map only holds files with a write in flight.
 const fileWriteLocks = new Map<string, Promise<unknown>>()
 
-/** On case-insensitive filesystems (macOS/Windows bind mounts) two spellings
- *  of one file must share a lock key or concurrent writes lose updates.
- *  Folding unconditionally is safe — keys never touch disk, and genuinely
- *  distinct case-colliding files on a Linux vault at worst hit a spurious
- *  fail-fast rejection or a harmless queue. */
+/** Case-folding the key is required on case-insensitive filesystems
+ *  (macOS/Windows bind mounts), where two spellings of one file must share a
+ *  lock key or concurrent writes lose updates. On case-sensitive filesystems
+ *  the fold costs nothing — keys never touch disk, and genuinely distinct
+ *  case-colliding files at worst hit a spurious fail-fast rejection or a
+ *  harmless queue. */
 const lockKeyForPath = (filePath: string): string => {
   return caseFoldPath(resolve(filePath))
 }
