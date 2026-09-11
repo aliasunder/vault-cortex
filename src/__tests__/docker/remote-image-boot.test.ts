@@ -1128,7 +1128,13 @@ describe("remote image boot — setup mode (no Sync token anywhere)", () => {
   it("serves the sign-in page and rejects a wrong MCP token without contacting Obsidian", async () => {
     const page = await fetch(`http://127.0.0.1:${port}/setup`)
     expect(page.status).toBe(200)
-    expect(await page.text()).toContain("<h1>Connect Obsidian Sync</h1>")
+    const html = await page.text()
+    expect(html).toContain("<h1>Connect Obsidian Sync</h1>")
+    // RAILWAY_PUBLIC_DOMAIN is a container env var, so the hint proves the
+    // s6 longrun hands the platform variable to the setup server.
+    expect(html).toContain(
+      "value from the service's Variables tab on Railway — it proves this is your server.",
+    )
 
     const rejected = await postSetupForm(port, {
       token: "not-the-token",

@@ -169,6 +169,8 @@ const makeTaskRow = (overrides: Partial<TaskRow> = {}): TaskRow => ({
   depth: 0,
   parent_line: null,
   parent_block_id: null,
+  subtask_done: 0,
+  subtask_total: 0,
   is_kanban_task: 0,
   kanban_done_lanes: null,
   ...overrides,
@@ -249,6 +251,13 @@ describe("rowToTaskEntry", () => {
       depth: 0,
       is_kanban_task: false,
     })
+  })
+
+  it("maps subtask counts to subtask_progress when the task has children", () => {
+    const entry = rowToTaskEntry(
+      makeTaskRow({ subtask_done: 2, subtask_total: 4 }),
+    )
+    expect(entry.subtask_progress).toEqual({ done: 2, total: 4 })
   })
 
   it("maps done_lanes for Kanban tasks", () => {

@@ -51,11 +51,16 @@ mechanism-level detail.
 
 ### Path traversal
 
+- `resolveSafePath()` rejects absolute paths — every path input is
+  vault-relative, so a spelling anchored at the filesystem root
+  (`/vault/Note.md`) throws before any filesystem access
 - `resolveSafePath()` resolves then prefix-checks every user-supplied
   path — `../../etc/passwd` throws before any filesystem access
-- `toVaultRelativePath()` normalizes backslashes and collapses `../`
-  before protected-path checks (prevents evasion via
-  `X/../Protected/file.md`)
+- Protected-path checks run on the canonical vault-relative form of the
+  resolved path (`resolveVaultRelativePath()`), with a case-folded
+  comparison — an aliased spelling (`\` separators,
+  `X/../Protected/file.md`, or a case variant on a case-insensitive
+  filesystem) cannot evade the guard
 - `vaultFolderName` Zod schema rejects `..`, absolute paths, and blank
   names at config parse time
 - Memory file names reject `/` and `\` — prevents `../../outside`-style
@@ -252,6 +257,31 @@ Several scanners already run against this repository:
 Base-image CVEs surfaced by Trivy are typically already tracked in the
 Security tab and handled through image updates. A report is still welcome if
 you've found a Vault Cortex–specific exploit path for one.
+
+## Secrets Management
+
+How project credentials (deployment credentials, publishing tokens, the
+server's own auth tokens) are handled:
+
+- **Storage** — CI credentials live in GitHub Actions secrets; local and
+  deployment credentials live in gitignored env files. Secrets are never
+  committed to the repository.
+- **Access** — the maintainer is the only person with access to project
+  credentials; workflows receive only the scoped secrets they need (see
+  [GOVERNANCE.md](./GOVERNANCE.md) for the full access list).
+- **Rotation** — a CI credential (the Docker Hub token, a GitHub App
+  key) is rotated by revoking it at its provider, issuing a replacement,
+  and updating the GitHub Actions secret; the next workflow run uses the
+  new value. npm and GHCR publishing hold no long-lived credential — npm
+  releases use Trusted Publishing and GHCR the workflow's built-in
+  token. A deployment rotates the server's own tokens (`MCP_AUTH_TOKEN`,
+  `OBSIDIAN_AUTH_TOKEN`) by swapping the env value and re-creating the
+  service so the new value is read — `docker compose up -d` with
+  Compose, or the CLI's `restart` command, which re-creates the
+  container (a plain `docker restart` keeps the old value). Any
+  suspected exposure triggers immediate rotation.
+- **Enforcement** — Gitleaks scans every PR and push to main for
+  committed secrets (see [Automated Scanning](#automated-scanning)).
 
 ## Release Signing
 

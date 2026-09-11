@@ -90,6 +90,177 @@
 
 
 
+
+
+
+
+
+
+
+
+## [0.50.2] — 2026-09-11
+
+### Bug Fixes
+
+- **vault:** Claim trash targets exclusively so a delete never overwrites a trash copy (#557)
+- Reject absolute note paths, guard protected paths on the canonical form, and support case-only renames (#556)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.50.1
+
+### CI / Infrastructure
+
+- **cli-release:** Serialize with server releases and push branch and tag atomically (#558)
+
+### Maintenance
+
+- **deps-dev:** Bump the development group with 3 updates (#559)
+
+## [0.50.1] — 2026-09-11
+
+### Bug Fixes
+
+- **test:** Use node:http request.destroy() for browser-disconnect test (#554)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.50.0
+
+### Other Changes
+
+- Register temp-dir cleanup in the init-setup-user spec (#555)
+- **setup:** Give the disconnect-survival test explicit waitFor budgets (#553)
+- **deps:** Stub adm-zip with empty-npm-package to clear GHSA-vwc7-r8mq-g2x9 (#552)
+- **deps:** Override smol-toml to 1.8.0 to clear GHSA-7w5x-hrqm-74c2 (#551)
+
+## [0.50.0] — 2026-09-10
+
+### ⚠ BREAKING CHANGES
+
+- `vault_memory_recall` param `max_results` renamed to `limit`. `vault_search` params `limit`, `snippet_tokens`, and `include_leading_callout` moved from `filters` to top level — old clients sending `filters.limit` etc. will have the values silently stripped (hard error once deep-strict lands in `^strict-tool-inputs`).
+
+### Features
+
+- **vault-crud:** Honor Obsidian's Deleted files setting in vault_delete_note (#543)
+- **mcp-core:** Explicit .default() on 24 tool params (#547)
+- V1 rename sweep — max_results→limit, un-nest search presentation params, gate patch-note refs (#545)
+
+### Bug Fixes
+
+- **oauth:** Use seconds-based TTL in sliding-expiry test assertion (#544)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.49.1
+
+### Maintenance
+
+- **deps:** Bump node from `50c3b2f` to `6950b66` (#549)
+- **deps-dev:** Bump the development group with 2 updates (#550)
+
+### Other Changes
+
+- **deps:** Bump commander to 15.0.0 and drop its Dependabot major ignore (#548)
+- **oauth:** Clean up guard-hook warnings in oauth-provider.test.ts (#546)
+- **mcp-core:** Pin the MCP wire surface with a per-combo snapshot baseline (#537)
+
+## [0.49.1] — 2026-09-08
+
+### ⚠ BREAKING CHANGES
+
+- the CLI now requires Node.js >= 22.12. On Node 20 it exits with an upgrade message instead of running. The server image is unaffected.
+
+### Features
+
+- **cli:** Drop Node 20, require Node >= 22.12 (#538)
+
+### Bug Fixes
+
+- **deps:** Bump hono to 4.13.7 and js-yaml override to 4.3.2 (#542)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.49.0
+
+### CI / Infrastructure
+
+- Expose diff_exclude_paths and respect_linguist_generated in umm_review.yml (#541)
+
+### Maintenance
+
+- Bump umm-actually to v0.4.1 (#540)
+- **deps-dev:** Bump the development group with 5 updates (#539)
+
+## [0.49.0] — 2026-09-06
+
+### Features
+
+- **tasks:** Add subtask_progress to every vault_list_tasks entry (#536)
+- **cli:** Validate env vars up front in init and configure (#533)
+
+### Bug Fixes
+
+- Align context_budget_tokens fallback with v0.4.0 default (300K) (#535)
+- **scripts:** Echo command descriptions instead of raw command strings in dev.ts (#526)
+- **scripts:** Keep the instance host out of waitForDocker log lines (#525)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.48.3
+
+### Maintenance
+
+- **deps:** Bump umm-actually to v0.4.0 (#534)
+- **deps:** Bump the production group across 1 directory with 4 updates (#529)
+- **deps:** Bump aws-actions/configure-aws-credentials from 6.2.3 to 6.2.4 (#527)
+- **deps:** Bump github/codeql-action/upload-sarif from 4.37.8 to 4.37.9 (#530)
+- **deps:** Bump node from `0711b54` to `50c3b2f` (#528)
+- **deps-dev:** Bump the development group with 5 updates (#531)
+- **deps:** Bump docker/setup-qemu-action from 4.2.0 to 4.3.0 (#532)
+
+## [0.48.3] — 2026-09-04
+
+### Features
+
+- **deploy:** Lightsail:up derives PUBLIC_URL from CUSTOM_DOMAIN or the gateway (#523)
+- **setup:** Name the platform's settings tab on the setup page (#520)
+
+### Bug Fixes
+
+- **setup:** Make the already-configured page mode-neutral (#522)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.48.2
+
+### CI / Infrastructure
+
+- **deploy:** Emit host health warnings after instance deploys (#524)
+
+## [0.48.2] — 2026-09-03
+
+### Bug Fixes
+
+- **deps:** Bump fast-uri to 3.1.7 and qs to 6.16.0 (#521)
+
+### Documentation
+
+- Add GOVERNANCE.md, ROADMAP.md, and a secrets-management policy (#517)
+- Describe VAULT_NAME as the vault's name in Obsidian, not Obsidian Sync (#519)
+- Update CHANGELOG.md for v0.48.1
+
+## [0.48.1] — 2026-09-02
+
+### Documentation
+
+- **remote:** Setup mode guides — OBSIDIAN_AUTH_TOKEN optional (#516)
+- Update CHANGELOG.md for v0.48.0
+
+### CI / Infrastructure
+
+- Bump umm-actually to v0.3.14 (#518)
+
 ## [0.48.0] — 2026-09-01
 
 ### Features

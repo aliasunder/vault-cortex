@@ -10,7 +10,7 @@ import {
   rmdir,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
-import { join, dirname, relative, resolve, posix } from "node:path"
+import { join, dirname, relative, resolve, parse, posix } from "node:path"
 import picomatch from "picomatch"
 import { describeError } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
@@ -42,25 +42,38 @@ import {
 } from "../obsidian-markdown/lines.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import { caseFoldPath } from "../../utils/case-fold-path.js"
+import type { TrashOption } from "./trash-config.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
 import type { Logger } from "../../logger.js"
 
-/** Canonicalizes a path for the protected-path prefix check: converts Windows
- *  backslashes to forward slashes, then collapses "./" and "../" so a separator
- *  or traversal variant can't evade the check. Absolute or vault-escaping paths
- *  are left for resolveSafePath. */
+/** Normalizes a note path's spelling by converting Windows backslashes to
+ *  forward slashes and collapsing "./" and "../" segments. Purely lexical —
+ *  absolute and vault-escaping paths pass through unchanged, so safety checks
+ *  belong to resolveSafePath and prefix guards to resolveVaultRelativePath. */
 export const toVaultRelativePath = (input: string): string =>
   posix.normalize(input.replace(/\\/g, "/"))
 
-/** Resolves a note path within the vault; throws on traversal and hidden
- *  paths (dot-prefixed segments — Obsidian ignores them). Hidden is checked
- *  on the resolved relative path (so "./" and "../" normalize) before any
- *  fs access (no existence leak). Internal ".obsidian/" config readers
- *  deliberately bypass this via direct readFile. */
+/** Resolves a note path within the vault; throws on absolute paths,
+ *  traversal, and hidden paths (dot-prefixed segments — Obsidian ignores
+ *  them). Hidden is checked on the resolved relative path (so "./" and "../"
+ *  normalize) before any fs access (no existence leak). Internal ".obsidian/"
+ *  config readers deliberately bypass this via direct readFile. */
 export const resolveSafePath = (
   vaultPath: string,
   notePath: string,
 ): string => {
+  // Vault paths are relative to the vault root — Obsidian has no other
+  // form. An absolute input is rejected even when it lands inside the vault,
+  // because accepting it would tie behavior to the deployment's mount point,
+  // and a vault root whose name shadows a top-level folder (root "/vault",
+  // folder "vault/") would let one leading slash silently select the wrong
+  // file.
+  if (posix.isAbsolute(notePath)) {
+    throw new Error(
+      `absolute path blocked: "${notePath}" must be vault-relative`,
+    )
+  }
   const normalizedVault = resolve(vaultPath)
   const resolved = resolve(normalizedVault, notePath)
   if (!resolved.startsWith(normalizedVault + "/")) {
@@ -72,6 +85,35 @@ export const resolveSafePath = (
     )
   }
   return resolved
+}
+
+/** Canonical vault-relative form of a note path — prefix guards must run on
+ *  this form so path aliases (separator variants, traversal segments) can't
+ *  evade them. Throws resolveSafePath's absolute/traversal/hidden errors for
+ *  unsafe input. */
+export const resolveVaultRelativePath = (params: {
+  vaultPath: string
+  notePath: string
+}): string => {
+  const normalizedInput = toVaultRelativePath(params.notePath)
+  // resolveSafePath is called for its safety guards; its absolute result is
+  // an intermediate, converted straight back to vault-relative.
+  const resolvedPath = resolveSafePath(params.vaultPath, normalizedInput)
+  return relative(resolve(params.vaultPath), resolvedPath)
+}
+
+/** True when the path sits under one of the protected folders (memory, daily
+ *  notes). The comparison is case-folded so a case-aliased spelling can't slip
+ *  past the guard on a case-insensitive filesystem (macOS/Windows bind
+ *  mounts); the path must already be canonical (resolveVaultRelativePath). */
+export const isProtectedPath = (params: {
+  path: string
+  protectedPaths: readonly string[]
+}): boolean => {
+  const foldedPath = caseFoldPath(params.path)
+  return params.protectedPaths
+    .map((folder) => (folder.endsWith("/") ? folder : `${folder}/`))
+    .some((prefix) => foldedPath.startsWith(caseFoldPath(prefix)))
 }
 
 /**
@@ -125,20 +167,23 @@ export const pruneEmptyParents = async (
  * must not already exist.
  */
 export const atomicWriteFile = async (
-  filePath: string,
-  content: string,
+  params: { filePath: string; content: string },
+  logger: Logger,
 ): Promise<void> => {
-  const tmpPath = `${filePath}.${randomUUID()}.tmp`
+  const tmpPath = `${params.filePath}.${randomUUID()}.tmp`
   try {
-    await writeFile(tmpPath, content, "utf8")
-    await rename(tmpPath, filePath)
+    await writeFile(tmpPath, params.content, "utf8")
+    await rename(tmpPath, params.filePath)
   } catch (err) {
-    // Best-effort cleanup so a failed write never strands a temp file. Swallow
-    // any cleanup error so the original write/rename failure is still thrown.
+    // Best-effort cleanup so a failed write never strands a temp file. A
+    // failed cleanup is logged, not thrown, so the write failure propagates.
     try {
       await rm(tmpPath, { force: true })
-    } catch {
-      // ignore — preserving the root-cause error below matters more
+    } catch (cleanupError) {
+      logger.warn("failed to remove temp file", {
+        path: tmpPath,
+        error: describeError(cleanupError),
+      })
     }
     throw err
   }
@@ -164,36 +209,54 @@ export const atomicWriteFile = async (
  * than `link`, so it works where hard links don't.
  */
 export const atomicWriteFileExclusive = async (
-  filePath: string,
-  content: string,
-  options?: { hardLinksSupported?: boolean },
+  params: {
+    filePath: string
+    content: string
+    hardLinksSupported?: boolean
+  },
+  logger: Logger,
 ): Promise<void> => {
-  const tmpPath = `${filePath}.${randomUUID()}.tmp`
-  const hardLinksSupported = options?.hardLinksSupported ?? true
+  const tmpPath = `${params.filePath}.${randomUUID()}.tmp`
+  const hardLinksSupported = params.hardLinksSupported ?? true
   try {
-    await writeFile(tmpPath, content, "utf8")
+    await writeFile(tmpPath, params.content, "utf8")
     if (hardLinksSupported) {
-      // Atomic no-clobber create: throws EEXIST if filePath already exists.
-      await link(tmpPath, filePath)
+      // Atomic no-clobber create — link throws EEXIST if filePath exists.
+      await link(tmpPath, params.filePath)
       return
     }
-    // No hard links on this filesystem. Reserve the target atomically (O_EXCL):
-    // throws EEXIST if it already exists, with no separate check — so there's no
-    // TOCTOU window in which a concurrent writer's file could be clobbered.
-    await writeFile(filePath, "", { flag: "wx" })
+    // No hard links on this filesystem. Reserve the target atomically
+    // (O_EXCL) — it throws EEXIST if the target exists, with no separate
+    // check, so there's no TOCTOU window in which a concurrent writer's file
+    // could be clobbered.
+    await writeFile(params.filePath, "", { flag: "wx" })
     try {
       // Swap the fully-staged content over the empty placeholder.
-      await rename(tmpPath, filePath)
+      await rename(tmpPath, params.filePath)
     } catch (renameError) {
       // The reservation took but the swap failed — drop the placeholder so a
-      // failed write never strands a 0-byte note at the destination.
-      await rm(filePath, { force: true }).catch(() => {})
+      // failed write never strands a 0-byte note at the destination. A failed
+      // cleanup is logged, not thrown, so the swap failure propagates.
+      await rm(params.filePath, { force: true }).catch(
+        (cleanupError: unknown) => {
+          logger.warn("failed to remove reservation placeholder", {
+            path: params.filePath,
+            error: describeError(cleanupError),
+          })
+        },
+      )
       throw renameError
     }
   } finally {
     // Always drop the temp file — renamed away on success, redundant otherwise.
-    // Swallow cleanup errors so the original failure (e.g. EEXIST) propagates.
-    await rm(tmpPath, { force: true }).catch(() => {})
+    // A failed cleanup is logged, not thrown, so the original failure (e.g.
+    // EEXIST) propagates.
+    await rm(tmpPath, { force: true }).catch((cleanupError: unknown) => {
+      logger.warn("failed to remove temp file", {
+        path: tmpPath,
+        error: describeError(cleanupError),
+      })
+    })
   }
 }
 
@@ -280,8 +343,8 @@ const readNoteOutline = async (
   // Everything above the first heading that the callout doesn't already cover,
   // so the two fields describe the region without repeating bytes. Filtering by
   // index (rather than subtracting spans) keeps the callout-after-a-leading-H1
-  // case safe: that span sits outside the region entirely, so no index matches
-  // and nothing is removed — no negative slice is possible.
+  // case safe, because that span sits outside the region entirely — no index
+  // matches, nothing is removed, and no negative slice is possible.
   const regionLines = linesBeforeFirstHeading(lines, headings)
   const regionOutsideCallout = regionLines.filter(
     (_line, index) =>
@@ -292,8 +355,9 @@ const readNoteOutline = async (
   const leadingContent = trimBlankEdgeLines(regionOutsideCallout).join("\n")
 
   const outline = headings.map((heading) => {
-    // Section span = heading line through bodyEndLine (the same span a section
-    // read returns), so the size hint matches what reading it would cost.
+    // The section span runs from the heading line through bodyEndLine (the
+    // same span a section read returns), so the size hint matches what
+    // reading it would cost.
     const sectionText = lines
       .slice(heading.startLine, heading.bodyEndLine)
       .join("\n")
@@ -386,7 +450,7 @@ const writeNote = async (
       throw new Error(`note already exists: "${params.path}"`)
     }
     const serialized = serializeNote(existing, params.body, params.properties)
-    await atomicWriteFile(fullPath, serialized)
+    await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
     logger.info("wrote note", {
       path: params.path,
       beforeBytes: existing ? Buffer.byteLength(existing, "utf8") : 0,
@@ -414,7 +478,7 @@ const updateProperties = async (
     const parsed = parseNote(existing)
     const mergedProperties = mergeFrontmatter(parsed.data, params.properties)
     const serialized = stringifyNote(parsed.content, mergedProperties)
-    await atomicWriteFile(fullPath, serialized)
+    await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
     logger.info("updated properties", {
       path: params.path,
       beforeBytes: Buffer.byteLength(existing, "utf8"),
@@ -427,52 +491,178 @@ type DeleteNoteResult = {
   /** Number of now-empty parent folders removed. Always 0 unless
    *  pruneEmptyFolders was set. */
   prunedEmptyFolders: number
+  /** Vault-relative path in `.trash/` when the note was moved to trash.
+   *  Undefined when permanently deleted. */
+  trashLocation?: string
 }
 
-/** Deletes a note. Rejects paths under the configured protected paths. When
- *  pruneEmptyFolders is set, removes any parent folders the deletion empties. */
+/** Ties moveNoteToTrash's collision-exhaustion throw to deleteNote's rethrow
+ *  guard — both use this lead-in, so a message edit can't silently break the
+ *  guard's prefix match. */
+const TRASH_COLLISION_ERROR_PREFIX = "cannot move to trash"
+
+/** Claims a trash destination with an exclusive create — the empty placeholder
+ *  appears atomically, and only when nothing occupies the name. Returns false
+ *  when the name is occupied by anything: a regular file, a directory, or a
+ *  symlink (even dangling, which a stat-based existence check would report as
+ *  free). */
+const claimTrashTarget = async (targetPath: string): Promise<boolean> => {
+  try {
+    // "wx" opens with O_CREAT|O_EXCL — the create succeeds only when nothing
+    // occupies the path and fails with EEXIST otherwise. The check and the
+    // create are one atomic operation, so two claimants can't both win.
+    await writeFile(targetPath, "", { flag: "wx" })
+    return true
+  } catch (error) {
+    if (isErrnoException(error, "EEXIST")) return false
+    throw error
+  }
+}
+
+/** Moves a note to `.trash/`, creating parent directories as needed.
+ *  Each candidate name — the original, then `note 1.md` … `note 100.md` —
+ *  is claimed with an exclusive create before the move, so an existing
+ *  trash copy can never be overwritten; a concurrent delete loses the
+ *  claim and takes the next suffix instead. The claim itself is the
+ *  existence check — no stat-based precheck decides whether a name is
+ *  safe. Returns the vault-relative trash path. */
+const moveNoteToTrash = async (
+  params: {
+    vaultPath: string
+    relativePath: string
+    fullPath: string
+  },
+  logger: Logger,
+): Promise<string> => {
+  const { dir, name, ext } = parse(params.relativePath)
+  const candidateRelativePaths = [
+    `.trash/${params.relativePath}`,
+    ...Array.from({ length: 100 }, (_, index) => {
+      const suffixedFileName = `${name} ${index + 1}${ext}`
+      return `.trash/${join(dir, suffixedFileName)}`
+    }),
+  ]
+
+  await mkdir(join(params.vaultPath, ".trash", dir), { recursive: true })
+
+  for (const candidateRelativePath of candidateRelativePaths) {
+    const candidateFullPath = join(params.vaultPath, candidateRelativePath)
+    if (!(await claimTrashTarget(candidateFullPath))) continue
+    try {
+      await rename(params.fullPath, candidateFullPath)
+    } catch (renameError) {
+      // The claim took but the move failed — drop our placeholder so it
+      // doesn't strand a 0-byte file occupying a suffix. A failed cleanup is
+      // logged, not thrown, so the rename failure propagates as the cause.
+      await rm(candidateFullPath, { force: true }).catch(
+        (cleanupError: unknown) => {
+          logger.warn("failed to remove claim placeholder", {
+            path: candidateRelativePath,
+            error: describeError(cleanupError),
+          })
+        },
+      )
+      throw renameError
+    }
+    return candidateRelativePath
+  }
+
+  throw new Error(
+    `${TRASH_COLLISION_ERROR_PREFIX} "${params.relativePath}" — 100 collisions in .trash/`,
+  )
+}
+
+/** Deletes or trashes a note depending on the vault's Deleted files setting.
+ *  Rejects paths under the configured protected paths. When pruneEmptyFolders
+ *  is set, removes any parent folders the operation empties. */
 const deleteNote = async (
   params: {
     vaultPath: string
     path: string
     protectedPaths: readonly string[]
     pruneEmptyFolders: boolean
+    trashOption: TrashOption
   },
   logger: Logger,
 ): Promise<DeleteNoteResult> => {
   assertPathHasExtension(params.path, ".md")
-  // Normalize before the protected-path check so a traversal path like
-  // "X/../About Me/Principles.md" can't evade the prefix test yet still resolve
-  // into a protected folder.
-  const path = toVaultRelativePath(params.path)
+  // Canonicalize before the protected-path check so an aliased spelling —
+  // traversal ("X/../About Me/x.md") or separator variant — can't evade the
+  // prefix test yet still resolve into a protected folder. Absolute input
+  // throws here.
+  const path = resolveVaultRelativePath({
+    vaultPath: params.vaultPath,
+    notePath: params.path,
+  })
 
-  const protectedPrefixes = params.protectedPaths.map((folder) =>
-    folder.endsWith("/") ? folder : `${folder}/`,
-  )
-  if (protectedPrefixes.some((prefix) => path.startsWith(prefix))) {
+  if (isProtectedPath({ path, protectedPaths: params.protectedPaths })) {
     throw new Error(`cannot delete protected path "${path}"`)
   }
 
   const fullPath = resolveSafePath(params.vaultPath, path)
   // Locked so a concurrent read-modify-write (patch/replace) can't recreate
   // the note via its atomic-rename write after the unlink, and so a delete
-  // rejects while a note move holds this path.
+  // throws while a note move holds this path — the lock fails fast, it never
+  // waits.
   return withExclusiveFileLock(fullPath, async () => {
-    // Checked inside the lock, mirroring moveNote — a clean vault-relative
-    // "note not found" instead of unlink's raw ENOENT (whose message would
-    // leak the absolute container path to the client).
+    // The existence check runs inside the lock, mirroring moveNote — a clean
+    // vault-relative "note not found" instead of unlink's raw ENOENT (whose
+    // message would leak the absolute container path to the client).
     if (!(await fileExists(fullPath))) {
       throw new Error(`note not found: "${path}"`)
     }
-    await unlink(fullPath)
+
+    // The trash path bypasses resolveSafePath because .trash/ is a hidden
+    // path the guard rejects. Safe: `path` was already validated above.
+    // Assigned inside the try, read after it — pruning and the completion
+    // log below need the value, so const can't span the catch boundary
+    let trashLocation: string | undefined
+    try {
+      // Only "local" has a destination here. "system" trash doesn't exist
+      // inside a container and "none" means delete, so both unlink for good.
+      if (params.trashOption === "local") {
+        trashLocation = await moveNoteToTrash(
+          {
+            vaultPath: params.vaultPath,
+            relativePath: path,
+            fullPath,
+          },
+          logger,
+        )
+      } else {
+        await unlink(fullPath)
+      }
+    } catch (error) {
+      // Collision-exhaustion errors from moveNoteToTrash are already vault-relative
+      const isTrashCollisionError =
+        error instanceof Error &&
+        error.message.startsWith(TRASH_COLLISION_ERROR_PREFIX)
+      if (isTrashCollisionError) {
+        throw error
+      }
+      // Log the raw fs detail (errno, absolute path) for the operator;
+      // surface only a vault-relative message to the client.
+      const action = params.trashOption === "local" ? "move to trash" : "delete"
+      logger.warn(`failed to ${action}`, {
+        path,
+        error: describeError(error),
+      })
+      throw new Error(`cannot ${action} "${path}"`, { cause: error })
+    }
+
     const prunedEmptyFolders = params.pruneEmptyFolders
       ? await pruneEmptyParents({ vaultPath: params.vaultPath, path }, logger)
       : 0
+
     logger.info("deleted note", {
       path,
+      ...(trashLocation ? { trash_location: trashLocation } : {}),
       pruned_empty_folders: prunedEmptyFolders,
     })
-    return { prunedEmptyFolders }
+    return {
+      prunedEmptyFolders,
+      ...(trashLocation ? { trashLocation } : {}),
+    }
   })
 }
 
@@ -599,13 +789,14 @@ const readAsset = async (
     }
   })()
   try {
-    // One sentinel byte past the statted size: if the file grew after the
-    // stat, the sentinel fills and the read is rejected as unstable.
+    // The buffer is one sentinel byte longer than the statted size — if the
+    // file grew after the stat, the sentinel fills and the read is rejected
+    // as unstable.
     const readBuffer = Buffer.alloc(
       Math.min(fileStats.size, params.maxBytes) + 1,
     )
-    // Sequential fill loop — a single read() may return short on some
-    // platforms, so accumulate until EOF or the buffer is full.
+    // A single read() may return short on some platforms, so the loop
+    // accumulates until EOF or the buffer is full.
     let totalBytesRead = 0
     while (totalBytesRead < readBuffer.length) {
       const { bytesRead } = await fileHandle.read(

@@ -3,12 +3,12 @@
 Run Vault Cortex on your machine against a local Obsidian vault. No cloud, no
 Obsidian Sync — just Docker and a folder of `.md` files.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Windows](#windows-docker-desktop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Deleting notes](#deleting-notes) · [Config](#configuration) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) (v20.10+)
-- Node.js >= 20.12 — only for the CLI setup below; the
+- Node.js >= 22.12 — only for the CLI setup below; the
   [manual setup](#setup) needs just Docker
 - An Obsidian vault (or any folder of Markdown files)
 
@@ -290,6 +290,15 @@ keeps writes on but removes deleting and moving. Names match the Name column
 in the [README tools table](https://github.com/aliasunder/vault-cortex#tools).
 It only ever takes tools away: it can't bring back one that read-only mode
 or another setting has already hidden.
+
+## Deleting notes
+
+Deletes honor the "Deleted files" setting in Obsidian (Settings → Files and
+links). With "Move to Obsidian trash (.trash folder)" selected, a deleted
+note moves to the `.trash` folder inside your vault — the same place
+Obsidian's own deletes go. Any other choice, including the default "Move to
+system trash", deletes the note permanently, because the container has no
+system trash to move it to.
 
 ## Configuration
 

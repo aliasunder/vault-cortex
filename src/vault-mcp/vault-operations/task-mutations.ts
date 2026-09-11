@@ -830,7 +830,7 @@ const createTask = async (
 
     // Write atomically
     const serialized = stringifyNote(resultLines.join("\n"), parsed.data)
-    await atomicWriteFile(fullPath, serialized)
+    await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
 
     const finalLine = bodyStartLine + insertAt + 1
 
@@ -1182,7 +1182,7 @@ const updateTask = async (
 
     // Write atomically
     const serialized = stringifyNote(resultLines.join("\n"), parsed.data)
-    await atomicWriteFile(fullPath, serialized)
+    await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
 
     const finalLine = bodyStartLine + finalTaskIndex + 1
     const finalTaskLine = resultLines[finalTaskIndex] ?? mutatedLine

@@ -15,7 +15,7 @@ configuration. Both produce an identical container — restart policy, log
 rotation, and health check included — and Podman or any OCI-compatible
 container runtime works in place of Docker.
 
-**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Sign in](#sign-in-to-obsidian-sync) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Daily Notes](#daily-notes) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
+**Contents** — [Prerequisites](#prerequisites) · [Setup](#setup) · [HTTPS access](#https-access) · [Sign in](#sign-in-to-obsidian-sync) · [Connect](#connect-your-mcp-client) · [Verify](#verify) · [Monitoring](#monitoring) · [Updating](#updating) · [Restart](#restart) · [Stop](#stop) · [Memory](#memory) · [File Tools](#file-tools) · [Read-only](#read-only-mode) · [Deleting notes](#deleting-notes) · [Daily Notes](#daily-notes) · [Config](#configuration) · [Hardening](#hardening-recommended) · [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
 
@@ -39,7 +39,7 @@ starts the server and prints the connection details for your MCP client
 <details>
 <summary><strong>Don't have Node.js installed?</strong></summary>
 
-The CLI needs Node.js >= 20.12 (the server itself runs in Docker). On Ubuntu/Debian:
+The CLI needs Node.js >= 22.12 (the server itself runs in Docker). On Ubuntu/Debian:
 
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -
@@ -68,7 +68,7 @@ Or clone the repo and `cd deploy/remote`.
 
 **3. Generate your Obsidian Sync auth token** (one-time):
 
-If you have Node.js >= 20.12 on this machine, the CLI signs in to your
+If you have Node.js >= 22.12 on this machine, the CLI signs in to your
 Obsidian account and captures the token:
 
 ```bash
@@ -98,12 +98,12 @@ cp .env.example .env
 
 **5. Fill in the required values:**
 
-| Variable              | Value                                                                                                                                                                                                    |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MCP_AUTH_TOKEN`      | Generate with `openssl rand -hex 32`                                                                                                                                                                     |
-| `PUBLIC_URL`          | Your server's public base URL, e.g. `https://vault.example.com` — no `/mcp` at the end; it's appended automatically, and clients connect at `<PUBLIC_URL>/mcp` (see [HTTPS access](#https-access) below) |
-| `OBSIDIAN_AUTH_TOKEN` | Output from step 3. Or leave empty to sign in through the `/setup` page after starting                                                                                                                   |
-| `VAULT_NAME`          | Your exact Obsidian vault name (case-sensitive)                                                                                                                                                          |
+| Variable              | Value                                                                                                                                                                                                                        |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MCP_AUTH_TOKEN`      | Generate with `openssl rand -hex 32`                                                                                                                                                                                         |
+| `PUBLIC_URL`          | Your server's public base URL, e.g. `https://vault.example.com` — no `/mcp` at the end; it's appended automatically, and clients connect at `<PUBLIC_URL>/mcp` (see [HTTPS access](#https-access) below)                     |
+| `OBSIDIAN_AUTH_TOKEN` | Output from step 3. Or leave empty to sign in through the `/setup` page after starting. To sign in with a different account, set a new token and re-create the container — it always overrides the saved login on the volume |
+| `VAULT_NAME`          | Your exact Obsidian vault name (case-sensitive)                                                                                                                                                                              |
 
 **6. Start the server:**
 
@@ -515,6 +515,13 @@ keeps writes on but removes deleting and moving. Names match the Name column
 in the [README tools table](https://github.com/aliasunder/vault-cortex#tools).
 It only ever takes tools away: it can't bring back one that read-only mode
 or another setting has already hidden.
+
+## Deleting notes
+
+Deletes are permanent, and they sync to your other devices like a delete
+made in Obsidian. To recover a deleted note, use Obsidian Sync's version
+history (Settings → Sync → Deleted files) — kept for 1 month on Sync
+Standard and 12 months on Sync Plus.
 
 ## Daily notes
 

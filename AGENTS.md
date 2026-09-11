@@ -80,6 +80,7 @@ assets/                                # Static assets (not shipped in Docker)
     DejaVuSans.ttf                     #   Embedded in render script for deterministic text rendering
 scripts/                               # Dev/ops helpers (not shipped in Docker)
   dev.ts                               # Deployment helper (subcommands for SSH, sync, etc.)
+  instance-env.ts                      # PUBLIC_URL resolution for lightsail:up (same rule as deploy.yml + sst.config.ts)
   sync-cli-env-blocks.ts               # Syncs deploy/ .env.example optional blocks into cli/src/env.ts
   lobehub-manifest.ts                  # Builds lhm.plugin.json from the live MCP tool/prompt registry
   sync-lobehub-manifest.ts             # Writes the gitignored lhm.plugin.json (npm run sync:lobehub-manifest)
@@ -123,6 +124,7 @@ src/
     fs.ts                              # readFileOrNull / readdirOrNull / fileExists / statOrNull (ENOENT-safe)
     assert-no-control-characters.ts    # Rejects C0 controls (except tab/LF/CR), DEL, and C1 controls in write params
     assert-path-has-extension.ts       # Generic path extension assertion (used by note-path validation)
+    case-fold-path.ts                  # Case- and Unicode-normalization-fold a path for comparison (macOS/Windows bind mounts)
     has-hidden-path-segment.ts         # Shared "is hidden path" predicate (listings, watcher, index, path guard)
     filter-valid-symlinks.ts           # Filters out broken symlinks from directory listings
     fit-image-to-byte-budget.ts        # Downscale/recompress an image buffer to fit a byte budget (sharp)
@@ -163,6 +165,7 @@ src/
       daily-notes.ts                   # Daily note config reader + path resolver (env settings > daily-notes.json)
       task-mutations.ts                # Task create + state mutations (status, priority, heading moves, sub-tasks)
       task-format-config.ts            # Tasks-plugin format config reader (emoji vs Dataview)
+      trash-config.ts                  # Obsidian "Deleted files" config reader (trashOption from .obsidian/app.json)
       asset-operations.ts              # Asset read dispatch + browsing (image fit, canvas linearize/raw, extension filter, statted slice)
     mcp-core/                          # MCP protocol surface
       mcp-router.ts                    # /mcp session routes + transport lifecycle
@@ -385,7 +388,7 @@ goes in `obsidian-markdown/`, never `utils/`.
 - **Parser, small-helper, and config-reader modules** — the
   `obsidian-markdown/` parsers (`frontmatter`, `headings`, `callouts`,
   `lines`), `utils/`, and the config readers (`daily-notes`,
-  `task-format-config`) — export **named functions**. The shape tracks whether
+  `task-format-config`, `trash-config`) — export **named functions**. The shape tracks whether
   a module _performs operations_ (→ namespace) or _parses/reads
   configuration_ (→ named), **not** whether it does I/O: the parsers are pure,
   while the config readers do light I/O, yet both use named exports because
@@ -797,7 +800,10 @@ continue }` over `if/else if` chains — each branch is
 4. **Availability keying** — if the tool's description names other
    tools, use `whenToolEnabledText` so references disappear when their
    target is disabled.
-5. **Feature-surface docs** — see the "Files that track feature
+5. **Snapshot baseline** — run `npm run snapshot:update` and commit the
+   regenerated `__snapshots__/tool-surface/` files; any change to the
+   tool surface fails the drift test until the baseline matches.
+6. **Feature-surface docs** — see the "Files that track feature
    surface" table below for which files to update (README tools table,
    ARCHITECTURE.md, DOCKERHUB regen, etc.).
 
@@ -814,7 +820,10 @@ continue }` over `if/else if` chains — each branch is
 4. **Availability keying** — use `whenToolEnabledText`,
    `isToolEnabled`, and `formatEnabledToolList` from the context for
    any tool references in the prompt text or fallback paths.
-5. **Feature-surface docs** — update the README prompts table and
+5. **Snapshot baseline** — run `npm run snapshot:update` and commit the
+   regenerated `__snapshots__/tool-surface/` files (prompts are part of
+   the captured surface).
+6. **Feature-surface docs** — update the README prompts table and
    regenerate DOCKERHUB.md.
 
 ### MCP prompt conventions
@@ -1032,7 +1041,10 @@ test.
   prefix (include test-controlled variable parts like paths and
   section names).
 - New config gating axis → config matrix test in
-  `server-integration.test.ts` (tool count + key behavior).
+  `server-integration.test.ts` (tool count + key behavior), and add the
+  axis to `SURFACE_AXES` in
+  `src/vault-mcp/mcp-core/__tests__/tool-surface-capture.ts` so the
+  snapshot combos cover it.
 - New prompt → assembly test verifying live vault data, not just the
   instruction wrapper.
 
@@ -1278,24 +1290,28 @@ Several files outside `src/` reflect the project's feature surface and
 need updating alongside code changes. What to check depends on what
 changed:
 
-| File                                                 | Update when…                                                                                                                                                                                                                                                                                                                                                            |
-| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `README.md`                                          | New deployment mode, new feature worth mentioning in the value prop                                                                                                                                                                                                                                                                                                     |
-| `ARCHITECTURE.md`                                    | New component, requirement, or design decision; component diagram changes. Write for scannability: bullet lists and numbered pipelines over dense prose — a reader landing on this page should grasp the flow at a glance, not parse nested parentheticals.                                                                                                             |
-| `server.json`                                        | Description changes. `description` has a 100-character limit per the MCP registry schema — counted in code points, not bytes, so em dashes are safe here (CI guards it).                                                                                                                                                                                                |
-| `Dockerfile`                                         | OCI `image.description` label — keep in sync with `server.json` and `deploy.yml` descriptions                                                                                                                                                                                                                                                                           |
-| `assets/social-preview.svg` + `.png`                 | Feature category changes (rendered in the image); regenerate PNG after SVG edits (run `npm run render:social-preview`)                                                                                                                                                                                                                                                  |
-| `.devin/wiki.json`                                   | New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references). Purposes stay structural — what the page covers and which modules — never capability narratives, counts, or tuning values; those live in README/ARCHITECTURE and DeepWiki derives them at index time.                                                            |
-| `deploy/local/` + `deploy/remote/`                   | New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory                                                                                                                                                                                                                   |
-| `render.yaml` + `deploy/render/` + `deploy/railway/` | A variable the image needs at boot is added or renamed, a shipped default changes (plan, disk size, hop count, health path, port), or the image tag changes. `templates.test.ts` pins `render.yaml`; the Railway template is re-published by hand from the definition table in `CONTRIBUTING.md` — existing deployments keep their settings until their owners redeploy |
-| `.env.example` (root)                                | New env var or changed default for the Lightsail reference deployment                                                                                                                                                                                                                                                                                                   |
-| `cli/README.md`                                      | Feature description or search capability changes — this is the npmjs.com landing page                                                                                                                                                                                                                                                                                   |
-| `cli/src/env.ts`                                     | Auto-synced optional blocks from `deploy/*/.env.example` via `npm run sync:cli-env-blocks` — run the script after editing deploy/ env files                                                                                                                                                                                                                             |
-| `CONTRIBUTING.md`                                    | CI pipeline, repo settings, or release conventions change                                                                                                                                                                                                                                                                                                               |
-| `DEPLOY.md`                                          | Infrastructure, env vars, or deployment procedure changes                                                                                                                                                                                                                                                                                                               |
-| `DOCKERHUB.md`                                       | Auto-generated — regenerate via `npm run generate:dockerhub-readme` when README.md changes tool/prompt tables, feature descriptions, env var table, or deployment options. Do not edit manually.                                                                                                                                                                        |
-| `.github/workflows/dockerhub-description.yml`        | Description changes. Reads from `DOCKERHUB.md`. Docker Hub limits short descriptions to 100 UTF-8 **bytes**, not characters — an em dash costs 3 (CI guards the byte length).                                                                                                                                                                                           |
-| `lhm.plugin.json`                                    | Generated and gitignored — never edit or commit it. `npm run publish:lobehub` regenerates it from the live tool/prompt registry and publishes the LobeHub listing; that command is the only thing that needs running when tools, prompts, the `server.json` description, or the `package.json` keywords change (keywords become the listing's tags).                    |
+| File                                                           | Update when…                                                                                                                                                                                                                                                                                                                                                            |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `README.md`                                                    | New deployment mode, new feature worth mentioning in the value prop                                                                                                                                                                                                                                                                                                     |
+| `ARCHITECTURE.md`                                              | New component, requirement, or design decision; component diagram changes. Write for scannability: bullet lists and numbered pipelines over dense prose — a reader landing on this page should grasp the flow at a glance, not parse nested parentheticals.                                                                                                             |
+| `ROADMAP.md`                                                   | Direction genuinely changes — a priority shifts between Planned and Exploring, or a non-goal is decided. Refreshed in periodic passes (roughly once or twice a year) that remove completed Planned entries; not updated per feature PR, and shipped items are never promoted into Delivered — that section is a static foundations sketch, not a changelog              |
+| `server.json`                                                  | Description changes. `description` has a 100-character limit per the MCP registry schema — counted in code points, not bytes, so em dashes are safe here (CI guards it).                                                                                                                                                                                                |
+| `Dockerfile`                                                   | OCI `image.description` label — keep in sync with `server.json` and `deploy.yml` descriptions                                                                                                                                                                                                                                                                           |
+| `assets/social-preview.svg` + `.png`                           | Feature category changes (rendered in the image); regenerate PNG after SVG edits (run `npm run render:social-preview`)                                                                                                                                                                                                                                                  |
+| `.devin/wiki.json`                                             | New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references). Purposes stay structural — what the page covers and which modules — never capability narratives, counts, or tuning values; those live in README/ARCHITECTURE and DeepWiki derives them at index time.                                                            |
+| `src/vault-mcp/mcp-core/__tests__/__snapshots__/tool-surface/` | Any change to tool schemas, descriptions, annotations, prompts, or server instructions — run `npm run snapshot:update` and commit the regenerated baseline in the same PR (the drift test fails until it matches). A dependency bump that changes the MCP SDK's schema serialization needs the same regen commit: that CI failure is the gate working, not flake.       |
+| `deploy/local/` + `deploy/remote/`                             | New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory                                                                                                                                                                                                                   |
+| `render.yaml` + `deploy/render/` + `deploy/railway/`           | A variable the image needs at boot is added or renamed, a shipped default changes (plan, disk size, hop count, health path, port), or the image tag changes. `templates.test.ts` pins `render.yaml`; the Railway template is re-published by hand from the definition table in `CONTRIBUTING.md` — existing deployments keep their settings until their owners redeploy |
+| `.env.example` (root)                                          | New env var or changed default for the Lightsail reference deployment                                                                                                                                                                                                                                                                                                   |
+| `cli/README.md`                                                | Feature description or search capability changes — this is the npmjs.com landing page                                                                                                                                                                                                                                                                                   |
+| `cli/src/env.ts`                                               | Auto-synced optional blocks from `deploy/*/.env.example` via `npm run sync:cli-env-blocks` — run the script after editing deploy/ env files                                                                                                                                                                                                                             |
+| `CONTRIBUTING.md`                                              | CI pipeline, repo settings, or release conventions change                                                                                                                                                                                                                                                                                                               |
+| `DEPLOY.md`                                                    | Infrastructure, env vars, or deployment procedure changes                                                                                                                                                                                                                                                                                                               |
+| `GOVERNANCE.md`                                                | Access to a sensitive resource changes — a registry, bot, or workflow credential is added or dropped, or a collaborator gains rights. The Access list and Continuity paragraph name concrete credentials, so they must track the workflows' secrets                                                                                                                     |
+| `SECURITY.md`                                                  | The attack surface or its protections change — a new endpoint, auth layer, guard, scanner, or credential kind. The scope, hardening, setup-mode, and Secrets Management sections state what the code and CI actually do, and a stale claim here misleads vulnerability reporters                                                                                        |
+| `DOCKERHUB.md`                                                 | Auto-generated — regenerate via `npm run generate:dockerhub-readme` when README.md changes tool/prompt tables, feature descriptions, env var table, or deployment options. Do not edit manually.                                                                                                                                                                        |
+| `.github/workflows/dockerhub-description.yml`                  | Description changes. Reads from `DOCKERHUB.md`. Docker Hub limits short descriptions to 100 UTF-8 **bytes**, not characters — an em dash costs 3 (CI guards the byte length).                                                                                                                                                                                           |
+| `lhm.plugin.json`                                              | Generated and gitignored — never edit or commit it. `npm run publish:lobehub` regenerates it from the live tool/prompt registry and publishes the LobeHub listing; that command is the only thing that needs running when tools, prompts, the `server.json` description, or the `package.json` keywords change (keywords become the listing's tags).                    |
 
 **Env var update checklist** — when adding, removing, or changing an
 env var that the server reads (defined in `config.ts`, `server.ts`, or

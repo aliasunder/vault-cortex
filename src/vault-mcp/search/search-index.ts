@@ -151,9 +151,6 @@ export type SearchFilters = {
   properties?: Record<string, string | number | boolean> | undefined
   created?: DateFilter | undefined
   modified?: DateFilter | undefined
-  limit?: number | undefined
-  snippet_tokens?: number | undefined
-  include_leading_callout?: boolean | undefined
 }
 
 export type NoteRow = {
@@ -196,6 +193,8 @@ export type TaskRow = {
   depth: number
   parent_line: number | null
   parent_block_id: string | null
+  subtask_done: number
+  subtask_total: number
   is_kanban_task: number
   kanban_done_lanes: string | null
 }
@@ -228,9 +227,17 @@ export type TaskEntry = {
   block_id?: string | undefined
   depth: number
   parent_block_id?: string | undefined
+  subtask_progress?: SubtaskProgress | undefined
   is_kanban_task: boolean
   done_lanes?: string[] | undefined
 }
+
+/** Direct-children checklist progress, present only on tasks that have a
+ *  checklist — an absent field means no checklist items. done counts
+ *  status "done" only; cancelled children count toward total, not done.
+ *  Counts are unaffected by the query's filters — progress is a property
+ *  of the card, not of the query. */
+type SubtaskProgress = { done: number; total: number }
 
 /** Status filter vocabulary for listTasks. "not_done" (the default) covers
  *  todo + in_progress — the Tasks plugin's own `not done` semantics, which
@@ -280,7 +287,7 @@ export type MemoryRecallEntry = {
   text: string
 }
 
-/** memoryRecall response: entries is the max_results-capped evidence set in
+/** memoryRecall response: entries is the limit-capped evidence set in
  *  ascending date order; total counts every entry that survived the
  *  relevance cut, so truncated = total > entries.length tells the client the
  *  set is incomplete (the least-relevant matches were dropped — never a date
@@ -575,6 +582,15 @@ export const createSearchIndex = (
   if (!taskColumns.some((column) => column.name === "parent_block_id")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN parent_block_id TEXT`)
   }
+
+  // Created after the parent_line migration — the column may not exist when
+  // the base schema runs. Partial over child rows only, ordered to match the
+  // subtask_progress aggregate's GROUP BY, so listTasks scans just this small
+  // index instead of hash-aggregating the whole tasks table on every call.
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_tasks_parent_line
+       ON tasks(note_path, parent_line) WHERE parent_line IS NOT NULL`,
+  )
 
   // Same idempotent migration for non_md_files.bytes: a warm database from
   // before the column existed would fail the upsert. Nullable — NULL means

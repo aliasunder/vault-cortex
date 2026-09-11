@@ -156,7 +156,13 @@ const assertFilterDate = (value: string, filterName: string): void => {
 
 export const fullTextSearch = (
   context: SearchQueryContext,
-  params: { query: string; filters?: SearchFilters | undefined },
+  params: {
+    query: string
+    filters?: SearchFilters | undefined
+    limit?: number | undefined
+    snippet_tokens?: number | undefined
+    include_leading_callout?: boolean | undefined
+  },
   logger: Logger,
 ): SearchResult[] => {
   // Build WHERE clause dynamically: each filter appends a condition + its bind params
@@ -248,11 +254,11 @@ export const fullTextSearch = (
     }
   }
 
-  const limit = Math.max(0, Math.floor(params.filters?.limit ?? 20))
-  const snippetTokens = params.filters?.snippet_tokens ?? 30
+  const limit = Math.max(0, Math.floor(params.limit ?? 20))
+  const snippetTokens = params.snippet_tokens ?? 30
   // Opt-in: the leading callout is omitted by default to keep this hot-path
   // result lean; callers triaging which note to open can request it.
-  const includeLeadingCallout = params.filters?.include_leading_callout ?? false
+  const includeLeadingCallout = params.include_leading_callout ?? false
   queryParams.push(limit)
 
   // FTS5 rank is negative (lower = better), negated for human-friendly scoring
@@ -351,7 +357,7 @@ const MEMORY_RECALL_RELATIVE_RATIO = 0.1
  *  is the documented cost of running without the reranker. */
 const MEMORY_RECALL_DISTANCE_MARGIN = 0.15
 
-/** Default max_results — ≈15% of today's corpus (~2.5k tokens), comfortably
+/** Default limit — ≈15% of today's corpus (~2.5k tokens), comfortably
  *  holding any realistic evolution arc. */
 const DEFAULT_MEMORY_RECALL_LIMIT = 50
 
@@ -509,7 +515,7 @@ const memoryEntryRowToWireEntry = (row: MemoryEntryRow): MemoryRecallEntry => ({
   text: row.entry_text,
 })
 
-/** Orders kept candidates most-relevant-first, truncates to maxResults, and
+/** Orders kept candidates most-relevant-first, truncates to limit, and
  *  sorts the survivors chronologically. Selection is relevance-based but
  *  output is chronological — truncation must drop the LEAST-RELEVANT
  *  entries, never a date end: cutting oldest silently destroys arc origins,
@@ -517,14 +523,14 @@ const memoryEntryRowToWireEntry = (row: MemoryEntryRow): MemoryRecallEntry => ({
 const buildMemoryRecallResult = (
   keptCandidates: readonly MemoryRecallCandidate[],
   relevance: (candidate: MemoryRecallCandidate) => number,
-  maxResults: number,
+  limit: number,
   searchMode: "hybrid" | "fts",
   reranked: boolean,
 ): MemoryRecallResult => {
   const byRelevanceDescending = [...keptCandidates].sort(
     (a, b) => relevance(b) - relevance(a),
   )
-  const survivors = byRelevanceDescending.slice(0, maxResults)
+  const survivors = byRelevanceDescending.slice(0, limit)
   const entries = survivors
     .map((candidate) => candidate.row)
     .sort(compareMemoryEntriesChronologically)
@@ -553,7 +559,7 @@ export const memoryRecall = async (
   params: {
     query: string
     file?: string | undefined
-    maxResults?: number | undefined
+    limit?: number | undefined
   },
   logger: Logger,
 ): Promise<MemoryRecallResult> => {
@@ -563,9 +569,9 @@ export const memoryRecall = async (
       "memory recall is not available: the memory layer is disabled (MEMORY_ENABLED=false)",
     )
   }
-  const maxResults = Math.max(
+  const limit = Math.max(
     1,
-    Math.floor(params.maxResults ?? DEFAULT_MEMORY_RECALL_LIMIT),
+    Math.floor(params.limit ?? DEFAULT_MEMORY_RECALL_LIMIT),
   )
   const matchesFileFilter = (row: MemoryEntryRow): boolean =>
     params.file === undefined || row.file === params.file
@@ -604,7 +610,7 @@ export const memoryRecall = async (
     const result = buildMemoryRecallResult(
       lexicalCandidates,
       (candidate) => candidate.fusedScore,
-      maxResults,
+      limit,
       "fts",
       false,
     )
@@ -694,7 +700,7 @@ export const memoryRecall = async (
       const result = buildMemoryRecallResult(
         rescueCandidates,
         (candidate) => candidate.fusedScore,
-        maxResults,
+        limit,
         "fts",
         false,
       )
@@ -704,7 +710,7 @@ export const memoryRecall = async (
     const result = buildMemoryRecallResult(
       rerankOutcome.kept,
       rerankOutcome.relevance,
-      maxResults,
+      limit,
       "hybrid",
       true,
     )
@@ -724,7 +730,7 @@ export const memoryRecall = async (
   const result = buildMemoryRecallResult(
     marginCutCandidates,
     (candidate) => candidate.fusedScore,
-    maxResults,
+    limit,
     "hybrid",
     false,
   )
@@ -1062,17 +1068,33 @@ export const listTasks = (
 
   // Kanban detection: notes with kanban-plugin in frontmatter are Kanban boards,
   // so their tasks need lane moves (not checkbox toggles) to complete.
+  // The children join aggregates each task's DIRECT children over the whole
+  // tasks table — deliberately outside the WHERE, so a card's checklist
+  // progress is unaffected by the query's filters. The group key
+  // (note_path, parent_line) is unique per parent, so the join never
+  // multiplies rows.
   const sql = `
     SELECT t.note_path, t.line, t.status_char, t.status, t.description,
            t.created, t.scheduled, t.start, t.due, t.done, t.cancelled,
            t.priority, t.recurrence, t.on_completion, t.task_id, t.depends_on,
            t.tags, t.block_id, t.heading, t.folder,
            t.depth, t.parent_line, t.parent_block_id,
+           COALESCE(children.subtask_done, 0) AS subtask_done,
+           COALESCE(children.subtask_total, 0) AS subtask_total,
            CASE WHEN json_extract(n.properties, '$.kanban-plugin') IS NOT NULL
                 THEN 1 ELSE 0 END AS is_kanban_task,
            n.kanban_done_lanes
     FROM tasks t
     JOIN notes n ON n.path = t.note_path
+    LEFT JOIN (
+      SELECT note_path, parent_line,
+             SUM(status = 'done') AS subtask_done,
+             COUNT(*) AS subtask_total
+      FROM tasks
+      WHERE parent_line IS NOT NULL
+      GROUP BY note_path, parent_line
+    ) children ON children.note_path = t.note_path
+               AND children.parent_line = t.line
     ${whereClause}
     ORDER BY ${orderBy}, t.note_path ASC, t.line ASC
     LIMIT ?

@@ -174,13 +174,13 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 ### Search
 
-| Tool                     | Input                        | Annotation   |
-| ------------------------ | ---------------------------- | ------------ |
-| `vault_search`           | `query, filters?`            | readOnlyHint |
-| `vault_search_by_tag`    | `tag, exact?`                | readOnlyHint |
-| `vault_search_by_folder` | `folder, recursive?, limit?` | readOnlyHint |
-| `vault_list_tags`        | —                            | readOnlyHint |
-| `vault_recent_notes`     | `sort_by?, limit?`           | readOnlyHint |
+| Tool                     | Input                                                                | Annotation   |
+| ------------------------ | -------------------------------------------------------------------- | ------------ |
+| `vault_search`           | `query, filters?, limit?, snippet_tokens?, include_leading_callout?` | readOnlyHint |
+| `vault_search_by_tag`    | `tag, exact?`                                                        | readOnlyHint |
+| `vault_search_by_folder` | `folder, recursive?, limit?`                                         | readOnlyHint |
+| `vault_list_tags`        | —                                                                    | readOnlyHint |
+| `vault_recent_notes`     | `sort_by?, limit?`                                                   | readOnlyHint |
 
 `vault_search` is the entry point to the full hybrid ranking pipeline — keyword, vector, and cross-encoder reranking — described in [Hybrid Search](#hybrid-search).
 
@@ -188,7 +188,8 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 - `folder`, `tags`, `related`, `type`, and `properties` (arbitrary frontmatter keys)
 - `created` / `modified` — date bounds `{ before, on, after }` in YYYY-MM-DD, both server-local (before/after exclusive, on exact). `created` matches the frontmatter created day and never matches notes without a parseable value for the property; `modified` matches the filesystem-mtime day
-- `limit`, `snippet_tokens`, and `include_leading_callout` (opt-in; adds each result's top-of-file callout)
+
+`limit`, `snippet_tokens`, and `include_leading_callout` are top-level pagination/projection params alongside `query`.
 
 `vault_recent_notes` sorts by `sort_by` — `"created"` or `"modified"` (default `"modified"`).
 
@@ -213,7 +214,7 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 | `vault_update_memory`     | `file, section, entry, options?` | !destructiveHint |
 | `vault_delete_memory`     | `file, section, date, entry`     | destructiveHint  |
 | `vault_list_memory_files` | —                                | readOnlyHint     |
-| `vault_memory_recall`     | `query, file?, max_results?`     | readOnlyHint     |
+| `vault_memory_recall`     | `query, file?, limit?`           | readOnlyHint     |
 
 **Entry-granular recall:** `vault_memory_recall` retrieves individual dated
 entries — the granularity the other layers miss (`vault_get_memory` returns
@@ -324,9 +325,10 @@ Each row carries its attribution — note path, full parent folder, 1-based file
 - **Filters** — status; six date fields (due, scheduled, start, created, done, cancelled), each with before/on/after bounds; priority; folder, tag, heading, and path scoping; `top_level_only`, which excludes sub-tasks from board reads.
 - **Sort keys** — `due`, `scheduled`, `start`, `created`, `done`, `priority`, `note_mtime`, `position`.
 
-Three design choices shape the query surface:
+Four design choices shape the query surface:
 
 - **Array params for status and heading** — both accept `string | string[]`, OR-combined. This collapses multi-lane Kanban queries (e.g. Active + Up Next + Waiting On) into a single call instead of N sequential reads.
+- **Checklist progress on parent entries** — `subtask_progress: { done, total }` aggregates each task's direct children in the same query (a grouped self-join on the parent line), so filtered or `top_level_only` reads still show how far along a card's checklist is. The field appears only on tasks that have a checklist; `done` counts status done only, and the counts ignore the query's filters — progress belongs to the card, not the query.
 - **Date cascade sorting** — when the primary sort date is absent on a task, actionable date sorts fall back through the remaining fields in urgency order (due → scheduled → start → created), each using its own natural direction. (`done`, a terminal-state date, stands alone.) Tasks with sparse dates sort usably instead of clustering at the end.
 - **Kanban awareness** — each task carries an `is_kanban_task` flag, derived via `json_extract` on the parent note's `kanban-plugin` frontmatter (no schema changes). When true, `heading` carries the lane name, and `sort_by: "position"` (file path then line number) preserves the board's card arrangement as the sort order. A `done_lanes` field (populated at index time by scanning for the Kanban plugin's `**Complete**` marker between headings and list items) tells agents which lane(s) represent task completion.
 
@@ -905,7 +907,10 @@ flowchart TD
    `/healthz` answers `{ ok: true, mode: "setup" }` within seconds (so a
    platform deploy goes live), `/setup` serves the sign-in page, browser
    GETs to any other path redirect to `/setup`, and API requests answer
-   503 with the setup URL.
+   503 with the setup URL. When `RENDER_EXTERNAL_URL` or
+   `RAILWAY_PUBLIC_DOMAIN` identifies the host, the page names that
+   platform's settings tab wherever it tells the owner to find or fix a
+   variable.
 4. `POST /setup` checks `MCP_AUTH_TOKEN` first, then signs in through
    Obsidian's account API (the same request `ob login` makes, two-factor
    included).
@@ -1094,7 +1099,10 @@ Docker hardening, and durability seatbelts above.
 
 - **`resolveSafePath()`** (`vault-filesystem.ts`): `resolve()` +
   prefix check. Every vault-relative path passes through it before any
-  filesystem access. Throws on traversal (`../../etc/passwd`) and on
+  filesystem access. Throws on absolute paths (`/vault/Note.md` — vault
+  paths are always vault-relative, and an absolute spelling would tie
+  behavior to the deployment's mount point), on traversal
+  (`../../etc/passwd`), and on
   hidden paths — any dot-prefixed segment (`.obsidian/x`, `.trash/y.md`),
   checked on the resolved relative path so `a/../.obsidian/x` is caught
   while `notes/./plan.md` passes. The predicate
@@ -1102,11 +1110,13 @@ Docker hardening, and durability seatbelts above.
   filter, file watcher, and index rebuild — one definition of "hidden",
   every layer ("one rule, every layer", like `assertPathHasExtension`).
   The internal `.obsidian/` config readers (`daily-notes.ts`,
-  `task-format-config.ts`) deliberately bypass this guard via direct
-  `readFile`.
-- **`toVaultRelativePath()`** (`vault-filesystem.ts`): normalizes
-  backslashes and collapses `../` _before_ the protected-path prefix
-  check, so `X/../About Me/Principles.md` cannot evade protection.
+  `task-format-config.ts`, `trash-config.ts`) deliberately bypass this
+  guard via direct `readFile`.
+- **`resolveVaultRelativePath()`** (`vault-filesystem.ts`): the
+  canonical vault-relative form of a note path — normalize, resolve
+  through `resolveSafePath()`, then take the path relative to the vault
+  root. Prefix guards run on this form, so an aliased spelling (`\`
+  separators, or `X/../About Me/Principles.md`) cannot evade protection.
 - **`vaultFolderName`** (Zod schema in `config.ts`): config-time
   validation rejects absolute paths, traversal (`..`), and blank names
   before they reach any file operation.
@@ -1118,7 +1128,10 @@ Docker hardening, and durability seatbelts above.
 - **Protected paths**: `PROTECTED_PATHS` (default: `MEMORY_DIR` plus
   `DAILY_NOTES_FOLDER`, falling back to `Daily Notes`) blocks deleting
   notes in, moving notes out of, and moving notes into configured
-  folders, checked after normalization.
+  folders. The check (`isProtectedPath()`, shared by delete and move)
+  runs on the canonical vault-relative path with a case-folded
+  comparison, so a case-aliased spelling on a case-insensitive
+  filesystem is refused too.
 
 #### SQL + search safety
 

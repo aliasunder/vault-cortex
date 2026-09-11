@@ -335,6 +335,62 @@ describe("setup-server entry point", () => {
     )
   })
 
+  describe("hosting platform detection", () => {
+    const signInPage = async (env: Record<string, string>): Promise<string> => {
+      const server = await spawnSetupServer({
+        HOME: tmpdir(),
+        MCP_AUTH_TOKEN: AUTH_TOKEN,
+        ...env,
+      })
+      await waitForStart(server)
+      return (await fetch(`http://127.0.0.1:${server.port}/setup`)).text()
+    }
+
+    const RENDER_HINT = `<div class="hint">The <code>MCP_AUTH_TOKEN</code> value from the service's Environment tab on Render — it proves this is your server.</div>`
+    const RAILWAY_HINT = `<div class="hint">The <code>MCP_AUTH_TOKEN</code> value from the service's Variables tab on Railway — it proves this is your server.</div>`
+    const GENERIC_HINT = `<div class="hint">The <code>MCP_AUTH_TOKEN</code> value from your deployment's settings — it proves this is your server.</div>`
+
+    it("names Render's Environment tab when RENDER_EXTERNAL_URL is set", async () => {
+      const html = await signInPage({
+        RENDER_EXTERNAL_URL: "https://x.onrender.com",
+      })
+
+      expect(html).toContain(RENDER_HINT)
+    })
+
+    it("names Railway's Variables tab when RAILWAY_PUBLIC_DOMAIN is set", async () => {
+      const html = await signInPage({
+        RAILWAY_PUBLIC_DOMAIN: "x.up.railway.app",
+      })
+
+      expect(html).toContain(RAILWAY_HINT)
+    })
+
+    it("prefers Render when both platform variables are set, like the PUBLIC_URL derivation", async () => {
+      const html = await signInPage({
+        RENDER_EXTERNAL_URL: "https://x.onrender.com",
+        RAILWAY_PUBLIC_DOMAIN: "x.up.railway.app",
+      })
+
+      expect(html).toContain(RENDER_HINT)
+    })
+
+    it("treats a blank RENDER_EXTERNAL_URL as unset", async () => {
+      const html = await signInPage({
+        RENDER_EXTERNAL_URL: "",
+        RAILWAY_PUBLIC_DOMAIN: "x.up.railway.app",
+      })
+
+      expect(html).toContain(RAILWAY_HINT)
+    })
+
+    it("keeps the generic hint when neither platform variable is set", async () => {
+      const html = await signInPage({})
+
+      expect(html).toContain(GENERIC_HINT)
+    })
+  })
+
   it("exits 1 with one searchable log line when MCP_AUTH_TOKEN is missing", async () => {
     const server = await spawnSetupServer({ HOME: tmpdir() })
 

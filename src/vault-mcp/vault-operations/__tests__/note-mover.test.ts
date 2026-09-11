@@ -1,13 +1,21 @@
 import { describe, it, expect, vi, onTestFinished } from "vitest"
-import { rm, writeFile, mkdir, readFile, stat } from "node:fs/promises"
+import { rm, writeFile, mkdir, readFile, stat, rename } from "node:fs/promises"
 import { mkdtempSync } from "node:fs"
-import { join, dirname } from "node:path"
+import { basename, join, dirname } from "node:path"
 import { tmpdir } from "node:os"
 import { noteMover } from "../note-mover.js"
-import { vaultFs } from "../vault-filesystem.js"
+import { vaultFs, atomicWriteFile } from "../vault-filesystem.js"
 import { vaultPatcher } from "../vault-patcher.js"
 import { withExclusiveFileLock } from "../../../utils/file-write-lock.js"
+import { fileExists, statOrNull } from "../../../utils/fs.js"
 import type { Logger } from "../../../logger.js"
+
+// The modules are spy-wrapped so single tests can shape the aliased-path
+// disk probes and fail specific rename/write calls while every other call
+// keeps the real implementation.
+vi.mock("../../../utils/fs.js", { spy: true })
+vi.mock("node:fs/promises", { spy: true })
+vi.mock("../vault-filesystem.js", { spy: true })
 
 const PROTECTED = ["About Me", "Daily Notes"] as const
 
@@ -844,7 +852,8 @@ describe("moveNote — counts and summary", () => {
   it("rewrites every source when there are more than one batch of them", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
-    // 25 sources spans three batches of 10 — exercises the batch-boundary logic.
+    // 25 sources span three batches of 10, exercising the batch-boundary
+    // logic.
     const sources = Array.from({ length: 25 }, (_unused, index) => {
       const padded = String(index).padStart(2, "0")
       return `src-${padded}.md`
@@ -927,6 +936,60 @@ describe("moveNote — guards", () => {
     expect(await noteExists("Daily Notes/Foo.md")).toBe(false)
   })
 
+  it("rejects an absolute container path as the source", async () => {
+    // Absolute inputs are rejected outright — the old bypass route into
+    // protected folders never reaches a guard or the filesystem.
+    const { vault, writeFixture, moveNote, noteExists } = setupVault()
+    await writeFixture("About Me/Me.md", "memory\n")
+
+    await expect(
+      moveNote({ oldPath: `${vault}/About Me/Me.md`, newPath: "Bar.md" }),
+    ).rejects.toThrow(
+      `absolute path blocked: "${vault}/About Me/Me.md" must be vault-relative`,
+    )
+    expect(await noteExists("About Me/Me.md")).toBe(true)
+    expect(await noteExists("Bar.md")).toBe(false)
+  })
+
+  it("rejects an absolute container path as the destination", async () => {
+    const { vault, writeFixture, moveNote, noteExists } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+
+    await expect(
+      moveNote({ oldPath: "Foo.md", newPath: `${vault}/About Me/Foo.md` }),
+    ).rejects.toThrow(
+      `absolute path blocked: "${vault}/About Me/Foo.md" must be vault-relative`,
+    )
+    expect(await noteExists("Foo.md")).toBe(true)
+    expect(await noteExists("About Me/Foo.md")).toBe(false)
+  })
+
+  it("refuses a source that escapes and re-enters the vault into a protected folder", async () => {
+    const { vault, writeFixture, moveNote, noteExists } = setupVault()
+    await writeFixture("About Me/Me.md", "memory\n")
+
+    await expect(
+      moveNote({
+        oldPath: join("..", basename(vault), "About Me/Me.md"),
+        newPath: "Bar.md",
+      }),
+    ).rejects.toThrow('cannot move protected path "About Me/Me.md"')
+    expect(await noteExists("About Me/Me.md")).toBe(true)
+  })
+
+  it("refuses a case-aliased spelling of a protected source", async () => {
+    // On a case-insensitive filesystem "about me/" names the same folder as
+    // "About Me/" — the guard's comparison is case-folded so the alias cannot
+    // slip past it.
+    const { writeFixture, moveNote, noteExists } = setupVault()
+    await writeFixture("About Me/Me.md", "memory\n")
+
+    await expect(
+      moveNote({ oldPath: "about me/Me.md", newPath: "Bar.md" }),
+    ).rejects.toThrow('cannot move protected path "about me/Me.md"')
+    expect(await noteExists("About Me/Me.md")).toBe(true)
+  })
+
   it("throws when source and destination are identical", async () => {
     const { writeFixture, moveNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
@@ -934,6 +997,276 @@ describe("moveNote — guards", () => {
     await expect(
       moveNote({ oldPath: "Foo.md", newPath: "Foo.md" }),
     ).rejects.toThrow("source and destination are the same path")
+  })
+
+  it("recognizes a traversal and a plain spelling of the same note as the same path", async () => {
+    const { writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+
+    await expect(
+      moveNote({ oldPath: "Inbox/../Foo.md", newPath: "Foo.md" }),
+    ).rejects.toThrow("source and destination are the same path")
+    expect(await readNote("Foo.md")).toBe("content\n")
+  })
+
+  it("moves a case-aliased old path via the on-disk spelling and rewrites backlinks", async (testContext) => {
+    // This test is only meaningful where the filesystem resolves case-aliased
+    // paths to the same file (macOS/Windows bind mounts) — the sibling test
+    // below covers the case-sensitive branch, so exactly one of the two runs
+    // per platform.
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+    await writeFixture("Projects/todo.md", "content\n")
+    if (!(await noteExists("projects/todo.md"))) testContext.skip()
+    await writeFixture("Hub.md", "Links [[todo]].\n")
+
+    const result = await moveNote({
+      oldPath: "projects/todo.md",
+      newPath: "Archive/done.md",
+    })
+
+    expect(result).toEqual({
+      moved_to: "Archive/done.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await noteExists("Projects/todo.md")).toBe(false)
+    expect(await readNote("Archive/done.md")).toBe("content\n")
+    expect(await readNote("Hub.md")).toBe("Links [[done]].\n")
+  })
+
+  it("refuses a case-aliased old path when the filesystem is case-sensitive", async (testContext) => {
+    // On a case-sensitive filesystem the aliased spelling names a file that
+    // does not exist, so nothing may be moved — the inverse platform branch
+    // of the sibling test above.
+    const { writeFixture, moveNote, noteExists } = setupVault()
+    await writeFixture("Projects/todo.md", "content\n")
+    if (await noteExists("projects/todo.md")) testContext.skip()
+
+    await expect(
+      moveNote({ oldPath: "projects/todo.md", newPath: "Archive/done.md" }),
+    ).rejects.toThrow('note not found: "projects/todo.md"')
+    expect(await noteExists("Projects/todo.md")).toBe(true)
+  })
+
+  it("reconciles a case-aliased old path to the index's spelling on any host", async () => {
+    // The stat probe is redirected to the real spelling for the aliased path,
+    // so the index-reconciliation branch runs on every host — CI's
+    // case-sensitive filesystem would otherwise never execute it. The
+    // platform-gated pair above covers the real-filesystem behavior.
+    const { vault, writeFixture, moveNote, noteExists, readNote } = setupVault()
+    await writeFixture("Projects/todo.md", "content\n")
+    await writeFixture("Hub.md", "Links [[todo]].\n")
+
+    const actualFs = await vi.importActual<
+      typeof import("../../../utils/fs.js")
+    >("../../../utils/fs.js")
+    const aliasedFullPath = join(vault, "projects/todo.md")
+    const realFullPath = join(vault, "Projects/todo.md")
+    vi.mocked(statOrNull).mockImplementation((path) => {
+      if (path === aliasedFullPath) return actualFs.statOrNull(realFullPath)
+      return actualFs.statOrNull(path)
+    })
+    onTestFinished(() => vi.mocked(statOrNull).mockRestore())
+
+    const result = await moveNote({
+      oldPath: "projects/todo.md",
+      newPath: "Archive/done.md",
+    })
+
+    expect(result).toEqual({
+      moved_to: "Archive/done.md",
+      links_updated: 1,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await noteExists("Projects/todo.md")).toBe(false)
+    expect(await readNote("Archive/done.md")).toBe("content\n")
+    expect(await readNote("Hub.md")).toBe("Links [[done]].\n")
+  })
+
+  it("does not substitute a case-variant sibling that is a different file", async () => {
+    // Simulates a case-sensitive vault holding two case-distinct files where
+    // the requested one is not yet indexed — the stat probe reports a real
+    // but different inode for the input, and its existence check stays false.
+    // The reconciliation must decline, because matching by folded name alone
+    // would move and unlink the sibling, the wrong user-visible note.
+    const { vault, writeFixture, moveNote, noteExists, readNote } = setupVault()
+    await writeFixture("Projects/todo.md", "sibling content\n")
+    await writeFixture("Hub.md", "Links [[todo]].\n")
+
+    const actualFs = await vi.importActual<
+      typeof import("../../../utils/fs.js")
+    >("../../../utils/fs.js")
+    const aliasedFullPath = join(vault, "projects/todo.md")
+    const distinctFilePath = join(vault, "Hub.md")
+    vi.mocked(statOrNull).mockImplementation((path) => {
+      if (path === aliasedFullPath) return actualFs.statOrNull(distinctFilePath)
+      return actualFs.statOrNull(path)
+    })
+    vi.mocked(fileExists).mockImplementation((path) => {
+      if (path === aliasedFullPath) return Promise.resolve(false)
+      return actualFs.fileExists(path)
+    })
+    onTestFinished(() => {
+      vi.mocked(statOrNull).mockRestore()
+      vi.mocked(fileExists).mockRestore()
+    })
+
+    await expect(
+      moveNote({ oldPath: "projects/todo.md", newPath: "Archive/done.md" }),
+    ).rejects.toThrow('note not found: "projects/todo.md"')
+    expect(await readNote("Projects/todo.md")).toBe("sibling content\n")
+    expect(await noteExists("Archive/done.md")).toBe(false)
+  })
+
+  /** Redirects the stat probe for the lowercase spelling to the real file,
+   *  putting the move on the case-only rename branch on every host. */
+  const forceCaseOnlyRenameDetection = (vault: string): void => {
+    const lowercaseFullPath = join(vault, "foo.md")
+    const realFullPath = join(vault, "Foo.md")
+    vi.mocked(statOrNull).mockImplementation(async (path) => {
+      const actualFs = await vi.importActual<
+        typeof import("../../../utils/fs.js")
+      >("../../../utils/fs.js")
+      if (path === lowercaseFullPath) return actualFs.statOrNull(realFullPath)
+      return actualFs.statOrNull(path)
+    })
+    onTestFinished(() => vi.mocked(statOrNull).mockRestore())
+  }
+
+  it("performs a case-only rename and rewrites links to the new casing", async () => {
+    // The stat probe reports the same inode for both spellings, as a
+    // case-insensitive filesystem would; on a case-sensitive filesystem the
+    // real rename behaves as an ordinary move, so the assertions hold on
+    // both hosts.
+    const { vault, writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "Self [[Foo]].\n")
+    await writeFixture("Hub.md", "Links [[Foo]].\n")
+    forceCaseOnlyRenameDetection(vault)
+
+    const result = await moveNote({
+      oldPath: "Foo.md",
+      newPath: "foo.md",
+      backlinkSources: ["Hub.md"],
+    })
+
+    expect(result).toEqual({
+      moved_to: "foo.md",
+      links_updated: 2,
+      updated_notes: ["Hub.md"],
+      pruned_empty_folders: 0,
+    })
+    expect(await readNote("foo.md")).toBe("Self [[foo]].\n")
+    expect(await readNote("Hub.md")).toBe("Links [[foo]].\n")
+  })
+
+  it("moves between case-variant names when the filesystem treats them as distinct files", async (testContext) => {
+    // Runs only where the filesystem is case-sensitive — the pair are then
+    // two real paths, the same-file probe declines, and the move proceeds as
+    // an ordinary move.
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    if (await noteExists("foo.md")) testContext.skip()
+
+    const result = await moveNote({ oldPath: "Foo.md", newPath: "foo.md" })
+
+    expect(result.moved_to).toBe("foo.md")
+    expect(await noteExists("Foo.md")).toBe(false)
+    expect(await readNote("foo.md")).toBe("content\n")
+  })
+
+  it("aborts a case-only rename when the filesystem rename fails", async () => {
+    const { vault, writeFixture, moveNote, readNote } = setupVault()
+    await writeFixture("Foo.md", "content\n")
+    forceCaseOnlyRenameDetection(vault)
+
+    const oldFullPath = join(vault, "Foo.md")
+    const newFullPath = join(vault, "foo.md")
+    vi.mocked(rename).mockImplementation(async (source, destination) => {
+      if (source === oldFullPath && destination === newFullPath) {
+        throw new Error("EACCES: permission denied")
+      }
+      const actualFsPromises =
+        await vi.importActual<typeof import("node:fs/promises")>(
+          "node:fs/promises",
+        )
+      return actualFsPromises.rename(source, destination)
+    })
+    onTestFinished(() => vi.mocked(rename).mockRestore())
+
+    await expect(
+      moveNote({ oldPath: "Foo.md", newPath: "foo.md" }),
+    ).rejects.toThrow(
+      'move aborted: could not rename to "foo.md". Nothing was written.',
+    )
+    expect(await readNote("Foo.md")).toBe("content\n")
+  })
+
+  it("reports the renamed-but-stale-links state when the post-rename write fails", async () => {
+    const { vault, writeFixture, moveNote, readNote } = setupVault()
+    // The self-link makes the post-rename content write happen.
+    await writeFixture("Foo.md", "Self [[Foo]].\n")
+    forceCaseOnlyRenameDetection(vault)
+
+    const newFullPath = join(vault, "foo.md")
+    vi.mocked(atomicWriteFile).mockImplementation(
+      async (writeParams, writeLogger) => {
+        if (writeParams.filePath === newFullPath) {
+          throw new Error("ENOSPC: no space left")
+        }
+        const actualVaultFilesystem = await vi.importActual<
+          typeof import("../vault-filesystem.js")
+        >("../vault-filesystem.js")
+        return actualVaultFilesystem.atomicWriteFile(writeParams, writeLogger)
+      },
+    )
+    onTestFinished(() => vi.mocked(atomicWriteFile).mockRestore())
+
+    await expect(
+      moveNote({ oldPath: "Foo.md", newPath: "foo.md" }),
+    ).rejects.toThrow(
+      'move incomplete: renamed to "foo.md" but its own links still use the old casing. Edit the note to update them.',
+    )
+    // The rename itself went through — the note lives at the new spelling
+    // with its original content.
+    expect(await readNote("foo.md")).toBe("Self [[Foo]].\n")
+  })
+
+  it("names the already-renamed state when a backlink write fails after a case-only rename", async () => {
+    const { vault, writeFixture, moveNote, readNote } = setupVault()
+    // No self-link, so the only atomicWriteFile call is the backlink source.
+    await writeFixture("Foo.md", "content\n")
+    await writeFixture("Hub.md", "Links [[Foo]].\n")
+    forceCaseOnlyRenameDetection(vault)
+
+    const hubFullPath = join(vault, "Hub.md")
+    vi.mocked(atomicWriteFile).mockImplementation(
+      async (writeParams, writeLogger) => {
+        if (writeParams.filePath === hubFullPath) {
+          throw new Error("ENOSPC: no space left")
+        }
+        const actualVaultFilesystem = await vi.importActual<
+          typeof import("../vault-filesystem.js")
+        >("../vault-filesystem.js")
+        return actualVaultFilesystem.atomicWriteFile(writeParams, writeLogger)
+      },
+    )
+    onTestFinished(() => vi.mocked(atomicWriteFile).mockRestore())
+
+    await expect(
+      moveNote({
+        oldPath: "Foo.md",
+        newPath: "foo.md",
+        backlinkSources: ["Hub.md"],
+      }),
+    ).rejects.toThrow(
+      'move incomplete: failed updating "Hub.md" (0/1 sources written). ' +
+        'The note was already renamed to "foo.md"; update the remaining ' +
+        "links directly.",
+    )
+    expect(await readNote("foo.md")).toBe("content\n")
+    expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n")
   })
 
   it("throws when a path does not end in .md", async () => {
@@ -1215,7 +1548,7 @@ describe("moveNote — Windows mode (rename-based exclusive write)", () => {
         windowsBindMount: true,
       }),
     ).rejects.toThrow('destination exists: "Bar.md"')
-    // Both notes untouched — the failed move wrote nothing.
+    // Both notes are untouched — the failed move wrote nothing.
     expect(await readNote("Bar.md")).toBe("occupied\n")
     expect(await readNote("Foo.md")).toBe("content\n")
   })
@@ -1229,7 +1562,8 @@ describe("moveNote — concurrent write locking", () => {
    *  synchronously before moveNote's first await, so the locks are already
    *  held when this returns. Callers pass a pre-fetched path list so nothing
    *  yields the event loop before acquisition — deliberately a plain (not
-   *  async) function: an async wrapper would flatten the returned promise. */
+   *  async) function, because an async wrapper would flatten the returned
+   *  promise. */
   const startMove = (params: {
     vault: string
     logger: Logger
@@ -1343,6 +1677,7 @@ describe("moveNote — concurrent write locking", () => {
           path: "Foo.md",
           protectedPaths: PROTECTED,
           pruneEmptyFolders: false,
+          trashOption: "system",
         },
         logger,
       ),
@@ -1405,7 +1740,7 @@ describe("moveNote — concurrent write locking", () => {
     })
     await expect(movePromise).rejects.toThrow("concurrent write in progress")
 
-    // Fail-fast means fail-clean: nothing was moved or rewritten.
+    // Fail-fast means fail-clean — nothing was moved or rewritten.
     await holdHubLock
     expect(await noteExists("Foo.md")).toBe(true)
     expect(await noteExists("Bar.md")).toBe(false)
@@ -1462,8 +1797,8 @@ describe("moveNote — concurrent write locking", () => {
     await writeFixture("Bar.md", "occupied\n")
     await writeFixture("Hub.md", "Links [[Foo]].\n")
 
-    // Fails inside the lock, after acquisition — the existence check runs
-    // within the locked span.
+    // The move fails inside the lock, after acquisition — the existence
+    // check runs within the locked span.
     await expect(
       moveNote({
         oldPath: "Foo.md",
@@ -1532,7 +1867,7 @@ describe("moveNote — backlink source hygiene", () => {
 
   it("excludes an alias spelling of the moved note from the backlink sources", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
-    // A self-link makes the difference observable: as the moved note it is
+    // A self-link makes the difference observable — as the moved note it is
     // rewritten once (counted in links_updated); if "./Foo.md" slipped past
     // the old-path filter it would also get a backlink-source rewrite plan,
     // inflating links_updated to 2 and listing "./Foo.md" in updated_notes.
@@ -1633,7 +1968,7 @@ describe("moveNote — filesystem backlink verification", () => {
   it("does not false-positive on notes containing the basename as prose", async () => {
     const { writeFixture, moveNote, logger } = setupVault()
     await writeFixture("Foo.md", "# Foo\n")
-    // Contains "Foo" as prose text, not as a link
+    // The fixture contains "Foo" as prose text, not as a link.
     await writeFixture("Prose.md", "The Foo concept is clear.\n")
 
     const result = await moveNote({
@@ -1736,7 +2071,7 @@ describe("moveNote — filesystem backlink verification", () => {
   it("discovers a markdown-link backlink via percent-encoded pre-filter", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("My Note.md", "# My Note\n")
-    // Markdown link with percent-encoded space — the raw content contains
+    // The link carries a percent-encoded space — the raw content contains
     // "My%20Note" but not "My Note" as a contiguous substring in the URL part.
     // The pre-filter's encodedStem check catches this.
     await writeFixture("Linker.md", "See [here](My%20Note.md) for info.\n")

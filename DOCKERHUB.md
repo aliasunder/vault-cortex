@@ -90,7 +90,7 @@ See [ARCHITECTURE.md → Files](https://github.com/aliasunder/vault-cortex/blob/
 |  | `vault_replace_span` | Replace a block of lines by short anchors with new content |
 |  | `vault_insert_at_anchor` | Insert content before or after a line identified by a short anchor |
 |  | `vault_list_notes` | List notes with optional glob/folder filter |
-|  | `vault_delete_note` | Delete a note (protected paths enforced) |
+|  | `vault_delete_note` | Delete a note, honoring the vault's trash setting (protected paths enforced) |
 |  | `vault_move_note` | Move or rename a note, rewriting links across the vault |
 | **Search** | `vault_search` | Hybrid search with tag/folder/property/date filters |
 |  | `vault_search_by_tag` | Find notes by tag (exact or prefix match) |
@@ -156,7 +156,7 @@ All settings are environment variables with sensible defaults. Remote deployment
 | `VAULT_PATH` | Local only | — | Host path to your vault (bind mount source; remote uses a named volume). Must not contain `*`, `?`, or `[` — rejected at startup. |
 | `PUBLIC_URL` | Remote only | — | Public URL for OAuth discovery metadata. Filled in automatically on Render and Railway (from `RENDER_EXTERNAL_URL` or `RAILWAY_PUBLIC_DOMAIN`) when left unset |
 | `OBSIDIAN_AUTH_TOKEN` | — | — | Obsidian Sync auth token. Leave empty to sign in through the `/setup` page after deploy; or the CLI's [`get-sync-token`](https://github.com/aliasunder/vault-cortex/blob/main/cli/README.md#get-sync-token) captures it for you |
-| `VAULT_NAME` | Remote only | — | Exact name of your Obsidian Sync vault (case-sensitive) |
+| `VAULT_NAME` | Remote only | — | Exact name of your Obsidian vault (case-sensitive) |
 | `VAULT_PASSWORD` | Remote only | — | End-to-end encryption password, if your vault has one. Leave empty otherwise. |
 | `STORAGE_ROOT` | — | — | One directory for everything that must persist — the vault, the search index, and Obsidian Sync state — for container hosting platforms that allow a single persistent volume (Railway, Render). Mount the volume there and set this to the same path. Must not contain `*`, `?`, or `[` — rejected at startup. |
 | `EMBEDDING_ENABLED` | — | `true` | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching. |

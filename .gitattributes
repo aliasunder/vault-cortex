@@ -1,0 +1,8 @@
+# Multi-flip combo snapshots (two or more config flags off-default — "+" in
+# the filename) repeat text already visible in the default, single-flip, and
+# disabled-tools files, so GitHub collapses their PR diffs. The reviewable
+# copies stay expanded.
+# Byte-exact baselines — force LF so core.autocrlf=true checkouts don't
+# CRLF-rewrite the committed bytes and fail the drift test.
+src/vault-mcp/mcp-core/__tests__/__snapshots__/tool-surface/*.json text eol=lf
+src/vault-mcp/mcp-core/__tests__/__snapshots__/tool-surface/*+*.json linguist-generated=true

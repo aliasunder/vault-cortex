@@ -44,7 +44,7 @@ Errors:
 - path without the ".md" extension is rejected
 - No matches returns { total: 0, tasks: [] }, not an error
 
-Returns: JSON { total, tasks }. Every task carries path, line, status, status_char, description, folder, depth (0 for top-level, 1+ for sub-tasks), is_kanban_task, depends_on, and tags (the arrays are [] when empty). Every other field appears only when the task has it: heading (nearest heading above the task), created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, block_id, parent_block_id (sub-tasks whose parent carries a ^block-id), done_lanes (Kanban boards only).`,
+Returns: JSON { total, tasks }. Every task carries path, line, status, status_char, description, folder, depth (0 for top-level, 1+ for sub-tasks), is_kanban_task, depends_on, and tags (the arrays are [] when empty). Every other field appears only when the task has it: heading (nearest heading above the task), created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, block_id, parent_block_id (sub-tasks whose parent carries a ^block-id), done_lanes (Kanban boards only), and subtask_progress — { done, total } over the task's DIRECT checklist children, present only when the task has a checklist (absent = no checklist items); done counts status "done" only (a cancelled child counts toward total, not done), and the counts ignore the query's filters — so a filtered or top_level_only read still shows each card's checklist progress.`,
       inputSchema: {
         status: z
           .union([
@@ -70,6 +70,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
               .min(1),
           ])
           .optional()
+          .default("not_done")
           .describe(
             'Status filter, OR-combined (default "not_done" = todo + in_progress, excluding done and cancelled). Virtual values expand in arrays: "not_done" adds todo + in_progress, "all" includes every status.',
           ),
@@ -121,6 +122,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
         top_level_only: z
           .boolean()
           .optional()
+          .default(false)
           .describe(
             "When true, only top-level tasks (depth 0) are returned — excludes indented sub-tasks and checklist items. Default false.",
           ),
@@ -129,6 +131,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .int()
           .min(1)
           .optional()
+          .default(50)
           .describe(
             "Max results (default 50); total always reports the full match count",
           ),
@@ -144,6 +147,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
             "position",
           ])
           .optional()
+          .default("due")
           .describe(
             'Sort key (default "due"). Date sorts cascade through related fields when the primary is absent; each fallback uses its own natural direction. "position" sorts by file path then line number — the natural order for Kanban boards.',
           ),
@@ -619,6 +623,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
         position: z
           .enum(["top", "bottom"])
           .optional()
+          .default("top")
           .describe(
             'Where within the target heading the task lands after a heading move or auto-done-lane move. Defaults to "top". Ignored when no heading move occurs.',
           ),

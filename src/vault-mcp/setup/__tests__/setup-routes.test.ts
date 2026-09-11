@@ -9,6 +9,7 @@ import { DateTime } from "luxon"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 import type { Logger } from "../../../logger.js"
 import { createSetupRoutes } from "../setup-routes.js"
+import type { HostingPlatform } from "../setup-page.js"
 import { syncTokenStore } from "../sync-token-store.js"
 import { startFakeObsidianApi } from "./fake-obsidian-api.js"
 import type { FakeApiRequest, FakeApiResponse } from "./fake-obsidian-api.js"
@@ -97,6 +98,7 @@ const startHarness = async ({
   // the destructuring default and silently test the wrong thing.
   vaultNameUnset = false,
   publicUrlUnset = false,
+  hostingPlatform,
 }: {
   api?: ApiScript
   vaultPasswordSet?: boolean
@@ -104,6 +106,7 @@ const startHarness = async ({
   savedLoginRejected?: boolean
   vaultNameUnset?: boolean
   publicUrlUnset?: boolean
+  hostingPlatform?: HostingPlatform
 } = {}): Promise<Harness> => {
   const vaultName = vaultNameUnset ? undefined : "Notes"
   const configuredVaultPassword = vaultPasswordWrong
@@ -142,6 +145,7 @@ const startHarness = async ({
       tokenFilePath,
       obsidianApiBaseUrl: fakeApi.baseUrl,
       savedLoginRejected,
+      hostingPlatform,
       trustForwardedHops: 0,
       onSetupComplete,
       logger: recordingLogger(logs),
@@ -211,6 +215,16 @@ describe("GET /setup", () => {
     expect(html).toContain("Your saved Obsidian login stopped working")
   })
 
+  it("names the platform's settings tab in the token hint when the platform is known", async () => {
+    const harness = await startHarness({ hostingPlatform: "railway" })
+
+    const html = await (await fetch(`${harness.baseUrl}/setup`)).text()
+
+    expect(html).toContain(
+      `<div class="hint">The <code>MCP_AUTH_TOKEN</code> value from the service's Variables tab on Railway — it proves this is your server.</div>`,
+    )
+  })
+
   it("warns about plain HTTP for a non-local host but not for any loopback form", async () => {
     const harness = await startHarness()
     // fetch() drops a caller-set Host header; node:http sends it as given.
@@ -256,12 +270,26 @@ describe("POST /setup — MCP token gate", () => {
     const html = await response.text()
 
     expect(response.status).toBe(401)
-    expect(html).toContain("That MCP token does not match this server.")
+    expect(html).toContain(
+      `<div class="error">That MCP token does not match this server. Check the MCP_AUTH_TOKEN value in your deployment's settings.</div>`,
+    )
     expect(harness.apiRequests).toEqual([])
     expect(existsSync(harness.tokenFilePath)).toBe(false)
     expect(harness.logs.map((call) => [call.level, call.message])).toEqual([
       ["warn", "setup_bad_token"],
     ])
+  })
+
+  it("names the platform's settings tab in the wrong-token error when the platform is known", async () => {
+    const harness = await startHarness({ hostingPlatform: "render" })
+
+    const html = await (
+      await harness.postForm({ ...CREDENTIALS, token: "not-the-token" })
+    ).text()
+
+    expect(html).toContain(
+      `<div class="error">That MCP token does not match this server. Check the MCP_AUTH_TOKEN value in the service's Environment tab on Render.</div>`,
+    )
   })
 
   it("accepts a token copied with wrapped whitespace", async () => {
@@ -352,26 +380,47 @@ describe("POST /setup — sign-in outcomes", () => {
       },
     })
     const writeSyncToken = syncTokenStore.writeSyncToken
-    const abortController = new AbortController()
+    // node:http request whose socket we can destroy — Node 24's fetch
+    // abort does not reliably close the server-side TCP socket.
+    let clientRequest: ReturnType<typeof httpRequest> | undefined
     // Hold the token write until the browser's connection is gone, so the
     // completion page can only ever be sent to a closed connection.
     const writeSpy = vi
       .spyOn(syncTokenStore, "writeSyncToken")
       .mockImplementation(async (params, logger) => {
-        abortController.abort()
-        await vi.waitFor(async () =>
-          expect(await harness.openConnections()).toBe(0),
+        clientRequest?.destroy()
+        // Socket teardown and the completion chain take milliseconds locally
+        // but can exceed vi.waitFor's default 1s budget on slow containers.
+        await vi.waitFor(
+          async () => expect(await harness.openConnections()).toBe(0),
+          { timeout: 10_000 },
         )
         return writeSyncToken(params, logger)
       })
     onTestFinished(() => writeSpy.mockRestore())
 
+    const body = new URLSearchParams(CREDENTIALS).toString()
     await expect(
-      harness.postForm(CREDENTIALS, abortController.signal),
-    ).rejects.toThrow("This operation was aborted")
+      new Promise<void>((resolve, reject) => {
+        clientRequest = httpRequest(
+          `${harness.baseUrl}/setup`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/x-www-form-urlencoded",
+              "content-length": Buffer.byteLength(body).toString(),
+            },
+          },
+          () => resolve(),
+        )
+        clientRequest.on("error", reject)
+        clientRequest.end(body)
+      }),
+    ).rejects.toThrow("socket hang up")
 
-    await vi.waitFor(() =>
-      expect(harness.onSetupComplete).toHaveBeenCalledTimes(1),
+    await vi.waitFor(
+      () => expect(harness.onSetupComplete).toHaveBeenCalledTimes(1),
+      { timeout: 10_000 },
     )
     expect(await readFile(harness.tokenFilePath, "utf8")).toBe("sync-tok")
   })
@@ -777,6 +826,20 @@ describe("POST /setup — vault pre-flight", () => {
       "/user/signin",
     ])
     expect(existsSync(harness.tokenFilePath)).toBe(false)
+  })
+
+  it("names the platform's settings tab in the remedy when the platform is known", async () => {
+    const harness = await startHarness({
+      vaultNameUnset: true,
+      hostingPlatform: "railway",
+      api: { signIn: () => ({ body: SIGNED_IN }) },
+    })
+
+    const html = await (await harness.postForm(CREDENTIALS)).text()
+
+    expect(html).toContain(
+      "Add <code>VAULT_NAME</code> to the service's Variables tab on Railway — your vault's name, the same as it is in Obsidian — then redeploy and sign in here again.",
+    )
   })
 
   it("completes anyway when the vault listing cannot be fetched", async () => {

@@ -24,7 +24,7 @@
 # obsidian-headless via npm ci instead of building FROM the Alpine
 # obsidian-headless-sync-docker image).
 
-FROM node:24-trixie-slim@sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d AS deps
+FROM node:24-trixie-slim@sha256:6950b66b4c0cb0151ce89fa75074673850763d096b044f422c6729b588dd4956 AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev --ignore-scripts
@@ -34,11 +34,12 @@ RUN npm ci --omit=dev --ignore-scripts
 # the affected arch — not at container startup on a user's machine.
 RUN node -e "const Database = require('better-sqlite3'); new Database(':memory:').exec('select 1'); require('onnxruntime-node'); console.log('native bindings verified')"
 
-FROM node:24-trixie-slim@sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d AS build
+FROM node:24-trixie-slim@sha256:6950b66b4c0cb0151ce89fa75074673850763d096b044f422c6729b588dd4956 AS build
 WORKDIR /app
 RUN apt-get update -qq && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json* ./
-RUN npm ci
+# Without the env var, onnxruntime-node's postinstall downloads CUDA binaries on linux/x64.
+RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci
 COPY tsconfig.json sst-env.d.ts ./
 COPY src/ ./src/
 # Server compile only — cli/ is npm-distributed and never copied into the image.
@@ -51,7 +52,7 @@ RUN npm run build:server
 # uses npm ci for the lockfile-pinned obsidian-headless install, then
 # removes npm the same way.
 # ---------------------------------------------------------------------------
-FROM node:24-trixie-slim@sha256:0711b541c1c33a8a530ac4f0d391baa9a15b3d804695b1b24a47daa5fb60e74d AS base
+FROM node:24-trixie-slim@sha256:6950b66b4c0cb0151ce89fa75074673850763d096b044f422c6729b588dd4956 AS base
 WORKDIR /app
 # tini: PID 1 that forwards SIGTERM so SQLite WAL closes cleanly (local
 # target; the remote target's s6 /init takes over PID 1 duties there).
@@ -176,7 +177,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=3 \
 
 # Stop the container if any init oneshot fails (bad token, failed login) —
 # the restart policy owns retry.
-ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2 HOME=/home/obsidian
+ENV S6_BEHAVIOUR_IF_STAGE2_FAILS=2 HOME=/home/obsidian OBSIDIAN_SYNC=true
 VOLUME ["/vault", "/data", "/home/obsidian/.config"]
 ENTRYPOINT ["/init"]
 

@@ -42,6 +42,30 @@ describe("renderSetupPage — sign-in", () => {
       '<div class="error">&lt;script&gt;&quot;x&quot;&lt;/script&gt;</div>',
     )
   })
+
+  it("points the token hint at the Variables tab on Railway", () => {
+    const html = renderSetupPage({ ...SIGN_IN, hostingPlatform: "railway" })
+
+    expect(html).toContain(
+      `<div class="hint">The <code>MCP_AUTH_TOKEN</code> value from the service's Variables tab on Railway — it proves this is your server.</div>`,
+    )
+  })
+
+  it("points the token hint at the Environment tab on Render", () => {
+    const html = renderSetupPage({ ...SIGN_IN, hostingPlatform: "render" })
+
+    expect(html).toContain(
+      `<div class="hint">The <code>MCP_AUTH_TOKEN</code> value from the service's Environment tab on Render — it proves this is your server.</div>`,
+    )
+  })
+
+  it("keeps the generic token hint when the hosting platform is unknown", () => {
+    const html = renderSetupPage(SIGN_IN)
+
+    expect(html).toContain(
+      `<div class="hint">The <code>MCP_AUTH_TOKEN</code> value from your deployment's settings — it proves this is your server.</div>`,
+    )
+  })
 })
 
 describe("renderSetupPage — mfa", () => {
@@ -179,6 +203,44 @@ describe("renderSetupPage — blocked", () => {
     expect(html).toContain("Try again in a few minutes.")
   })
 
+  it("names the Environment tab on Render in the VAULT_PASSWORD remedy", () => {
+    const html = renderSetupPage({
+      kind: "blocked",
+      accountEmail: "user@example.com",
+      problem: { kind: "password-missing", vaultName: "Notes" },
+      hostingPlatform: "render",
+    })
+
+    expect(html).toContain(
+      "Add <code>VAULT_PASSWORD</code> — the vault's encryption password — to the service's Environment tab on Render, redeploy, then sign in here again.",
+    )
+  })
+
+  it("names the Variables tab on Railway in the VAULT_NAME remedy", () => {
+    const html = renderSetupPage({
+      kind: "blocked",
+      accountEmail: "user@example.com",
+      problem: { kind: "vault-not-found", vaultName: "Notes", vaultNames: [] },
+      hostingPlatform: "railway",
+    })
+
+    expect(html).toContain(
+      "Fix <code>VAULT_NAME</code> in the service's Variables tab on Railway, redeploy, then sign in here again.",
+    )
+  })
+
+  it("keeps the generic remedy when the hosting platform is unknown", () => {
+    const html = renderSetupPage({
+      kind: "blocked",
+      accountEmail: "user@example.com",
+      problem: { kind: "vault-name-unset" },
+    })
+
+    expect(html).toContain(
+      "Add <code>VAULT_NAME</code> to your deployment's settings — your vault's name, the same as it is in Obsidian — then redeploy and sign in here again.",
+    )
+  })
+
   it("asks for a rename when two vaults share the name", () => {
     const html = renderSetupPage({
       kind: "blocked",
@@ -228,11 +290,16 @@ describe("renderSetupPage — complete", () => {
 })
 
 describe("renderSetupPage — configured", () => {
-  it("says the server is already signed in and how to switch accounts", () => {
+  it("says the server is set up, with no Obsidian Sync claims or instructions", () => {
     const html = renderSetupPage({ kind: "configured" })
 
     expect(html).toContain("<h1>Already set up</h1>")
-    expect(html).toContain("set <code>OBSIDIAN_AUTH_TOKEN</code>")
+    expect(html).toContain(
+      "This server is set up and running — there is nothing to do on this page.",
+    )
+    // The local image serves this page too and never touches Obsidian Sync,
+    // so the copy stays mode-neutral.
+    expect(html).not.toContain("Obsidian Sync")
     expect(html).not.toContain("<form")
   })
 })

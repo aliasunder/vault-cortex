@@ -4,12 +4,13 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { isAbsolute, join, resolve } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, onTestFinished } from "vitest"
 
 /**
  * Behavioral spec for the remote image's ownership step
@@ -67,6 +68,7 @@ type SetupUserRunOptions = {
 
 const runSetupUser = (options: SetupUserRunOptions): SetupUserRun => {
   const tempDir = mkdtempSync(join(tmpdir(), "init-setup-user-"))
+  onTestFinished(() => rmSync(tempDir, { recursive: true, force: true }))
   const stubBinDir = join(tempDir, "bin")
   const homeDir = join(tempDir, "home")
   const vaultPath = join(tempDir, "vault")

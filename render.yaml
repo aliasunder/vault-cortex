@@ -49,7 +49,7 @@ services:
       # Or paste a token from: npx vault-cortex@latest get-sync-token
       - key: OBSIDIAN_AUTH_TOKEN
         sync: false
-      # Your vault's name, exactly as shown in Obsidian Sync.
+      # Your vault's name, the same as it is in Obsidian.
       - key: VAULT_NAME
         sync: false
       # Only for end-to-end-encrypted vaults; leave empty otherwise.

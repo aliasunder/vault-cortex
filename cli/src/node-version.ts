@@ -1,17 +1,36 @@
-/** Matches the first dotted version number in an engines range like ">=20.12.0". */
+/** Matches the first dotted version number in an engines range like ">=22.12.0". */
 const VERSION_IN_RANGE = /(\d+)\.(\d+)(?:\.(\d+))?/
 
 /**
- * Extracts the minimum version from a simple engines range (">=20.12.0").
+ * Extracts the minimum version from a simple engines range (">=22.12.0").
  * The CLI only ever declares a floor, so the first version in the string
  * is the minimum.
  */
 export const minimumNodeVersion = (enginesRange: string): string => {
   const match = VERSION_IN_RANGE.exec(enginesRange)
-  if (match === null)
-    throw new Error(`Cannot parse engines range: ${enginesRange}`)
+  if (!match) throw new Error(`Cannot parse engines range: ${enginesRange}`)
   const [, major, minor, patch] = match
   return `${major}.${minor}.${patch ?? "0"}`
+}
+
+/**
+ * The refusal printed when the running Node is below the engines floor.
+ * Lives in this zero-import module so bin.ts can build it before any
+ * dependency-laden import runs on an unsupported runtime.
+ */
+export const nodeVersionRefusalMessage = ({
+  minimum,
+  current,
+}: {
+  minimum: string
+  current: string
+}): string => {
+  return (
+    `vault-cortex requires Node.js >= ${minimum} (you have ${current}).\n` +
+    `Upgrade at https://nodejs.org — or use a no-Node manual setup:\n` +
+    `  local:  https://github.com/aliasunder/vault-cortex/blob/main/deploy/local/README.md\n` +
+    `  remote: https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md`
+  )
 }
 
 /**

@@ -55,7 +55,7 @@
 
 ### Local (2 minutes — Docker + your vault folder)
 
-**Prerequisites:** [Docker](https://docs.docker.com/get-docker/) (or a Docker-compatible runtime, e.g. OrbStack, Colima, Podman), Node.js >= 20.12 (only for the CLI — the server itself runs in Docker), and an Obsidian vault (or any folder of `.md` files).
+**Prerequisites:** [Docker](https://docs.docker.com/get-docker/) (or a Docker-compatible runtime, e.g. OrbStack, Colima, Podman), Node.js >= 22.12 (only for the CLI — the server itself runs in Docker), and an Obsidian vault (or any folder of `.md` files).
 
 ```bash
 npx vault-cortex@latest init
@@ -111,7 +111,7 @@ All three need an [Obsidian Sync](https://obsidian.md/sync) subscription. Whiche
 
 #### Self-hosted: your own VPS
 
-The [vault-cortex CLI](./cli/) sets up the same container on any Linux box you run — you manage the server, the image, and updates. You need Node.js >= 20.12 for the CLI itself; the server runs in Docker.
+The [vault-cortex CLI](./cli/) sets up the same container on any Linux box you run — you manage the server, the image, and updates. You need Node.js >= 22.12 for the CLI itself; the server runs in Docker.
 
 ```bash
 # On your VPS:
@@ -247,7 +247,7 @@ The layer is a folder of plain Markdown files (default: `About Me/`) holding dat
 
 - **Append-only** — entries are never overwritten; corrections arrive as new dated entries. The layer becomes a personal knowledge base that captures your current state _and_ the evolution behind it
 - **Topic recall** — `vault_memory_recall` retrieves every relevant entry across all memory files at once, keyword- and semantically-matched, oldest first. Ask "what do I think about X?" and get the current take plus the dated history of how it developed — no need to read entire files or guess which file holds what
-- **Grows without degrading** — capping results (`max_results`) drops the least-relevant entries, never a slice of the timeline. A memory layer with 500 entries serves a targeted query as well as one with 50
+- **Grows without degrading** — capping results (`limit`) drops the least-relevant entries, never a slice of the timeline. A memory layer with 500 entries serves a targeted query as well as one with 50
 
 Files that describe what's current rather than what has been true (routines, active commitments) can declare `entry-policy: living` in frontmatter — their expired entries are prunable rather than preserved, keeping the current-state picture accurate.
 
@@ -300,7 +300,7 @@ See [ARCHITECTURE.md → Files](./ARCHITECTURE.md#files) for the image pipeline 
 |                 | `vault_replace_span`         | Replace a block of lines by short anchors with new content                              |
 |                 | `vault_insert_at_anchor`     | Insert content before or after a line identified by a short anchor                      |
 |                 | `vault_list_notes`           | List notes with optional glob/folder filter                                             |
-|                 | `vault_delete_note`          | Delete a note (protected paths enforced)                                                |
+|                 | `vault_delete_note`          | Delete a note, honoring the vault's trash setting (protected paths enforced)            |
 |                 | `vault_move_note`            | Move or rename a note, rewriting links across the vault                                 |
 | **Search**      | `vault_search`               | Hybrid search with tag/folder/property/date filters                                     |
 |                 | `vault_search_by_tag`        | Find notes by tag (exact or prefix match)                                               |
@@ -374,7 +374,7 @@ All settings are environment variables with sensible defaults. Remote deployment
 | `VAULT_PATH`                | Local only  | —                                                                                | Host path to your vault (bind mount source; remote uses a named volume). Must not contain `*`, `?`, or `[` — rejected at startup.                                                                                                                                                                                                               |
 | `PUBLIC_URL`                | Remote only | —                                                                                | Public URL for OAuth discovery metadata. Filled in automatically on Render and Railway (from `RENDER_EXTERNAL_URL` or `RAILWAY_PUBLIC_DOMAIN`) when left unset                                                                                                                                                                                  |
 | `OBSIDIAN_AUTH_TOKEN`       | —           | —                                                                                | Obsidian Sync auth token. Leave empty to sign in through the `/setup` page after deploy; or the CLI's [`get-sync-token`](./cli/README.md#get-sync-token) captures it for you                                                                                                                                                                    |
-| `VAULT_NAME`                | Remote only | —                                                                                | Exact name of your Obsidian Sync vault (case-sensitive)                                                                                                                                                                                                                                                                                         |
+| `VAULT_NAME`                | Remote only | —                                                                                | Exact name of your Obsidian vault (case-sensitive)                                                                                                                                                                                                                                                                                              |
 | `VAULT_PASSWORD`            | Remote only | —                                                                                | End-to-end encryption password, if your vault has one. Leave empty otherwise.                                                                                                                                                                                                                                                                   |
 | `STORAGE_ROOT`              | —           | —                                                                                | One directory for everything that must persist — the vault, the search index, and Obsidian Sync state — for container hosting platforms that allow a single persistent volume (Railway, Render). Mount the volume there and set this to the same path. Must not contain `*`, `?`, or `[` — rejected at startup.                                 |
 | `EMBEDDING_ENABLED`         | —           | `true`                                                                           | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching.                                                                                                                                                                           |
@@ -431,6 +431,7 @@ Vault Cortex writes to personal notes — the file safety layer is built to prev
 - **Per-file mutex** — concurrent MCP tool calls serialize or fail-fast per file. Moves lock the source, destination, and every backlink source as one unit.
 - **Path traversal blocked** — `resolveSafePath()` resolves then prefix-checks every path. Protected-path deletion is refused after normalization. Memory file names reject separators at the boundary.
 - **Hidden paths are off-limits** — files and folders starting with a dot (`.obsidian/`, `.trash/`) never appear in listings or search, and any tool call that targets one directly is rejected, matching Obsidian. Plugin configs and their API keys stay out of reach.
+- **Deletes honor Obsidian's trash setting** — with "Deleted files" set to "Move to Obsidian trash", a deleted note moves to `.trash/` inside the vault instead of being removed; every other setting deletes permanently, because a container has no system trash. On Obsidian Sync deployments deletes are always permanent and sync to every device — recovery is Sync's version history.
 - **Injection prevention** — search queries are parameterized and FTS5-sanitized; prompt content is wrapped in XML data markers with closing-tag escaping to prevent tag-breakout injection.
 - **Container hardening** — non-root user, PID 1 init, no package managers in the runtime image, digest-pinned base, graceful shutdown.
 
@@ -545,14 +546,8 @@ npx skills add aliasunder/vault-onboarding
 
 ## Roadmap
 
-| Phase  | What                                                                                                                      | Status    |
-| ------ | ------------------------------------------------------------------------------------------------------------------------- | --------- |
-| **1**  | Vault CRUD, full-text search (FTS5), memory layer, OAuth 2.1                                                              | Complete  |
-| **2a** | Hybrid search — FTS5 + vector + RRF fusion, heading-aware chunking                                                        | Complete  |
-| **2b** | Reranker — cross-encoder reranking, position-aware score blending                                                         | Complete  |
-| **3a** | Task layer — vault-wide task index, structured queries, and one-call task updates (Tasks plugin emoji + Dataview formats) | Complete  |
-| **3b** | Memory recall — entry-granular retrieval across the memory layer's dated history                                          | Complete  |
-| **3c** | Graph queries — multi-hop traversal over the vault's existing wikilink graph (paths, neighborhoods)                       | Exploring |
+Planned work, what's being explored, and explicit non-goals live in
+[ROADMAP.md](./ROADMAP.md).
 
 ---
 

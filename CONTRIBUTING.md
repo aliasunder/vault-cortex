@@ -17,6 +17,13 @@ to get started.
    npx sst install
    ```
 
+   **Linux (x64):** run the install as
+   `ONNXRUNTIME_NODE_INSTALL=skip npm install`. Without the variable,
+   `onnxruntime-node`'s install script downloads GPU binaries the server
+   never uses, and the download fails — its archive extractor (`adm-zip`)
+   is stubbed out to resolve a security advisory. macOS and arm64 Linux
+   skip the download on their own.
+
    **Windows:** this repo uses symlinks (`CLAUDE.md → AGENTS.md`). Run
    `git config core.symlinks true` before cloning, or re-clone after
    setting it — otherwise Git checks out symlinks as plain text files
@@ -140,12 +147,13 @@ truth. Key points:
    ```
 
 4. **Fill out the PR template** — the checklist mirrors CI
-5. **Required checks must pass** — the `main` ruleset requires all eight;
+5. **Required checks must pass** — the `main` ruleset requires all seven;
    each blocks the merge and the finding details are in its job log:
    - `checks` — prettier, lint, markdownlint, knip, test, and build
-   - `cli-smoke (20)` / `cli-smoke (22)` / `cli-smoke (24)` — builds the
-     CLI and runs `init` on each supported Node major, catching APIs too
-     new for the CLI's `engines` range
+   - `cli-smoke (22)` / `cli-smoke (24)` — builds the
+     CLI and runs `init` on the engines floor (22.12) and the newest
+     major (24), catching APIs too new for the CLI's `engines` range;
+     the floor row also asserts the too-old refusal on Node 20
    - `arch-smoke (amd64)` / `arch-smoke (arm64)` — builds the Docker image
      and boots it on a native runner for each architecture, then boots the
      remote image with a stubbed Sync client to run its init chain
@@ -187,6 +195,14 @@ merge even when the body is dropped. The `BREAKING CHANGE:` footer is preferred
 because it carries the descriptive line; the label and `!` only flag that a change
 is breaking.
 
+The committed tool-surface baseline
+(`src/vault-mcp/mcp-core/__tests__/__snapshots__/tool-surface/`) is the
+byte-level record of the MCP wire surface. A PR that changes tool schemas,
+descriptions, prompts, or server instructions regenerates it with
+`npm run snapshot:update`, and the baseline diff is where reviewers judge
+whether the change is breaking. The baseline captured at each release commit is
+the stability contract's regression reference.
+
 ## Release Process
 
 Releases are cut by the maintainer. Two paths:
@@ -225,7 +241,7 @@ Variables, in the order the deploy form shows them (everything after the six inp
 | Variable                          | Value                                 | Description shown on the deploy form                                                                                                                                                                                            |
 | --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `TZ`                              | _(optional input)_                    | Your timezone as an [IANA name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List) (`America/Toronto`) — decides what "today" means for daily notes, task due dates, and memory timestamps. Leave empty for UTC |
-| `VAULT_NAME`                      | _(required input)_                    | Your vault's name, exactly as it appears in Obsidian Sync                                                                                                                                                                       |
+| `VAULT_NAME`                      | _(required input)_                    | Your vault's name, the same as it is in Obsidian                                                                                                                                                                                |
 | `VAULT_PASSWORD`                  | _(optional input)_                    | Only if your vault uses end-to-end encryption; otherwise leave empty                                                                                                                                                            |
 | `SYNC_FILE_TYPES`                 | _(optional input)_                    | Attachment types to sync: image, audio, video, pdf, unsupported — the same toggles as Obsidian's Sync → Selective sync. Leave empty to keep the Sync client's default                                                           |
 | `OBSIDIAN_AUTH_TOKEN`             | _(optional input)_                    | Leave empty to sign in through the `/setup` page after deploy, or paste a token from `npx vault-cortex@latest get-sync-token`                                                                                                   |

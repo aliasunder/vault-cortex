@@ -189,6 +189,9 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+        # Without this, onnxruntime-node's postinstall downloads CUDA binaries on linux/x64
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
 
       # Runs the vitest config directly: `npm run test:remote-boot` would
       # rebuild the image, and the buildx step above already built it.

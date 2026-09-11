@@ -22,8 +22,8 @@ import type {
   VaultKeyStatus,
 } from "./obsidian-api.js"
 import { deriveVaultKeyHash } from "./vault-key.js"
-import { renderSetupPage } from "./setup-page.js"
-import type { PreflightProblem } from "./setup-page.js"
+import { renderSetupPage, settingsLocation } from "./setup-page.js"
+import type { HostingPlatform, PreflightProblem } from "./setup-page.js"
 import { syncTokenStore } from "./sync-token-store.js"
 
 type SetupRoutesOptions = {
@@ -39,6 +39,9 @@ type SetupRoutesOptions = {
   obsidianApiBaseUrl: string
   /** Set when the boot chain rejected a token already on the volume. */
   savedLoginRejected: boolean
+  /** Lets the page name the platform's settings tab; undefined keeps the
+   *  generic wording. */
+  hostingPlatform: HostingPlatform | undefined
   trustForwardedHops: number
   /** Runs once the completion page has been delivered — the wiring exits
    *  the process so the container can restart into a normal boot. */
@@ -69,6 +72,7 @@ export const createSetupRoutes = ({
   tokenFilePath,
   obsidianApiBaseUrl,
   savedLoginRejected,
+  hostingPlatform,
   trustForwardedHops,
   onSetupComplete,
   logger,
@@ -158,6 +162,7 @@ export const createSetupRoutes = ({
           error,
           savedLoginRejected,
           insecureTransport: isInsecureTransport(req),
+          hostingPlatform,
         }),
       )
   }
@@ -283,9 +288,14 @@ export const createSetupRoutes = ({
     const problem = await runVaultPreflight(token, requestLogger)
     if (problem) {
       requestLogger.warn("setup_blocked", { problem: problem.kind })
-      res
-        .type("html")
-        .send(renderSetupPage({ kind: "blocked", accountEmail, problem }))
+      res.type("html").send(
+        renderSetupPage({
+          kind: "blocked",
+          accountEmail,
+          problem,
+          hostingPlatform,
+        }),
+      )
       return
     }
     await syncTokenStore.writeSyncToken({ tokenFilePath, token }, requestLogger)
@@ -326,8 +336,7 @@ export const createSetupRoutes = ({
       requestLogger.warn("setup_bad_token")
       sendSignInPage(req, res, {
         status: 401,
-        error:
-          "That MCP token does not match this server. Check the MCP_AUTH_TOKEN value in your deployment's settings.",
+        error: `That MCP token does not match this server. Check the MCP_AUTH_TOKEN value in ${settingsLocation(hostingPlatform)}.`,
       })
       return
     }
