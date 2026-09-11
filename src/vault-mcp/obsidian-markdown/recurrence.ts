@@ -196,7 +196,10 @@ const nextAfterCapped = ({
     afterDay = walkedBack.afterDay
     next = walkedBack.next
   }
-  return next
+  // Budget exhausted — the rrule answer stayed out-of-interval for 100
+  // walk-back steps. Return null (no next occurrence) rather than the
+  // uncorrected date: a skipped spawn is recoverable, a wrong date isn't.
+  return null
 }
 
 // ── Next occurrence dates (the plugin's Recurrence.next + Occurrence.next) ──
