@@ -7,10 +7,10 @@ import { noteMover } from "../note-mover.js"
 import { vaultFs } from "../vault-filesystem.js"
 import { vaultPatcher } from "../vault-patcher.js"
 import { withExclusiveFileLock } from "../../../utils/file-write-lock.js"
-import { fileExists } from "../../../utils/fs.js"
+import { fileExists, statOrNull } from "../../../utils/fs.js"
 import type { Logger } from "../../../logger.js"
 
-// Spy-wrapped so one test can force the aliased-path disk probe true while
+// Spy-wrapped so single tests can shape the aliased-path disk probes while
 // every other call keeps the real implementation.
 vi.mock("../../../utils/fs.js", { spy: true })
 
@@ -1042,10 +1042,10 @@ describe("moveNote — guards", () => {
   })
 
   it("reconciles a case-aliased old path to the index's spelling on any host", async () => {
-    // The disk probe is forced true for the aliased spelling so the
-    // index-reconciliation branch runs on every host — CI's case-sensitive
-    // filesystem would otherwise never execute it. The platform-gated pair
-    // above covers the real-filesystem behavior.
+    // The stat probe is redirected to the real spelling for the aliased path,
+    // so the index-reconciliation branch runs on every host — CI's
+    // case-sensitive filesystem would otherwise never execute it. The
+    // platform-gated pair above covers the real-filesystem behavior.
     const { vault, writeFixture, moveNote, noteExists, readNote } = setupVault()
     await writeFixture("Projects/todo.md", "content\n")
     await writeFixture("Hub.md", "Links [[todo]].\n")
@@ -1054,11 +1054,12 @@ describe("moveNote — guards", () => {
       typeof import("../../../utils/fs.js")
     >("../../../utils/fs.js")
     const aliasedFullPath = join(vault, "projects/todo.md")
-    vi.mocked(fileExists).mockImplementation((path) => {
-      if (path === aliasedFullPath) return Promise.resolve(true)
-      return actualFs.fileExists(path)
+    const realFullPath = join(vault, "Projects/todo.md")
+    vi.mocked(statOrNull).mockImplementation((path) => {
+      if (path === aliasedFullPath) return actualFs.statOrNull(realFullPath)
+      return actualFs.statOrNull(path)
     })
-    onTestFinished(() => vi.mocked(fileExists).mockRestore())
+    onTestFinished(() => vi.mocked(statOrNull).mockRestore())
 
     const result = await moveNote({
       oldPath: "projects/todo.md",
@@ -1074,6 +1075,41 @@ describe("moveNote — guards", () => {
     expect(await noteExists("Projects/todo.md")).toBe(false)
     expect(await readNote("Archive/done.md")).toBe("content\n")
     expect(await readNote("Hub.md")).toBe("Links [[done]].\n")
+  })
+
+  it("does not substitute a case-variant sibling that is a different file", async () => {
+    // Simulates a case-sensitive vault holding two case-distinct files where
+    // the requested one is not yet indexed: the stat probe reports a real but
+    // different inode for the input, and its existence check stays false. The
+    // reconciliation must decline — matching by folded name alone would move
+    // and unlink the sibling, the wrong user-visible note.
+    const { vault, writeFixture, moveNote, noteExists, readNote } = setupVault()
+    await writeFixture("Projects/todo.md", "sibling content\n")
+    await writeFixture("Hub.md", "Links [[todo]].\n")
+
+    const actualFs = await vi.importActual<
+      typeof import("../../../utils/fs.js")
+    >("../../../utils/fs.js")
+    const aliasedFullPath = join(vault, "projects/todo.md")
+    const distinctFilePath = join(vault, "Hub.md")
+    vi.mocked(statOrNull).mockImplementation((path) => {
+      if (path === aliasedFullPath) return actualFs.statOrNull(distinctFilePath)
+      return actualFs.statOrNull(path)
+    })
+    vi.mocked(fileExists).mockImplementation((path) => {
+      if (path === aliasedFullPath) return Promise.resolve(false)
+      return actualFs.fileExists(path)
+    })
+    onTestFinished(() => {
+      vi.mocked(statOrNull).mockRestore()
+      vi.mocked(fileExists).mockRestore()
+    })
+
+    await expect(
+      moveNote({ oldPath: "projects/todo.md", newPath: "Archive/done.md" }),
+    ).rejects.toThrow('note not found: "projects/todo.md"')
+    expect(await readNote("Projects/todo.md")).toBe("sibling content\n")
+    expect(await noteExists("Archive/done.md")).toBe(false)
   })
 
   it("moves a note named by an absolute container path and rewrites its backlinks", async () => {

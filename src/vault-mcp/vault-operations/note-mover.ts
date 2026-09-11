@@ -34,7 +34,7 @@ import { withExclusiveMultiFileLock } from "../../utils/file-write-lock.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import { describeError } from "../../utils/describe-error.js"
-import { fileExists } from "../../utils/fs.js"
+import { fileExists, statOrNull } from "../../utils/fs.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import type { Logger } from "../../logger.js"
@@ -459,24 +459,35 @@ const rewriteNoteContent = (
  *  Backlink queries, rewrite planning, and the vault-wide scan all key on the
  *  index's on-disk spelling, so a case-aliased input — same file on a
  *  case-insensitive filesystem (macOS/Windows bind mounts), different string —
- *  would silently miss every backlink. The disk probe keeps case-sensitive
- *  filesystems exact: there the aliased file does not exist, the input passes
- *  through unchanged, and the move fails cleanly at its not-found check. */
+ *  would silently miss every backlink. Reconciliation requires the input and
+ *  the indexed spelling to name the same file (inode comparison), so on a
+ *  case-sensitive filesystem a distinct case-variant sibling is never
+ *  substituted for the requested note; an unmatched input passes through
+ *  unchanged and the move fails cleanly at its not-found check. */
 const indexedSpellingForAliasedPath = async (params: {
   vaultPath: string
   path: string
   allNotePaths: readonly string[]
 }): Promise<string> => {
-  const pathExistsOnDisk = await fileExists(
+  const inputStats = await statOrNull(
     resolveSafePath(params.vaultPath, params.path),
   )
-  if (!pathExistsOnDisk) return params.path
+  if (!inputStats) return params.path
 
   const foldedPath = caseFoldPath(params.path)
   const indexedSpelling = params.allNotePaths.find(
     (notePath) => caseFoldPath(notePath) === foldedPath,
   )
-  return indexedSpelling ?? params.path
+  if (!indexedSpelling) return params.path
+
+  const indexedStats = await statOrNull(
+    resolveSafePath(params.vaultPath, indexedSpelling),
+  )
+  const namesSameFile =
+    indexedStats !== null &&
+    indexedStats.ino === inputStats.ino &&
+    indexedStats.dev === inputStats.dev
+  return namesSameFile ? indexedSpelling : params.path
 }
 
 /** Caps concurrent file handles during rewriting and filesystem scanning. */
