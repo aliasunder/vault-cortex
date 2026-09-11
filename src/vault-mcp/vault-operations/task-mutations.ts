@@ -171,7 +171,7 @@ const describeRoundTripDivergence = (
     return `${divergence.field}: submitted ${displayRoundTripValue(divergence.expected)} but the stored line parses back ${parsedBackDisplay}`
   }
   if (divergence.expectedSource === "prior") {
-    return `${divergence.field}: previously ${displayRoundTripValue(divergence.expected)}, but the stored line now parses back ${parsedBackDisplay} without this call setting it`
+    return `${divergence.field}: previously ${displayRoundTripValue(divergence.expected)}, but the stored line now parses back ${parsedBackDisplay} — this call's edits changed what the line parses as this field`
   }
   return `${divergence.field}: the stored line parses back ${parsedBackDisplay} although nothing set it — description text was read as this field`
 }

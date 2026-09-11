@@ -2906,7 +2906,7 @@ describe("round-trip advisories", () => {
         "---\ntitle: Tasks\n---\n\n- [ ] Old ➕ 2026-09-01 🆔 old-id ^t1\n",
       )
 
-      await taskMutations.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -2921,6 +2921,10 @@ describe("round-trip advisories", () => {
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Fix 🆔 prose ➕ 2026-09-01 🆔 new-id ^t1\n",
       )
+      expect(result.advisories).toEqual([
+        'description: the line was written as submitted, but the stored description reads "Fix" when parsed — the trailing "🆔 prose" was read as task metadata',
+        'task_id: submitted "new-id" but the stored line parses back "prose"',
+      ])
     })
 
     it("serializes exactly one due-date field when the new description contains a date signifier", async () => {
@@ -2931,7 +2935,7 @@ describe("round-trip advisories", () => {
         "---\ntitle: Tasks\n---\n\n- [ ] Old ➕ 2026-09-01 📅 2026-09-15 ^t2\n",
       )
 
-      await taskMutations.updateTask(
+      const result = await taskMutations.updateTask(
         {
           vaultPath: vault,
           path: "tasks.md",
@@ -2946,6 +2950,10 @@ describe("round-trip advisories", () => {
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Fix 📅 2026-12-31 ➕ 2026-09-01 📅 2026-10-01 ^t2\n",
       )
+      expect(result.advisories).toEqual([
+        'description: the line was written as submitted, but the stored description reads "Fix" when parsed — the trailing "📅 2026-12-31" was read as task metadata',
+        'due: submitted "2026-10-01" but the stored line parses back "2026-12-31"',
+      ])
     })
 
     it("omits advisories when a clean description update leaves a pre-existing recurrence in place", async () => {
@@ -2999,7 +3007,65 @@ describe("round-trip advisories", () => {
 
       expect(result.advisories).toEqual([
         'description: the line was written as submitted, but the stored description reads "Fix" when parsed — the trailing "📅 2026-12-31" was read as task metadata',
-        'due: previously "2026-01-01", but the stored line now parses back "2026-12-31" without this call setting it',
+        'due: previously "2026-01-01", but the stored line now parses back "2026-12-31" — this call\'s edits changed what the line parses as this field',
+      ])
+    })
+
+    it("omits advisories when clearing the last metadata field migrates a trailing tag into the description slot", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Deploy 📅 2026-09-01 #project ^deploy\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "deploy",
+          due: null,
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Deploy #project",
+        block_id: "deploy",
+        changes: ["due: 2026-09-01 → (none)"],
+      })
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Deploy #project ^deploy\n",
+      )
+    })
+
+    it("replaces the real dependency field, not a prose occurrence, on a stored line whose description already hijacks the parse", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix ⛔ prose ➕ 2026-09-01 ⛔ old-dep ^t1\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "t1",
+          dependsOn: ["new-dep"],
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix ⛔ prose ➕ 2026-09-01 ⛔ new-dep ^t1\n",
+      )
+      expect(result.advisories).toEqual([
+        'depends_on: submitted "new-dep" but the stored line parses back "prose"',
       ])
     })
 

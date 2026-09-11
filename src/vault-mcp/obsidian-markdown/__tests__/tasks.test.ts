@@ -2339,4 +2339,39 @@ describe("tasks.diffTaskRoundTrip", () => {
     })
     expect(divergences).toEqual([])
   })
+
+  it("reports an on_completion value materializing from a description tail", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] archive this 🏁 delete ^oc",
+      priorTaskLine: null,
+      submitted: { description: "archive this 🏁 delete" },
+    })
+    expect(divergences).toEqual([
+      {
+        field: "description",
+        expected: "archive this 🏁 delete",
+        expectedSource: "submitted",
+        parsedBack: "archive this",
+        consumedTail: "🏁 delete",
+      },
+      {
+        field: "on_completion",
+        expected: null,
+        expectedSource: "none",
+        parsedBack: "delete",
+      },
+    ])
+  })
+
+  it("reports no description divergence when a cleared field migrates a trailing tag into the slot", () => {
+    // Clearing the only metadata field moves "#project" from the metadata
+    // tail into the description slot; the parser's description is identical
+    // before and after, so nothing diverged.
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] Deploy #project ^deploy",
+      priorTaskLine: "- [ ] Deploy 📅 2026-09-01 #project ^deploy",
+      submitted: { dueDate: null },
+    })
+    expect(divergences).toEqual([])
+  })
 })

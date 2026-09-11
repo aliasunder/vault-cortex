@@ -681,10 +681,29 @@ const replaceCheckboxChar = ({
   newChar: string
 }): string => taskLine.replace(/\[.\]/, `[${newChar}]`)
 
-/** Removes a matched regex from the line and collapses any resulting
- *  double spaces. Preserves leading indentation. */
-const stripField = (taskLine: string, regex: RegExp): string =>
-  taskLine.replace(regex, "").replace(/ {2,}/g, " ").trimEnd()
+/** Removes the LAST occurrence of a field regex from a metadata tail.
+ *  A stored description ending in a parseable signifier shifts the split
+ *  boundary, putting that prose occurrence at the FRONT of the tail — the
+ *  real field of the same kind always sits to its right (fields are written
+ *  after existing tail content). Stripping the first occurrence there would
+ *  delete the prose and keep the stale field; the last match is the field. */
+const stripLastField = (metadata: string, regex: RegExp): string => {
+  // A fresh global twin per call — the shared constants stay non-global so
+  // .exec call sites never carry a lastIndex.
+  const globalFlags = regex.flags.includes("g")
+    ? regex.flags
+    : `${regex.flags}g`
+  const occurrences = [
+    ...metadata.matchAll(new RegExp(regex.source, globalFlags)),
+  ]
+  const lastOccurrence = occurrences.at(-1)
+  if (!lastOccurrence) return metadata
+  const beforeMatch = metadata.slice(0, lastOccurrence.index)
+  const afterMatch = metadata.slice(
+    lastOccurrence.index + lastOccurrence[0].length,
+  )
+  return `${beforeMatch}${afterMatch}`.replace(/ {2,}/g, " ").trim()
+}
 
 // Re-export TaskFormatConfig so consumers of tasks.ts don't need a
 // separate import from the vault-operations layer.
@@ -820,7 +839,7 @@ const updateTaskLineDate = (params: {
   ]
 
   return mapMetadataTail(params.taskLine, (metadata) => {
-    const metadataWithoutDate = stripField(metadata, fieldInfo.inlineRegex)
+    const metadataWithoutDate = stripLastField(metadata, fieldInfo.inlineRegex)
     if (params.date === null) return metadataWithoutDate
     const dateText = formatDateField({
       field: params.field,
@@ -847,7 +866,7 @@ const updateTaskLineTaskId = ({
   config: TaskFormatConfig
 }): string => {
   return mapMetadataTail(taskLine, (metadata) => {
-    const metadataWithoutTaskId = stripField(metadata, TASK_ID_INLINE_RE)
+    const metadataWithoutTaskId = stripLastField(metadata, TASK_ID_INLINE_RE)
     if (taskId === null) return metadataWithoutTaskId
     return insertFieldBefore({
       metadata: metadataWithoutTaskId,
@@ -868,7 +887,10 @@ const updateTaskLineDependsOn = ({
   config: TaskFormatConfig
 }): string => {
   return mapMetadataTail(taskLine, (metadata) => {
-    const metadataWithoutDependsOn = stripField(metadata, DEPENDS_ON_INLINE_RE)
+    const metadataWithoutDependsOn = stripLastField(
+      metadata,
+      DEPENDS_ON_INLINE_RE,
+    )
     if (dependsOn === null || dependsOn.length === 0) {
       return metadataWithoutDependsOn
     }
@@ -1077,11 +1099,6 @@ type RoundTripFieldReading = {
 
 const ROUND_TRIP_FIELDS: readonly RoundTripFieldReading[] = [
   {
-    field: "description",
-    readParsed: (reading) => reading.descriptionSlot,
-    readSubmitted: (submitted) => submitted.description?.trim(),
-  },
-  {
     field: "priority",
     readParsed: (reading) => reading.metadata.priority,
     readSubmitted: (submitted) => submitted.priority,
@@ -1164,6 +1181,62 @@ const expectedRoundTripValue = ({
   return { expected: null, expectedSource: "none" }
 }
 
+/** The description divergence, computed outside the field table because the
+ *  two comparison modes read different representations:
+ *  - Submitted this call: trimmed submitted text vs the after SLOT — the
+ *    slot excludes tags the parser re-appends from the metadata tail, which
+ *    would otherwise flag every description edit on a tagged line.
+ *  - Not submitted: prior PARSER view vs after PARSER view — both sides
+ *    tag-enriched identically, so a trailing tag migrating into the slot
+ *    when the last metadata field is cleared reads as no change. */
+const descriptionDivergences = ({
+  afterReading,
+  priorReading,
+  submitted,
+}: {
+  afterReading: RoundTripLineReading
+  priorReading: RoundTripLineReading | null
+  submitted: SubmittedTaskFields
+}): TaskRoundTripDivergence[] => {
+  const submittedDescription = submitted.description?.trim()
+
+  if (submittedDescription !== undefined) {
+    const parsedBack = afterReading.descriptionSlot
+    if (parsedBack === submittedDescription) return []
+    const consumedTail = consumedDescriptionTail({
+      expected: submittedDescription,
+      parsedBack,
+    })
+    return [
+      {
+        field: "description",
+        expected: submittedDescription,
+        expectedSource: "submitted",
+        parsedBack,
+        ...(consumedTail && { consumedTail }),
+      },
+    ]
+  }
+
+  const parsedBack =
+    afterReading.metadata.description === ""
+      ? null
+      : afterReading.metadata.description
+  const priorDescription =
+    priorReading && priorReading.metadata.description !== ""
+      ? priorReading.metadata.description
+      : null
+  if (parsedBack === priorDescription) return []
+  return [
+    {
+      field: "description",
+      expected: priorDescription,
+      expectedSource: priorDescription === null ? "none" : "prior",
+      parsedBack,
+    },
+  ]
+}
+
 /** The part of a submitted description that parsed as metadata — defined
  *  when the parsed-back description is a strict prefix of the submitted one
  *  (the end-anchored stripping loop only ever consumes from the right). */
@@ -1201,7 +1274,7 @@ const diffTaskRoundTrip = ({
   const priorReading =
     priorTaskLine === null ? null : readTaskLineForRoundTrip(priorTaskLine)
 
-  return ROUND_TRIP_FIELDS.flatMap((fieldReading) => {
+  const fieldDivergences = ROUND_TRIP_FIELDS.flatMap((fieldReading) => {
     const submittedValue = fieldReading.readSubmitted?.(submitted)
     const priorValue = priorReading
       ? fieldReading.readParsed(priorReading)
@@ -1209,23 +1282,13 @@ const diffTaskRoundTrip = ({
     const expectation = expectedRoundTripValue({ submittedValue, priorValue })
     const parsedBack = fieldReading.readParsed(afterReading)
     if (parsedBack === expectation.expected) return []
-
-    const consumedTail =
-      fieldReading.field === "description"
-        ? consumedDescriptionTail({
-            expected: expectation.expected,
-            parsedBack,
-          })
-        : undefined
-    return [
-      {
-        field: fieldReading.field,
-        ...expectation,
-        parsedBack,
-        ...(consumedTail && { consumedTail }),
-      },
-    ]
+    return [{ field: fieldReading.field, ...expectation, parsedBack }]
   })
+
+  return [
+    ...descriptionDivergences({ afterReading, priorReading, submitted }),
+    ...fieldDivergences,
+  ]
 }
 
 /** Replaces the description text on a task line — everything before the
@@ -1329,7 +1392,7 @@ const applyCompletionDate = (params: {
   dateRegex: RegExp
 }): string => {
   return mapMetadataTail(params.taskLine, (metadata) => {
-    if (!params.shouldStamp) return stripField(metadata, params.dateRegex)
+    if (!params.shouldStamp) return stripLastField(metadata, params.dateRegex)
     return params.dateRegex.test(metadata)
       ? metadata.replace(params.dateRegex, params.dateField)
       : appendField({ metadata, fieldText: params.dateField })
@@ -1352,7 +1415,7 @@ const updateTaskLineStatus = (params: {
   })
 
   const stripMetadataField = (taskLine: string, regex: RegExp): string =>
-    mapMetadataTail(taskLine, (metadata) => stripField(metadata, regex))
+    mapMetadataTail(taskLine, (metadata) => stripLastField(metadata, regex))
 
   if (params.newStatus === "done") {
     return applyCompletionDate({
@@ -1404,7 +1467,7 @@ const updateTaskLinePriority = ({
     if (!hasExistingPriority) return taskLine
     return joinTaskLine({
       ...parts,
-      metadata: stripField(parts.metadata, PRIORITY_INLINE_RE),
+      metadata: stripLastField(parts.metadata, PRIORITY_INLINE_RE),
     })
   }
 
