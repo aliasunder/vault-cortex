@@ -2765,3 +2765,237 @@ kanban-plugin: board
     })
   })
 })
+
+describe("round-trip advisories", () => {
+  describe("createTask", () => {
+    it("writes the line verbatim and reports the recurrence consumption when the description ends in a parseable recurrence", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "check 🔁 every week with the team",
+          blockId: "check-in",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "check 🔁 every week with the team",
+        block_id: "check-in",
+        changes: [`created: (none) → ${today()}`],
+        advisories: [
+          'description: the line was written as submitted, but the stored description reads "check" when parsed — the trailing "🔁 every week with the team" was read as task metadata',
+          'recurrence: the stored line parses back "every week with the team" although nothing set it — description text was read as this field',
+        ],
+      })
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] check 🔁 every week with the team ➕ ${today()} ^check-in\n`,
+      )
+    })
+
+    it("omits advisories entirely for a clean description", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "Plain task with no signifiers",
+          blockId: "plain",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "Plain task with no signifiers",
+        block_id: "plain",
+        changes: [`created: (none) → ${today()}`],
+      })
+    })
+
+    it("reports a Dataview inline field consuming the description tail under dataview format", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "check [repeat:: every week]",
+          blockId: "dv-check",
+          format: "dataview",
+        },
+        logger,
+      )
+
+      expect(result.advisories).toEqual([
+        'description: the line was written as submitted, but the stored description reads "check" when parsed — the trailing "[repeat:: every week]" was read as task metadata',
+        'recurrence: the stored line parses back "every week" although nothing set it — description text was read as this field',
+      ])
+    })
+
+    it("names the subtask whose text truncates and stays silent on clean subtasks", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "Ship the feature",
+          blockId: "ship",
+          subtasks: ["Design", "check 🔁 every week"],
+        },
+        logger,
+      )
+
+      expect(result.advisories).toEqual([
+        'subtask "check 🔁 every week": written as submitted, but its stored text reads "check" when parsed — the trailing "🔁 every week" was read as task metadata',
+      ])
+    })
+  })
+
+  describe("updateTask", () => {
+    it("serializes exactly one depends_on field, preserves the prose, and reports the hijacked parse-back", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Old desc ➕ 2026-09-01 ⛔ old-dep ^my-task\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "my-task",
+          description: "Fix ⛔ prose",
+          dependsOn: ["real-dep"],
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix ⛔ prose ➕ 2026-09-01 ⛔ real-dep ^my-task\n",
+      )
+      expect(result.advisories).toEqual([
+        'description: the line was written as submitted, but the stored description reads "Fix" when parsed — the trailing "⛔ prose" was read as task metadata',
+        'depends_on: submitted "real-dep" but the stored line parses back "prose"',
+      ])
+      expect(result.changes).toEqual([
+        "depends_on: old-dep → real-dep",
+        "description: Old desc → Fix",
+      ])
+    })
+
+    it("serializes exactly one task_id field when the new description contains an id signifier", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Old ➕ 2026-09-01 🆔 old-id ^t1\n",
+      )
+
+      await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "t1",
+          description: "Fix 🆔 prose",
+          taskId: "new-id",
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix 🆔 prose ➕ 2026-09-01 🆔 new-id ^t1\n",
+      )
+    })
+
+    it("serializes exactly one due-date field when the new description contains a date signifier", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Old ➕ 2026-09-01 📅 2026-09-15 ^t2\n",
+      )
+
+      await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "t2",
+          description: "Fix 📅 2026-12-31",
+          due: "2026-10-01",
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix 📅 2026-12-31 ➕ 2026-09-01 📅 2026-10-01 ^t2\n",
+      )
+    })
+
+    it("omits advisories when a clean description update leaves a pre-existing recurrence in place", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Water plants 🔁 every day ➕ 2026-01-01 ^water\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "water",
+          description: "Water all plants",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Water all plants",
+        block_id: "water",
+        changes: ["description: Water plants → Water all plants"],
+      })
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Water all plants 🔁 every day ➕ 2026-01-01 ^water\n",
+      )
+    })
+
+    it("names a truncating add_subtasks item in the advisories", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "walk-dog",
+          addSubtasks: ["check 🔁 every week"],
+        },
+        logger,
+      )
+
+      expect(result.advisories).toEqual([
+        'subtask "check 🔁 every week": written as submitted, but its stored text reads "check" when parsed — the trailing "🔁 every week" was read as task metadata',
+      ])
+    })
+  })
+})

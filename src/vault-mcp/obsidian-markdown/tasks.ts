@@ -989,17 +989,243 @@ const insertFieldBefore = ({
   return appendField({ metadata, fieldText })
 }
 
-/** The description the parser sees for a task line — metadata stripped
- *  from the right, interleaved tags re-appended, block link removed. */
-const describeTaskLine = (taskLine: string): string => {
+/** The metadata the parser reads back from one task line (checkbox prefix
+ *  and block link removed), or null when the line is not a task line. */
+const parseTaskLineMetadata = (taskLine: string): TaskMetadata | null => {
   const taskLineMatch = TASK_LINE_RE.exec(taskLine)
-  if (!taskLineMatch) return taskLine
+  if (!taskLineMatch) return null
   const bodyWithBlockLink = matchedText(taskLineMatch, 2)
   const blockLinkMatch = BLOCK_LINK_RE.exec(bodyWithBlockLink)
   const taskBody = blockLinkMatch
     ? bodyWithBlockLink.slice(0, blockLinkMatch.index)
     : bodyWithBlockLink
-  return parseTaskMetadata(taskBody).description
+  return parseTaskMetadata(taskBody)
+}
+
+/** The description the parser sees for a task line — metadata stripped
+ *  from the right, interleaved tags re-appended, block link removed. */
+const describeTaskLine = (taskLine: string): string =>
+  parseTaskLineMetadata(taskLine)?.description ?? taskLine
+
+// ── Round-trip divergence detection ─────────────────────────────
+
+/** The values a mutation call submitted for one task line — the expectation
+ *  each field should parse back to. An absent key means the call did not set
+ *  the field; an explicit null means the field was cleared (expect absent).
+ *  Machine-stamped effects (the created date on create, the done/cancelled
+ *  dates a status change writes or strips) belong here too, so stamps never
+ *  register as fields appearing from nowhere. */
+export type SubmittedTaskFields = Readonly<{
+  description?: string | undefined
+  priority?: TaskPriority | null | undefined
+  createdDate?: string | null | undefined
+  startDate?: string | null | undefined
+  scheduledDate?: string | null | undefined
+  dueDate?: string | null | undefined
+  doneDate?: string | null | undefined
+  cancelledDate?: string | null | undefined
+  taskId?: string | null | undefined
+  dependsOn?: readonly string[] | null | undefined
+}>
+
+/** One field whose parse-back value differs from what the call's inputs say
+ *  it should be. Values are display strings; null means absent/empty. */
+export type TaskRoundTripDivergence = Readonly<{
+  field: string
+  expected: string | null
+  /** Where the expectation came from: a value submitted this call, the
+   *  pre-mutation line's parse, or nothing (the field should be absent). */
+  expectedSource: "submitted" | "prior" | "none"
+  parsedBack: string | null
+  /** Description divergence only: the submitted tail that parsed as
+   *  metadata instead of staying description text. */
+  consumedTail?: string | undefined
+}>
+
+/** Everything the round-trip diff reads back from one written line. The
+ *  description comes from the SLOT (the text before the metadata boundary),
+ *  not the parser's description: the parser re-appends #tags found in the
+ *  metadata tail, so a slot that survived intact would look changed on any
+ *  tagged line. Truncation still shows — a consumed tail shortens the slot. */
+type RoundTripLineReading = {
+  metadata: TaskMetadata
+  descriptionSlot: string | null
+}
+
+const readTaskLineForRoundTrip = (
+  taskLine: string,
+): RoundTripLineReading | null => {
+  const metadata = parseTaskLineMetadata(taskLine)
+  const parts = splitTaskLine(taskLine)
+  if (!metadata || !parts) return null
+  return {
+    metadata,
+    descriptionSlot: parts.description === "" ? null : parts.description,
+  }
+}
+
+/** How one field participates in the round-trip diff: its wire-style name,
+ *  its parse-back reading, and (when a caller can set it) its submitted
+ *  reading — undefined from readSubmitted means "not set this call". Fields
+ *  without readSubmitted (recurrence, on_completion) are never settable, so
+ *  their expectation always comes from the prior parse. */
+type RoundTripFieldReading = {
+  field: string
+  readParsed: (reading: RoundTripLineReading) => string | null
+  readSubmitted?: (submitted: SubmittedTaskFields) => string | null | undefined
+}
+
+const ROUND_TRIP_FIELDS: readonly RoundTripFieldReading[] = [
+  {
+    field: "description",
+    readParsed: (reading) => reading.descriptionSlot,
+    readSubmitted: (submitted) => submitted.description?.trim(),
+  },
+  {
+    field: "priority",
+    readParsed: (reading) => reading.metadata.priority,
+    readSubmitted: (submitted) => submitted.priority,
+  },
+  {
+    field: "created",
+    readParsed: (reading) => reading.metadata.createdDate,
+    readSubmitted: (submitted) => submitted.createdDate,
+  },
+  {
+    field: "start",
+    readParsed: (reading) => reading.metadata.startDate,
+    readSubmitted: (submitted) => submitted.startDate,
+  },
+  {
+    field: "scheduled",
+    readParsed: (reading) => reading.metadata.scheduledDate,
+    readSubmitted: (submitted) => submitted.scheduledDate,
+  },
+  {
+    field: "due",
+    readParsed: (reading) => reading.metadata.dueDate,
+    readSubmitted: (submitted) => submitted.dueDate,
+  },
+  {
+    field: "done",
+    readParsed: (reading) => reading.metadata.doneDate,
+    readSubmitted: (submitted) => submitted.doneDate,
+  },
+  {
+    field: "cancelled",
+    readParsed: (reading) => reading.metadata.cancelledDate,
+    readSubmitted: (submitted) => submitted.cancelledDate,
+  },
+  {
+    field: "task_id",
+    readParsed: (reading) => reading.metadata.taskId,
+    readSubmitted: (submitted) => submitted.taskId,
+  },
+  {
+    field: "depends_on",
+    readParsed: (reading) => {
+      return reading.metadata.dependsOn.length === 0
+        ? null
+        : reading.metadata.dependsOn.join(",")
+    },
+    readSubmitted: (submitted) => {
+      if (submitted.dependsOn === undefined) return undefined
+      if (submitted.dependsOn === null || submitted.dependsOn.length === 0) {
+        return null
+      }
+      return submitted.dependsOn.join(",")
+    },
+  },
+  {
+    field: "recurrence",
+    readParsed: (reading) => reading.metadata.recurrence,
+  },
+  {
+    field: "on_completion",
+    readParsed: (reading) => reading.metadata.onCompletion,
+  },
+]
+
+/** The expected parse-back value for one field: the submitted value when the
+ *  call set the field, else the prior line's parsed value, else absent. */
+const expectedRoundTripValue = ({
+  submittedValue,
+  priorValue,
+}: {
+  submittedValue: string | null | undefined
+  priorValue: string | null
+}): Pick<TaskRoundTripDivergence, "expected" | "expectedSource"> => {
+  if (submittedValue !== undefined) {
+    return { expected: submittedValue, expectedSource: "submitted" }
+  }
+  if (priorValue !== null) {
+    return { expected: priorValue, expectedSource: "prior" }
+  }
+  return { expected: null, expectedSource: "none" }
+}
+
+/** The part of a submitted description that parsed as metadata — defined
+ *  when the parsed-back description is a strict prefix of the submitted one
+ *  (the end-anchored stripping loop only ever consumes from the right). */
+const consumedDescriptionTail = ({
+  expected,
+  parsedBack,
+}: {
+  expected: string | null
+  parsedBack: string | null
+}): string | undefined => {
+  if (expected === null) return undefined
+  if (parsedBack === null) return expected
+  if (!expected.startsWith(parsedBack)) return undefined
+  const tail = expected.slice(parsedBack.length).trim()
+  return tail === "" ? undefined : tail
+}
+
+/** Diffs a written task line against what the call's inputs say it should
+ *  parse back to. Every divergence is a place where description prose and
+ *  the plugin's end-anchored field grammar interfered: a truncated
+ *  description, a submitted field whose value did not survive, or a field
+ *  materializing that nothing set. Returns [] for a clean round-trip or a
+ *  non-task line. */
+const diffTaskRoundTrip = ({
+  taskLine,
+  priorTaskLine,
+  submitted,
+}: {
+  taskLine: string
+  priorTaskLine: string | null
+  submitted: SubmittedTaskFields
+}): TaskRoundTripDivergence[] => {
+  const afterReading = readTaskLineForRoundTrip(taskLine)
+  if (!afterReading) return []
+  const priorReading =
+    priorTaskLine === null ? null : readTaskLineForRoundTrip(priorTaskLine)
+
+  return ROUND_TRIP_FIELDS.flatMap((fieldReading) => {
+    const submittedValue = fieldReading.readSubmitted?.(submitted)
+    const priorValue = priorReading
+      ? fieldReading.readParsed(priorReading)
+      : null
+    const expectation = expectedRoundTripValue({ submittedValue, priorValue })
+    const parsedBack = fieldReading.readParsed(afterReading)
+    if (parsedBack === expectation.expected) return []
+
+    const consumedTail =
+      fieldReading.field === "description"
+        ? consumedDescriptionTail({
+            expected: expectation.expected,
+            parsedBack,
+          })
+        : undefined
+    return [
+      {
+        field: fieldReading.field,
+        ...expectation,
+        parsedBack,
+        ...(consumedTail && { consumedTail }),
+      },
+    ]
+  })
 }
 
 /** Replaces the description text on a task line — everything before the
@@ -1310,6 +1536,7 @@ export const tasks = {
   updateTaskLineDependsOn,
   replaceTaskLineDescription,
   describeTaskLine,
+  diffTaskRoundTrip,
   assignBlockId,
   getTaskIndent,
   buildTaskLine,
