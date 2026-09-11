@@ -7,7 +7,13 @@ dist/
 *.log
 CLAUDE.local.md
 .serena/
-.claude/
+# .claude/ is local state except the committed session hooks (a trailing-slash
+# dir ignore would block the re-includes — git never descends into ignored dirs)
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+.claude/hooks/*
+!.claude/hooks/install-deps.sh
 TASKS.md
 .DS_Store
 
