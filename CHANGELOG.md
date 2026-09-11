@@ -97,6 +97,26 @@
 
 
 
+
+## [0.50.2] — 2026-09-11
+
+### Bug Fixes
+
+- **vault:** Claim trash targets exclusively so a delete never overwrites a trash copy (#557)
+- Reject absolute note paths, guard protected paths on the canonical form, and support case-only renames (#556)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.50.1
+
+### CI / Infrastructure
+
+- **cli-release:** Serialize with server releases and push branch and tag atomically (#558)
+
+### Maintenance
+
+- **deps-dev:** Bump the development group with 3 updates (#559)
+
 ## [0.50.1] — 2026-09-11
 
 ### Bug Fixes
