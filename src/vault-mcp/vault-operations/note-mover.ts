@@ -16,11 +16,13 @@
  *       attempt runs under a multi-file lock; the lock releases and
  *       reacquires when verification widens the source set. */
 
-import { readFile, mkdir, unlink } from "node:fs/promises"
+import { readFile, mkdir, rename, unlink } from "node:fs/promises"
 import { dirname, posix } from "node:path"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import {
   resolveSafePath,
+  resolveVaultRelativePath,
+  isProtectedPath,
   atomicWriteFile,
   atomicWriteFileExclusive,
   pruneEmptyParents,
@@ -29,9 +31,10 @@ import {
 import { links } from "../obsidian-markdown/links.js"
 import { classifyLines } from "../obsidian-markdown/lines.js"
 import { withExclusiveMultiFileLock } from "../../utils/file-write-lock.js"
+import { caseFoldPath } from "../../utils/case-fold-path.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
 import { describeError } from "../../utils/describe-error.js"
-import { fileExists } from "../../utils/fs.js"
+import { fileExists, statOrNull } from "../../utils/fs.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import type { Logger } from "../../logger.js"
@@ -190,7 +193,7 @@ const rewriteTarget = (
       ? context.newTargetPath
       : resolvedBefore
 
-  // Resolver against the post-move vault from the source's new location —
+  // Resolves against the post-move vault from the source's new location —
   // shared by the "already resolves" check and the candidate verifier.
   const resolveFromNewSource = (candidate: string): string | null =>
     targetKind === "note"
@@ -209,10 +212,10 @@ const rewriteTarget = (
   const resolvedAfter = resolveFromNewSource(rawTarget)
   if (resolvedAfter === desiredTarget) return null
 
-  // The replacement keeps the original link's extension state: the extension
-  // is kept only when the original carried the resolved file's real
-  // extension (markdown links always keep theirs; a wikilink to a note never
-  // carries ".md"; a stem-form asset link stays extensionless).
+  // The replacement keeps the original link's extension state — the
+  // extension is kept only when the original carried the resolved file's
+  // real extension (markdown links always keep theirs; a wikilink to a note
+  // never carries ".md"; a stem-form asset link stays extensionless).
   const resolvedExtension = posix.extname(desiredTarget)
   const keepExtension =
     (targetKind === "asset" || grammar === "markdown") &&
@@ -263,7 +266,8 @@ const applyLinkEdits = (text: string, edits: LinkEdit[]): string => {
     (left, right) => left.start - right.start,
   )
 
-  // Splice replacements left-to-right; sequential cursor state, so a plain loop.
+  // Splice replacements left-to-right; the cursor state is sequential, so a
+  // plain loop.
   let result = ""
   let cursor = 0
   for (const edit of orderedEdits) {
@@ -344,7 +348,7 @@ const rewriteBody = (
   rewriteLink: RewriteLink,
 ): { body: string; linksRewritten: number } => {
   // Code lines (fence delimiters and fenced content) pass through verbatim;
-  // links.classifyLines owns the fence state machine. A running tally over a
+  // links.classifyLines owns the fence state machine. The tally runs over a
   // sequential line walk, so a plain loop with mutable counters.
   let linksRewritten = 0
   const outputLines: string[] = []
@@ -452,14 +456,67 @@ const rewriteNoteContent = (
 
 // ── Orchestration ───────────────────────────────────────────────
 
-/** True when path sits under one of the protected folders (memory, daily notes). */
-const isProtected = (
-  path: string,
-  protectedPaths: readonly string[],
-): boolean =>
-  protectedPaths
-    .map((folder) => (folder.endsWith("/") ? folder : `${folder}/`))
-    .some((prefix) => path.startsWith(prefix))
+/** The index's spelling for a path the index does not contain verbatim.
+ *
+ *  - Why: backlink queries, rewrite planning, and the vault-wide scan key on
+ *    the index's on-disk spelling, so a case-aliased input (one file, two
+ *    spellings on a case-insensitive filesystem) would silently miss every
+ *    backlink.
+ *  - Guard: the input and the indexed spelling must name the same file
+ *    (inode comparison), so on a case-sensitive filesystem a distinct
+ *    case-variant sibling is never substituted for the requested note.
+ *  - No match: the input passes through unchanged and the move fails
+ *    cleanly at its not-found check. */
+const indexedSpellingForAliasedPath = async (params: {
+  vaultPath: string
+  path: string
+  allNotePaths: readonly string[]
+}): Promise<string> => {
+  const inputStats = await statOrNull(
+    resolveSafePath(params.vaultPath, params.path),
+  )
+  if (!inputStats) return params.path
+
+  const foldedPath = caseFoldPath(params.path)
+  const indexedSpelling = params.allNotePaths.find(
+    (notePath) => caseFoldPath(notePath) === foldedPath,
+  )
+  if (!indexedSpelling) return params.path
+
+  const indexedStats = await statOrNull(
+    resolveSafePath(params.vaultPath, indexedSpelling),
+  )
+  // ino is the file's identity on disk, independent of its name; dev is the
+  // filesystem it lives on. Both must match — inode numbers repeat across
+  // filesystems, so ino alone can name two different files.
+  const namesSameFile =
+    indexedStats !== null &&
+    indexedStats.ino === inputStats.ino &&
+    indexedStats.dev === inputStats.dev
+  return namesSameFile ? indexedSpelling : params.path
+}
+
+/** True when both spellings resolve to one existing file (inode equality) —
+ *  a case-variant pair on a case-insensitive filesystem. */
+const namesSameFileOnDisk = async (params: {
+  vaultPath: string
+  pathA: string
+  pathB: string
+}): Promise<boolean> => {
+  const [statsA, statsB] = await Promise.all([
+    statOrNull(resolveSafePath(params.vaultPath, params.pathA)),
+    statOrNull(resolveSafePath(params.vaultPath, params.pathB)),
+  ])
+  // ino is the file's identity on disk, independent of its name; dev is the
+  // filesystem it lives on. Both must match — inode numbers repeat across
+  // filesystems, so ino alone can name two different files.
+  return (
+    statsA !== null &&
+    statsB !== null &&
+    statsA.ino === statsB.ino &&
+    statsA.dev === statsB.dev
+  )
+}
 
 /** Caps concurrent file handles during rewriting and filesystem scanning. */
 const REWRITE_CONCURRENCY = 10
@@ -504,7 +561,8 @@ const discoverBacklinksFromFilesystem = async (
     concurrency: REWRITE_CONCURRENCY,
     mapper: async (candidatePath): Promise<string | null> => {
       try {
-        // Cheap substring pre-filter — skip notes that can't contain a link
+        // Skip notes whose text can't contain a link — a cheap substring
+        // pre-filter before the full parse below.
         const fullPath = resolveSafePath(params.vaultPath, candidatePath)
         const content = await readFile(fullPath, "utf8")
         const lowercaseContent = content.toLowerCase()
@@ -514,7 +572,8 @@ const discoverBacklinksFromFilesystem = async (
           lowercaseContent.includes(lowercaseParenEncodedStem)
         if (!couldContainLink) return null
 
-        // Full parse + resolve — confirm the candidate actually links to the target
+        // Parse and resolve in full to confirm the candidate actually links
+        // to the target.
         const parsed = parseNote(content)
         const frontmatter: Record<string, unknown> = parsed.data
         const linkTargets = links.extractAll(parsed.content, frontmatter)
@@ -583,27 +642,69 @@ const moveNote = async (
     allAssetPaths,
     pruneEmptyFolders,
   } = params
-  // Normalize before any guard or comparison — see toVaultRelativePath.
-  const oldPath = toVaultRelativePath(params.oldPath)
-  const newPath = toVaultRelativePath(params.newPath)
+  assertPathHasExtension(params.oldPath, ".md")
+  assertPathHasExtension(params.newPath, ".md")
+  // Canonicalize before every guard and comparison — an aliased spelling
+  // (traversal, separator variant) must not evade the protected check or the
+  // same-path comparison, and every downstream use (index queries, link
+  // rewriting, reported paths) expects the canonical form. Absolute input
+  // throws here.
+  const canonicalOldPath = resolveVaultRelativePath({
+    vaultPath,
+    notePath: params.oldPath,
+  })
+  // The destination doesn't exist yet, so newPath has no index-alias variant
+  // — this canonical form is final, unlike oldPath, which is rebound below.
+  const newPath = resolveVaultRelativePath({
+    vaultPath,
+    notePath: params.newPath,
+  })
 
-  if (oldPath === newPath) {
+  if (canonicalOldPath === newPath) {
     throw new Error("source and destination are the same path")
   }
-  assertPathHasExtension(oldPath, ".md")
-  assertPathHasExtension(newPath, ".md")
-  if (isProtected(oldPath, protectedPaths)) {
-    throw new Error(`cannot move protected path "${oldPath}"`)
+  if (isProtectedPath({ path: canonicalOldPath, protectedPaths })) {
+    throw new Error(`cannot move protected path "${canonicalOldPath}"`)
   }
-  if (isProtected(newPath, protectedPaths)) {
+  if (isProtectedPath({ path: newPath, protectedPaths })) {
     throw new Error(`cannot move into protected path "${newPath}"`)
   }
+
+  // A case-variant pair may name one file on a case-insensitive filesystem —
+  // the move is then a case-only rename of that file (Obsidian supports it),
+  // and the commit renames in place instead of write-then-delete, because the
+  // destination check would see the source and the trailing unlink would
+  // delete the renamed file. Only this rare branch awaits before the lock;
+  // ordinary moves keep the synchronous path to acquisition.
+  const namesDifferOnlyByCase =
+    caseFoldPath(canonicalOldPath) === caseFoldPath(newPath)
+  const isCaseOnlyRename =
+    namesDifferOnlyByCase &&
+    (await namesSameFileOnDisk({
+      vaultPath,
+      pathA: canonicalOldPath,
+      pathB: newPath,
+    }))
+
+  // Guards above run on the caller's canonical spelling (stable error
+  // messages on every platform); everything below keys on the index's
+  // spelling. Indexed inputs take the ternary's sync arm — no await before
+  // the lock — so lock acquisition stays synchronous for the normal path.
+  // An await here would let two concurrent moves interleave their lock
+  // checks in the gap and both proceed on the same file.
+  const oldPath = allNotePaths.includes(canonicalOldPath)
+    ? canonicalOldPath
+    : await indexedSpellingForAliasedPath({
+        vaultPath,
+        path: canonicalOldPath,
+        allNotePaths,
+      })
 
   const oldFullPath = resolveSafePath(vaultPath, oldPath)
   const newFullPath = resolveSafePath(vaultPath, newPath)
 
   // ── Backlink verification + retry loop ──────────────────────────
-  // The index-derived backlink set (from the tool handler) may be stale: a
+  // The index-derived backlink set (from the tool handler) may be stale — a
   // note written moments ago might not be indexed yet. Under the lock, the
   // filesystem is scanned to verify completeness. If new sources are found,
   // the lock releases, the set expands, and the lock reacquires — capped at
@@ -633,8 +734,8 @@ const moveNote = async (
         )
       }
     })
-    // Dedupe by resolved path: duplicate or alias spellings of the same file
-    // must not produce two rewrite plans (double writes, over-counted
+    // Dedupe by resolved path — duplicate or alias spellings of the same
+    // file must not produce two rewrite plans (double writes, over-counted
     // links_updated). The moved note is excluded by resolved path too, so an
     // alias of old_path can't slip in as a backlink source and receive a
     // wrong-context rewrite.
@@ -679,7 +780,9 @@ const moveNote = async (
         if (!(await fileExists(oldFullPath))) {
           throw new Error(`note not found: "${oldPath}"`)
         }
-        if (await fileExists(newFullPath)) {
+        // A case-only rename's destination is the source itself, so the
+        // collision check does not apply.
+        if (!isCaseOnlyRename && (await fileExists(newFullPath))) {
           throw new Error(`destination exists: "${newPath}"`)
         }
 
@@ -784,27 +887,60 @@ const moveNote = async (
         // ── Commit: all reads succeeded — write destination, update sources, delete original last. ──
 
         await mkdir(dirname(newFullPath), { recursive: true })
-        try {
-          await atomicWriteFileExclusive(newFullPath, movedContent, {
-            hardLinksSupported: !params.windowsBindMount,
-          })
-        } catch (error) {
-          if (isErrnoException(error, "EEXIST")) {
-            throw new Error(`destination exists: "${newPath}"`, {
-              cause: error,
-            })
+        if (isCaseOnlyRename) {
+          // Both spellings name one file, so rename changes the casing
+          // atomically and the rewritten content (when any links changed)
+          // overwrites in place. The exclusive write would collide with the
+          // source, so this branch replaces it.
+          try {
+            await rename(oldFullPath, newFullPath)
+          } catch (error) {
+            logger.error(
+              "note move aborted: could not rename the note's casing",
+              { from: oldPath, to: newPath, error: describeError(error) },
+            )
+            throw new Error(
+              `move aborted: could not rename to "${newPath}". Nothing was written.`,
+              { cause: error },
+            )
           }
-          logger.error(
-            "note move aborted: could not write the note to its new path",
-            { from: oldPath, to: newPath, error: describeError(error) },
-          )
-          throw new Error(
-            `move aborted: could not write to "${newPath}". Nothing was written.`,
-            { cause: error },
-          )
+          if (movedLinksRewritten > 0) {
+            try {
+              await atomicWriteFile(newFullPath, movedContent)
+            } catch (error) {
+              logger.error(
+                "note move failed while rewriting the renamed note's links",
+                { from: oldPath, to: newPath, error: describeError(error) },
+              )
+              throw new Error(
+                `move incomplete: renamed to "${newPath}" but its own links still use the old casing. Edit the note to update them.`,
+                { cause: error },
+              )
+            }
+          }
+        } else {
+          try {
+            await atomicWriteFileExclusive(newFullPath, movedContent, {
+              hardLinksSupported: !params.windowsBindMount,
+            })
+          } catch (error) {
+            if (isErrnoException(error, "EEXIST")) {
+              throw new Error(`destination exists: "${newPath}"`, {
+                cause: error,
+              })
+            }
+            logger.error(
+              "note move aborted: could not write the note to its new path",
+              { from: oldPath, to: newPath, error: describeError(error) },
+            )
+            throw new Error(
+              `move aborted: could not write to "${newPath}". Nothing was written.`,
+              { cause: error },
+            )
+          }
         }
 
-        // Mutable: tracks progress so a mid-commit failure can report how far it got.
+        // Mutable so a mid-commit failure can report how far the writes got.
         let sourcesWritten = 0
         await mapWithConcurrency({
           items: plannedRewrites,
@@ -822,8 +958,13 @@ const moveNote = async (
                 sources_planned: plannedRewrites.length,
                 error: describeError(error),
               })
+              // A case-only rename has already renamed the note, so re-running
+              // the same move would fail not-found on the old spelling.
+              const partialStateRemediation = isCaseOnlyRename
+                ? `The note was already renamed to "${newPath}"; update the remaining links directly.`
+                : "Original not deleted — re-run to finish."
               throw new Error(
-                `move incomplete: failed updating "${planned.source}" (${sourcesWritten}/${plannedRewrites.length} sources written). Original not deleted — re-run to finish.`,
+                `move incomplete: failed updating "${planned.source}" (${sourcesWritten}/${plannedRewrites.length} sources written). ${partialStateRemediation}`,
                 { cause: error },
               )
             }
@@ -834,21 +975,25 @@ const moveNote = async (
           .reduce((sum, count) => sum + count, 0)
         const linksUpdated = movedLinksRewritten + backlinkLinksRewritten
 
-        // Delete the original last — if this fails, both copies exist but no data is lost.
-        try {
-          await unlink(oldFullPath)
-        } catch (error) {
-          logger.error("note move failed while deleting the original note", {
-            from: oldPath,
-            to: newPath,
-            sources_updated: plannedRewrites.length,
-            links_updated: linksUpdated,
-            error: describeError(error),
-          })
-          throw new Error(
-            `move incomplete: "${newPath}" written but could not delete "${oldPath}". Delete "${oldPath}" manually to finish.`,
-            { cause: error },
-          )
+        // Delete the original last — if this fails, both copies exist but no
+        // data is lost. A case-only rename has no second copy — old and new
+        // are one file, and unlinking the old spelling would delete it.
+        if (!isCaseOnlyRename) {
+          try {
+            await unlink(oldFullPath)
+          } catch (error) {
+            logger.error("note move failed while deleting the original note", {
+              from: oldPath,
+              to: newPath,
+              sources_updated: plannedRewrites.length,
+              links_updated: linksUpdated,
+              error: describeError(error),
+            })
+            throw new Error(
+              `move incomplete: "${newPath}" written but could not delete "${oldPath}". Delete "${oldPath}" manually to finish.`,
+              { cause: error },
+            )
+          }
         }
 
         // Prune from the OLD note's folder — a same-folder rename or a move into a

@@ -26,11 +26,15 @@ const expectToolError = (
 
 let client: Client
 let cleanup: (() => Promise<void>) | undefined
+// The server's on-disk vault root, so a test can address a note by its
+// absolute container path — the input form the absolute-path tests pin.
+let serverVaultPath: string
 
 beforeAll(async () => {
   const port = await freePort()
   const server = await startServer(port)
   cleanup = server.cleanup
+  serverVaultPath = server.vaultPath
   client = await createTestClient(server.port)
 }, 30_000)
 
@@ -40,6 +44,199 @@ afterAll(async () => {
   } finally {
     if (cleanup) await cleanup()
   }
+})
+
+// ── Protected paths ──────────────────────────────────────────
+
+describe("protected path refusals", () => {
+  it("vault_delete_note refuses a note under a protected folder", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "About Me/Preferences.md" },
+    })
+    expectToolError(
+      result,
+      'cannot delete protected path "About Me/Preferences.md"',
+    )
+  })
+
+  it("vault_move_note refuses a source under a protected folder", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: "About Me/Preferences.md", new_path: "Elsewhere.md" },
+    })
+    expectToolError(
+      result,
+      'cannot move protected path "About Me/Preferences.md"',
+    )
+  })
+})
+
+// ── Absolute paths ───────────────────────────────────────────
+
+describe("absolute path blocked", () => {
+  it("vault_read_note rejects an absolute container path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: `${serverVaultPath}/Projects/alpha.md` },
+    })
+    expectToolError(
+      result,
+      `absolute path blocked: "${serverVaultPath}/Projects/alpha.md" must be vault-relative`,
+    )
+  })
+
+  it("vault_write_note rejects an absolute container path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: `${serverVaultPath}/injected.md`, body: "content" },
+    })
+    expectToolError(
+      result,
+      `absolute path blocked: "${serverVaultPath}/injected.md" must be vault-relative`,
+    )
+  })
+
+  it("vault_patch_note rejects an absolute container path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_patch_note",
+      args: {
+        path: `${serverVaultPath}/Projects/alpha.md`,
+        operation: "append",
+        content: "injected",
+      },
+    })
+    expectToolError(
+      result,
+      `absolute path blocked: "${serverVaultPath}/Projects/alpha.md" must be vault-relative`,
+    )
+  })
+
+  it("vault_delete_note rejects an absolute container path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: `${serverVaultPath}/About Me/Preferences.md` },
+    })
+    expectToolError(
+      result,
+      `absolute path blocked: "${serverVaultPath}/About Me/Preferences.md" must be vault-relative`,
+    )
+  })
+
+  it("vault_replace_in_note rejects an absolute container path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_replace_in_note",
+      args: {
+        path: `${serverVaultPath}/Projects/alpha.md`,
+        old_text: "old",
+        new_text: "new",
+      },
+    })
+    expectToolError(
+      result,
+      `absolute path blocked: "${serverVaultPath}/Projects/alpha.md" must be vault-relative`,
+    )
+  })
+
+  it("vault_delete_span rejects an absolute container path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_span",
+      args: {
+        path: `${serverVaultPath}/Projects/alpha.md`,
+        start_anchor: "anything",
+      },
+    })
+    expectToolError(
+      result,
+      `absolute path blocked: "${serverVaultPath}/Projects/alpha.md" must be vault-relative`,
+    )
+  })
+
+  it("vault_replace_span rejects an absolute container path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_replace_span",
+      args: {
+        path: `${serverVaultPath}/Projects/alpha.md`,
+        start_anchor: "anything",
+        content: "replaced",
+      },
+    })
+    expectToolError(
+      result,
+      `absolute path blocked: "${serverVaultPath}/Projects/alpha.md" must be vault-relative`,
+    )
+  })
+
+  it("vault_insert_at_anchor rejects an absolute container path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_insert_at_anchor",
+      args: {
+        path: `${serverVaultPath}/Projects/alpha.md`,
+        anchor: "anything",
+        position: "after",
+        content: "inserted",
+      },
+    })
+    expectToolError(
+      result,
+      `absolute path blocked: "${serverVaultPath}/Projects/alpha.md" must be vault-relative`,
+    )
+  })
+
+  it("vault_update_properties rejects an absolute container path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_properties",
+      args: {
+        path: `${serverVaultPath}/Projects/alpha.md`,
+        properties: { status: "active" },
+      },
+    })
+    expectToolError(
+      result,
+      `absolute path blocked: "${serverVaultPath}/Projects/alpha.md" must be vault-relative`,
+    )
+  })
+
+  it("vault_move_note rejects an absolute container path as old_path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: {
+        old_path: `${serverVaultPath}/Projects/alpha.md`,
+        new_path: "safe.md",
+      },
+    })
+    expectToolError(
+      result,
+      `absolute path blocked: "${serverVaultPath}/Projects/alpha.md" must be vault-relative`,
+    )
+  })
+
+  it("vault_move_note rejects an absolute container path as new_path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: {
+        old_path: "Projects/alpha.md",
+        new_path: `${serverVaultPath}/moved.md`,
+      },
+    })
+    expectToolError(
+      result,
+      `absolute path blocked: "${serverVaultPath}/moved.md" must be vault-relative`,
+    )
+  })
 })
 
 // ── Path traversal ───────────────────────────────────────────

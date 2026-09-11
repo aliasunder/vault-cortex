@@ -1,6 +1,6 @@
 {
   "name": "vault-cortex",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "description": "Set up a Vault Cortex MCP server for your Obsidian vault in one command: npx vault-cortex@latest init",
   "license": "MIT",
   "type": "module",
@@ -48,7 +48,7 @@
     "cli"
   ],
   "dependencies": {
-    "@clack/prompts": "1.7.0",
+    "@clack/prompts": "1.8.0",
     "commander": "15.0.0"
   }
 }
