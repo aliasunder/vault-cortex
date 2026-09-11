@@ -66,6 +66,12 @@ mechanism-level detail.
 - Memory file names reject `/` and `\` — prevents `../../outside`-style
   escapes from the memory directory — and leading dots, which would
   create hidden files
+- The trash retention sweep deletes only files it previously recorded,
+  and guards every removal twice: the recorded path must resolve inside
+  `.trash/`, and the file's parent directory must realpath-resolve inside
+  it too. A corrupted or hand-edited index row, or a directory symlink
+  planted in `.trash/`, is skipped with a warning instead of followed to
+  a live note
 
 ### Hidden paths
 

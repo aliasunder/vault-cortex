@@ -1079,7 +1079,23 @@ Docker hardening, and durability seatbelts above.
   `withExclusiveMultiFileLock` (all-or-nothing fail-fast) acquires all
   locks in one synchronous tick — used by note-mover, which must lock the
   source, destination, and every backlink source for the whole
-  read-plan-write span.
+  read-plan-write span. The trash move and the retention sweep share one
+  serializing key for the whole `.trash/` domain.
+- **Trash claim loop + recorded retention sweep** (`moveNoteToTrash` in
+  `vault-filesystem.ts`; `trash-sweeper.ts`): a delete under Obsidian's
+  `system` (default) or `local` trash setting moves the note into
+  `.trash/`, claiming each candidate name with an exclusive create so an
+  existing trash copy is never overwritten. `system`-mapped moves are
+  recorded in the index DB's `trash_entries` table (case-folded primary
+  key, so a case alias replaces its stale row instead of leaving one that
+  could purge the wrong sibling on a case-insensitive mount); the sweeper
+  purges recorded entries older than `TRASH_RETENTION_DAYS` at startup
+  and daily. Each row is re-validated under the shared `.trash/` lock
+  before its file is touched — the sweep never acts on a stale snapshot —
+  and each unlink is double-guarded: the resolved path and the parent
+  directory's realpath must both sit inside `.trash/`, so a corrupted row
+  or a directory symlink cannot reach live notes. Recording is fail-open;
+  an unrecorded entry is simply never swept.
 - **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
   lock, `moveNote` first scans the filesystem for backlinks the search
   index missed (closing a lag race); then reads every affected file and

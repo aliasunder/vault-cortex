@@ -121,7 +121,7 @@ src/
     map-with-concurrency.ts            # Bounded-concurrency async map (batch-based)
     describe-error.ts                  # describeError — message from an unknown throw
     escape-html.ts                     # escapeHtml — the four characters that break out of HTML text or a quoted attribute
-    fs.ts                              # readFileOrNull / readdirOrNull / fileExists / statOrNull (ENOENT-safe)
+    fs.ts                              # readFileOrNull / readdirOrNull / fileExists / statOrNull / realpathOrNull (ENOENT-safe)
     assert-no-control-characters.ts    # Rejects C0 controls (except tab/LF/CR), DEL, and C1 controls in write params
     assert-path-has-extension.ts       # Generic path extension assertion (used by note-path validation)
     case-fold-path.ts                  # Case- and Unicode-normalization-fold a path for comparison (macOS/Windows bind mounts)
@@ -166,6 +166,7 @@ src/
       task-mutations.ts                # Task create + state mutations (status, priority, heading moves, sub-tasks)
       task-format-config.ts            # Tasks-plugin format config reader (emoji vs Dataview)
       trash-config.ts                  # Obsidian "Deleted files" config reader (trashOption from .obsidian/app.json)
+      trash-sweeper.ts                 # Retention sweep over recorded .trash/ entries (TRASH_RETENTION_DAYS; row store injected from search)
       asset-operations.ts              # Asset read dispatch + browsing (image fit, canvas linearize/raw, extension filter, statted slice)
     mcp-core/                          # MCP protocol surface
       mcp-router.ts                    # /mcp session routes + transport lifecycle
