@@ -553,10 +553,10 @@ const deleteNote = async (
       }
     } catch (error) {
       // Collision-exhaustion errors from moveNoteToTrash are already vault-relative
-      if (
+      const isTrashCollisionError =
         error instanceof Error &&
         error.message.startsWith(TRASH_COLLISION_ERROR_PREFIX)
-      ) {
+      if (isTrashCollisionError) {
         throw error
       }
       // Log the raw fs detail (errno, absolute path) for the operator;
