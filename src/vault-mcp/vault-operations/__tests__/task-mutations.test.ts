@@ -3092,6 +3092,33 @@ describe("recurring-task completion", () => {
     )
   })
 
+  it("reports the spawned line past a checklist added in the same completing call", async () => {
+    const vault = await createVault()
+    await writeTasksPluginConfig(vault, { recurrenceOnNextLine: true })
+    // Below-placement puts the spawn directly after the completed line, and
+    // add_subtasks appends at the completed task's block end — the same
+    // index — so the checklist insert shifts the spawn and the reported
+    // line must account for it.
+    await writeTestNote(vault, "tasks.md", RECURRING_NOTE)
+
+    const result = await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "water-plants",
+        status: "done",
+        addSubtasks: ["Refill the can", "Check the fern"],
+      },
+      logger,
+    )
+
+    expect(result.next_occurrence?.line).toBe(8)
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [x] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ✅ ${today()} ^water-plants\n  - [ ] Refill the can\n  - [ ] Check the fern\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n`,
+    )
+  })
+
   it("moves the completed line alone under recurrenceOnNextLine, leaving its checklist with the spawn", async () => {
     const vault = await createVault()
     await writeTasksPluginConfig(vault, { recurrenceOnNextLine: true })
