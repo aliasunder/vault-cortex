@@ -10,14 +10,14 @@ permissions:
   contents: read
   pull-requests: read
 
-# Non-trigger comments still create a (guard-skipped) run — isolate them in a
+# Non-trigger events still create a (guard-skipped) run — isolate them in a
 # per-run group so they can't cancel an in-flight review. Every comment the
-# review posts on the PR would otherwise kill the very run it belongs to, and
-# the owner check mirrors the job guard: concurrency resolves before `if`,
-# so a non-owner "@umm review" would otherwise cancel a live review and then
-# skip.
+# review posts on the PR would otherwise kill the very run it belongs to.
+# The noop condition mirrors both legs of the job guard: concurrency resolves
+# before `if`, so a guard-failing run (non-trigger comment, fork-PR push,
+# non-owner push) would otherwise cancel a live review and then skip.
 concurrency:
-  group: umm-review-${{ github.event.pull_request.number || github.event.issue.number }}${{ (github.event_name == 'issue_comment' && !(github.event.comment.user.login == github.repository_owner && startsWith(github.event.comment.body, '@umm review'))) && format('-noop-{0}', github.run_id) || '' }}
+  group: umm-review-${{ github.event.pull_request.number || github.event.issue.number }}${{ ((github.event_name == 'issue_comment' && !(github.event.comment.user.login == github.repository_owner && startsWith(github.event.comment.body, '@umm review'))) || (github.event_name == 'pull_request' && !(github.event.pull_request.user.login == github.repository_owner && github.event.pull_request.head.repo.full_name == github.repository))) && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
