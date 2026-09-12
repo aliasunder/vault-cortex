@@ -682,11 +682,10 @@ const replaceCheckboxChar = ({
 }): string => taskLine.replace(/\[.\]/, `[${newChar}]`)
 
 /** Removes the LAST occurrence of a field regex from a metadata tail.
- *  A stored description ending in a parseable signifier shifts the split
- *  boundary, putting that prose occurrence at the FRONT of the tail — the
- *  real field of the same kind always sits to its right (fields are written
- *  after existing tail content). Stripping the first occurrence there would
- *  delete the prose and keep the stale field; the last match is the field. */
+ *  Description text ending in a parseable signifier lands at the front of
+ *  the tail, and the real field sits to its right (fields are appended
+ *  after existing content) — a first-occurrence strip would delete the
+ *  description text and keep the stale field. */
 const stripLastField = (metadata: string, regex: RegExp): string => {
   // A fresh global twin per call — the shared constants stay non-global so
   // .exec call sites never carry a lastIndex.
@@ -1066,11 +1065,10 @@ export type TaskRoundTripDivergence = Readonly<{
   consumedTail?: string | undefined
 }>
 
-/** Everything the round-trip diff reads back from one written line: the
- *  full metadata parse, plus the description SLOT (the text before the
- *  metadata boundary, without the #tags the parser re-appends from the
- *  tail). Which description representation a comparison uses is decided in
- *  descriptionDivergences — the two modes need different ones. */
+/** The round-trip diff's reading of one written line: the full metadata
+ *  parse, plus the raw description text before the metadata boundary
+ *  (without the #tags the parser re-appends from the tail) — see
+ *  descriptionDivergences for when each representation is compared. */
 type RoundTripLineReading = {
   metadata: TaskMetadata
   descriptionSlot: string | null
@@ -1088,11 +1086,10 @@ const readTaskLineForRoundTrip = (
   }
 }
 
-/** How one field participates in the round-trip diff: its wire-style name,
- *  its parse-back reading, and (when a caller can set it) its submitted
- *  reading — undefined from readSubmitted means "not set this call". Fields
- *  without readSubmitted (recurrence, on_completion) are never settable, so
- *  their expectation always comes from the prior parse. */
+/** One field's participation in the round-trip diff. An undefined return
+ *  from readSubmitted means the call did not set the field; a field with no
+ *  readSubmitted can never be set by a call, so its expectation always
+ *  comes from the prior parse. */
 type RoundTripFieldReading = {
   field: string
   readParsed: (reading: RoundTripLineReading) => string | null
@@ -1200,8 +1197,8 @@ const consumedDescriptionTail = ({
   return tail === "" ? undefined : tail
 }
 
-/** The description divergence, computed outside the field table because the
- *  two comparison modes read different representations:
+/** Description divergence uses two comparison modes with different
+ *  representations:
  *  - Submitted this call: trimmed submitted text vs the after SLOT — the
  *    slot excludes tags the parser re-appends from the metadata tail, which
  *    would otherwise flag every description edit on a tagged line.
@@ -1397,8 +1394,8 @@ const applyCompletionDate = (params: {
 }): string => {
   return mapMetadataTail(params.taskLine, (metadata) => {
     // Stamping strips the LAST existing occurrence and appends — a
-    // first-match replace would rewrite a description-origin prose date at
-    // the front of a hijacked tail and leave the real stamp untouched.
+    // first-match replace would rewrite a description date that the parser
+    // read as metadata and leave the real stamp untouched.
     const metadataWithoutStamp = stripLastField(metadata, params.dateRegex)
     if (!params.shouldStamp) return metadataWithoutStamp
     return appendField({
@@ -1486,9 +1483,9 @@ const updateTaskLinePriority = ({
   const priorityField = formatPriority(newPriority, config.taskFormat)
 
   // Strip the LAST existing signifier (a first-match replace would rewrite a
-  // description-origin emoji at the front of a hijacked tail and leave the
-  // real field as a duplicate), then lead the tail with the new priority —
-  // its canonical position, right after the description, before dates.
+  // description emoji that the parser read as metadata and leave the real
+  // field as a duplicate), then lead the tail with the new priority — its
+  // canonical position, right after the description, before dates.
   const metadataWithoutPriority = stripLastField(
     parts.metadata,
     PRIORITY_INLINE_RE,

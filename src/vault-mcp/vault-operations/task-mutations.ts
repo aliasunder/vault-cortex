@@ -131,10 +131,9 @@ const displayRoundTripValue = (value: string | null): string => {
   return value === null ? ABSENT_VALUE : `"${value}"`
 }
 
-/** The clause describing how a written description parses back — shared by
- *  the parent-line and subtask advisory sentences. `storedTextNoun` is the
- *  subject phrase spliced into the sentence ("the stored description" reads
- *  "…" / "its stored text" reads "…"). */
+/** The clause describing how a written description parses back.
+ *  `storedTextNoun` is the subject phrase spliced into the sentence
+ *  ("the stored description" / "its stored text"). */
 const parsedDescriptionClause = ({
   parsedBack,
   consumedTail,
@@ -146,12 +145,12 @@ const parsedDescriptionClause = ({
 }): string => {
   const parsedReading =
     parsedBack === null
-      ? `${storedTextNoun} is empty`
-      : `${storedTextNoun} reads "${parsedBack}"`
+      ? `${storedTextNoun} parses back empty`
+      : `${storedTextNoun} parses back as "${parsedBack}"`
   const consumedNote = consumedTail
     ? ` — the trailing "${consumedTail}" was read as task metadata`
     : ""
-  return `${parsedReading} when parsed${consumedNote}`
+  return `${parsedReading}${consumedNote}`
 }
 
 /** One advisory sentence per divergence, keyed on where the expectation came
@@ -193,7 +192,7 @@ const roundTripAdvisories = ({
     .map(describeRoundTripDivergence)
 }
 
-/** Advisory for one subtask whose description text truncated into fields. */
+/** Advisory for one subtask whose description text was consumed as metadata. */
 const buildSubtaskAdvisory = (subtaskText: string): string[] => {
   // The written subtask line carries indentation; the diff strips the whole
   // checkbox prefix before parsing, so a bare synthetic line reads the same.
@@ -867,6 +866,8 @@ const createTask = async (
     const bodyLines = splitIntoLines(parsed.content)
     const headings = parseHeadings(bodyLines)
 
+    // findBodyStartLine needs the raw file (bodyLines came from the parsed
+    // content, which has no frontmatter) to count the frontmatter offset.
     const bodyStartLine = tasks.findBodyStartLine(splitIntoLines(fileContent))
 
     // Validate block_id grammar and uniqueness

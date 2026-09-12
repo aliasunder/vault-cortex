@@ -2789,7 +2789,7 @@ describe("round-trip advisories", () => {
         block_id: "check-in",
         changes: [`created: (none) → ${today()}`],
         advisories: [
-          'description: the line was written as submitted, but the stored description reads "check" when parsed — the trailing "🔁 every week with the team" was read as task metadata',
+          'description: the line was written as submitted, but the stored description parses back as "check" — the trailing "🔁 every week with the team" was read as task metadata',
           'recurrence: the stored line parses back "every week with the team" although nothing set it — description text was read as this field',
         ],
       })
@@ -2838,7 +2838,7 @@ describe("round-trip advisories", () => {
       )
 
       expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description reads "check" when parsed — the trailing "[repeat:: every week]" was read as task metadata',
+        'description: the line was written as submitted, but the stored description parses back as "check" — the trailing "[repeat:: every week]" was read as task metadata',
         'recurrence: the stored line parses back "every week" although nothing set it — description text was read as this field',
       ])
     })
@@ -2859,13 +2859,13 @@ describe("round-trip advisories", () => {
       )
 
       expect(result.advisories).toEqual([
-        'subtask "check 🔁 every week": written as submitted, but its stored text reads "check" when parsed — the trailing "🔁 every week" was read as task metadata',
+        'subtask "check 🔁 every week": written as submitted, but its stored text parses back as "check" — the trailing "🔁 every week" was read as task metadata',
       ])
     })
   })
 
   describe("updateTask", () => {
-    it("serializes exactly one depends_on field, preserves the prose, and reports the hijacked parse-back", async () => {
+    it("serializes exactly one depends_on field, preserves the prose, and reports the parse-back divergence", async () => {
       const vault = await createVault()
       await writeTestNote(
         vault,
@@ -2889,7 +2889,7 @@ describe("round-trip advisories", () => {
         "---\ntitle: Tasks\n---\n\n- [ ] Fix ⛔ prose ➕ 2026-09-01 ⛔ real-dep ^my-task\n",
       )
       expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description reads "Fix" when parsed — the trailing "⛔ prose" was read as task metadata',
+        'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "⛔ prose" was read as task metadata',
         'depends_on: submitted "real-dep" but the stored line parses back "prose"',
       ])
       expect(result.changes).toEqual([
@@ -2922,7 +2922,7 @@ describe("round-trip advisories", () => {
         "---\ntitle: Tasks\n---\n\n- [ ] Fix 🆔 prose ➕ 2026-09-01 🆔 new-id ^t1\n",
       )
       expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description reads "Fix" when parsed — the trailing "🆔 prose" was read as task metadata',
+        'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "🆔 prose" was read as task metadata',
         'task_id: submitted "new-id" but the stored line parses back "prose"',
       ])
     })
@@ -2951,7 +2951,7 @@ describe("round-trip advisories", () => {
         "---\ntitle: Tasks\n---\n\n- [ ] Fix 📅 2026-12-31 ➕ 2026-09-01 📅 2026-10-01 ^t2\n",
       )
       expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description reads "Fix" when parsed — the trailing "📅 2026-12-31" was read as task metadata',
+        'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "📅 2026-12-31" was read as task metadata',
         'due: submitted "2026-10-01" but the stored line parses back "2026-12-31"',
       ])
     })
@@ -3006,7 +3006,7 @@ describe("round-trip advisories", () => {
       )
 
       expect(result.advisories).toEqual([
-        'description: the line was written as submitted, but the stored description reads "Fix" when parsed — the trailing "📅 2026-12-31" was read as task metadata',
+        'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "📅 2026-12-31" was read as task metadata',
         'due: previously "2026-01-01", but the stored line now parses back "2026-12-31" — this call\'s edits changed what the line parses as this field',
       ])
     })
@@ -3042,7 +3042,7 @@ describe("round-trip advisories", () => {
       )
     })
 
-    it("replaces the real dependency field, not a prose occurrence, on a stored line whose description already hijacks the parse", async () => {
+    it("replaces the real dependency field, not a description signifier the parser read as metadata", async () => {
       const vault = await createVault()
       await writeTestNote(
         vault,
@@ -3069,7 +3069,7 @@ describe("round-trip advisories", () => {
       ])
     })
 
-    it("restamps the real completion date, not a prose date at the front of a hijacked tail, and restamps stably", async () => {
+    it("restamps the real completion date, not a description date the parser read as metadata, and restamps stably", async () => {
       const vault = await createVault()
       await writeTestNote(
         vault,
@@ -3116,7 +3116,7 @@ describe("round-trip advisories", () => {
       )
 
       expect(result.advisories).toEqual([
-        'subtask "check 🔁 every week": written as submitted, but its stored text reads "check" when parsed — the trailing "🔁 every week" was read as task metadata',
+        'subtask "check 🔁 every week": written as submitted, but its stored text parses back as "check" — the trailing "🔁 every week" was read as task metadata',
       ])
     })
   })

@@ -1061,7 +1061,7 @@ describe("task line mutations", () => {
       expect(result).toBe("- [ ] Task ➕ 2026-07-01")
     })
 
-    it("replaces the real priority, not a prose emoji at the front of a hijacked tail", () => {
+    it("replaces the real priority field, not a description emoji the parser read as metadata", () => {
       // The description's trailing 🔼 parses as metadata, so it sits at the
       // front of the tail; the real ⏫ to its right is the field to replace.
       const result = tasks.updateTaskLinePriority({
@@ -2229,7 +2229,7 @@ describe("tasks.diffTaskRoundTrip", () => {
     expect(divergences).toEqual([])
   })
 
-  it("reports the truncated description and the hijacked depends_on when prose contains a dependency signifier", () => {
+  it("reports the truncated description and the overwritten depends_on when prose contains a dependency signifier", () => {
     // The prose after ⛔ must be id-grammar words ([a-zA-Z0-9_-]+) for the
     // parser to read it as a dependency list — ordinary prose with spaces
     // or punctuation after the emoji stays description text.
