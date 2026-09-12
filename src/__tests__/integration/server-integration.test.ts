@@ -1596,3 +1596,46 @@ describe("trash retention over real HTTP", () => {
     expect(readTrashEntryRows(server.dataDir)).toEqual([])
   }, 30_000)
 })
+
+// ── Trash retention sweep gating ───────────────────────────────
+//
+// The sweep schedule runs its first sweep at boot and logs a completion
+// line even with no recorded entries, so that log line is the observable
+// for whether the schedule started. The first test pins the line under
+// the default config; the absence assertions below are meaningful only
+// because that positive control would fail if the line ever changed.
+
+/** The startup sweep's completion log, as it appears in the server's
+ *  structured stdout stream. */
+const SWEEP_LOG_MARKER = '"message":"trash retention sweep complete"'
+
+describe("trash retention sweep gating", () => {
+  it("the startup sweep runs under the default config", async () => {
+    const server = await startServer(await freePort())
+    onTestFinished(() => server.cleanup())
+
+    await vi.waitFor(() => {
+      expect(server.stdout()).toContain(SWEEP_LOG_MARKER)
+    })
+  }, 30_000)
+
+  it.each([
+    ["READONLY_MODE=true", { READONLY_MODE: "true" }],
+    ["OBSIDIAN_SYNC=true", { OBSIDIAN_SYNC: "true" }],
+    ["TRASH_RETENTION_DAYS=none", { TRASH_RETENTION_DAYS: "none" }],
+  ])(
+    "the sweep never starts under %s",
+    async (_config, envOverrides) => {
+      const server = await startServer(await freePort(), envOverrides)
+      onTestFinished(() => server.cleanup())
+      const client = await createTestClient(server.port)
+      onTestFinished(() => client.close())
+
+      // A full HTTP round-trip proves the boot sequence — where an enabled
+      // sweep logs its completion line — has long since finished.
+      await toolNames(client)
+      expect(server.stdout()).not.toContain(SWEEP_LOG_MARKER)
+    },
+    30_000,
+  )
+})
