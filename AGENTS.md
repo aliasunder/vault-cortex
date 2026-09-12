@@ -51,6 +51,10 @@ server.json                            # MCP server registry manifest
 render.yaml                            # Render Blueprint (repo root — Render reads it only from there); backs the Deploy to Render button
 Dockerfile                             # Two-target build: local (default) + remote
 Brewfile                               # Homebrew dev dependencies (optipng)
+.claude/                               # Committed Claude Code session hooks (rest of .claude/ is gitignored)
+  settings.json                        #   SessionStart + PostToolUse(EnterWorktree) → install-deps.sh
+  hooks/
+    install-deps.sh                    #   nvm + npm ci guard for fresh clones and worktrees
 obsidian-headless/                     # Lockfile-pinned obsidian-headless for Docker remote target
   package.json                         #   pins obsidian-headless version
   package-lock.json                    #   sha512 integrity hashes (supply-chain security)
