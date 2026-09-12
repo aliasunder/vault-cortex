@@ -3224,6 +3224,36 @@ describe("recurring-task completion", () => {
     )
   })
 
+  it("reports the spawned line through a done-lane move above the source combined with add_subtasks", async () => {
+    const vault = await createVault()
+    // Both splices shift the spawn: the completed card's reinsertion under
+    // the Done lane above lands before the spawn, and the checklist append
+    // under the moved card lands before it again.
+    await writeTestNote(
+      vault,
+      "board.md",
+      `---\nkanban-plugin: board\n---\n\n## Done\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-05 ^weekly\n`,
+    )
+
+    const result = await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "board.md",
+        blockId: "weekly",
+        status: "done",
+        addSubtasks: ["Prep notes"],
+      },
+      logger,
+    )
+
+    expect(result.next_occurrence?.line).toBe(13)
+    expect(result.subtasks).toEqual([{ line: 7, description: "Prep notes" }])
+    const content = await readTestNote(vault, "board.md")
+    expect(content).toBe(
+      `---\nkanban-plugin: board\n---\n\n## Done\n- [x] Weekly review 🔁 every week 📅 2026-01-05 ✅ ${today()} ^weekly\n  - [ ] Prep notes\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n\n## Active\n\n- [ ] Weekly review 🔁 every week 📅 2026-01-12\n`,
+    )
+  })
+
   it("reports the spawned line, not an identical earlier line", async () => {
     const vault = await createVault()
     // The first line is byte-identical to what the spawn will produce — a
