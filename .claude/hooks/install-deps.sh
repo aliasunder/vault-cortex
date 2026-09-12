@@ -48,19 +48,24 @@ if [[ -d "${checkout}/node_modules" && ! -f "${marker}" ]]; then
 fi
 # A hook killed by timeout can leave the marker even though its orphaned npm ci
 # finished the install. A tree that passes npm ls is complete — clear the
-# marker instead of rebuilding it; without a stamp it is then trusted the same
-# way a developer's own install is.
+# marker and stamp it instead of rebuilding it.
 if [[ -d "${checkout}/node_modules" && -f "${marker}" ]]; then
   if npm --prefix "${checkout}" ls --depth=0 >/dev/null 2>&1; then
     rm -f "${marker}"
+    # Stamped like the normal success path: the orphaned install was still the
+    # hook's own, and leaving it unstamped would disable the lockfile-change
+    # guard for this checkout forever.
+    if [[ -n "${lockfile_hash}" ]]; then
+      printf '%s\n' "${lockfile_hash}" > "${stamp}"
+    fi
     log "marker left by an interrupted hook but the dependency tree in ${checkout} is complete — clearing"
     exit 0
   fi
 fi
 
 # mkdir is the portable atomic lock (flock is Linux-only). The lock records its
-# owner's pid: a live owner means a concurrent install is running — skip rather
-# than race npm ci; a dead owner (hook killed mid-install) is taken over
+# owner's pid: a live owner means a concurrent install is running — wait for it
+# rather than race npm ci; a dead owner (hook killed mid-install) is taken over
 # immediately, so the marker's retry is never blocked behind an orphaned lock.
 lock="${checkout}/.claude/.install-deps.lock"
 if mkdir "${lock}" 2>/dev/null; then
@@ -68,19 +73,45 @@ if mkdir "${lock}" 2>/dev/null; then
 else
   owner="$(cat "${lock}/pid" 2>/dev/null || true)"
   if [[ -n "${owner}" ]] && kill -0 "${owner}" 2>/dev/null; then
-    log "another session (pid ${owner}) is installing in ${checkout} — skipping"
-    exit 0
+    # A live concurrent install: wait for it (bounded well inside the 600s
+    # hook budget) so this session starts with dependencies instead of racing
+    # a tree npm ci is actively rewriting.
+    log "another session (pid ${owner}) is installing in ${checkout} — waiting for it"
+    waited=0
+    while kill -0 "${owner}" 2>/dev/null && ((waited < 480)); do
+      sleep 5
+      waited=$((waited + 5))
+    done
+    if [[ -d "${checkout}/node_modules" && ! -f "${marker}" ]]; then
+      log "concurrent install finished in ${checkout} — nothing to do"
+      exit 0
+    fi
+    if ((waited >= 480)); then
+      log "concurrent install still running after ${waited}s in ${checkout} — skipping"
+      exit 0
+    fi
+    log "concurrent installer (pid ${owner}) died without finishing in ${checkout}"
   fi
   # The claim token makes the takeover exclusive: rm-then-mkdir alone is not
   # atomic, so without it a second taker's rm could delete the first taker's
-  # fresh lock and both would install. A claim left by a kill mid-takeover is
-  # stale within a minute — the takeover itself is a few filesystem operations.
+  # fresh lock and both would install. The claim records its taker's pid so a
+  # killed takeover is reclaimed immediately; the age check covers only a
+  # pidless claim (its taker died between mkdir and the pid write).
   claim="${lock}.claim"
-  # The second mkdir attempt covers a stale claim this session just cleared
-  # (left by a takeover killed mid-flight) — mkdir stays the atomic arbiter
-  # both times, so two clearers still produce exactly one taker.
+  claim_is_stale() {
+    local claim_owner
+    claim_owner="$(cat "${claim}/pid" 2>/dev/null || true)"
+    if [[ -n "${claim_owner}" ]]; then
+      ! kill -0 "${claim_owner}" 2>/dev/null
+    else
+      [[ -n "$(find "${claim}" -maxdepth 0 -mmin +1 2>/dev/null)" ]]
+    fi
+  }
+  # The second mkdir attempt covers a stale claim this session just cleared —
+  # mkdir stays the atomic arbiter both times, so two clearers still produce
+  # exactly one taker.
   if ! mkdir "${claim}" 2>/dev/null; then
-    if [[ -n "$(find "${claim}" -maxdepth 0 -mmin +1 2>/dev/null)" ]]; then
+    if claim_is_stale; then
       log "clearing a stale takeover claim in ${checkout}"
       rm -rf "${claim}"
     fi
@@ -89,6 +120,7 @@ else
       exit 0
     fi
   fi
+  echo "$$" > "${claim}/pid"
   log "install lock owner (pid ${owner:-unknown}) is gone — taking over"
   rm -rf "${lock}"
   if ! mkdir "${lock}" 2>/dev/null; then
