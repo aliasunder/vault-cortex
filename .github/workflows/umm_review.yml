@@ -84,7 +84,7 @@ jobs:
       # to the action's defaults. Inputs whose default is empty
       # (fallback_model, max_findings) pass empty when the var is unset —
       # identical to omitting them.
-      - uses: aliasunder/umm-actually@726c687ac01b08ae66cc1604ba4b1b5f67fa8f3f # v0.4.1
+      - uses: aliasunder/umm-actually@2b855e22f9f9951557045ac17af74df9d46dcdd4 # v0.4.3
         with:
           github_token: ${{ steps.app-token.outputs.token }}
           openrouter_api_key: ${{ secrets.OPENROUTER_KEY }}
