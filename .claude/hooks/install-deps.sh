@@ -32,9 +32,19 @@ checkout="$(git -C "${payload_cwd:-${CLAUDE_PROJECT_DIR:-.}}" rev-parse --show-t
 # a partial node_modules is retried instead of trusted. It lives outside
 # node_modules because npm ci deletes that directory before installing.
 marker="${checkout}/.claude/.install-deps-incomplete"
+# The stamp records which package-lock.json the hook's own last install used,
+# so a stamped checkout reinstalls after a pull changes the lockfile. An
+# unstamped checkout (node_modules installed by the developer, not the hook)
+# is trusted as-is — the hook must never wipe an install it does not own.
+stamp="${checkout}/.claude/.install-deps-lockhash"
+lockfile_hash="$(git -C "${checkout}" hash-object package-lock.json 2>/dev/null || true)"
 if [[ -d "${checkout}/node_modules" && ! -f "${marker}" ]]; then
-  log "node_modules present in ${checkout} — nothing to do"
-  exit 0
+  stamped="$(cat "${stamp}" 2>/dev/null || true)"
+  if [[ -z "${stamped}" || "${stamped}" == "${lockfile_hash}" ]]; then
+    log "node_modules present in ${checkout} — nothing to do"
+    exit 0
+  fi
+  log "package-lock.json changed since the hook's last install in ${checkout} — reinstalling"
 fi
 
 # mkdir is the portable atomic lock (flock is Linux-only). The lock records its
@@ -69,8 +79,17 @@ log "installing dependencies in ${checkout} (node $(node --version 2>/dev/null |
 # ONNXRUNTIME_NODE_INSTALL=skip: onnxruntime-node's postinstall would download
 # GPU binaries whose extractor (adm-zip) is stubbed out — required on linux/x64.
 # npm's stdout goes to stderr too: SessionStart hook stdout enters the model's context.
-if ONNXRUNTIME_NODE_INSTALL=skip npm ci >&2; then
+ONNXRUNTIME_NODE_INSTALL=skip npm ci >&2 &
+install_pid=$!
+# The lock's liveness target becomes the npm process itself: if the hook shell
+# is killed but its npm ci survives, the lock stays respected until the process
+# actually mutating node_modules is gone.
+echo "${install_pid}" > "${lock}/pid"
+if wait "${install_pid}"; then
   rm -f "${marker}"
+  if [[ -n "${lockfile_hash}" ]]; then
+    printf '%s\n' "${lockfile_hash}" > "${stamp}"
+  fi
   log "install complete"
 else
   log "npm ci failed — the session continues without dependencies; the marker forces a retry next session"
