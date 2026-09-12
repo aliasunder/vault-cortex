@@ -1899,6 +1899,23 @@ describe("task line mutations", () => {
       expect(result).toBe("- [ ] Water plants 🔁 every week 📅 2026-01-12")
     })
 
+    it("keeps the priority and inline tag on the spawn", () => {
+      const result = tasks.buildNextOccurrenceLine({
+        taskLine:
+          "- [x] Water plants ⏫ 🔁 every week 📅 2026-01-05 #chore ✅ 2026-01-05 ^water",
+        nextDates: {
+          startDate: null,
+          scheduledDate: null,
+          dueDate: "2026-01-12",
+        },
+        today: "2026-01-05",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] Water plants ⏫ 🔁 every week #chore 📅 2026-01-12",
+      )
+    })
+
     it("strips the block link, task id, and depends-on from the spawn", () => {
       const result = tasks.buildNextOccurrenceLine({
         taskLine:
