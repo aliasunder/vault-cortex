@@ -2843,6 +2843,30 @@ describe("round-trip advisories", () => {
       ])
     })
 
+    it("says the stored description parses back empty when the whole submitted text is consumed", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "🔁 every day",
+          blockId: "all-meta",
+        },
+        logger,
+      )
+
+      expect(result.advisories).toEqual([
+        'description: the line was written as submitted, but the stored description parses back empty — the trailing "🔁 every day" was read as task metadata',
+        'recurrence: the stored line parses back "every day" although nothing set it — description text was read as this field',
+      ])
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] 🔁 every day ➕ ${today()} ^all-meta\n`,
+      )
+    })
+
     it("names the subtask whose text truncates and stays silent on clean subtasks", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)

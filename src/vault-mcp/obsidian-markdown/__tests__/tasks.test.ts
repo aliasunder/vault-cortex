@@ -2351,6 +2351,42 @@ describe("tasks.diffTaskRoundTrip", () => {
     expect(divergences).toEqual([])
   })
 
+  it("quotes the parser view, tags re-appended, when the submitted description had a tag after a consumed field", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] Fix login bug 📅 2026-01-01 #urgent ➕ 2026-09-11 ^lb",
+      priorTaskLine: null,
+      submitted: {
+        description: "Fix login bug 📅 2026-01-01 #urgent",
+        createdDate: "2026-09-11",
+      },
+    })
+    expect(divergences).toEqual([
+      {
+        field: "description",
+        expected: "Fix login bug 📅 2026-01-01 #urgent",
+        expectedSource: "submitted",
+        parsedBack: "Fix login bug #urgent",
+      },
+      {
+        field: "due",
+        expected: null,
+        expectedSource: "none",
+        parsedBack: "2026-01-01",
+      },
+    ])
+  })
+
+  it("reports no divergence when the parser view equals the submitted description exactly", () => {
+    // The slot differs (the tag sits in the metadata tail), but the parser
+    // re-appends it, so nothing the caller submitted was lost.
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] Fix bug 📅 2026-01-01 #urgent ^x",
+      priorTaskLine: "- [ ] Fix bug 📅 2026-01-01 #urgent ^x",
+      submitted: { description: "Fix bug #urgent" },
+    })
+    expect(divergences).toEqual([])
+  })
+
   it("reports an on_completion value materializing from a description tail", () => {
     const divergences = tasks.diffTaskRoundTrip({
       taskLine: "- [ ] archive this 🏁 delete ^oc",

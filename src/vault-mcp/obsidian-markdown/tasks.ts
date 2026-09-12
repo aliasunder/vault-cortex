@@ -1219,18 +1219,25 @@ const descriptionDivergences = ({
   const submittedDescription = submitted.description?.trim()
 
   if (submittedDescription !== undefined) {
-    const parsedBack = afterReading.descriptionSlot
-    if (parsedBack === submittedDescription) return []
+    // The slot is the trigger (tag re-appending would flag every edit on a
+    // tagged line), but the quoted value is the parser view — the
+    // description readers actually see, tags included.
+    if (afterReading.descriptionSlot === submittedDescription) return []
+    const parserViewBack =
+      afterReading.metadata.description === ""
+        ? null
+        : afterReading.metadata.description
+    if (parserViewBack === submittedDescription) return []
     const consumedTail = consumedDescriptionTail({
       expected: submittedDescription,
-      parsedBack,
+      parsedBack: parserViewBack,
     })
     return [
       {
         field: "description",
         expected: submittedDescription,
         expectedSource: "submitted",
-        parsedBack,
+        parsedBack: parserViewBack,
         ...(consumedTail && { consumedTail }),
       },
     ]
