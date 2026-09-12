@@ -11,7 +11,7 @@ import { describeError } from "../../utils/describe-error.js"
 import { realpathOrNull } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
-import { trashDomainLockPath } from "./vault-filesystem.js"
+import { trashDomainLockKey } from "./vault-filesystem.js"
 import type { TrashEntryStore } from "../search/search-index.js"
 import type { Logger } from "../../logger.js"
 
@@ -33,6 +33,9 @@ type SweepRowOutcome = "purged" | "missing" | "skipped"
 const sweepOneEntry = async (
   params: {
     vaultPath: string
+    /** The row's recorded path — vault-relative, expected to start with
+     *  ".trash/". The containment gates below verify that rather than
+     *  trust it. */
     trashPath: string
     cutoffEpochSeconds: number
     trashEntryStore: TrashEntryStore
@@ -125,8 +128,10 @@ const sweepExpiredTrashEntries = async (
 
   const rowOutcomes: SweepRowOutcome[] = []
   for (const expiredEntry of expiredEntries) {
+    // withFileLock is the serializing mode — each row queues behind any
+    // in-flight trash move on the shared key, and vice versa.
     const rowOutcome = await withFileLock(
-      trashDomainLockPath(params.vaultPath),
+      trashDomainLockKey(params.vaultPath),
       () => {
         return sweepOneEntry(
           {

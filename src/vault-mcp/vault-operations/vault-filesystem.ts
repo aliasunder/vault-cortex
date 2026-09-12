@@ -505,11 +505,12 @@ type DeleteNoteResult = {
 const TRASH_COLLISION_ERROR_PREFIX = "cannot move to trash"
 
 /** The one serializing-lock key shared by every trash move and the retention
- *  sweep's per-row processing (trash-sweeper.ts). Both sides MUST lock this
+ *  sweep's per-row processing (trash-sweeper.ts) — an in-memory key for
+ *  file-write-lock's map, not a lock file on disk. Both sides MUST lock this
  *  same key: the sweep decides what to unlink from a row it re-reads under
  *  the lock, and a trash move interleaving with that decision could hand it
  *  a fresh file at a stale row's path. */
-export const trashDomainLockPath = (vaultPath: string): string => {
+export const trashDomainLockKey = (vaultPath: string): string => {
   return join(vaultPath, ".trash")
 }
 
@@ -560,11 +561,13 @@ const moveNoteToTrash = async (
 
   await mkdir(join(params.vaultPath, ".trash", dir), { recursive: true })
 
-  // Serialized with the retention sweep (trashDomainLockPath): the sweep
-  // re-reads each row and unlinks its file under this lock, so a move that
-  // ran unlocked could land a fresh file at a stale row's path between the
-  // sweep's re-read and its unlink — losing the just-trashed copy.
-  return withFileLock(trashDomainLockPath(params.vaultPath), async () => {
+  // Serialized with the retention sweep (trashDomainLockKey; withFileLock is
+  // the serializing mode, so concurrent moves and sweep rows queue rather
+  // than fail): the sweep re-reads each row and unlinks its file under this
+  // lock, so a move that ran unlocked could land a fresh file at a stale
+  // row's path between the sweep's re-read and its unlink — losing the
+  // just-trashed copy.
+  return withFileLock(trashDomainLockKey(params.vaultPath), async () => {
     for (const candidateRelativePath of candidateRelativePaths) {
       const candidateFullPath = join(params.vaultPath, candidateRelativePath)
       if (!(await claimTrashTarget(candidateFullPath))) continue
