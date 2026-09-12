@@ -22,6 +22,9 @@ type ServerHandle = {
   process: ChildProcess
   vaultPath: string
   dataDir: string
+  /** Everything the server has logged to stdout so far — the structured
+   *  JSON log stream, for asserting a log line's presence or absence. */
+  stdout: () => string
   cleanup: () => Promise<void>
 }
 
@@ -29,6 +32,7 @@ type SpawnedServer = {
   child: ChildProcess
   vaultPath: string
   dataDir: string
+  stdout: () => string
   stderr: () => string
   /** Resolves once this child logs its own "server started" line. */
   started: Promise<void>
@@ -106,15 +110,22 @@ const spawnServerProcess = async (
   // probe alone can be answered by any server already listening there —
   // if our child then dies with EADDRINUSE, tests silently run against a
   // sibling file's server with a different configuration.
+  let stdoutBuf = ""
   const started = new Promise<void>((resolve) => {
-    let stdoutBuf = ""
     child.stdout?.on("data", (chunk: Buffer) => {
       stdoutBuf += chunk.toString()
       if (stdoutBuf.includes('"message":"server started"')) resolve()
     })
   })
 
-  return { child, vaultPath, dataDir, stderr: () => stderrBuf, started }
+  return {
+    child,
+    vaultPath,
+    dataDir,
+    stdout: () => stdoutBuf,
+    stderr: () => stderrBuf,
+    started,
+  }
 }
 
 /** Signal the child and wait for it to close, escalating to SIGKILL after
@@ -144,7 +155,7 @@ export const startServer = async (
   port: number,
   envOverrides: Record<string, string> = {},
 ): Promise<ServerHandle> => {
-  const { child, vaultPath, dataDir, stderr, started } =
+  const { child, vaultPath, dataDir, stdout, stderr, started } =
     await spawnServerProcess(port, envOverrides)
 
   // Both watchdogs are detached once the boot races settle: a timer that
@@ -186,7 +197,7 @@ export const startServer = async (
     await rm(dataDir, { recursive: true, force: true })
   }
 
-  return { port, process: child, vaultPath, dataDir, cleanup }
+  return { port, process: child, vaultPath, dataDir, stdout, cleanup }
 }
 
 /** Spawn server expecting it to fail — returns exit code and stderr. */

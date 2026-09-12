@@ -169,6 +169,12 @@ export type VaultConfig = Readonly<{
   /** True when this is a `:remote` deploy with Obsidian Sync. Set by
    *  `ENV OBSIDIAN_SYNC=true` baked into the `:remote` Docker target. */
   obsidianSyncEnabled: boolean
+  /** Days a note this server moved to `.trash/` is kept before the retention
+   *  sweep removes it; null (TRASH_RETENTION_DAYS=none) keeps entries
+   *  forever. Only entries the server itself trashed under the `system`
+   *  trash setting are swept — Obsidian's own trash entries are never
+   *  touched. */
+  trashRetentionDays: number | null
 }>
 
 // ── Loader ─────────────────────────────────────────────────────
@@ -304,6 +310,22 @@ export const loadConfig = (
     envVar.from(env).get("MAX_PDF_RENDER_PAGES").default("5").asIntPositive(),
   )
 
+  // "none" keeps trashed entries forever (default-on features get an explicit
+  // sentinel off switch). asIntPositive admits 0, and a zero-day retention
+  // would purge every entry on each sweep — reject it like the byte caps.
+  const trashRetentionDaysRaw = env.TRASH_RETENTION_DAYS?.trim()
+  const trashRetentionDays =
+    trashRetentionDaysRaw === "none"
+      ? null
+      : requireNonZero(
+          "TRASH_RETENTION_DAYS",
+          envVar
+            .from(env)
+            .get("TRASH_RETENTION_DAYS")
+            .default("30")
+            .asIntPositive(),
+        )
+
   // Default 0 (header ignored): without a proxy that writes the Forwarded
   // header (e.g. AWS API Gateway), the header is client-supplied — trusting
   // it by default would let any client choose its own rate-limit bucket.
@@ -341,6 +363,7 @@ export const loadConfig = (
     maxFileBytes,
     maxImageOutputBytes,
     maxPdfRenderPages,
+    trashRetentionDays,
     obsidianSyncEnabled: envVar
       .from(env)
       .get("OBSIDIAN_SYNC")
