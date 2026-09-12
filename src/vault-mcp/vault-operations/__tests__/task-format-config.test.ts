@@ -34,7 +34,7 @@ const DEFAULT_RECURRENCE_FIELDS = {
   recurrenceOnNextLine: false,
   removeScheduledDateOnRecurrence: false,
   doneStatusSymbols: [],
-}
+} as const
 
 describe("readTaskFormatConfig", () => {
   it("reads emoji format from a valid config file", async () => {

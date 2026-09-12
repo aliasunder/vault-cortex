@@ -8,7 +8,7 @@ const DEFAULT_RECURRENCE_SETTINGS = {
   recurrenceOnNextLine: false,
   removeScheduledDateOnRecurrence: false,
   doneStatusSymbols: [],
-}
+} as const
 
 /** Default emoji format config for mutation tests. */
 const EMOJI_CONFIG: TaskFormatConfig = {
