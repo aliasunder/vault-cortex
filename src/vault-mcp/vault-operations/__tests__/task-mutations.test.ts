@@ -1947,6 +1947,31 @@ kanban-plugin: board
       expect(content).toBe(SIMPLE_NOTE)
     })
 
+    it("rejects assigning a block_id that exists behind a trailing hard break", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "- [ ] Task A ➕ 2026-01-01 ^dup  \n- [ ] Task B ➕ 2026-01-02 ^other\n",
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            blockId: "other",
+            assignBlockId: "dup",
+          },
+          logger,
+        ),
+      ).rejects.toThrow('blockId "dup" already exists in this note')
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "- [ ] Task A ➕ 2026-01-01 ^dup  \n- [ ] Task B ➕ 2026-01-02 ^other\n",
+      )
+    })
+
     it("replaces an existing block_id", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)

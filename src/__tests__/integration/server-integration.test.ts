@@ -552,6 +552,9 @@ describe("default config", () => {
     })
 
     it("vault_update_task — completing a recurring task spawns the next occurrence", async () => {
+      // The server stamps ✅ with its own clock; bracketing the write pins
+      // the stamp to the write's day even across a midnight boundary.
+      const dateBeforeWrite = DateTime.now().toISODate()
       const result = await callTool({
         client,
         name: "vault_update_task",
@@ -561,6 +564,7 @@ describe("default config", () => {
           status: "done",
         },
       })
+      const dateAfterWrite = DateTime.now().toISODate()
       expect(result.isError).not.toBe(true)
       const json = JSON.parse(textContent(result))
       expect(json).toEqual({
@@ -577,12 +581,17 @@ describe("default config", () => {
         changes: ["status: todo → done", "next_occurrence: (none) → line 7"],
       })
 
-      const completionDate = DateTime.now().toISODate()
       const readback = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Projects/recurring.md", heading: "Habits" },
       })
+      // The ✅ date the server stamped, captured from the readback.
+      const STAMPED_DONE_DATE_RE = /✅ (\d{4}-\d{2}-\d{2})/
+      const completionDate = STAMPED_DONE_DATE_RE.exec(
+        textContent(readback),
+      )?.[1]
+      expect([dateBeforeWrite, dateAfterWrite]).toContain(completionDate)
       expect(textContent(readback)).toBe(
         `## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ ${completionDate} ^water-plants\n`,
       )

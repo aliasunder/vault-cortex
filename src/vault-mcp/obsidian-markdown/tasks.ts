@@ -1171,7 +1171,8 @@ const buildTaskLine = (
 }
 
 /** Stamps or strips a completion-style date field on a task line.
- *  When stamping is enabled, replaces an existing field or appends it
+ *  Stamping strips every existing copy first — a first-match replace
+ *  would leave a stale duplicate behind — then appends the new field
  *  to the metadata tail; when disabled, strips any existing field. */
 const applyCompletionDate = (params: {
   taskLine: string
@@ -1180,10 +1181,12 @@ const applyCompletionDate = (params: {
   dateRegex: RegExp
 }): string => {
   return mapMetadataTail(params.taskLine, (metadata) => {
-    if (!params.shouldStamp) return stripField(metadata, params.dateRegex)
-    return params.dateRegex.test(metadata)
-      ? metadata.replace(params.dateRegex, params.dateField)
-      : appendField({ metadata, fieldText: params.dateField })
+    const metadataWithoutDate = stripField(metadata, params.dateRegex)
+    if (!params.shouldStamp) return metadataWithoutDate
+    return appendField({
+      metadata: metadataWithoutDate,
+      fieldText: params.dateField,
+    })
   })
 }
 
@@ -1317,18 +1320,18 @@ const updateTaskLinePriority = ({
 
   const priorityField = formatPriority(newPriority, config.taskFormat)
 
-  if (hasExistingPriority) {
-    return joinTaskLine({
-      ...parts,
-      metadata: parts.metadata.replace(PRIORITY_INLINE_RE, priorityField),
-    })
-  }
-
   // Priority leads the metadata tail — right after the description,
-  // before dates.
+  // before dates. Every existing copy is stripped first: a first-match
+  // replace would leave a stale duplicate behind.
+  const metadataWithoutPriority = stripField(
+    parts.metadata,
+    PRIORITY_INLINE_RE,
+  ).trim()
   return joinTaskLine({
     ...parts,
-    metadata: [priorityField, parts.metadata].filter(Boolean).join(" "),
+    metadata: [priorityField, metadataWithoutPriority]
+      .filter(Boolean)
+      .join(" "),
   })
 }
 

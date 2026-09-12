@@ -63,7 +63,11 @@ describe("nextOccurrenceDates", () => {
       dueDate: "2026-01-05",
       today: "2026-09-11",
     })
-    expect(next?.dueDate).toBe("2026-01-12")
+    expect(next).toEqual({
+      startDate: null,
+      scheduledDate: null,
+      dueDate: "2026-01-12",
+    })
   })
 
   // Plugin test: "creates a recurring instance even if no date is given"
@@ -87,7 +91,11 @@ describe("nextOccurrenceDates", () => {
       dueDate: "2022-01-31",
       today: "2022-01-31",
     })
-    expect(next?.dueDate).toBe("2022-02-28")
+    expect(next).toEqual({
+      startDate: null,
+      scheduledDate: null,
+      dueDate: "2022-02-28",
+    })
   })
 
   // Plugin test: "creates a recurrence 3 months in"
@@ -97,7 +105,11 @@ describe("nextOccurrenceDates", () => {
       dueDate: "2022-01-31",
       today: "2022-01-31",
     })
-    expect(next?.dueDate).toBe("2022-04-30")
+    expect(next).toEqual({
+      startDate: null,
+      scheduledDate: null,
+      dueDate: "2022-04-30",
+    })
   })
 
   // Plugin test: "creates a recurrence the next month, even across years"
@@ -107,7 +119,11 @@ describe("nextOccurrenceDates", () => {
       dueDate: "2023-12-31",
       today: "2023-12-31",
     })
-    expect(next?.dueDate).toBe("2024-02-29")
+    expect(next).toEqual({
+      startDate: null,
+      scheduledDate: null,
+      dueDate: "2024-02-29",
+    })
   })
 
   // Plugin test: "creates a recurrence in 2 years, even on Feb 29th" —
@@ -118,7 +134,11 @@ describe("nextOccurrenceDates", () => {
       dueDate: "2024-02-29",
       today: "2024-02-29",
     })
-    expect(next?.dueDate).toBe("2026-02-28")
+    expect(next).toEqual({
+      startDate: null,
+      scheduledDate: null,
+      dueDate: "2026-02-28",
+    })
   })
 
   // Plugin test: "creates a recurrence in 11 months, even on March 31"
@@ -128,7 +148,11 @@ describe("nextOccurrenceDates", () => {
       dueDate: "2020-03-31",
       today: "2020-03-31",
     })
-    expect(next?.dueDate).toBe("2021-02-28")
+    expect(next).toEqual({
+      startDate: null,
+      scheduledDate: null,
+      dueDate: "2021-02-28",
+    })
   })
 
   // Plugin test: "creates a recurrence in 13 months, even on Jan 31"
@@ -138,7 +162,11 @@ describe("nextOccurrenceDates", () => {
       dueDate: "2020-01-31",
       today: "2020-01-31",
     })
-    expect(next?.dueDate).toBe("2021-02-28")
+    expect(next).toEqual({
+      startDate: null,
+      scheduledDate: null,
+      dueDate: "2021-02-28",
+    })
   })
 
   it('keeps rrule\'s native month-skipping for rules that fix a date with " on "', () => {
@@ -148,7 +176,11 @@ describe("nextOccurrenceDates", () => {
       dueDate: "2026-01-31",
       today: "2026-01-31",
     })
-    expect(next?.dueDate).toBe("2026-03-31")
+    expect(next).toEqual({
+      startDate: null,
+      scheduledDate: null,
+      dueDate: "2026-03-31",
+    })
   })
 
   it("skips missing days natively for a yearly rule fixing month and day", () => {
@@ -160,7 +192,11 @@ describe("nextOccurrenceDates", () => {
       dueDate: "2026-01-31",
       today: "2026-01-31",
     })
-    expect(next?.dueDate).toBe("2027-01-31")
+    expect(next).toEqual({
+      startDate: null,
+      scheduledDate: null,
+      dueDate: "2027-01-31",
+    })
   })
 
   it("shifts every present date by its distance from the reference date", () => {
@@ -186,7 +222,11 @@ describe("nextOccurrenceDates", () => {
       dueDate: "2026-01-05",
       today: "2026-09-11",
     })
-    expect(next?.dueDate).toBe("2026-09-18")
+    expect(next).toEqual({
+      startDate: null,
+      scheduledDate: null,
+      dueDate: "2026-09-18",
+    })
   })
 
   it('advances "every day when done" completed today to tomorrow', () => {
@@ -196,7 +236,11 @@ describe("nextOccurrenceDates", () => {
       dueDate: "2026-09-11",
       today: "2026-09-11",
     })
-    expect(next?.dueDate).toBe("2026-09-12")
+    expect(next).toEqual({
+      startDate: null,
+      scheduledDate: null,
+      dueDate: "2026-09-12",
+    })
   })
 
   // Plugin test: "should remove the scheduledDate when removeScheduledDate
@@ -291,8 +335,11 @@ describe("nextOccurrenceDates", () => {
       removeScheduledDateOnRecurrence: false,
       zone: "Pacific/Apia",
     })
-    expect(shiftedInApia?.dueDate).toBe("2012-01-07")
-    expect(shiftedInApia?.startDate).toBe("2012-01-06")
+    expect(shiftedInApia).toEqual({
+      startDate: "2012-01-06",
+      scheduledDate: null,
+      dueDate: "2012-01-07",
+    })
 
     // The same dates in UTC keep their two-day label distance.
     const shiftedInUtc = nextOccurrenceDates({
@@ -304,6 +351,10 @@ describe("nextOccurrenceDates", () => {
       removeScheduledDateOnRecurrence: false,
       zone: "utc",
     })
-    expect(shiftedInUtc?.startDate).toBe("2012-01-05")
+    expect(shiftedInUtc).toEqual({
+      startDate: "2012-01-05",
+      scheduledDate: null,
+      dueDate: "2012-01-07",
+    })
   })
 })

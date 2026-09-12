@@ -725,9 +725,11 @@ const validateBlockId = (
       `blockId "${blockId}" contains invalid characters (allowed: letters, digits, hyphens)`,
     )
   }
+  // trimEnd: a hard break's trailing spaces must not hide an existing
+  // block link — an invisible duplicate would win every later id lookup.
   const existingIndex = bodyLines.findIndex(
     (bodyLine, index) =>
-      index !== excludeLineIndex && bodyLine.endsWith(` ^${blockId}`),
+      index !== excludeLineIndex && bodyLine.trimEnd().endsWith(` ^${blockId}`),
   )
   if (existingIndex !== -1) {
     throw new Error(`blockId "${blockId}" already exists in this note`)

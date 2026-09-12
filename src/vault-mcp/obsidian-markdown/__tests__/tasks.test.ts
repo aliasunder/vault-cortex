@@ -881,6 +881,16 @@ describe("task line mutations", () => {
       )
     })
 
+    it("re-stamping done on a line with duplicated done dates keeps exactly one", () => {
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [x] Habit ✅ 2026-01-05 ➕ 2026-01-01 ✅ 2026-01-12",
+        newStatus: "done",
+        today: "2026-07-12",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [x] Habit ➕ 2026-01-01 ✅ 2026-07-12")
+    })
+
     it("marks a todo task as done with a done date", () => {
       const result = tasks.updateTaskLineStatus({
         taskLine: "- [ ] Fix the bug ➕ 2026-07-01",
@@ -1079,6 +1089,15 @@ describe("task line mutations", () => {
         config: EMOJI_CONFIG,
       })
       expect(result).toBe("- [ ] Task ⏬ ➕ 2026-07-01")
+    })
+
+    it("replacing a duplicated priority keeps exactly one", () => {
+      const result = tasks.updateTaskLinePriority({
+        taskLine: "- [ ] Task ⏫ ➕ 2026-07-01 ⏫",
+        newPriority: "highest",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] Task 🔺 ➕ 2026-07-01")
     })
 
     it("removes priority when null is passed", () => {
