@@ -210,15 +210,16 @@ const startServer = async (): Promise<void> => {
   // latency) can never stall /healthz past container health-check budgets.
   // Sync deploys never trash (the delete handler bypasses to "none") and a
   // read-only server never modifies the vault, so neither sweeps.
-  if (
-    config.trashRetentionDays !== null &&
+  const { trashRetentionDays } = config
+  const trashSweepEnabled =
+    trashRetentionDays !== null &&
     !config.readOnlyMode &&
     !config.obsidianSyncEnabled
-  ) {
+  if (trashSweepEnabled) {
     trashSweeper.startTrashSweepSchedule(
       {
         vaultPath,
-        retentionDays: config.trashRetentionDays,
+        retentionDays: trashRetentionDays,
         trashEntryStore: search,
       },
       logger,
