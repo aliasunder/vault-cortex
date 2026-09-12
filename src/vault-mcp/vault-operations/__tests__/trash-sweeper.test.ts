@@ -293,4 +293,40 @@ describe("startTrashSweepSchedule", () => {
       /ENOENT/,
     )
   })
+
+  it("logs the failure and re-arms the daily chain when a sweep throws", async () => {
+    const vault = await createTestVault()
+    // The daily re-arm is the contract under test, so fake timers drive the
+    // clock; outcomes are asserted after advancing it, not the tick schedule.
+    vi.useFakeTimers()
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const errorSpy = vi.spyOn(logger, "error")
+    onTestFinished(() => errorSpy.mockRestore())
+    const listExpiredTrashEntries = vi.fn(() => {
+      throw new Error("index unavailable")
+    })
+    const throwingStore = {
+      listExpiredTrashEntries,
+      getTrashEntry: () => null,
+      deleteTrashEntry: (): void => undefined,
+    }
+
+    trashSweeper.startTrashSweepSchedule(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: throwingStore },
+      logger,
+    )
+
+    // Flush the rejected sweep's catch/finally microtasks.
+    await vi.advanceTimersByTimeAsync(0)
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+    expect(errorSpy).toHaveBeenCalledWith("trash retention sweep failed", {
+      error: "[Error]: index unavailable",
+    })
+
+    // The finally re-armed the chain: one day later the sweep runs again.
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000)
+    expect(listExpiredTrashEntries).toHaveBeenCalledTimes(2)
+  })
 })
