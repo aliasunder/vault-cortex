@@ -1189,10 +1189,11 @@ release — re-check each of these against the plugin source before merging:
 - The `recurrence.test.ts` vectors lifted from the plugin's own
   `Recurrence.test.ts` — refresh them from the new release's tests.
 
-Two deliberate divergences are contracted in `recurrence.ts`'s docstring
-and pinned by tests (exhausted finite rules complete without spawning;
-calendar-invalid dates are nulled at parse time), so a behavior change
-there is a decision, not a drift fix.
+Two deliberate divergences are pinned by tests, each contracted where it
+lives: exhausted finite rules complete without spawning (`recurrence.ts`'s
+docstring), and calendar-invalid dates are nulled at parse time
+(`calendarValidOrNull` in `tasks.ts`). A behavior change in either is a
+decision, not a drift fix.
 
 ## Upgrading obsidian-headless
 
