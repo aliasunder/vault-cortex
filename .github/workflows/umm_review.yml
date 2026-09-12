@@ -45,9 +45,11 @@ jobs:
       # issue_comment events check out the default branch unless overridden —
       # the action reads workspace files for context, so it needs the PR head.
       # Only same-repo PR heads are eligible: fork content must never enter
-      # this secrets-bearing workflow, so fork PRs fall back to the default
-      # checkout (reviewed from the API diff with base-branch context). Runs
-      # before any checkout, on a read-only token, with no untrusted input.
+      # this secrets-bearing workflow. The job guard already skips fork PRs
+      # on pull_request events; this step handles the issue_comment path,
+      # where the owner can still trigger a review via @umm review (falls
+      # back to the default checkout with base-branch context). Runs before
+      # any checkout, on a read-only token, with no untrusted input.
       - name: Resolve review checkout ref
         id: review-ref
         if: github.event_name == 'issue_comment'
