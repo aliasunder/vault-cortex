@@ -1431,26 +1431,28 @@ const updateTask = async (
     const finalTaskIndex = moved.taskLineIndex
     const subtaskPositions = withSubtasks.subtaskPositions
 
+    const moveSplice =
+      moved.movedBlockLength !== undefined
+        ? {
+            moveStart: completedIndexAfterSpawn,
+            movedBlockLength: moved.movedBlockLength,
+            insertAt: moved.taskLineIndex,
+          }
+        : undefined
     const firstSubtaskPosition = subtaskPositions?.at(0)
+    const checklistSplice =
+      firstSubtaskPosition && addSubtasks
+        ? {
+            insertIndex: firstSubtaskPosition.line - bodyStartLine - 1,
+            lineCount: addSubtasks.length,
+          }
+        : undefined
     const spawnFinalIndex =
       recurrenceSpawn.kind === "spawn"
         ? spawnIndexAfterSplices({
             spawnIndex: spawnInsertIndex,
-            move:
-              moved.movedBlockLength !== undefined
-                ? {
-                    moveStart: completedIndexAfterSpawn,
-                    movedBlockLength: moved.movedBlockLength,
-                    insertAt: moved.taskLineIndex,
-                  }
-                : undefined,
-            checklistInsert:
-              firstSubtaskPosition && addSubtasks
-                ? {
-                    insertIndex: firstSubtaskPosition.line - bodyStartLine - 1,
-                    lineCount: addSubtasks.length,
-                  }
-                : undefined,
+            move: moveSplice,
+            checklistInsert: checklistSplice,
           })
         : undefined
 
