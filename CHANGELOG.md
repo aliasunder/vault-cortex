@@ -98,6 +98,30 @@
 
 
 
+
+## [0.50.3] — 2026-09-12
+
+### Features
+
+- **vault:** Honor "Move to system trash" as .trash/ with a retention sweep (#565)
+
+### Bug Fixes
+
+- **vault:** Log write-path cleanup failures instead of swallowing them (#560)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.50.2
+
+### CI / Infrastructure
+
+- Wire the phases review-dispatch input to the UMM_PHASES repo variable (#563)
+
+### Maintenance
+
+- **hooks:** Install deps at session start and worktree entry (#564)
+- Bump umm-actually to v0.4.3 (#567)
+
 ## [0.50.2] — 2026-09-11
 
 ### Bug Fixes
