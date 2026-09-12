@@ -61,6 +61,7 @@ const sweepOneEntry = async (
   // the file is left alone and the row kept as evidence.
   const trashRoot = join(resolve(vaultPath), ".trash")
   const resolvedPath = resolve(vaultPath, trashPath)
+  // + sep prevents ".trash-backup/" from matching ".trash" as a prefix
   if (!resolvedPath.startsWith(trashRoot + sep)) {
     logger.warn("trash entry resolves outside .trash — skipped", {
       trashPath,
