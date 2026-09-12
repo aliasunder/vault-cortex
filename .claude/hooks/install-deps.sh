@@ -42,7 +42,9 @@ fi
 # than race npm ci; a dead owner (hook killed mid-install) is taken over
 # immediately, so the marker's retry is never blocked behind an orphaned lock.
 lock="${checkout}/.claude/.install-deps.lock"
-if ! mkdir "${lock}" 2>/dev/null; then
+if mkdir "${lock}" 2>/dev/null; then
+  echo "$$" > "${lock}/pid"
+else
   owner="$(cat "${lock}/pid" 2>/dev/null || true)"
   if [[ -n "${owner}" ]] && kill -0 "${owner}" 2>/dev/null; then
     log "another session (pid ${owner}) is installing in ${checkout} — skipping"
@@ -54,8 +56,8 @@ if ! mkdir "${lock}" 2>/dev/null; then
     log "lost the takeover race to another session — skipping"
     exit 0
   }
+  echo "$$" > "${lock}/pid"
 fi
-echo "$$" > "${lock}/pid"
 trap 'rm -rf "${lock}"' EXIT
 
 cd "${checkout}"
