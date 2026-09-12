@@ -60,7 +60,7 @@ jobs:
           PR_NUMBER: ${{ github.event.issue.number }}
         run: |
           same_repo=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" \
-            --jq '.head.repo.full_name == .base.repo.full_name')
+            --jq '(.head.repo != null) and (.head.repo.full_name == .base.repo.full_name)')
           if [ "$same_repo" = "true" ]; then
             echo "ref=refs/pull/${PR_NUMBER}/head" >> "$GITHUB_OUTPUT"
           else
