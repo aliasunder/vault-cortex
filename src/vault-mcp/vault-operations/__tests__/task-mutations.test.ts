@@ -3101,6 +3101,35 @@ describe("round-trip advisories", () => {
       })
     })
 
+    it("omits advisories when the submitted description ends in a tag that also sits in the metadata tail", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix bug 📅 2026-01-01 #urgent ^x\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "x",
+          description: "Fix bug #urgent",
+        },
+        logger,
+      )
+
+      expect(result.advisories).toBeUndefined()
+      const content = await readTestNote(vault, "tasks.md")
+      // Pre-existing write behavior, tracked separately: the submitted text
+      // lands in the description slot while the tail keeps its copy of the
+      // tag, so the tag is duplicated on the line. The advisory stays silent
+      // because the slot round-trips the submitted text exactly.
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix bug #urgent 📅 2026-01-01 #urgent ^x\n",
+      )
+    })
+
     it("names a truncating add_subtasks item in the advisories", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
