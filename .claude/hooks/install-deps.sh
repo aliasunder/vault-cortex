@@ -92,6 +92,14 @@ else
     fi
     log "concurrent installer (pid ${owner}) died without finishing in ${checkout}"
   fi
+  # Re-read: another session may have taken over the lock while we waited.
+  # Without this, a completed takeover (claim already removed) is invisible
+  # and this session's mkdir-claim succeeds, leading to two concurrent installs.
+  owner="$(cat "${lock}/pid" 2>/dev/null || true)"
+  if [[ -n "${owner}" ]] && kill -0 "${owner}" 2>/dev/null; then
+    log "another session (pid ${owner}) took over the install in ${checkout} — skipping"
+    exit 0
+  fi
   # The claim token makes the takeover exclusive: rm-then-mkdir alone is not
   # atomic, so without it a second taker's rm could delete the first taker's
   # fresh lock and both would install. The claim records its taker's pid so a
