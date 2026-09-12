@@ -37,20 +37,26 @@ if [[ -d "${checkout}/node_modules" && ! -f "${marker}" ]]; then
   exit 0
 fi
 
-# mkdir is the portable atomic lock (flock is Linux-only). A held lock means a
-# concurrent session is installing — skip rather than race npm ci. A lock older
-# than 30 minutes was left by a killed hook: take it over instead of blocking
-# installs forever.
+# mkdir is the portable atomic lock (flock is Linux-only). The lock records its
+# owner's pid: a live owner means a concurrent install is running — skip rather
+# than race npm ci; a dead owner (hook killed mid-install) is taken over
+# immediately, so the marker's retry is never blocked behind an orphaned lock.
 lock="${checkout}/.claude/.install-deps.lock"
 if ! mkdir "${lock}" 2>/dev/null; then
-  if [[ -n "$(find "${lock}" -maxdepth 0 -mmin +30 2>/dev/null)" ]]; then
-    log "stale install lock (>30 min) in ${checkout} — taking over"
-  else
-    log "another session is installing in ${checkout} — skipping"
+  owner="$(cat "${lock}/pid" 2>/dev/null || true)"
+  if [[ -n "${owner}" ]] && kill -0 "${owner}" 2>/dev/null; then
+    log "another session (pid ${owner}) is installing in ${checkout} — skipping"
     exit 0
   fi
+  log "install lock owner (pid ${owner:-unknown}) is gone — taking over"
+  rm -rf "${lock}"
+  mkdir "${lock}" 2>/dev/null || {
+    log "lost the takeover race to another session — skipping"
+    exit 0
+  }
 fi
-trap 'rmdir "${lock}" 2>/dev/null || true' EXIT
+echo "$$" > "${lock}/pid"
+trap 'rm -rf "${lock}"' EXIT
 
 cd "${checkout}"
 touch "${marker}"
@@ -60,7 +66,8 @@ command -v nvm >/dev/null 2>&1 && nvm use >/dev/null 2>&1 || true
 log "installing dependencies in ${checkout} (node $(node --version 2>/dev/null || echo unknown))"
 # ONNXRUNTIME_NODE_INSTALL=skip: onnxruntime-node's postinstall would download
 # GPU binaries whose extractor (adm-zip) is stubbed out — required on linux/x64.
-if ONNXRUNTIME_NODE_INSTALL=skip npm ci; then
+# npm's stdout goes to stderr too: SessionStart hook stdout enters the model's context.
+if ONNXRUNTIME_NODE_INSTALL=skip npm ci >&2; then
   rm -f "${marker}"
   log "install complete"
 else
