@@ -68,7 +68,16 @@ else
   }
   echo "$$" > "${lock}/pid"
 fi
-trap 'rm -rf "${lock}"' EXIT
+cleanup() {
+  # If npm ci is still running (hook killed while npm continues), leave the
+  # lock — its pid targets the live npm process; the takeover logic (above)
+  # handles the eventual cleanup once npm exits.
+  if [[ -n "${install_pid:-}" ]] && kill -0 "${install_pid}" 2>/dev/null; then
+    return
+  fi
+  rm -rf "${lock}"
+}
+trap cleanup EXIT
 
 cd "${checkout}"
 touch "${marker}"
