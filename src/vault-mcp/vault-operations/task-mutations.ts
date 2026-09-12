@@ -1494,7 +1494,9 @@ const updateTask = async (
 
     const finalLine = bodyStartLine + finalTaskIndex + 1
     const finalTaskLine = resultLines[finalTaskIndex] ?? mutatedLine
-    const finalBlockId = tasks.BLOCK_LINK_RE.exec(finalTaskLine)?.[1]
+    // Trimmed-end per BLOCK_LINK_RE's contract: a heading-only move splices
+    // the raw line, and a trailing hard break would hide the anchored match.
+    const finalBlockId = tasks.BLOCK_LINK_RE.exec(finalTaskLine.trimEnd())?.[1]
     const finalHeading = parseHeadings(resultLines).findLast(
       (heading) => heading.startLine < finalTaskIndex,
     )

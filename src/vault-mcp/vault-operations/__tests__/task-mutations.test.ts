@@ -450,6 +450,39 @@ describe("task-mutations", () => {
       )
     })
 
+    it("returns the block_id when the moved line ends with a hard break", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "board.md",
+        "## Active\n\n- [ ] Walk the dog ➕ 2026-07-01 ^walk  \n\n## Done\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "board.md",
+          blockId: "walk",
+          heading: "Done",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        block_id: "walk",
+        heading: "Done",
+        path: "board.md",
+        line: 5,
+        description: "Walk the dog",
+        changes: ["heading: Active → Done"],
+      })
+      const content = await readTestNote(vault, "board.md")
+      // The raw line moves untouched — trailing hard break included.
+      expect(content).toBe(
+        "## Active\n\n\n## Done\n- [ ] Walk the dog ➕ 2026-07-01 ^walk  \n",
+      )
+    })
+
     it("moves a task with sub-items", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "board.md", KANBAN_WITH_SUBITEMS)
