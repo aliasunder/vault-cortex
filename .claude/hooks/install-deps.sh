@@ -46,6 +46,17 @@ if [[ -d "${checkout}/node_modules" && ! -f "${marker}" ]]; then
   fi
   log "package-lock.json changed since the hook's last install in ${checkout} — reinstalling"
 fi
+# A hook killed by timeout can leave the marker even though its orphaned npm ci
+# finished the install. A tree that passes npm ls is complete — clear the
+# marker instead of rebuilding it; without a stamp it is then trusted the same
+# way a developer's own install is.
+if [[ -d "${checkout}/node_modules" && -f "${marker}" ]]; then
+  if npm --prefix "${checkout}" ls --depth=0 >/dev/null 2>&1; then
+    rm -f "${marker}"
+    log "marker left by an interrupted hook but the dependency tree in ${checkout} is complete — clearing"
+    exit 0
+  fi
+fi
 
 # mkdir is the portable atomic lock (flock is Linux-only). The lock records its
 # owner's pid: a live owner means a concurrent install is running — skip rather
@@ -65,12 +76,18 @@ else
   # fresh lock and both would install. A claim left by a kill mid-takeover is
   # stale within a minute — the takeover itself is a few filesystem operations.
   claim="${lock}.claim"
+  # The second mkdir attempt covers a stale claim this session just cleared
+  # (left by a takeover killed mid-flight) — mkdir stays the atomic arbiter
+  # both times, so two clearers still produce exactly one taker.
   if ! mkdir "${claim}" 2>/dev/null; then
     if [[ -n "$(find "${claim}" -maxdepth 0 -mmin +1 2>/dev/null)" ]]; then
+      log "clearing a stale takeover claim in ${checkout}"
       rm -rf "${claim}"
     fi
-    log "another session is taking over the stale lock in ${checkout} — skipping"
-    exit 0
+    if ! mkdir "${claim}" 2>/dev/null; then
+      log "another session is taking over the stale lock in ${checkout} — skipping"
+      exit 0
+    fi
   fi
   log "install lock owner (pid ${owner:-unknown}) is gone — taking over"
   rm -rf "${lock}"
