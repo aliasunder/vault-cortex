@@ -1016,12 +1016,15 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
           const trashOption = config.obsidianSyncEnabled
             ? "none"
             : await readTrashConfig(vaultPath)
-          // Retention bookkeeping rides only the "system" mapping: an
-          // explicit "local" choice means Obsidian's own keep-forever trash,
-          // so those moves are never recorded and never swept. The clear is
-          // unconditional — an unrecorded move that lands on a stale row's
-          // path must defuse that row, or the sweep would unlink the
-          // keep-forever copy.
+          // Record for retention only under "system": Docker has no system
+          // trash, so the server maps it to .trash/ — the server chose that
+          // destination, so the server sweeps it. "local" means the user
+          // explicitly chose .trash/ as keep-forever trash (never swept).
+          // "none" deletes permanently and never reaches .trash/.
+          //
+          // clearStaleTrashEntry is unconditional: an unrecorded move (e.g.
+          // "local") landing at a path with a stale row must defuse it, or
+          // the sweep would later unlink the keep-forever copy.
           return vaultFs.deleteNote(
             {
               vaultPath,
