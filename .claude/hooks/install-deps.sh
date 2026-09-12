@@ -60,14 +60,29 @@ else
     log "another session (pid ${owner}) is installing in ${checkout} — skipping"
     exit 0
   fi
+  # The claim token makes the takeover exclusive: rm-then-mkdir alone is not
+  # atomic, so without it a second taker's rm could delete the first taker's
+  # fresh lock and both would install. A claim left by a kill mid-takeover is
+  # stale within a minute — the takeover itself is a few filesystem operations.
+  claim="${lock}.claim"
+  if ! mkdir "${claim}" 2>/dev/null; then
+    if [[ -n "$(find "${claim}" -maxdepth 0 -mmin +1 2>/dev/null)" ]]; then
+      rm -rf "${claim}"
+    fi
+    log "another session is taking over the stale lock in ${checkout} — skipping"
+    exit 0
+  fi
   log "install lock owner (pid ${owner:-unknown}) is gone — taking over"
   rm -rf "${lock}"
-  mkdir "${lock}" 2>/dev/null || {
-    log "lost the takeover race to another session — skipping"
+  if ! mkdir "${lock}" 2>/dev/null; then
+    rm -rf "${claim}"
+    log "lost the lock to a newly arrived session — skipping"
     exit 0
-  }
+  fi
   echo "$$" > "${lock}/pid"
+  rm -rf "${claim}"
 fi
+owned_pid="$$"
 cleanup() {
   # If npm ci is still running (hook killed while npm continues), leave the
   # lock — its pid targets the live npm process; the takeover logic (above)
@@ -75,7 +90,12 @@ cleanup() {
   if [[ -n "${install_pid:-}" ]] && kill -0 "${install_pid}" 2>/dev/null; then
     return
   fi
-  rm -rf "${lock}"
+  # Release only a lock this hook still owns: after this hook's npm exited, a
+  # takeover may have replaced the lock, and removing it would unlock a third
+  # session against the second's live install.
+  if [[ "$(cat "${lock}/pid" 2>/dev/null)" == "${owned_pid}" ]]; then
+    rm -rf "${lock}"
+  fi
 }
 trap cleanup EXIT
 
@@ -94,6 +114,7 @@ install_pid=$!
 # is killed but its npm ci survives, the lock stays respected until the process
 # actually mutating node_modules is gone.
 echo "${install_pid}" > "${lock}/pid"
+owned_pid="${install_pid}"
 if wait "${install_pid}"; then
   rm -f "${marker}"
   if [[ -n "${lockfile_hash}" ]]; then
