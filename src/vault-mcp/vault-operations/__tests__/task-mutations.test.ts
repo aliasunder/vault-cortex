@@ -3154,6 +3154,37 @@ describe("round-trip advisories", () => {
       )
     })
 
+    it("preserves a description date signifier through a combined status change and reports both divergences", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Old ➕ 2026-07-01 ^t\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "t",
+          description: "Finish ✅ 2026-05-05",
+          status: "done",
+        },
+        logger,
+      )
+
+      // The caller's prose date stays on the line (never auto-corrected);
+      // the parse-back hijack it causes is reported, never silent.
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [x] Finish ✅ 2026-05-05 ➕ 2026-07-01 ✅ ${today()} ^t\n`,
+      )
+      expect(result.advisories).toEqual([
+        'description: the line was written as submitted, but the stored description parses back as "Finish" — the trailing "✅ 2026-05-05" was read as task metadata',
+        `done: submitted "${today()}" but the stored line parses back "2026-05-05"`,
+      ])
+    })
+
     it("names a truncating add_subtasks item in the advisories", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
