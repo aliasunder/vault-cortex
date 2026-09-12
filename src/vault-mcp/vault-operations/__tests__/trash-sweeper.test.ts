@@ -13,6 +13,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime } from "luxon"
 import { trashSweeper } from "../trash-sweeper.js"
+import { vaultFs } from "../vault-filesystem.js"
 import { createSearchIndex } from "../../search/search-index.js"
 import { logger } from "../../../logger.js"
 
@@ -243,6 +244,92 @@ describe("sweepExpiredTrashEntries", () => {
         error: expect.stringMatching(/EACCES.*stuck\.md/),
       },
     )
+  })
+
+  it("never unlinks an unrecorded delete that landed at a stale row's path", async () => {
+    // A stale row can outlive its file (the user emptied .trash between
+    // sweeps). A keep-forever "local" delete that then lands at that path
+    // clears the row on the way in — otherwise this sweep would treat the
+    // fresh copy as the row's expired occupant and unlink it.
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    recordEntryDaysAgo(index, ".trash/reused.md", 31)
+    await writeFile(join(vault, "reused.md"), "keep forever", "utf8")
+    const deleteResult = await vaultFs.deleteNote(
+      {
+        vaultPath: vault,
+        path: "reused.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+        clearStaleTrashEntry: index.deleteTrashEntry,
+      },
+      logger,
+    )
+    expect(deleteResult.trashLocation).toBe(".trash/reused.md")
+
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
+
+    const keptContent = await readFile(
+      join(vault, ".trash", "reused.md"),
+      "utf8",
+    )
+    expect(keptContent).toBe("keep forever")
+    expect(index.getTrashEntry(".trash/reused.md")).toBeNull()
+  })
+
+  it("prunes the folder skeleton a purge empties, keeping .trash/ itself", async () => {
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    await mkdir(join(vault, ".trash", "sub", "deep"), { recursive: true })
+    await writeFile(
+      join(vault, ".trash", "sub", "deep", "old.md"),
+      "expired",
+      "utf8",
+    )
+    recordEntryDaysAgo(index, ".trash/sub/deep/old.md", 31)
+
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
+
+    await expect(
+      stat(join(vault, ".trash", "sub", "deep", "old.md")),
+    ).rejects.toThrow(/ENOENT/)
+    await expect(stat(join(vault, ".trash", "sub"))).rejects.toThrow(/ENOENT/)
+    const trashRootStat = await stat(join(vault, ".trash"))
+    expect(trashRootStat.isDirectory()).toBe(true)
+  })
+
+  it("keeps a purged file's folder when it still holds other files", async () => {
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    await mkdir(join(vault, ".trash", "shared"), { recursive: true })
+    await writeFile(
+      join(vault, ".trash", "shared", "old.md"),
+      "expired",
+      "utf8",
+    )
+    await writeFile(join(vault, ".trash", "shared", "kept.md"), "stays", "utf8")
+    recordEntryDaysAgo(index, ".trash/shared/old.md", 31)
+
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
+
+    await expect(
+      stat(join(vault, ".trash", "shared", "old.md")),
+    ).rejects.toThrow(/ENOENT/)
+    const keptContent = await readFile(
+      join(vault, ".trash", "shared", "kept.md"),
+      "utf8",
+    )
+    expect(keptContent).toBe("stays")
   })
 
   it("never touches a trash file it has no row for, however old", async () => {

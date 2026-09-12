@@ -539,14 +539,17 @@ const claimTrashTarget = async (targetPath: string): Promise<boolean> => {
  *  claim and takes the next suffix instead. The claim itself is the
  *  existence check — no stat-based precheck decides whether a name is
  *  safe. When `recordTrashEntry` is provided, the landed trash path is
- *  reported to it for retention-sweep bookkeeping. Returns the
- *  vault-relative trash path. */
+ *  reported to it for retention-sweep bookkeeping; a move that does not
+ *  record reports the path to `clearStaleTrashEntry` instead, so a stale
+ *  row left by an earlier occupant of the name cannot mark the new file
+ *  for sweeping. Returns the vault-relative trash path. */
 const moveNoteToTrash = async (
   params: {
     vaultPath: string
     relativePath: string
     fullPath: string
     recordTrashEntry?: ((trashRelativePath: string) => void) | undefined
+    clearStaleTrashEntry?: ((trashRelativePath: string) => void) | undefined
   },
   logger: Logger,
 ): Promise<string> => {
@@ -587,9 +590,24 @@ const moveNoteToTrash = async (
         )
         throw renameError
       }
-      // Fail-open: the move already happened, so a failed record can't be
-      // "aborted" — throwing here would hand the moved note to the cleanup
-      // path above. An unrecorded entry is simply never swept.
+      // The exclusive claim proved nothing occupied the landed path, so any
+      // existing row for it belongs to an earlier, separately-removed
+      // occupant. Recording replaces that row; a move that does not record
+      // must clear it, or the next sweep would read the stale row and unlink
+      // this fresh file. Both writes are fail-open: the move already
+      // happened, so a failure can't be "aborted" — throwing here would hand
+      // the moved note to the cleanup path above.
+      const tryClearStaleTrashEntry = (): void => {
+        if (!params.clearStaleTrashEntry) return
+        try {
+          params.clearStaleTrashEntry(candidateRelativePath)
+        } catch (clearError) {
+          logger.warn("failed to clear stale trash entry", {
+            path: candidateRelativePath,
+            error: describeError(clearError),
+          })
+        }
+      }
       if (params.recordTrashEntry) {
         try {
           params.recordTrashEntry(candidateRelativePath)
@@ -598,7 +616,11 @@ const moveNoteToTrash = async (
             path: candidateRelativePath,
             error: describeError(recordError),
           })
+          // The failed record left any stale row in place — still defuse it.
+          tryClearStaleTrashEntry()
         }
+      } else {
+        tryClearStaleTrashEntry()
       }
       return candidateRelativePath
     }
@@ -623,6 +645,10 @@ const deleteNote = async (
      *  caller decides which trash options are recorded (and therefore
      *  swept); omitted moves are kept in .trash/ forever. */
     recordTrashEntry?: ((trashRelativePath: string) => void) | undefined
+    /** Forwarded to moveNoteToTrash: clears the sweep's row for a landed
+     *  trash path when the move is not recorded, so an unrecorded move can
+     *  never inherit an earlier occupant's retention clock. */
+    clearStaleTrashEntry?: ((trashRelativePath: string) => void) | undefined
   },
   logger: Logger,
 ): Promise<DeleteNoteResult> => {
@@ -669,6 +695,7 @@ const deleteNote = async (
             relativePath: path,
             fullPath,
             recordTrashEntry: params.recordTrashEntry,
+            clearStaleTrashEntry: params.clearStaleTrashEntry,
           },
           logger,
         )

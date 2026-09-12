@@ -1166,6 +1166,87 @@ describe("deleteNote — trash behavior", () => {
     })
   })
 
+  it("an unrecorded move reports the landed path to clearStaleTrashEntry", async () => {
+    // A "local" (keep-forever) delete can land at a path a swept-or-emptied
+    // system entry once occupied; clearing that stale row is what stops the
+    // next sweep from unlinking the keep-forever copy.
+    await writeFile(join(vault, "keep.md"), "keep forever", "utf8")
+    const clearStaleTrashEntry = vi.fn()
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "keep.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+        clearStaleTrashEntry,
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/keep.md")
+    expect(clearStaleTrashEntry).toHaveBeenCalledTimes(1)
+    expect(clearStaleTrashEntry).toHaveBeenCalledWith(".trash/keep.md")
+  })
+
+  it("a recorded move never invokes clearStaleTrashEntry", async () => {
+    // Recording replaces any stale row under the same key, so a second
+    // clear would be a redundant write.
+    await writeFile(join(vault, "rec-only.md"), "recorded", "utf8")
+    const recordTrashEntry = vi.fn()
+    const clearStaleTrashEntry = vi.fn()
+
+    await deleteNote(
+      {
+        vaultPath: vault,
+        path: "rec-only.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "system",
+        recordTrashEntry,
+        clearStaleTrashEntry,
+      },
+      logger,
+    )
+
+    expect(recordTrashEntry).toHaveBeenCalledTimes(1)
+    expect(clearStaleTrashEntry).not.toHaveBeenCalled()
+  })
+
+  it("a throwing recordTrashEntry still clears the stale row for the landed path", async () => {
+    // A failed record leaves any stale row in place — without the fallback
+    // clear, the next sweep would unlink the just-trashed copy.
+    await writeFile(join(vault, "fallback.md"), "fresh", "utf8")
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+    const recordTrashEntry = vi.fn(() => {
+      throw new Error("db unavailable")
+    })
+    const clearStaleTrashEntry = vi.fn()
+
+    const result = await deleteNote(
+      {
+        vaultPath: vault,
+        path: "fallback.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "system",
+        recordTrashEntry,
+        clearStaleTrashEntry,
+      },
+      logger,
+    )
+
+    expect(result.trashLocation).toBe(".trash/fallback.md")
+    expect(clearStaleTrashEntry).toHaveBeenCalledTimes(1)
+    expect(clearStaleTrashEntry).toHaveBeenCalledWith(".trash/fallback.md")
+    expect(warnSpy).toHaveBeenCalledWith("failed to record trash entry", {
+      path: ".trash/fallback.md",
+      error: "[Error]: db unavailable",
+    })
+  })
+
   it('permanently deletes when trashOption is "none"', async () => {
     await writeFile(join(vault, "perm-none.md"), "gone", "utf8")
 

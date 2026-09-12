@@ -5,13 +5,13 @@
  *  its reach. */
 
 import { unlink } from "node:fs/promises"
-import { dirname, join, resolve, sep } from "node:path"
+import { dirname, join, relative, resolve, sep } from "node:path"
 import { DateTime } from "luxon"
 import { describeError } from "../../utils/describe-error.js"
 import { realpathOrNull } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
-import { trashDomainLockKey } from "./vault-filesystem.js"
+import { pruneEmptyParents, trashDomainLockKey } from "./vault-filesystem.js"
 import type { TrashEntryStore } from "../search/search-index.js"
 import type { Logger } from "../../logger.js"
 
@@ -27,9 +27,10 @@ type SweepParams = {
 
 type SweepRowOutcome = "purged" | "missing" | "skipped"
 
-/** Processes one expired row: re-validate, contain, unlink, drop the row.
- *  Runs under the shared trash-domain lock (the caller holds it), so no
- *  trash move can land a fresh file at this row's path mid-decision. */
+/** Processes one expired row: re-validate, contain, unlink, drop the row,
+ *  prune the folders the unlink emptied. Runs under the shared trash-domain
+ *  lock (the caller holds it), so no trash move can land a fresh file at
+ *  this row's path mid-decision. */
 const sweepOneEntry = async (
   params: {
     vaultPath: string
@@ -109,6 +110,13 @@ const sweepOneEntry = async (
   }
 
   trashEntryStore.deleteTrashEntry(trashPath)
+  // The trash move mkdir'd the file's folder chain, so a purge can strand
+  // empty folder skeletons; pruning them (rooted at .trash/, which is never
+  // removed) keeps the folder's growth bounded along with its files.
+  await pruneEmptyParents(
+    { vaultPath: trashRoot, path: relative(trashRoot, resolvedPath) },
+    logger,
+  )
   return "purged"
 }
 

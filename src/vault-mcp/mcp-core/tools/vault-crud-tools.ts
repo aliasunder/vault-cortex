@@ -1018,7 +1018,10 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
             : await readTrashConfig(vaultPath)
           // Retention bookkeeping rides only the "system" mapping: an
           // explicit "local" choice means Obsidian's own keep-forever trash,
-          // so those moves are never recorded and never swept.
+          // so those moves are never recorded and never swept. The clear is
+          // unconditional — an unrecorded move that lands on a stale row's
+          // path must defuse that row, or the sweep would unlink the
+          // keep-forever copy.
           return vaultFs.deleteNote(
             {
               vaultPath,
@@ -1028,6 +1031,7 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
               trashOption,
               recordTrashEntry:
                 trashOption === "system" ? search.recordTrashEntry : undefined,
+              clearStaleTrashEntry: search.deleteTrashEntry,
             },
             reqLogger,
           )
