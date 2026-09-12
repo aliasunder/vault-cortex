@@ -254,7 +254,7 @@ Example: vault_create_task({ path: "TASKS.md", description: "Sub-bug", block_id:
 Example: vault_create_task({ path: "TASKS.md", description: "Quick fix", block_id: "quick-fix", parent_line: 42 }) — sub-task under a parent identified by line number
 Example: vault_create_task({ path: "TASKS.md", description: "Urgent fix", block_id: "urgent-fix", heading: "Active", position: "top" }) — insert at the top of a lane instead of the default bottom
 
-When to use: Creating a new task card on a board or in a note. Guarantees correct field ordering (description → priority → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id)${whenToolEnabledText("vault_list_tasks", " so the card round-trips through vault_list_tasks with all fields intact")}.${whenToolEnabledText("vault_update_task", " For lightweight checklist items under an existing card (no metadata), use vault_update_task's add_subtasks param instead.")}
+When to use: Creating a new task card on a board or in a note. Guarantees correct field ordering (description → priority → 🔁 recurrence → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id)${whenToolEnabledText("vault_list_tasks", " so the card round-trips through vault_list_tasks with all fields intact")}.${whenToolEnabledText("vault_update_task", " For lightweight checklist items under an existing card (no metadata), use vault_update_task's add_subtasks param instead.")}
 
 Parameters:
 - path (required): vault-relative path to the note (must end in ".md"). The note must already exist.
@@ -264,6 +264,7 @@ Parameters:
 - parent_block_id / parent_line: the existing task to nest under as a sub-task, identified by its ^block-id or its 1-based line number — the same pair vault_update_task uses (block_id / line). Pass at most one. Either is mutually exclusive with heading — a sub-task lives wherever its parent lives.
 - position: "top" or "bottom" — where within the heading section the task is placed. Defaults to "bottom" (append). Kanban boards with new-card-insertion-method set to "prepend" default to "top" instead. Ignored when no heading or when placing under a parent.
 - priority: "highest" | "high" | "medium" | "low" | "lowest". Omit for normal priority (the plugin ranks "no signifier" between medium and low).
+- recurrence: a Tasks plugin 🔁 rule in natural language ("every week", "every month on the 15th", "every 3 days when done" — "when done" bases the next occurrence on the completion day). Completing the task later spawns its next occurrence automatically.
 - due / scheduled / start: YYYY-MM-DD dates (calendar-validated). Omit a date rather than guessing — an absent 📅 means "no deadline".
 - task_id: Tasks plugin 🆔 identifier for dependency chains.
 - depends_on: non-empty string array of Tasks plugin ⛔ dependency IDs (🆔 values of other tasks).
@@ -282,6 +283,7 @@ Errors:
 - "description is empty" / "dependsOn cannot be empty" / "subtasks cannot contain an empty item" — whitespace-only description, an empty depends_on array, or a whitespace-only checklist item
 - "description must be a single line" / "subtasks items must be a single line" — a task is one file line; a line break in the text would split its metadata onto a line the parser never reads
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
+- "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur
 - "invalid date" — a date param fails calendar validation
 - "concurrent write in progress" — another write to this note is in flight; retry
 
@@ -336,6 +338,13 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
           .optional()
           .describe(
             "Priority signifier (🔺⏫🔼🔽⏬). Omit for normal priority — no signifier is written.",
+          ),
+        recurrence: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            'Tasks plugin 🔁 rule in natural language (e.g. "every week", "every 2 weeks when done"). Completing the task spawns its next occurrence.',
           ),
         due: z
           .string()
@@ -397,6 +406,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
         parent_line,
         position,
         priority,
+        recurrence,
         due,
         scheduled,
         start,
@@ -419,6 +429,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
         parentLine: parent_line,
         position,
         priority,
+        recurrence,
         due,
         scheduled,
         start,
@@ -441,6 +452,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
               parentLine: parent_line,
               position,
               priority,
+              recurrence,
               due,
               scheduled,
               start,
@@ -473,7 +485,8 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
       title: "Update Task",
       description: `Update a task's status, priority, description, dates, dependencies, block_id, checklist items, or heading placement in one call. Any combination of these can change together — every field passed is written in a single edit.
 
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "done" }) — complete a task; on a Kanban board, auto-moves to the done lane
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "done" }) — complete a task; on a Kanban board, auto-moves to the done lane; a recurring task (🔁) spawns its next occurrence
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", recurrence: "every week" }) — make a task recurring (null removes the rule)
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Done" }) — move a task to a different heading (lands at the top of the lane by default)
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Done", position: "bottom" }) — move to the bottom of the lane
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", description: "Updated task name", due: "2026-10-01" }) — change description and set due date
@@ -488,8 +501,9 @@ Parameters:
 - path (required): vault-relative path to the note (must end in ".md").
 - Exactly one of block_id or line is required to identify the task.
 - At least one change is required. Every field passed is applied in the same single write:
-  - status: "todo" | "in_progress" | "done" | "cancelled". Manages checkbox and done/cancelled dates. On a Kanban board, "done" moves the card to the done lane together with its checklist sub-items (their checkboxes are left as they are); a sub-task marked done stays under its parent.
+  - status: "todo" | "in_progress" | "done" | "cancelled". Manages checkbox and done/cancelled dates. On a Kanban board, "done" moves the card to the done lane together with its checklist sub-items (their checkboxes are left as they are); a sub-task marked done stays under its parent. Completing a task that carries a 🔁 recurrence rule also writes its next occurrence as a new [ ] task directly above the completed one (below with the plugin's "next line" setting), with dates advanced per the rule — exactly as clicking the checkbox in Obsidian does. The new occurrence stays in the source lane and gets no block_id, 🆔, or ⛔ — to give it a stable id, follow up with assign_block_id on the returned next_occurrence.line. Completing a recurring task by line and retrying after a lost response is NOT idempotent — the spawn occupies the old line, so the retry completes the new occurrence and advances the series twice; prefer block_id (the completed card keeps it).
   - priority: "highest" | "high" | "medium" | "low" | "lowest" sets the signifier; null removes it.
+  - recurrence: sets the Tasks plugin 🔁 rule, in natural language ("every week", "every month on the 15th", "every 3 days when done" — "when done" bases the next occurrence on the completion day); null removes it. Passed together with status "done", the new rule governs the spawn (recurrence: null completes without spawning).
   - description: replaces the task text. Metadata fields and block_id are preserved.
   - due / scheduled / start / created: YYYY-MM-DD sets the date; null clears it.
   - task_id: string sets the Tasks plugin 🆔; null clears it.
@@ -516,9 +530,11 @@ Errors:
 - "description cannot be empty" / "dependsOn cannot be empty" / "addSubtasks cannot be empty" / "addSubtasks cannot contain an empty item" — whitespace-only text or an empty array (use null to clear depends_on)
 - "description must be a single line" / "addSubtasks items must be a single line" — a task is one file line; a line break in the text would split its metadata onto a line the parser never reads
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
+- "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur
+- A recurring task completed with a rule that yields no next occurrence (unreadable rule text already on the line, or a finite rule with no dates left) still completes — the result carries an advisory instead of an error
 - "concurrent write in progress" — another write to this note is in flight; retry
 
-Returns: JSON { path, line, description, block_id, heading, subtasks, changes } — line is the final 1-based position; description is the current text; block_id and heading reflect the task after the update (block_id is omitted when the task has none, heading when the task sits above the first heading); subtasks lists each checklist item added by add_subtasks as { line, description } (omitted when none were added) — checklist items carry no block_id, so line is the handle for a follow-up update; changes lists every field applied as "field: before → after", with "(none)" for an absent value (for subtasks the two sides are checklist-item counts).`,
+Returns: JSON { path, line, description, block_id, heading, subtasks, next_occurrence, advisories, changes } — line is the final 1-based position; description is the current text; block_id and heading reflect the task after the update (block_id is omitted when the task has none, heading when the task sits above the first heading); subtasks lists each checklist item added by add_subtasks as { line, description } (omitted when none were added) — checklist items carry no block_id, so line is the handle for a follow-up update; next_occurrence is present only when a completion spawned a recurring task's next occurrence: { line, description, due?, scheduled?, start? } with only the dates the occurrence has — it carries no block_id, so line is its handle; advisories is a list of non-blocking notices about the write (e.g. a recurrence rule that produced no next occurrence), omitted when there are none; changes lists every field applied as "field: before → after", with "(none)" for an absent value (for subtasks the two sides are checklist-item counts, and a spawn adds "next_occurrence: (none) → line N").`,
       inputSchema: {
         path: z
           .string()
@@ -552,6 +568,14 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
           .nullable()
           .optional()
           .describe("Priority signifier to set, or null to remove it."),
+        recurrence: z
+          .string()
+          .min(1)
+          .nullable()
+          .optional()
+          .describe(
+            'Tasks plugin 🔁 rule in natural language (e.g. "every week", "every 2 weeks when done") to set, or null to remove it. Completing the task spawns its next occurrence.',
+          ),
         description: z
           .string()
           .min(1)
@@ -642,6 +666,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
         line,
         status,
         priority,
+        recurrence,
         description,
         due,
         scheduled,
@@ -667,6 +692,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
         line,
         status,
         priority,
+        recurrence,
         due,
         scheduled,
         start,
@@ -690,6 +716,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes } 
               line,
               status,
               priority,
+              recurrence,
               description,
               due,
               scheduled,

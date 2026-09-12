@@ -100,6 +100,7 @@
     "luxon": "3.7.2",
     "pdfjs-dist": "6.3.289",
     "picomatch": "4.0.7",
+    "rrule": "2.8.1",
     "sharp": "0.35.4",
     "sqlite-vec": "0.1.9",
     "unpdf": "1.8.1",
