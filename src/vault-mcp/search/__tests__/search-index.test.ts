@@ -5034,3 +5034,98 @@ describe("file content vector embeddings", () => {
     })
   })
 })
+
+describe("trash entries (retention-sweep bookkeeping)", () => {
+  it("round-trips a recorded entry through get and list", () => {
+    const trashIndex = createSearchIndex(":memory:")
+    trashIndex.recordTrashEntry(".trash/Notes/gone.md")
+
+    const entry = trashIndex.getTrashEntry(".trash/Notes/gone.md")
+    expect(entry?.trashPath).toBe(".trash/Notes/gone.md")
+    // Every recorded entry is "expired" against a cutoff after its stamp.
+    const listed = trashIndex.listExpiredTrashEntries(
+      (entry?.trashedAt ?? 0) + 1,
+    )
+    expect(listed.map((listedEntry) => listedEntry.trashPath)).toEqual([
+      ".trash/Notes/gone.md",
+    ])
+  })
+
+  it("treats the cutoff as exclusive — a row stamped exactly at the cutoff is not expired", () => {
+    const trashIndex = createSearchIndex(":memory:")
+    trashIndex.recordTrashEntry(".trash/boundary.md")
+    const entry = trashIndex.getTrashEntry(".trash/boundary.md")
+    if (!entry) throw new Error("entry missing after record")
+
+    expect(trashIndex.listExpiredTrashEntries(entry.trashedAt)).toEqual([])
+    expect(
+      trashIndex
+        .listExpiredTrashEntries(entry.trashedAt + 1)
+        .map((listedEntry) => listedEntry.trashPath),
+    ).toEqual([".trash/boundary.md"])
+  })
+
+  it("re-recording the same path restarts the retention clock", () => {
+    vi.useFakeTimers()
+    onTestFinished(() => {
+      vi.useRealTimers()
+    })
+    const trashIndex = createSearchIndex(":memory:")
+    const firstTrashTime = DateTime.fromISO("2026-01-01T00:00:00Z")
+    const secondTrashTime = DateTime.fromISO("2026-03-01T00:00:00Z")
+
+    vi.setSystemTime(firstTrashTime.toMillis())
+    trashIndex.recordTrashEntry(".trash/reused.md")
+    const firstEntry = trashIndex.getTrashEntry(".trash/reused.md")
+
+    vi.setSystemTime(secondTrashTime.toMillis())
+    trashIndex.recordTrashEntry(".trash/reused.md")
+    const refreshedEntry = trashIndex.getTrashEntry(".trash/reused.md")
+
+    expect(firstEntry?.trashedAt).toBe(firstTrashTime.toUnixInteger())
+    expect(refreshedEntry?.trashedAt).toBe(secondTrashTime.toUnixInteger())
+  })
+
+  it("a case-alias record replaces the stale row instead of adding a second one", () => {
+    // On a case-insensitive bind mount ".trash/Note.md" and ".trash/note.md"
+    // are one file — two live rows for it would let a stale expired alias
+    // purge the fresh copy. The folded primary key collapses them to one.
+    const trashIndex = createSearchIndex(":memory:")
+    trashIndex.recordTrashEntry(".trash/Note.md")
+    trashIndex.recordTrashEntry(".trash/note.md")
+
+    const farFutureCutoff = DateTime.now().plus({ days: 1 }).toUnixInteger()
+    const listed = trashIndex.listExpiredTrashEntries(farFutureCutoff)
+    expect(listed.map((listedEntry) => listedEntry.trashPath)).toEqual([
+      ".trash/note.md",
+    ])
+    // Both spellings resolve to the surviving row.
+    expect(trashIndex.getTrashEntry(".trash/Note.md")?.trashPath).toBe(
+      ".trash/note.md",
+    )
+  })
+
+  it("deleteTrashEntry removes the row under any case alias", () => {
+    const trashIndex = createSearchIndex(":memory:")
+    trashIndex.recordTrashEntry(".trash/ToDelete.md")
+
+    trashIndex.deleteTrashEntry(".trash/todelete.md")
+
+    expect(trashIndex.getTrashEntry(".trash/ToDelete.md")).toBeNull()
+    const farFutureCutoff = DateTime.now().plus({ days: 1 }).toUnixInteger()
+    expect(trashIndex.listExpiredTrashEntries(farFutureCutoff)).toEqual([])
+  })
+
+  it("trash entries survive a vault rebuild", async () => {
+    const trashIndex = createSearchIndex(":memory:")
+    trashIndex.recordTrashEntry(".trash/survivor.md")
+    const emptyVault = await mkdtemp(join(tmpdir(), "trash-rebuild-"))
+    onTestFinished(() => rm(emptyVault, { recursive: true, force: true }))
+
+    await trashIndex.rebuildFromVault({ vaultPath: emptyVault }, logger)
+
+    expect(trashIndex.getTrashEntry(".trash/survivor.md")?.trashPath).toBe(
+      ".trash/survivor.md",
+    )
+  })
+})

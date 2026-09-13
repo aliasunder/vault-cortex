@@ -4,16 +4,15 @@
 
 import { watch } from "chokidar"
 import { DateTime } from "luxon"
-import { readFile, realpath, stat } from "node:fs/promises"
+import { readFile, stat } from "node:fs/promises"
 import { extname, join, relative, resolve as resolvePath } from "node:path"
 import { INDEXABLE_TEXT_EXTENSIONS } from "./search-index.js"
 import type { SearchIndex } from "./search-index.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
-import { readdirOrNull, statOrNull } from "../../utils/fs.js"
+import { readdirOrNull, realpathOrNull, statOrNull } from "../../utils/fs.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
-import { isErrnoException } from "../../utils/is-errno-exception.js"
 
 /** ms between filesystem polls when usePolling is on. chokidar's raw default is
  *  100ms, which stat()s the whole tree 10×/sec; 300ms meaningfully cuts CPU, and
@@ -23,17 +22,6 @@ const POLLING_INTERVAL_MS = 300
 
 /** Default for FileWatcherOptions.stabilityThreshold (see its doc). */
 const DEFAULT_STABILITY_THRESHOLD_MS = 2000
-
-/** Resolves a path's realpath, returning null instead of throwing when the
- *  path no longer exists (ENOENT). Any other error propagates. */
-const realpathOrNull = async (path: string): Promise<string | null> => {
-  try {
-    return await realpath(path)
-  } catch (error) {
-    if (isErrnoException(error, "ENOENT")) return null
-    throw error
-  }
-}
 
 type FileWatcherOptions = Readonly<{
   /** ms a file's size must stay unchanged before we index it (default 2000).

@@ -1,8 +1,14 @@
 import { describe, it, expect, onTestFinished } from "vitest"
-import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
+import { mkdtemp, realpath, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { readFileOrNull, readdirOrNull, fileExists, statOrNull } from "../fs.js"
+import {
+  readFileOrNull,
+  readdirOrNull,
+  realpathOrNull,
+  fileExists,
+  statOrNull,
+} from "../fs.js"
 
 const makeTempDir = async (): Promise<string> => {
   const dir = await mkdtemp(join(tmpdir(), "utils-fs-test-"))
@@ -70,6 +76,33 @@ describe("statOrNull", () => {
     const filePath = join(dir, "file.txt")
     await writeFile(filePath, "x", "utf8")
     await expect(statOrNull(join(filePath, "child"))).rejects.toThrow(/ENOTDIR/)
+  })
+})
+
+describe("realpathOrNull", () => {
+  it("returns the canonical path when the path exists", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "note.md")
+    await writeFile(path, "x", "utf8")
+    const resolved = await realpathOrNull(path)
+    // macOS: /var → /private/var symlink makes mkdtemp's path differ from
+    // the canonical form; compare against the stdlib realpath as the oracle.
+    expect(resolved).toBe(await realpath(path))
+  })
+
+  it("returns null when the path does not exist", async () => {
+    const dir = await makeTempDir()
+    expect(await realpathOrNull(join(dir, "missing.md"))).toBeNull()
+  })
+
+  it("rethrows a non-ENOENT error rather than swallowing it", async () => {
+    // ENOTDIR: realpath through a file as if it were a directory
+    const dir = await makeTempDir()
+    const filePath = join(dir, "file.txt")
+    await writeFile(filePath, "x", "utf8")
+    await expect(realpathOrNull(join(filePath, "child"))).rejects.toThrow(
+      /ENOTDIR/,
+    )
   })
 })
 

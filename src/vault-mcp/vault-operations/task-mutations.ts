@@ -20,6 +20,8 @@ import type {
   TaskPriority,
   DateFieldKey,
   ParsedTask,
+  SubmittedTaskFields,
+  TaskRoundTripDivergence,
 } from "../obsidian-markdown/tasks.js"
 import {
   parseRecurrenceRule,
@@ -69,6 +71,10 @@ type CreateTaskResult = {
   heading?: string | undefined
   subtasks?: SubtaskPosition[] | undefined
   changes: string[]
+  /** Round-trip warnings — present only when the written line parses back
+   *  differently than the call submitted (description text read as fields).
+   *  The write itself succeeded; these are informational. */
+  advisories?: string[] | undefined
 }
 
 type UpdateTaskParams = {
@@ -112,9 +118,8 @@ type UpdateTaskResult = {
   heading?: string | undefined
   subtasks?: SubtaskPosition[] | undefined
   next_occurrence?: NextOccurrencePosition | undefined
-  /** Non-blocking notices about the write — omitted when there are none. */
-  advisories?: string[] | undefined
   changes: string[]
+  advisories?: string[] | undefined
 }
 
 const ABSENT_VALUE = "(none)"
@@ -139,6 +144,130 @@ const formatDependsOn = (
 ): string | null => {
   if (!dependsOn || dependsOn.length === 0) return null
   return dependsOn.join(",")
+}
+
+/** Quoted value for an advisory sentence; "(none)" for an absent value. */
+const displayRoundTripValue = (value: string | null): string => {
+  return value === null ? ABSENT_VALUE : `"${value}"`
+}
+
+/** The clause describing how a written description parses back.
+ *  `storedTextNoun` is the subject phrase spliced into the sentence
+ *  ("the stored description" / "its stored text"). */
+const parsedDescriptionClause = ({
+  storedValue,
+  consumedTail,
+  storedTextNoun,
+}: {
+  storedValue: string | null
+  consumedTail: string | undefined
+  storedTextNoun: string
+}): string => {
+  const parsedReading =
+    storedValue === null
+      ? `${storedTextNoun} parses back empty`
+      : `${storedTextNoun} parses back as "${storedValue}"`
+  const consumedNote = consumedTail
+    ? ` — the trailing "${consumedTail}" was read as task metadata`
+    : ""
+  return `${parsedReading}${consumedNote}`
+}
+
+/** One advisory sentence per divergence, keyed on where the expectation came
+ *  from — a value submitted this call, the line's previous parse, or nothing. */
+const describeRoundTripDivergence = (
+  divergence: TaskRoundTripDivergence,
+): string => {
+  if (divergence.field === "description") {
+    const clause = parsedDescriptionClause({
+      storedValue: divergence.storedValue,
+      consumedTail: divergence.consumedTail,
+      storedTextNoun: "the stored description",
+    })
+    return `description: the line was written as submitted, but ${clause}`
+  }
+  const storedDisplay = displayRoundTripValue(divergence.storedValue)
+  if (divergence.expectedSource === "submitted") {
+    return `${divergence.field}: submitted ${displayRoundTripValue(divergence.expected)} but the stored line parses back ${storedDisplay}`
+  }
+  if (divergence.expectedSource === "prior") {
+    return `${divergence.field}: previously ${displayRoundTripValue(divergence.expected)}, but the stored line now parses back ${storedDisplay} — this call's edits changed what the line parses as this field`
+  }
+  return `${divergence.field}: the stored line parses back ${storedDisplay} although nothing set it — description text was read as this field`
+}
+
+/** Advisory sentences for a written task line; empty when the line parses
+ *  back exactly as the call's inputs say it should. */
+const roundTripAdvisories = ({
+  taskLine,
+  priorTaskLine,
+  submitted,
+}: {
+  taskLine: string
+  priorTaskLine: string | null
+  submitted: SubmittedTaskFields
+}): string[] => {
+  return tasks
+    .diffTaskRoundTrip({ taskLine, priorTaskLine, submitted })
+    .map(describeRoundTripDivergence)
+}
+
+/** Advisory for one subtask whose description text was consumed as metadata. */
+const buildSubtaskAdvisory = (subtaskText: string): string[] => {
+  // The written subtask line carries indentation; the diff strips the whole
+  // checkbox prefix before parsing, so a bare synthetic line reads the same.
+  const divergences = tasks.diffTaskRoundTrip({
+    taskLine: `- [ ] ${subtaskText}`,
+    priorTaskLine: null,
+    submitted: { description: subtaskText },
+  })
+  const descriptionDivergence = divergences.find(
+    (divergence) => divergence.field === "description",
+  )
+  if (!descriptionDivergence) return []
+  const clause = parsedDescriptionClause({
+    storedValue: descriptionDivergence.storedValue,
+    consumedTail: descriptionDivergence.consumedTail,
+    storedTextNoun: "its stored text",
+  })
+  return [`subtask "${subtaskText}": written as submitted, but ${clause}`]
+}
+
+/** Description-only advisories for newly written checklist lines — a
+ *  checklist item carries no metadata params, so the only divergence worth
+ *  reporting is its text truncating into fields. */
+const subtaskRoundTripAdvisories = (
+  subtaskDescriptions: readonly string[],
+): string[] => {
+  return subtaskDescriptions.flatMap(buildSubtaskAdvisory)
+}
+
+/** The done/cancelled-date expectations a status change implies — the same
+ *  dates updateTaskLineStatus stamps or strips for each target status, so a
+ *  stamp never registers as a field appearing from nowhere. */
+const statusImpliedDateFields = ({
+  status,
+  config,
+  today,
+}: {
+  status: TaskStatus | undefined
+  config: { setDoneDate: boolean; setCancelledDate: boolean }
+  today: string
+}): SubmittedTaskFields => {
+  if (!status) return {}
+  if (status === "done") {
+    return {
+      doneDate: config.setDoneDate ? today : null,
+      cancelledDate: null,
+    }
+  }
+  if (status === "cancelled") {
+    return {
+      doneDate: null,
+      cancelledDate: config.setCancelledDate ? today : null,
+    }
+  }
+  return { doneDate: null, cancelledDate: null }
 }
 
 /** 1-based file positions of checklist lines written starting at a body index. */
@@ -899,6 +1028,8 @@ const createTask = async (
     const bodyLines = splitIntoLines(parsed.content)
     const headings = parseHeadings(bodyLines)
 
+    // findBodyStartLine needs the raw file (bodyLines came from the parsed
+    // content, which has no frontmatter) to count the frontmatter offset.
     const bodyStartLine = tasks.findBodyStartLine(splitIntoLines(fileContent))
 
     // Validate block_id grammar and uniqueness
@@ -964,6 +1095,24 @@ const createTask = async (
       formatConfig,
     )
 
+    const advisories = [
+      ...roundTripAdvisories({
+        taskLine,
+        priorTaskLine: null,
+        submitted: {
+          description,
+          createdDate: today,
+          ...(priority && { priority }),
+          ...(due && { dueDate: due }),
+          ...(scheduled && { scheduledDate: scheduled }),
+          ...(start && { startDate: start }),
+          ...(taskId && { taskId }),
+          ...(dependsOn && { dependsOn }),
+        },
+      }),
+      ...subtaskRoundTripAdvisories(subtasks ?? []),
+    ]
+
     const subtaskIndent = `${indent}  `
     const subtaskLines = (subtasks ?? []).map(
       (subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`,
@@ -1018,6 +1167,7 @@ const createTask = async (
       heading: resolvedHeading,
       subtasks: subtaskPositions,
       changes,
+      ...(advisories.length > 0 && { advisories }),
     }
   })
 }
@@ -1185,175 +1335,165 @@ const updateTask = async (
 
     const today = todayIsoDate()
 
-    // In-line edits. Metadata edits (status included) apply first and the
-    // description edit applies LAST: every metadata edit splits the line at
-    // the description/metadata boundary, and prose in a new description can
-    // be indistinguishable from trailing metadata — a splitting edit running
-    // after the description edit could rewrite what the caller typed. The
-    // recurrence spawn reads the fully edited line (its gate uses the
-    // pre-edit parse, and the spawned copy strips completion dates itself),
-    // so an update that changes dates or the rule and completes in one call
-    // advances from the edited values. Each edit carries its own `changes`
-    // entry; description's after-value is read through the parser so tags
-    // match the result's `description`.
-    const descriptionEdit: LineEdit | undefined =
-      newDescription !== undefined
-        ? {
-            apply: (taskLine: string) =>
-              tasks.replaceTaskLineDescription({ taskLine, newDescription }),
-            change: formatChange({
-              field: "description",
-              before: taskBefore.description,
-              after: tasks.describeTaskLine(
-                tasks.replaceTaskLineDescription({
-                  taskLine: originalTaskLine,
-                  newDescription,
-                }),
-              ),
-            }),
-          }
-        : undefined
-    const statusEdit: LineEdit | undefined = status
-      ? {
-          apply: (taskLine: string) =>
-            tasks.updateTaskLineStatus({
-              taskLine,
-              newStatus: status,
-              today,
-              config: formatConfig,
-            }),
-          change: formatChange({
-            field: "status",
-            before: taskBefore.status,
-            after: status,
-          }),
-        }
-      : undefined
-    const priorityEdit: LineEdit | undefined =
-      priority !== undefined
-        ? {
-            apply: (taskLine: string) =>
-              tasks.updateTaskLinePriority({
-                taskLine,
-                newPriority: priority,
-                config: formatConfig,
-              }),
-            change: formatChange({
-              field: "priority",
-              before: taskBefore.priority,
-              after: priority,
-            }),
-          }
-        : undefined
-    const dateEdits: LineEdit[] = dateParams.flatMap(({ field, value }) =>
-      value === undefined
-        ? []
-        : [
+    // In-line edits, in the order they are applied to the task line. The
+    // recurrence spawn reads the fully edited line, so an update that
+    // changes dates or the rule and completes in one call advances from
+    // the edited values. Each edit carries its own `changes` entry;
+    // description's after-value is read through the parser so tags match
+    // the result's `description`.
+    const lineEdits: LineEdit[] = [
+      ...(status
+        ? [
             {
               apply: (taskLine: string) =>
-                tasks.updateTaskLineDate({
+                tasks.updateTaskLineStatus({
                   taskLine,
-                  field,
-                  date: value,
+                  newStatus: status,
+                  today,
                   config: formatConfig,
                 }),
               change: formatChange({
-                field,
-                before: taskBefore[`${field}Date`],
-                after: value,
+                field: "status",
+                before: taskBefore.status,
+                after: status,
               }),
             },
-          ],
-    )
-    const recurrenceEdit: LineEdit | undefined =
-      recurrence !== undefined
-        ? {
-            apply: (taskLine: string) =>
-              tasks.updateTaskLineRecurrence({
-                taskLine,
-                recurrenceText: recurrence,
-                config: formatConfig,
+          ]
+        : []),
+      ...(priority !== undefined
+        ? [
+            {
+              apply: (taskLine: string) =>
+                tasks.updateTaskLinePriority({
+                  taskLine,
+                  newPriority: priority,
+                  config: formatConfig,
+                }),
+              change: formatChange({
+                field: "priority",
+                before: taskBefore.priority,
+                after: priority,
               }),
-            change: formatChange({
-              field: "recurrence",
-              before: taskBefore.recurrence,
-              after: recurrence,
-            }),
-          }
-        : undefined
-    const taskIdEdit: LineEdit | undefined =
-      taskId !== undefined
-        ? {
-            apply: (taskLine: string) =>
-              tasks.updateTaskLineTaskId({
-                taskLine,
-                taskId,
-                config: formatConfig,
+            },
+          ]
+        : []),
+      ...dateParams.flatMap(({ field, value }) =>
+        value === undefined
+          ? []
+          : [
+              {
+                apply: (taskLine: string) =>
+                  tasks.updateTaskLineDate({
+                    taskLine,
+                    field,
+                    date: value,
+                    config: formatConfig,
+                  }),
+                change: formatChange({
+                  field,
+                  before: taskBefore[`${field}Date`],
+                  after: value,
+                }),
+              },
+            ],
+      ),
+      ...(recurrence !== undefined
+        ? [
+            {
+              apply: (taskLine: string) =>
+                tasks.updateTaskLineRecurrence({
+                  taskLine,
+                  recurrenceText: recurrence,
+                  config: formatConfig,
+                }),
+              change: formatChange({
+                field: "recurrence",
+                before: taskBefore.recurrence,
+                after: recurrence,
               }),
-            change: formatChange({
-              field: "task_id",
-              before: taskBefore.taskId,
-              after: taskId,
-            }),
-          }
-        : undefined
-    const dependsOnEdit: LineEdit | undefined =
-      dependsOn !== undefined
-        ? {
-            apply: (taskLine: string) =>
-              tasks.updateTaskLineDependsOn({
-                taskLine,
-                dependsOn,
-                config: formatConfig,
+            },
+          ]
+        : []),
+      ...(taskId !== undefined
+        ? [
+            {
+              apply: (taskLine: string) =>
+                tasks.updateTaskLineTaskId({
+                  taskLine,
+                  taskId,
+                  config: formatConfig,
+                }),
+              change: formatChange({
+                field: "task_id",
+                before: taskBefore.taskId,
+                after: taskId,
               }),
-            change: formatChange({
-              field: "depends_on",
-              before: formatDependsOn(taskBefore.dependsOn),
-              after: formatDependsOn(dependsOn),
-            }),
-          }
-        : undefined
-    const blockIdEdit: LineEdit | undefined = newBlockId
-      ? {
-          apply: (taskLine: string) =>
-            tasks.assignBlockId({ taskLine, blockId: newBlockId }),
-          change: formatChange({
-            field: "block_id",
-            before: taskBefore.blockId,
-            after: newBlockId,
-          }),
-        }
-      : undefined
-
-    const orderedEdits = [
-      priorityEdit,
-      ...dateEdits,
-      recurrenceEdit,
-      taskIdEdit,
-      dependsOnEdit,
-      blockIdEdit,
-      statusEdit,
-      descriptionEdit,
-    ].filter((edit) => edit !== undefined)
-    const mutatedLine = orderedEdits.reduce(
+            },
+          ]
+        : []),
+      ...(dependsOn !== undefined
+        ? [
+            {
+              apply: (taskLine: string) =>
+                tasks.updateTaskLineDependsOn({
+                  taskLine,
+                  dependsOn,
+                  config: formatConfig,
+                }),
+              change: formatChange({
+                field: "depends_on",
+                before: formatDependsOn(taskBefore.dependsOn),
+                after: formatDependsOn(dependsOn),
+              }),
+            },
+          ]
+        : []),
+      ...(newBlockId
+        ? [
+            {
+              apply: (taskLine: string) =>
+                tasks.assignBlockId({ taskLine, blockId: newBlockId }),
+              change: formatChange({
+                field: "block_id",
+                before: taskBefore.blockId,
+                after: newBlockId,
+              }),
+            },
+          ]
+        : []),
+      // The description edit must run last. Every field edit above splits
+      // the line at the description/metadata boundary, and a signifier in
+      // the NEW description text shifts that boundary — a field edit running
+      // after it would strip or duplicate fields inside the caller's prose.
+      // With the old description still in place, the boundary stays stable.
+      ...(newDescription !== undefined
+        ? [
+            {
+              apply: (taskLine: string) =>
+                tasks.replaceTaskLineDescription({ taskLine, newDescription }),
+              // The after-value previews the swap on the ORIGINAL line. The
+              // field edits above never move the description/metadata
+              // boundary (the old description is still in place while they
+              // run), so this preview parses the same as the final line.
+              change: formatChange({
+                field: "description",
+                before: taskBefore.description,
+                after: tasks.describeTaskLine(
+                  tasks.replaceTaskLineDescription({
+                    taskLine: originalTaskLine,
+                    newDescription,
+                  }),
+                ),
+              }),
+            },
+          ]
+        : []),
+    ]
+    const mutatedLine = lineEdits.reduce(
       (taskLine, edit) => edit.apply(taskLine),
       originalTaskLine,
     )
-
-    // `changes` keeps its documented order (description first, status
-    // second) regardless of the application order above.
-    const lineChanges = [
-      descriptionEdit,
-      statusEdit,
-      priorityEdit,
-      ...dateEdits,
-      recurrenceEdit,
-      taskIdEdit,
-      dependsOnEdit,
-      blockIdEdit,
-    ]
-      .filter((edit) => edit !== undefined)
-      .map((edit) => edit.change)
+    const lineChanges = lineEdits.map((edit) => edit.change)
 
     const recurrenceSpawn = resolveRecurrenceSpawn({
       status,
@@ -1395,6 +1535,26 @@ const updateTask = async (
       recurrenceSpawn.kind === "spawn"
         ? parseHeadings(linesWithSpawn)
         : headings
+
+    const advisories = [
+      ...roundTripAdvisories({
+        taskLine: mutatedLine,
+        priorTaskLine: originalTaskLine,
+        submitted: {
+          ...(newDescription !== undefined && { description: newDescription }),
+          ...(priority !== undefined && { priority }),
+          ...(due !== undefined && { dueDate: due }),
+          ...(scheduled !== undefined && { scheduledDate: scheduled }),
+          ...(start !== undefined && { startDate: start }),
+          ...(created !== undefined && { createdDate: created }),
+          ...(taskId !== undefined && { taskId }),
+          ...(dependsOn !== undefined && { dependsOn }),
+          ...(recurrence !== undefined && { recurrence }),
+          ...statusImpliedDateFields({ status, config: formatConfig, today }),
+        },
+      }),
+      ...subtaskRoundTripAdvisories(addSubtasks ?? []),
+    ]
 
     // Heading move — an explicit heading, or the done lane when completing
     // a top-level card on a Kanban board.
@@ -1522,6 +1682,7 @@ const updateTask = async (
           ? [recurrenceSpawn.advisory]
           : undefined,
       changes,
+      ...(advisories.length > 0 && { advisories }),
     }
   })
 }

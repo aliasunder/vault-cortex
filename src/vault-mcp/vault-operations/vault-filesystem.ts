@@ -22,7 +22,10 @@ import {
 } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
-import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
+import {
+  withExclusiveFileLock,
+  withFileLock,
+} from "../../utils/file-write-lock.js"
 import { links } from "../obsidian-markdown/links.js"
 import {
   parseNote,
@@ -501,6 +504,16 @@ type DeleteNoteResult = {
  *  guard's prefix match. */
 const TRASH_COLLISION_ERROR_PREFIX = "cannot move to trash"
 
+/** The one serializing-lock key shared by every trash move and the retention
+ *  sweep's per-row processing (trash-sweeper.ts) — an in-memory key for
+ *  file-write-lock's map, not a lock file on disk. Both sides MUST lock this
+ *  same key: the sweep decides what to unlink from a row it re-reads under
+ *  the lock, and a trash move interleaving with that decision could hand it
+ *  a fresh file at a stale row's path. */
+export const trashDomainLockKey = (vaultPath: string): string => {
+  return join(vaultPath, ".trash")
+}
+
 /** Claims a trash destination with an exclusive create — the empty placeholder
  *  appears atomically, and only when nothing occupies the name. Returns false
  *  when the name is occupied by anything: a regular file, a directory, or a
@@ -525,12 +538,18 @@ const claimTrashTarget = async (targetPath: string): Promise<boolean> => {
  *  trash copy can never be overwritten; a concurrent delete loses the
  *  claim and takes the next suffix instead. The claim itself is the
  *  existence check — no stat-based precheck decides whether a name is
- *  safe. Returns the vault-relative trash path. */
+ *  safe. When `recordTrashEntry` is provided, the landed trash path is
+ *  reported to it for retention-sweep bookkeeping; a move that does not
+ *  record reports the path to `clearStaleTrashEntry` instead, so a stale
+ *  row left by an earlier occupant of the name cannot mark the new file
+ *  for sweeping. Returns the vault-relative trash path. */
 const moveNoteToTrash = async (
   params: {
     vaultPath: string
     relativePath: string
     fullPath: string
+    recordTrashEntry?: ((trashRelativePath: string) => void) | undefined
+    clearStaleTrashEntry?: ((trashRelativePath: string) => void) | undefined
   },
   logger: Logger,
 ): Promise<string> => {
@@ -545,31 +564,71 @@ const moveNoteToTrash = async (
 
   await mkdir(join(params.vaultPath, ".trash", dir), { recursive: true })
 
-  for (const candidateRelativePath of candidateRelativePaths) {
-    const candidateFullPath = join(params.vaultPath, candidateRelativePath)
-    if (!(await claimTrashTarget(candidateFullPath))) continue
-    try {
-      await rename(params.fullPath, candidateFullPath)
-    } catch (renameError) {
-      // The claim took but the move failed — drop our placeholder so it
-      // doesn't strand a 0-byte file occupying a suffix. A failed cleanup is
-      // logged, not thrown, so the rename failure propagates as the cause.
-      await rm(candidateFullPath, { force: true }).catch(
-        (cleanupError: unknown) => {
-          logger.warn("failed to remove claim placeholder", {
+  // Serialized with the retention sweep (trashDomainLockKey; withFileLock is
+  // the serializing mode, so concurrent moves and sweep rows queue rather
+  // than fail): the sweep re-reads each row and unlinks its file under this
+  // lock, so a move that ran unlocked could land a fresh file at a stale
+  // row's path between the sweep's re-read and its unlink — losing the
+  // just-trashed copy.
+  return withFileLock(trashDomainLockKey(params.vaultPath), async () => {
+    for (const candidateRelativePath of candidateRelativePaths) {
+      const candidateFullPath = join(params.vaultPath, candidateRelativePath)
+      if (!(await claimTrashTarget(candidateFullPath))) continue
+      try {
+        await rename(params.fullPath, candidateFullPath)
+      } catch (renameError) {
+        // The claim took but the move failed — drop our placeholder so it
+        // doesn't strand a 0-byte file occupying a suffix. A failed cleanup is
+        // logged, not thrown, so the rename failure propagates as the cause.
+        await rm(candidateFullPath, { force: true }).catch(
+          (cleanupError: unknown) => {
+            logger.warn("failed to remove claim placeholder", {
+              path: candidateRelativePath,
+              error: describeError(cleanupError),
+            })
+          },
+        )
+        throw renameError
+      }
+      // The exclusive claim proved nothing occupied the landed path, so any
+      // existing row for it belongs to an earlier, separately-removed
+      // occupant. Recording replaces that row; a move that does not record
+      // must clear it, or the next sweep would read the stale row and unlink
+      // this fresh file. Both writes are fail-open: the move already
+      // happened, so a failure can't be "aborted" — throwing here would hand
+      // the moved note to the cleanup path above.
+      const tryClearStaleTrashEntry = (): void => {
+        if (!params.clearStaleTrashEntry) return
+        try {
+          params.clearStaleTrashEntry(candidateRelativePath)
+        } catch (clearError) {
+          logger.warn("failed to clear stale trash entry", {
             path: candidateRelativePath,
-            error: describeError(cleanupError),
+            error: describeError(clearError),
           })
-        },
-      )
-      throw renameError
+        }
+      }
+      if (params.recordTrashEntry) {
+        try {
+          params.recordTrashEntry(candidateRelativePath)
+        } catch (recordError) {
+          logger.warn("failed to record trash entry", {
+            path: candidateRelativePath,
+            error: describeError(recordError),
+          })
+          // The failed record left any stale row in place — still defuse it.
+          tryClearStaleTrashEntry()
+        }
+      } else {
+        tryClearStaleTrashEntry()
+      }
+      return candidateRelativePath
     }
-    return candidateRelativePath
-  }
 
-  throw new Error(
-    `${TRASH_COLLISION_ERROR_PREFIX} "${params.relativePath}" — 100 collisions in .trash/`,
-  )
+    throw new Error(
+      `${TRASH_COLLISION_ERROR_PREFIX} "${params.relativePath}" — 100 collisions in .trash/`,
+    )
+  })
 }
 
 /** Deletes or trashes a note depending on the vault's Deleted files setting.
@@ -582,6 +641,14 @@ const deleteNote = async (
     protectedPaths: readonly string[]
     pruneEmptyFolders: boolean
     trashOption: TrashOption
+    /** Retention-sweep bookkeeping hook, forwarded to moveNoteToTrash. The
+     *  caller decides which trash options are recorded (and therefore
+     *  swept); omitted moves are kept in .trash/ forever. */
+    recordTrashEntry?: ((trashRelativePath: string) => void) | undefined
+    /** Forwarded to moveNoteToTrash: clears the sweep's row for a landed
+     *  trash path when the move is not recorded, so an unrecorded move can
+     *  never inherit an earlier occupant's retention clock. */
+    clearStaleTrashEntry?: ((trashRelativePath: string) => void) | undefined
   },
   logger: Logger,
 ): Promise<DeleteNoteResult> => {
@@ -618,14 +685,17 @@ const deleteNote = async (
     // log below need the value, so const can't span the catch boundary
     let trashLocation: string | undefined
     try {
-      // Only "local" has a destination here. "system" trash doesn't exist
-      // inside a container and "none" means delete, so both unlink for good.
-      if (params.trashOption === "local") {
+      // "local" and "system" both land in .trash/ — a container has no host
+      // trash, and Obsidian's own fallback for an unavailable system trash
+      // is .trash/. Only "none" means permanent delete.
+      if (params.trashOption !== "none") {
         trashLocation = await moveNoteToTrash(
           {
             vaultPath: params.vaultPath,
             relativePath: path,
             fullPath,
+            recordTrashEntry: params.recordTrashEntry,
+            clearStaleTrashEntry: params.clearStaleTrashEntry,
           },
           logger,
         )
@@ -642,7 +712,7 @@ const deleteNote = async (
       }
       // Log the raw fs detail (errno, absolute path) for the operator;
       // surface only a vault-relative message to the client.
-      const action = params.trashOption === "local" ? "move to trash" : "delete"
+      const action = params.trashOption !== "none" ? "move to trash" : "delete"
       logger.warn(`failed to ${action}`, {
         path,
         error: describeError(error),
