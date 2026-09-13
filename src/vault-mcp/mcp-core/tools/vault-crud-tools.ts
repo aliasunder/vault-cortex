@@ -92,7 +92,7 @@ Section boundaries: a section spans from its heading to the next heading of the 
 
 Errors:
 - "heading not found" — no heading matches the text; error lists available headings
-- "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or${whenToolEnabledText("vault_replace_in_note", " use vault_replace_in_note to")} target by text content when headings share the same level
+- "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or read the full note (omit heading) when headings share the same level
 - "outline, heading, and properties_only are mutually exclusive" — only one mode per call
 - "line paging is not available in outline mode" / "... properties_only mode" — start_line/limit only work on text renditions (full read or heading section)
 - "start line past the end" — start_line exceeds the rendition's line count; error states the total
