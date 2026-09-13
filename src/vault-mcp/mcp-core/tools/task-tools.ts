@@ -490,7 +490,7 @@ Parameters:
 - path (required): vault-relative path to the note (must end in ".md").
 - Exactly one of block_id or line is required to identify the task.
 - At least one change is required. Every field passed is applied in the same single write:
-  - status: "todo" | "in_progress" | "done" | "cancelled". Manages checkbox and done/cancelled dates. On a Kanban board, "done" moves the card to the done lane together with its checklist sub-items (their checkboxes are left as they are); a sub-task marked done stays under its parent. If the task carries 🏁 delete / [onCompletion:: delete], completing it (transitioning to "done") removes the task line and its children from the file instead of moving it — matching the Tasks plugin's behavior. The result carries on_completion_applied: "delete" when this happens.
+  - status: "todo" | "in_progress" | "done" | "cancelled". Manages checkbox and done/cancelled dates. On a Kanban board, "done" moves the card to the done lane together with its checklist sub-items (their checkboxes are left as they are); a sub-task marked done stays under its parent. If the task carries 🏁 delete / [onCompletion:: delete], completing it (transitioning to "done") removes the task line and its children from the file instead of moving it — matching the Tasks plugin's behavior; recurring tasks (🔁) are kept until the recurrence spawn path exists, so the chain is not destroyed. The result carries on_completion_applied: "delete" when this happens.
   - priority: "highest" | "high" | "medium" | "low" | "lowest" sets the signifier; null removes it.
   - description: replaces the task text. Metadata fields and block_id are preserved.
   - due / scheduled / start / created: YYYY-MM-DD sets the date; null clears it.
@@ -549,7 +549,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
           .enum(["todo", "in_progress", "done", "cancelled"])
           .optional()
           .describe(
-            'Target status. "done" appends the ✅ date and, on a Kanban board, moves the card and its checklist sub-items to the done lane (sub-item checkboxes are left as they are). "cancelled" appends the ❌ date.',
+            'Target status. "done" appends the ✅ date and, on a Kanban board, moves the card and its checklist sub-items to the done lane (sub-item checkboxes are left as they are); a task with 🏁 delete / [onCompletion:: delete] is removed from the file instead. "cancelled" appends the ❌ date.',
           ),
         priority: z
           .enum(["highest", "high", "medium", "low", "lowest"])

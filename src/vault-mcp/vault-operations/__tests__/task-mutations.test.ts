@@ -3651,5 +3651,42 @@ title: Tasks
 - [ ] Next task ➕ 2026-07-02 ^next-task
 `)
     })
+
+    it("keeps a recurring task with 🏁 delete instead of destroying the chain", async () => {
+      const RECURRING_DELETE_NOTE = `---
+title: Tasks
+---
+
+## Active
+
+- [ ] Water plants 🔁 every week 🏁 delete 📅 2026-07-07 ^water
+- [ ] Other task ➕ 2026-07-01 ^other
+`
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", RECURRING_DELETE_NOTE)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "water",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result.on_completion_applied).toBeUndefined()
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(`---
+title: Tasks
+---
+
+## Active
+
+- [x] Water plants 🔁 every week 🏁 delete 📅 2026-07-07 ✅ ${today()} ^water
+- [ ] Other task ➕ 2026-07-01 ^other
+`)
+    })
   })
 })
