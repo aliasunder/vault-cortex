@@ -1515,9 +1515,9 @@ const updateTaskLineStatus = (params: {
   })
 
   const stripMetadataField = (taskLine: string, regex: RegExp): string => {
-    return mapMetadataTail(taskLine, (metadata) =>
-      stripAllField(metadata, regex),
-    )
+    return mapMetadataTail(taskLine, (metadata) => {
+      return stripAllField(metadata, regex)
+    })
   }
 
   if (params.newStatus === "done") {
