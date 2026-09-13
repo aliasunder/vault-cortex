@@ -1020,6 +1020,9 @@ type TaskLineParts = {
   metadata: string
   /** Trailing block link including its leading space; "" when none. */
   blockLink: string
+  /** Trailing whitespace after the block link (or after metadata when no
+   *  block link is present) — a markdown hard break. "" when none. */
+  trailingWhitespace: string
 }
 
 /** Splits a task line at the parser's description/metadata boundary.
@@ -1033,16 +1036,28 @@ const splitTaskLine = (taskLine: string): TaskLineParts | null => {
   const prefix = checkboxMatch?.[1]
   if (!prefix) return null
   const afterCheckbox = taskLine.slice(prefix.length)
-  const { body: taskBody, blockLink } = splitTrailingBlockLink(afterCheckbox)
+  // Capture trailing whitespace before splitTrailingBlockLink trims it —
+  // a markdown hard break (two+ trailing spaces) must survive the round-trip.
+  const trimmedAfterCheckbox = afterCheckbox.trimEnd()
+  const trailingWhitespace = afterCheckbox.slice(trimmedAfterCheckbox.length)
+  const { body: taskBody, blockLink } =
+    splitTrailingBlockLink(trimmedAfterCheckbox)
   const metadataStart = findMetadataStart(taskBody)
   if (metadataStart === -1) {
-    return { prefix, description: taskBody.trim(), metadata: "", blockLink }
+    return {
+      prefix,
+      description: taskBody.trim(),
+      metadata: "",
+      blockLink,
+      trailingWhitespace,
+    }
   }
   return {
     prefix,
     description: taskBody.slice(0, metadataStart).trim(),
     metadata: taskBody.slice(metadataStart).trim(),
     blockLink,
+    trailingWhitespace,
   }
 }
 
@@ -1051,9 +1066,10 @@ const joinTaskLine = ({
   description,
   metadata,
   blockLink,
+  trailingWhitespace,
 }: TaskLineParts): string => {
   const body = [description.trim(), metadata.trim()].filter(Boolean).join(" ")
-  return `${prefix}${body}${blockLink}`
+  return `${prefix}${body}${blockLink}${trailingWhitespace}`
 }
 
 /** Applies a field mutation to the metadata tail only — field-like text
@@ -1404,8 +1420,7 @@ const replaceTaskLineDescription = ({
 }
 
 /** Adds or replaces a `^block-id` at the end of a task line. Trailing
- *  whitespace is trimmed first — matching the untrimmed line would miss an
- *  existing link behind a hard break and write a duplicate. */
+ *  whitespace (a markdown hard break) is preserved through the replacement. */
 const assignBlockId = ({
   taskLine,
   blockId,
@@ -1414,11 +1429,12 @@ const assignBlockId = ({
   blockId: string
 }): string => {
   const trimmedLine = taskLine.trimEnd()
+  const trailingWhitespace = taskLine.slice(trimmedLine.length)
   const existingMatch = BLOCK_LINK_RE.exec(trimmedLine)
   if (existingMatch) {
-    return `${trimmedLine.slice(0, existingMatch.index)} ^${blockId}`
+    return `${trimmedLine.slice(0, existingMatch.index)} ^${blockId}${trailingWhitespace}`
   }
-  return `${trimmedLine} ^${blockId}`
+  return `${trimmedLine} ^${blockId}${trailingWhitespace}`
 }
 
 /** Removes the trailing `^block-id` from a task line, if it has one. */

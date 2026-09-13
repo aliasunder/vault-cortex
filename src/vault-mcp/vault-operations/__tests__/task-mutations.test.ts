@@ -3039,7 +3039,7 @@ title: Tasks
     expect(result.next_occurrence?.due).toBe("2026-01-12")
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
-      `---\ntitle: Tasks\n---\n\n- [ ] Habit 🔁 every week 📅 2026-01-12\n- [x] Habit 🔁 every week 📅 2026-01-05 ✅ ${today()} ^habit\n`,
+      `---\ntitle: Tasks\n---\n\n- [ ] Habit 🔁 every week 📅 2026-01-12\n- [x] Habit 🔁 every week 📅 2026-01-05 ✅ ${today()} ^habit  \n`,
     )
   })
 
