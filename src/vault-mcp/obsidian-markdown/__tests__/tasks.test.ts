@@ -2189,14 +2189,14 @@ describe("tasks.diffTaskRoundTrip", () => {
         field: "description",
         expected: "check 🔁 every week with the team",
         expectedSource: "submitted",
-        parsedBack: "check",
+        storedValue: "check",
         consumedTail: "🔁 every week with the team",
       },
       {
         field: "recurrence",
         expected: null,
         expectedSource: "none",
-        parsedBack: "every week with the team",
+        storedValue: "every week with the team",
       },
     ])
   })
@@ -2243,14 +2243,14 @@ describe("tasks.diffTaskRoundTrip", () => {
         field: "description",
         expected: "Fix ⛔ prose",
         expectedSource: "submitted",
-        parsedBack: "Fix",
+        storedValue: "Fix",
         consumedTail: "⛔ prose",
       },
       {
         field: "depends_on",
         expected: "real-dep",
         expectedSource: "submitted",
-        parsedBack: "prose",
+        storedValue: "prose",
       },
     ])
   })
@@ -2266,14 +2266,14 @@ describe("tasks.diffTaskRoundTrip", () => {
         field: "description",
         expected: "Note things [repeat:: every day]",
         expectedSource: "submitted",
-        parsedBack: "Note things",
+        storedValue: "Note things",
         consumedTail: "[repeat:: every day]",
       },
       {
         field: "recurrence",
         expected: null,
         expectedSource: "none",
-        parsedBack: "every day",
+        storedValue: "every day",
       },
     ])
   })
@@ -2289,14 +2289,14 @@ describe("tasks.diffTaskRoundTrip", () => {
         field: "description",
         expected: "🔁 every day",
         expectedSource: "submitted",
-        parsedBack: null,
+        storedValue: null,
         consumedTail: "🔁 every day",
       },
       {
         field: "recurrence",
         expected: null,
         expectedSource: "none",
-        parsedBack: "every day",
+        storedValue: "every day",
       },
     ])
   })
@@ -2312,7 +2312,7 @@ describe("tasks.diffTaskRoundTrip", () => {
         field: "due",
         expected: null,
         expectedSource: "submitted",
-        parsedBack: "2026-01-01",
+        storedValue: "2026-01-01",
       },
     ])
   })
@@ -2337,7 +2337,7 @@ describe("tasks.diffTaskRoundTrip", () => {
         field: "due",
         expected: "2026-01-01",
         expectedSource: "prior",
-        parsedBack: null,
+        storedValue: null,
       },
     ])
   })
@@ -2365,13 +2365,13 @@ describe("tasks.diffTaskRoundTrip", () => {
         field: "description",
         expected: "Fix login bug 📅 2026-01-01 #urgent",
         expectedSource: "submitted",
-        parsedBack: "Fix login bug #urgent",
+        storedValue: "Fix login bug #urgent",
       },
       {
         field: "due",
         expected: null,
         expectedSource: "none",
-        parsedBack: "2026-01-01",
+        storedValue: "2026-01-01",
       },
     ])
   })
@@ -2398,14 +2398,14 @@ describe("tasks.diffTaskRoundTrip", () => {
         field: "description",
         expected: "archive this 🏁 delete",
         expectedSource: "submitted",
-        parsedBack: "archive this",
+        storedValue: "archive this",
         consumedTail: "🏁 delete",
       },
       {
         field: "on_completion",
         expected: null,
         expectedSource: "none",
-        parsedBack: "delete",
+        storedValue: "delete",
       },
     ])
   })

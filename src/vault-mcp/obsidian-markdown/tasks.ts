@@ -1059,7 +1059,7 @@ export type TaskRoundTripDivergence = Readonly<{
   /** Where the expectation came from: a value submitted this call, the
    *  pre-mutation line's parse, or nothing (the field should be absent). */
   expectedSource: "submitted" | "prior" | "none"
-  parsedBack: string | null
+  storedValue: string | null
   /** Description divergence only: the submitted tail that parsed as
    *  metadata instead of staying description text. */
   consumedTail?: string | undefined
@@ -1237,7 +1237,7 @@ const descriptionDivergences = ({
         field: "description",
         expected: submittedDescription,
         expectedSource: "submitted",
-        parsedBack: storedDescription,
+        storedValue: storedDescription,
         ...(consumedTail && { consumedTail }),
       },
     ]
@@ -1257,7 +1257,7 @@ const descriptionDivergences = ({
       field: "description",
       expected: priorDescription,
       expectedSource: priorDescription === null ? "none" : "prior",
-      parsedBack: storedDescription,
+      storedValue: storedDescription,
     },
   ]
 }
@@ -1288,9 +1288,9 @@ const diffTaskRoundTrip = ({
       ? fieldReading.readParsed(priorReading)
       : null
     const expectation = expectedRoundTripValue({ submittedValue, priorValue })
-    const parsedBack = fieldReading.readParsed(afterReading)
-    if (parsedBack === expectation.expected) return []
-    return [{ field: fieldReading.field, ...expectation, parsedBack }]
+    const storedValue = fieldReading.readParsed(afterReading)
+    if (storedValue === expectation.expected) return []
+    return [{ field: fieldReading.field, ...expectation, storedValue }]
   })
 
   return [

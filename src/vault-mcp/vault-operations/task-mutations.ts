@@ -135,18 +135,18 @@ const displayRoundTripValue = (value: string | null): string => {
  *  `storedTextNoun` is the subject phrase spliced into the sentence
  *  ("the stored description" / "its stored text"). */
 const parsedDescriptionClause = ({
-  parsedBack,
+  storedValue,
   consumedTail,
   storedTextNoun,
 }: {
-  parsedBack: string | null
+  storedValue: string | null
   consumedTail: string | undefined
   storedTextNoun: string
 }): string => {
   const parsedReading =
-    parsedBack === null
+    storedValue === null
       ? `${storedTextNoun} parses back empty`
-      : `${storedTextNoun} parses back as "${parsedBack}"`
+      : `${storedTextNoun} parses back as "${storedValue}"`
   const consumedNote = consumedTail
     ? ` — the trailing "${consumedTail}" was read as task metadata`
     : ""
@@ -160,20 +160,20 @@ const describeRoundTripDivergence = (
 ): string => {
   if (divergence.field === "description") {
     const clause = parsedDescriptionClause({
-      parsedBack: divergence.parsedBack,
+      storedValue: divergence.storedValue,
       consumedTail: divergence.consumedTail,
       storedTextNoun: "the stored description",
     })
     return `description: the line was written as submitted, but ${clause}`
   }
-  const parsedBackDisplay = displayRoundTripValue(divergence.parsedBack)
+  const storedDisplay = displayRoundTripValue(divergence.storedValue)
   if (divergence.expectedSource === "submitted") {
-    return `${divergence.field}: submitted ${displayRoundTripValue(divergence.expected)} but the stored line parses back ${parsedBackDisplay}`
+    return `${divergence.field}: submitted ${displayRoundTripValue(divergence.expected)} but the stored line parses back ${storedDisplay}`
   }
   if (divergence.expectedSource === "prior") {
-    return `${divergence.field}: previously ${displayRoundTripValue(divergence.expected)}, but the stored line now parses back ${parsedBackDisplay} — this call's edits changed what the line parses as this field`
+    return `${divergence.field}: previously ${displayRoundTripValue(divergence.expected)}, but the stored line now parses back ${storedDisplay} — this call's edits changed what the line parses as this field`
   }
-  return `${divergence.field}: the stored line parses back ${parsedBackDisplay} although nothing set it — description text was read as this field`
+  return `${divergence.field}: the stored line parses back ${storedDisplay} although nothing set it — description text was read as this field`
 }
 
 /** Advisory sentences for a written task line; empty when the line parses
@@ -206,7 +206,7 @@ const buildSubtaskAdvisory = (subtaskText: string): string[] => {
   )
   if (!descriptionDivergence) return []
   const clause = parsedDescriptionClause({
-    parsedBack: descriptionDivergence.parsedBack,
+    storedValue: descriptionDivergence.storedValue,
     consumedTail: descriptionDivergence.consumedTail,
     storedTextNoun: "its stored text",
   })
