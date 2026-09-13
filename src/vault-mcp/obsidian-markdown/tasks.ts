@@ -1219,31 +1219,31 @@ const descriptionDivergences = ({
   const submittedDescription = submitted.description?.trim()
 
   if (submittedDescription !== undefined) {
-    // The slot is the trigger (tag re-appending would flag every edit on a
-    // tagged line), but the quoted value is the parser view — the
-    // description readers actually see, tags included.
+    // The slot triggers the divergence check (the parser view re-appends
+    // tags and would flag every edit on a tagged line), but the advisory
+    // quotes storedDescription — what vault_list_tasks actually returns.
     if (afterReading.descriptionSlot === submittedDescription) return []
-    const parserViewBack =
+    const storedDescription =
       afterReading.metadata.description === ""
         ? null
         : afterReading.metadata.description
-    if (parserViewBack === submittedDescription) return []
+    if (storedDescription === submittedDescription) return []
     const consumedTail = consumedDescriptionTail({
       submitted: submittedDescription,
-      storedDescription: parserViewBack,
+      storedDescription,
     })
     return [
       {
         field: "description",
         expected: submittedDescription,
         expectedSource: "submitted",
-        parsedBack: parserViewBack,
+        parsedBack: storedDescription,
         ...(consumedTail && { consumedTail }),
       },
     ]
   }
 
-  const parsedBack =
+  const storedDescription =
     afterReading.metadata.description === ""
       ? null
       : afterReading.metadata.description
@@ -1251,13 +1251,13 @@ const descriptionDivergences = ({
     priorReading && priorReading.metadata.description !== ""
       ? priorReading.metadata.description
       : null
-  if (parsedBack === priorDescription) return []
+  if (storedDescription === priorDescription) return []
   return [
     {
       field: "description",
       expected: priorDescription,
       expectedSource: priorDescription === null ? "none" : "prior",
-      parsedBack,
+      parsedBack: storedDescription,
     },
   ]
 }
