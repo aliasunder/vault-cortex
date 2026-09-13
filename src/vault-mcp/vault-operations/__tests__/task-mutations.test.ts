@@ -3289,13 +3289,18 @@ title: Tasks
         logger,
       )
 
-      expect(result.on_completion_applied).toBe("delete")
-      expect(result.description).toBe("Delete on done")
-      expect(result.heading).toBe("Active")
-      expect(result.changes).toEqual([
-        "status: todo → done",
-        "on_completion: task removed (🏁 delete)",
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 8,
+        description: "Delete on done",
+        block_id: "delete-task",
+        heading: "Active",
+        changes: [
+          "status: todo → done",
+          "on_completion: task removed (🏁 delete)",
+        ],
+        on_completion_applied: "delete",
+      })
 
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(`---
@@ -3328,8 +3333,14 @@ title: Tasks
         logger,
       )
 
-      expect(result.on_completion_applied).toBeUndefined()
-      expect(result.block_id).toBe("keep-explicit")
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "Keep explicitly",
+        block_id: "keep-explicit",
+        heading: "Active",
+        changes: ["status: todo → done"],
+      })
 
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(`---
@@ -3363,7 +3374,14 @@ title: Tasks
         logger,
       )
 
-      expect(result.on_completion_applied).toBeUndefined()
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 10,
+        description: "No completion field",
+        block_id: "no-field",
+        heading: "Active",
+        changes: ["status: todo → done"],
+      })
 
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(`---
@@ -3397,7 +3415,14 @@ title: Tasks
         logger,
       )
 
-      expect(result.on_completion_applied).toBeUndefined()
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 8,
+        description: "Delete on done",
+        block_id: "delete-task",
+        heading: "Active",
+        changes: ["status: todo → in_progress"],
+      })
 
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(`---
@@ -3431,7 +3456,14 @@ title: Tasks
         logger,
       )
 
-      expect(result.on_completion_applied).toBeUndefined()
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 14,
+        description: "Already done",
+        block_id: "already-done",
+        heading: "Done",
+        changes: ["status: done → done"],
+      })
 
       // updateTaskLineStatus re-stamps the done date to today even on an
       // already-done task — the transition guard prevents deletion, but the
@@ -3468,11 +3500,18 @@ title: Tasks
         logger,
       )
 
-      expect(result.on_completion_applied).toBe("delete")
-      expect(result.changes).toEqual([
-        "status: todo → done",
-        "on_completion: task and 3 children removed (🏁 delete)",
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 7,
+        description: "Parent with children",
+        block_id: "parent-delete",
+        heading: "Active",
+        changes: [
+          "status: todo → done",
+          "on_completion: task and 3 children removed (🏁 delete)",
+        ],
+        on_completion_applied: "delete",
+      })
 
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(`---
@@ -3499,7 +3538,18 @@ title: Tasks
         logger,
       )
 
-      expect(result.on_completion_applied).toBe("delete")
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 8,
+        description: "Sub-task with delete",
+        block_id: "sub-delete",
+        heading: "Active",
+        changes: [
+          "status: todo → done",
+          "on_completion: task removed (🏁 delete)",
+        ],
+        on_completion_applied: "delete",
+      })
 
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(`---
@@ -3510,6 +3560,95 @@ title: Tasks
 
 - [ ] Parent task ➕ 2026-07-01 ^parent
   - [ ] Another sub-task ^sub-keep
+`)
+    })
+
+    it("does not delete when cancelling a task with 🏁 delete", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", ON_COMPLETION_NOTE)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "delete-task",
+          status: "cancelled",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 8,
+        description: "Delete on done",
+        block_id: "delete-task",
+        heading: "Active",
+        changes: ["status: todo → cancelled"],
+      })
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(`---
+title: Tasks
+---
+
+## Active
+
+- [ ] Keep this task ➕ 2026-07-01 ^keep-task
+- [-] Delete on done 🏁 delete ➕ 2026-07-02 ❌ ${today()} ^delete-task
+- [ ] Keep explicitly 🏁 keep ➕ 2026-07-03 ^keep-explicit
+- [ ] No completion field ➕ 2026-07-04 ^no-field
+
+## Done
+
+- [x] Already done 🏁 delete ➕ 2026-06-01 ✅ 2026-06-10 ^already-done
+`)
+    })
+
+    it("uses singular 'child' in the changes message when removing 1 child", async () => {
+      const ONE_CHILD_NOTE = `---
+title: Tasks
+---
+
+## Active
+
+- [ ] Parent one child 🏁 delete ➕ 2026-07-01 ^one-child
+  - [ ] Only child
+- [ ] Next task ➕ 2026-07-02 ^next-task
+`
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", ONE_CHILD_NOTE)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "one-child",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 7,
+        description: "Parent one child",
+        block_id: "one-child",
+        heading: "Active",
+        changes: [
+          "status: todo → done",
+          "on_completion: task and 1 child removed (🏁 delete)",
+        ],
+        on_completion_applied: "delete",
+      })
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(`---
+title: Tasks
+---
+
+## Active
+
+- [ ] Next task ➕ 2026-07-02 ^next-task
 `)
     })
   })
