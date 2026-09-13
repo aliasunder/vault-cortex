@@ -1181,8 +1181,9 @@ const expectedRoundTripValue = ({
 }
 
 /** The trailing part of a submitted description that the parser consumed
- *  as metadata. Defined when the stored description starts the submitted
- *  one but is shorter (the parser only ever strips from the right). */
+ *  as metadata. Defined when the stored description matches the start of
+ *  the submitted one but is shorter (the parser only ever strips from
+ *  the right). */
 const consumedDescriptionTail = ({
   submitted,
   storedDescription,

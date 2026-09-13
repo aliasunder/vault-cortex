@@ -3185,6 +3185,35 @@ describe("round-trip advisories", () => {
       ])
     })
 
+    it("preserves a description cancelled-date signifier through a combined status change and reports both divergences", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Old ➕ 2026-07-01 ^t\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "t",
+          description: "Archive ❌ 2026-05-04",
+          status: "cancelled",
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [-] Archive ❌ 2026-05-04 ➕ 2026-07-01 ❌ ${today()} ^t\n`,
+      )
+      expect(result.advisories).toEqual([
+        'description: the line was written as submitted, but the stored description parses back as "Archive" — the trailing "❌ 2026-05-04" was read as task metadata',
+        `cancelled: submitted "${today()}" but the stored line parses back "2026-05-04"`,
+      ])
+    })
+
     it("names a truncating add_subtasks item in the advisories", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
