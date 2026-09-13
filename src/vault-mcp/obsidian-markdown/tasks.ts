@@ -1180,9 +1180,9 @@ const expectedRoundTripValue = ({
   return { expected: null, expectedSource: "none" }
 }
 
-/** The part of a submitted description that parsed as metadata — defined
- *  when the stored description is a strict prefix of the submitted one
- *  (the end-anchored stripping loop only ever consumes from the right). */
+/** The trailing part of a submitted description that the parser consumed
+ *  as metadata. Defined when the stored description starts the submitted
+ *  one but is shorter (the parser only ever strips from the right). */
 const consumedDescriptionTail = ({
   submitted,
   storedDescription,
