@@ -1086,8 +1086,9 @@ const parseTaskLineMetadata = (taskLine: string): TaskMetadata | null => {
 
 /** The description the parser sees for a task line — metadata stripped
  *  from the right, interleaved tags re-appended, block link removed. */
-const describeTaskLine = (taskLine: string): string =>
-  parseTaskLineMetadata(taskLine)?.description ?? taskLine
+const describeTaskLine = (taskLine: string): string => {
+  return parseTaskLineMetadata(taskLine)?.description ?? taskLine
+}
 
 // ── Round-trip divergence detection ─────────────────────────────
 
