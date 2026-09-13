@@ -1181,19 +1181,19 @@ const expectedRoundTripValue = ({
 }
 
 /** The part of a submitted description that parsed as metadata — defined
- *  when the parsed-back description is a strict prefix of the submitted one
+ *  when the stored description is a strict prefix of the submitted one
  *  (the end-anchored stripping loop only ever consumes from the right). */
 const consumedDescriptionTail = ({
-  expected,
-  parsedBack,
+  submitted,
+  storedDescription,
 }: {
-  expected: string | null
-  parsedBack: string | null
+  submitted: string | null
+  storedDescription: string | null
 }): string | undefined => {
-  if (expected === null) return undefined
-  if (parsedBack === null) return expected
-  if (!expected.startsWith(parsedBack)) return undefined
-  const tail = expected.slice(parsedBack.length).trim()
+  if (submitted === null) return undefined
+  if (storedDescription === null) return submitted
+  if (!submitted.startsWith(storedDescription)) return undefined
+  const tail = submitted.slice(storedDescription.length).trim()
   return tail === "" ? undefined : tail
 }
 
@@ -1229,8 +1229,8 @@ const descriptionDivergences = ({
         : afterReading.metadata.description
     if (parserViewBack === submittedDescription) return []
     const consumedTail = consumedDescriptionTail({
-      expected: submittedDescription,
-      parsedBack: parserViewBack,
+      submitted: submittedDescription,
+      storedDescription: parserViewBack,
     })
     return [
       {
