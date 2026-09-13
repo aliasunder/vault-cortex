@@ -3764,6 +3764,28 @@ describe("round-trip advisories", () => {
       )
     })
 
+    it("omits recurrence advisory when the recurrence param is set on create", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "Water plants",
+          blockId: "water",
+          recurrence: "every week",
+        },
+        logger,
+      )
+
+      expect(result.advisories).toBeUndefined()
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] Water plants 🔁 every week ➕ ${today()} ^water\n`,
+      )
+    })
+
     it("names the subtask whose text truncates and stays silent on clean subtasks", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
@@ -4109,6 +4131,56 @@ describe("round-trip advisories", () => {
         'description: the line was written as submitted, but the stored description parses back as "Archive" — the trailing "❌ 2026-05-04" was read as task metadata',
         `cancelled: submitted "${today()}" but the stored line parses back "2026-05-04"`,
       ])
+    })
+
+    it("omits recurrence advisory when recurrence is set via the param", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Water plants ➕ 2026-01-01 ^water\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "water",
+          recurrence: "every week",
+        },
+        logger,
+      )
+
+      expect(result.advisories).toBeUndefined()
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Water plants 🔁 every week ➕ 2026-01-01 ^water\n",
+      )
+    })
+
+    it("omits recurrence advisory when recurrence is cleared via the param", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Water plants 🔁 every week ➕ 2026-01-01 ^water\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "water",
+          recurrence: null,
+        },
+        logger,
+      )
+
+      expect(result.advisories).toBeUndefined()
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Water plants ➕ 2026-01-01 ^water\n",
+      )
     })
 
     it("names a truncating add_subtasks item in the advisories", async () => {

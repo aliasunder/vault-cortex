@@ -1103,6 +1103,7 @@ const createTask = async (
           description,
           createdDate: today,
           ...(priority && { priority }),
+          ...(recurrence && { recurrence }),
           ...(due && { dueDate: due }),
           ...(scheduled && { scheduledDate: scheduled }),
           ...(start && { startDate: start }),
