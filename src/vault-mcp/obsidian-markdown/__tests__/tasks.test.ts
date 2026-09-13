@@ -1061,6 +1061,17 @@ describe("task line mutations", () => {
       expect(result).toBe("- [ ] Task ➕ 2026-07-01")
     })
 
+    it("replaces the real priority field, not a description emoji the parser read as metadata", () => {
+      // The description's trailing 🔼 parses as metadata, so it sits at the
+      // front of the tail; the real ⏫ to its right is the field to replace.
+      const result = tasks.updateTaskLinePriority({
+        taskLine: "- [ ] Deploy 🔼 ⏫ ➕ 2026-09-01 ^x",
+        newPriority: "low",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] Deploy 🔽 🔼 ➕ 2026-09-01 ^x")
+    })
+
     it("returns the line unchanged when removing priority that does not exist", () => {
       const line = "- [ ] No priority task ➕ 2026-07-01"
       const result = tasks.updateTaskLinePriority({
@@ -2147,5 +2158,267 @@ describe("task line mutations", () => {
       ]
       expect(tasks.parseKanbanCardInsertionMethod(bodyLines)).toBeUndefined()
     })
+  })
+})
+
+describe("tasks.diffTaskRoundTrip", () => {
+  it("reports no divergence for a clean line matching every submitted field", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] Fix login ⏫ ➕ 2026-09-11 ^fix-login",
+      priorTaskLine: null,
+      submitted: {
+        description: "Fix login",
+        priority: "high",
+        createdDate: "2026-09-11",
+      },
+    })
+    expect(divergences).toEqual([])
+  })
+
+  it("reports description truncation and the materialized recurrence when prose ends in a parseable recurrence", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] check 🔁 every week with the team ➕ 2026-09-11 ^t1",
+      priorTaskLine: null,
+      submitted: {
+        description: "check 🔁 every week with the team",
+        createdDate: "2026-09-11",
+      },
+    })
+    expect(divergences).toEqual([
+      {
+        field: "description",
+        expected: "check 🔁 every week with the team",
+        expectedSource: "submitted",
+        storedValue: "check",
+        consumedTail: "🔁 every week with the team",
+      },
+      {
+        field: "recurrence",
+        expected: null,
+        expectedSource: "none",
+        storedValue: "every week with the team",
+      },
+    ])
+  })
+
+  it("reports no divergence when a pre-existing recurrence survives an unrelated update", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine:
+        "- [ ] Water plants 🔁 every day ➕ 2026-01-01 📅 2026-09-20 ^water",
+      priorTaskLine: "- [ ] Water plants 🔁 every day ➕ 2026-01-01 ^water",
+      submitted: { dueDate: "2026-09-20" },
+    })
+    expect(divergences).toEqual([])
+  })
+
+  it("reports no divergence for machine-stamped completion dates declared in the submitted set", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [x] Ship it ➕ 2026-01-01 ✅ 2026-09-11 ^ship",
+      priorTaskLine: "- [ ] Ship it ➕ 2026-01-01 ^ship",
+      submitted: { doneDate: "2026-09-11", cancelledDate: null },
+    })
+    expect(divergences).toEqual([])
+  })
+
+  it("reports no divergence for leading or trailing whitespace in the submitted description", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] Tidy desk ^tidy",
+      priorTaskLine: null,
+      submitted: { description: "  Tidy desk  " },
+    })
+    expect(divergences).toEqual([])
+  })
+
+  it("reports the truncated description and the overwritten depends_on when prose contains a dependency signifier", () => {
+    // The prose after ⛔ must be id-grammar words ([a-zA-Z0-9_-]+) for the
+    // parser to read it as a dependency list — ordinary prose with spaces
+    // or punctuation after the emoji stays description text.
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] Fix ⛔ prose ➕ 2026-01-01 ⛔ real-dep ^m1",
+      priorTaskLine: "- [ ] Old ➕ 2026-01-01 ⛔ old-dep ^m1",
+      submitted: { description: "Fix ⛔ prose", dependsOn: ["real-dep"] },
+    })
+    expect(divergences).toEqual([
+      {
+        field: "description",
+        expected: "Fix ⛔ prose",
+        expectedSource: "submitted",
+        storedValue: "Fix",
+        consumedTail: "⛔ prose",
+      },
+      {
+        field: "depends_on",
+        expected: "real-dep",
+        expectedSource: "submitted",
+        storedValue: "prose",
+      },
+    ])
+  })
+
+  it("reports the Dataview inline-field form the same way as emoji signifiers", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] Note things [repeat:: every day] ^dv",
+      priorTaskLine: null,
+      submitted: { description: "Note things [repeat:: every day]" },
+    })
+    expect(divergences).toEqual([
+      {
+        field: "description",
+        expected: "Note things [repeat:: every day]",
+        expectedSource: "submitted",
+        storedValue: "Note things",
+        consumedTail: "[repeat:: every day]",
+      },
+      {
+        field: "recurrence",
+        expected: null,
+        expectedSource: "none",
+        storedValue: "every day",
+      },
+    ])
+  })
+
+  it("reports an empty stored description when the whole submitted text parses as metadata", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] 🔁 every day ^all-meta",
+      priorTaskLine: null,
+      submitted: { description: "🔁 every day" },
+    })
+    expect(divergences).toEqual([
+      {
+        field: "description",
+        expected: "🔁 every day",
+        expectedSource: "submitted",
+        storedValue: null,
+        consumedTail: "🔁 every day",
+      },
+      {
+        field: "recurrence",
+        expected: null,
+        expectedSource: "none",
+        storedValue: "every day",
+      },
+    ])
+  })
+
+  it("reports a submitted null clear that did not take effect", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] T 📅 2026-01-01 ^t",
+      priorTaskLine: "- [ ] T 📅 2026-01-01 ^t",
+      submitted: { dueDate: null },
+    })
+    expect(divergences).toEqual([
+      {
+        field: "due",
+        expected: null,
+        expectedSource: "submitted",
+        storedValue: "2026-01-01",
+      },
+    ])
+  })
+
+  it("reports no divergence for a satisfied null clear", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] T ^t",
+      priorTaskLine: "- [ ] T 📅 2026-01-01 ^t",
+      submitted: { dueDate: null },
+    })
+    expect(divergences).toEqual([])
+  })
+
+  it("reports a prior-sourced divergence when a field disappears without the call clearing it", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] T ^t",
+      priorTaskLine: "- [ ] T 📅 2026-01-01 ^t",
+      submitted: {},
+    })
+    expect(divergences).toEqual([
+      {
+        field: "due",
+        expected: "2026-01-01",
+        expectedSource: "prior",
+        storedValue: null,
+      },
+    ])
+  })
+
+  it("returns an empty array for a non-task line", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "just a paragraph",
+      priorTaskLine: null,
+      submitted: { description: "just a paragraph" },
+    })
+    expect(divergences).toEqual([])
+  })
+
+  it("quotes the parser view, tags re-appended, when the submitted description had a tag after a consumed field", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] Fix login bug 📅 2026-01-01 #urgent ➕ 2026-09-11 ^lb",
+      priorTaskLine: null,
+      submitted: {
+        description: "Fix login bug 📅 2026-01-01 #urgent",
+        createdDate: "2026-09-11",
+      },
+    })
+    expect(divergences).toEqual([
+      {
+        field: "description",
+        expected: "Fix login bug 📅 2026-01-01 #urgent",
+        expectedSource: "submitted",
+        storedValue: "Fix login bug #urgent",
+      },
+      {
+        field: "due",
+        expected: null,
+        expectedSource: "none",
+        storedValue: "2026-01-01",
+      },
+    ])
+  })
+
+  it("reports no divergence when the parser view equals the submitted description exactly", () => {
+    // The slot differs (the tag sits in the metadata tail), but the parser
+    // re-appends it, so nothing the caller submitted was lost.
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] Fix bug 📅 2026-01-01 #urgent ^x",
+      priorTaskLine: "- [ ] Fix bug 📅 2026-01-01 #urgent ^x",
+      submitted: { description: "Fix bug #urgent" },
+    })
+    expect(divergences).toEqual([])
+  })
+
+  it("reports an on_completion value materializing from a description tail", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] archive this 🏁 delete ^oc",
+      priorTaskLine: null,
+      submitted: { description: "archive this 🏁 delete" },
+    })
+    expect(divergences).toEqual([
+      {
+        field: "description",
+        expected: "archive this 🏁 delete",
+        expectedSource: "submitted",
+        storedValue: "archive this",
+        consumedTail: "🏁 delete",
+      },
+      {
+        field: "on_completion",
+        expected: null,
+        expectedSource: "none",
+        storedValue: "delete",
+      },
+    ])
+  })
+
+  it("reports no description divergence when a cleared field migrates a trailing tag into the slot", () => {
+    // Clearing the only metadata field moves "#project" from the metadata
+    // tail into the description slot; the parser's description is identical
+    // before and after, so nothing diverged.
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] Deploy #project ^deploy",
+      priorTaskLine: "- [ ] Deploy 📅 2026-09-01 #project ^deploy",
+      submitted: { dueDate: null },
+    })
+    expect(divergences).toEqual([])
   })
 })

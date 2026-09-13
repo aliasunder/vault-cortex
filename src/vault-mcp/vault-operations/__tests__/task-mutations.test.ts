@@ -2765,3 +2765,472 @@ kanban-plugin: board
     })
   })
 })
+
+describe("round-trip advisories", () => {
+  describe("createTask", () => {
+    it("writes the line verbatim and reports the recurrence consumption when the description ends in a parseable recurrence", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "check 🔁 every week with the team",
+          blockId: "check-in",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "check 🔁 every week with the team",
+        block_id: "check-in",
+        changes: [`created: (none) → ${today()}`],
+        advisories: [
+          'description: the line was written as submitted, but the stored description parses back as "check" — the trailing "🔁 every week with the team" was read as task metadata',
+          'recurrence: the stored line parses back "every week with the team" although nothing set it — description text was read as this field',
+        ],
+      })
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] check 🔁 every week with the team ➕ ${today()} ^check-in\n`,
+      )
+    })
+
+    it("omits advisories entirely for a clean description", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "Plain task with no signifiers",
+          blockId: "plain",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 9,
+        description: "Plain task with no signifiers",
+        block_id: "plain",
+        changes: [`created: (none) → ${today()}`],
+      })
+    })
+
+    it("reports a Dataview inline field consuming the description tail under dataview format", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "check [repeat:: every week]",
+          blockId: "dv-check",
+          format: "dataview",
+        },
+        logger,
+      )
+
+      expect(result.advisories).toEqual([
+        'description: the line was written as submitted, but the stored description parses back as "check" — the trailing "[repeat:: every week]" was read as task metadata',
+        'recurrence: the stored line parses back "every week" although nothing set it — description text was read as this field',
+      ])
+    })
+
+    it("says the stored description parses back empty when the whole submitted text is consumed", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "🔁 every day",
+          blockId: "all-meta",
+        },
+        logger,
+      )
+
+      expect(result.advisories).toEqual([
+        'description: the line was written as submitted, but the stored description parses back empty — the trailing "🔁 every day" was read as task metadata',
+        'recurrence: the stored line parses back "every day" although nothing set it — description text was read as this field',
+      ])
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [ ] Buy groceries ➕ 2026-07-01\n- [ ] Walk the dog ➕ 2026-07-02 ^walk-dog\n- [x] Done task ➕ 2026-07-01 ✅ 2026-07-10\n\n- [ ] 🔁 every day ➕ ${today()} ^all-meta\n`,
+      )
+    })
+
+    it("names the subtask whose text truncates and stays silent on clean subtasks", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "Ship the feature",
+          blockId: "ship",
+          subtasks: ["Design", "check 🔁 every week"],
+        },
+        logger,
+      )
+
+      expect(result.advisories).toEqual([
+        'subtask "check 🔁 every week": written as submitted, but its stored text parses back as "check" — the trailing "🔁 every week" was read as task metadata',
+      ])
+    })
+  })
+
+  describe("updateTask", () => {
+    it("serializes exactly one depends_on field, preserves the prose, and reports the parse-back divergence", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Old desc ➕ 2026-09-01 ⛔ old-dep ^my-task\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "my-task",
+          description: "Fix ⛔ prose",
+          dependsOn: ["real-dep"],
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix ⛔ prose ➕ 2026-09-01 ⛔ real-dep ^my-task\n",
+      )
+      expect(result.advisories).toEqual([
+        'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "⛔ prose" was read as task metadata',
+        'depends_on: submitted "real-dep" but the stored line parses back "prose"',
+      ])
+      expect(result.changes).toEqual([
+        "depends_on: old-dep → real-dep",
+        "description: Old desc → Fix",
+      ])
+    })
+
+    it("serializes exactly one task_id field when the new description contains an id signifier", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Old ➕ 2026-09-01 🆔 old-id ^t1\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "t1",
+          description: "Fix 🆔 prose",
+          taskId: "new-id",
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix 🆔 prose ➕ 2026-09-01 🆔 new-id ^t1\n",
+      )
+      expect(result.advisories).toEqual([
+        'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "🆔 prose" was read as task metadata',
+        'task_id: submitted "new-id" but the stored line parses back "prose"',
+      ])
+    })
+
+    it("serializes exactly one due-date field when the new description contains a date signifier", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Old ➕ 2026-09-01 📅 2026-09-15 ^t2\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "t2",
+          description: "Fix 📅 2026-12-31",
+          due: "2026-10-01",
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix 📅 2026-12-31 ➕ 2026-09-01 📅 2026-10-01 ^t2\n",
+      )
+      expect(result.advisories).toEqual([
+        'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "📅 2026-12-31" was read as task metadata',
+        'due: submitted "2026-10-01" but the stored line parses back "2026-12-31"',
+      ])
+    })
+
+    it("omits advisories when a clean description update leaves a pre-existing recurrence in place", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Water plants 🔁 every day ➕ 2026-01-01 ^water\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "water",
+          description: "Water all plants",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Water all plants",
+        block_id: "water",
+        changes: ["description: Water plants → Water all plants"],
+      })
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Water all plants 🔁 every day ➕ 2026-01-01 ^water\n",
+      )
+    })
+
+    it("reports a prior-sourced advisory when a description signifier overwrites a pre-existing field", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Old ➕ 2026-09-01 📅 2026-01-01 ^t1\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "t1",
+          description: "Fix 📅 2026-12-31",
+        },
+        logger,
+      )
+
+      expect(result.advisories).toEqual([
+        'description: the line was written as submitted, but the stored description parses back as "Fix" — the trailing "📅 2026-12-31" was read as task metadata',
+        'due: previously "2026-01-01", but the stored line now parses back "2026-12-31" — this call\'s edits changed what the line parses as this field',
+      ])
+    })
+
+    it("omits advisories when clearing the last metadata field migrates a trailing tag into the description slot", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Deploy 📅 2026-09-01 #project ^deploy\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "deploy",
+          due: null,
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Deploy #project",
+        block_id: "deploy",
+        changes: ["due: 2026-09-01 → (none)"],
+      })
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Deploy #project ^deploy\n",
+      )
+    })
+
+    it("replaces the real dependency field, not a description signifier the parser read as metadata", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix ⛔ prose ➕ 2026-09-01 ⛔ old-dep ^t1\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "t1",
+          dependsOn: ["new-dep"],
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix ⛔ prose ➕ 2026-09-01 ⛔ new-dep ^t1\n",
+      )
+      expect(result.advisories).toEqual([
+        'depends_on: submitted "new-dep" but the stored line parses back "prose"',
+      ])
+    })
+
+    it("restamps the real completion date, not a description date the parser read as metadata, and restamps stably", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Finish ✅ 2026-05-05 ➕ 2026-07-01 ^fin\n",
+      )
+
+      await taskMutations.updateTask(
+        { vaultPath: vault, path: "tasks.md", blockId: "fin", status: "done" },
+        logger,
+      )
+      const contentAfterFirstStamp = await readTestNote(vault, "tasks.md")
+      expect(contentAfterFirstStamp).toBe(
+        `---\ntitle: Tasks\n---\n\n- [x] Finish ➕ 2026-07-01 ✅ ${today()} ^fin\n`,
+      )
+
+      const secondResult = await taskMutations.updateTask(
+        { vaultPath: vault, path: "tasks.md", blockId: "fin", status: "done" },
+        logger,
+      )
+      const contentAfterSecondStamp = await readTestNote(vault, "tasks.md")
+      expect(contentAfterSecondStamp).toBe(contentAfterFirstStamp)
+      expect(secondResult).toEqual({
+        path: "tasks.md",
+        line: 5,
+        description: "Finish",
+        block_id: "fin",
+        changes: ["status: done → done"],
+      })
+    })
+
+    it("omits advisories when the submitted description ends in a tag that also sits in the metadata tail", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix bug 📅 2026-01-01 #urgent ^x\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "x",
+          description: "Fix bug #urgent",
+        },
+        logger,
+      )
+
+      expect(result.advisories).toBeUndefined()
+      const content = await readTestNote(vault, "tasks.md")
+      // Pre-existing write behavior, tracked separately: the submitted text
+      // lands in the description slot while the tail keeps its copy of the
+      // tag, so the tag is duplicated on the line. The advisory stays silent
+      // because the slot round-trips the submitted text exactly.
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix bug #urgent 📅 2026-01-01 #urgent ^x\n",
+      )
+    })
+
+    it("preserves a description date signifier through a combined status change and reports both divergences", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Old ➕ 2026-07-01 ^t\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "t",
+          description: "Finish ✅ 2026-05-05",
+          status: "done",
+        },
+        logger,
+      )
+
+      // The caller's prose date stays on the line (never auto-corrected);
+      // the parse-back hijack it causes is reported, never silent.
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [x] Finish ✅ 2026-05-05 ➕ 2026-07-01 ✅ ${today()} ^t\n`,
+      )
+      expect(result.advisories).toEqual([
+        'description: the line was written as submitted, but the stored description parses back as "Finish" — the trailing "✅ 2026-05-05" was read as task metadata',
+        `done: submitted "${today()}" but the stored line parses back "2026-05-05"`,
+      ])
+    })
+
+    it("preserves a description cancelled-date signifier through a combined status change and reports both divergences", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Old ➕ 2026-07-01 ^t\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "t",
+          description: "Archive ❌ 2026-05-04",
+          status: "cancelled",
+        },
+        logger,
+      )
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [-] Archive ❌ 2026-05-04 ➕ 2026-07-01 ❌ ${today()} ^t\n`,
+      )
+      expect(result.advisories).toEqual([
+        'description: the line was written as submitted, but the stored description parses back as "Archive" — the trailing "❌ 2026-05-04" was read as task metadata',
+        `cancelled: submitted "${today()}" but the stored line parses back "2026-05-04"`,
+      ])
+    })
+
+    it("names a truncating add_subtasks item in the advisories", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "walk-dog",
+          addSubtasks: ["check 🔁 every week"],
+        },
+        logger,
+      )
+
+      expect(result.advisories).toEqual([
+        'subtask "check 🔁 every week": written as submitted, but its stored text parses back as "check" — the trailing "🔁 every week" was read as task metadata',
+      ])
+    })
+  })
+})
