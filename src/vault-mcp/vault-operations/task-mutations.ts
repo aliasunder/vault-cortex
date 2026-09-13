@@ -1537,7 +1537,7 @@ const updateTask = async (
         ? parseHeadings(linesWithSpawn)
         : headings
 
-    const advisories = [
+    const roundTripAndSubtaskAdvisories = [
       ...roundTripAdvisories({
         taskLine: mutatedLine,
         priorTaskLine: originalTaskLine,
@@ -1555,6 +1555,13 @@ const updateTask = async (
         },
       }),
       ...subtaskRoundTripAdvisories(addSubtasks ?? []),
+    ]
+
+    const advisories = [
+      ...(recurrenceSpawn.kind === "advisory"
+        ? [recurrenceSpawn.advisory]
+        : []),
+      ...roundTripAndSubtaskAdvisories,
     ]
 
     // Heading move — an explicit heading, or the done lane when completing
@@ -1678,10 +1685,6 @@ const updateTask = async (
       heading: finalHeading?.text,
       subtasks: subtaskPositions,
       next_occurrence: nextOccurrence,
-      advisories:
-        recurrenceSpawn.kind === "advisory"
-          ? [recurrenceSpawn.advisory]
-          : undefined,
       changes,
       ...(advisories.length > 0 && { advisories }),
     }

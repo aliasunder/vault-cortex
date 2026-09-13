@@ -3344,6 +3344,33 @@ describe("recurring-task completion", () => {
     )
   })
 
+  it("includes both recurrence and round-trip advisories when both fire", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] Fuzzy habit 🔁 whenever 📅 2026-01-05 ^fuzzy\n",
+    )
+
+    const result = await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "fuzzy",
+        status: "done",
+        description: "Fuzzy habit ✅ 2026-01-01",
+      },
+      logger,
+    )
+
+    expect(result.next_occurrence).toBeUndefined()
+    expect(result.advisories).toEqual([
+      'The task was completed, but its recurrence rule "whenever" is not a rule the Tasks plugin recognizes, so no next occurrence was created.',
+      'description: the line was written as submitted, but the stored description parses back as "Fuzzy habit" — the trailing "✅ 2026-01-01" was read as task metadata',
+      `done: submitted "${today()}" but the stored line parses back "2026-01-01"`,
+    ])
+  })
+
   it("completes with an advisory when a finite rule is exhausted", async () => {
     const vault = await createVault()
     await writeTestNote(
