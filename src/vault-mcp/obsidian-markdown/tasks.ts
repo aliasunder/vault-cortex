@@ -1419,6 +1419,75 @@ const replaceTaskLineDescription = ({
   return joinTaskLine({ ...parts, description: newDescription })
 }
 
+/** Matches a specific hashtag as a whole token — preceded by start-of-string
+ *  or whitespace, followed by whitespace or end-of-string. */
+const hashtagTokenPattern = (escapedTag: string): RegExp => {
+  return new RegExp(`(^|\\s)${escapedTag}(?=\\s|$)`)
+}
+
+/** Characters that have special meaning in a regex pattern. */
+const REGEX_SPECIAL_CHARS_RE = /[.*+?^${}()|[\]\\]/g
+
+const escapeRegExp = (text: string): string => {
+  return text.replace(REGEX_SPECIAL_CHARS_RE, "\\$&")
+}
+
+/** Extracts trailing hashtags from a string by repeated right-to-left
+ *  stripping — the same loop shape as parseTaskMetadata's tag pass. */
+const extractTrailingTags = (text: string): readonly string[] => {
+  const tags: string[] = []
+  // Each iteration shortens the string from the right; later passes
+  // depend on the shortened result (sequential parser state).
+  let remaining = text
+  for (;;) {
+    const tagMatch = HASHTAG_FROM_END_RE.exec(remaining)
+    if (!tagMatch) break
+    tags.unshift(tagMatch[0].trim())
+    remaining = remaining.slice(0, tagMatch.index).trim()
+  }
+  return tags
+}
+
+/** Strips tags from the metadata tail that byte-match trailing tags in the
+ *  description — the round-trip duplication that occurs when an agent writes
+ *  back the parser's re-appended view of interleaved tags. Returns the
+ *  cleaned line and the tags that were removed. */
+const deduplicateDescriptionTags = (
+  taskLine: string,
+): { taskLine: string; deduplicatedTags: readonly string[] } => {
+  const parts = splitTaskLine(taskLine)
+  if (!parts || !parts.metadata) {
+    return { taskLine, deduplicatedTags: [] }
+  }
+
+  const descriptionTrailingTags = extractTrailingTags(parts.description)
+  if (descriptionTrailingTags.length === 0) {
+    return { taskLine, deduplicatedTags: [] }
+  }
+
+  // Strip from the metadata only tags that byte-match a trailing
+  // description tag — non-overlapping tags stay in both positions.
+  // Each iteration shortens the metadata (sequential stripping state).
+  let dedupedMetadata = parts.metadata
+  const deduplicatedTags: string[] = []
+  for (const tag of descriptionTrailingTags) {
+    const tagPattern = hashtagTokenPattern(escapeRegExp(tag))
+    if (tagPattern.test(dedupedMetadata)) {
+      dedupedMetadata = dedupedMetadata.replace(tagPattern, "").trim()
+      deduplicatedTags.push(tag)
+    }
+  }
+
+  if (deduplicatedTags.length === 0) {
+    return { taskLine, deduplicatedTags: [] }
+  }
+
+  return {
+    taskLine: joinTaskLine({ ...parts, metadata: dedupedMetadata }),
+    deduplicatedTags,
+  }
+}
+
 /** Adds or replaces a `^block-id` at the end of a task line. Trailing
  *  whitespace (a markdown hard break) is preserved through the replacement. */
 const assignBlockId = ({
@@ -1808,6 +1877,7 @@ export const tasks = {
   findBodyStartLine,
   extractDoneLanes,
   parseKanbanCardInsertionMethod,
+  deduplicateDescriptionTags,
   BLOCK_LINK_RE,
 }
 

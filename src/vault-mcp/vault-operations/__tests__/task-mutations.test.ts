@@ -4146,7 +4146,7 @@ describe("round-trip advisories", () => {
       })
     })
 
-    it("omits advisories when the submitted description ends in a tag that also sits in the metadata tail", async () => {
+    it("deduplicates a tag that appears in both the submitted description and the metadata tail", async () => {
       const vault = await createVault()
       await writeTestNote(
         vault,
@@ -4164,14 +4164,89 @@ describe("round-trip advisories", () => {
         logger,
       )
 
+      expect(result.advisories).toEqual([
+        'tag: "#urgent" appeared in both the description and the metadata tail — deduplicated to one copy',
+      ])
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix bug #urgent 📅 2026-01-01 ^x\n",
+      )
+    })
+
+    it("deduplicates multiple trailing tags that all match the metadata tail", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix bug 📅 2026-01-01 #urgent #review ^x\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "x",
+          description: "Fix bug #urgent #review",
+        },
+        logger,
+      )
+
+      expect(result.advisories).toHaveLength(2)
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix bug #urgent #review 📅 2026-01-01 ^x\n",
+      )
+    })
+
+    it("preserves non-overlapping tags in both positions", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix bug 📅 2026-01-01 #review ^x\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "x",
+          description: "Fix bug #urgent",
+        },
+        logger,
+      )
+
+      // #urgent is in the description only, #review is in the metadata tail
+      // only — neither is duplicated, no dedup advisory fires.
       expect(result.advisories).toBeUndefined()
       const content = await readTestNote(vault, "tasks.md")
-      // Pre-existing write behavior, tracked separately: the submitted text
-      // lands in the description slot while the tail keeps its copy of the
-      // tag, so the tag is duplicated on the line. The advisory stays silent
-      // because the slot round-trips the submitted text exactly.
       expect(content).toBe(
-        "---\ntitle: Tasks\n---\n\n- [ ] Fix bug #urgent 📅 2026-01-01 #urgent ^x\n",
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix bug #urgent 📅 2026-01-01 #review ^x\n",
+      )
+    })
+
+    it("fires no dedup advisory when the description has no trailing tags", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix bug 📅 2026-01-01 #urgent ^x\n",
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "x",
+          description: "Fix crash",
+        },
+        logger,
+      )
+
+      expect(result.advisories).toBeUndefined()
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        "---\ntitle: Tasks\n---\n\n- [ ] Fix crash 📅 2026-01-01 #urgent ^x\n",
       )
     })
 
