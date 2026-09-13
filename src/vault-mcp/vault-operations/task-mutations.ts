@@ -101,7 +101,7 @@ type UpdateTaskResult = {
    *  The write itself succeeded; these are informational. */
   advisories?: string[] | undefined
   /** The onCompletion action that was applied (e.g. "delete"). Present only
-   *  when the task carried 🏁/[onCompletion::] and was transitioned to done. */
+   *  when a non-recurring task with 🏁/[onCompletion::] was transitioned to done. */
   on_completion_applied?: string | undefined
 }
 

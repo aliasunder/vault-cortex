@@ -3675,7 +3675,14 @@ title: Tasks
         logger,
       )
 
-      expect(result.on_completion_applied).toBeUndefined()
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 7,
+        description: "Water plants",
+        block_id: "water",
+        heading: "Active",
+        changes: ["status: todo → done"],
+      })
 
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(`---
