@@ -2934,7 +2934,7 @@ describe("recurring-task completion", () => {
     )
   })
 
-  it("strips the last copy of a duplicated field from the spawn", async () => {
+  it("strips every copy of a duplicated field from the spawn", async () => {
     const vault = await createVault()
     await writeTestNote(
       vault,
@@ -2954,7 +2954,7 @@ describe("recurring-task completion", () => {
 
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
-      `---\ntitle: Tasks\n---\n\n- [ ] Dup 🔁 every week 📅 2026-01-12 🆔 a1\n- [x] Dup 🔁 every week 🆔 a1 📅 2026-01-05 🆔 a2 ✅ ${today()} ^dup-task\n`,
+      `---\ntitle: Tasks\n---\n\n- [ ] Dup 🔁 every week 📅 2026-01-12\n- [x] Dup 🔁 every week 🆔 a1 📅 2026-01-05 🆔 a2 ✅ ${today()} ^dup-task\n`,
     )
   })
 

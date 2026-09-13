@@ -730,6 +730,14 @@ const stripLastField = (metadata: string, regex: RegExp): string => {
   return `${beforeMatch}${afterMatch}`.replace(/ {2,}/g, " ").trim()
 }
 
+/** Removes EVERY occurrence of a field regex from a metadata tail.
+ *  Used by clear paths (field set to null) where no copy should survive;
+ *  the set paths use stripLastField to preserve a description signifier. */
+const stripAllField = (metadata: string, regex: RegExp): string => {
+  const stripped = stripLastField(metadata, regex)
+  return stripped === metadata ? metadata : stripAllField(stripped, regex)
+}
+
 // Re-export TaskFormatConfig so consumers of tasks.ts don't need a
 // separate import from the vault-operations layer.
 export type { TaskFormatConfig }
@@ -873,8 +881,10 @@ const updateTaskLineDate = (params: {
   ]
 
   return mapMetadataTail(params.taskLine, (metadata) => {
+    if (params.date === null) {
+      return stripAllField(metadata, fieldInfo.inlineRegex)
+    }
     const metadataWithoutDate = stripLastField(metadata, fieldInfo.inlineRegex)
-    if (params.date === null) return metadataWithoutDate
     const dateText = formatDateField({
       field: params.field,
       date: params.date,
@@ -900,8 +910,8 @@ const updateTaskLineTaskId = ({
   config: TaskFormatConfig
 }): string => {
   return mapMetadataTail(taskLine, (metadata) => {
+    if (taskId === null) return stripAllField(metadata, TASK_ID_INLINE_RE)
     const metadataWithoutTaskId = stripLastField(metadata, TASK_ID_INLINE_RE)
-    if (taskId === null) return metadataWithoutTaskId
     return insertFieldBefore({
       metadata: metadataWithoutTaskId,
       fieldText: formatTaskId(taskId, config.taskFormat),
@@ -924,11 +934,13 @@ const updateTaskLineRecurrence = ({
   config: TaskFormatConfig
 }): string => {
   return mapMetadataTail(taskLine, (metadata) => {
+    if (recurrenceText === null) {
+      return stripAllField(metadata, RECURRENCE_INLINE_RE)
+    }
     const metadataWithoutRecurrence = stripLastField(
       metadata,
       RECURRENCE_INLINE_RE,
     )
-    if (recurrenceText === null) return metadataWithoutRecurrence
     return insertFieldBefore({
       metadata: metadataWithoutRecurrence,
       fieldText: formatRecurrence(recurrenceText, config.taskFormat),
@@ -952,13 +964,13 @@ const updateTaskLineDependsOn = ({
   config: TaskFormatConfig
 }): string => {
   return mapMetadataTail(taskLine, (metadata) => {
+    if (dependsOn === null || dependsOn.length === 0) {
+      return stripAllField(metadata, DEPENDS_ON_INLINE_RE)
+    }
     const metadataWithoutDependsOn = stripLastField(
       metadata,
       DEPENDS_ON_INLINE_RE,
     )
-    if (dependsOn === null || dependsOn.length === 0) {
-      return metadataWithoutDependsOn
-    }
     return appendField({
       metadata: metadataWithoutDependsOn,
       fieldText: formatDependsOn(dependsOn, config.taskFormat),
@@ -1476,11 +1488,10 @@ const applyCompletionDate = (params: {
   dateRegex: RegExp
 }): string => {
   return mapMetadataTail(params.taskLine, (metadata) => {
-    // Stamping strips the LAST existing occurrence and appends — a
-    // first-match replace would rewrite a description date that the parser
-    // read as metadata and leave the real stamp untouched.
-    const metadataWithoutStamp = stripLastField(metadata, params.dateRegex)
-    if (!params.shouldStamp) return metadataWithoutStamp
+    if (!params.shouldStamp) {
+      return stripAllField(metadata, params.dateRegex)
+    }
+    const metadataWithoutStamp = stripAllField(metadata, params.dateRegex)
     return appendField({
       metadata: metadataWithoutStamp,
       fieldText: params.dateFieldText,
@@ -1503,8 +1514,11 @@ const updateTaskLineStatus = (params: {
     newChar: charForStatus(params.newStatus),
   })
 
-  const stripMetadataField = (taskLine: string, regex: RegExp): string =>
-    mapMetadataTail(taskLine, (metadata) => stripLastField(metadata, regex))
+  const stripMetadataField = (taskLine: string, regex: RegExp): string => {
+    return mapMetadataTail(taskLine, (metadata) =>
+      stripAllField(metadata, regex),
+    )
+  }
 
   if (params.newStatus === "done") {
     return applyCompletionDate({
@@ -1615,7 +1629,7 @@ const updateTaskLinePriority = ({
     if (!hasExistingPriority) return taskLine
     return joinTaskLine({
       ...parts,
-      metadata: stripLastField(parts.metadata, PRIORITY_INLINE_RE),
+      metadata: stripAllField(parts.metadata, PRIORITY_INLINE_RE),
     })
   }
 

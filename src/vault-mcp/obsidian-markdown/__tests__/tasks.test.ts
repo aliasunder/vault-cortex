@@ -881,16 +881,14 @@ describe("task line mutations", () => {
       )
     })
 
-    it("re-stamping done on a line with duplicated done dates strips the last one", () => {
+    it("re-stamping done on a line with duplicated done dates strips all copies", () => {
       const result = tasks.updateTaskLineStatus({
         taskLine: "- [x] Habit ✅ 2026-01-05 ➕ 2026-01-01 ✅ 2026-01-12",
         newStatus: "done",
         today: "2026-07-12",
         config: EMOJI_CONFIG,
       })
-      expect(result).toBe(
-        "- [x] Habit ✅ 2026-01-05 ➕ 2026-01-01 ✅ 2026-07-12",
-      )
+      expect(result).toBe("- [x] Habit ➕ 2026-01-01 ✅ 2026-07-12")
     })
 
     it("marks a todo task as done with a done date", () => {
@@ -1093,7 +1091,16 @@ describe("task line mutations", () => {
       expect(result).toBe("- [ ] Task ⏬ ➕ 2026-07-01")
     })
 
-    it("replacing a duplicated priority strips the last one", () => {
+    it("clearing a duplicated priority strips all copies", () => {
+      const result = tasks.updateTaskLinePriority({
+        taskLine: "- [ ] Task ⏫ ➕ 2026-07-01 ⏫",
+        newPriority: null,
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] Task ➕ 2026-07-01")
+    })
+
+    it("replacing a duplicated priority keeps the first and swaps the last", () => {
       const result = tasks.updateTaskLinePriority({
         taskLine: "- [ ] Task ⏫ ➕ 2026-07-01 ⏫",
         newPriority: "highest",
@@ -1724,7 +1731,18 @@ describe("task line mutations", () => {
       )
     })
 
-    it("strips the last copy of a duplicated recurrence field", () => {
+    it("clearing a duplicated recurrence strips all copies", () => {
+      const line =
+        "- [ ] My task 🔁 every week 🔁 every day ➕ 2026-08-01 ^my-task"
+      const result = tasks.updateTaskLineRecurrence({
+        taskLine: line,
+        recurrenceText: null,
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 ^my-task")
+    })
+
+    it("replacing a duplicated recurrence swaps the last and keeps the first", () => {
       const line =
         "- [ ] My task 🔁 every week 🔁 every day ➕ 2026-08-01 ^my-task"
       const result = tasks.updateTaskLineRecurrence({
