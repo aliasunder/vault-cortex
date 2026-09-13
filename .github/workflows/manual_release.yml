@@ -94,7 +94,15 @@ jobs:
           git add package.json package-lock.json server.json
           git commit -m "release: v$NEXT"
           # Tag may already exist when re-running after a failed deploy.
-          if ! git rev-parse -q --verify "refs/tags/v$NEXT" > /dev/null; then
+          # If it does, it must point at this bump commit — a stranded tag
+          # from a prior run targets a different tree, and the release job
+          # (which checks out the tag) would build from the wrong commit.
+          if git rev-parse -q --verify "refs/tags/v$NEXT" > /dev/null; then
+            if [ "$(git rev-parse "refs/tags/v$NEXT")" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::Tag v$NEXT exists but does not point at this bump commit — delete the stale tag on origin (git push origin :refs/tags/v$NEXT) and re-dispatch."
+              exit 1
+            fi
+          else
             git tag "v$NEXT"
           fi
           # --atomic updates both refs or neither: without it, a rejected
