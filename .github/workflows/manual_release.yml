@@ -92,11 +92,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json server.json
-          git commit -m "release: v$NEXT"
-          # Tag may already exist when re-running after a failed deploy.
-          # If it does, it must point at this bump commit — a stranded tag
-          # from a prior run targets a different tree, and the release job
-          # (which checks out the tag) would build from the wrong commit.
+          # Skip the commit when nothing changed — a re-run of this job
+          # after a push failure already has the bump commit as HEAD.
+          if ! git diff --cached --quiet; then
+            git commit -m "release: v$NEXT"
+          fi
+          # Tag may already exist from a stranded prior run (fetched by
+          # the deep checkout). If it does, it must point at this bump
+          # commit — a stale tag targets a different tree, and the release
+          # job (which checks out the tag) would build from the wrong commit.
           if git rev-parse -q --verify "refs/tags/v$NEXT" > /dev/null; then
             if [ "$(git rev-parse "refs/tags/v$NEXT")" != "$(git rev-parse HEAD)" ]; then
               echo "::error::Tag v$NEXT exists but does not point at this bump commit — delete the stale tag on origin (git push origin :refs/tags/v$NEXT) and re-dispatch."
