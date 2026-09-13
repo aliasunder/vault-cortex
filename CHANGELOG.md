@@ -99,6 +99,17 @@
 
 
 
+
+## [0.50.4] — 2026-09-13
+
+### Features
+
+- **tasks:** Round-trip advisories and single-field serialization on task writes (#562)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.50.3
+
 ## [0.50.3] — 2026-09-12
 
 ### Features
