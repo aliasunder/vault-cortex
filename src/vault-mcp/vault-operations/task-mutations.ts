@@ -19,6 +19,8 @@ import type {
   TaskStatus,
   TaskPriority,
   DateFieldKey,
+  SubmittedTaskFields,
+  TaskRoundTripDivergence,
 } from "../obsidian-markdown/tasks.js"
 import { readTaskFormatConfig } from "./task-format-config.js"
 import type { Logger } from "../../logger.js"
@@ -59,6 +61,10 @@ type CreateTaskResult = {
   heading?: string | undefined
   subtasks?: SubtaskPosition[] | undefined
   changes: string[]
+  /** Round-trip warnings — present only when the written line parses back
+   *  differently than the call submitted (description text read as fields).
+   *  The write itself succeeded; these are informational. */
+  advisories?: string[] | undefined
 }
 
 type UpdateTaskParams = {
@@ -90,6 +96,10 @@ type UpdateTaskResult = {
   heading?: string | undefined
   subtasks?: SubtaskPosition[] | undefined
   changes: string[]
+  /** Round-trip warnings — present only when the written line parses back
+   *  differently than the call submitted (description text read as fields).
+   *  The write itself succeeded; these are informational. */
+  advisories?: string[] | undefined
 }
 
 const ABSENT_VALUE = "(none)"
@@ -114,6 +124,130 @@ const formatDependsOn = (
 ): string | null => {
   if (!dependsOn || dependsOn.length === 0) return null
   return dependsOn.join(",")
+}
+
+/** Quoted value for an advisory sentence; "(none)" for an absent value. */
+const displayRoundTripValue = (value: string | null): string => {
+  return value === null ? ABSENT_VALUE : `"${value}"`
+}
+
+/** The clause describing how a written description parses back.
+ *  `storedTextNoun` is the subject phrase spliced into the sentence
+ *  ("the stored description" / "its stored text"). */
+const parsedDescriptionClause = ({
+  storedValue,
+  consumedTail,
+  storedTextNoun,
+}: {
+  storedValue: string | null
+  consumedTail: string | undefined
+  storedTextNoun: string
+}): string => {
+  const parsedReading =
+    storedValue === null
+      ? `${storedTextNoun} parses back empty`
+      : `${storedTextNoun} parses back as "${storedValue}"`
+  const consumedNote = consumedTail
+    ? ` — the trailing "${consumedTail}" was read as task metadata`
+    : ""
+  return `${parsedReading}${consumedNote}`
+}
+
+/** One advisory sentence per divergence, keyed on where the expectation came
+ *  from — a value submitted this call, the line's previous parse, or nothing. */
+const describeRoundTripDivergence = (
+  divergence: TaskRoundTripDivergence,
+): string => {
+  if (divergence.field === "description") {
+    const clause = parsedDescriptionClause({
+      storedValue: divergence.storedValue,
+      consumedTail: divergence.consumedTail,
+      storedTextNoun: "the stored description",
+    })
+    return `description: the line was written as submitted, but ${clause}`
+  }
+  const storedDisplay = displayRoundTripValue(divergence.storedValue)
+  if (divergence.expectedSource === "submitted") {
+    return `${divergence.field}: submitted ${displayRoundTripValue(divergence.expected)} but the stored line parses back ${storedDisplay}`
+  }
+  if (divergence.expectedSource === "prior") {
+    return `${divergence.field}: previously ${displayRoundTripValue(divergence.expected)}, but the stored line now parses back ${storedDisplay} — this call's edits changed what the line parses as this field`
+  }
+  return `${divergence.field}: the stored line parses back ${storedDisplay} although nothing set it — description text was read as this field`
+}
+
+/** Advisory sentences for a written task line; empty when the line parses
+ *  back exactly as the call's inputs say it should. */
+const roundTripAdvisories = ({
+  taskLine,
+  priorTaskLine,
+  submitted,
+}: {
+  taskLine: string
+  priorTaskLine: string | null
+  submitted: SubmittedTaskFields
+}): string[] => {
+  return tasks
+    .diffTaskRoundTrip({ taskLine, priorTaskLine, submitted })
+    .map(describeRoundTripDivergence)
+}
+
+/** Advisory for one subtask whose description text was consumed as metadata. */
+const buildSubtaskAdvisory = (subtaskText: string): string[] => {
+  // The written subtask line carries indentation; the diff strips the whole
+  // checkbox prefix before parsing, so a bare synthetic line reads the same.
+  const divergences = tasks.diffTaskRoundTrip({
+    taskLine: `- [ ] ${subtaskText}`,
+    priorTaskLine: null,
+    submitted: { description: subtaskText },
+  })
+  const descriptionDivergence = divergences.find(
+    (divergence) => divergence.field === "description",
+  )
+  if (!descriptionDivergence) return []
+  const clause = parsedDescriptionClause({
+    storedValue: descriptionDivergence.storedValue,
+    consumedTail: descriptionDivergence.consumedTail,
+    storedTextNoun: "its stored text",
+  })
+  return [`subtask "${subtaskText}": written as submitted, but ${clause}`]
+}
+
+/** Description-only advisories for newly written checklist lines — a
+ *  checklist item carries no metadata params, so the only divergence worth
+ *  reporting is its text truncating into fields. */
+const subtaskRoundTripAdvisories = (
+  subtaskDescriptions: readonly string[],
+): string[] => {
+  return subtaskDescriptions.flatMap(buildSubtaskAdvisory)
+}
+
+/** The done/cancelled-date expectations a status change implies — the same
+ *  dates updateTaskLineStatus stamps or strips for each target status, so a
+ *  stamp never registers as a field appearing from nowhere. */
+const statusImpliedDateFields = ({
+  status,
+  config,
+  today,
+}: {
+  status: TaskStatus | undefined
+  config: { setDoneDate: boolean; setCancelledDate: boolean }
+  today: string
+}): SubmittedTaskFields => {
+  if (!status) return {}
+  if (status === "done") {
+    return {
+      doneDate: config.setDoneDate ? today : null,
+      cancelledDate: null,
+    }
+  }
+  if (status === "cancelled") {
+    return {
+      doneDate: null,
+      cancelledDate: config.setCancelledDate ? today : null,
+    }
+  }
+  return { doneDate: null, cancelledDate: null }
 }
 
 /** 1-based file positions of checklist lines written starting at a body index. */
@@ -732,6 +866,8 @@ const createTask = async (
     const bodyLines = splitIntoLines(parsed.content)
     const headings = parseHeadings(bodyLines)
 
+    // findBodyStartLine needs the raw file (bodyLines came from the parsed
+    // content, which has no frontmatter) to count the frontmatter offset.
     const bodyStartLine = tasks.findBodyStartLine(splitIntoLines(fileContent))
 
     // Validate block_id grammar and uniqueness
@@ -796,6 +932,24 @@ const createTask = async (
       formatConfig,
     )
 
+    const advisories = [
+      ...roundTripAdvisories({
+        taskLine,
+        priorTaskLine: null,
+        submitted: {
+          description,
+          createdDate: today,
+          ...(priority && { priority }),
+          ...(due && { dueDate: due }),
+          ...(scheduled && { scheduledDate: scheduled }),
+          ...(start && { startDate: start }),
+          ...(taskId && { taskId }),
+          ...(dependsOn && { dependsOn }),
+        },
+      }),
+      ...subtaskRoundTripAdvisories(subtasks ?? []),
+    ]
+
     const subtaskIndent = `${indent}  `
     const subtaskLines = (subtasks ?? []).map(
       (subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`,
@@ -850,6 +1004,7 @@ const createTask = async (
       heading: resolvedHeading,
       subtasks: subtaskPositions,
       changes,
+      ...(advisories.length > 0 && { advisories }),
     }
   })
 }
@@ -1013,28 +1168,12 @@ const updateTask = async (
       setCancelledDate: pluginConfig.setCancelledDate,
     }
 
+    const today = todayIsoDate()
+
     // In-line edits, in the order they are applied to the task line. Each
     // carries its own `changes` entry; description's after-value is read
     // through the parser so tags match the result's `description`.
     const lineEdits: LineEdit[] = [
-      ...(newDescription !== undefined
-        ? [
-            {
-              apply: (taskLine: string) =>
-                tasks.replaceTaskLineDescription({ taskLine, newDescription }),
-              change: formatChange({
-                field: "description",
-                before: taskBefore.description,
-                after: tasks.describeTaskLine(
-                  tasks.replaceTaskLineDescription({
-                    taskLine: originalTaskLine,
-                    newDescription,
-                  }),
-                ),
-              }),
-            },
-          ]
-        : []),
       ...(status
         ? [
             {
@@ -1042,7 +1181,7 @@ const updateTask = async (
                 tasks.updateTaskLineStatus({
                   taskLine,
                   newStatus: status,
-                  today: todayIsoDate(),
+                  today,
                   config: formatConfig,
                 }),
               change: formatChange({
@@ -1137,12 +1276,58 @@ const updateTask = async (
             },
           ]
         : []),
+      // The description edit must run last. Every field edit above splits
+      // the line at the description/metadata boundary, and a signifier in
+      // the NEW description text shifts that boundary — a field edit running
+      // after it would strip or duplicate fields inside the caller's prose.
+      // With the old description still in place, the boundary stays stable.
+      ...(newDescription !== undefined
+        ? [
+            {
+              apply: (taskLine: string) =>
+                tasks.replaceTaskLineDescription({ taskLine, newDescription }),
+              // The after-value previews the swap on the ORIGINAL line. The
+              // field edits above never move the description/metadata
+              // boundary (the old description is still in place while they
+              // run), so this preview parses the same as the final line.
+              change: formatChange({
+                field: "description",
+                before: taskBefore.description,
+                after: tasks.describeTaskLine(
+                  tasks.replaceTaskLineDescription({
+                    taskLine: originalTaskLine,
+                    newDescription,
+                  }),
+                ),
+              }),
+            },
+          ]
+        : []),
     ]
     const mutatedLine = lineEdits.reduce(
       (taskLine, edit) => edit.apply(taskLine),
       originalTaskLine,
     )
     const lineChanges = lineEdits.map((edit) => edit.change)
+
+    const advisories = [
+      ...roundTripAdvisories({
+        taskLine: mutatedLine,
+        priorTaskLine: originalTaskLine,
+        submitted: {
+          ...(newDescription !== undefined && { description: newDescription }),
+          ...(priority !== undefined && { priority }),
+          ...(due !== undefined && { dueDate: due }),
+          ...(scheduled !== undefined && { scheduledDate: scheduled }),
+          ...(start !== undefined && { startDate: start }),
+          ...(created !== undefined && { createdDate: created }),
+          ...(taskId !== undefined && { taskId }),
+          ...(dependsOn !== undefined && { dependsOn }),
+          ...statusImpliedDateFields({ status, config: formatConfig, today }),
+        },
+      }),
+      ...subtaskRoundTripAdvisories(addSubtasks ?? []),
+    ]
 
     // Heading move — an explicit heading, or the done lane when completing
     // a top-level card on a Kanban board.
@@ -1205,6 +1390,7 @@ const updateTask = async (
       heading: finalHeading?.text,
       subtasks: subtaskPositions,
       changes,
+      ...(advisories.length > 0 && { advisories }),
     }
   })
 }
