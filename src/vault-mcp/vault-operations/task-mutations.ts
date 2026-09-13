@@ -1335,8 +1335,8 @@ const updateTask = async (
     // onCompletion "delete": the Tasks plugin removes the completed
     // instance when the field says "delete". Only on a genuine transition
     // to done — not on updates to an already-done task, and not on
-    // cancellation. Subject to the custom-status-registry limitation
-    // (^task-status-registry): a custom DONE-type char reads as "todo".
+    // cancellation. Subject to the custom-status-registry limitation:
+    // a custom DONE-type char reads as "todo".
     const shouldDeleteOnCompletion =
       status === "done" &&
       taskBefore.status !== "done" &&
