@@ -4191,7 +4191,10 @@ describe("round-trip advisories", () => {
         logger,
       )
 
-      expect(result.advisories).toHaveLength(2)
+      expect(result.advisories).toEqual([
+        'tag: "#urgent" appeared in both the description and the metadata tail — deduplicated to one copy',
+        'tag: "#review" appeared in both the description and the metadata tail — deduplicated to one copy',
+      ])
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(
         "---\ntitle: Tasks\n---\n\n- [ ] Fix bug #urgent #review 📅 2026-01-01 ^x\n",

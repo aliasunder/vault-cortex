@@ -1504,6 +1504,67 @@ describe("task line mutations", () => {
     })
   })
 
+  // ── deduplicateDescriptionTags ──────────────────────────────────
+
+  describe("deduplicateDescriptionTags", () => {
+    it("removes a tag from the metadata tail when it matches a trailing description tag", () => {
+      const result = tasks.deduplicateDescriptionTags(
+        "- [ ] Fix bug #urgent 📅 2026-01-01 #urgent ^x",
+      )
+      expect(result).toEqual({
+        taskLine: "- [ ] Fix bug #urgent 📅 2026-01-01 ^x",
+        deduplicatedTags: ["#urgent"],
+      })
+    })
+
+    it("removes multiple metadata tags that all match trailing description tags", () => {
+      const result = tasks.deduplicateDescriptionTags(
+        "- [ ] Fix bug #urgent #review 📅 2026-01-01 #urgent #review ^x",
+      )
+      expect(result).toEqual({
+        taskLine: "- [ ] Fix bug #urgent #review 📅 2026-01-01 ^x",
+        deduplicatedTags: ["#urgent", "#review"],
+      })
+    })
+
+    it("preserves non-overlapping tags in both positions", () => {
+      const result = tasks.deduplicateDescriptionTags(
+        "- [ ] Fix bug #urgent 📅 2026-01-01 #review ^x",
+      )
+      expect(result).toEqual({
+        taskLine: "- [ ] Fix bug #urgent 📅 2026-01-01 #review ^x",
+        deduplicatedTags: [],
+      })
+    })
+
+    it("returns unchanged when the description has no trailing tags", () => {
+      const line = "- [ ] Fix bug 📅 2026-01-01 #urgent ^x"
+      const result = tasks.deduplicateDescriptionTags(line)
+      expect(result).toEqual({
+        taskLine: line,
+        deduplicatedTags: [],
+      })
+    })
+
+    it("returns unchanged when the task has no metadata", () => {
+      const line = "- [ ] Just a task #tagged"
+      const result = tasks.deduplicateDescriptionTags(line)
+      expect(result).toEqual({
+        taskLine: line,
+        deduplicatedTags: [],
+      })
+    })
+
+    it("returns unchanged for a non-task line", () => {
+      const line = "not a task line"
+      const result = tasks.deduplicateDescriptionTags(line)
+      expect(result).toEqual({
+        taskLine: line,
+        deduplicatedTags: [],
+      })
+    })
+  })
+
   // ── formatDateField ───────────────────────────────────────────
 
   describe("formatDateField", () => {
