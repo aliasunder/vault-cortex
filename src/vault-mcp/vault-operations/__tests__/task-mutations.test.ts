@@ -3233,4 +3233,284 @@ describe("round-trip advisories", () => {
       ])
     })
   })
+
+  describe("onCompletion delete", () => {
+    const ON_COMPLETION_NOTE = `---
+title: Tasks
+---
+
+## Active
+
+- [ ] Keep this task ➕ 2026-07-01 ^keep-task
+- [ ] Delete on done 🏁 delete ➕ 2026-07-02 ^delete-task
+- [ ] Keep explicitly 🏁 keep ➕ 2026-07-03 ^keep-explicit
+- [ ] No completion field ➕ 2026-07-04 ^no-field
+
+## Done
+
+- [x] Already done 🏁 delete ➕ 2026-06-01 ✅ 2026-06-10 ^already-done
+`
+
+    const ON_COMPLETION_WITH_CHILDREN = `---
+title: Tasks
+---
+
+## Active
+
+- [ ] Parent with children 🏁 delete ➕ 2026-07-01 ^parent-delete
+  - [ ] Child one
+  - [ ] Child two
+  - [x] Child three
+- [ ] Next task ➕ 2026-07-02 ^next-task
+`
+
+    const ON_COMPLETION_SUBTASK = `---
+title: Tasks
+---
+
+## Active
+
+- [ ] Parent task ➕ 2026-07-01 ^parent
+  - [ ] Sub-task with delete 🏁 delete ^sub-delete
+  - [ ] Another sub-task ^sub-keep
+`
+
+    it("removes the task line when completing a task with 🏁 delete", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", ON_COMPLETION_NOTE)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "delete-task",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result.on_completion_applied).toBe("delete")
+      expect(result.description).toBe("Delete on done")
+      expect(result.heading).toBe("Active")
+      expect(result.changes).toEqual([
+        "status: todo → done",
+        "on_completion: task removed (🏁 delete)",
+      ])
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(`---
+title: Tasks
+---
+
+## Active
+
+- [ ] Keep this task ➕ 2026-07-01 ^keep-task
+- [ ] Keep explicitly 🏁 keep ➕ 2026-07-03 ^keep-explicit
+- [ ] No completion field ➕ 2026-07-04 ^no-field
+
+## Done
+
+- [x] Already done 🏁 delete ➕ 2026-06-01 ✅ 2026-06-10 ^already-done
+`)
+    })
+
+    it("keeps the task line when completing a task with 🏁 keep", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", ON_COMPLETION_NOTE)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "keep-explicit",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result.on_completion_applied).toBeUndefined()
+      expect(result.block_id).toBe("keep-explicit")
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(`---
+title: Tasks
+---
+
+## Active
+
+- [ ] Keep this task ➕ 2026-07-01 ^keep-task
+- [ ] Delete on done 🏁 delete ➕ 2026-07-02 ^delete-task
+- [x] Keep explicitly 🏁 keep ➕ 2026-07-03 ✅ ${today()} ^keep-explicit
+- [ ] No completion field ➕ 2026-07-04 ^no-field
+
+## Done
+
+- [x] Already done 🏁 delete ➕ 2026-06-01 ✅ 2026-06-10 ^already-done
+`)
+    })
+
+    it("keeps the task line when completing a task with no onCompletion field", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", ON_COMPLETION_NOTE)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "no-field",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result.on_completion_applied).toBeUndefined()
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(`---
+title: Tasks
+---
+
+## Active
+
+- [ ] Keep this task ➕ 2026-07-01 ^keep-task
+- [ ] Delete on done 🏁 delete ➕ 2026-07-02 ^delete-task
+- [ ] Keep explicitly 🏁 keep ➕ 2026-07-03 ^keep-explicit
+- [x] No completion field ➕ 2026-07-04 ✅ ${today()} ^no-field
+
+## Done
+
+- [x] Already done 🏁 delete ➕ 2026-06-01 ✅ 2026-06-10 ^already-done
+`)
+    })
+
+    it("does not delete when transitioning to in_progress on a 🏁 delete task", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", ON_COMPLETION_NOTE)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "delete-task",
+          status: "in_progress",
+        },
+        logger,
+      )
+
+      expect(result.on_completion_applied).toBeUndefined()
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(`---
+title: Tasks
+---
+
+## Active
+
+- [ ] Keep this task ➕ 2026-07-01 ^keep-task
+- [/] Delete on done 🏁 delete ➕ 2026-07-02 ^delete-task
+- [ ] Keep explicitly 🏁 keep ➕ 2026-07-03 ^keep-explicit
+- [ ] No completion field ➕ 2026-07-04 ^no-field
+
+## Done
+
+- [x] Already done 🏁 delete ➕ 2026-06-01 ✅ 2026-06-10 ^already-done
+`)
+    })
+
+    it("does not delete when setting done on an already-done task with 🏁 delete", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", ON_COMPLETION_NOTE)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "already-done",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result.on_completion_applied).toBeUndefined()
+
+      // updateTaskLineStatus re-stamps the done date to today even on an
+      // already-done task — the transition guard prevents deletion, but the
+      // status edit still runs.
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(`---
+title: Tasks
+---
+
+## Active
+
+- [ ] Keep this task ➕ 2026-07-01 ^keep-task
+- [ ] Delete on done 🏁 delete ➕ 2026-07-02 ^delete-task
+- [ ] Keep explicitly 🏁 keep ➕ 2026-07-03 ^keep-explicit
+- [ ] No completion field ➕ 2026-07-04 ^no-field
+
+## Done
+
+- [x] Already done 🏁 delete ➕ 2026-06-01 ✅ ${today()} ^already-done
+`)
+    })
+
+    it("removes the task and its children when completing a 🏁 delete task with subtasks", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", ON_COMPLETION_WITH_CHILDREN)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "parent-delete",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result.on_completion_applied).toBe("delete")
+      expect(result.changes).toEqual([
+        "status: todo → done",
+        "on_completion: task and 3 children removed (🏁 delete)",
+      ])
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(`---
+title: Tasks
+---
+
+## Active
+
+- [ ] Next task ➕ 2026-07-02 ^next-task
+`)
+    })
+
+    it("removes a sub-task when completing it with 🏁 delete", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", ON_COMPLETION_SUBTASK)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "sub-delete",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result.on_completion_applied).toBe("delete")
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(`---
+title: Tasks
+---
+
+## Active
+
+- [ ] Parent task ➕ 2026-07-01 ^parent
+  - [ ] Another sub-task ^sub-keep
+`)
+    })
+  })
 })

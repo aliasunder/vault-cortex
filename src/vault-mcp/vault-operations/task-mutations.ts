@@ -100,6 +100,9 @@ type UpdateTaskResult = {
    *  differently than the call submitted (description text read as fields).
    *  The write itself succeeded; these are informational. */
   advisories?: string[] | undefined
+  /** The onCompletion action that was applied (e.g. "delete"). Present only
+   *  when the task carried 🏁/[onCompletion::] and was transitioned to done. */
+  on_completion_applied?: string | undefined
 }
 
 const ABSENT_VALUE = "(none)"
@@ -1328,6 +1331,57 @@ const updateTask = async (
       }),
       ...subtaskRoundTripAdvisories(addSubtasks ?? []),
     ]
+
+    // onCompletion "delete": the Tasks plugin removes the completed
+    // instance when the field says "delete". Only on a genuine transition
+    // to done — not on updates to an already-done task, and not on
+    // cancellation. Subject to the custom-status-registry limitation
+    // (^task-status-registry): a custom DONE-type char reads as "todo".
+    const shouldDeleteOnCompletion =
+      status === "done" &&
+      taskBefore.status !== "done" &&
+      taskBefore.onCompletion?.toLowerCase() === "delete"
+
+    if (shouldDeleteOnCompletion) {
+      const taskBlockEnd = findTaskBlockEnd(bodyLines, taskLineIndex)
+      const childCount = taskBlockEnd - taskLineIndex - 1
+      const childLabel = childCount === 1 ? "child" : "children"
+      const deletionChange =
+        childCount > 0
+          ? `on_completion: task and ${childCount} ${childLabel} removed (🏁 delete)`
+          : "on_completion: task removed (🏁 delete)"
+      const changes = [...lineChanges, deletionChange]
+
+      const resultLines = bodyLines.toSpliced(
+        taskLineIndex,
+        taskBlockEnd - taskLineIndex,
+      )
+
+      const serialized = stringifyNote(resultLines.join("\n"), parsed.data)
+      await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
+
+      const headingBefore = headings.findLast(
+        (heading) => heading.startLine < taskLineIndex,
+      )
+
+      logger.info("task deleted on completion", {
+        path,
+        line: taskFileLine,
+        onCompletion: "delete",
+        childrenRemoved: childCount,
+      })
+
+      return {
+        path,
+        line: taskFileLine,
+        description: tasks.describeTaskLine(mutatedLine),
+        block_id: taskBefore.blockId ?? undefined,
+        heading: headingBefore?.text,
+        changes,
+        ...(advisories.length > 0 && { advisories }),
+        on_completion_applied: "delete",
+      }
+    }
 
     // Heading move — an explicit heading, or the done lane when completing
     // a top-level card on a Kanban board.
