@@ -273,9 +273,9 @@ const shiftKeepingDistance = ({
   const referenceInZone = DateTime.fromISO(referenceDate, { zone })
   // Unitless diff then .as("days") is instant math — the plugin's moment
   // .diff() semantics. A "days"-unit diff would count calendar labels and
-  // disagree across timezone discontinuities; rounding absorbs ordinary
-  // DST hours.
-  const dayDistance = Math.round(dateInZone.diff(referenceInZone).as("days"))
+  // disagree across timezone discontinuities. Truncation matches moment's
+  // absFloor: on a spring-forward day the 23-hour gap gives 0, not 1.
+  const dayDistance = Math.trunc(dateInZone.diff(referenceInZone).as("days"))
   const shifted = DateTime.fromISO(nextReferenceDate, { zone })
     .plus({ days: dayDistance })
     .toISODate()

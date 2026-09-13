@@ -357,4 +357,25 @@ describe("nextOccurrenceDates", () => {
       dueDate: "2012-01-07",
     })
   })
+
+  it("truncates the spring-forward day distance to match moment's absFloor", () => {
+    // 2026-03-08 is DST spring-forward in America/New_York. The instant
+    // gap between Mar 8 midnight and Mar 9 midnight is 23 hours (0.958 days).
+    // Moment's .diff(other, 'days') truncates to 0 via absFloor; rounding
+    // would give 1 and shift the start date one day too far.
+    const shifted = nextOccurrenceDates({
+      recurrenceText: "every week",
+      startDate: "2026-03-09",
+      scheduledDate: null,
+      dueDate: "2026-03-08",
+      today: "2026-03-08",
+      removeScheduledDateOnRecurrence: false,
+      zone: "America/New_York",
+    })
+    expect(shifted).toEqual({
+      startDate: "2026-03-15",
+      scheduledDate: null,
+      dueDate: "2026-03-15",
+    })
+  })
 })
