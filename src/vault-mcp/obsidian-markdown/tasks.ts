@@ -1425,7 +1425,7 @@ const hashtagTokenPattern = (escapedTag: string): RegExp => {
   return new RegExp(`(^|\\s)${escapedTag}(?=\\s|$)`)
 }
 
-/** Characters that have special meaning in a regex pattern. */
+/** The 12 RegExp metacharacters that need backslash-escaping. */
 const REGEX_SPECIAL_CHARS_RE = /[.*+?^${}()|[\]\\]/g
 
 const escapeRegExp = (text: string): string => {
