@@ -327,7 +327,7 @@ const MAX_STRIPPING_PASSES = 20
 /** Extracts a regex capture group, throwing if absent. Capture groups are
  *  guaranteed by the engine when the regex matches, but noUncheckedIndexedAccess
  *  adds `| undefined` to all indexed access. */
-const matchedText = (match: RegExpExecArray, index: number): string => {
+const capturedGroup = (match: RegExpExecArray, index: number): string => {
   const value = match[index]
   if (value === undefined) {
     throw new Error(`expected capture group ${index}`)
@@ -378,7 +378,7 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
     key: (typeof DATE_FIELDS)[number]["key"],
   ): void => {
     extractField(regex, (match) => {
-      dates[key] = matchedText(match, 1)
+      dates[key] = capturedGroup(match, 1)
     })
   }
 
@@ -386,10 +386,10 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
     matchedThisPass = false
 
     extractField(EMOJI_PRIORITY_RE, (match) => {
-      priority = PRIORITY_BY_EMOJI[matchedText(match, 1)] ?? priority
+      priority = PRIORITY_BY_EMOJI[capturedGroup(match, 1)] ?? priority
     })
     extractField(DATAVIEW_PRIORITY_RE, (match) => {
-      priority = PRIORITY_BY_WORD[matchedText(match, 1)] ?? priority
+      priority = PRIORITY_BY_WORD[capturedGroup(match, 1)] ?? priority
     })
 
     for (const field of DATE_FIELDS) {
@@ -398,17 +398,17 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
     }
 
     extractField(EMOJI_RECURRENCE_RE, (match) => {
-      recurrence = matchedText(match, 1).trim()
+      recurrence = capturedGroup(match, 1).trim()
     })
     extractField(DATAVIEW_RECURRENCE_RE, (match) => {
-      recurrence = matchedText(match, 1).trim()
+      recurrence = capturedGroup(match, 1).trim()
     })
 
     extractField(EMOJI_ON_COMPLETION_RE, (match) => {
-      onCompletion = matchedText(match, 1)
+      onCompletion = capturedGroup(match, 1)
     })
     extractField(DATAVIEW_ON_COMPLETION_RE, (match) => {
-      onCompletion = matchedText(match, 1)
+      onCompletion = capturedGroup(match, 1)
     })
 
     // Tags may be mixed among the signifiers (`desc #a 📅 2026-01-01 #b`);
@@ -416,23 +416,23 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
     // them to the description after the loop. Right-to-left matching means
     // each stripped tag is prepended to keep the original order.
     extractField(HASHTAG_FROM_END_RE, (match) => {
-      const tagText = matchedText(match, 0).trim()
+      const tagText = capturedGroup(match, 0).trim()
       trailingTags =
         trailingTags === "" ? tagText : `${tagText} ${trailingTags}`
     })
 
     extractField(EMOJI_ID_RE, (match) => {
-      taskId = matchedText(match, 1).trim()
+      taskId = capturedGroup(match, 1).trim()
     })
     extractField(DATAVIEW_ID_RE, (match) => {
-      taskId = matchedText(match, 1).trim()
+      taskId = capturedGroup(match, 1).trim()
     })
 
     extractField(EMOJI_DEPENDS_ON_RE, (match) => {
-      dependsOn = splitIdSequence(matchedText(match, 1))
+      dependsOn = splitIdSequence(capturedGroup(match, 1))
     })
     extractField(DATAVIEW_DEPENDS_ON_RE, (match) => {
-      dependsOn = splitIdSequence(matchedText(match, 1))
+      dependsOn = splitIdSequence(capturedGroup(match, 1))
     })
 
     if (!matchedThisPass) break
@@ -577,10 +577,10 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
       continue
     }
 
-    const statusChar = matchedText(taskLineMatch, 1)
+    const statusChar = capturedGroup(taskLineMatch, 1)
     // The block link sits at the end of the line — strip it before metadata
     // parsing, exactly as the plugin does.
-    const bodyWithBlockLink = matchedText(taskLineMatch, 2)
+    const bodyWithBlockLink = capturedGroup(taskLineMatch, 2)
     const { body: taskBody, blockId } =
       splitTrailingBlockLink(bodyWithBlockLink)
 
@@ -712,7 +712,7 @@ const replaceCheckboxChar = ({
  *  the tail, and the real field sits to its right (fields are appended
  *  after existing content) — a first-occurrence strip would delete the
  *  description text and keep the stale field. */
-const stripLastField = (metadata: string, regex: RegExp): string => {
+const removeLastMetadataMatch = (metadata: string, regex: RegExp): string => {
   // A fresh global twin per call — the shared constants stay non-global so
   // .exec call sites never carry a lastIndex.
   const globalFlags = regex.flags.includes("g")
@@ -732,10 +732,12 @@ const stripLastField = (metadata: string, regex: RegExp): string => {
 
 /** Removes EVERY occurrence of a field regex from a metadata tail.
  *  Used by clear paths (field set to null) where no copy should survive;
- *  the set paths use stripLastField to preserve a description signifier. */
-const stripAllField = (metadata: string, regex: RegExp): string => {
-  const stripped = stripLastField(metadata, regex)
-  return stripped === metadata ? metadata : stripAllField(stripped, regex)
+ *  the set paths use removeLastMetadataMatch to preserve a description signifier. */
+const removeAllMetadataMatches = (metadata: string, regex: RegExp): string => {
+  const stripped = removeLastMetadataMatch(metadata, regex)
+  return stripped === metadata
+    ? metadata
+    : removeAllMetadataMatches(stripped, regex)
 }
 
 // Re-export TaskFormatConfig so consumers of tasks.ts don't need a
@@ -880,17 +882,23 @@ const updateTaskLineDate = (params: {
     DEPENDS_ON_INLINE_RE,
   ]
 
-  return mapMetadataTail(params.taskLine, (metadata) => {
+  return transformMetadata(params.taskLine, (metadata) => {
+    // Clear: remove every copy so no stale date survives.
     if (params.date === null) {
-      return stripAllField(metadata, fieldInfo.inlineRegex)
+      return removeAllMetadataMatches(metadata, fieldInfo.inlineRegex)
     }
-    const metadataWithoutDate = stripLastField(metadata, fieldInfo.inlineRegex)
+    // Set: remove only the last copy — if the description contains a field-like
+    // signifier, it sits at the front and must survive as prose.
+    const metadataWithoutDate = removeLastMetadataMatch(
+      metadata,
+      fieldInfo.inlineRegex,
+    )
     const dateText = formatDateField({
       field: params.field,
       date: params.date,
       format: params.config.taskFormat,
     })
-    return insertFieldBefore({
+    return insertFieldAtPosition({
       metadata: metadataWithoutDate,
       fieldText: dateText,
       laterFieldRegexes,
@@ -909,10 +917,14 @@ const updateTaskLineTaskId = ({
   taskId: string | null
   config: TaskFormatConfig
 }): string => {
-  return mapMetadataTail(taskLine, (metadata) => {
-    if (taskId === null) return stripAllField(metadata, TASK_ID_INLINE_RE)
-    const metadataWithoutTaskId = stripLastField(metadata, TASK_ID_INLINE_RE)
-    return insertFieldBefore({
+  return transformMetadata(taskLine, (metadata) => {
+    if (taskId === null)
+      return removeAllMetadataMatches(metadata, TASK_ID_INLINE_RE)
+    const metadataWithoutTaskId = removeLastMetadataMatch(
+      metadata,
+      TASK_ID_INLINE_RE,
+    )
+    return insertFieldAtPosition({
       metadata: metadataWithoutTaskId,
       fieldText: formatTaskId(taskId, config.taskFormat),
       laterFieldRegexes: [DEPENDS_ON_INLINE_RE],
@@ -933,15 +945,15 @@ const updateTaskLineRecurrence = ({
   recurrenceText: string | null
   config: TaskFormatConfig
 }): string => {
-  return mapMetadataTail(taskLine, (metadata) => {
+  return transformMetadata(taskLine, (metadata) => {
     if (recurrenceText === null) {
-      return stripAllField(metadata, RECURRENCE_INLINE_RE)
+      return removeAllMetadataMatches(metadata, RECURRENCE_INLINE_RE)
     }
-    const metadataWithoutRecurrence = stripLastField(
+    const metadataWithoutRecurrence = removeLastMetadataMatch(
       metadata,
       RECURRENCE_INLINE_RE,
     )
-    return insertFieldBefore({
+    return insertFieldAtPosition({
       metadata: metadataWithoutRecurrence,
       fieldText: formatRecurrence(recurrenceText, config.taskFormat),
       laterFieldRegexes: [
@@ -963,15 +975,15 @@ const updateTaskLineDependsOn = ({
   dependsOn: readonly string[] | null
   config: TaskFormatConfig
 }): string => {
-  return mapMetadataTail(taskLine, (metadata) => {
+  return transformMetadata(taskLine, (metadata) => {
     if (dependsOn === null || dependsOn.length === 0) {
-      return stripAllField(metadata, DEPENDS_ON_INLINE_RE)
+      return removeAllMetadataMatches(metadata, DEPENDS_ON_INLINE_RE)
     }
-    const metadataWithoutDependsOn = stripLastField(
+    const metadataWithoutDependsOn = removeLastMetadataMatch(
       metadata,
       DEPENDS_ON_INLINE_RE,
     )
-    return appendField({
+    return appendMetadataField({
       metadata: metadataWithoutDependsOn,
       fieldText: formatDependsOn(dependsOn, config.taskFormat),
     })
@@ -1048,7 +1060,7 @@ const joinTaskLine = ({
  *  inside the description ("Trip on 📅 2026-09-15, then relax") is prose to
  *  the parser and must never be matched by a strip or replace. Returns the
  *  line unchanged when it is not a task line. */
-const mapMetadataTail = (
+const transformMetadata = (
   taskLine: string,
   transform: (metadata: string) => string,
 ): string => {
@@ -1058,7 +1070,7 @@ const mapMetadataTail = (
 }
 
 /** Appends a field to the end of a metadata tail. */
-const appendField = ({
+const appendMetadataField = ({
   metadata,
   fieldText,
 }: {
@@ -1066,9 +1078,12 @@ const appendField = ({
   fieldText: string
 }): string => [metadata, fieldText].filter(Boolean).join(" ")
 
-/** Inserts a field ahead of the first later-ordered field present in the
- *  metadata tail, or appends it when none of them is. */
-const insertFieldBefore = ({
+/** Inserts a field at its correct position in the task-line metadata by
+ *  placing it before the first field in `laterFieldRegexes` that already
+ *  exists, or appending when none of them is present. Each caller passes the
+ *  fields that come after the one being inserted, so the canonical ordering
+ *  (priority → recurrence → dates → id → depends_on) is maintained. */
+const insertFieldAtPosition = ({
   metadata,
   fieldText,
   laterFieldRegexes,
@@ -1083,7 +1098,7 @@ const insertFieldBefore = ({
       return `${metadata.slice(0, laterMatch.index)}${fieldText} ${metadata.slice(laterMatch.index)}`
     }
   }
-  return appendField({ metadata, fieldText })
+  return appendMetadataField({ metadata, fieldText })
 }
 
 /** The metadata the parser reads back from one task line (checkbox prefix
@@ -1091,7 +1106,7 @@ const insertFieldBefore = ({
 const parseTaskLineMetadata = (taskLine: string): TaskMetadata | null => {
   const taskLineMatch = TASK_LINE_RE.exec(taskLine)
   if (!taskLineMatch) return null
-  const bodyWithBlockLink = matchedText(taskLineMatch, 2)
+  const bodyWithBlockLink = capturedGroup(taskLineMatch, 2)
   const { body: taskBody } = splitTrailingBlockLink(bodyWithBlockLink)
   return parseTaskMetadata(taskBody)
 }
@@ -1487,12 +1502,15 @@ const applyCompletionDate = (params: {
   dateFieldText: string
   dateRegex: RegExp
 }): string => {
-  return mapMetadataTail(params.taskLine, (metadata) => {
+  return transformMetadata(params.taskLine, (metadata) => {
     if (!params.shouldStamp) {
-      return stripAllField(metadata, params.dateRegex)
+      return removeAllMetadataMatches(metadata, params.dateRegex)
     }
-    const metadataWithoutStamp = stripAllField(metadata, params.dateRegex)
-    return appendField({
+    const metadataWithoutStamp = removeAllMetadataMatches(
+      metadata,
+      params.dateRegex,
+    )
+    return appendMetadataField({
       metadata: metadataWithoutStamp,
       fieldText: params.dateFieldText,
     })
@@ -1515,8 +1533,8 @@ const updateTaskLineStatus = (params: {
   })
 
   const stripMetadataField = (taskLine: string, regex: RegExp): string => {
-    return mapMetadataTail(taskLine, (metadata) => {
-      return stripAllField(metadata, regex)
+    return transformMetadata(taskLine, (metadata) => {
+      return removeAllMetadataMatches(metadata, regex)
     })
   }
 
@@ -1629,7 +1647,7 @@ const updateTaskLinePriority = ({
     if (!hasExistingPriority) return taskLine
     return joinTaskLine({
       ...parts,
-      metadata: stripAllField(parts.metadata, PRIORITY_INLINE_RE),
+      metadata: removeAllMetadataMatches(parts.metadata, PRIORITY_INLINE_RE),
     })
   }
 
@@ -1639,7 +1657,7 @@ const updateTaskLinePriority = ({
   // description emoji that the parser read as metadata and leave the real
   // field as a duplicate), then lead the tail with the new priority — its
   // canonical position, right after the description, before dates.
-  const metadataWithoutPriority = stripLastField(
+  const metadataWithoutPriority = removeLastMetadataMatch(
     parts.metadata,
     PRIORITY_INLINE_RE,
   )
