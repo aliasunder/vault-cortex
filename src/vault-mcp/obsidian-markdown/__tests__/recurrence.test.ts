@@ -26,11 +26,15 @@ const nextDatesForDue = ({
 
 describe("parseRecurrenceRule", () => {
   it("parses a plain rule without the when-done flag", () => {
-    expect(parseRecurrenceRule("every week")?.baseOnToday).toBe(false)
+    expect(parseRecurrenceRule("every week")?.advanceFromCompletionDay).toBe(
+      false,
+    )
   })
 
   it('parses the " when done" suffix case-insensitively', () => {
-    expect(parseRecurrenceRule("every week WHEN DONE")?.baseOnToday).toBe(true)
+    expect(
+      parseRecurrenceRule("every week WHEN DONE")?.advanceFromCompletionDay,
+    ).toBe(true)
   })
 
   it("returns null for text rrule cannot read", () => {

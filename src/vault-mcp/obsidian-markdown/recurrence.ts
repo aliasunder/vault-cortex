@@ -45,7 +45,7 @@ const RECURRENCE_RULE_RE = /^([a-zA-Z0-9, !]+?)( when done)?$/i
 export type ParsedRecurrenceRule = {
   /** True for " when done" rules — the next occurrence advances from the
    *  completion day instead of the reference date. */
-  baseOnToday: boolean
+  advanceFromCompletionDay: boolean
   /** rrule options from `RRule.parseText`, without a dtstart. */
   rruleOptions: Partial<Options>
 }
@@ -60,14 +60,14 @@ export const parseRecurrenceRule = (
   if (!ruleMatch?.[1]) return null
 
   const naturalLanguageRule = ruleMatch[1].trim()
-  const baseOnToday = Boolean(ruleMatch[2])
+  const advanceFromCompletionDay = Boolean(ruleMatch[2])
 
   // The plugin wraps parseText in the same try/null — parseText throws on
   // text it half-recognizes and returns null on text it doesn't.
   try {
     const rruleOptions = RRule.parseText(naturalLanguageRule)
     if (rruleOptions === null) return null
-    return { baseOnToday, rruleOptions }
+    return { advanceFromCompletionDay, rruleOptions }
   } catch {
     return null
   }
@@ -299,7 +299,7 @@ export const nextOccurrenceDates = (
   // The rule's dtstart anchors the series: the reference date normally, the
   // completion day for "when done" rules or when the task has no dates.
   const seriesAnchor =
-    parsedRule.baseOnToday || referenceDate === null
+    parsedRule.advanceFromCompletionDay || referenceDate === null
       ? params.today
       : referenceDate
   const rule = new RRule({
