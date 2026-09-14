@@ -2886,6 +2886,47 @@ describe("recurring-task completion", () => {
     )
   })
 
+  it("spawns the next occurrence for an in-progress task completed to done", async () => {
+    const vault = await createVault()
+    const inProgressNote = `---
+title: Tasks
+---
+
+- [/] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ^water-plants
+`
+    await writeTestNote(vault, "tasks.md", inProgressNote)
+
+    const result = await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        blockId: "water-plants",
+        status: "done",
+      },
+      logger,
+    )
+
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 6,
+      description: "Water plants",
+      block_id: "water-plants",
+      next_occurrence: {
+        line: 5,
+        description: "Water plants",
+        due: "2026-01-12",
+      },
+      changes: [
+        "status: in_progress → done",
+        "next_occurrence: (none) → line 5",
+      ],
+    })
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n- [x] Water plants 🔁 every week 📅 2026-01-05 ➕ 2026-01-01 ✅ ${today()} ^water-plants\n`,
+    )
+  })
+
   it("spawns below the completed task with recurrenceOnNextLine", async () => {
     const vault = await createVault()
     await writeTasksPluginConfig(vault, { recurrenceOnNextLine: true })
