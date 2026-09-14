@@ -14,7 +14,7 @@
  *    scheduled date is about to be dropped, so it must not anchor the series).
  *  - Every other present date keeps its day-distance from the reference date.
  *  - Monthly and yearly rules that skip too far (Jan 31 "every month" has no
- *    Feb 31) are clamped by the plugin's walk-back (see `nextAfterCapped`).
+ *    Feb 31) are clamped by the plugin's walk-back (see `correctedNextHit`).
  *
  *  Deliberate divergence: when `rrule.after` finds no next hit (a finite rule
  *  is exhausted), this module returns null and the caller completes without
@@ -93,7 +93,7 @@ const utcEndOfDay = (isoDate: string): Date => {
 }
 
 /** The calendar day of a UTC-midnight Date as a `YYYY-MM-DD` string. */
-const isoDateOfUtc = (date: Date): string => {
+const isoDateFromUtcDate = (date: Date): string => {
   const isoDate = DateTime.fromJSDate(date, { zone: "utc" }).toISODate()
   if (isoDate === null) throw new Error("invalid rrule result date")
   return isoDate
@@ -150,7 +150,7 @@ const walkBackOneDay = ({
  *  rules that fix a date explicitly ("every month on the 31st") keep
  *  rrule's native skipping; the plugin applies no such exemption to year
  *  rules. Returns null when the rule has no next hit (exhausted). */
-const nextAfterCapped = ({
+const correctedNextHit = ({
   after,
   rule,
   rruleOptions,
@@ -239,7 +239,7 @@ export type NextOccurrenceDates = {
 /** First present date in the plugin's reference priority order. With
  *  `removeScheduledDateOnRecurrence` on, the scheduled date is about to be
  *  dropped from the new occurrence, so it ranks below the start date. */
-const referenceDateOf = ({
+const resolvedReferenceDate = ({
   startDate,
   scheduledDate,
   dueDate,
@@ -256,9 +256,9 @@ const referenceDateOf = ({
   return datesInPriorityOrder.find((date) => date !== null) ?? null
 }
 
-/** A date shifted to keep its day-distance from the reference date, computed
- *  on zone-local instants with rounding — the plugin's moment arithmetic. */
-const shiftKeepingDistance = ({
+/** Zone-local day arithmetic with truncation, matching the plugin's moment
+ *  semantics — differs from UTC-label arithmetic across DST boundaries. */
+const shiftByReferenceOffset = ({
   date,
   referenceDate,
   nextReferenceDate,
@@ -294,7 +294,7 @@ export const nextOccurrenceDates = (
   const parsedRule = parseRecurrenceRule(params.recurrenceText)
   if (parsedRule === null) return null
 
-  const referenceDate = referenceDateOf(params)
+  const referenceDate = resolvedReferenceDate(params)
 
   // The rule's dtstart anchors the series: the reference date normally, the
   // completion day for "when done" rules or when the task has no dates.
@@ -309,7 +309,7 @@ export const nextOccurrenceDates = (
 
   // The next hit must be strictly after the anchor day, so the query point
   // is that day's last millisecond.
-  const nextHit = nextAfterCapped({
+  const nextHit = correctedNextHit({
     after: utcEndOfDay(seriesAnchor),
     rule,
     rruleOptions: parsedRule.rruleOptions,
@@ -322,12 +322,12 @@ export const nextOccurrenceDates = (
     return { startDate: null, scheduledDate: null, dueDate: null }
   }
 
-  const nextReferenceDate = isoDateOfUtc(nextHit)
+  const nextReferenceDate = isoDateFromUtcDate(nextHit)
   const zone = params.zone ?? "local"
 
   const shiftedDate = (date: string | null): string | null => {
     if (date === null) return null
-    return shiftKeepingDistance({
+    return shiftByReferenceOffset({
       date,
       referenceDate,
       nextReferenceDate,
