@@ -131,20 +131,20 @@ const monthsSkipped = ({
  *  rebuild the rule with dtstart on that day (moving dtstart is what
  *  re-phases an inferred bymonthday), and query from that day's start. */
 const walkBackOneDay = ({
-  afterDay,
+  queryDay,
   rruleOptions,
 }: {
-  afterDay: DateTime
+  queryDay: DateTime
   rruleOptions: Partial<Options>
-}): { afterDay: DateTime; next: Date | null } => {
-  const earlierDay = afterDay.minus({ days: 1 }).startOf("day")
+}): { queryDay: DateTime; candidateHit: Date | null } => {
+  const earlierDay = queryDay.minus({ days: 1 }).startOf("day")
   const rebuiltRule = new RRule({
     ...rruleOptions,
     dtstart: earlierDay.toJSDate(),
   })
   return {
-    afterDay: earlierDay,
-    next: rebuiltRule.after(earlierDay.toJSDate()),
+    queryDay: earlierDay,
+    candidateHit: rebuiltRule.after(earlierDay.toJSDate()),
   }
 }
 
@@ -165,8 +165,8 @@ const correctedNextHit = ({
   rule: InstanceType<typeof RRule>
   rruleOptions: Partial<Options>
 }): Date | null => {
-  const naiveNext = rule.after(after)
-  if (naiveNext === null) return null
+  const uncorrectedHit = rule.after(after)
+  if (uncorrectedHit === null) return null
 
   const canonicalRuleText = rule.toText()
   const monthMatch = MONTHLY_RULE_TEXT_RE.exec(canonicalRuleText)
@@ -187,31 +187,32 @@ const correctedNextHit = ({
     ? Number.parseInt(yearMatch[1]?.trim() ?? "1", 10)
     : null
   if (monthIntervalToEnforce === null && yearIntervalToEnforce === null) {
-    return naiveNext
+    return uncorrectedHit
   }
 
   // Walk-back loop — sequential by nature: each iteration re-queries from
   // one day earlier and the loop condition reads the newest answer.
-  // afterDay starts at the query point's end-of-day and becomes start-of-day
+  // queryDay starts at the query point's end-of-day and becomes start-of-day
   // after the first step (walkBackOneDay normalizes it); harmless, because
   // the loop reads only month/year components, which are the same at either
   // end of a calendar day.
-  let afterDay: DateTime = DateTime.fromJSDate(after, { zone: "utc" })
-  let next = naiveNext
+  let queryDay: DateTime = DateTime.fromJSDate(after, { zone: "utc" })
+  let candidateHit = uncorrectedHit
   for (let iteration = 0; iteration < WALK_BACK_ITERATION_CAP; iteration++) {
-    const nextDay = DateTime.fromJSDate(next, { zone: "utc" })
+    const candidateDay = DateTime.fromJSDate(candidateHit, { zone: "utc" })
     const skipsTooManyMonths =
       monthIntervalToEnforce !== null &&
-      monthsSkipped({ after: afterDay, next: nextDay }) > monthIntervalToEnforce
+      monthsSkipped({ after: queryDay, next: candidateDay }) >
+        monthIntervalToEnforce
     const skipsTooManyYears =
       yearIntervalToEnforce !== null &&
-      nextDay.year - afterDay.year > yearIntervalToEnforce
-    if (!skipsTooManyMonths && !skipsTooManyYears) return next
+      candidateDay.year - queryDay.year > yearIntervalToEnforce
+    if (!skipsTooManyMonths && !skipsTooManyYears) return candidateHit
 
-    const walkedBack = walkBackOneDay({ afterDay, rruleOptions })
-    if (walkedBack.next === null) return null
-    afterDay = walkedBack.afterDay
-    next = walkedBack.next
+    const walkedBack = walkBackOneDay({ queryDay, rruleOptions })
+    if (walkedBack.candidateHit === null) return null
+    queryDay = walkedBack.queryDay
+    candidateHit = walkedBack.candidateHit
   }
   // Budget exhausted — the rrule answer stayed out-of-interval for 100
   // walk-back steps. Return null (no next occurrence) rather than the
