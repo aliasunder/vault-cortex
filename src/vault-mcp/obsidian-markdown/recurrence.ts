@@ -116,7 +116,13 @@ const MONTHLY_RULE_TEXT_RE = /every( \d+)? month(s)?(.*)?/
 const YEARLY_RULE_TEXT_RE = /every( \d+)? year(s)?(.*)?/
 
 /** Months from `after` to `next`, counted on UTC calendar components. */
-const monthsSkipped = (after: DateTime, next: DateTime): number => {
+const monthsSkipped = ({
+  after,
+  next,
+}: {
+  after: DateTime
+  next: DateTime
+}): number => {
   return next.month - after.month + (next.year - after.year) * 12
 }
 
@@ -196,7 +202,7 @@ const correctedNextHit = ({
     const nextDay = DateTime.fromJSDate(next, { zone: "utc" })
     const skipsTooManyMonths =
       monthIntervalToEnforce !== null &&
-      monthsSkipped(afterDay, nextDay) > monthIntervalToEnforce
+      monthsSkipped({ after: afterDay, next: nextDay }) > monthIntervalToEnforce
     const skipsTooManyYears =
       yearIntervalToEnforce !== null &&
       nextDay.year - afterDay.year > yearIntervalToEnforce
