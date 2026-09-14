@@ -786,34 +786,36 @@ const resolveRecurrenceSpawn = ({
  *  content search — a vault can hold two byte-identical recurring lines,
  *  and a search would find the wrong one.
  *
- *  Worked example: spawn at 5; the completed block [3, 5) moves to
- *  insertAt 8. The removal shifts the spawn to 5 − 2 = 3; the reinsertion
- *  at 8 lands below 3, so no shift. A checklist appended at or above the
- *  spawn (the on-next-line layout) shifts it once more. */
+ *  Worked example: spawn at 5; the completed block [3, 5) moves to done
+ *  lane at line 8. Removing the block shifts the spawn to 5 − 2 = 3;
+ *  reinserting at 8 lands below 3, so no shift. A subtask append at or
+ *  above the spawn (the on-next-line layout) shifts it once more. */
 const spawnIndexAfterSplices = ({
   spawnIndex,
-  move,
-  checklistInsert,
+  doneLaneMove,
+  subtaskAppend,
 }: {
   spawnIndex: number
-  move?:
+  doneLaneMove?:
     | { moveStart: number; movedBlockLength: number; insertAt: number }
     | undefined
-  checklistInsert?: { insertIndex: number; lineCount: number } | undefined
+  subtaskAppend?: { insertIndex: number; lineCount: number } | undefined
 }): number => {
-  const afterRemoval =
-    !move || spawnIndex < move.moveStart
+  const indexAfterRemoval =
+    !doneLaneMove || spawnIndex < doneLaneMove.moveStart
       ? spawnIndex
-      : spawnIndex - move.movedBlockLength
-  const reinsertionShift =
-    move && move.insertAt <= afterRemoval ? move.movedBlockLength : 0
-  const afterMove = afterRemoval + reinsertionShift
-
-  const checklistShift =
-    checklistInsert && checklistInsert.insertIndex <= afterMove
-      ? checklistInsert.lineCount
+      : spawnIndex - doneLaneMove.movedBlockLength
+  const doneLaneInsertShift =
+    doneLaneMove && doneLaneMove.insertAt <= indexAfterRemoval
+      ? doneLaneMove.movedBlockLength
       : 0
-  return afterMove + checklistShift
+  const indexAfterMove = indexAfterRemoval + doneLaneInsertShift
+
+  const subtaskAppendShift =
+    subtaskAppend && subtaskAppend.insertIndex <= indexAfterMove
+      ? subtaskAppend.lineCount
+      : 0
+  return indexAfterMove + subtaskAppendShift
 }
 
 /** Detects the done lane for auto-completion: checks for **Complete**
@@ -1619,8 +1621,8 @@ const updateTask = async (
       recurrenceSpawn.kind === "spawn"
         ? spawnIndexAfterSplices({
             spawnIndex: spawnInsertIndex,
-            move: moveSplice,
-            checklistInsert: checklistSplice,
+            doneLaneMove: moveSplice,
+            subtaskAppend: checklistSplice,
           })
         : undefined
 
