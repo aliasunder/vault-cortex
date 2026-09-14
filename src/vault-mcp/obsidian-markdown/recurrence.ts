@@ -34,12 +34,15 @@ import type * as RRuleModule from "rrule"
 const requireModule = createRequire(import.meta.url)
 const rrule: typeof RRuleModule = requireModule("rrule")
 const { RRule } = rrule
+// CJS require gives RRule as a value, not a type — this alias avoids
+// InstanceType<typeof RRule> at every use site.
+type RRuleInstance = InstanceType<typeof RRule>
 
 // ── Rule parsing ────────────────────────────────────────────────
 
 /** The plugin's rule grammar: rrule natural-language text plus an optional
- *  " when done" suffix (case-insensitive). Same charset the task-line parser
- *  accepts after 🔁. */
+ *  " when done" suffix (case-insensitive). The `!` allows rules like
+ *  "every 2nd day!" that the plugin's parser accepts. */
 const RECURRENCE_RULE_RE = /^([a-zA-Z0-9, !]+?)( when done)?$/i
 
 export type ParsedRecurrenceRule = {
@@ -101,19 +104,18 @@ const isoDateFromUtcDate = (date: Date): string => {
 
 // ── Next-hit computation (the plugin's nextAfter) ───────────────
 
-/** Iteration cap for the walk-back loops. The plugin runs uncapped; each
- *  step moves the query one day into the past and the overflow being
- *  corrected is at most one month wide, so a bound in the tens is already
- *  generous — the cap only guards against a pathological rrule answer
- *  looping forever. */
+/** Iteration cap for the walk-back loop. The real overflow is at most ~30
+ *  days wide (one month), so 100 is well above any legitimate walk-back;
+ *  the cap guards against a pathological rrule answer looping forever. */
 const WALK_BACK_ITERATION_CAP = 100
 
 /** Matches a monthly rule in rrule's canonical text ("every month",
- *  "every 3 months"), capturing the optional interval. */
-const MONTHLY_RULE_TEXT_RE = /every( \d+)? month(s)?(.*)?/
+ *  "every 3 months"), capturing the optional interval. The trailing
+ *  non-capturing group absorbs modifiers like "on the 15th". */
+const MONTHLY_RULE_TEXT_RE = /every( \d+)? month(?:s)?(?:.*)?/
 /** Matches a yearly rule in rrule's canonical text, capturing the optional
  *  interval. */
-const YEARLY_RULE_TEXT_RE = /every( \d+)? year(s)?(.*)?/
+const YEARLY_RULE_TEXT_RE = /every( \d+)? year(?:s)?(?:.*)?/
 
 /** Months from `after` to `next`, counted on UTC calendar components. */
 const monthsSkipped = ({
@@ -126,10 +128,10 @@ const monthsSkipped = ({
   return next.month - after.month + (next.year - after.year) * 12
 }
 
-/** One walk-back step — the plugin's `fromOneDayEarlier`, kept
- *  mutation-order-faithful: move the query day one day into the past,
- *  rebuild the rule with dtstart on that day (moving dtstart is what
- *  re-phases an inferred bymonthday), and query from that day's start. */
+/** One walk-back step: move the query day one day into the past, rebuild
+ *  the rule with dtstart on that day (rrule derives bymonthday from dtstart
+ *  when none is explicit, so moving dtstart changes the derived day), and
+ *  query from that day's start. `rrule.after()` is exclusive by default. */
 const walkBackOneDay = ({
   queryDay,
   rruleOptions,
@@ -162,7 +164,7 @@ const correctedNextHit = ({
   rruleOptions,
 }: {
   after: Date
-  rule: InstanceType<typeof RRule>
+  rule: RRuleInstance
   rruleOptions: Partial<Options>
 }): Date | null => {
   const uncorrectedHit = rule.after(after)
@@ -280,8 +282,8 @@ const shiftByReferenceOffset = ({
   const referenceInZone = DateTime.fromISO(referenceDate, { zone })
   // Unitless diff then .as("days") is instant math — the plugin's moment
   // .diff() semantics. A "days"-unit diff would count calendar labels and
-  // disagree across timezone discontinuities. Truncation matches moment's
-  // absFloor: on a spring-forward day the 23-hour gap gives 0, not 1.
+  // disagree across timezone discontinuities. Truncation toward zero matches
+  // moment's behavior: on a spring-forward day the 23-hour gap gives 0, not 1.
   const dayDistance = Math.trunc(dateInZone.diff(referenceInZone).as("days"))
   const shifted = DateTime.fromISO(nextReferenceDate, { zone })
     .plus({ days: dayDistance })

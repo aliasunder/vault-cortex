@@ -610,7 +610,7 @@ const moveTaskBlock = ({
   change?: string
   /** Lines the move relocated (task + sub-items) — how far the splices
    *  shifted every line between the block's old and new positions. Absent
-   *  when the task already sat in the target lane and nothing moved. */
+   *  when the task already sat under the target heading and nothing moved. */
   movedBlockLength?: number
 } => {
   const targetHeading = headings.find((heading) => heading.text === targetLane)
