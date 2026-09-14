@@ -591,9 +591,7 @@ const locateTaskLine = ({
   return taskLineIndex
 }
 
-/** Moves a task line and its indented sub-items under another heading.
- *  Returns the lines unchanged, with no `change`, when the task already
- *  sits under that heading. */
+/** No-op when the task already sits under the target heading. */
 const moveTaskBlock = ({
   lines,
   taskLineIndex,
