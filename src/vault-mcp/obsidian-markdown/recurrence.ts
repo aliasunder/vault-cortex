@@ -16,10 +16,10 @@
  *  - Monthly and yearly rules that skip too far (Jan 31 "every month" has no
  *    Feb 31) are clamped by the plugin's walk-back (see `correctedNextHit`).
  *
- *  Deliberate divergence: when `rrule.after` finds no next hit (a finite rule
- *  is exhausted), this module returns null and the caller completes without
- *  spawning — the plugin wraps that null in an invalid moment and proceeds
- *  with garbage dates. */
+ *  This module deliberately diverges on exhausted finite rules. When
+ *  `rrule.after` finds no next hit, it returns null and the caller completes
+ *  without spawning. The plugin wraps that null in an invalid moment and
+ *  proceeds with garbage dates. */
 
 import { createRequire } from "node:module"
 import { DateTime } from "luxon"
@@ -78,9 +78,9 @@ export const parseRecurrenceRule = (
 
 // ── Date plumbing ───────────────────────────────────────────────
 
-/** A calendar day as a UTC-midnight Date — the plugin's `.utc(true)` trick:
- *  rrule computes in UTC only, so date-only values enter and leave as UTC
- *  midnights and no local-time conversion ever happens on the rrule leg. */
+/** A calendar day as a UTC-midnight Date. rrule computes in UTC only, so
+ *  date-only values enter and leave as UTC midnights and no local-time
+ *  conversion ever happens on the rrule leg (the plugin's `.utc(true)` trick). */
 const utcMidnight = (isoDate: string): Date => {
   const day = DateTime.fromISO(isoDate, { zone: "utc" })
   if (!day.isValid) throw new Error(`invalid date: "${isoDate}"`)
@@ -181,6 +181,7 @@ const correctedNextHit = ({
   // yearly grammar never carries " on " in canonical text — "every January
   // on the 31st" canonicalizes without the word "year").
   const ruleFixesAnExplicitDay = canonicalRuleText.includes(" on ")
+
   const monthIntervalToEnforce =
     monthMatch && !ruleFixesAnExplicitDay
       ? Number.parseInt(monthMatch[1]?.trim() ?? "1", 10)
@@ -202,6 +203,7 @@ const correctedNextHit = ({
   let candidateHit = uncorrectedHit
   for (let iteration = 0; iteration < WALK_BACK_ITERATION_CAP; iteration++) {
     const candidateDay = DateTime.fromJSDate(candidateHit, { zone: "utc" })
+
     const skipsTooManyMonths =
       monthIntervalToEnforce !== null &&
       monthsSkipped({ after: queryDay, next: candidateDay }) >
@@ -209,6 +211,7 @@ const correctedNextHit = ({
     const skipsTooManyYears =
       yearIntervalToEnforce !== null &&
       candidateDay.year - queryDay.year > yearIntervalToEnforce
+
     if (!skipsTooManyMonths && !skipsTooManyYears) return candidateHit
 
     const walkedBack = walkBackOneDay({ queryDay, rruleOptions })
