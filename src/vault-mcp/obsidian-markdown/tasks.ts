@@ -63,7 +63,7 @@ export type ParsedTask = Readonly<{
   cancelledDate: string | null
   priority: TaskPriority | null
   /** Verbatim recurrence rule text after 🔁 / `repeat::` (e.g. "every week
-   *  when done"). Stored, never executed. */
+   *  when done"). Completing the task spawns the next occurrence from it. */
   recurrence: string | null
   /** Raw word after 🏁 / `onCompletion::` (the plugin accepts "delete" and
    *  "keep"). */
@@ -107,8 +107,30 @@ const LIST_ITEM_RE = /^[\s\t>]*(?:[-*+]|[0-9]+[.)]) /u
 
 /** Matches a trailing block link ` ^block-id` at the very end of the line.
  *  Captures the ID without the caret (group 1). The plugin strips this before
- *  parsing metadata, so it must be removed first. Anchored — safe for .exec(). */
+ *  parsing metadata, so it must be removed first. Anchored — safe for .exec().
+ *  Always match against trimmed-end text (splitTrailingBlockLink does): a
+ *  markdown hard break (two+ trailing spaces) would otherwise hide the link
+ *  — and, since the unrecognized ` ^id` tail then stops the metadata scan,
+ *  every field on the line with it. */
 const BLOCK_LINK_RE = / \^([a-zA-Z0-9-]+)$/u
+
+/** The parts around a task body's trailing block link. `body` is trimmed of
+ *  trailing whitespace; `blockLink` keeps its leading space, "" when the
+ *  line has none. */
+const splitTrailingBlockLink = (
+  taskBody: string,
+): { body: string; blockId: string | null; blockLink: string } => {
+  const trimmedBody = taskBody.trimEnd()
+  const blockLinkMatch = BLOCK_LINK_RE.exec(trimmedBody)
+  if (!blockLinkMatch) {
+    return { body: trimmedBody, blockId: null, blockLink: "" }
+  }
+  return {
+    body: trimmedBody.slice(0, blockLinkMatch.index),
+    blockId: blockLinkMatch[1] ?? null,
+    blockLink: blockLinkMatch[0],
+  }
+}
 
 /** Matches inline hashtags: `#` preceded by start-of-string or whitespace,
  *  followed by anything except spaces and common punctuation — the plugin's
@@ -556,14 +578,11 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
     }
 
     const statusChar = matchedText(taskLineMatch, 1)
-    // The block link sits at the absolute end of the line — strip it before
-    // metadata parsing, exactly as the plugin does.
+    // The block link sits at the end of the line — strip it before metadata
+    // parsing, exactly as the plugin does.
     const bodyWithBlockLink = matchedText(taskLineMatch, 2)
-    const blockLinkMatch = BLOCK_LINK_RE.exec(bodyWithBlockLink)
-    const blockId = blockLinkMatch?.[1] ?? null
-    const taskBody = blockLinkMatch
-      ? bodyWithBlockLink.slice(0, blockLinkMatch.index)
-      : bodyWithBlockLink
+    const { body: taskBody, blockId } =
+      splitTrailingBlockLink(bodyWithBlockLink)
 
     const nearestHeading = headings.findLast(
       (heading) => heading.startLine < lineIndex,
@@ -655,6 +674,13 @@ const TASK_ID_INLINE_RE =
 const DEPENDS_ON_INLINE_RE =
   /⛔️? *[a-zA-Z0-9_-]+(?:,\s*[a-zA-Z0-9_-]+)*|[[(] *dependsOn:: *[a-zA-Z0-9_-]+(?:,\s*[a-zA-Z0-9_-]+)* *[\])](?: *,)?/u
 
+/** Matches a recurrence rule in either format: `🔁 rule text` (emoji) or
+ *  `[repeat:: rule text]` / `(repeat:: rule text)` (Dataview). The value
+ *  charset mirrors the parser's rule grammar, so the match ends where the
+ *  next signifier begins. */
+const RECURRENCE_INLINE_RE =
+  /🔁️? *[a-zA-Z0-9, !]+|[[(] *repeat:: *[a-zA-Z0-9, !]+ *[\])](?: *,)?/u
+
 /** Matches any priority signifier in either format: emoji (🔺⏫🔼🔽⏬)
  *  or Dataview (`[priority:: level]` / `(priority:: level)`). */
 const PRIORITY_INLINE_RE =
@@ -704,6 +730,14 @@ const stripLastField = (metadata: string, regex: RegExp): string => {
   return `${beforeMatch}${afterMatch}`.replace(/ {2,}/g, " ").trim()
 }
 
+/** Removes EVERY occurrence of a field regex from a metadata tail.
+ *  Used by clear paths (field set to null) where no copy should survive;
+ *  the set paths use stripLastField to preserve a description signifier. */
+const stripAllField = (metadata: string, regex: RegExp): string => {
+  const stripped = stripLastField(metadata, regex)
+  return stripped === metadata ? metadata : stripAllField(stripped, regex)
+}
+
 // Re-export TaskFormatConfig so consumers of tasks.ts don't need a
 // separate import from the vault-operations layer.
 export type { TaskFormatConfig }
@@ -730,6 +764,15 @@ const formatPriority = (
 /** Formats a task ID (🆔) in the configured format. */
 const formatTaskId = (taskId: string, format: "emoji" | "dataview"): string =>
   format === "dataview" ? `[id:: ${taskId}]` : `🆔 ${taskId}`
+
+/** Formats a recurrence rule (🔁) in the configured format. */
+const formatRecurrence = (
+  recurrenceText: string,
+  format: "emoji" | "dataview",
+): string =>
+  format === "dataview"
+    ? `[repeat:: ${recurrenceText}]`
+    : `🔁 ${recurrenceText}`
 
 /** Formats a depends-on list (⛔) in the configured format. */
 const formatDependsOn = (
@@ -838,8 +881,10 @@ const updateTaskLineDate = (params: {
   ]
 
   return mapMetadataTail(params.taskLine, (metadata) => {
+    if (params.date === null) {
+      return stripAllField(metadata, fieldInfo.inlineRegex)
+    }
     const metadataWithoutDate = stripLastField(metadata, fieldInfo.inlineRegex)
-    if (params.date === null) return metadataWithoutDate
     const dateText = formatDateField({
       field: params.field,
       date: params.date,
@@ -865,12 +910,45 @@ const updateTaskLineTaskId = ({
   config: TaskFormatConfig
 }): string => {
   return mapMetadataTail(taskLine, (metadata) => {
+    if (taskId === null) return stripAllField(metadata, TASK_ID_INLINE_RE)
     const metadataWithoutTaskId = stripLastField(metadata, TASK_ID_INLINE_RE)
-    if (taskId === null) return metadataWithoutTaskId
     return insertFieldBefore({
       metadata: metadataWithoutTaskId,
       fieldText: formatTaskId(taskId, config.taskFormat),
       laterFieldRegexes: [DEPENDS_ON_INLINE_RE],
+    })
+  })
+}
+
+/** Sets or clears the 🔁 / `[repeat:: ]` recurrence rule on a task line.
+ *  A new rule is inserted after the priority and before the dates — the
+ *  plugin's field order. The rule text is written verbatim; callers
+ *  validate it parses before writing. */
+const updateTaskLineRecurrence = ({
+  taskLine,
+  recurrenceText,
+  config,
+}: {
+  taskLine: string
+  recurrenceText: string | null
+  config: TaskFormatConfig
+}): string => {
+  return mapMetadataTail(taskLine, (metadata) => {
+    if (recurrenceText === null) {
+      return stripAllField(metadata, RECURRENCE_INLINE_RE)
+    }
+    const metadataWithoutRecurrence = stripLastField(
+      metadata,
+      RECURRENCE_INLINE_RE,
+    )
+    return insertFieldBefore({
+      metadata: metadataWithoutRecurrence,
+      fieldText: formatRecurrence(recurrenceText, config.taskFormat),
+      laterFieldRegexes: [
+        ...DATE_FIELD_INFO.map((dateField) => dateField.inlineRegex),
+        TASK_ID_INLINE_RE,
+        DEPENDS_ON_INLINE_RE,
+      ],
     })
   })
 }
@@ -886,13 +964,13 @@ const updateTaskLineDependsOn = ({
   config: TaskFormatConfig
 }): string => {
   return mapMetadataTail(taskLine, (metadata) => {
+    if (dependsOn === null || dependsOn.length === 0) {
+      return stripAllField(metadata, DEPENDS_ON_INLINE_RE)
+    }
     const metadataWithoutDependsOn = stripLastField(
       metadata,
       DEPENDS_ON_INLINE_RE,
     )
-    if (dependsOn === null || dependsOn.length === 0) {
-      return metadataWithoutDependsOn
-    }
     return appendField({
       metadata: metadataWithoutDependsOn,
       fieldText: formatDependsOn(dependsOn, config.taskFormat),
@@ -943,11 +1021,7 @@ const splitTaskLine = (taskLine: string): TaskLineParts | null => {
   const prefix = checkboxMatch?.[1]
   if (!prefix) return null
   const afterCheckbox = taskLine.slice(prefix.length)
-  const blockLinkMatch = BLOCK_LINK_RE.exec(afterCheckbox)
-  const blockLink = blockLinkMatch?.[0] ?? ""
-  const taskBody = blockLinkMatch
-    ? afterCheckbox.slice(0, blockLinkMatch.index)
-    : afterCheckbox
+  const { body: taskBody, blockLink } = splitTrailingBlockLink(afterCheckbox)
   const metadataStart = findMetadataStart(taskBody)
   if (metadataStart === -1) {
     return { prefix, description: taskBody.trim(), metadata: "", blockLink }
@@ -1018,17 +1092,15 @@ const parseTaskLineMetadata = (taskLine: string): TaskMetadata | null => {
   const taskLineMatch = TASK_LINE_RE.exec(taskLine)
   if (!taskLineMatch) return null
   const bodyWithBlockLink = matchedText(taskLineMatch, 2)
-  const blockLinkMatch = BLOCK_LINK_RE.exec(bodyWithBlockLink)
-  const taskBody = blockLinkMatch
-    ? bodyWithBlockLink.slice(0, blockLinkMatch.index)
-    : bodyWithBlockLink
+  const { body: taskBody } = splitTrailingBlockLink(bodyWithBlockLink)
   return parseTaskMetadata(taskBody)
 }
 
 /** The description the parser sees for a task line — metadata stripped
  *  from the right, interleaved tags re-appended, block link removed. */
-const describeTaskLine = (taskLine: string): string =>
-  parseTaskLineMetadata(taskLine)?.description ?? taskLine
+const describeTaskLine = (taskLine: string): string => {
+  return parseTaskLineMetadata(taskLine)?.description ?? taskLine
+}
 
 // ── Round-trip divergence detection ─────────────────────────────
 
@@ -1049,6 +1121,7 @@ export type SubmittedTaskFields = Readonly<{
   cancelledDate?: string | null | undefined
   taskId?: string | null | undefined
   dependsOn?: readonly string[] | null | undefined
+  recurrence?: string | null | undefined
 }>
 
 /** One field whose parse-back value differs from what the call's inputs say
@@ -1155,6 +1228,7 @@ const ROUND_TRIP_FIELDS: readonly RoundTripFieldReading[] = [
   {
     field: "recurrence",
     readParsed: (reading) => reading.metadata.recurrence,
+    readSubmitted: (submitted) => submitted.recurrence,
   },
   {
     field: "on_completion",
@@ -1314,7 +1388,9 @@ const replaceTaskLineDescription = ({
   return joinTaskLine({ ...parts, description: newDescription })
 }
 
-/** Adds or replaces a `^block-id` at the end of a task line. */
+/** Adds or replaces a `^block-id` at the end of a task line. Trailing
+ *  whitespace is trimmed first — matching the untrimmed line would miss an
+ *  existing link behind a hard break and write a duplicate. */
 const assignBlockId = ({
   taskLine,
   blockId,
@@ -1322,11 +1398,20 @@ const assignBlockId = ({
   taskLine: string
   blockId: string
 }): string => {
-  const existingMatch = BLOCK_LINK_RE.exec(taskLine)
+  const trimmedLine = taskLine.trimEnd()
+  const existingMatch = BLOCK_LINK_RE.exec(trimmedLine)
   if (existingMatch) {
-    return `${taskLine.slice(0, existingMatch.index)} ^${blockId}`
+    return `${trimmedLine.slice(0, existingMatch.index)} ^${blockId}`
   }
-  return `${taskLine} ^${blockId}`
+  return `${trimmedLine} ^${blockId}`
+}
+
+/** Removes the trailing `^block-id` from a task line, if it has one. */
+const stripBlockLink = (taskLine: string): string => {
+  const trimmedLine = taskLine.trimEnd()
+  const blockLinkMatch = BLOCK_LINK_RE.exec(trimmedLine)
+  if (!blockLinkMatch) return trimmedLine
+  return trimmedLine.slice(0, blockLinkMatch.index)
 }
 
 /** Extracts the structural indent of a line — leading whitespace after
@@ -1348,6 +1433,7 @@ type BuildTaskLineParams = {
   description: string
   blockId: string
   priority?: TaskPriority | undefined
+  recurrence?: string | undefined
   created: string
   start?: string | undefined
   scheduled?: string | undefined
@@ -1358,8 +1444,8 @@ type BuildTaskLineParams = {
 }
 
 /** Assembles a complete task line in the correct field ordering:
- *  description → priority → ➕ created → 🛫 start → ⏳ scheduled →
- *  📅 due → 🆔 task_id → ⛔ depends_on → ^block_id */
+ *  description → priority → 🔁 recurrence → ➕ created → 🛫 start →
+ *  ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id */
 const buildTaskLine = (
   params: BuildTaskLineParams,
   config: TaskFormatConfig,
@@ -1380,6 +1466,7 @@ const buildTaskLine = (
   const parts = [
     `${params.indent ?? ""}- [ ] ${params.description}`,
     ...(params.priority ? [formatPriority(params.priority, format)] : []),
+    ...(params.recurrence ? [formatRecurrence(params.recurrence, format)] : []),
     formatDateField({ field: "created", date: params.created, format }),
     ...optionalDateFields,
     ...(params.taskId ? [formatTaskId(params.taskId, format)] : []),
@@ -1401,11 +1488,10 @@ const applyCompletionDate = (params: {
   dateRegex: RegExp
 }): string => {
   return mapMetadataTail(params.taskLine, (metadata) => {
-    // Stamping strips the LAST existing occurrence and appends — a
-    // first-match replace would rewrite a description date that the parser
-    // read as metadata and leave the real stamp untouched.
-    const metadataWithoutStamp = stripLastField(metadata, params.dateRegex)
-    if (!params.shouldStamp) return metadataWithoutStamp
+    if (!params.shouldStamp) {
+      return stripAllField(metadata, params.dateRegex)
+    }
+    const metadataWithoutStamp = stripAllField(metadata, params.dateRegex)
     return appendField({
       metadata: metadataWithoutStamp,
       fieldText: params.dateFieldText,
@@ -1428,8 +1514,11 @@ const updateTaskLineStatus = (params: {
     newChar: charForStatus(params.newStatus),
   })
 
-  const stripMetadataField = (taskLine: string, regex: RegExp): string =>
-    mapMetadataTail(taskLine, (metadata) => stripLastField(metadata, regex))
+  const stripMetadataField = (taskLine: string, regex: RegExp): string => {
+    return mapMetadataTail(taskLine, (metadata) => {
+      return stripAllField(metadata, regex)
+    })
+  }
 
   if (params.newStatus === "done") {
     return applyCompletionDate({
@@ -1459,6 +1548,62 @@ const updateTaskLineStatus = (params: {
   )
 }
 
+/** The next-occurrence line for a completed recurring task — the plugin's
+ *  createNextOccurrence as a line transform. The completed line's copy keeps
+ *  its description, priority, tags, recurrence rule, and indentation, and:
+ *  - becomes `[ ]` with done/cancelled dates stripped;
+ *  - loses its block link, 🆔 id, and ⛔ dependencies (a new occurrence
+ *    cannot share identity with the completed one);
+ *  - has start/scheduled/due replaced by the next occurrence's dates;
+ *  - has its created date replaced — ➕ today when the plugin's
+ *    `setCreatedDate` is on, removed otherwise (the plugin never carries
+ *    the original ➕ forward). */
+const buildNextOccurrenceLine = ({
+  taskLine,
+  nextDates,
+  today,
+  config,
+}: {
+  taskLine: string
+  nextDates: {
+    startDate: string | null
+    scheduledDate: string | null
+    dueDate: string | null
+  }
+  today: string
+  config: TaskFormatConfig
+}): string => {
+  const todoLine = updateTaskLineStatus({
+    taskLine: stripBlockLink(taskLine),
+    newStatus: "todo",
+    today,
+    config,
+  })
+  const withoutTaskId = updateTaskLineTaskId({
+    taskLine: todoLine,
+    taskId: null,
+    config,
+  })
+  const withoutIdentity = updateTaskLineDependsOn({
+    taskLine: withoutTaskId,
+    dependsOn: null,
+    config,
+  })
+
+  const dateReplacements: ReadonlyArray<{
+    field: DateFieldKey
+    date: string | null
+  }> = [
+    { field: "created", date: config.setCreatedDate ? today : null },
+    { field: "start", date: nextDates.startDate },
+    { field: "scheduled", date: nextDates.scheduledDate },
+    { field: "due", date: nextDates.dueDate },
+  ]
+  return dateReplacements.reduce((line, { field, date }) => {
+    return updateTaskLineDate({ taskLine: line, field, date, config })
+  }, withoutIdentity)
+}
+
 /** Updates the priority on a task line: inserts, replaces, or removes
  *  it. A null priority removes any existing priority field (emoji or
  *  Dataview). Strips both formats; writes in the configured format.
@@ -1484,7 +1629,7 @@ const updateTaskLinePriority = ({
     if (!hasExistingPriority) return taskLine
     return joinTaskLine({
       ...parts,
-      metadata: stripLastField(parts.metadata, PRIORITY_INLINE_RE),
+      metadata: stripAllField(parts.metadata, PRIORITY_INLINE_RE),
     })
   }
 
@@ -1512,9 +1657,10 @@ const findTaskByBlockId = (
   lines: readonly string[],
   blockId: string,
 ): number | null => {
+  // trimEnd: a hard break's trailing spaces must not hide the block link.
   const suffix = ` ^${blockId}`
   const lineIndex = lines.findIndex(
-    (line) => line.endsWith(suffix) && isTaskLine(line),
+    (line) => line.trimEnd().endsWith(suffix) && isTaskLine(line),
   )
   return lineIndex === -1 ? null : lineIndex
 }
@@ -1614,6 +1760,7 @@ export const tasks = {
   updateTaskLinePriority,
   updateTaskLineDate,
   updateTaskLineTaskId,
+  updateTaskLineRecurrence,
   updateTaskLineDependsOn,
   replaceTaskLineDescription,
   describeTaskLine,
@@ -1621,6 +1768,7 @@ export const tasks = {
   assignBlockId,
   getTaskIndent,
   buildTaskLine,
+  buildNextOccurrenceLine,
   formatDateField,
   findTaskByBlockId,
   findBodyStartLine,
