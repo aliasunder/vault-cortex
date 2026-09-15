@@ -11,6 +11,9 @@ import {
   vi,
 } from "vitest"
 import { DateTime } from "luxon"
+import { writeFile } from "node:fs/promises"
+import { join } from "node:path"
+import Database from "better-sqlite3"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
   startServer,
@@ -549,6 +552,52 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md", heading: "Tasks" },
       })
       expect(textContent(readback)).toMatch(/First task for Alpha.*⏫/)
+    })
+
+    it("vault_update_task — completing a recurring task spawns the next occurrence", async () => {
+      // The server stamps ✅ with its own clock; bracketing the write pins
+      // the stamp to the write's day even across a midnight boundary.
+      const dateBeforeWrite = DateTime.now().toISODate()
+      const result = await callTool({
+        client,
+        name: "vault_update_task",
+        args: {
+          path: "Projects/recurring.md",
+          block_id: "water-plants",
+          status: "done",
+        },
+      })
+      const dateAfterWrite = DateTime.now().toISODate()
+      expect(result.isError).not.toBe(true)
+      const json = JSON.parse(textContent(result))
+      expect(json).toEqual({
+        path: "Projects/recurring.md",
+        line: 8,
+        description: "Water plants",
+        block_id: "water-plants",
+        heading: "Habits",
+        next_occurrence: {
+          line: 7,
+          description: "Water plants",
+          due: "2026-01-12",
+        },
+        changes: ["status: todo → done", "next_occurrence: (none) → line 7"],
+      })
+
+      const readback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/recurring.md", heading: "Habits" },
+      })
+      // The ✅ date the server stamped, captured from the readback.
+      const STAMPED_DONE_DATE_RE = /✅ (\d{4}-\d{2}-\d{2})/
+      const completionDate = STAMPED_DONE_DATE_RE.exec(
+        textContent(readback),
+      )?.[1]
+      expect([dateBeforeWrite, dateAfterWrite]).toContain(completionDate)
+      expect(textContent(readback)).toBe(
+        `## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ ${completionDate} ^water-plants\n`,
+      )
     })
   })
 
@@ -1482,4 +1531,157 @@ describe("boot rejection", () => {
     expect(stderr).toContain('"message":"server failed to listen"')
     expect(stderr).toContain("EADDRINUSE")
   }, 30_000)
+})
+
+// ── Trash retention: the system default, the local option, and sync ───
+//
+// Each scenario boots its own server: readTrashConfig caches a successful
+// read per process, so a vault's trash setting is fixed the moment the
+// first delete reads it.
+
+/** Every trash_entries row in a server's index DB, read directly from the
+ *  data dir the harness created (WAL mode allows a concurrent reader). */
+const readTrashEntryRows = (dataDir: string): string[] => {
+  const db = new Database(join(dataDir, "search.db"), { readonly: true })
+  try {
+    return db
+      .prepare<[], { trash_path: string }>(
+        "SELECT trash_path FROM trash_entries ORDER BY trash_path",
+      )
+      .all()
+      .map((row) => row.trash_path)
+  } finally {
+    db.close()
+  }
+}
+
+describe("trash retention over real HTTP", () => {
+  it("a delete under the system default lands in .trash/ and records a trash entry", async () => {
+    const server = await startServer(await freePort())
+    onTestFinished(() => server.cleanup())
+    // The shared fixture pins trashOption "local"; blanking the config makes
+    // the absent key read as "system" (Obsidian's default). Rewritten before
+    // any delete so no "local" read has been cached.
+    await writeFile(
+      join(server.vaultPath, ".obsidian", "app.json"),
+      "{}",
+      "utf8",
+    )
+    const client = await createTestClient(server.port)
+    onTestFinished(() => client.close())
+
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Scratch/system-trash.md", body: "kept for 30 days" },
+    })
+    const deleteResult = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Scratch/system-trash.md" },
+    })
+
+    expect(deleteResult.isError).not.toBe(true)
+    expect(textContent(deleteResult)).toBe(
+      "Moved Scratch/system-trash.md to trash (.trash/Scratch/system-trash.md)",
+    )
+    expect(readTrashEntryRows(server.dataDir)).toEqual([
+      ".trash/Scratch/system-trash.md",
+    ])
+  }, 30_000)
+
+  it("a delete under the explicit local option records no trash entry", async () => {
+    // "local" means Obsidian's own keep-forever trash — the retention sweep
+    // must never learn about these moves.
+    const server = await startServer(await freePort())
+    onTestFinished(() => server.cleanup())
+    const client = await createTestClient(server.port)
+    onTestFinished(() => client.close())
+
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Scratch/local-trash.md", body: "kept forever" },
+    })
+    const deleteResult = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Scratch/local-trash.md" },
+    })
+
+    expect(deleteResult.isError).not.toBe(true)
+    expect(textContent(deleteResult)).toBe(
+      "Moved Scratch/local-trash.md to trash (.trash/Scratch/local-trash.md)",
+    )
+    expect(readTrashEntryRows(server.dataDir)).toEqual([])
+  }, 30_000)
+
+  it("a sync-mode delete permanently removes the note and records no trash entry", async () => {
+    // The sync bypass maps to "none" — a server-side .trash/ would never
+    // sync back to the user, and the sweep never runs on sync deploys.
+    const server = await startServer(await freePort(), {
+      OBSIDIAN_SYNC: "true",
+    })
+    onTestFinished(() => server.cleanup())
+    const client = await createTestClient(server.port)
+    onTestFinished(() => client.close())
+
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Scratch/sync-delete.md", body: "gone for good" },
+    })
+    const deleteResult = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Scratch/sync-delete.md" },
+    })
+
+    expect(deleteResult.isError).not.toBe(true)
+    expect(textContent(deleteResult)).toBe("Deleted Scratch/sync-delete.md")
+    expect(readTrashEntryRows(server.dataDir)).toEqual([])
+  }, 30_000)
+})
+
+// ── Trash retention sweep gating ───────────────────────────────
+//
+// The sweep schedule runs its first sweep at boot and logs a completion
+// line even with no recorded entries, so that log line is the observable
+// for whether the schedule started. The first test pins the line under
+// the default config; the absence assertions below are meaningful only
+// because that positive control would fail if the line ever changed.
+
+/** The startup sweep's completion log, as it appears in the server's
+ *  structured stdout stream. */
+const SWEEP_LOG_MARKER = '"message":"trash retention sweep complete"'
+
+describe("trash retention sweep gating", () => {
+  it("the startup sweep runs under the default config", async () => {
+    const server = await startServer(await freePort())
+    onTestFinished(() => server.cleanup())
+
+    await vi.waitFor(() => {
+      expect(server.stdout()).toContain(SWEEP_LOG_MARKER)
+    })
+  }, 30_000)
+
+  it.each([
+    ["READONLY_MODE=true", { READONLY_MODE: "true" }],
+    ["OBSIDIAN_SYNC=true", { OBSIDIAN_SYNC: "true" }],
+    ["TRASH_RETENTION_DAYS=none", { TRASH_RETENTION_DAYS: "none" }],
+  ])(
+    "the sweep never starts under %s",
+    async (_config, envOverrides) => {
+      const server = await startServer(await freePort(), envOverrides)
+      onTestFinished(() => server.cleanup())
+      const client = await createTestClient(server.port)
+      onTestFinished(() => client.close())
+
+      // A full HTTP round-trip proves the boot sequence — where an enabled
+      // sweep logs its completion line — has long since finished.
+      await toolNames(client)
+      expect(server.stdout()).not.toContain(SWEEP_LOG_MARKER)
+    },
+    30_000,
+  )
 })

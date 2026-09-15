@@ -87,13 +87,38 @@ jobs:
       - name: Commit, tag, and push
         env:
           NEXT: ${{ steps.next.outputs.version }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json server.json
-          git commit -m "release: v$NEXT"
-          git tag "v$NEXT"
-          git push origin HEAD --tags
+          # Skip the commit when nothing changed — a re-run of this job
+          # after a push failure already has the bump commit as HEAD.
+          if ! git diff --cached --quiet; then
+            git commit -m "release: v$NEXT"
+          fi
+          # Tag may already exist from a stranded prior run (fetched by
+          # the deep checkout). If it does, it must point at this bump
+          # commit — a stale tag targets a different tree, and the release
+          # job (which checks out the tag) would build from the wrong commit.
+          if git rev-parse -q --verify "refs/tags/v$NEXT" > /dev/null; then
+            if [ "$(git rev-parse "refs/tags/v$NEXT")" != "$(git rev-parse HEAD)" ]; then
+              echo "::error::Tag v$NEXT exists but does not point at this bump commit — delete the stale tag on origin (git push origin :refs/tags/v$NEXT) and re-dispatch."
+              exit 1
+            fi
+          else
+            git tag "v$NEXT"
+          fi
+          # --atomic updates both refs or neither: without it, a rejected
+          # branch push can still deliver the tag (stranding it at a commit
+          # that never reached main), and a failed tag push can strand an
+          # untagged bump commit on main — each partial state breaks the
+          # next release. All-or-nothing keeps the failure path a bare
+          # re-dispatch with nothing to clean up.
+          if ! git push --atomic "https://x-access-token:${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD "refs/tags/v$NEXT"; then
+            echo "::error::Push rejected — main moved during this run, or the push failed partway. Nothing was pushed; dispatch the workflow again (a re-run of this run reuses its stale checkout and cannot succeed)."
+            exit 1
+          fi
 
   deploy:
     needs: bump-and-tag

@@ -290,41 +290,41 @@ See [ARCHITECTURE.md → Files](./ARCHITECTURE.md#files) for the image pipeline 
 
 ## Tools
 
-| Category        | Tool                         | Description                                                                             |
-| --------------- | ---------------------------- | --------------------------------------------------------------------------------------- |
-| **Vault CRUD**  | `vault_read_note`            | Read a note — full body, properties, outline, or a section                              |
-|                 | `vault_write_note`           | Create a note (fails if it already exists; set `overwrite` to replace)                  |
-|                 | `vault_patch_note`           | Heading-targeted edit (append, prepend, replace with `include_children` guard, insert)  |
-|                 | `vault_replace_in_note`      | Find-and-replace text in a note (first match or `replace_all_occurrences`)              |
-|                 | `vault_delete_span`          | Delete a block of lines by short anchors, no full re-quote                              |
-|                 | `vault_replace_span`         | Replace a block of lines by short anchors with new content                              |
-|                 | `vault_insert_at_anchor`     | Insert content before or after a line identified by a short anchor                      |
-|                 | `vault_list_notes`           | List notes with optional glob/folder filter                                             |
-|                 | `vault_delete_note`          | Delete a note, honoring the vault's trash setting (protected paths enforced)            |
-|                 | `vault_move_note`            | Move or rename a note, rewriting links across the vault                                 |
-| **Search**      | `vault_search`               | Hybrid search with tag/folder/property/date filters                                     |
-|                 | `vault_search_by_tag`        | Find notes by tag (exact or prefix match)                                               |
-|                 | `vault_search_by_folder`     | Browse notes in a folder with metadata                                                  |
-|                 | `vault_recent_notes`         | Recently modified or created notes                                                      |
-|                 | `vault_list_tags`            | All tags with usage counts                                                              |
-| **Tasks**       | `vault_list_tasks`           | Vault-wide task index with sub-task depth — Kanban-aware, date/priority/heading filters |
-|                 | `vault_create_task`          | Create a correctly-formatted task — dates, priority, sub-tasks, block_id in one call    |
-|                 | `vault_update_task`          | Edit description, dates, status, priority, heading, sub-tasks, block_id in one call     |
-| **Memory**      | `vault_get_memory`           | Read structured memory (file, section, or all)                                          |
-|                 | `vault_update_memory`        | Append a dated entry to a memory section                                                |
-|                 | `vault_delete_memory`        | Remove a specific memory entry by date                                                  |
-|                 | `vault_list_memory_files`    | Discover memory files, their sections, and each file's entry policy                     |
-|                 | `vault_memory_recall`        | Entry-granular hybrid recall of a topic across memory files, oldest-first               |
-| **Properties**  | `vault_list_property_keys`   | All property keys with sample values                                                    |
-|                 | `vault_list_property_values` | Distinct values for a property key                                                      |
-|                 | `vault_search_by_property`   | Find notes by property key-value                                                        |
-|                 | `vault_update_properties`    | Add or update properties without touching the body                                      |
-| **Links**       | `vault_get_backlinks`        | Notes linking to a given path                                                           |
-|                 | `vault_get_outgoing_links`   | Links from a given note                                                                 |
-|                 | `vault_find_orphans`         | Notes with no incoming links                                                            |
-| **Files**       | `vault_read_file`            | Read a non-markdown file — images delivered as images, canvases as readable outlines    |
-|                 | `vault_list_files`           | Browse the vault's non-markdown files with sizes and per-extension counts               |
-| **Daily Notes** | `vault_get_daily_note`       | Today's (or any date's) daily note                                                      |
+| Category        | Tool                         | Description                                                                               |
+| --------------- | ---------------------------- | ----------------------------------------------------------------------------------------- |
+| **Vault CRUD**  | `vault_read_note`            | Read a note — full body, properties, outline, or a section                                |
+|                 | `vault_write_note`           | Create a note (fails if it already exists; set `overwrite` to replace)                    |
+|                 | `vault_patch_note`           | Heading-targeted edit (append, prepend, replace with `include_children` guard, insert)    |
+|                 | `vault_replace_in_note`      | Find-and-replace text in a note (first match or `replace_all_occurrences`)                |
+|                 | `vault_delete_span`          | Delete a block of lines by short anchors, no full re-quote                                |
+|                 | `vault_replace_span`         | Replace a block of lines by short anchors with new content                                |
+|                 | `vault_insert_at_anchor`     | Insert content before or after a line identified by a short anchor                        |
+|                 | `vault_list_notes`           | List notes with optional glob/folder filter                                               |
+|                 | `vault_delete_note`          | Delete a note, honoring the vault's trash setting (protected paths enforced)              |
+|                 | `vault_move_note`            | Move or rename a note, rewriting links across the vault                                   |
+| **Search**      | `vault_search`               | Hybrid search with tag/folder/property/date filters                                       |
+|                 | `vault_search_by_tag`        | Find notes by tag (exact or prefix match)                                                 |
+|                 | `vault_search_by_folder`     | Browse notes in a folder with metadata                                                    |
+|                 | `vault_recent_notes`         | Recently modified or created notes                                                        |
+|                 | `vault_list_tags`            | All tags with usage counts                                                                |
+| **Tasks**       | `vault_list_tasks`           | Vault-wide task index with sub-task depth — Kanban-aware, date/priority/heading filters   |
+|                 | `vault_create_task`          | Create a correctly-formatted task — dates, priority, recurrence, sub-tasks, block_id      |
+|                 | `vault_update_task`          | Edit any task field in one call — completing a recurring task creates its next occurrence |
+| **Memory**      | `vault_get_memory`           | Read structured memory (file, section, or all)                                            |
+|                 | `vault_update_memory`        | Append a dated entry to a memory section                                                  |
+|                 | `vault_delete_memory`        | Remove a specific memory entry by date                                                    |
+|                 | `vault_list_memory_files`    | Discover memory files, their sections, and each file's entry policy                       |
+|                 | `vault_memory_recall`        | Entry-granular hybrid recall of a topic across memory files, oldest-first                 |
+| **Properties**  | `vault_list_property_keys`   | All property keys with sample values                                                      |
+|                 | `vault_list_property_values` | Distinct values for a property key                                                        |
+|                 | `vault_search_by_property`   | Find notes by property key-value                                                          |
+|                 | `vault_update_properties`    | Add or update properties without touching the body                                        |
+| **Links**       | `vault_get_backlinks`        | Notes linking to a given path                                                             |
+|                 | `vault_get_outgoing_links`   | Links from a given note                                                                   |
+|                 | `vault_find_orphans`         | Notes with no incoming links                                                              |
+| **Files**       | `vault_read_file`            | Read a non-markdown file — images delivered as images, canvases as readable outlines      |
+|                 | `vault_list_files`           | Browse the vault's non-markdown files with sizes and per-extension counts                 |
+| **Daily Notes** | `vault_get_daily_note`       | Today's (or any date's) daily note                                                        |
 
 ---
 
@@ -397,6 +397,7 @@ All settings are environment variables with sensible defaults. Remote deployment
 | `MAX_FILE_BYTES`            | —           | `52428800` (50 MiB)                                                              | Maximum file size `vault_read_file` will read (in bytes). Files exceeding this are rejected before reading. Raise for vaults with very large individual files.                                                                                                                                                                                  |
 | `MAX_IMAGE_OUTPUT_BYTES`    | —           | `49152` (48 KiB)                                                                 | Byte budget for images delivered by `vault_read_file`, in binary bytes before base64 encoding. Images exceeding this are downscaled and recompressed to fit. Sized for the tightest mainstream MCP client cap; raise for clients that accept larger responses.                                                                                  |
 | `MAX_PDF_RENDER_PAGES`      | —           | `5`                                                                              | Maximum PDF pages to render as images when `raw: true` is set on `vault_read_file`. The per-page byte budget is `MAX_IMAGE_OUTPUT_BYTES` divided evenly across the rendered pages — fewer pages means higher quality each.                                                                                                                      |
+| `TRASH_RETENTION_DAYS`      | Local only  | `30`                                                                             | Days a note deleted under Obsidian's default "Move to system trash" setting stays in `.trash/` before the server cleans it up. Set `none` to keep those notes forever. Only notes the server itself moved there are cleaned up. With Obsidian Sync, deletes are permanent on the server and recoverable from Sync's version history.            |
 | `TRUST_PROXY_HOPS`          | —           | `0`                                                                              | Number of trusted reverse-proxy hops used to derive the client IP from `X-Forwarded-For` (OAuth rate limiting, request logs). Set `1` when exactly one proxy you control sits in front of the server (Caddy, nginx, Cloudflare Tunnel, API Gateway). With `0`, injected forwarding headers are ignored.                                         |
 | `TRUST_FORWARDED_HOPS`      | —           | `0`                                                                              | How many trailing `for=` entries in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header belong to proxies you control. `0` ignores the header; `1` when the proxy in front writes it (e.g. AWS API Gateway); `2` when a CDN fronts that proxy and is the only way to reach it.                                            |
 
@@ -431,7 +432,8 @@ Vault Cortex writes to personal notes — the file safety layer is built to prev
 - **Per-file mutex** — concurrent MCP tool calls serialize or fail-fast per file. Moves lock the source, destination, and every backlink source as one unit.
 - **Path traversal blocked** — `resolveSafePath()` resolves then prefix-checks every path. Protected-path deletion is refused after normalization. Memory file names reject separators at the boundary.
 - **Hidden paths are off-limits** — files and folders starting with a dot (`.obsidian/`, `.trash/`) never appear in listings or search, and any tool call that targets one directly is rejected, matching Obsidian. Plugin configs and their API keys stay out of reach.
-- **Deletes honor Obsidian's trash setting** — with "Deleted files" set to "Move to Obsidian trash", a deleted note moves to `.trash/` inside the vault instead of being removed; every other setting deletes permanently, because a container has no system trash. On Obsidian Sync deployments deletes are always permanent and sync to every device — recovery is Sync's version history.
+- **Deletes honor Obsidian's trash setting** — with "Deleted files" at Obsidian's default "Move to system trash" or at "Move to Obsidian trash", a deleted note moves to `.trash/` inside the vault instead of being removed (a container has no system trash; `.trash/` is Obsidian's own fallback for that). "Permanently delete" removes the note for good. On Obsidian Sync deployments deletes are always permanent and sync to every device — recovery is Sync's version history.
+- **Bounded trash with a retention sweep** — notes the server moves to `.trash/` under the system-default setting are cleaned up after `TRASH_RETENTION_DAYS` (default 30 days; `none` keeps them forever). The sweep removes only files it recorded — notes Obsidian itself trashed, and "Move to Obsidian trash" deletes, are never touched.
 - **Injection prevention** — search queries are parameterized and FTS5-sanitized; prompt content is wrapped in XML data markers with closing-tag escaping to prevent tag-breakout injection.
 - **Container hardening** — non-root user, PID 1 init, no package managers in the runtime image, digest-pinned base, graceful shutdown.
 

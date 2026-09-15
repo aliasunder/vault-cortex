@@ -51,6 +51,10 @@ server.json                            # MCP server registry manifest
 render.yaml                            # Render Blueprint (repo root — Render reads it only from there); backs the Deploy to Render button
 Dockerfile                             # Two-target build: local (default) + remote
 Brewfile                               # Homebrew dev dependencies (optipng)
+.claude/                               # Committed Claude Code session hooks (rest of .claude/ is gitignored)
+  settings.json                        #   SessionStart + PostToolUse(EnterWorktree) → install-deps.sh
+  hooks/
+    install-deps.sh                    #   nvm + npm ci guard for fresh clones and worktrees
 obsidian-headless/                     # Lockfile-pinned obsidian-headless for Docker remote target
   package.json                         #   pins obsidian-headless version
   package-lock.json                    #   sha512 integrity hashes (supply-chain security)
@@ -121,7 +125,7 @@ src/
     map-with-concurrency.ts            # Bounded-concurrency async map (batch-based)
     describe-error.ts                  # describeError — message from an unknown throw
     escape-html.ts                     # escapeHtml — the four characters that break out of HTML text or a quoted attribute
-    fs.ts                              # readFileOrNull / readdirOrNull / fileExists / statOrNull (ENOENT-safe)
+    fs.ts                              # readFileOrNull / readdirOrNull / fileExists / statOrNull / realpathOrNull (ENOENT-safe)
     assert-no-control-characters.ts    # Rejects C0 controls (except tab/LF/CR), DEL, and C1 controls in write params
     assert-path-has-extension.ts       # Generic path extension assertion (used by note-path validation)
     case-fold-path.ts                  # Case- and Unicode-normalization-fold a path for comparison (macOS/Windows bind mounts)
@@ -151,6 +155,7 @@ src/
       headings.ts                      # Shared H1–H6 section-span parser — ATX + setext (read + patch)
       links.ts                         # Link grammar: parse, extract, resolve (wikilinks + md; notes + assets)
       tasks.ts                         # Tasks-plugin task-line grammar + mutation (emoji + Dataview fields)
+      recurrence.ts                    # Tasks-plugin 🔁 rule parsing + next-occurrence dates (rrule, pinned to the plugin's version)
       memory-entries.ts                # Memory-entry grammar (dated bullets in About Me/ files)
       canvas.ts                        # .canvas linearizer (JSON Canvas 1.0 → readable markdown)
       pdf-engine.ts                    # pdfjs bootstrap — swaps in the pdfjs-dist Node build, font-independent proxies
@@ -166,6 +171,7 @@ src/
       task-mutations.ts                # Task create + state mutations (status, priority, heading moves, sub-tasks)
       task-format-config.ts            # Tasks-plugin format config reader (emoji vs Dataview)
       trash-config.ts                  # Obsidian "Deleted files" config reader (trashOption from .obsidian/app.json)
+      trash-sweeper.ts                 # Retention sweep over recorded .trash/ entries (TRASH_RETENTION_DAYS; row store injected from search)
       asset-operations.ts              # Asset read dispatch + browsing (image fit, canvas linearize/raw, extension filter, statted slice)
     mcp-core/                          # MCP protocol surface
       mcp-router.ts                    # /mcp session routes + transport lifecycle
@@ -1166,6 +1172,33 @@ pulls SST's platform source into the program, and that source does not
 compile under the repo's stricter checks. `.sst/platform` exists only after
 `npx sst install` — CI runs it before the build; run it once locally on a
 fresh clone.
+
+## Upgrading rrule (recurrence parity)
+
+`recurrence.ts` transliterates the Tasks plugin's recurrence logic
+(`Recurrence.ts` + `Occurrence.ts`) and pins `rrule` to the exact version
+the plugin declares, so rule parsing and next-hit computation match the
+plugin by construction. The pin is deliberately excluded from Dependabot.
+On any rrule bump — or when re-verifying against a newer Tasks plugin
+release — re-check each of these against the plugin source before merging:
+
+- The rule grammar split (`/^([a-zA-Z0-9, !]+?)( when done)?$/i`) and the
+  `parseText` try/null handling.
+- Reference-date priority (due → scheduled → start; flipped to due →
+  start → scheduled under `removeScheduledDateOnRecurrence`).
+- The month/year overflow walk-back: dtstart moves with each step, and
+  the `" on "` exemption applies to the month branch only.
+- The spawn's field handling in `createNextOccurrence`: block link, 🆔,
+  and ⛔ cleared; created date replaced per `setCreatedDate`, never
+  carried forward.
+- The `recurrence.test.ts` vectors lifted from the plugin's own
+  `Recurrence.test.ts` — refresh them from the new release's tests.
+
+Two deliberate divergences are pinned by tests, each contracted where it
+lives: exhausted finite rules complete without spawning (`recurrence.ts`'s
+docstring), and calendar-invalid dates are nulled at parse time
+(`calendarValidOrNull` in `tasks.ts`). A behavior change in either is a
+decision, not a drift fix.
 
 ## Upgrading obsidian-headless
 

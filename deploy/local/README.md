@@ -294,18 +294,30 @@ or another setting has already hidden.
 ## Deleting notes
 
 Deletes honor the "Deleted files" setting in Obsidian (Settings → Files and
-links). With "Move to Obsidian trash (.trash folder)" selected, a deleted
-note moves to the `.trash` folder inside your vault — the same place
-Obsidian's own deletes go. Any other choice, including the default "Move to
-system trash", deletes the note permanently, because the container has no
-system trash to move it to.
+links):
+
+- **"Move to system trash" (Obsidian's default)** — the container has no
+  system trash, so a deleted note moves to the `.trash` folder inside your
+  vault, the same fallback Obsidian itself uses when a system trash isn't
+  available. The server cleans up the notes it put there after 30 days —
+  set `TRASH_RETENTION_DAYS` in `.env` to change the window, or
+  `TRASH_RETENTION_DAYS=none` to keep them forever. Only notes the server
+  moved there are cleaned up; anything you or Obsidian put in `.trash` is
+  never touched. To reclaim space sooner, empty the `.trash` folder
+  yourself (it's hidden — press Cmd+Shift+. in Finder, or Ctrl+H in most
+  Linux file managers, to show it).
+- **"Move to Obsidian trash (.trash folder)"** — a deleted note moves to
+  the same `.trash` folder and stays there until you empty it, exactly as
+  in Obsidian.
+- **"Permanently delete"** — the note is removed for good.
 
 ## Configuration
 
 Only `MCP_AUTH_TOKEN` and `VAULT_PATH` are required. For optional settings
 (memory folder, protected paths, orphan exclusions, file tools, read-only
-mode, per-tool disabling, daily notes folder and format, timezone), see the
-[Configuration](../../README.md#configuration) section in the main README.
+mode, per-tool disabling, daily notes folder and format, trash retention,
+timezone), see the [Configuration](../../README.md#configuration) section
+in the main README.
 
 ## Troubleshooting
 

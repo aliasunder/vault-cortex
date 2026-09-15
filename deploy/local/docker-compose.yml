@@ -47,6 +47,9 @@ services:
       MAX_FILE_BYTES: ${MAX_FILE_BYTES:-52428800}
       MAX_IMAGE_OUTPUT_BYTES: ${MAX_IMAGE_OUTPUT_BYTES:-49152}
       MAX_PDF_RENDER_PAGES: ${MAX_PDF_RENDER_PAGES:-5}
+      # Days a note deleted under Obsidian's default "Move to system trash"
+      # setting stays in .trash/ before the server cleans it up (none = keep forever).
+      TRASH_RETENTION_DAYS: ${TRASH_RETENTION_DAYS:-30}
       # Optional overrides. When unset, the server applies smart defaults
       # (<MEMORY_DIR>/<DAILY_NOTES_FOLDER> below are the resolved values, defaults "About Me" / "Daily Notes"):
       #   PROTECTED_PATHS           default: "<MEMORY_DIR>, <DAILY_NOTES_FOLDER>" (blocked from vault_delete_note)

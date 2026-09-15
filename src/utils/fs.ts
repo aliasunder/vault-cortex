@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from "node:fs/promises"
+import { readFile, readdir, realpath, stat } from "node:fs/promises"
 import type { Dirent, Stats } from "node:fs"
 import { isErrnoException } from "./is-errno-exception.js"
 
@@ -30,6 +30,18 @@ export const statOrNull = async (path: string): Promise<Stats | null> => {
 export const readdirOrNull = async (path: string): Promise<Dirent[] | null> => {
   try {
     return await readdir(path, { recursive: true, withFileTypes: true })
+  } catch (error) {
+    if (isErrnoException(error, "ENOENT")) return null
+    throw error
+  }
+}
+
+/** Resolves a path's canonical form (symlinks followed), returning null
+ *  instead of throwing when any component does not exist (ENOENT). Any other
+ *  error propagates. */
+export const realpathOrNull = async (path: string): Promise<string | null> => {
+  try {
+    return await realpath(path)
   } catch (error) {
     if (isErrnoException(error, "ENOENT")) return null
     throw error

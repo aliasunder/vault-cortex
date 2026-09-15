@@ -92,7 +92,7 @@ Section boundaries: a section spans from its heading to the next heading of the 
 
 Errors:
 - "heading not found" — no heading matches the text; error lists available headings
-- "ambiguous heading" — multiple headings match; use heading_level to disambiguate
+- "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or read the full note (omit heading) when headings share the same level
 - "outline, heading, and properties_only are mutually exclusive" — only one mode per call
 - "line paging is not available in outline mode" / "... properties_only mode" — start_line/limit only work on text renditions (full read or heading section)
 - "start line past the end" — start_line exceeds the rendition's line count; error states the total
@@ -487,7 +487,7 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
 Errors:
 - "note not found" — path does not exist; check vault_list_notes for valid paths
 - "heading not found" — no heading matches the text; error lists available headings
-- "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or rename a heading if they share the same level
+- "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or${whenToolEnabledText("vault_replace_in_note", " use vault_replace_in_note to")} target by text content when headings share the same level
 - "operation … requires a heading target" — replace and insert_before need a heading
 - "content begins with the heading … which would duplicate it" — content's first line repeats the target heading; omit it (the matched heading is kept automatically)
 - "section … has N child headings …" — the target section contains child headings that replace would destroy; pass include_children: true to confirm, or target the child heading directly
@@ -958,7 +958,7 @@ Returns: Confirmation message "Inserted <N> lines <before|after> anchor in <path
     TOOL_NAMES.VAULT_DELETE_NOTE,
     {
       title: "Delete Note",
-      description: `Delete a markdown note, honoring the vault's Obsidian "Deleted files" setting (\`trashOption\` in \`.obsidian/app.json\`) when the vault is served locally. When set to "Move to Obsidian trash (.trash folder)" (\`local\`), the note is moved to \`.trash/\` inside the vault instead of being permanently removed. All other settings — including the default "Move to system trash" — permanently delete, because Docker containers have no system trash. When Obsidian Sync is configured, the trash setting is bypassed and notes are always permanently deleted — recovery is through Sync's version history, not .trash/. After deletion, links to it from other notes become broken (detectable via vault_get_backlinks). Protected paths (${describeProtectedPaths(config)}) are refused.
+      description: `Delete a markdown note, honoring the vault's Obsidian "Deleted files" setting (\`trashOption\` in \`.obsidian/app.json\`) when the vault is served locally. "Move to system trash" — Obsidian's default, and what an absent setting means — moves the note to \`.trash/\` inside the vault (a container has no system trash, and \`.trash/\` is Obsidian's own fallback for that), where the server cleans up its copies after a retention window (TRASH_RETENTION_DAYS, default 30 days; \`none\` keeps them forever). "Move to Obsidian trash (.trash folder)" (\`local\`) also moves the note to \`.trash/\`, kept forever — matching Obsidian. "Permanently delete" (\`none\`) removes the note for good. Only notes this server moved to \`.trash/\` under the system setting are subject to the retention window — notes Obsidian itself trashed are never touched. When Obsidian Sync is configured, the trash setting is bypassed and notes are always permanently deleted — recovery is through Sync's version history, not .trash/. After deletion, links to it from other notes become broken${whenToolEnabledText("vault_get_backlinks", " (detectable via vault_get_backlinks)")}. Protected paths (${describeProtectedPaths(config)}) are refused.
 
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also remove "Archive/2024" (and "Archive") if deleting the note empties them.
@@ -973,7 +973,7 @@ Errors:
 - "path traversal blocked" — path escapes the vault root; use a vault-relative path
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not deletable, matching Obsidian
 - "concurrent write in progress" — another write to this note is in flight; retry
-- "note not found: …" — the note does not exist; verify the path with vault_list_notes before deleting
+- "note not found: …" — the note does not exist${whenToolEnabledText("vault_list_notes", "; verify the path with vault_list_notes before deleting")}
 - "cannot move to trash … — 100 collisions in .trash/" — the note's name already exists 100 times in .trash/; clear old trash files to free the name
 - "cannot move to trash …" — the .trash/ move failed (e.g. a plain file blocks a needed directory); the note remains at its original path
 - "cannot delete …" — permanent delete failed (e.g. permissions); the note remains at its original path
@@ -1009,13 +1009,33 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
             config,
             vaultPath,
           )
-          // On :remote (Obsidian Sync), skip the config — recovery is
-          // through Sync's version history, not .trash/.
+          // On :remote (Obsidian Sync), skip the config and delete for good —
+          // recovery is through Sync's version history, and a server-side
+          // .trash/ would never sync back to the user. "none" (not "system")
+          // because "system" now lands in .trash/.
           const trashOption = config.obsidianSyncEnabled
-            ? "system"
+            ? "none"
             : await readTrashConfig(vaultPath)
+          // Record for retention only under "system": Docker has no system
+          // trash, so the server maps it to .trash/ — the server chose that
+          // destination, so the server sweeps it. "local" means the user
+          // explicitly chose .trash/ as keep-forever trash (never swept).
+          // "none" deletes permanently and never reaches .trash/.
+          //
+          // clearStaleTrashEntry is unconditional: an unrecorded move (e.g.
+          // "local") landing at a path with a stale row must defuse it, or
+          // the sweep would later unlink the keep-forever copy.
           return vaultFs.deleteNote(
-            { vaultPath, path, protectedPaths, pruneEmptyFolders, trashOption },
+            {
+              vaultPath,
+              path,
+              protectedPaths,
+              pruneEmptyFolders,
+              trashOption,
+              recordTrashEntry:
+                trashOption === "system" ? search.recordTrashEntry : undefined,
+              clearStaleTrashEntry: search.deleteTrashEntry,
+            },
             reqLogger,
           )
         },

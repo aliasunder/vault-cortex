@@ -592,7 +592,19 @@ describe("findHeading", () => {
 
   it("throws ambiguous when more than one heading matches", () => {
     expect(() => findHeading(headings, "Active")).toThrow(
-      'ambiguous heading: "Active"',
+      'ambiguous heading: "Active" matches 2 sections: ## Active (line 2), ### Active (line 4). Use heading_level to disambiguate.',
+    )
+  })
+
+  it("throws same-level ambiguous with the decoupled hint", () => {
+    const sameLevelHeadings = parseHeadings([
+      "# Board",
+      "## Active",
+      "## Done",
+      "## Active",
+    ])
+    expect(() => findHeading(sameLevelHeadings, "Active")).toThrow(
+      'ambiguous heading: "Active" matches 2 sections: ## Active (line 2), ## Active (line 4). Rename one heading to make it unique, or target by text content instead.',
     )
   })
 

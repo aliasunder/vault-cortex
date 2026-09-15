@@ -26,6 +26,7 @@ import { contentHash, type Embedder } from "./embedder.js"
 import type { Reranker } from "./reranker.js"
 import { chunkNoteContent } from "./chunker.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
+import { caseFoldPath } from "../../utils/case-fold-path.js"
 import { describeError } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { statOrNull } from "../../utils/fs.js"
@@ -447,6 +448,18 @@ export const createSearchIndex = (
     );
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
     CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due);
+
+    -- Files this server moved to .trash/, for the retention sweep. trash_key
+    -- is the case-folded path (one row per physical file on case-insensitive
+    -- mounts, so a fresh delete's upsert replaces a stale case-alias row
+    -- instead of leaving it to purge the wrong sibling); trash_path keeps the
+    -- exact spelling for filesystem operations. No index: the table stays
+    -- small and the sweep is a daily full scan.
+    CREATE TABLE IF NOT EXISTS trash_entries (
+      trash_key   TEXT PRIMARY KEY,
+      trash_path  TEXT NOT NULL,
+      trashed_at  INTEGER NOT NULL
+    );
   `)
   // path UNINDEXED: stored for JOIN/DELETE but not searchable, saves index space
 
@@ -2444,6 +2457,56 @@ export const createSearchIndex = (
     return { count: indexedNotes.length, embedding: embeddingPromise }
   }
 
+  // ── Trash entries (retention-sweep bookkeeping) ──────────────
+
+  const upsertTrashEntryStmt = db.prepare(`
+    INSERT OR REPLACE INTO trash_entries (trash_key, trash_path, trashed_at)
+    VALUES (?, ?, ?)
+  `)
+  const selectTrashEntryStmt = db.prepare<
+    [string],
+    { trash_path: string; trashed_at: number }
+  >(`SELECT trash_path, trashed_at FROM trash_entries WHERE trash_key = ?`)
+  const selectExpiredTrashEntriesStmt = db.prepare<
+    [number],
+    { trash_path: string; trashed_at: number }
+  >(`SELECT trash_path, trashed_at FROM trash_entries WHERE trashed_at < ?`)
+  const deleteTrashEntryStmt = db.prepare(
+    `DELETE FROM trash_entries WHERE trash_key = ?`,
+  )
+
+  /** Records a file this server moved to .trash/ — the retention sweep only
+   *  ever deletes recorded entries. Reusing a path (or a case alias of one,
+   *  via the folded key) replaces the old row, restarting the retention clock
+   *  for the file now at that path. */
+  const recordTrashEntry = (trashPath: string): void => {
+    upsertTrashEntryStmt.run(
+      caseFoldPath(trashPath),
+      trashPath,
+      DateTime.now().toUnixInteger(),
+    )
+  }
+
+  const getTrashEntry = (trashPath: string): TrashEntry | null => {
+    const row = selectTrashEntryStmt.get(caseFoldPath(trashPath))
+    if (!row) return null
+    return { trashPath: row.trash_path, trashedAt: row.trashed_at }
+  }
+
+  /** Rows recorded strictly before the cutoff — the sweep's candidate list. */
+  const listExpiredTrashEntries = (
+    cutoffEpochSeconds: number,
+  ): TrashEntry[] => {
+    return selectExpiredTrashEntriesStmt.all(cutoffEpochSeconds).map((row) => ({
+      trashPath: row.trash_path,
+      trashedAt: row.trashed_at,
+    }))
+  }
+
+  const deleteTrashEntry = (trashPath: string): void => {
+    deleteTrashEntryStmt.run(caseFoldPath(trashPath))
+  }
+
   // ── Query context + delegation ───────────────────────────────
 
   const queryContext: queries.SearchQueryContext = {
@@ -2500,6 +2563,10 @@ export const createSearchIndex = (
     upsertFileContent,
     removeFileContent,
     embedFileContent,
+    recordTrashEntry,
+    getTrashEntry,
+    listExpiredTrashEntries,
+    deleteTrashEntry,
     fullTextSearch: bindQueryContext(queries.fullTextSearch),
     hybridSearch: bindQueryContext(hybridSearch),
     memoryRecall: bindQueryContext(queries.memoryRecall),
@@ -2522,3 +2589,16 @@ export const createSearchIndex = (
 }
 
 export type SearchIndex = ReturnType<typeof createSearchIndex>
+
+/** A file this server moved to .trash/, as recorded for the retention sweep. */
+export type TrashEntry = {
+  trashPath: string
+  trashedAt: number
+}
+
+/** The slice of the index the trash sweeper needs — injected so
+ *  vault-operations/ never runtime-imports search/ (lint-enforced layering). */
+export type TrashEntryStore = Pick<
+  SearchIndex,
+  "listExpiredTrashEntries" | "getTrashEntry" | "deleteTrashEntry"
+>

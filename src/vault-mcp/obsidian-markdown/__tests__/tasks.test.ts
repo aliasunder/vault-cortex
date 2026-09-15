@@ -1,11 +1,21 @@
 import { describe, it, expect } from "vitest"
 import { tasks, type ParsedTask, type TaskFormatConfig } from "../tasks.js"
 
+/** The recurrence-behavior settings at their plugin defaults, shared by
+ *  every config literal in this file. */
+const DEFAULT_RECURRENCE_SETTINGS = {
+  setCreatedDate: false,
+  recurrenceOnNextLine: false,
+  removeScheduledDateOnRecurrence: false,
+  doneStatusSymbols: [],
+} as const
+
 /** Default emoji format config for mutation tests. */
 const EMOJI_CONFIG: TaskFormatConfig = {
   taskFormat: "emoji",
   setDoneDate: true,
   setCancelledDate: true,
+  ...DEFAULT_RECURRENCE_SETTINGS,
 }
 
 /** Dataview format config for format-specific tests. */
@@ -13,6 +23,7 @@ const DATAVIEW_CONFIG: TaskFormatConfig = {
   taskFormat: "dataview",
   setDoneDate: true,
   setCancelledDate: true,
+  ...DEFAULT_RECURRENCE_SETTINGS,
 }
 
 /** Builds a full ParsedTask from overrides so assertions compare whole
@@ -430,6 +441,22 @@ describe("tasks.extractTasks", () => {
           createdDate: "2026-05-04",
           doneDate: "2026-05-08",
           blockId: "ship-release",
+        }),
+      ])
+    })
+
+    it("parses metadata behind a block ID hidden by a trailing hard break", () => {
+      // Two trailing spaces form a markdown hard break that once hid the
+      // block link — and with it every metadata field after the description.
+      const extracted = tasks.extractTasks(
+        "- [ ] Habit 🔁 every week 📅 2026-01-05 ^habit  ",
+      )
+      expect(extracted).toEqual([
+        task({
+          description: "Habit",
+          recurrence: "every week",
+          dueDate: "2026-01-05",
+          blockId: "habit",
         }),
       ])
     })
@@ -854,6 +881,16 @@ describe("task line mutations", () => {
       )
     })
 
+    it("re-stamping done on a line with duplicated done dates strips all copies", () => {
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [x] Habit ✅ 2026-01-05 ➕ 2026-01-01 ✅ 2026-01-12",
+        newStatus: "done",
+        today: "2026-07-12",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [x] Habit ➕ 2026-01-01 ✅ 2026-07-12")
+    })
+
     it("marks a todo task as done with a done date", () => {
       const result = tasks.updateTaskLineStatus({
         taskLine: "- [ ] Fix the bug ➕ 2026-07-01",
@@ -995,6 +1032,7 @@ describe("task line mutations", () => {
         taskFormat: "emoji",
         setDoneDate: false,
         setCancelledDate: true,
+        ...DEFAULT_RECURRENCE_SETTINGS,
       }
       const result = tasks.updateTaskLineStatus({
         taskLine: "- [ ] Task ➕ 2026-07-01",
@@ -1010,6 +1048,7 @@ describe("task line mutations", () => {
         taskFormat: "emoji",
         setDoneDate: true,
         setCancelledDate: false,
+        ...DEFAULT_RECURRENCE_SETTINGS,
       }
       const result = tasks.updateTaskLineStatus({
         taskLine: "- [ ] Task ➕ 2026-07-01",
@@ -1030,6 +1069,16 @@ describe("task line mutations", () => {
       expect(result).toBe(
         "- [-] Task [created:: 2026-07-01] [cancelled:: 2026-07-12]",
       )
+    })
+
+    it("preserves a hard break through a status change", () => {
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [ ] Task ➕ 2026-07-01 ^my-task  ",
+        newStatus: "done",
+        today: "2026-07-12",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [x] Task ➕ 2026-07-01 ✅ 2026-07-12 ^my-task  ")
     })
   })
 
@@ -1052,6 +1101,24 @@ describe("task line mutations", () => {
       expect(result).toBe("- [ ] Task ⏬ ➕ 2026-07-01")
     })
 
+    it("clearing a duplicated priority strips all copies", () => {
+      const result = tasks.updateTaskLinePriority({
+        taskLine: "- [ ] Task ⏫ ➕ 2026-07-01 ⏫",
+        newPriority: null,
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] Task ➕ 2026-07-01")
+    })
+
+    it("replacing a duplicated priority keeps the first and swaps the last", () => {
+      const result = tasks.updateTaskLinePriority({
+        taskLine: "- [ ] Task ⏫ ➕ 2026-07-01 ⏫",
+        newPriority: "highest",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] Task 🔺 ⏫ ➕ 2026-07-01")
+    })
+
     it("removes priority when null is passed", () => {
       const result = tasks.updateTaskLinePriority({
         taskLine: "- [ ] Task ⏫ ➕ 2026-07-01",
@@ -1059,6 +1126,17 @@ describe("task line mutations", () => {
         config: EMOJI_CONFIG,
       })
       expect(result).toBe("- [ ] Task ➕ 2026-07-01")
+    })
+
+    it("replaces the real priority field, not a description emoji the parser read as metadata", () => {
+      // The description's trailing 🔼 parses as metadata, so it sits at the
+      // front of the tail; the real ⏫ to its right is the field to replace.
+      const result = tasks.updateTaskLinePriority({
+        taskLine: "- [ ] Deploy 🔼 ⏫ ➕ 2026-09-01 ^x",
+        newPriority: "low",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] Deploy 🔽 🔼 ➕ 2026-09-01 ^x")
     })
 
     it("returns the line unchanged when removing priority that does not exist", () => {
@@ -1341,6 +1419,33 @@ describe("task line mutations", () => {
       })
       expect(result).toBe("- [ ] Prefers arrows")
     })
+
+    it("preserves a hard break through a description replacement", () => {
+      const line = "- [ ] Old text 📅 2026-01-01 ^id  "
+      const result = tasks.replaceTaskLineDescription({
+        taskLine: line,
+        newDescription: "New text",
+      })
+      expect(result).toBe("- [ ] New text 📅 2026-01-01 ^id  ")
+    })
+
+    it("preserves a hard break on a bare task with no metadata", () => {
+      const line = "- [ ] Just a task  "
+      const result = tasks.replaceTaskLineDescription({
+        taskLine: line,
+        newDescription: "Updated task",
+      })
+      expect(result).toBe("- [ ] Updated task  ")
+    })
+
+    it("does not add trailing whitespace to a normal line", () => {
+      const line = "- [ ] Normal task 📅 2026-01-01 ^id"
+      const result = tasks.replaceTaskLineDescription({
+        taskLine: line,
+        newDescription: "Updated",
+      })
+      expect(result).toBe("- [ ] Updated 📅 2026-01-01 ^id")
+    })
   })
 
   // ── describeTaskLine ──────────────────────────────────────────
@@ -1382,6 +1487,91 @@ describe("task line mutations", () => {
       expect(tasks.assignBlockId({ taskLine: line, blockId: "new-id" })).toBe(
         "- [ ] My task ➕ 2026-08-01 ^new-id",
       )
+    })
+
+    it("preserves trailing whitespace when replacing a block_id on a hard-break line", () => {
+      const line = "- [ ] My task ➕ 2026-08-01 ^old-id  "
+      expect(tasks.assignBlockId({ taskLine: line, blockId: "new-id" })).toBe(
+        "- [ ] My task ➕ 2026-08-01 ^new-id  ",
+      )
+    })
+
+    it("preserves trailing whitespace when adding a block_id to a hard-break line", () => {
+      const line = "- [ ] My task ➕ 2026-08-01  "
+      expect(tasks.assignBlockId({ taskLine: line, blockId: "my-task" })).toBe(
+        "- [ ] My task ➕ 2026-08-01 ^my-task  ",
+      )
+    })
+  })
+
+  // ── deduplicateDescriptionTags ──────────────────────────────────
+
+  describe("deduplicateDescriptionTags", () => {
+    it("removes a tag from the metadata tail when it matches a trailing description tag", () => {
+      const result = tasks.deduplicateDescriptionTags(
+        "- [ ] Fix bug #urgent 📅 2026-01-01 #urgent ^x",
+      )
+      expect(result).toEqual({
+        taskLine: "- [ ] Fix bug #urgent 📅 2026-01-01 ^x",
+        deduplicatedTags: ["#urgent"],
+      })
+    })
+
+    it("removes multiple metadata tags that all match trailing description tags", () => {
+      const result = tasks.deduplicateDescriptionTags(
+        "- [ ] Fix bug #urgent #review 📅 2026-01-01 #urgent #review ^x",
+      )
+      expect(result).toEqual({
+        taskLine: "- [ ] Fix bug #urgent #review 📅 2026-01-01 ^x",
+        deduplicatedTags: ["#urgent", "#review"],
+      })
+    })
+
+    it("preserves non-overlapping tags in both positions", () => {
+      const result = tasks.deduplicateDescriptionTags(
+        "- [ ] Fix bug #urgent 📅 2026-01-01 #review ^x",
+      )
+      expect(result).toEqual({
+        taskLine: "- [ ] Fix bug #urgent 📅 2026-01-01 #review ^x",
+        deduplicatedTags: [],
+      })
+    })
+
+    it("returns unchanged when the description has no trailing tags", () => {
+      const line = "- [ ] Fix bug 📅 2026-01-01 #urgent ^x"
+      const result = tasks.deduplicateDescriptionTags(line)
+      expect(result).toEqual({
+        taskLine: line,
+        deduplicatedTags: [],
+      })
+    })
+
+    it("returns unchanged when the task has no metadata", () => {
+      const line = "- [ ] Just a task #tagged"
+      const result = tasks.deduplicateDescriptionTags(line)
+      expect(result).toEqual({
+        taskLine: line,
+        deduplicatedTags: [],
+      })
+    })
+
+    it("preserves a trailing hard break through dedup", () => {
+      const result = tasks.deduplicateDescriptionTags(
+        "- [ ] Deploy #urgent 📅 2026-09-01 #urgent ^deploy  ",
+      )
+      expect(result).toEqual({
+        taskLine: "- [ ] Deploy #urgent 📅 2026-09-01 ^deploy  ",
+        deduplicatedTags: ["#urgent"],
+      })
+    })
+
+    it("returns unchanged for a non-task line", () => {
+      const line = "not a task line"
+      const result = tasks.deduplicateDescriptionTags(line)
+      expect(result).toEqual({
+        taskLine: line,
+        deduplicatedTags: [],
+      })
     })
   })
 
@@ -1518,11 +1708,7 @@ describe("task line mutations", () => {
         taskLine: line,
         field: "scheduled",
         date: "2026-09-10",
-        config: {
-          taskFormat: "dataview",
-          setDoneDate: true,
-          setCancelledDate: true,
-        },
+        config: DATAVIEW_CONFIG,
       })
       expect(result).toBe(
         "- [ ] My task [created:: 2026-08-01] [scheduled:: 2026-09-10] ^my-task",
@@ -1607,14 +1793,87 @@ describe("task line mutations", () => {
       const result = tasks.updateTaskLineTaskId({
         taskLine: line,
         taskId: "xyz789",
-        config: {
-          taskFormat: "dataview",
-          setDoneDate: true,
-          setCancelledDate: true,
-        },
+        config: DATAVIEW_CONFIG,
       })
       expect(result).toBe(
         "- [ ] My task [created:: 2026-08-01] [id:: xyz789] ^my-task",
+      )
+    })
+  })
+
+  // ── updateTaskLineRecurrence ──────────────────────────────────
+
+  describe("updateTaskLineRecurrence", () => {
+    it("sets a recurrence rule (emoji format)", () => {
+      const line = "- [ ] My task ➕ 2026-08-01 📅 2026-09-01 ^my-task"
+      const result = tasks.updateTaskLineRecurrence({
+        taskLine: line,
+        recurrenceText: "every week",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] My task 🔁 every week ➕ 2026-08-01 📅 2026-09-01 ^my-task",
+      )
+    })
+
+    it("sets a recurrence rule (dataview format)", () => {
+      const line =
+        "- [ ] My task [created:: 2026-08-01] [due:: 2026-09-01] ^my-task"
+      const result = tasks.updateTaskLineRecurrence({
+        taskLine: line,
+        recurrenceText: "every 2 weeks when done",
+        config: DATAVIEW_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] My task [repeat:: every 2 weeks when done] [created:: 2026-08-01] [due:: 2026-09-01] ^my-task",
+      )
+    })
+
+    it("clears a recurrence rule", () => {
+      const line =
+        "- [ ] My task 🔁 every week ➕ 2026-08-01 📅 2026-09-01 ^my-task"
+      const result = tasks.updateTaskLineRecurrence({
+        taskLine: line,
+        recurrenceText: null,
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 📅 2026-09-01 ^my-task")
+    })
+
+    it("replaces an existing recurrence rule", () => {
+      const line =
+        "- [ ] My task 🔁 every week ➕ 2026-08-01 📅 2026-09-01 ^my-task"
+      const result = tasks.updateTaskLineRecurrence({
+        taskLine: line,
+        recurrenceText: "every month when done",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] My task 🔁 every month when done ➕ 2026-08-01 📅 2026-09-01 ^my-task",
+      )
+    })
+
+    it("clearing a duplicated recurrence strips all copies", () => {
+      const line =
+        "- [ ] My task 🔁 every week 🔁 every day ➕ 2026-08-01 ^my-task"
+      const result = tasks.updateTaskLineRecurrence({
+        taskLine: line,
+        recurrenceText: null,
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 ^my-task")
+    })
+
+    it("replacing a duplicated recurrence swaps the last and keeps the first", () => {
+      const line =
+        "- [ ] My task 🔁 every week 🔁 every day ➕ 2026-08-01 ^my-task"
+      const result = tasks.updateTaskLineRecurrence({
+        taskLine: line,
+        recurrenceText: "every month",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] My task 🔁 every week 🔁 every month ➕ 2026-08-01 ^my-task",
       )
     })
   })
@@ -1698,7 +1957,7 @@ describe("task line mutations", () => {
           created: "2026-08-25",
           due: "2026-09-01",
         },
-        { taskFormat: "dataview", setDoneDate: true, setCancelledDate: true },
+        DATAVIEW_CONFIG,
       )
       expect(line).toBe(
         "- [ ] Dataview task [created:: 2026-08-25] [due:: 2026-09-01] ^dv-task",
@@ -1750,11 +2009,7 @@ describe("task line mutations", () => {
     })
 
     it("round-trips dataview format", () => {
-      const dvConfig = {
-        taskFormat: "dataview" as const,
-        setDoneDate: true,
-        setCancelledDate: true,
-      }
+      const dvConfig = DATAVIEW_CONFIG
       const builtLine = tasks.buildTaskLine(
         {
           description: "DV round-trip",
@@ -1778,6 +2033,141 @@ describe("task line mutations", () => {
           blockId: "dv-rt",
         }),
       ])
+    })
+  })
+
+  // ── buildNextOccurrenceLine ──────────────────────────────────
+
+  describe("buildNextOccurrenceLine", () => {
+    it("resets to todo and replaces dates with the next occurrence", () => {
+      const result = tasks.buildNextOccurrenceLine({
+        taskLine:
+          "- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ 2026-01-05 ^water",
+        nextDates: {
+          startDate: null,
+          scheduledDate: null,
+          dueDate: "2026-01-12",
+        },
+        today: "2026-01-05",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] Water plants 🔁 every week 📅 2026-01-12")
+    })
+
+    it("keeps the priority and inline tag on the spawn", () => {
+      const result = tasks.buildNextOccurrenceLine({
+        taskLine:
+          "- [x] Water plants ⏫ 🔁 every week 📅 2026-01-05 #chore ✅ 2026-01-05 ^water",
+        nextDates: {
+          startDate: null,
+          scheduledDate: null,
+          dueDate: "2026-01-12",
+        },
+        today: "2026-01-05",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] Water plants ⏫ 🔁 every week #chore 📅 2026-01-12",
+      )
+    })
+
+    it("strips the block link, task id, and depends-on from the spawn", () => {
+      const result = tasks.buildNextOccurrenceLine({
+        taskLine:
+          "- [x] Sync 🔁 every month 📅 2026-01-31 🆔 sync1 ⛔ prep1 ✅ 2026-01-31 ^sync",
+        nextDates: {
+          startDate: null,
+          scheduledDate: null,
+          dueDate: "2026-02-28",
+        },
+        today: "2026-01-31",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] Sync 🔁 every month 📅 2026-02-28")
+    })
+
+    it("stamps a fresh created date when setCreatedDate is on", () => {
+      const configWithCreated = {
+        ...EMOJI_CONFIG,
+        setCreatedDate: true,
+      }
+      const result = tasks.buildNextOccurrenceLine({
+        taskLine:
+          "- [x] Habit 🔁 every week ➕ 2026-01-01 📅 2026-01-05 ✅ 2026-01-05 ^habit",
+        nextDates: {
+          startDate: null,
+          scheduledDate: null,
+          dueDate: "2026-01-12",
+        },
+        today: "2026-01-05",
+        config: configWithCreated,
+      })
+      expect(result).toBe(
+        "- [ ] Habit 🔁 every week ➕ 2026-01-05 📅 2026-01-12",
+      )
+    })
+
+    it("strips the original created date when setCreatedDate is off", () => {
+      const result = tasks.buildNextOccurrenceLine({
+        taskLine:
+          "- [x] Habit 🔁 every week ➕ 2026-01-01 📅 2026-01-05 ✅ 2026-01-05 ^habit",
+        nextDates: {
+          startDate: null,
+          scheduledDate: null,
+          dueDate: "2026-01-12",
+        },
+        today: "2026-01-05",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] Habit 🔁 every week 📅 2026-01-12")
+    })
+
+    it("shifts all three dates for the next occurrence", () => {
+      const result = tasks.buildNextOccurrenceLine({
+        taskLine:
+          "- [x] Report 🔁 every week 🛫 2026-01-03 ⏳ 2026-01-08 📅 2026-01-10 ✅ 2026-01-10",
+        nextDates: {
+          startDate: "2026-01-10",
+          scheduledDate: "2026-01-15",
+          dueDate: "2026-01-17",
+        },
+        today: "2026-01-10",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] Report 🔁 every week 🛫 2026-01-10 ⏳ 2026-01-15 📅 2026-01-17",
+      )
+    })
+
+    it("preserves the indentation of the completed line", () => {
+      const result = tasks.buildNextOccurrenceLine({
+        taskLine: "  - [x] Sub-task 🔁 every day 📅 2026-01-05 ✅ 2026-01-05",
+        nextDates: {
+          startDate: null,
+          scheduledDate: null,
+          dueDate: "2026-01-06",
+        },
+        today: "2026-01-05",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("  - [ ] Sub-task 🔁 every day 📅 2026-01-06")
+    })
+
+    it("produces Dataview-format fields for a Dataview config", () => {
+      const result = tasks.buildNextOccurrenceLine({
+        taskLine:
+          "- [x] DV task [repeat:: every week] [due:: 2026-01-05] [completion:: 2026-01-05] ^dv",
+        nextDates: {
+          startDate: null,
+          scheduledDate: null,
+          dueDate: "2026-01-12",
+        },
+        today: "2026-01-05",
+        config: DATAVIEW_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] DV task [repeat:: every week] [due:: 2026-01-12]",
+      )
     })
   })
 
@@ -2147,5 +2537,267 @@ describe("task line mutations", () => {
       ]
       expect(tasks.parseKanbanCardInsertionMethod(bodyLines)).toBeUndefined()
     })
+  })
+})
+
+describe("tasks.diffTaskRoundTrip", () => {
+  it("reports no divergence for a clean line matching every submitted field", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] Fix login ⏫ ➕ 2026-09-11 ^fix-login",
+      priorTaskLine: null,
+      submitted: {
+        description: "Fix login",
+        priority: "high",
+        createdDate: "2026-09-11",
+      },
+    })
+    expect(divergences).toEqual([])
+  })
+
+  it("reports description truncation and the materialized recurrence when prose ends in a parseable recurrence", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] check 🔁 every week with the team ➕ 2026-09-11 ^t1",
+      priorTaskLine: null,
+      submitted: {
+        description: "check 🔁 every week with the team",
+        createdDate: "2026-09-11",
+      },
+    })
+    expect(divergences).toEqual([
+      {
+        field: "description",
+        expected: "check 🔁 every week with the team",
+        expectedSource: "submitted",
+        storedValue: "check",
+        consumedTail: "🔁 every week with the team",
+      },
+      {
+        field: "recurrence",
+        expected: null,
+        expectedSource: "none",
+        storedValue: "every week with the team",
+      },
+    ])
+  })
+
+  it("reports no divergence when a pre-existing recurrence survives an unrelated update", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine:
+        "- [ ] Water plants 🔁 every day ➕ 2026-01-01 📅 2026-09-20 ^water",
+      priorTaskLine: "- [ ] Water plants 🔁 every day ➕ 2026-01-01 ^water",
+      submitted: { dueDate: "2026-09-20" },
+    })
+    expect(divergences).toEqual([])
+  })
+
+  it("reports no divergence for machine-stamped completion dates declared in the submitted set", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [x] Ship it ➕ 2026-01-01 ✅ 2026-09-11 ^ship",
+      priorTaskLine: "- [ ] Ship it ➕ 2026-01-01 ^ship",
+      submitted: { doneDate: "2026-09-11", cancelledDate: null },
+    })
+    expect(divergences).toEqual([])
+  })
+
+  it("reports no divergence for leading or trailing whitespace in the submitted description", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] Tidy desk ^tidy",
+      priorTaskLine: null,
+      submitted: { description: "  Tidy desk  " },
+    })
+    expect(divergences).toEqual([])
+  })
+
+  it("reports the truncated description and the overwritten depends_on when prose contains a dependency signifier", () => {
+    // The prose after ⛔ must be id-grammar words ([a-zA-Z0-9_-]+) for the
+    // parser to read it as a dependency list — ordinary prose with spaces
+    // or punctuation after the emoji stays description text.
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] Fix ⛔ prose ➕ 2026-01-01 ⛔ real-dep ^m1",
+      priorTaskLine: "- [ ] Old ➕ 2026-01-01 ⛔ old-dep ^m1",
+      submitted: { description: "Fix ⛔ prose", dependsOn: ["real-dep"] },
+    })
+    expect(divergences).toEqual([
+      {
+        field: "description",
+        expected: "Fix ⛔ prose",
+        expectedSource: "submitted",
+        storedValue: "Fix",
+        consumedTail: "⛔ prose",
+      },
+      {
+        field: "depends_on",
+        expected: "real-dep",
+        expectedSource: "submitted",
+        storedValue: "prose",
+      },
+    ])
+  })
+
+  it("reports the Dataview inline-field form the same way as emoji signifiers", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] Note things [repeat:: every day] ^dv",
+      priorTaskLine: null,
+      submitted: { description: "Note things [repeat:: every day]" },
+    })
+    expect(divergences).toEqual([
+      {
+        field: "description",
+        expected: "Note things [repeat:: every day]",
+        expectedSource: "submitted",
+        storedValue: "Note things",
+        consumedTail: "[repeat:: every day]",
+      },
+      {
+        field: "recurrence",
+        expected: null,
+        expectedSource: "none",
+        storedValue: "every day",
+      },
+    ])
+  })
+
+  it("reports an empty stored description when the whole submitted text parses as metadata", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] 🔁 every day ^all-meta",
+      priorTaskLine: null,
+      submitted: { description: "🔁 every day" },
+    })
+    expect(divergences).toEqual([
+      {
+        field: "description",
+        expected: "🔁 every day",
+        expectedSource: "submitted",
+        storedValue: null,
+        consumedTail: "🔁 every day",
+      },
+      {
+        field: "recurrence",
+        expected: null,
+        expectedSource: "none",
+        storedValue: "every day",
+      },
+    ])
+  })
+
+  it("reports a submitted null clear that did not take effect", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] T 📅 2026-01-01 ^t",
+      priorTaskLine: "- [ ] T 📅 2026-01-01 ^t",
+      submitted: { dueDate: null },
+    })
+    expect(divergences).toEqual([
+      {
+        field: "due",
+        expected: null,
+        expectedSource: "submitted",
+        storedValue: "2026-01-01",
+      },
+    ])
+  })
+
+  it("reports no divergence for a satisfied null clear", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] T ^t",
+      priorTaskLine: "- [ ] T 📅 2026-01-01 ^t",
+      submitted: { dueDate: null },
+    })
+    expect(divergences).toEqual([])
+  })
+
+  it("reports a prior-sourced divergence when a field disappears without the call clearing it", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] T ^t",
+      priorTaskLine: "- [ ] T 📅 2026-01-01 ^t",
+      submitted: {},
+    })
+    expect(divergences).toEqual([
+      {
+        field: "due",
+        expected: "2026-01-01",
+        expectedSource: "prior",
+        storedValue: null,
+      },
+    ])
+  })
+
+  it("returns an empty array for a non-task line", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "just a paragraph",
+      priorTaskLine: null,
+      submitted: { description: "just a paragraph" },
+    })
+    expect(divergences).toEqual([])
+  })
+
+  it("quotes the parser view, tags re-appended, when the submitted description had a tag after a consumed field", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] Fix login bug 📅 2026-01-01 #urgent ➕ 2026-09-11 ^lb",
+      priorTaskLine: null,
+      submitted: {
+        description: "Fix login bug 📅 2026-01-01 #urgent",
+        createdDate: "2026-09-11",
+      },
+    })
+    expect(divergences).toEqual([
+      {
+        field: "description",
+        expected: "Fix login bug 📅 2026-01-01 #urgent",
+        expectedSource: "submitted",
+        storedValue: "Fix login bug #urgent",
+      },
+      {
+        field: "due",
+        expected: null,
+        expectedSource: "none",
+        storedValue: "2026-01-01",
+      },
+    ])
+  })
+
+  it("reports no divergence when the parser view equals the submitted description exactly", () => {
+    // The slot differs (the tag sits in the metadata tail), but the parser
+    // re-appends it, so nothing the caller submitted was lost.
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] Fix bug 📅 2026-01-01 #urgent ^x",
+      priorTaskLine: "- [ ] Fix bug 📅 2026-01-01 #urgent ^x",
+      submitted: { description: "Fix bug #urgent" },
+    })
+    expect(divergences).toEqual([])
+  })
+
+  it("reports an on_completion value materializing from a description tail", () => {
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] archive this 🏁 delete ^oc",
+      priorTaskLine: null,
+      submitted: { description: "archive this 🏁 delete" },
+    })
+    expect(divergences).toEqual([
+      {
+        field: "description",
+        expected: "archive this 🏁 delete",
+        expectedSource: "submitted",
+        storedValue: "archive this",
+        consumedTail: "🏁 delete",
+      },
+      {
+        field: "on_completion",
+        expected: null,
+        expectedSource: "none",
+        storedValue: "delete",
+      },
+    ])
+  })
+
+  it("reports no description divergence when a cleared field migrates a trailing tag into the slot", () => {
+    // Clearing the only metadata field moves "#project" from the metadata
+    // tail into the description slot; the parser's description is identical
+    // before and after, so nothing diverged.
+    const divergences = tasks.diffTaskRoundTrip({
+      taskLine: "- [ ] Deploy #project ^deploy",
+      priorTaskLine: "- [ ] Deploy 📅 2026-09-01 #project ^deploy",
+      submitted: { dueDate: null },
+    })
+    expect(divergences).toEqual([])
   })
 })
