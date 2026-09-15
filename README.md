@@ -452,7 +452,9 @@ Two methods:
 | **OAuth 2.1**     | Clients supporting `client_secret_post` | JWT (HS256, 6h)      |
 | **Static bearer** | Claude Code, MCP Inspector, curl        | Raw `MCP_AUTH_TOKEN` |
 
-OAuth registers a client ID and secret automatically; you do not need to create them manually. Clients must preserve the issued secret and send it in token requests using `client_secret_post`. A consent page opens in your browser; enter your `MCP_AUTH_TOKEN` to approve.
+1. Your client registers automatically and receives a client ID and secret.
+2. Enter your `MCP_AUTH_TOKEN` on the browser consent page to approve access.
+3. Your client preserves the issued secret and sends it in token requests using `client_secret_post`.
 
 Refresh tokens have a 60-day sliding expiry. Access tokens are bound to your server's URL, so a token minted for one deployment is never accepted by another. Rotating `MCP_AUTH_TOKEN` ends every session — each client re-authorizes through the consent page.
 
