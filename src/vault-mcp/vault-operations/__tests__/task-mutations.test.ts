@@ -4513,12 +4513,19 @@ title: Tasks
         logger,
       )
 
-      expect(result.on_completion_applied).toBe("delete")
-      expect(result.changes).toEqual([
-        "status: todo → done",
-        "on_completion: (none) → delete",
-        "on_completion: task removed (🏁 delete)",
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 7,
+        description: "Plain task",
+        block_id: "plain-task",
+        heading: "Active",
+        changes: [
+          "status: todo → done",
+          "on_completion: (none) → delete",
+          "on_completion: task removed (🏁 delete)",
+        ],
+        on_completion_applied: "delete",
+      })
       expect(await readTestNote(vault, "tasks.md")).toBe(`---
 title: Tasks
 ---
@@ -4545,11 +4552,14 @@ title: Tasks
         logger,
       )
 
-      expect(result.on_completion_applied).toBeUndefined()
-      expect(result.changes).toEqual([
-        "status: todo → done",
-        "on_completion: delete → keep",
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 8,
+        description: "Has delete",
+        block_id: "has-delete",
+        heading: "Active",
+        changes: ["status: todo → done", "on_completion: delete → keep"],
+      })
       expect(await readTestNote(vault, "tasks.md")).toBe(`---
 title: Tasks
 ---
@@ -4577,11 +4587,14 @@ title: Tasks
         logger,
       )
 
-      expect(result.on_completion_applied).toBeUndefined()
-      expect(result.changes).toEqual([
-        "status: todo → done",
-        "on_completion: delete → (none)",
-      ])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 8,
+        description: "Has delete",
+        block_id: "has-delete",
+        heading: "Active",
+        changes: ["status: todo → done", "on_completion: delete → (none)"],
+      })
       expect(await readTestNote(vault, "tasks.md")).toBe(`---
 title: Tasks
 ---
@@ -5208,7 +5221,24 @@ title: Tasks
         logger,
       )
 
-      expect(result.on_completion_applied).toBe("delete")
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 7,
+        description: "Weekly review",
+        block_id: "review",
+        heading: "Active",
+        next_occurrence: {
+          line: 7,
+          description: "Weekly review",
+          due: "2026-07-14",
+        },
+        changes: [
+          "status: todo → done",
+          "next_occurrence: (none) → line 7",
+          "on_completion: task removed (🏁 delete)",
+        ],
+        on_completion_applied: "delete",
+      })
 
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(`---
