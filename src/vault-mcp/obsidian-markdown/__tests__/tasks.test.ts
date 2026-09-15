@@ -1070,6 +1070,16 @@ describe("task line mutations", () => {
         "- [-] Task [created:: 2026-07-01] [cancelled:: 2026-07-12]",
       )
     })
+
+    it("preserves a hard break through a status change", () => {
+      const result = tasks.updateTaskLineStatus({
+        taskLine: "- [ ] Task ➕ 2026-07-01 ^my-task  ",
+        newStatus: "done",
+        today: "2026-07-12",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [x] Task ➕ 2026-07-01 ✅ 2026-07-12 ^my-task  ")
+    })
   })
 
   describe("updateTaskLinePriority", () => {
@@ -1409,6 +1419,33 @@ describe("task line mutations", () => {
       })
       expect(result).toBe("- [ ] Prefers arrows")
     })
+
+    it("preserves a hard break through a description replacement", () => {
+      const line = "- [ ] Old text 📅 2026-01-01 ^id  "
+      const result = tasks.replaceTaskLineDescription({
+        taskLine: line,
+        newDescription: "New text",
+      })
+      expect(result).toBe("- [ ] New text 📅 2026-01-01 ^id  ")
+    })
+
+    it("preserves a hard break on a bare task with no metadata", () => {
+      const line = "- [ ] Just a task  "
+      const result = tasks.replaceTaskLineDescription({
+        taskLine: line,
+        newDescription: "Updated task",
+      })
+      expect(result).toBe("- [ ] Updated task  ")
+    })
+
+    it("does not add trailing whitespace to a normal line", () => {
+      const line = "- [ ] Normal task 📅 2026-01-01 ^id"
+      const result = tasks.replaceTaskLineDescription({
+        taskLine: line,
+        newDescription: "Updated",
+      })
+      expect(result).toBe("- [ ] Updated 📅 2026-01-01 ^id")
+    })
   })
 
   // ── describeTaskLine ──────────────────────────────────────────
@@ -1450,6 +1487,91 @@ describe("task line mutations", () => {
       expect(tasks.assignBlockId({ taskLine: line, blockId: "new-id" })).toBe(
         "- [ ] My task ➕ 2026-08-01 ^new-id",
       )
+    })
+
+    it("preserves trailing whitespace when replacing a block_id on a hard-break line", () => {
+      const line = "- [ ] My task ➕ 2026-08-01 ^old-id  "
+      expect(tasks.assignBlockId({ taskLine: line, blockId: "new-id" })).toBe(
+        "- [ ] My task ➕ 2026-08-01 ^new-id  ",
+      )
+    })
+
+    it("preserves trailing whitespace when adding a block_id to a hard-break line", () => {
+      const line = "- [ ] My task ➕ 2026-08-01  "
+      expect(tasks.assignBlockId({ taskLine: line, blockId: "my-task" })).toBe(
+        "- [ ] My task ➕ 2026-08-01 ^my-task  ",
+      )
+    })
+  })
+
+  // ── deduplicateDescriptionTags ──────────────────────────────────
+
+  describe("deduplicateDescriptionTags", () => {
+    it("removes a tag from the metadata tail when it matches a trailing description tag", () => {
+      const result = tasks.deduplicateDescriptionTags(
+        "- [ ] Fix bug #urgent 📅 2026-01-01 #urgent ^x",
+      )
+      expect(result).toEqual({
+        taskLine: "- [ ] Fix bug #urgent 📅 2026-01-01 ^x",
+        deduplicatedTags: ["#urgent"],
+      })
+    })
+
+    it("removes multiple metadata tags that all match trailing description tags", () => {
+      const result = tasks.deduplicateDescriptionTags(
+        "- [ ] Fix bug #urgent #review 📅 2026-01-01 #urgent #review ^x",
+      )
+      expect(result).toEqual({
+        taskLine: "- [ ] Fix bug #urgent #review 📅 2026-01-01 ^x",
+        deduplicatedTags: ["#urgent", "#review"],
+      })
+    })
+
+    it("preserves non-overlapping tags in both positions", () => {
+      const result = tasks.deduplicateDescriptionTags(
+        "- [ ] Fix bug #urgent 📅 2026-01-01 #review ^x",
+      )
+      expect(result).toEqual({
+        taskLine: "- [ ] Fix bug #urgent 📅 2026-01-01 #review ^x",
+        deduplicatedTags: [],
+      })
+    })
+
+    it("returns unchanged when the description has no trailing tags", () => {
+      const line = "- [ ] Fix bug 📅 2026-01-01 #urgent ^x"
+      const result = tasks.deduplicateDescriptionTags(line)
+      expect(result).toEqual({
+        taskLine: line,
+        deduplicatedTags: [],
+      })
+    })
+
+    it("returns unchanged when the task has no metadata", () => {
+      const line = "- [ ] Just a task #tagged"
+      const result = tasks.deduplicateDescriptionTags(line)
+      expect(result).toEqual({
+        taskLine: line,
+        deduplicatedTags: [],
+      })
+    })
+
+    it("preserves a trailing hard break through dedup", () => {
+      const result = tasks.deduplicateDescriptionTags(
+        "- [ ] Deploy #urgent 📅 2026-09-01 #urgent ^deploy  ",
+      )
+      expect(result).toEqual({
+        taskLine: "- [ ] Deploy #urgent 📅 2026-09-01 ^deploy  ",
+        deduplicatedTags: ["#urgent"],
+      })
+    })
+
+    it("returns unchanged for a non-task line", () => {
+      const line = "not a task line"
+      const result = tasks.deduplicateDescriptionTags(line)
+      expect(result).toEqual({
+        taskLine: line,
+        deduplicatedTags: [],
+      })
     })
   })
 
