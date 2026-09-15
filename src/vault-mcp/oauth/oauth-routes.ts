@@ -109,28 +109,33 @@ export const createOAuthRoutes = ({
     metadataHandler(mcpResourceMetadata),
   )
 
-  const authOptions = {
-    provider,
-    issuerUrl: serverUrl,
-    serviceDocumentationUrl: new URL(serviceDocumentationUrl),
-    scopesSupported,
-    authorizationOptions: { rateLimit },
-    clientRegistrationOptions: { rateLimit },
-    revocationOptions: { rateLimit },
-    tokenOptions: { rateLimit },
-  }
-
   // The SDK includes public-client auth, but our registrations require a secret.
   router.use(
     "/.well-known/oauth-authorization-server",
     metadataHandler({
-      ...createOAuthMetadata(authOptions),
+      ...createOAuthMetadata({
+        provider,
+        issuerUrl: serverUrl,
+        serviceDocumentationUrl: new URL(serviceDocumentationUrl),
+        scopesSupported,
+      }),
       token_endpoint_auth_methods_supported: ["client_secret_post"],
     }),
   )
 
   // SDK-managed OAuth routes — /.well-known/*, /authorize, /token, /register, /revoke
-  router.use(mcpAuthRouter(authOptions))
+  router.use(
+    mcpAuthRouter({
+      provider,
+      issuerUrl: serverUrl,
+      serviceDocumentationUrl: new URL(serviceDocumentationUrl),
+      scopesSupported,
+      authorizationOptions: { rateLimit },
+      clientRegistrationOptions: { rateLimit },
+      revocationOptions: { rateLimit },
+      tokenOptions: { rateLimit },
+    }),
+  )
 
   // Consent form submission (unauthenticated — part of authorize flow)
   router.post(
