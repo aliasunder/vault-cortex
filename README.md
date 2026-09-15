@@ -447,10 +447,10 @@ For a server with read/write access to personal notes, authentication is not opt
 
 Two methods:
 
-| Method            | Used by                                                                                  | Token format         |
-| ----------------- | ---------------------------------------------------------------------------------------- | -------------------- |
-| **OAuth 2.1**     | Claude Desktop, Claude Code, claude.ai, any OAuth client supporting `client_secret_post` | JWT (HS256, 6h)      |
-| **Static bearer** | Claude Code, MCP Inspector, curl                                                         | Raw `MCP_AUTH_TOKEN` |
+| Method            | Used by                                                  | Token format         |
+| ----------------- | -------------------------------------------------------- | -------------------- |
+| **OAuth 2.1**     | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256, 6h)      |
+| **Static bearer** | Claude Code, MCP Inspector, curl                         | Raw `MCP_AUTH_TOKEN` |
 
 1. Your client registers automatically and receives a client ID and secret.
 2. Enter your `MCP_AUTH_TOKEN` on the browser consent page to approve access.
