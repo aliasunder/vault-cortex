@@ -1439,11 +1439,11 @@ const extractTrailingTags = (text: string): readonly string[] => {
   // Each iteration shortens the string from the right; later passes
   // depend on the shortened result (sequential parser state).
   let remaining = text
-  for (;;) {
-    const tagMatch = HASHTAG_FROM_END_RE.exec(remaining)
-    if (!tagMatch) break
+  let tagMatch = HASHTAG_FROM_END_RE.exec(remaining)
+  while (tagMatch) {
     tags.unshift(tagMatch[0].trim())
     remaining = remaining.slice(0, tagMatch.index).trim()
+    tagMatch = HASHTAG_FROM_END_RE.exec(remaining)
   }
   return tags
 }
