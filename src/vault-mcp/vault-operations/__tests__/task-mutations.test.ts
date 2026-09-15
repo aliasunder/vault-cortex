@@ -3243,6 +3243,40 @@ title: Tasks
     )
   })
 
+  it("tracks the spawn line through on-next-line placement, a done-lane move, and add_subtasks", async () => {
+    const vault = await createVault()
+    await writeTasksPluginConfig(vault, { recurrenceOnNextLine: true })
+    await writeTestNote(
+      vault,
+      "board.md",
+      `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Deploy 🔁 every week 📅 2026-01-05 ^deploy\n\n## Done\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
+    )
+
+    const result = await taskMutations.updateTask(
+      {
+        vaultPath: vault,
+        path: "board.md",
+        blockId: "deploy",
+        status: "done",
+        addSubtasks: ["Smoke test"],
+      },
+      logger,
+    )
+
+    // The subtask appends to the completed task, and the done-lane move
+    // takes the entire completed block (task + subtask) to Done. The spawn
+    // stays alone in Active at line 7.
+    expect(result.next_occurrence).toEqual({
+      line: 7,
+      description: "Deploy",
+      due: "2026-01-12",
+    })
+    const content = await readTestNote(vault, "board.md")
+    expect(content).toBe(
+      `---\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Deploy 🔁 every week 📅 2026-01-12\n\n## Done\n- [x] Deploy 🔁 every week 📅 2026-01-05 ✅ ${today()} ^deploy\n  - [ ] Smoke test\n\n- [x] Old ➕ 2026-06-01 ✅ 2026-06-15\n`,
+    )
+  })
+
   it("reports the spawned line correctly when the Done lane sits before the source lane", async () => {
     const vault = await createVault()
     await writeTestNote(
