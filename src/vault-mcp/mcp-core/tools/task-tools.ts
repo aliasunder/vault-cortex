@@ -590,7 +590,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .nullable()
           .optional()
           .describe(
-            'Tasks plugin 🏁 onCompletion action to set, or null to remove it. "delete" removes the task line on completion; "keep" (the default when absent) leaves it in place.',
+            'Tasks plugin 🏁 onCompletion action to set, or null to remove it. "delete" removes the task line on completion; "keep" leaves it in place (which is also the behavior when no 🏁 field exists on the task). Omitting this parameter leaves the field unchanged.',
           ),
         description: z
           .string()
