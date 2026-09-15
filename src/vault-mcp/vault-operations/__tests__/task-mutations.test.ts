@@ -5178,6 +5178,52 @@ title: Tasks
 `)
     })
 
+    it("spawns below then deletes the completed line with recurrenceOnNextLine — children transfer to spawn", async () => {
+      const RECURRING_DELETE_NEXT_LINE_CHILDREN = `---
+title: Tasks
+---
+
+## Active
+
+- [ ] Weekly review 🔁 every week 🏁 delete 📅 2026-07-07 ^review
+  - [ ] Check email
+  - [ ] Update board
+- [ ] Other task ➕ 2026-07-01 ^other
+`
+      const vault = await createVault()
+      await writeTasksPluginConfig(vault, { recurrenceOnNextLine: true })
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        RECURRING_DELETE_NEXT_LINE_CHILDREN,
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "review",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result.on_completion_applied).toBe("delete")
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(`---
+title: Tasks
+---
+
+## Active
+
+- [ ] Weekly review 🔁 every week 🏁 delete 📅 2026-07-14
+  - [ ] Check email
+  - [ ] Update board
+- [ ] Other task ➕ 2026-07-01 ^other
+`)
+    })
+
     it("does not delete when the task's custom checkbox char is DONE-typed in the status registry", async () => {
       const vault = await createVault()
       await writeTasksPluginConfig(vault, {
