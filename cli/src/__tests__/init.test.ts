@@ -1498,7 +1498,7 @@ describe("validatePublicUrl", () => {
     expect(validatePublicUrl("https://vault.example.com/?tab=2")).toEqual({
       kind: "error",
       message:
-        "PUBLIC_URL must be a bare origin or path — no query string (?...) or fragment (#...).",
+        "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
     })
   })
 
@@ -1506,7 +1506,7 @@ describe("validatePublicUrl", () => {
     expect(validatePublicUrl("https://vault.example.com/#section")).toEqual({
       kind: "error",
       message:
-        "PUBLIC_URL must be a bare origin or path — no query string (?...) or fragment (#...).",
+        "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
     })
   })
 
@@ -1514,7 +1514,7 @@ describe("validatePublicUrl", () => {
     expect(validatePublicUrl("https://vault.example.com/?")).toEqual({
       kind: "error",
       message:
-        "PUBLIC_URL must be a bare origin or path — no query string (?...) or fragment (#...).",
+        "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
     })
   })
 
@@ -1522,7 +1522,7 @@ describe("validatePublicUrl", () => {
     expect(validatePublicUrl("https://vault.example.com/#")).toEqual({
       kind: "error",
       message:
-        "PUBLIC_URL must be a bare origin or path — no query string (?...) or fragment (#...).",
+        "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
     })
   })
 })

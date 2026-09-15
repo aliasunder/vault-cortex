@@ -105,14 +105,14 @@ describe("authorizer handler", () => {
     expect(result).toEqual({ isAuthorized: true })
   })
 
-  it("authorizes a JWT bound to a subpath deployment", async () => {
+  it("derives issuer from full URL and audience from origin when URL has a path", async () => {
     vi.stubEnv("PUBLIC_URL", "https://mcp.example.com/vault/")
     onTestFinished(() => {
       vi.stubEnv("PUBLIC_URL", PUBLIC_URL)
     })
-    // Pins the derivation the bare-origin test cannot: the path prefix
-    // stays in `iss` but is dropped from `aud`. A hand-derived
-    // origin-based issuer would pass the bare-origin test and fail here.
+    // Pins tokenBindingForServer's derivation: path stays in `iss` but
+    // is dropped from `aud`. Path-prefix PUBLIC_URL is not a supported
+    // configuration, but the derivation must stay deterministic.
     const token = accessToken({
       iss: "https://mcp.example.com/vault/",
       aud: "https://mcp.example.com/mcp",
