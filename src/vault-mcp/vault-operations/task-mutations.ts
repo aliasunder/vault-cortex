@@ -1448,12 +1448,13 @@ const updateTask = async (
       ...(onCompletion !== undefined
         ? [
             {
-              apply: (taskLine: string) =>
-                tasks.updateTaskLineOnCompletion({
+              apply: (taskLine: string) => {
+                return tasks.updateTaskLineOnCompletion({
                   taskLine,
                   onCompletion,
                   config: formatConfig,
-                }),
+                })
+              },
               change: formatChange({
                 field: "on_completion",
                 before: taskBefore.onCompletion,
