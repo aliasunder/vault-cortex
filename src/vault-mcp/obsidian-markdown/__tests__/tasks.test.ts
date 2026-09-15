@@ -1555,6 +1555,16 @@ describe("task line mutations", () => {
       })
     })
 
+    it("preserves a trailing hard break through dedup", () => {
+      const result = tasks.deduplicateDescriptionTags(
+        "- [ ] Deploy #urgent 📅 2026-09-01 #urgent ^deploy  ",
+      )
+      expect(result).toEqual({
+        taskLine: "- [ ] Deploy #urgent 📅 2026-09-01 ^deploy  ",
+        deduplicatedTags: ["#urgent"],
+      })
+    })
+
     it("returns unchanged for a non-task line", () => {
       const line = "not a task line"
       const result = tasks.deduplicateDescriptionTags(line)
