@@ -3714,6 +3714,39 @@ title: Tasks
     )
   })
 
+  it("creates a task with on_completion in canonical field order", async () => {
+    const vault = await createVault()
+    await writeTestNote(
+      vault,
+      "tasks.md",
+      "---\ntitle: Tasks\n---\n\n- [ ] Existing ➕ 2026-01-01\n",
+    )
+
+    const result = await taskMutations.createTask(
+      {
+        vaultPath: vault,
+        path: "tasks.md",
+        description: "Auto-clean task",
+        blockId: "auto-clean",
+        recurrence: "every week",
+        onCompletion: "delete",
+        due: "2026-01-05",
+      },
+      logger,
+    )
+
+    expect(result.changes).toEqual([
+      `created: (none) → ${today()}`,
+      "recurrence: (none) → every week",
+      "on_completion: (none) → delete",
+      "due: (none) → 2026-01-05",
+    ])
+    const content = await readTestNote(vault, "tasks.md")
+    expect(content).toBe(
+      `---\ntitle: Tasks\n---\n\n- [ ] Existing ➕ 2026-01-01\n\n- [ ] Auto-clean task 🔁 every week 🏁 delete ➕ ${today()} 📅 2026-01-05 ^auto-clean\n`,
+    )
+  })
+
   it("rejects an unreadable recurrence rule at creation", async () => {
     const vault = await createVault()
     await writeTestNote(

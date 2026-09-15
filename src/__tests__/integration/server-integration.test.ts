@@ -596,8 +596,64 @@ describe("default config", () => {
       )?.[1]
       expect([dateBeforeWrite, dateAfterWrite]).toContain(completionDate)
       expect(textContent(readback)).toBe(
-        `## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ ${completionDate} ^water-plants\n`,
+        `## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ ${completionDate} ^water-plants\n- [ ] Temp task 🏁 delete ➕ 2026-01-01 ^temp-task\n`,
       )
+    })
+
+    it("vault_update_task — set on_completion and verify it persists", async () => {
+      const setResult = await callTool({
+        client,
+        name: "vault_update_task",
+        args: {
+          path: "Projects/recurring.md",
+          block_id: "temp-task",
+          on_completion: "keep",
+        },
+      })
+      expect(setResult.isError).not.toBe(true)
+      const setJson = JSON.parse(textContent(setResult))
+      expect(setJson.changes).toEqual(["on_completion: delete → keep"])
+
+      const clearResult = await callTool({
+        client,
+        name: "vault_update_task",
+        args: {
+          path: "Projects/recurring.md",
+          block_id: "temp-task",
+          on_completion: null,
+        },
+      })
+      expect(clearResult.isError).not.toBe(true)
+      const clearJson = JSON.parse(textContent(clearResult))
+      expect(clearJson.changes).toEqual(["on_completion: keep → (none)"])
+    })
+
+    it("vault_create_task — on_completion appears in the created line", async () => {
+      const result = await callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "Projects/recurring.md",
+          description: "Disposable task",
+          block_id: "disposable",
+          heading: "Habits",
+          on_completion: "delete",
+        },
+      })
+      expect(result.isError).not.toBe(true)
+      const json = JSON.parse(textContent(result))
+      // changes include the auto-stamped created date and the on_completion field
+      expect(json.changes).toContain("on_completion: (none) → delete")
+
+      const readback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/recurring.md", heading: "Habits" },
+      })
+      // The section carries tasks mutated by prior integration tests in
+      // the same server boot, so only the created task is asserted here.
+      expect(textContent(readback)).toContain("🏁 delete")
+      expect(textContent(readback)).toContain("^disposable")
     })
   })
 
