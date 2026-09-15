@@ -1686,13 +1686,6 @@ const updateTask = async (
       changes,
     })
 
-    const allAdvisories = [
-      ...(recurrenceSpawn.kind === "advisory"
-        ? [recurrenceSpawn.advisory]
-        : []),
-      ...advisories,
-    ]
-
     return {
       path,
       line: finalLine,
@@ -1702,7 +1695,7 @@ const updateTask = async (
       subtasks: subtaskPositions,
       next_occurrence: nextOccurrence,
       changes,
-      ...(allAdvisories.length > 0 && { advisories: allAdvisories }),
+      ...(advisories.length > 0 && { advisories }),
     }
   })
 }
