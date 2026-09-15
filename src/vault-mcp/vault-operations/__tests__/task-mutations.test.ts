@@ -3490,6 +3490,7 @@ title: Tasks
 
     expect(result.next_occurrence).toBeUndefined()
     expect(result.advisories).toBeUndefined()
+    expect(result.changes).toEqual(["status: done → done"])
   })
 
   it("does not spawn or advise when a recurring task is cancelled", async () => {
@@ -4829,6 +4830,61 @@ title: Tasks
 ## Active
 
 - [ ] Weekly review 🔁 every week 🏁 delete 📅 2026-07-14
+- [ ] Other task ➕ 2026-07-01 ^other
+`)
+    })
+
+    it("spawns below then deletes the completed line with recurrenceOnNextLine", async () => {
+      const RECURRING_DELETE_NEXT_LINE = `---
+title: Tasks
+---
+
+## Active
+
+- [ ] Water plants 🔁 every week 🏁 delete 📅 2026-07-07 ^water
+- [ ] Other task ➕ 2026-07-01 ^other
+`
+      const vault = await createVault()
+      await writeTasksPluginConfig(vault, { recurrenceOnNextLine: true })
+      await writeTestNote(vault, "tasks.md", RECURRING_DELETE_NEXT_LINE)
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "water",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 7,
+        description: "Water plants",
+        block_id: "water",
+        heading: "Active",
+        next_occurrence: {
+          line: 7,
+          description: "Water plants",
+          due: "2026-07-14",
+        },
+        changes: [
+          "status: todo → done",
+          "next_occurrence: (none) → line 7",
+          "on_completion: task removed (🏁 delete)",
+        ],
+        on_completion_applied: "delete",
+      })
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(`---
+title: Tasks
+---
+
+## Active
+
+- [ ] Water plants 🔁 every week 🏁 delete 📅 2026-07-14
 - [ ] Other task ➕ 2026-07-01 ^other
 `)
     })
