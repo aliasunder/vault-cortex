@@ -266,6 +266,26 @@ describe("OAuth client authentication metadata", () => {
     },
   )
 
+  it("returns a secretless client without overriding its auth method", async () => {
+    const { oauth, db } = await createClientTest()
+    const secretless: OAuthClientInformationFull = {
+      client_id: "no-secret-client",
+      client_id_issued_at: DateTime.now().toUnixInteger(),
+      redirect_uris: ["https://example.com/cb"],
+      token_endpoint_auth_method: "none",
+      grant_types: ["authorization_code"],
+      response_types: ["code"],
+    }
+    db.prepare("INSERT INTO clients (client_id, data) VALUES (?, ?)").run(
+      secretless.client_id,
+      JSON.stringify(secretless),
+    )
+
+    expect(
+      await oauth.provider.clientsStore.getClient(secretless.client_id),
+    ).toEqual(secretless)
+  })
+
   it("normalizes legacy metadata without rewriting credentials or refresh tokens", async () => {
     const { oauth, db } = await createClientTest()
     const legacy = seedClient(db)

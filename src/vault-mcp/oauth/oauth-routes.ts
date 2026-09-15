@@ -120,6 +120,7 @@ export const createOAuthRoutes = ({
         scopesSupported,
       }),
       token_endpoint_auth_methods_supported: ["client_secret_post"],
+      revocation_endpoint_auth_methods_supported: ["client_secret_post"],
     }),
   )
 
