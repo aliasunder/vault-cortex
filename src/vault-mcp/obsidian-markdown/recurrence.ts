@@ -41,8 +41,9 @@ type RRuleInstance = InstanceType<typeof RRule>
 // ── Rule parsing ────────────────────────────────────────────────
 
 /** The plugin's rule grammar: rrule natural-language text plus an optional
- *  " when done" suffix (case-insensitive). The `!` allows rules like
- *  "every 2nd day!" that the plugin's parser accepts. */
+ *  " when done" suffix (case-insensitive). The `!` in the charset is
+ *  inherited from the plugin's own regex; rrule rejects it, but the
+ *  try/catch handles that. */
 const RECURRENCE_RULE_RE = /^([a-zA-Z0-9, !]+?)( when done)?$/i
 
 export type ParsedRecurrenceRule = {
