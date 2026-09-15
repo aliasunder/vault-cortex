@@ -120,6 +120,9 @@ type UpdateTaskResult = {
   next_occurrence?: NextOccurrencePosition | undefined
   changes: string[]
   advisories?: string[] | undefined
+  /** The onCompletion action that was applied (e.g. "delete"). Present only
+   *  when a task with 🏁/[onCompletion::] was transitioned to done. */
+  on_completion_applied?: string | undefined
 }
 
 const ABSENT_VALUE = "(none)"
@@ -1563,6 +1566,101 @@ const updateTask = async (
         : []),
       ...roundTripAndSubtaskAdvisories,
     ]
+
+    // onCompletion "delete": the Tasks plugin removes the completed
+    // instance when the field says "delete". Only on a genuine transition
+    // to done — not on updates to an already-done task, and not on
+    // cancellation. When the task also recurs, the spawn has already
+    // inserted the next occurrence into linesWithSpawn above — only the
+    // completed line (and its children) is removed; the spawn survives.
+    const shouldDeleteOnCompletion =
+      status === "done" &&
+      taskBefore.status !== "done" &&
+      taskBefore.onCompletion?.toLowerCase() === "delete"
+
+    if (shouldDeleteOnCompletion) {
+      const taskBlockEnd = findTaskBlockEnd(
+        linesWithSpawn,
+        completedIndexAfterSpawn,
+      )
+      const deleteCount = taskBlockEnd - completedIndexAfterSpawn
+      const childCount = deleteCount - 1
+      const childLabel = childCount === 1 ? "child" : "children"
+      const deletionChange =
+        childCount > 0
+          ? `on_completion: task and ${childCount} ${childLabel} removed (🏁 delete)`
+          : "on_completion: task removed (🏁 delete)"
+
+      // When the task also spawned, compute the spawn's final position
+      // after the completed block is removed from linesWithSpawn.
+      const spawnFinalIndexAfterDelete =
+        recurrenceSpawn.kind === "spawn" &&
+        completedIndexAfterSpawn < spawnInsertIndex
+          ? spawnInsertIndex - deleteCount
+          : spawnInsertIndex
+
+      const nextOccurrence: NextOccurrencePosition | undefined =
+        recurrenceSpawn.kind === "spawn"
+          ? {
+              line: bodyStartLine + spawnFinalIndexAfterDelete + 1,
+              description: tasks.describeTaskLine(recurrenceSpawn.spawnedLine),
+              ...(recurrenceSpawn.nextDates.dueDate
+                ? { due: recurrenceSpawn.nextDates.dueDate }
+                : {}),
+              ...(recurrenceSpawn.nextDates.scheduledDate
+                ? { scheduled: recurrenceSpawn.nextDates.scheduledDate }
+                : {}),
+              ...(recurrenceSpawn.nextDates.startDate
+                ? { start: recurrenceSpawn.nextDates.startDate }
+                : {}),
+            }
+          : undefined
+
+      const changes = [
+        ...lineChanges,
+        ...(nextOccurrence
+          ? [
+              formatChange({
+                field: "next_occurrence",
+                before: null,
+                after: `line ${nextOccurrence.line}`,
+              }),
+            ]
+          : []),
+        deletionChange,
+      ]
+
+      const resultLines = linesWithSpawn.toSpliced(
+        completedIndexAfterSpawn,
+        deleteCount,
+      )
+
+      const serialized = stringifyNote(resultLines.join("\n"), parsed.data)
+      await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
+
+      const headingBefore = headingsAfterSpawn.findLast(
+        (heading) => heading.startLine < completedIndexAfterSpawn,
+      )
+
+      logger.info("task deleted on completion", {
+        path,
+        line: bodyStartLine + completedIndexAfterSpawn + 1,
+        onCompletion: "delete",
+        childrenRemoved: childCount,
+      })
+
+      return {
+        path,
+        line: bodyStartLine + completedIndexAfterSpawn + 1,
+        description: tasks.describeTaskLine(mutatedLine),
+        block_id: taskBefore.blockId ?? undefined,
+        heading: headingBefore?.text,
+        next_occurrence: nextOccurrence,
+        changes,
+        ...(advisories.length > 0 && { advisories }),
+        on_completion_applied: "delete",
+      }
+    }
 
     // Heading move — an explicit heading, or the done lane when completing
     // a top-level card on a Kanban board.
