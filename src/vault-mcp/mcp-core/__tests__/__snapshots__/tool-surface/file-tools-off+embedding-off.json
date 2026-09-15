@@ -68,6 +68,14 @@
             "type": "string",
             "minLength": 1
           },
+          "on_completion": {
+            "description": "Tasks plugin 🏁 onCompletion action. \"delete\" removes the task line on completion; \"keep\" leaves it in place.",
+            "type": "string",
+            "enum": [
+              "delete",
+              "keep"
+            ]
+          },
           "due": {
             "description": "Deadline (📅), YYYY-MM-DD, calendar-validated. Omit when there is no deadline.",
             "type": "string",

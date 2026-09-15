@@ -348,6 +348,12 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
           .describe(
             'Tasks plugin 🔁 rule in natural language (e.g. "every week", "every 2 weeks when done"). Completing the task spawns its next occurrence.',
           ),
+        on_completion: z
+          .enum(["delete", "keep"])
+          .optional()
+          .describe(
+            'Tasks plugin 🏁 onCompletion action. "delete" removes the task line on completion; "keep" leaves it in place.',
+          ),
         due: z
           .string()
           .min(1)
@@ -409,6 +415,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
         position,
         priority,
         recurrence,
+        on_completion,
         due,
         scheduled,
         start,
@@ -432,6 +439,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
         position,
         priority,
         recurrence,
+        onCompletion: on_completion,
         due,
         scheduled,
         start,
@@ -455,6 +463,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
               position,
               priority,
               recurrence,
+              onCompletion: on_completion,
               due,
               scheduled,
               start,

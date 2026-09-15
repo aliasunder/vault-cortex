@@ -47,6 +47,7 @@ type CreateTaskParams = {
   position?: "top" | "bottom" | undefined
   priority?: TaskPriority | undefined
   recurrence?: string | undefined
+  onCompletion?: string | undefined
   due?: string | undefined
   scheduled?: string | undefined
   start?: string | undefined
@@ -1002,6 +1003,7 @@ const createTask = async (
     position,
     priority,
     recurrence,
+    onCompletion,
     due,
     scheduled,
     start,
@@ -1112,6 +1114,7 @@ const createTask = async (
         blockId,
         priority,
         recurrence,
+        onCompletion,
         created: today,
         start,
         scheduled,
