@@ -211,7 +211,9 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     const row = this.selectClientStmt.get(clientId)
     if (!row) return undefined
     const parsed: OAuthClientInformationFull = JSON.parse(row.data)
-    return parsed
+    if (!parsed.client_secret) return parsed
+
+    return { ...parsed, token_endpoint_auth_method: "client_secret_post" }
   }
 
   registerClient(
@@ -222,6 +224,7 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
   ): OAuthClientInformationFull {
     const full: OAuthClientInformationFull = {
       ...client,
+      token_endpoint_auth_method: "client_secret_post",
       client_id: randomUUID(),
       client_id_issued_at: DateTime.now().toUnixInteger(),
       client_secret: randomBytes(32).toString("hex"),

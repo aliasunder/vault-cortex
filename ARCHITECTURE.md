@@ -532,10 +532,10 @@ guarantees that hold in any deployment. The
 
 Two authentication methods, both validated at two layers:
 
-| Method                                | Used by                                                  | Token format                | Lifetime                                   |
-| ------------------------------------- | -------------------------------------------------------- | --------------------------- | ------------------------------------------ |
-| OAuth 2.1 (Authorization Code + PKCE) | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256)                 | 6h access, 60-day sliding refresh (SQLite) |
-| Static bearer token                   | Claude Code, MCP Inspector, curl                         | Raw string (MCP_AUTH_TOKEN) | No expiry                                  |
+| Method                                | Used by                                 | Token format                | Lifetime                                   |
+| ------------------------------------- | --------------------------------------- | --------------------------- | ------------------------------------------ |
+| OAuth 2.1 (Authorization Code + PKCE) | Clients supporting `client_secret_post` | JWT (HS256)                 | 6h access, 60-day sliding refresh (SQLite) |
+| Static bearer token                   | Claude Code, MCP Inspector, curl        | Raw string (MCP_AUTH_TOKEN) | No expiry                                  |
 
 **Layer 1 — API Gateway Lambda authorizer** (`src/functions/authorizer.ts`):
 Attached to protected routes only. OAuth discovery paths (`/.well-known/*`,
@@ -566,6 +566,10 @@ directly, Express still rejects. `/healthz` bypasses auth for docker-compose
 healthchecks.
 
 **OAuth flow at a glance:**
+
+Dynamic registration issues a per-client secret and declares `client_secret_post`.
+Clients persist that secret and include it in the request body for token exchange,
+refresh, and revocation. S256 PKCE also protects the authorization-code exchange.
 
 ```text
 1. Client → POST /mcp (no token)                          → 401 → client starts OAuth

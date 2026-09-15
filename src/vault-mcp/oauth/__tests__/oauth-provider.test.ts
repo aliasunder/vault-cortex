@@ -225,6 +225,76 @@ const storedRevokedClients = (
     .all()
 }
 
+describe("OAuth client authentication metadata", () => {
+  const createClientTest = async () => {
+    const dir = await mkdtemp(join(tmpdir(), "oauth-client-metadata-"))
+    const dbPath = join(dir, "oauth.db")
+    const oauth = createOAuthProvider({
+      ...TEST_URLS,
+      authToken: AUTH_TOKEN,
+      dbPath,
+      logger,
+    })
+    const db = new Database(dbPath)
+    onTestFinished(async () => {
+      db.close()
+      await rm(dir, { recursive: true, force: true })
+    })
+    return { oauth, db }
+  }
+
+  it.each(["none", "client_secret_post", undefined])(
+    "returns and persists client_secret_post when the requested method is %s",
+    async (method) => {
+      const { oauth, db } = await createClientTest()
+      const client = await registerClient(oauth, {
+        redirect_uris: ["https://example.com/cb"],
+        ...(method ? { token_endpoint_auth_method: method } : {}),
+      })
+
+      expect(client.token_endpoint_auth_method).toBe("client_secret_post")
+      expect(client.client_secret).toMatch(/^[a-f0-9]{64}$/)
+      expect(client.client_secret_expires_at).toBe(0)
+      expect(
+        db
+          .prepare("SELECT data FROM clients WHERE client_id = ?")
+          .get(client.client_id),
+      ).toEqual({ data: JSON.stringify(client) })
+      expect(
+        await oauth.provider.clientsStore.getClient(client.client_id),
+      ).toEqual(client)
+    },
+  )
+
+  it("normalizes legacy metadata without rewriting credentials or refresh tokens", async () => {
+    const { oauth, db } = await createClientTest()
+    const legacy = seedClient(db)
+    seedRefreshToken(
+      db,
+      "existing-refresh",
+      legacy.client_id,
+      ["vault"],
+      9_999_999_999,
+    )
+    const storedTokens = db.prepare("SELECT * FROM refresh_tokens").all()
+
+    expect(
+      await oauth.provider.clientsStore.getClient(legacy.client_id),
+    ).toEqual({
+      ...legacy,
+      token_endpoint_auth_method: "client_secret_post",
+    })
+    expect(
+      db
+        .prepare("SELECT data FROM clients WHERE client_id = ?")
+        .get(legacy.client_id),
+    ).toEqual({ data: JSON.stringify(legacy) })
+    expect(db.prepare("SELECT * FROM refresh_tokens").all()).toEqual(
+      storedTokens,
+    )
+  })
+})
+
 describe("OAuth refresh token sliding expiry", () => {
   // Matches production's REFRESH_TOKEN_TTL_S — test-owned so the test
   // catches a production change and avoids calendar-vs-seconds DST drift.
