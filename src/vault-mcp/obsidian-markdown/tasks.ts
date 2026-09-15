@@ -1020,6 +1020,9 @@ type TaskLineParts = {
   metadata: string
   /** Trailing block link including its leading space; "" when none. */
   blockLink: string
+  /** Trailing whitespace after the block link (or after metadata when no
+   *  block link is present) — a markdown hard break. "" when none. */
+  trailingWhitespace: string
 }
 
 /** Splits a task line at the parser's description/metadata boundary.
@@ -1033,16 +1036,28 @@ const splitTaskLine = (taskLine: string): TaskLineParts | null => {
   const prefix = checkboxMatch?.[1]
   if (!prefix) return null
   const afterCheckbox = taskLine.slice(prefix.length)
-  const { body: taskBody, blockLink } = splitTrailingBlockLink(afterCheckbox)
+  // Capture trailing whitespace before splitTrailingBlockLink trims it —
+  // a markdown hard break (two+ trailing spaces) must survive the round-trip.
+  const trimmedAfterCheckbox = afterCheckbox.trimEnd()
+  const trailingWhitespace = afterCheckbox.slice(trimmedAfterCheckbox.length)
+  const { body: taskBody, blockLink } =
+    splitTrailingBlockLink(trimmedAfterCheckbox)
   const metadataStart = findMetadataStart(taskBody)
   if (metadataStart === -1) {
-    return { prefix, description: taskBody.trim(), metadata: "", blockLink }
+    return {
+      prefix,
+      description: taskBody.trim(),
+      metadata: "",
+      blockLink,
+      trailingWhitespace,
+    }
   }
   return {
     prefix,
     description: taskBody.slice(0, metadataStart).trim(),
     metadata: taskBody.slice(metadataStart).trim(),
     blockLink,
+    trailingWhitespace,
   }
 }
 
@@ -1051,9 +1066,10 @@ const joinTaskLine = ({
   description,
   metadata,
   blockLink,
+  trailingWhitespace,
 }: TaskLineParts): string => {
   const body = [description.trim(), metadata.trim()].filter(Boolean).join(" ")
-  return `${prefix}${body}${blockLink}`
+  return `${prefix}${body}${blockLink}${trailingWhitespace}`
 }
 
 /** Applies a field mutation to the metadata tail only — field-like text
@@ -1403,9 +1419,77 @@ const replaceTaskLineDescription = ({
   return joinTaskLine({ ...parts, description: newDescription })
 }
 
+/** Matches a specific hashtag as a whole token — preceded by start-of-string
+ *  or whitespace, followed by whitespace or end-of-string. */
+const hashtagTokenPattern = (escapedTag: string): RegExp => {
+  return new RegExp(`(^|\\s)${escapedTag}(?=\\s|$)`)
+}
+
+/** The 12 RegExp metacharacters that need backslash-escaping. */
+const REGEX_SPECIAL_CHARS_RE = /[.*+?^${}()|[\]\\]/g
+
+const escapeRegExp = (text: string): string => {
+  return text.replace(REGEX_SPECIAL_CHARS_RE, "\\$&")
+}
+
+/** Extracts trailing hashtags from a string by repeated right-to-left
+ *  stripping — the same loop shape as parseTaskMetadata's tag pass. */
+const extractTrailingTags = (text: string): readonly string[] => {
+  const tags: string[] = []
+  // Each iteration shortens the string from the right; later passes
+  // depend on the shortened result (sequential parser state).
+  let remaining = text
+  let tagMatch = HASHTAG_FROM_END_RE.exec(remaining)
+  while (tagMatch) {
+    tags.unshift(tagMatch[0].trim())
+    remaining = remaining.slice(0, tagMatch.index).trim()
+    tagMatch = HASHTAG_FROM_END_RE.exec(remaining)
+  }
+  return tags
+}
+
+/** Strips tags from the metadata tail that byte-match trailing tags in the
+ *  description — the round-trip duplication that occurs when an agent writes
+ *  back the parser's re-appended view of interleaved tags. Returns the
+ *  cleaned line and the tags that were removed. */
+const deduplicateDescriptionTags = (
+  taskLine: string,
+): { taskLine: string; deduplicatedTags: readonly string[] } => {
+  const parts = splitTaskLine(taskLine)
+  if (!parts || !parts.metadata) {
+    return { taskLine, deduplicatedTags: [] }
+  }
+
+  const descriptionTrailingTags = extractTrailingTags(parts.description)
+  if (descriptionTrailingTags.length === 0) {
+    return { taskLine, deduplicatedTags: [] }
+  }
+
+  // Strip from the metadata only tags that byte-match a trailing
+  // description tag — non-overlapping tags stay in both positions.
+  // Each iteration shortens the metadata (sequential stripping state).
+  let dedupedMetadata = parts.metadata
+  const deduplicatedTags: string[] = []
+  for (const tag of descriptionTrailingTags) {
+    const tagPattern = hashtagTokenPattern(escapeRegExp(tag))
+    if (tagPattern.test(dedupedMetadata)) {
+      dedupedMetadata = dedupedMetadata.replace(tagPattern, "").trim()
+      deduplicatedTags.push(tag)
+    }
+  }
+
+  if (deduplicatedTags.length === 0) {
+    return { taskLine, deduplicatedTags: [] }
+  }
+
+  return {
+    taskLine: joinTaskLine({ ...parts, metadata: dedupedMetadata }),
+    deduplicatedTags,
+  }
+}
+
 /** Adds or replaces a `^block-id` at the end of a task line. Trailing
- *  whitespace is trimmed first — matching the untrimmed line would miss an
- *  existing link behind a hard break and write a duplicate. */
+ *  whitespace (a markdown hard break) is preserved through the replacement. */
 const assignBlockId = ({
   taskLine,
   blockId,
@@ -1414,11 +1498,12 @@ const assignBlockId = ({
   blockId: string
 }): string => {
   const trimmedLine = taskLine.trimEnd()
+  const trailingWhitespace = taskLine.slice(trimmedLine.length)
   const existingMatch = BLOCK_LINK_RE.exec(trimmedLine)
   if (existingMatch) {
-    return `${trimmedLine.slice(0, existingMatch.index)} ^${blockId}`
+    return `${trimmedLine.slice(0, existingMatch.index)} ^${blockId}${trailingWhitespace}`
   }
-  return `${trimmedLine} ^${blockId}`
+  return `${trimmedLine} ^${blockId}${trailingWhitespace}`
 }
 
 /** Removes the trailing `^block-id` from a task line, if it has one. */
@@ -1792,6 +1877,7 @@ export const tasks = {
   findBodyStartLine,
   extractDoneLanes,
   parseKanbanCardInsertionMethod,
+  deduplicateDescriptionTags,
   BLOCK_LINK_RE,
 }
 
