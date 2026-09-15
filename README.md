@@ -452,6 +452,8 @@ Two methods:
 | **OAuth 2.1**     | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256, 6h)      |
 | **Static bearer** | Claude Code, MCP Inspector, curl                         | Raw `MCP_AUTH_TOKEN` |
 
+OAuth uses dynamic client registration — no manual Client ID or Secret needed:
+
 1. Your client registers automatically and receives a client ID and secret.
 2. Enter your `MCP_AUTH_TOKEN` on the browser consent page to approve access.
 3. Your client includes the issued secret in subsequent token requests automatically.
