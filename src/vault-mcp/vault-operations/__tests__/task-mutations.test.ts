@@ -4832,5 +4832,66 @@ title: Tasks
 - [ ] Other task ➕ 2026-07-01 ^other
 `)
     })
+
+    it("does not delete when the task's custom checkbox char is DONE-typed in the status registry", async () => {
+      const vault = await createVault()
+      await writeTasksPluginConfig(vault, {
+        statusSettings: {
+          customStatuses: [
+            {
+              symbol: "D",
+              name: "Deployed",
+              nextStatusSymbol: " ",
+              type: "DONE",
+            },
+          ],
+        },
+      })
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---
+title: Tasks
+---
+
+## Active
+
+- [D] Deploy and clean up 🏁 delete ➕ 2026-07-01 ^deploy-cleanup
+- [ ] Other task ➕ 2026-07-02 ^other
+`,
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "deploy-cleanup",
+          status: "done",
+        },
+        logger,
+      )
+
+      // The plugin treats "D" as already done via the status registry —
+      // the doneStatusSymbols guard prevents deletion.
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 7,
+        description: "Deploy and clean up",
+        block_id: "deploy-cleanup",
+        heading: "Active",
+        changes: ["status: todo → done"],
+      })
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(`---
+title: Tasks
+---
+
+## Active
+
+- [x] Deploy and clean up 🏁 delete ➕ 2026-07-01 ✅ ${today()} ^deploy-cleanup
+- [ ] Other task ➕ 2026-07-02 ^other
+`)
+    })
   })
 })
