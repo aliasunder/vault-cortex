@@ -110,9 +110,8 @@ describe("authorizer handler", () => {
     onTestFinished(() => {
       vi.stubEnv("PUBLIC_URL", PUBLIC_URL)
     })
-    // Pins tokenBindingForServer's derivation: path stays in `iss` but
-    // is dropped from `aud`. Path-prefix PUBLIC_URL is not a supported
-    // configuration, but the derivation must stay deterministic.
+    // Path-prefix PUBLIC_URL is not a supported configuration, but the
+    // test pins the function's behavior so a refactor can't silently change it.
     const token = accessToken({
       iss: "https://mcp.example.com/vault/",
       aud: "https://mcp.example.com/mcp",
