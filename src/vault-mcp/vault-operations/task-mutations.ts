@@ -821,6 +821,30 @@ const spawnIndexAfterSplices = ({
   return indexAfterMove + subtaskAppendShift
 }
 
+/** Builds the wire-format position of a spawned next occurrence — shared
+ *  by the onCompletion-delete early return and the normal completion path. */
+const buildNextOccurrencePosition = ({
+  bodyStartLine,
+  spawnIndex,
+  recurrenceSpawn,
+}: {
+  bodyStartLine: number
+  spawnIndex: number
+  recurrenceSpawn: Extract<RecurrenceSpawn, { kind: "spawn" }>
+}): NextOccurrencePosition => ({
+  line: bodyStartLine + spawnIndex + 1,
+  description: tasks.describeTaskLine(recurrenceSpawn.spawnedLine),
+  ...(recurrenceSpawn.nextDates.dueDate
+    ? { due: recurrenceSpawn.nextDates.dueDate }
+    : {}),
+  ...(recurrenceSpawn.nextDates.scheduledDate
+    ? { scheduled: recurrenceSpawn.nextDates.scheduledDate }
+    : {}),
+  ...(recurrenceSpawn.nextDates.startDate
+    ? { start: recurrenceSpawn.nextDates.startDate }
+    : {}),
+})
+
 /** Detects the done lane for auto-completion: checks for **Complete**
  *  markers first, falls back to a heading named "Done". */
 const detectDoneLane = (
@@ -1602,19 +1626,11 @@ const updateTask = async (
 
       const nextOccurrence: NextOccurrencePosition | undefined =
         recurrenceSpawn.kind === "spawn"
-          ? {
-              line: bodyStartLine + spawnFinalIndexAfterDelete + 1,
-              description: tasks.describeTaskLine(recurrenceSpawn.spawnedLine),
-              ...(recurrenceSpawn.nextDates.dueDate
-                ? { due: recurrenceSpawn.nextDates.dueDate }
-                : {}),
-              ...(recurrenceSpawn.nextDates.scheduledDate
-                ? { scheduled: recurrenceSpawn.nextDates.scheduledDate }
-                : {}),
-              ...(recurrenceSpawn.nextDates.startDate
-                ? { start: recurrenceSpawn.nextDates.startDate }
-                : {}),
-            }
+          ? buildNextOccurrencePosition({
+              bodyStartLine,
+              spawnIndex: spawnFinalIndexAfterDelete,
+              recurrenceSpawn,
+            })
           : undefined
 
       const changes = [
@@ -1727,19 +1743,11 @@ const updateTask = async (
 
     const nextOccurrence: NextOccurrencePosition | undefined =
       recurrenceSpawn.kind === "spawn" && spawnFinalIndex !== undefined
-        ? {
-            line: bodyStartLine + spawnFinalIndex + 1,
-            description: tasks.describeTaskLine(recurrenceSpawn.spawnedLine),
-            ...(recurrenceSpawn.nextDates.dueDate
-              ? { due: recurrenceSpawn.nextDates.dueDate }
-              : {}),
-            ...(recurrenceSpawn.nextDates.scheduledDate
-              ? { scheduled: recurrenceSpawn.nextDates.scheduledDate }
-              : {}),
-            ...(recurrenceSpawn.nextDates.startDate
-              ? { start: recurrenceSpawn.nextDates.startDate }
-              : {}),
-          }
+        ? buildNextOccurrencePosition({
+            bodyStartLine,
+            spawnIndex: spawnFinalIndex,
+            recurrenceSpawn,
+          })
         : undefined
 
     const changes = [
