@@ -681,6 +681,11 @@ const DEPENDS_ON_INLINE_RE =
 const RECURRENCE_INLINE_RE =
   /🔁️? *[a-zA-Z0-9, !]+|[[(] *repeat:: *[a-zA-Z0-9, !]+ *[\])](?: *,)?/u
 
+/** Matches an onCompletion field in either format: `🏁 value` (emoji) or
+ *  `[onCompletion:: value]` / `(onCompletion:: value)` (Dataview). */
+const ON_COMPLETION_INLINE_RE =
+  /🏁️? *[a-zA-Z]+|[[(] *onCompletion:: *[a-zA-Z]+ *[\])](?: *,)?/u
+
 /** Matches any priority signifier in either format: emoji (🔺⏫🔼🔽⏬)
  *  or Dataview (`[priority:: level]` / `(priority:: level)`). */
 const PRIORITY_INLINE_RE =
@@ -775,6 +780,14 @@ const formatRecurrence = (
   format === "dataview"
     ? `[repeat:: ${recurrenceText}]`
     : `🔁 ${recurrenceText}`
+
+/** Formats an onCompletion value (🏁) in the configured format. */
+const formatOnCompletion = (
+  value: string,
+  format: "emoji" | "dataview",
+): string => {
+  return format === "dataview" ? `[onCompletion:: ${value}]` : `🏁 ${value}`
+}
 
 /** Formats a depends-on list (⛔) in the configured format. */
 const formatDependsOn = (
@@ -956,6 +969,38 @@ const updateTaskLineRecurrence = ({
     return insertFieldAtPosition({
       metadata: metadataWithoutRecurrence,
       fieldText: formatRecurrence(recurrenceText, config.taskFormat),
+      laterFieldRegexes: [
+        ON_COMPLETION_INLINE_RE,
+        ...DATE_FIELD_INFO.map((dateField) => dateField.inlineRegex),
+        TASK_ID_INLINE_RE,
+        DEPENDS_ON_INLINE_RE,
+      ],
+    })
+  })
+}
+
+/** Sets or clears the 🏁 / `[onCompletion:: ]` field on a task line.
+ *  Inserted after recurrence and before dates — the plugin's field order. */
+const updateTaskLineOnCompletion = ({
+  taskLine,
+  onCompletion,
+  config,
+}: {
+  taskLine: string
+  onCompletion: string | null
+  config: TaskFormatConfig
+}): string => {
+  return transformMetadata(taskLine, (metadata) => {
+    const metadataWithoutOnCompletion = removeAllMetadataMatches(
+      metadata,
+      ON_COMPLETION_INLINE_RE,
+    )
+    if (onCompletion === null) {
+      return metadataWithoutOnCompletion
+    }
+    return insertFieldAtPosition({
+      metadata: metadataWithoutOnCompletion,
+      fieldText: formatOnCompletion(onCompletion, config.taskFormat),
       laterFieldRegexes: [
         ...DATE_FIELD_INFO.map((dateField) => dateField.inlineRegex),
         TASK_ID_INLINE_RE,
@@ -1153,6 +1198,7 @@ export type SubmittedTaskFields = Readonly<{
   taskId?: string | null | undefined
   dependsOn?: readonly string[] | null | undefined
   recurrence?: string | null | undefined
+  onCompletion?: string | null | undefined
 }>
 
 /** One field whose parse-back value differs from what the call's inputs say
@@ -1264,6 +1310,7 @@ const ROUND_TRIP_FIELDS: readonly RoundTripFieldReading[] = [
   {
     field: "on_completion",
     readParsed: (reading) => reading.metadata.onCompletion,
+    readSubmitted: (submitted) => submitted.onCompletion,
   },
 ]
 
@@ -1534,6 +1581,7 @@ type BuildTaskLineParams = {
   blockId: string
   priority?: TaskPriority | undefined
   recurrence?: string | undefined
+  onCompletion?: string | undefined
   created: string
   start?: string | undefined
   scheduled?: string | undefined
@@ -1544,8 +1592,8 @@ type BuildTaskLineParams = {
 }
 
 /** Assembles a complete task line in the correct field ordering:
- *  description → priority → 🔁 recurrence → ➕ created → 🛫 start →
- *  ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id */
+ *  description → priority → 🔁 recurrence → 🏁 onCompletion → ➕ created →
+ *  🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id */
 const buildTaskLine = (
   params: BuildTaskLineParams,
   config: TaskFormatConfig,
@@ -1567,6 +1615,9 @@ const buildTaskLine = (
     `${params.indent ?? ""}- [ ] ${params.description}`,
     ...(params.priority ? [formatPriority(params.priority, format)] : []),
     ...(params.recurrence ? [formatRecurrence(params.recurrence, format)] : []),
+    ...(params.onCompletion
+      ? [formatOnCompletion(params.onCompletion, format)]
+      : []),
     formatDateField({ field: "created", date: params.created, format }),
     ...optionalDateFields,
     ...(params.taskId ? [formatTaskId(params.taskId, format)] : []),
@@ -1864,6 +1915,7 @@ export const tasks = {
   updateTaskLineDate,
   updateTaskLineTaskId,
   updateTaskLineRecurrence,
+  updateTaskLineOnCompletion,
   updateTaskLineDependsOn,
   replaceTaskLineDescription,
   describeTaskLine,

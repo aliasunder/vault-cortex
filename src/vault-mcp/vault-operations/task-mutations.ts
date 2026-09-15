@@ -85,6 +85,7 @@ type UpdateTaskParams = {
   status?: TaskStatus | undefined
   priority?: TaskPriority | null | undefined
   recurrence?: string | null | undefined
+  onCompletion?: string | null | undefined
   heading?: string | undefined
   position?: "top" | "bottom" | undefined
   description?: string | undefined
@@ -1216,6 +1217,7 @@ const updateTask = async (
     status,
     priority,
     recurrence,
+    onCompletion,
     heading: targetHeadingParam,
     position,
     format,
@@ -1244,6 +1246,7 @@ const updateTask = async (
     status !== undefined ||
     priority !== undefined ||
     recurrence !== undefined ||
+    onCompletion !== undefined ||
     targetHeadingParam !== undefined ||
     newDescription !== undefined ||
     due !== undefined ||
@@ -1256,7 +1259,7 @@ const updateTask = async (
     newBlockId !== undefined
   if (!hasMutation) {
     throw new Error(
-      "at least one mutation (status, priority, recurrence, heading, description, due, scheduled, start, created, taskId, dependsOn, addSubtasks, or assignBlockId) is required",
+      "at least one mutation (status, priority, recurrence, onCompletion, heading, description, due, scheduled, start, created, taskId, dependsOn, addSubtasks, or assignBlockId) is required",
     )
   }
 
@@ -1442,6 +1445,23 @@ const updateTask = async (
             },
           ]
         : []),
+      ...(onCompletion !== undefined
+        ? [
+            {
+              apply: (taskLine: string) =>
+                tasks.updateTaskLineOnCompletion({
+                  taskLine,
+                  onCompletion,
+                  config: formatConfig,
+                }),
+              change: formatChange({
+                field: "on_completion",
+                before: taskBefore.onCompletion,
+                after: onCompletion,
+              }),
+            },
+          ]
+        : []),
       ...(taskId !== undefined
         ? [
             {
@@ -1605,6 +1625,7 @@ const updateTask = async (
           ...(taskId !== undefined && { taskId }),
           ...(dependsOn !== undefined && { dependsOn }),
           ...(recurrence !== undefined && { recurrence }),
+          ...(onCompletion !== undefined && { onCompletion }),
           ...statusImpliedDateFields({ status, config: formatConfig, today }),
         },
       }),
@@ -1625,11 +1646,16 @@ const updateTask = async (
     // cancellation. When the task also recurs, the spawn has already
     // inserted the next occurrence into linesWithSpawn above — only the
     // completed line (and its children) is removed; the spawn survives.
+    // When onCompletion is submitted in the same call, the submitted
+    // value takes precedence — setting "keep" while completing a "delete"
+    // task must not delete the task.
+    const effectiveOnCompletion =
+      onCompletion !== undefined ? onCompletion : taskBefore.onCompletion
     const shouldDeleteOnCompletion =
       status === "done" &&
       taskBefore.status !== "done" &&
       !formatConfig.doneStatusSymbols.includes(taskBefore.statusChar) &&
-      taskBefore.onCompletion?.toLowerCase() === "delete"
+      effectiveOnCompletion?.toLowerCase() === "delete"
 
     if (shouldDeleteOnCompletion) {
       const taskBlockEnd = findTaskBlockEnd(

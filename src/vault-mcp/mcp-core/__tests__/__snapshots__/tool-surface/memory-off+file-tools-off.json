@@ -1401,6 +1401,21 @@
               }
             ]
           },
+          "on_completion": {
+            "description": "Tasks plugin 🏁 onCompletion action to set, or null to remove it. \"delete\" removes the task line on completion; \"keep\" (the default when absent) leaves it in place.",
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "delete",
+                  "keep"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "description": {
             "description": "New task description text. Replaces the existing description; metadata fields and block_id are preserved.",
             "type": "string",
