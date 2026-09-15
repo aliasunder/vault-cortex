@@ -1576,6 +1576,7 @@ const updateTask = async (
     const shouldDeleteOnCompletion =
       status === "done" &&
       taskBefore.status !== "done" &&
+      !formatConfig.doneStatusSymbols.includes(taskBefore.statusChar) &&
       taskBefore.onCompletion?.toLowerCase() === "delete"
 
     if (shouldDeleteOnCompletion) {
