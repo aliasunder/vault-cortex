@@ -216,6 +216,7 @@ const correctedNextHit = ({
 
     const walkedBack = walkBackOneDay({ queryDay, rruleOptions })
     if (walkedBack.candidateHit === null) return null
+
     queryDay = walkedBack.queryDay
     candidateHit = walkedBack.candidateHit
   }
