@@ -1494,12 +1494,31 @@ const updateTask = async (
       (taskLine, edit) => edit.apply(taskLine),
       originalTaskLine,
     )
-    const lineChanges = lineEdits.map((edit) => edit.change)
-
     // Deduplicate tags that appear in both the description and the metadata
     // tail — the round-trip artifact of the parser's tag re-append.
     const tagDedup = tasks.deduplicateDescriptionTags(editedLine)
     const mutatedLine = tagDedup.taskLine
+
+    // The description edit's after-value previews the swap on the original
+    // line, which predates dedup. When dedup strips a metadata tag, the
+    // preview re-appends it via describeTaskLine, showing a doubled tag the
+    // written line doesn't have. Recompute from the post-dedup line.
+    const descriptionChangedAndDeduped =
+      newDescription && tagDedup.deduplicatedTags.length > 0
+
+    const lineChanges = descriptionChangedAndDeduped
+      ? lineEdits.map((edit) => {
+          if (edit.change?.startsWith("description:")) {
+            return formatChange({
+              field: "description",
+              before: taskBefore.description,
+              after: tasks.describeTaskLine(mutatedLine),
+            })
+          }
+          return edit.change
+        })
+      : lineEdits.map((edit) => edit.change)
+
     const tagDedupAdvisories = tagDedup.deduplicatedTags.map((tag) => {
       return `tag: "${tag}" appeared in both the description and the metadata tail — deduplicated to one copy`
     })
