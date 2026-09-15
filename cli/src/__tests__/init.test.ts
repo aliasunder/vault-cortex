@@ -1525,4 +1525,12 @@ describe("validatePublicUrl", () => {
         "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
     })
   })
+
+  it("rejects a URL with a path prefix", () => {
+    expect(validatePublicUrl("https://vault.example.com/vault/")).toEqual({
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/).",
+    })
+  })
 })

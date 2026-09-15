@@ -147,7 +147,7 @@ const parseHttpUrl = (value: string): URL | null => {
 export type PublicUrlValidation =
   { kind: "ok"; url: string } | { kind: "error"; message: string }
 
-/** Validates a PUBLIC_URL value: must be http(s), no credentials, no /mcp suffix. */
+/** Validates a PUBLIC_URL value: must be a bare http(s) origin — no path, credentials, query, or fragment. */
 export const validatePublicUrl = (input: string): PublicUrlValidation => {
   const trimmed = input.trim()
   const url = parseHttpUrl(trimmed)
@@ -181,8 +181,15 @@ export const validatePublicUrl = (input: string): PublicUrlValidation => {
         "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
     }
   }
+  if (url.pathname !== "/") {
+    return {
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/).",
+    }
+  }
   // Trim trailing slashes so the connect URL is `${base}/mcp`, never
-  // `${base}//mcp` — URL.href/.origin don't round-trip reverse-proxy subpaths.
+  // `${base}//mcp`.
   return { kind: "ok", url: trimmed.replace(/\/+$/, "") }
 }
 
