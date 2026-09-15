@@ -92,7 +92,7 @@ Section boundaries: a section spans from its heading to the next heading of the 
 
 Errors:
 - "heading not found" — no heading matches the text; error lists available headings
-- "ambiguous heading" — multiple headings match; use heading_level to disambiguate
+- "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or read the full note (omit heading) when headings share the same level
 - "outline, heading, and properties_only are mutually exclusive" — only one mode per call
 - "line paging is not available in outline mode" / "... properties_only mode" — start_line/limit only work on text renditions (full read or heading section)
 - "start line past the end" — start_line exceeds the rendition's line count; error states the total
@@ -487,7 +487,7 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
 Errors:
 - "note not found" — path does not exist; check vault_list_notes for valid paths
 - "heading not found" — no heading matches the text; error lists available headings
-- "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or rename a heading if they share the same level
+- "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or${whenToolEnabledText("vault_replace_in_note", " use vault_replace_in_note to")} target by text content when headings share the same level
 - "operation … requires a heading target" — replace and insert_before need a heading
 - "content begins with the heading … which would duplicate it" — content's first line repeats the target heading; omit it (the matched heading is kept automatically)
 - "section … has N child headings …" — the target section contains child headings that replace would destroy; pass include_children: true to confirm, or target the child heading directly

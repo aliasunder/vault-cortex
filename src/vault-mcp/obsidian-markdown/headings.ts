@@ -306,7 +306,7 @@ export const findHeading = (
       firstMatch !== undefined &&
       matches.every((heading) => heading.level === firstMatch.level)
     const hint = allSameLevel
-      ? "Rename one heading to make it unique, or use vault_replace_in_note to target by text."
+      ? "Rename one heading to make it unique, or target by text content instead."
       : "Use heading_level to disambiguate."
     throw new Error(
       `ambiguous heading: "${searchText}" matches ${matches.length} sections: ${matchedHeadings}. ${hint}`,
