@@ -213,6 +213,8 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     const parsed: OAuthClientInformationFull = JSON.parse(row.data)
     if (!parsed.client_secret) return parsed
 
+    // Rows written before this field was stored at registration time lack it;
+    // inject at read so the SDK enforces secret-based auth for every client.
     return { ...parsed, token_endpoint_auth_method: "client_secret_post" }
   }
 
