@@ -1498,7 +1498,7 @@ describe("validatePublicUrl", () => {
     expect(validatePublicUrl("https://vault.example.com/?tab=2")).toEqual({
       kind: "error",
       message:
-        "PUBLIC_URL must be a bare origin or path — no query string (?...) or fragment (#...).",
+        "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
     })
   })
 
@@ -1506,7 +1506,7 @@ describe("validatePublicUrl", () => {
     expect(validatePublicUrl("https://vault.example.com/#section")).toEqual({
       kind: "error",
       message:
-        "PUBLIC_URL must be a bare origin or path — no query string (?...) or fragment (#...).",
+        "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
     })
   })
 
@@ -1514,7 +1514,7 @@ describe("validatePublicUrl", () => {
     expect(validatePublicUrl("https://vault.example.com/?")).toEqual({
       kind: "error",
       message:
-        "PUBLIC_URL must be a bare origin or path — no query string (?...) or fragment (#...).",
+        "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
     })
   })
 
@@ -1522,7 +1522,22 @@ describe("validatePublicUrl", () => {
     expect(validatePublicUrl("https://vault.example.com/#")).toEqual({
       kind: "error",
       message:
-        "PUBLIC_URL must be a bare origin or path — no query string (?...) or fragment (#...).",
+        "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    })
+  })
+
+  it("rejects a URL with a path prefix", () => {
+    expect(validatePublicUrl("https://vault.example.com/vault/")).toEqual({
+      kind: "error",
+      message:
+        "PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/).",
+    })
+  })
+
+  it("accepts a bare origin with redundant trailing slashes", () => {
+    expect(validatePublicUrl("https://vault.example.com//")).toEqual({
+      kind: "ok",
+      url: "https://vault.example.com",
     })
   })
 })

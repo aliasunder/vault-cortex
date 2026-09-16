@@ -11,8 +11,8 @@ notes below describe what the maintainer uses.
 ### Server attack surface
 
 - **Authentication and authorization** — OAuth 2.1 (Authorization Code + PKCE),
-  JWT tokens (HS256), static bearer token fallback, Express middleware (defense
-  in depth)
+  per-client secrets (`client_secret_post`), JWT tokens (HS256), static bearer
+  token fallback, Express middleware (defense in depth)
 - **Express server** — handles MCP protocol messages, OAuth flows, and the
   consent page. On the `:remote` image it also serves the `/setup` sign-in
   page until a working Sync token is on the volume (see

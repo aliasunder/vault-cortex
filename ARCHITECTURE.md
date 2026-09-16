@@ -567,6 +567,10 @@ healthchecks.
 
 **OAuth flow at a glance:**
 
+Dynamic registration issues a per-client secret and declares `client_secret_post`.
+Clients persist that secret and include it in the request body for token exchange,
+refresh, and revocation. S256 PKCE also protects the authorization-code exchange.
+
 ```text
 1. Client → POST /mcp (no token)                          → 401 → client starts OAuth
 2. Client → GET /.well-known/oauth-protected-resource     → discover auth server
@@ -577,9 +581,9 @@ healthchecks.
 4. Client → POST /register                                → dynamic client registration
 5. Client → GET /authorize?...&code_challenge=...         → consent page in browser
 6. User enters MCP_AUTH_TOKEN in consent page → POST /oauth/decide → redirect with auth code
-7. Client → POST /token (code + code_verifier)            → JWT access token + refresh token
+7. Client → POST /token (code + code_verifier + client_id + client_secret) → JWT access token + refresh token
 8. Client → POST /mcp (Authorization: Bearer <JWT>)       → MCP requests (dual-validated)
-9. Token expires → POST /token (refresh_token)            → new JWT (silent, no browser)
+9. Token expires → POST /token (refresh_token + client_id + client_secret) → new JWT (silent, no browser)
 ```
 
 **In detail:**
@@ -615,7 +619,7 @@ sequenceDiagram
     C->>E: POST /oauth/decide (token + approve)
     E-->>C: 302 redirect with auth code
 
-    C->>E: POST /token (code + code_verifier)
+    C->>E: POST /token (code + code_verifier + client_id + client_secret)
     E->>DB: Store refresh token
     E-->>C: {access_token: JWT, refresh_token}
 
@@ -629,7 +633,7 @@ sequenceDiagram
     E-->>C: MCP response
 
     Note over C,E: Silent Token Refresh (6h cycle)
-    C->>E: POST /token (refresh_token)
+    C->>E: POST /token (refresh_token + client_id + client_secret)
     E->>DB: Consume old, store new refresh token
     E-->>C: {access_token: new JWT, refresh_token: new}
 ```
@@ -1237,7 +1241,7 @@ Any VPS with comparable specs works — the table above prices the Lightsail ref
 | API Gateway over Caddy                      | Free HTTPS URL without a custom domain, SST native, and a Lambda authorizer for path-aware auth (OAuth endpoints pass through, `/mcp` validates). Tradeoff: 10-minute idle timeout on HTTP connections can cause `Connection closed` on first call after idle.                                                                                                                                                                                                                                                                                                                                    |
 | Obsidian Sync over git-based sync           | Bidirectional real-time sync to all devices, automatic conflict resolution, no manual push/pull. Tradeoff: dependency on Obsidian's proprietary cloud service.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Single image over a separate sync container | The two processes have shared fate through `/vault` — the MCP server without sync serves a stale vault; sync without the server serves nothing — so a single supervised container is the semantically honest packaging, not a convenience bundle. One image also means one repo, one CI, one version, and no Compose requirement for users (`docker run`/Podman/nerdctl all work). The `local` target has no sync process and stays single-process under tini.                                                                                                                                    |
-| OAuth 2.1 + static token                    | OAuth 2.1 (PKCE) for browser-capable clients — automatic token refresh, no secret in config after consent. Static bearer token for CLI tools and scripts where a browser flow isn't practical. Both validated at two independent layers (Lambda + Express) using the same HMAC key.                                                                                                                                                                                                                                                                                                               |
+| OAuth 2.1 + static token                    | OAuth 2.1 (PKCE) for browser-capable clients — automatic token refresh, no `MCP_AUTH_TOKEN` in client config after consent. Static bearer token for CLI tools and scripts where a browser flow isn't practical. Both validated at two independent layers (Lambda + Express) using the same HMAC key.                                                                                                                                                                                                                                                                                              |
 | Custom JWT over JWT libraries               | 50-line HS256 implementation vs 200KB+ library bundle. Lambda authorizer stays tiny. Constant-time comparison prevents timing attacks. Acceptable for a single-algorithm use case.                                                                                                                                                                                                                                                                                                                                                                                                                |
 | JWT over opaque tokens                      | Verifiable at Lambda edge without shared state. HS256 with MCP_AUTH_TOKEN.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | 60-day sliding refresh                      | Active clients never re-auth; leaked tokens bounded. Standard OAuth practice.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
