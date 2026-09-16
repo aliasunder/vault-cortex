@@ -614,7 +614,7 @@ describe("default config", () => {
       const setJson = JSON.parse(textContent(setResult))
       expect(setJson).toEqual({
         path: "Projects/recurring.md",
-        line: 8,
+        line: 9,
         description: "Temp task",
         block_id: "temp-task",
         heading: "Habits",
@@ -641,7 +641,7 @@ describe("default config", () => {
       const clearJson = JSON.parse(textContent(clearResult))
       expect(clearJson).toEqual({
         path: "Projects/recurring.md",
-        line: 8,
+        line: 9,
         description: "Temp task",
         block_id: "temp-task",
         heading: "Habits",
