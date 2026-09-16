@@ -14,7 +14,11 @@ import type { Server } from "node:http"
 import type { Response } from "express"
 import express from "express"
 import type { AuthorizationParams } from "@modelcontextprotocol/sdk/server/auth/provider.js"
-import { OAuthProtectedResourceMetadataSchema } from "@modelcontextprotocol/sdk/shared/auth.js"
+import {
+  OAuthProtectedResourceMetadataSchema,
+  OAuthMetadataSchema,
+  OAuthClientInformationFullSchema,
+} from "@modelcontextprotocol/sdk/shared/auth.js"
 import { createOAuthProvider } from "../oauth-provider.js"
 import type { OAuthProvider } from "../oauth-provider.js"
 import { createOAuthRoutes } from "../oauth-routes.js"
@@ -700,6 +704,21 @@ describe("OAuth protected resource metadata", () => {
   }
   const SUFFIXED_RESOURCE = "http://localhost:8000/mcp"
 
+  it("advertises only client_secret_post while retaining S256 PKCE", async () => {
+    const response = await fetch(
+      `${baseUrl}/.well-known/oauth-authorization-server`,
+    )
+    expect(response.status).toBe(200)
+    const metadata = OAuthMetadataSchema.parse(await response.json())
+    expect(metadata.token_endpoint_auth_methods_supported).toEqual([
+      "client_secret_post",
+    ])
+    expect(metadata.revocation_endpoint_auth_methods_supported).toEqual([
+      "client_secret_post",
+    ])
+    expect(metadata.code_challenge_methods_supported).toEqual(["S256"])
+  })
+
   // Also the guard against a future `resourceServerUrl` pass to
   // mcpAuthRouter: that would MOVE the SDK's metadata route to the suffixed
   // path and this root fetch would 404.
@@ -864,12 +883,11 @@ describe("OAuth refresh over HTTP", () => {
     return registered
   }
 
-  /** Consent page → approve → PKCE code exchange, all over HTTP. */
-  const issueTokens = async (
+  const issueCode = async (
     baseUrl: string,
     client: RegisteredClient,
     forwardedClientIp: string,
-  ): Promise<IssuedTokens> => {
+  ): Promise<{ code: string; verifier: string }> => {
     const verifier = base64Url(randomBytes(32))
     const challenge = base64Url(createHash("sha256").update(verifier).digest())
     const authorizeUrl = new URL(`${baseUrl}/authorize`)
@@ -904,6 +922,20 @@ describe("OAuth refresh over HTTP", () => {
     const location = decision.headers.get("location")
     const code = location ? new URL(location).searchParams.get("code") : null
     if (!code) throw new Error(`consent did not redirect with a code`)
+    return { code, verifier }
+  }
+
+  /** Consent page → approve → PKCE code exchange, all over HTTP. */
+  const issueTokens = async (
+    baseUrl: string,
+    client: RegisteredClient,
+    forwardedClientIp: string,
+  ): Promise<IssuedTokens> => {
+    const { code, verifier } = await issueCode(
+      baseUrl,
+      client,
+      forwardedClientIp,
+    )
     const tokenResponse = await fetch(`${baseUrl}/token`, {
       method: "POST",
       headers: {
@@ -952,6 +984,111 @@ describe("OAuth refresh over HTTP", () => {
         ...(scope === undefined ? {} : { scope }),
       }),
     })
+
+  it.each(["none", "client_secret_post", undefined])(
+    "returns the effective registration method for requested %s",
+    async (method) => {
+      const { baseUrl } = await createRefreshTest()
+      const response = await fetch(`${baseUrl}/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          redirect_uris: [REDIRECT_URI],
+          ...(method ? { token_endpoint_auth_method: method } : {}),
+        }),
+      })
+      expect(response.status).toBe(201)
+      const client = OAuthClientInformationFullSchema.parse(
+        await response.json(),
+      )
+      expect(client.token_endpoint_auth_method).toBe("client_secret_post")
+      expect(client.client_secret).toMatch(/^[a-f0-9]{64}$/)
+    },
+  )
+
+  it.each(["authorization_code", "refresh_token"])(
+    "rejects missing and wrong secrets without consuming the %s grant",
+    async (grantType) => {
+      const { baseUrl } = await createRefreshTest()
+      const client = await registerClient(baseUrl, "203.0.113.10")
+      const createGrant = async (): Promise<Record<string, string>> => {
+        if (grantType === "authorization_code") {
+          const { code, verifier } = await issueCode(
+            baseUrl,
+            client,
+            "203.0.113.10",
+          )
+          return { code, code_verifier: verifier, redirect_uri: REDIRECT_URI }
+        }
+        const { refresh_token } = await issueTokens(
+          baseUrl,
+          client,
+          "203.0.113.10",
+        )
+        return { refresh_token }
+      }
+      const grant = await createGrant()
+      const exchange = (secret?: string) =>
+        fetch(`${baseUrl}/token`, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: grantType,
+            client_id: client.client_id,
+            ...grant,
+            ...(secret ? { client_secret: secret } : {}),
+          }),
+        })
+
+      const missing = await exchange()
+      expect(missing.status).toBe(400)
+      expect(await missing.json()).toEqual({
+        error: "invalid_client",
+        error_description: "Client secret is required",
+      })
+      const wrong = await exchange("incorrect-secret")
+      expect(wrong.status).toBe(400)
+      expect(await wrong.json()).toEqual({
+        error: "invalid_client",
+        error_description: "Invalid client_secret",
+      })
+      const accepted = await exchange(client.client_secret)
+      expect(accepted.status).toBe(200)
+      const tokens: unknown = await accepted.json()
+      // access_token and refresh_token are random; assert the full key set
+      // with expect.any(String) for the nondeterministic values.
+      expect(tokens).toEqual({
+        token_type: "Bearer",
+        scope: "vault",
+        expires_in: 21600,
+        access_token: expect.any(String),
+        refresh_token: expect.any(String),
+      })
+    },
+  )
+
+  it("rejects an incorrect PKCE verifier even when the client secret is valid", async () => {
+    const { baseUrl } = await createRefreshTest()
+    const client = await registerClient(baseUrl, "203.0.113.11")
+    const { code } = await issueCode(baseUrl, client, "203.0.113.11")
+    const response = await fetch(`${baseUrl}/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        client_id: client.client_id,
+        client_secret: client.client_secret,
+        code,
+        code_verifier: "incorrect-verifier",
+        redirect_uri: REDIRECT_URI,
+      }),
+    })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: "invalid_grant",
+      error_description: "code_verifier does not match the challenge",
+    })
+  })
 
   it("rejects a refresh token presented by a different client with invalid_grant", async () => {
     const { baseUrl } = await createRefreshTest()

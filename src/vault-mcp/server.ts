@@ -94,10 +94,25 @@ const startServer = async (): Promise<void> => {
   }
   const publicUrl = env.get("PUBLIC_URL").required().asString()
   const serverUrl = new URL(publicUrl)
+  if (serverUrl.protocol !== "http:" && serverUrl.protocol !== "https:") {
+    throw new Error(
+      "PUBLIC_URL must be an http:// or https:// URL (e.g. https://vault.example.com)",
+    )
+  }
   // Credentials in the URL would be minted into every token's `iss`
   // claim and served by the discovery documents — refuse to start.
   if (urlHasCredentials(serverUrl)) {
     throw new Error("PUBLIC_URL must not contain credentials (user:password@)")
+  }
+  if (publicUrl.includes("?") || publicUrl.includes("#")) {
+    throw new Error(
+      "PUBLIC_URL must be a bare origin — no query string or fragment",
+    )
+  }
+  if (serverUrl.pathname.replace(/\/+$/, "") !== "") {
+    throw new Error(
+      "PUBLIC_URL must be a bare origin — path prefixes are not supported (e.g. https://vault.example.com)",
+    )
   }
 
   const indexDbPath = env.get("INDEX_DB_PATH").asString()
