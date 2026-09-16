@@ -96,8 +96,18 @@ const startServer = async (): Promise<void> => {
   const serverUrl = new URL(publicUrl)
   // Credentials in the URL would be minted into every token's `iss`
   // claim and served by the discovery documents — refuse to start.
+  if (serverUrl.protocol !== "http:" && serverUrl.protocol !== "https:") {
+    throw new Error(
+      "PUBLIC_URL must be an http:// or https:// URL (e.g. https://vault.example.com)",
+    )
+  }
   if (urlHasCredentials(serverUrl)) {
     throw new Error("PUBLIC_URL must not contain credentials (user:password@)")
+  }
+  if (publicUrl.includes("?") || publicUrl.includes("#")) {
+    throw new Error(
+      "PUBLIC_URL must be a bare origin — no query string or fragment",
+    )
   }
   if (serverUrl.pathname.replace(/\/+$/, "") !== "") {
     throw new Error(

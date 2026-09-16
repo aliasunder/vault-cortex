@@ -1055,7 +1055,15 @@ describe("OAuth refresh over HTTP", () => {
       const accepted = await exchange(client.client_secret)
       expect(accepted.status).toBe(200)
       const tokens: unknown = await accepted.json()
-      expect(isIssuedTokens(tokens)).toBe(true)
+      // access_token and refresh_token are random; assert the full key set
+      // with expect.any(String) for the nondeterministic values.
+      expect(tokens).toEqual({
+        token_type: "Bearer",
+        scope: "vault",
+        expires_in: 21600,
+        access_token: expect.any(String),
+        refresh_token: expect.any(String),
+      })
     },
   )
 

@@ -645,7 +645,8 @@ binding claims ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
 
 - `iss` — the normalized `PUBLIC_URL` (a bare origin gains a trailing slash).
 - `aud` — the MCP endpoint's canonical URI: the origin of `PUBLIC_URL` plus
-  `/mcp`. A path prefix on `PUBLIC_URL` is not part of the audience.
+  `/mcp`. `PUBLIC_URL` must be a bare origin; path prefixes are rejected at
+  startup.
 - Each verifier checks both claims against its own copy of `PUBLIC_URL` — the
   Lambda reads its function environment, Express the instance `.env` — so a
   token minted by another deployment is rejected even when the two share a
