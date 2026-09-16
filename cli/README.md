@@ -15,7 +15,7 @@ and data files — see the
 The server runs as a Docker container; this CLI scaffolds the config and
 manages the container so you don't have to.
 
-![npx vault-cortex@latest init — the interactive setup wizard picks a mode, finds your vault, offers the optional settings, generates the config, and starts the server](https://raw.githubusercontent.com/aliasunder/vault-cortex/main/assets/demo-cli-init.gif)
+<p align="center"><img src="https://raw.githubusercontent.com/aliasunder/vault-cortex/main/assets/demo-cli-init.gif" width="720" alt="npx vault-cortex@latest init — the interactive setup wizard picks a mode, finds your vault, offers the optional settings, generates the config, and starts the server"></p>
 
 ## Commands
 

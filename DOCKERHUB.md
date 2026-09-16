@@ -64,7 +64,7 @@ See the [full Quick Start guide](https://github.com/aliasunder/vault-cortex#quic
 
 ## Files
 
-Your notes embed screenshots, reference architecture diagrams, and link out to canvases and data files — but to an agent reading markdown, `![[diagram.png]]` is just text. vault-cortex treats files as part of the vault rather than clutter around it — linked, sized, and readable, each in the form an agent can actually use:
+Your notes embed screenshots, reference architecture diagrams, and link out to canvases and data files — but to an agent reading markdown, `![[diagram.png]]` is just text. Vault Cortex treats files as part of the vault rather than clutter around it — linked, sized, and readable, each in the form an agent can actually use:
 
 - **Images** — the image itself, not the filename. Screenshots and diagrams are downscaled and recompressed server-side when they exceed what MCP clients accept, so even a phone session can look at a 5MB architecture diagram
 - **Canvases** — a [Canvas](https://help.obsidian.md/canvas) board arrives as a readable outline: its groups, each card's content in reading order, and the connections between them. Canvas content is full-text searchable, and file references on the board appear in the link graph — backlinks and outgoing links work just like note-to-note links. The exact JSON source is one flag away when full fidelity matters
@@ -81,7 +81,7 @@ See [ARCHITECTURE.md → Files](https://github.com/aliasunder/vault-cortex/blob/
 ## Tools
 
 | Category | Tool | Description |
-| --------------- | ---------------------------- | --------------------------------------------------------------------------------------- |
+| --------------- | ---------------------------- | ----------------------------------------------------------------------------------------- |
 | **Vault CRUD** | `vault_read_note` | Read a note — full body, properties, outline, or a section |
 |  | `vault_write_note` | Create a note (fails if it already exists; set `overwrite` to replace) |
 |  | `vault_patch_note` | Heading-targeted edit (append, prepend, replace with `include_children` guard, insert) |
@@ -179,7 +179,7 @@ All settings are environment variables with sensible defaults. Remote deployment
 | `MAX_FILE_BYTES` | — | `52428800` (50 MiB) | Maximum file size `vault_read_file` will read (in bytes). Files exceeding this are rejected before reading. Raise for vaults with very large individual files. |
 | `MAX_IMAGE_OUTPUT_BYTES` | — | `49152` (48 KiB) | Byte budget for images delivered by `vault_read_file`, in binary bytes before base64 encoding. Images exceeding this are downscaled and recompressed to fit. Sized for the tightest mainstream MCP client cap; raise for clients that accept larger responses. |
 | `MAX_PDF_RENDER_PAGES` | — | `5` | Maximum PDF pages to render as images when `raw: true` is set on `vault_read_file`. The per-page byte budget is `MAX_IMAGE_OUTPUT_BYTES` divided evenly across the rendered pages — fewer pages means higher quality each. |
-| `TRASH_RETENTION_DAYS` | — | `30` | Days a note deleted under Obsidian's default "Move to system trash" setting stays in `.trash/` before the server cleans it up. Set `none` to keep those notes forever. Only notes the server itself moved there are cleaned up. Local deployments only — with Obsidian Sync, deletes are permanent on the server and recoverable from Sync's version history. |
+| `TRASH_RETENTION_DAYS` | Local only | `30` | Days a note deleted under Obsidian's default "Move to system trash" setting stays in `.trash/` before the server cleans it up. Set `none` to keep those notes forever. Only notes the server itself moved there are cleaned up. With Obsidian Sync, deletes are permanent on the server and recoverable from Sync's version history. |
 | `TRUST_PROXY_HOPS` | — | `0` | Number of trusted reverse-proxy hops used to derive the client IP from `X-Forwarded-For` (OAuth rate limiting, request logs). Set `1` when exactly one proxy you control sits in front of the server (Caddy, nginx, Cloudflare Tunnel, API Gateway). With `0`, injected forwarding headers are ignored. |
 | `TRUST_FORWARDED_HOPS` | — | `0` | How many trailing `for=` entries in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header belong to proxies you control. `0` ignores the header; `1` when the proxy in front writes it (e.g. AWS API Gateway); `2` when a CDN fronts that proxy and is the only way to reach it. |
 
