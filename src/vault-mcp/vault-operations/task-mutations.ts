@@ -1737,7 +1737,6 @@ const updateTask = async (
         heading: headingBefore?.text,
         next_occurrence: nextOccurrence,
         changes,
-        ...(advisories.length > 0 && { advisories }),
         on_completion_applied: "delete",
       }
     }
