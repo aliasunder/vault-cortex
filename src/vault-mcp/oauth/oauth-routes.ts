@@ -2,7 +2,10 @@
 
 import express, { Router } from "express"
 import type { NextFunction, Request, Response } from "express"
-import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
+import {
+  createOAuthMetadata,
+  mcpAuthRouter,
+} from "@modelcontextprotocol/sdk/server/auth/router.js"
 import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/metadata.js"
 import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
 import {
@@ -104,6 +107,21 @@ export const createOAuthRoutes = ({
   router.use(
     "/.well-known/oauth-protected-resource/mcp",
     metadataHandler(mcpResourceMetadata),
+  )
+
+  // The SDK includes public-client auth, but our registrations require a secret.
+  router.use(
+    "/.well-known/oauth-authorization-server",
+    metadataHandler({
+      ...createOAuthMetadata({
+        provider,
+        issuerUrl: serverUrl,
+        serviceDocumentationUrl: new URL(serviceDocumentationUrl),
+        scopesSupported,
+      }),
+      token_endpoint_auth_methods_supported: ["client_secret_post"],
+      revocation_endpoint_auth_methods_supported: ["client_secret_post"],
+    }),
   )
 
   // SDK-managed OAuth routes — /.well-known/*, /authorize, /token, /register, /revoke

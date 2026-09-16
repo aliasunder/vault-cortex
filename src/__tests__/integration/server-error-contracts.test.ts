@@ -5,6 +5,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
   startServer,
+  startServerExpectingFailure,
   createTestClient,
   freePort,
   callTool,
@@ -1222,5 +1223,40 @@ describe("path extension errors", () => {
       args: { path: "Boards/roadmap.canvas" },
     })
     expect(result.isError).not.toBe(true)
+  })
+})
+
+// ── Startup validation ─────────────────────────────────────
+
+describe("startup validation", () => {
+  it("rejects a path-prefixed PUBLIC_URL at boot", async () => {
+    const port = await freePort()
+    const { exitCode, stderr } = await startServerExpectingFailure(port, {
+      PUBLIC_URL: `http://127.0.0.1:${port}/vault/`,
+    })
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain(
+      "PUBLIC_URL must be a bare origin — path prefixes are not supported",
+    )
+  })
+
+  it("rejects a non-http(s) PUBLIC_URL at boot", async () => {
+    const port = await freePort()
+    const { exitCode, stderr } = await startServerExpectingFailure(port, {
+      PUBLIC_URL: `htps://127.0.0.1:${port}`,
+    })
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain("PUBLIC_URL must be an http:// or https:// URL")
+  })
+
+  it("rejects a PUBLIC_URL with a query string at boot", async () => {
+    const port = await freePort()
+    const { exitCode, stderr } = await startServerExpectingFailure(port, {
+      PUBLIC_URL: `http://127.0.0.1:${port}?debug=1`,
+    })
+    expect(exitCode).not.toBe(0)
+    expect(stderr).toContain(
+      "PUBLIC_URL must be a bare origin — no query string or fragment",
+    )
   })
 })
