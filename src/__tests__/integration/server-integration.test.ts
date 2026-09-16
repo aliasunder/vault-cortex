@@ -612,7 +612,14 @@ describe("default config", () => {
       })
       expect(setResult.isError).not.toBe(true)
       const setJson = JSON.parse(textContent(setResult))
-      expect(setJson.changes).toEqual(["on_completion: delete → keep"])
+      expect(setJson).toEqual({
+        path: "Projects/recurring.md",
+        line: 9,
+        description: "Temp task",
+        block_id: "temp-task",
+        heading: "Habits",
+        changes: ["on_completion: delete → keep"],
+      })
 
       const clearResult = await callTool({
         client,
@@ -625,10 +632,18 @@ describe("default config", () => {
       })
       expect(clearResult.isError).not.toBe(true)
       const clearJson = JSON.parse(textContent(clearResult))
-      expect(clearJson.changes).toEqual(["on_completion: keep → (none)"])
+      expect(clearJson).toEqual({
+        path: "Projects/recurring.md",
+        line: 9,
+        description: "Temp task",
+        block_id: "temp-task",
+        heading: "Habits",
+        changes: ["on_completion: keep → (none)"],
+      })
     })
 
     it("vault_create_task — on_completion appears in the created line", async () => {
+      const todayDate = DateTime.now().toISODate()
       const result = await callTool({
         client,
         name: "vault_create_task",
@@ -642,8 +657,17 @@ describe("default config", () => {
       })
       expect(result.isError).not.toBe(true)
       const json = JSON.parse(textContent(result))
-      // changes include the auto-stamped created date and the on_completion field
-      expect(json.changes).toContain("on_completion: (none) → delete")
+      expect(json).toEqual({
+        path: "Projects/recurring.md",
+        line: 10,
+        description: "Disposable task",
+        block_id: "disposable",
+        heading: "Habits",
+        changes: [
+          `created: (none) → ${todayDate}`,
+          "on_completion: (none) → delete",
+        ],
+      })
 
       const readback = await callTool({
         client,
@@ -651,9 +675,11 @@ describe("default config", () => {
         args: { path: "Projects/recurring.md", heading: "Habits" },
       })
       // The section carries tasks mutated by prior integration tests in
-      // the same server boot, so only the created task is asserted here.
-      expect(textContent(readback)).toContain("🏁 delete")
-      expect(textContent(readback)).toContain("^disposable")
+      // the same server boot (the ✅ date from the recurrence test is not
+      // available here), so only the created task's line is asserted.
+      expect(textContent(readback)).toContain(
+        `🏁 delete ➕ ${todayDate} ^disposable`,
+      )
     })
   })
 
