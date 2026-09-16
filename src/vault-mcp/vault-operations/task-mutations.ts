@@ -1737,6 +1737,12 @@ const updateTask = async (
         heading: headingBefore?.text,
         next_occurrence: nextOccurrence,
         changes,
+        // Round-trip advisories are about a line that no longer exists —
+        // drop them. Recurrence advisories ("rule unreadable, no spawn")
+        // matter because the caller needs to know the chain broke.
+        ...(recurrenceSpawn.kind === "advisory" && {
+          advisories: [recurrenceSpawn.advisory],
+        }),
         on_completion_applied: "delete",
       }
     }
