@@ -232,7 +232,7 @@ reference). Otherwise resume with `docker compose up -d` or
 
 ## Windows (Docker Desktop)
 
-vault-cortex runs in a Linux container, so on Windows it reaches your vault through
+Vault Cortex runs in a Linux container, so on Windows it reaches your vault through
 Docker Desktop's WSL2 bridge. Two things need a non-default code path across that
 bridge: live re-indexing (the file watcher's native filesystem events don't cross it)
 and `vault_move_note` (its atomic hard-link write isn't supported there). **Setting
@@ -348,6 +348,6 @@ manage the container independently — stop the existing one first with
 
 ## Building from source
 
-If you want to modify vault-cortex and build from source, clone the repo and
+If you want to modify Vault Cortex and build from source, clone the repo and
 use `docker-compose.local.yml` in the repo root instead. See
 [CONTRIBUTING.md](../../CONTRIBUTING.md) for the full development setup.
