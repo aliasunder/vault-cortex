@@ -614,12 +614,19 @@ describe("default config", () => {
       const setJson = JSON.parse(textContent(setResult))
       expect(setJson).toEqual({
         path: "Projects/recurring.md",
-        line: 9,
+        line: 8,
         description: "Temp task",
         block_id: "temp-task",
         heading: "Habits",
         changes: ["on_completion: delete → keep"],
       })
+
+      const setReadback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/recurring.md", heading: "Habits" },
+      })
+      expect(textContent(setReadback)).toContain("🏁 keep")
 
       const clearResult = await callTool({
         client,
@@ -634,7 +641,7 @@ describe("default config", () => {
       const clearJson = JSON.parse(textContent(clearResult))
       expect(clearJson).toEqual({
         path: "Projects/recurring.md",
-        line: 9,
+        line: 8,
         description: "Temp task",
         block_id: "temp-task",
         heading: "Habits",

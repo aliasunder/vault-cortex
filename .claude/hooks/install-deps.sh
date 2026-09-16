@@ -45,7 +45,7 @@ if [[ -d "${checkout}/node_modules" && ! -f "${marker}" ]]; then
     # failure leaves .sst/platform missing; retry on each session until it lands.
     if [[ ! -f "${checkout}/.sst/platform/config.d.ts" ]]; then
       log "node_modules present but SST platform types missing in ${checkout} — installing"
-      npx sst install >&2 || log "sst install failed — build:sst will not typecheck"
+      (cd "${checkout}" && npx sst install >&2) || log "sst install failed — build:sst will not typecheck"
     fi
     log "node_modules present in ${checkout} — nothing to do"
     exit 0
