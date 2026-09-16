@@ -3735,12 +3735,18 @@ title: Tasks
       logger,
     )
 
-    expect(result.changes).toEqual([
-      `created: (none) → ${today()}`,
-      "recurrence: (none) → every week",
-      "on_completion: (none) → delete",
-      "due: (none) → 2026-01-05",
-    ])
+    expect(result).toEqual({
+      path: "tasks.md",
+      line: 7,
+      description: "Auto-clean task",
+      block_id: "auto-clean",
+      changes: [
+        `created: (none) → ${today()}`,
+        "recurrence: (none) → every week",
+        "on_completion: (none) → delete",
+        "due: (none) → 2026-01-05",
+      ],
+    })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       `---\ntitle: Tasks\n---\n\n- [ ] Existing ➕ 2026-01-01\n\n- [ ] Auto-clean task 🔁 every week 🏁 delete ➕ ${today()} 📅 2026-01-05 ^auto-clean\n`,
@@ -5346,6 +5352,46 @@ title: Tasks
 - [x] Deploy and clean up 🏁 delete ➕ 2026-07-01 ✅ ${today()} ^deploy-cleanup
 - [ ] Other task ➕ 2026-07-02 ^other
 `)
+    })
+
+    it("returns the recurrence advisory when a delete task's rule is unreadable", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n## Active\n\n- [ ] Fuzzy habit 🔁 whenever 🏁 delete 📅 2026-01-05 ^fuzzy\n- [ ] Other task ➕ 2026-07-02 ^other\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "fuzzy",
+          status: "done",
+        },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 7,
+        description: "Fuzzy habit",
+        block_id: "fuzzy",
+        heading: "Active",
+        changes: [
+          "status: todo → done",
+          "on_completion: task removed (🏁 delete)",
+        ],
+        advisories: [
+          'The task was completed, but its recurrence rule "whenever" is not a rule the Tasks plugin recognizes, so no next occurrence was created.',
+        ],
+        on_completion_applied: "delete",
+      })
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n## Active\n\n- [ ] Other task ➕ 2026-07-02 ^other\n`,
+      )
     })
   })
 })
