@@ -305,15 +305,15 @@ The extension-to-representation routing above is implemented by the `vault-opera
 
 ### Tasks
 
-| Tool                | Input                                                                                                                                                                                             | Annotation       |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, top_level_only?, sort_by?, sort_direction?, limit?`                                   | readOnlyHint     |
-| `vault_create_task` | `path, description, block_id, heading?, parent_block_id?, parent_line?, position?, priority?, recurrence?, due?, scheduled?, start?, task_id?, depends_on?, subtasks?, format?`                   | !destructiveHint |
-| `vault_update_task` | `path, block_id?, line?, status?, priority?, recurrence?, description?, due?, scheduled?, start?, created?, task_id?, depends_on?, add_subtasks?, assign_block_id?, heading?, position?, format?` | destructiveHint  |
+| Tool                | Input                                                                                                                                                                                                             | Annotation       |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `vault_list_tasks`  | `status?, due?, scheduled?, start?, created?, done?, cancelled?, priority?, folder?, tag?, heading?, path?, top_level_only?, sort_by?, sort_direction?, limit?`                                                   | readOnlyHint     |
+| `vault_create_task` | `path, description, block_id, heading?, parent_block_id?, parent_line?, position?, priority?, recurrence?, on_completion?, due?, scheduled?, start?, task_id?, depends_on?, subtasks?, format?`                   | !destructiveHint |
+| `vault_update_task` | `path, block_id?, line?, status?, priority?, recurrence?, on_completion?, description?, due?, scheduled?, start?, created?, task_id?, depends_on?, add_subtasks?, assign_block_id?, heading?, position?, format?` | destructiveHint  |
 
 A `tasks` table in the same SQLite database stores every checkbox task line, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a reimplementation of the [Tasks plugin](https://publish.obsidian.md/tasks/)'s own parser:
 
-- **Right-to-left signifier stripping** — status, all six dates, priority, recurrence, dependencies, inline tags, block IDs.
+- **Right-to-left signifier stripping** — status, all six dates, priority, recurrence, onCompletion, dependencies, inline tags, block IDs.
 - **Both formats in one pass** — emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields are recognized together (the plugin reads one configured format per vault), so mixed-format vaults index uniformly.
 - **Fences and comments skipped** — task lines inside fenced code blocks and `%% %%` comments are ignored; the parser threads the same fence and comment state machines as heading and link extraction (`lines.ts`).
 - **Sub-task depth** — an indent stack during extraction gives each task a `depth` (0 for top-level, 1+ for sub-tasks) and a `parent_block_id` (the parent's block_id, when it has one). Blockquote markers are stripped before measuring indent; a plain list item at a task's indent closes that task's sub-task scope (a task nested under a non-task bullet is top-level); depth resets at heading boundaries.
@@ -332,17 +332,17 @@ Four design choices shape the query surface:
 - **Date cascade sorting** — when the primary sort date is absent on a task, actionable date sorts fall back through the remaining fields in urgency order (due → scheduled → start → created), each using its own natural direction. (`done`, a terminal-state date, stands alone.) Tasks with sparse dates sort usably instead of clustering at the end.
 - **Kanban awareness** — each task carries an `is_kanban_task` flag, derived via `json_extract` on the parent note's `kanban-plugin` frontmatter (no schema changes). When true, `heading` carries the lane name, and `sort_by: "position"` (file path then line number) preserves the board's card arrangement as the sort order. A `done_lanes` field (populated at index time by scanning for the Kanban plugin's `**Complete**` marker between headings and list items) tells agents which lane(s) represent task completion.
 
-`vault_create_task` builds a task line (description, priority, recurrence, dates, `task_id`, `depends_on`, `block_id`) plus optional checklist sub-item lines. The line builder is a pure string transform in `obsidian-markdown/tasks.ts`; the I/O orchestration lives in `vault-operations/task-mutations.ts`:
+`vault_create_task` builds a task line (description, priority, recurrence, `on_completion`, dates, `task_id`, `depends_on`, `block_id`) plus optional checklist sub-item lines. The line builder is a pure string transform in `obsidian-markdown/tasks.ts`; the I/O orchestration lives in `vault-operations/task-mutations.ts`:
 
-- **Field ordering is guaranteed** — description → priority → 🔁 recurrence → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id.
+- **Field ordering is guaranteed** — description → priority → 🔁 recurrence → 🏁 onCompletion → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id.
 - **Always `[ ]`** — creating a task is not starting it.
 - **Placement** — a heading (required on Kanban boards), a parent task (for sub-tasks; mutually exclusive with a heading), or end-of-body.
 
-`vault_update_task` applies status, priority, recurrence, description, dates, task_id, depends_on, block_id assignment, heading moves, and sub-task additions in one atomic read-modify-write under one exclusive file lock:
+`vault_update_task` applies status, priority, recurrence, on_completion, description, dates, task_id, depends_on, block_id assignment, heading moves, and sub-task additions in one atomic read-modify-write under one exclusive file lock:
 
 - **Mutations compose** — every field passed is applied in the same write cycle; clearing a field is always an explicit `null`.
 - **Line splitting follows the parser** — the description is everything before the metadata tail, and a signifier only opens the tail when everything after it parses as fields (a priority emoji used as prose stays in the description). Description edits, priority changes, and the returned `description` all use that boundary.
-- **Status** — toggles the checkbox character and stamps or strips done/cancelled dates. `status: "done"` on a top-level Kanban task without an explicit `heading` auto-detects the done lane. Completing a recurring task (🔁) spawns the next occurrence — dates advanced per the rule, block link/id/dependencies cleared — adjacent to the completed line (above by default, below with the plugin's `recurrenceOnNextLine` setting); the spawn stays in the source lane.
+- **Status** — toggles the checkbox character and stamps or strips done/cancelled dates. `status: "done"` on a top-level Kanban task without an explicit `heading` auto-detects the done lane. Completing a recurring task (🔁) spawns the next occurrence — dates advanced per the rule, block link/id/dependencies cleared — adjacent to the completed line (above by default, below with the plugin's `recurrenceOnNextLine` setting); the spawn stays in the source lane. A task with `🏁 delete` / `[onCompletion:: delete]` is removed from the file on completion instead of moving to done; when combined with recurrence, the spawn is written first and the completed line is then deleted.
 - **Dates** — set or clear due, scheduled, start, and created at their position in the field ordering.
 - **Heading moves** — `heading` moves the task and its indented sub-items to another section; on a Kanban board that is a lane move, but any note with headings works. A sub-task (depth > 0) never moves: an explicit `heading` is rejected, and `status: "done"` changes its checkbox in place.
 - **`add_subtasks`** — appends checklist items under the task's existing ones.
@@ -567,6 +567,10 @@ healthchecks.
 
 **OAuth flow at a glance:**
 
+Dynamic registration issues a per-client secret and declares `client_secret_post`.
+Clients persist that secret and include it in the request body for token exchange,
+refresh, and revocation. S256 PKCE also protects the authorization-code exchange.
+
 ```text
 1. Client → POST /mcp (no token)                          → 401 → client starts OAuth
 2. Client → GET /.well-known/oauth-protected-resource     → discover auth server
@@ -577,9 +581,9 @@ healthchecks.
 4. Client → POST /register                                → dynamic client registration
 5. Client → GET /authorize?...&code_challenge=...         → consent page in browser
 6. User enters MCP_AUTH_TOKEN in consent page → POST /oauth/decide → redirect with auth code
-7. Client → POST /token (code + code_verifier)            → JWT access token + refresh token
+7. Client → POST /token (code + code_verifier + client_id + client_secret) → JWT access token + refresh token
 8. Client → POST /mcp (Authorization: Bearer <JWT>)       → MCP requests (dual-validated)
-9. Token expires → POST /token (refresh_token)            → new JWT (silent, no browser)
+9. Token expires → POST /token (refresh_token + client_id + client_secret) → new JWT (silent, no browser)
 ```
 
 **In detail:**
@@ -615,7 +619,7 @@ sequenceDiagram
     C->>E: POST /oauth/decide (token + approve)
     E-->>C: 302 redirect with auth code
 
-    C->>E: POST /token (code + code_verifier)
+    C->>E: POST /token (code + code_verifier + client_id + client_secret)
     E->>DB: Store refresh token
     E-->>C: {access_token: JWT, refresh_token}
 
@@ -629,7 +633,7 @@ sequenceDiagram
     E-->>C: MCP response
 
     Note over C,E: Silent Token Refresh (6h cycle)
-    C->>E: POST /token (refresh_token)
+    C->>E: POST /token (refresh_token + client_id + client_secret)
     E->>DB: Consume old, store new refresh token
     E-->>C: {access_token: new JWT, refresh_token: new}
 ```
@@ -641,7 +645,8 @@ binding claims ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
 
 - `iss` — the normalized `PUBLIC_URL` (a bare origin gains a trailing slash).
 - `aud` — the MCP endpoint's canonical URI: the origin of `PUBLIC_URL` plus
-  `/mcp`. A path prefix on `PUBLIC_URL` is not part of the audience.
+  `/mcp`. `PUBLIC_URL` must be a bare origin; path prefixes are rejected at
+  startup.
 - Each verifier checks both claims against its own copy of `PUBLIC_URL` — the
   Lambda reads its function environment, Express the instance `.env` — so a
   token minted by another deployment is rejected even when the two share a
@@ -1237,7 +1242,7 @@ Any VPS with comparable specs works — the table above prices the Lightsail ref
 | API Gateway over Caddy                      | Free HTTPS URL without a custom domain, SST native, and a Lambda authorizer for path-aware auth (OAuth endpoints pass through, `/mcp` validates). Tradeoff: 10-minute idle timeout on HTTP connections can cause `Connection closed` on first call after idle.                                                                                                                                                                                                                                                                                                                                    |
 | Obsidian Sync over git-based sync           | Bidirectional real-time sync to all devices, automatic conflict resolution, no manual push/pull. Tradeoff: dependency on Obsidian's proprietary cloud service.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Single image over a separate sync container | The two processes have shared fate through `/vault` — the MCP server without sync serves a stale vault; sync without the server serves nothing — so a single supervised container is the semantically honest packaging, not a convenience bundle. One image also means one repo, one CI, one version, and no Compose requirement for users (`docker run`/Podman/nerdctl all work). The `local` target has no sync process and stays single-process under tini.                                                                                                                                    |
-| OAuth 2.1 + static token                    | OAuth 2.1 (PKCE) for browser-capable clients — automatic token refresh, no secret in config after consent. Static bearer token for CLI tools and scripts where a browser flow isn't practical. Both validated at two independent layers (Lambda + Express) using the same HMAC key.                                                                                                                                                                                                                                                                                                               |
+| OAuth 2.1 + static token                    | OAuth 2.1 (PKCE) for browser-capable clients — automatic token refresh, no `MCP_AUTH_TOKEN` in client config after consent. Static bearer token for CLI tools and scripts where a browser flow isn't practical. Both validated at two independent layers (Lambda + Express) using the same HMAC key.                                                                                                                                                                                                                                                                                              |
 | Custom JWT over JWT libraries               | 50-line HS256 implementation vs 200KB+ library bundle. Lambda authorizer stays tiny. Constant-time comparison prevents timing attacks. Acceptable for a single-algorithm use case.                                                                                                                                                                                                                                                                                                                                                                                                                |
 | JWT over opaque tokens                      | Verifiable at Lambda edge without shared state. HS256 with MCP_AUTH_TOKEN.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | 60-day sliding refresh                      | Active clients never re-auth; leaked tokens bounded. Standard OAuth practice.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |

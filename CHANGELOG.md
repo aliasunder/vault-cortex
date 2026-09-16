@@ -100,6 +100,50 @@
 
 
 
+
+
+## [0.52.0] — 2026-09-16
+
+### Features
+
+- **tasks:** Act on onCompletion when completing tasks (#570)
+
+### Bug Fixes
+
+- **oauth:** Align client metadata, reject secretless rows and path-prefixed PUBLIC_URL (#575)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.51.0
+
+### Maintenance
+
+- Bump umm-actually to v0.4.4 (#576)
+
+## [0.51.0] — 2026-09-15
+
+### Features
+
+- **tasks:** Spawn the next occurrence when a recurring task is completed, and add a recurrence param (#561)
+
+### Bug Fixes
+
+- **tasks:** Hard-break preservation, error decoupling, tag deduplication (#569)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.50.4
+
+### CI / Infrastructure
+
+- **release:** Push branch and tag atomically (#568)
+
+### Maintenance
+
+- **deps-dev:** Bump the development group with 3 updates (#574)
+- **deps:** Bump the production group with 3 updates (#572)
+- **deps:** Bump github/codeql-action/upload-sarif from 4.37.9 to 4.38.0 (#573)
+
 ## [0.50.4] — 2026-09-13
 
 ### Features

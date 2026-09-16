@@ -211,7 +211,16 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
     const row = this.selectClientStmt.get(clientId)
     if (!row) return undefined
     const parsed: OAuthClientInformationFull = JSON.parse(row.data)
-    return parsed
+
+    // registerClient always issues a secret; a row without one is database
+    // corruption. The SDK's authenticateClient middleware skips the secret
+    // check when client.client_secret is falsy, so returning the row would
+    // allow unauthenticated token requests — return undefined instead.
+    if (!parsed.client_secret) return undefined
+
+    // Rows written before this field was stored at registration time lack it;
+    // inject at read so the SDK enforces secret-based auth for every client.
+    return { ...parsed, token_endpoint_auth_method: "client_secret_post" }
   }
 
   registerClient(
@@ -222,6 +231,7 @@ class SqliteClientsStore implements OAuthRegisteredClientsStore {
   ): OAuthClientInformationFull {
     const full: OAuthClientInformationFull = {
       ...client,
+      token_endpoint_auth_method: "client_secret_post",
       client_id: randomUUID(),
       client_id_issued_at: DateTime.now().toUnixInteger(),
       client_secret: randomBytes(32).toString("hex"),

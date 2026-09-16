@@ -1878,6 +1878,115 @@ describe("task line mutations", () => {
     })
   })
 
+  // ── updateTaskLineOnCompletion ────────────────────────────────
+
+  describe("updateTaskLineOnCompletion", () => {
+    it("sets onCompletion (emoji format)", () => {
+      const line = "- [ ] My task ➕ 2026-08-01 📅 2026-09-01 ^my-task"
+      const result = tasks.updateTaskLineOnCompletion({
+        taskLine: line,
+        onCompletion: "delete",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] My task 🏁 delete ➕ 2026-08-01 📅 2026-09-01 ^my-task",
+      )
+    })
+
+    it("sets onCompletion (dataview format)", () => {
+      const line =
+        "- [ ] My task [created:: 2026-08-01] [due:: 2026-09-01] ^my-task"
+      const result = tasks.updateTaskLineOnCompletion({
+        taskLine: line,
+        onCompletion: "delete",
+        config: DATAVIEW_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] My task [onCompletion:: delete] [created:: 2026-08-01] [due:: 2026-09-01] ^my-task",
+      )
+    })
+
+    it("clears onCompletion", () => {
+      const line =
+        "- [ ] My task 🏁 delete ➕ 2026-08-01 📅 2026-09-01 ^my-task"
+      const result = tasks.updateTaskLineOnCompletion({
+        taskLine: line,
+        onCompletion: null,
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 📅 2026-09-01 ^my-task")
+    })
+
+    it("replaces an existing value", () => {
+      const line = "- [ ] My task 🏁 keep ➕ 2026-08-01 📅 2026-09-01 ^my-task"
+      const result = tasks.updateTaskLineOnCompletion({
+        taskLine: line,
+        onCompletion: "delete",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] My task 🏁 delete ➕ 2026-08-01 📅 2026-09-01 ^my-task",
+      )
+    })
+
+    it("clearing strips all copies of both formats", () => {
+      const line = "- [ ] My task 🏁 delete 🏁 keep ➕ 2026-08-01 ^my-task"
+      const result = tasks.updateTaskLineOnCompletion({
+        taskLine: line,
+        onCompletion: null,
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 ^my-task")
+    })
+
+    it("setting strips all copies before inserting the new value", () => {
+      const line = "- [ ] My task 🏁 delete 🏁 keep ➕ 2026-08-01 ^my-task"
+      const result = tasks.updateTaskLineOnCompletion({
+        taskLine: line,
+        onCompletion: "keep",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task 🏁 keep ➕ 2026-08-01 ^my-task")
+    })
+
+    it("clears a Dataview-format onCompletion field", () => {
+      const line =
+        "- [ ] My task [onCompletion:: delete] [created:: 2026-08-01] ^my-task"
+      const result = tasks.updateTaskLineOnCompletion({
+        taskLine: line,
+        onCompletion: null,
+        config: DATAVIEW_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task [created:: 2026-08-01] ^my-task")
+    })
+
+    it("clearing strips duplicated Dataview-format fields", () => {
+      const line =
+        "- [ ] My task [onCompletion:: delete] [onCompletion:: keep] [created:: 2026-08-01] ^my-task"
+      const result = tasks.updateTaskLineOnCompletion({
+        taskLine: line,
+        onCompletion: null,
+        config: DATAVIEW_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task [created:: 2026-08-01] ^my-task")
+    })
+  })
+
+  describe("updateTaskLineRecurrence ordering with onCompletion", () => {
+    it("inserts recurrence before an existing onCompletion field", () => {
+      const line =
+        "- [ ] My task 🏁 delete ➕ 2026-08-01 📅 2026-09-01 ^my-task"
+      const result = tasks.updateTaskLineRecurrence({
+        taskLine: line,
+        recurrenceText: "every week",
+        config: EMOJI_CONFIG,
+      })
+      expect(result).toBe(
+        "- [ ] My task 🔁 every week 🏁 delete ➕ 2026-08-01 📅 2026-09-01 ^my-task",
+      )
+    })
+  })
+
   // ── updateTaskLineDependsOn ───────────────────────────────────
 
   describe("updateTaskLineDependsOn", () => {
@@ -1961,6 +2070,23 @@ describe("task line mutations", () => {
       )
       expect(line).toBe(
         "- [ ] Dataview task [created:: 2026-08-25] [due:: 2026-09-01] ^dv-task",
+      )
+    })
+
+    it("places onCompletion between recurrence and created", () => {
+      const line = tasks.buildTaskLine(
+        {
+          description: "Recurring delete task",
+          blockId: "rec-del",
+          recurrence: "every week",
+          onCompletion: "delete",
+          created: "2026-08-25",
+          due: "2026-09-15",
+        },
+        EMOJI_CONFIG,
+      )
+      expect(line).toBe(
+        "- [ ] Recurring delete task 🔁 every week 🏁 delete ➕ 2026-08-25 📅 2026-09-15 ^rec-del",
       )
     })
 
