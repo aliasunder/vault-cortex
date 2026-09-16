@@ -266,7 +266,7 @@ describe("OAuth client authentication metadata", () => {
     },
   )
 
-  it("returns a secretless client without overriding its auth method", async () => {
+  it("rejects a secretless client row as not found", async () => {
     const { oauth, db } = await createClientTest()
     const secretless: OAuthClientInformationFull = {
       client_id: "no-secret-client",
@@ -283,7 +283,7 @@ describe("OAuth client authentication metadata", () => {
 
     expect(
       await oauth.provider.clientsStore.getClient(secretless.client_id),
-    ).toEqual(secretless)
+    ).toBeUndefined()
   })
 
   it("normalizes legacy metadata without rewriting credentials or refresh tokens", async () => {
