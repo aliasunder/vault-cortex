@@ -1507,7 +1507,7 @@
             ]
           },
           "add_subtasks": {
-            "description": "Checklist items to append, one indented [ ] line each, under the task's existing items — never replaces them. Can be combined with any other change. For full sub-tasks with metadata, use vault_create_task with parent_block_id.",
+            "description": "Checklist items to append, one indented [ ] line each, under the task's existing items — never replaces them. Can be combined with any other change; not appended when the same call removes the task (on_completion delete). For full sub-tasks with metadata, use vault_create_task with parent_block_id.",
             "minItems": 1,
             "type": "array",
             "items": {
