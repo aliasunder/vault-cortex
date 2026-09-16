@@ -47,6 +47,7 @@ type CreateTaskParams = {
   position?: "top" | "bottom" | undefined
   priority?: TaskPriority | undefined
   recurrence?: string | undefined
+  onCompletion?: string | undefined
   due?: string | undefined
   scheduled?: string | undefined
   start?: string | undefined
@@ -85,6 +86,7 @@ type UpdateTaskParams = {
   status?: TaskStatus | undefined
   priority?: TaskPriority | null | undefined
   recurrence?: string | null | undefined
+  onCompletion?: string | null | undefined
   heading?: string | undefined
   position?: "top" | "bottom" | undefined
   description?: string | undefined
@@ -120,6 +122,9 @@ type UpdateTaskResult = {
   next_occurrence?: NextOccurrencePosition | undefined
   changes: string[]
   advisories?: string[] | undefined
+  /** The onCompletion action that was applied (e.g. "delete"). Present only
+   *  when a task with 🏁/[onCompletion::] was transitioned to done. */
+  on_completion_applied?: string | undefined
 }
 
 const ABSENT_VALUE = "(none)"
@@ -818,6 +823,30 @@ const spawnIndexAfterSplices = ({
   return indexAfterMove + subtaskAppendShift
 }
 
+/** Builds the wire-format position of a spawned next occurrence — shared
+ *  by the onCompletion-delete early return and the normal completion path. */
+const buildNextOccurrencePosition = ({
+  bodyStartLine,
+  spawnIndex,
+  recurrenceSpawn,
+}: {
+  bodyStartLine: number
+  spawnIndex: number
+  recurrenceSpawn: Extract<RecurrenceSpawn, { kind: "spawn" }>
+}): NextOccurrencePosition => ({
+  line: bodyStartLine + spawnIndex + 1,
+  description: tasks.describeTaskLine(recurrenceSpawn.spawnedLine),
+  ...(recurrenceSpawn.nextDates.dueDate
+    ? { due: recurrenceSpawn.nextDates.dueDate }
+    : {}),
+  ...(recurrenceSpawn.nextDates.scheduledDate
+    ? { scheduled: recurrenceSpawn.nextDates.scheduledDate }
+    : {}),
+  ...(recurrenceSpawn.nextDates.startDate
+    ? { start: recurrenceSpawn.nextDates.startDate }
+    : {}),
+})
+
 /** Detects the done lane for auto-completion: checks for **Complete**
  *  markers first, falls back to a heading named "Done". */
 const detectDoneLane = (
@@ -974,6 +1003,7 @@ const createTask = async (
     position,
     priority,
     recurrence,
+    onCompletion,
     due,
     scheduled,
     start,
@@ -1052,6 +1082,7 @@ const createTask = async (
       { field: "created", value: today },
       { field: "priority", value: priority },
       { field: "recurrence", value: recurrence },
+      { field: "on_completion", value: onCompletion },
       { field: "due", value: due },
       { field: "scheduled", value: scheduled },
       { field: "start", value: start },
@@ -1084,6 +1115,7 @@ const createTask = async (
         blockId,
         priority,
         recurrence,
+        onCompletion,
         created: today,
         start,
         scheduled,
@@ -1104,6 +1136,7 @@ const createTask = async (
           createdDate: today,
           ...(priority && { priority }),
           ...(recurrence && { recurrence }),
+          ...(onCompletion && { onCompletion }),
           ...(due && { dueDate: due }),
           ...(scheduled && { scheduledDate: scheduled }),
           ...(start && { startDate: start }),
@@ -1189,6 +1222,7 @@ const updateTask = async (
     status,
     priority,
     recurrence,
+    onCompletion,
     heading: targetHeadingParam,
     position,
     format,
@@ -1217,6 +1251,7 @@ const updateTask = async (
     status !== undefined ||
     priority !== undefined ||
     recurrence !== undefined ||
+    onCompletion !== undefined ||
     targetHeadingParam !== undefined ||
     newDescription !== undefined ||
     due !== undefined ||
@@ -1229,7 +1264,7 @@ const updateTask = async (
     newBlockId !== undefined
   if (!hasMutation) {
     throw new Error(
-      "at least one mutation (status, priority, recurrence, heading, description, due, scheduled, start, created, taskId, dependsOn, addSubtasks, or assignBlockId) is required",
+      "at least one mutation (status, priority, recurrence, onCompletion, heading, description, due, scheduled, start, created, taskId, dependsOn, addSubtasks, or assignBlockId) is required",
     )
   }
 
@@ -1336,12 +1371,15 @@ const updateTask = async (
 
     const today = todayIsoDate()
 
-    // In-line edits, in the order they are applied to the task line. The
-    // recurrence spawn reads the fully edited line, so an update that
-    // changes dates or the rule and completes in one call advances from
-    // the edited values. Each edit carries its own `changes` entry;
-    // description's after-value is read through the parser so tags match
-    // the result's `description`.
+    // In-line edits, in the order they are applied to the task line.
+    // Description must be LAST: every field edit splits the line at the
+    // description/metadata boundary, and a signifier in new description
+    // text would shift that boundary — see the comment on the description
+    // entry below. The recurrence spawn reads the fully edited line, so
+    // an update that changes dates or the rule and completes in one call
+    // advances from the edited values. Each edit carries its own `changes`
+    // entry; description's after-value is read through the parser so tags
+    // match the result's `description`.
     const lineEdits: LineEdit[] = [
       ...(status
         ? [
@@ -1411,6 +1449,24 @@ const updateTask = async (
                 field: "recurrence",
                 before: taskBefore.recurrence,
                 after: recurrence,
+              }),
+            },
+          ]
+        : []),
+      ...(onCompletion !== undefined
+        ? [
+            {
+              apply: (taskLine: string) => {
+                return tasks.updateTaskLineOnCompletion({
+                  taskLine,
+                  onCompletion,
+                  config: formatConfig,
+                })
+              },
+              change: formatChange({
+                field: "on_completion",
+                before: taskBefore.onCompletion,
+                after: onCompletion,
               }),
             },
           ]
@@ -1578,6 +1634,7 @@ const updateTask = async (
           ...(taskId !== undefined && { taskId }),
           ...(dependsOn !== undefined && { dependsOn }),
           ...(recurrence !== undefined && { recurrence }),
+          ...(onCompletion !== undefined && { onCompletion }),
           ...statusImpliedDateFields({ status, config: formatConfig, today }),
         },
       }),
@@ -1591,6 +1648,99 @@ const updateTask = async (
         : []),
       ...roundTripAndSubtaskAdvisories,
     ]
+
+    // onCompletion "delete": the Tasks plugin removes the completed
+    // instance when the field says "delete". Only on a genuine transition
+    // to done — not on updates to an already-done task, and not on
+    // cancellation. When the task also recurs, the spawn has already
+    // inserted the next occurrence into linesWithSpawn above — only the
+    // completed line (and its children) is removed; the spawn survives.
+    // When onCompletion is submitted in the same call, the submitted
+    // value takes precedence — setting "keep" while completing a "delete"
+    // task must not delete the task.
+    const effectiveOnCompletion =
+      onCompletion !== undefined ? onCompletion : taskBefore.onCompletion
+    const shouldDeleteOnCompletion =
+      status === "done" &&
+      taskBefore.status !== "done" &&
+      !formatConfig.doneStatusSymbols.includes(taskBefore.statusChar) &&
+      effectiveOnCompletion?.toLowerCase() === "delete"
+
+    if (shouldDeleteOnCompletion) {
+      const taskBlockEnd = findTaskBlockEnd(
+        linesWithSpawn,
+        completedIndexAfterSpawn,
+      )
+      const deleteCount = taskBlockEnd - completedIndexAfterSpawn
+      const childCount = deleteCount - 1
+      const childLabel = childCount === 1 ? "child" : "children"
+      const deletionChange =
+        childCount > 0
+          ? `on_completion: task and ${childCount} ${childLabel} removed (🏁 delete)`
+          : "on_completion: task removed (🏁 delete)"
+
+      // When the task also spawned, compute the spawn's final position
+      // after the completed block is removed from linesWithSpawn.
+      const spawnFinalIndexAfterDelete =
+        recurrenceSpawn.kind === "spawn" &&
+        completedIndexAfterSpawn < spawnInsertIndex
+          ? spawnInsertIndex - deleteCount
+          : spawnInsertIndex
+
+      const nextOccurrence: NextOccurrencePosition | undefined =
+        recurrenceSpawn.kind === "spawn"
+          ? buildNextOccurrencePosition({
+              bodyStartLine,
+              spawnIndex: spawnFinalIndexAfterDelete,
+              recurrenceSpawn,
+            })
+          : undefined
+
+      const changes = [
+        ...lineChanges,
+        ...(nextOccurrence
+          ? [
+              formatChange({
+                field: "next_occurrence",
+                before: null,
+                after: `line ${nextOccurrence.line}`,
+              }),
+            ]
+          : []),
+        deletionChange,
+      ]
+
+      const resultLines = linesWithSpawn.toSpliced(
+        completedIndexAfterSpawn,
+        deleteCount,
+      )
+
+      const serialized = stringifyNote(resultLines.join("\n"), parsed.data)
+      await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
+
+      const headingBefore = headingsAfterSpawn.findLast(
+        (heading) => heading.startLine < completedIndexAfterSpawn,
+      )
+
+      logger.info("task deleted on completion", {
+        path,
+        line: bodyStartLine + completedIndexAfterSpawn + 1,
+        onCompletion: "delete",
+        childrenRemoved: childCount,
+      })
+
+      return {
+        path,
+        line: bodyStartLine + completedIndexAfterSpawn + 1,
+        description: tasks.describeTaskLine(mutatedLine),
+        block_id: taskBefore.blockId ?? undefined,
+        heading: headingBefore?.text,
+        next_occurrence: nextOccurrence,
+        changes,
+        ...(advisories.length > 0 && { advisories }),
+        on_completion_applied: "delete",
+      }
+    }
 
     // Heading move — an explicit heading, or the done lane when completing
     // a top-level card on a Kanban board.
@@ -1656,19 +1806,11 @@ const updateTask = async (
 
     const nextOccurrence: NextOccurrencePosition | undefined =
       recurrenceSpawn.kind === "spawn" && spawnFinalIndex !== undefined
-        ? {
-            line: bodyStartLine + spawnFinalIndex + 1,
-            description: tasks.describeTaskLine(recurrenceSpawn.spawnedLine),
-            ...(recurrenceSpawn.nextDates.dueDate
-              ? { due: recurrenceSpawn.nextDates.dueDate }
-              : {}),
-            ...(recurrenceSpawn.nextDates.scheduledDate
-              ? { scheduled: recurrenceSpawn.nextDates.scheduledDate }
-              : {}),
-            ...(recurrenceSpawn.nextDates.startDate
-              ? { start: recurrenceSpawn.nextDates.startDate }
-              : {}),
-          }
+        ? buildNextOccurrencePosition({
+            bodyStartLine,
+            spawnIndex: spawnFinalIndex,
+            recurrenceSpawn,
+          })
         : undefined
 
     const changes = [
