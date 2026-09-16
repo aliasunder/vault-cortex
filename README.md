@@ -111,7 +111,7 @@ All three need an [Obsidian Sync](https://obsidian.md/sync) subscription. Whiche
 
 #### Self-hosted: your own VPS
 
-The [vault-cortex CLI](./cli/) sets up the same container on any Linux box you run — you manage the server, the image, and updates. You need Node.js >= 22.12 for the CLI itself; the server runs in Docker.
+The [Vault Cortex CLI](./cli/) sets up the same container on any Linux box you run — you manage the server, the image, and updates. You need Node.js >= 22.12 for the CLI itself; the server runs in Docker.
 
 ```bash
 # On your VPS:
@@ -274,7 +274,7 @@ See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks) for the indexing model,
 
 ## Files
 
-Your notes embed screenshots, reference architecture diagrams, and link out to canvases and data files — but to an agent reading markdown, `![[diagram.png]]` is just text. vault-cortex treats files as part of the vault rather than clutter around it — linked, sized, and readable, each in the form an agent can actually use:
+Your notes embed screenshots, reference architecture diagrams, and link out to canvases and data files — but to an agent reading markdown, `![[diagram.png]]` is just text. Vault Cortex treats files as part of the vault rather than clutter around it — linked, sized, and readable, each in the form an agent can actually use:
 
 - **Images** — the image itself, not the filename. Screenshots and diagrams are downscaled and recompressed server-side when they exceed what MCP clients accept, so even a phone session can look at a 5MB architecture diagram
 - **Canvases** — a [Canvas](https://help.obsidian.md/canvas) board arrives as a readable outline: its groups, each card's content in reading order, and the connections between them. Canvas content is full-text searchable, and file references on the board appear in the link graph — backlinks and outgoing links work just like note-to-note links. The exact JSON source is one flag away when full fidelity matters
