@@ -181,7 +181,7 @@ export const validatePublicUrl = (input: string): PublicUrlValidation => {
         "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
     }
   }
-  if (url.pathname !== "/") {
+  if (url.pathname.replace(/\/+$/, "") !== "") {
     return {
       kind: "error",
       message:

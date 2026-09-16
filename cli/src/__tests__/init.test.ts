@@ -1533,4 +1533,11 @@ describe("validatePublicUrl", () => {
         "PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/).",
     })
   })
+
+  it("accepts a bare origin with redundant trailing slashes", () => {
+    expect(validatePublicUrl("https://vault.example.com//")).toEqual({
+      kind: "ok",
+      url: "https://vault.example.com",
+    })
+  })
 })

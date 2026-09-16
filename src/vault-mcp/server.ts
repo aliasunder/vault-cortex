@@ -99,6 +99,11 @@ const startServer = async (): Promise<void> => {
   if (urlHasCredentials(serverUrl)) {
     throw new Error("PUBLIC_URL must not contain credentials (user:password@)")
   }
+  if (serverUrl.pathname.replace(/\/+$/, "") !== "") {
+    throw new Error(
+      "PUBLIC_URL must be a bare origin — path prefixes are not supported (e.g. https://vault.example.com)",
+    )
+  }
 
   const indexDbPath = env.get("INDEX_DB_PATH").asString()
   const dataDir = indexDbPath ? indexDbPath.replace(/\/[^/]+$/, "") : "/data"
