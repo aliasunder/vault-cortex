@@ -101,6 +101,25 @@
 
 
 
+
+## [0.52.0] — 2026-09-16
+
+### Features
+
+- **tasks:** Act on onCompletion when completing tasks (#570)
+
+### Bug Fixes
+
+- **oauth:** Align client metadata, reject secretless rows and path-prefixed PUBLIC_URL (#575)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.51.0
+
+### Maintenance
+
+- Bump umm-actually to v0.4.4 (#576)
+
 ## [0.51.0] — 2026-09-15
 
 ### Features
