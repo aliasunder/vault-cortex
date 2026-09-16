@@ -1959,6 +1959,17 @@ describe("task line mutations", () => {
       })
       expect(result).toBe("- [ ] My task [created:: 2026-08-01] ^my-task")
     })
+
+    it("clearing strips duplicated Dataview-format fields", () => {
+      const line =
+        "- [ ] My task [onCompletion:: delete] [onCompletion:: keep] [created:: 2026-08-01] ^my-task"
+      const result = tasks.updateTaskLineOnCompletion({
+        taskLine: line,
+        onCompletion: null,
+        config: DATAVIEW_CONFIG,
+      })
+      expect(result).toBe("- [ ] My task [created:: 2026-08-01] ^my-task")
+    })
   })
 
   describe("updateTaskLineRecurrence ordering with onCompletion", () => {
