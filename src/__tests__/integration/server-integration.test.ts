@@ -11,7 +11,7 @@ import {
   vi,
 } from "vitest"
 import { DateTime } from "luxon"
-import { writeFile } from "node:fs/promises"
+import { stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import Database from "better-sqlite3"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
@@ -43,11 +43,13 @@ describe("default config", () => {
   let client: Client
   let cleanup: (() => Promise<void>) | undefined
   let port: number
+  let vaultPath: string
 
   beforeAll(async () => {
     port = await freePort()
     const server = await startServer(port)
     cleanup = server.cleanup
+    vaultPath = server.vaultPath
     client = await createTestClient(server.port)
   }, 30_000)
 
@@ -130,11 +132,17 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md", outline: true },
       })
       expect(result.isError).not.toBe(true)
-      expect(JSON.parse(textContent(result))).toEqual({
+      const outline = JSON.parse(textContent(result))
+      if (typeof outline.modified !== "string") {
+        throw new Error("outline modified timestamp is missing")
+      }
+      const fixtureStats = await stat(join(vaultPath, "Projects/alpha.md"))
+      expect(DateTime.fromISO(outline.modified).toMillis()).toBe(
+        Math.round(fixtureStats.mtimeMs),
+      )
+      expect(outline).toEqual({
         bytes: 518,
-        modified: expect.stringMatching(
-          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}(?:Z|[+-]\d{2}:\d{2})$/,
-        ),
+        modified: outline.modified,
         headings: [
           { level: 1, text: "Project Alpha", bytes: 362 },
           { level: 2, text: "Tasks", bytes: 198 },
