@@ -6,10 +6,14 @@ import { parseNote } from "../../obsidian-markdown/frontmatter.js"
 import { createMemoryStore } from "../memory-store.js"
 import { logger } from "../../../logger.js"
 
-const { getMemory, updateMemory, listMemoryFiles, listMemoryFileNames, deleteMemory } =
-  createMemoryStore({
-    memoryDir: "About Me",
-  })
+const {
+  getMemory,
+  getMemoryEntries,
+  updateMemory,
+  listMemoryFiles,
+  listMemoryFileNames,
+  deleteMemory,
+} = createMemoryStore({ memoryDir: "About Me" })
 
 let vault: string
 
@@ -811,7 +815,7 @@ describe("updateMemory auto-creation", () => {
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
     const health = outlines.find((outline) => outline.file === "Health")!
     expect(health.leading_callout?.title).toBe("Scope of this file")
-    // Generic form: convention + a Contains placeholder, no per-file Does-NOT-contain.
+    // Generic form has the convention line and a Contains placeholder, but no per-file Does-NOT-contain.
     expect(health.leading_callout?.body).toBe(
       "**Contains:** (describe what belongs in this file — and what doesn't)\n**Convention:** append newest first; never overwrite dated entries; ISO dates only.",
     )
@@ -1807,8 +1811,8 @@ describe("bootstrapMemoryDir", () => {
 
 describe("large-shrink guard", () => {
   it("refuses a delete that would shrink the file by more than half", async () => {
-    // One dominant entry: deleting it drops the file from ~2 KB to ~90 bytes,
-    // a >50% shrink the guard must reject (a skeleton template overwriting real content).
+    // Deleting the dominant entry drops the file from ~2 KB to ~90 bytes,
+    // a >50% shrink the guard must reject.
     const dominantEntry = "x".repeat(2000)
     const fileContent = `---
 title: Big
@@ -2072,6 +2076,251 @@ describe("concurrent memory writes", () => {
     expect(bulletLines).toEqual([
       "- **2026-06-14**: freshly added",
       "- **2026-05-06**: Secrets invisible at every layer",
+    ])
+  })
+})
+
+describe("getMemoryEntries", () => {
+  it("returns entries on or after the boundary date", async () => {
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics",
+        onOrAfter: "2026-05-06",
+      },
+      logger,
+    )
+    expect(entries).toEqual([
+      {
+        section: "Decision heuristics (newest first)",
+        date: "2026-05-06",
+        text: "- **2026-05-06**: Secrets invisible at every layer",
+        entryIndex: expect.any(Number),
+      },
+    ])
+  })
+
+  it("includes entries exactly on the boundary date (inclusive)", async () => {
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics",
+        onOrAfter: "2026-05-05",
+      },
+      logger,
+    )
+    expect(entries).toHaveLength(2)
+    expect(entries.map((entry) => entry.date)).toEqual([
+      "2026-05-06",
+      "2026-05-05",
+    ])
+  })
+
+  it("includes all entries when multiple share the boundary date", async () => {
+    const sameDayFixture = `---
+title: SameDay
+type: profile
+created: 2026-01-01T00:00:00-05:00
+---
+
+# SameDay
+
+## Items (newest first)
+- **2026-06-15**: Third entry on same day
+- **2026-06-15**: Second entry on same day
+- **2026-06-15**: First entry on same day
+- **2026-06-14**: Earlier entry
+`
+    await writeFile(join(vault, "About Me/SameDay.md"), sameDayFixture, "utf8")
+
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "SameDay",
+        section: "Items",
+        onOrAfter: "2026-06-15",
+      },
+      logger,
+    )
+    expect(entries).toHaveLength(3)
+    expect(entries.every((entry) => entry.date === "2026-06-15")).toBe(true)
+  })
+
+  it("returns all entries when boundary is older than everything", async () => {
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics",
+        onOrAfter: "2020-01-01",
+      },
+      logger,
+    )
+    expect(entries).toHaveLength(2)
+  })
+
+  it("returns empty array when boundary is newer than all entries", async () => {
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics",
+        onOrAfter: "2030-01-01",
+      },
+      logger,
+    )
+    expect(entries).toEqual([])
+  })
+
+  it("returns empty array for an empty section", async () => {
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Empty section",
+      },
+      logger,
+    )
+    expect(entries).toEqual([])
+  })
+
+  it("preserves newest-first (document) order", async () => {
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics",
+      },
+      logger,
+    )
+    expect(entries.map((entry) => entry.date)).toEqual([
+      "2026-05-06",
+      "2026-05-05",
+    ])
+  })
+
+  it("includes continuation lines in multi-line entries", async () => {
+    const multiLineFixture = `---
+title: MultiLine
+type: profile
+created: 2026-01-01T00:00:00-05:00
+---
+
+# MultiLine
+
+## Notes (newest first)
+- **2026-06-15**: First line of the entry
+  Continuation line one
+  Continuation line two
+- **2026-06-14**: Simple entry
+`
+    await writeFile(
+      join(vault, "About Me/MultiLine.md"),
+      multiLineFixture,
+      "utf8",
+    )
+
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "MultiLine",
+        section: "Notes",
+        onOrAfter: "2026-06-15",
+      },
+      logger,
+    )
+    expect(entries).toEqual([
+      {
+        section: "Notes (newest first)",
+        date: "2026-06-15",
+        text: "- **2026-06-15**: First line of the entry\n  Continuation line one\n  Continuation line two",
+        entryIndex: expect.any(Number),
+      },
+    ])
+  })
+
+  it("throws when the section does not exist", async () => {
+    await expect(
+      getMemoryEntries(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Nonexistent section",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'section not found: "Nonexistent section" in About Me/Principles.md',
+    )
+  })
+
+  it("throws on an invalid on_or_after date", async () => {
+    await expect(
+      getMemoryEntries(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Decision heuristics",
+          onOrAfter: "not-a-date",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("date must be a real ISO calendar date")
+  })
+
+  it("returns all section entries when on_or_after is omitted", async () => {
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics",
+      },
+      logger,
+    )
+    expect(entries).toHaveLength(2)
+    expect(entries.map((entry) => entry.date)).toEqual([
+      "2026-05-06",
+      "2026-05-05",
+    ])
+  })
+
+  it("returns entries with correct field shape", async () => {
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Working style",
+      },
+      logger,
+    )
+    expect(entries).toEqual([
+      {
+        section: "Working style (newest first)",
+        date: "2026-05-04",
+        text: "- **2026-05-04**: Single-purpose files",
+        entryIndex: expect.any(Number),
+      },
+    ])
+  })
+
+  it("resolves the section name case-insensitively with suffix normalization", async () => {
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "working style",
+      },
+      logger,
+    )
+    expect(entries).toEqual([
+      {
+        section: "Working style (newest first)",
+        date: "2026-05-04",
+        text: "- **2026-05-04**: Single-purpose files",
+        entryIndex: expect.any(Number),
+      },
     ])
   })
 })
