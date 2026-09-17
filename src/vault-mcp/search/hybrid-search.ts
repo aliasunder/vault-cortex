@@ -34,11 +34,14 @@ const toRankedList = (
  *  the note legs' implicit 1. Below 1, a thin file match cannot reach the
  *  blend-protected top ranks on leg rank alone — it needs corroboration —
  *  while a strong file answer still surfaces through its leg presence.
+ *
+ *  Chosen via the search-eval harness (scripts/search-eval.ts), which scores
+ *  candidate values against a judgment set of queries with expected results.
  *  0.5 is the largest sweep value (1.0/0.7/0.6/0.5/0.3) that removed every
- *  unrelated file from the top 5 of the pollution eval queries while every
- *  file-seeking sentinel kept its expected file in the top 3; sentinels
- *  only degraded at 0.3. The search-eval harness overrides it per run via
- *  the ranking option. */
+ *  unrelated file from the top 5 of queries where files are off-topic, while
+ *  every query that expects a specific file kept it in the top 3; results
+ *  only degraded at 0.3. The harness overrides this per run via the ranking
+ *  option. */
 const DEFAULT_FILE_LEG_WEIGHT = 0.5
 
 /** Whether reranker document text for file results is prefixed with the
@@ -229,38 +232,36 @@ const tryRerank = async (params: {
   logger: Logger
 }): Promise<{ results: SearchResult[] } | null> => {
   try {
-    // Collect document text for each candidate — cascade through sources
-    const documentTexts = params.mergedResults.map((result) => {
-      const collectDocumentText = (): string => {
-        // Prefer note vector chunk text (best semantic match for this note)
-        const vectorHit = params.vectorHitsByPath.get(result.path)
-        if (vectorHit) return vectorHit.chunkText
+    // Cascade through sources to find the best document text for reranking
+    const collectDocumentText = (result: SearchResult): string => {
+      // Prefer note vector chunk text (best semantic match for this note)
+      const vectorHit = params.vectorHitsByPath.get(result.path)
+      if (vectorHit) return vectorHit.chunkText
 
-        // File content vector chunk text
-        const fileVectorHit = params.fileContentVectorHitsByPath.get(
-          result.path,
-        )
-        if (fileVectorHit) return fileVectorHit.chunkText
+      // File content vector chunk text
+      const fileVectorHit = params.fileContentVectorHitsByPath.get(result.path)
+      if (fileVectorHit) return fileVectorHit.chunkText
 
-        // FTS-only note: use chunk index 0 (title + intro) from note_chunks
-        if (params.selectFirstChunkStmt) {
-          const chunkRow = params.selectFirstChunkStmt.get(result.path)
-          if (chunkRow) return chunkRow.chunk_text
-        }
-
-        // FTS-only file: use chunk index 0 from file_content_chunks
-        if (params.selectFirstFileChunkStmt) {
-          const fileChunkRow = params.selectFirstFileChunkStmt.get(result.path)
-          if (fileChunkRow) return fileChunkRow.chunk_text
-        }
-
-        // Fallback: use the snippet (truncated, but better than nothing —
-        // covers the edge case where chunks aren't yet indexed during
-        // background embedding startup)
-        return result.snippet
+      // FTS-only note: use chunk index 0 (title + intro) from note_chunks
+      if (params.selectFirstChunkStmt) {
+        const chunkRow = params.selectFirstChunkStmt.get(result.path)
+        if (chunkRow) return chunkRow.chunk_text
       }
 
-      const documentText = collectDocumentText()
+      // FTS-only file: use chunk index 0 from file_content_chunks
+      if (params.selectFirstFileChunkStmt) {
+        const fileChunkRow = params.selectFirstFileChunkStmt.get(result.path)
+        if (fileChunkRow) return fileChunkRow.chunk_text
+      }
+
+      // Fallback: use the snippet (truncated, but better than nothing —
+      // covers the edge case where chunks aren't yet indexed during
+      // background embedding startup)
+      return result.snippet
+    }
+
+    const documentTexts = params.mergedResults.map((result) => {
+      const documentText = collectDocumentText(result)
       // Kind marker only — the chunk text already opens with the file's
       // title, so prefixing the filename again would just repeat it.
       if (params.rerankKindPrefix && result.kind === "file") {
@@ -428,8 +429,11 @@ export const hybridSearch = async (
     // its weight here too — with no reranker on this path, fusion is the
     // only place a thin file match can be demoted at all.
     const fallbackRrf = computeRrfScores({
-      rankedLists: [toRankedList(ftsResults), toRankedList(fileContentResults)],
-      listWeights: [1, fileLegWeight],
+      rankedLists: [
+        toRankedList(ftsResults), // note FTS
+        toRankedList(fileContentResults), // file FTS
+      ],
+      listWeights: [1, fileLegWeight], // note=full, file=down-weighted
     })
     const ftsResultsByPath = new Map(
       ftsResults.map((result) => [result.path, result]),
@@ -464,11 +468,12 @@ export const hybridSearch = async (
   // file-content legs are down-weighted so a large file matching scattered
   // common words across its chunks cannot out-rank topical notes on leg
   // rank alone.
+  // Index-aligned: rankedLists[i] contributes at listWeights[i]
   const rankedLists = [
-    toRankedList(ftsResults),
-    toRankedList(vectorHits),
-    toRankedList(fileContentResults),
-    toRankedList(fileContentVectorHits),
+    toRankedList(ftsResults), // note FTS
+    toRankedList(vectorHits), // note KNN
+    toRankedList(fileContentResults), // file FTS
+    toRankedList(fileContentVectorHits), // file KNN
   ]
   const rrfScores = computeRrfScores({
     rankedLists,

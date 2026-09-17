@@ -37,6 +37,7 @@ export const computeRrfScores = (params: {
     for (const [index, item] of rankedItems.entries()) {
       const rank = index + 1
       const rrfScore = 1 / (dampingConstant + rank)
+      // Rank 1: +0.05, ranks 2–3: +0.02, others: 0
       const nearTopBonus = rank <= 3 ? 0.02 : 0
       const bonus = rank === 1 ? 0.05 : nearTopBonus
       const previousScore = scoresByIdentifier.get(item.identifier) ?? 0

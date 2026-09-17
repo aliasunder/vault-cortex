@@ -154,7 +154,9 @@ export const chunkNoteContent = (
 
   // Content before the first heading (preamble)
   const firstHeading = headings[0]
-  if (firstHeading === undefined) {
+  // noUncheckedIndexedAccess: length > 0 guarantees this, but TS
+  // doesn't narrow array index access from a prior length check.
+  if (!firstHeading) {
     return toChunks(splitLargeText(strippedBody, maxChunkTokens), chunkPrefix)
   }
   const preambleLines = bodyLines.slice(0, firstHeading.startLine)

@@ -237,6 +237,7 @@ const main = async (): Promise<void> => {
     ? Number(cliArgs["file-leg-weight"])
     : undefined
   // Strict undefined check — 0 is a valid weight (removes the file legs).
+  // Negated >= catches NaN (which fails every comparison).
   if (fileLegWeight !== undefined && !(fileLegWeight >= 0)) {
     throw new Error("--file-leg-weight must be a number >= 0")
   }
