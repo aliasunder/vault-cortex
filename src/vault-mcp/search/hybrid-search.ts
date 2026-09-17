@@ -333,6 +333,8 @@ export const hybridSearch = async (
   const userLimit = Math.max(0, Math.floor(params.limit ?? 20))
   const snippetTokens = params.snippet_tokens ?? 30
   const includeLeadingCallout = params.include_leading_callout ?? false
+  // Inflate the per-leg candidate pool beyond the requested limit so RRF
+  // has corroboration to fuse on, capped at 100.
   const candidateLimit = Math.min(Math.max(1, userLimit * 3), 100)
   const fileLegWeight =
     context.ranking?.fileLegWeight ?? DEFAULT_FILE_LEG_WEIGHT
