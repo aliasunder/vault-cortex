@@ -1097,18 +1097,19 @@ Docker hardening, and durability seatbelts above.
   table's primary key is the case-folded path, so a case alias replaces
   its stale row instead of leaving one that could purge the wrong sibling
   on a case-insensitive mount.
-- **Recorded trash bookkeeping** (`trash-sweeper.ts`): two operations,
-  both row-driven (never walks the folder). The **orphan purge** runs
-  once at boot regardless of `TRASH_RETENTION_DAYS` — drops rows whose
-  `.trash/` file no longer exists, so manual emptying or `retention=none`
-  never leaves unbounded stale rows. The **retention sweep** purges
-  recorded entries older than `TRASH_RETENTION_DAYS` at startup and
-  daily. Both share a serializing lock with the trash move and re-read
-  each row under it before acting, so neither operates on a stale
-  snapshot. Each unlink in the retention sweep is double-guarded — the
-  resolved path and the parent directory's realpath must both sit inside
-  `.trash/` — so a corrupted row or a directory symlink cannot reach
-  live notes.
+- **Recorded trash bookkeeping** (`trash-sweeper.ts`): two row-driven
+  operations (neither walks the folder):
+  - **Orphan purge** — runs once at boot regardless of
+    `TRASH_RETENTION_DAYS`. Drops rows whose `.trash/` file no longer
+    exists, so manual emptying or `retention=none` never leaves
+    unbounded stale rows.
+  - **Retention sweep** — runs at startup and daily. Purges recorded
+    entries older than `TRASH_RETENTION_DAYS`. Each unlink is
+    double-guarded: the resolved path and the parent directory's
+    realpath must both sit inside `.trash/`, so a corrupted row or a
+    directory symlink cannot reach live notes.
+  - Both share a serializing lock with the trash move and re-read each
+    row under it before acting, so neither operates on a stale snapshot.
 - **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
   lock, `moveNote` first scans the filesystem for backlinks the search
   index missed (closing a lag race); then reads every affected file and
