@@ -97,8 +97,10 @@ services:
       MAX_IMAGE_OUTPUT_BYTES: ${MAX_IMAGE_OUTPUT_BYTES:-49152}
       MAX_PDF_RENDER_PAGES: ${MAX_PDF_RENDER_PAGES:-5}
       MEMORY_DIR: ${MEMORY_DIR:-About Me}
-      # Left empty = the server applies smart defaults
-      # (<MEMORY_DIR>/<DAILY_NOTES_FOLDER> below are the resolved values, defaults "About Me" / "Daily Notes"):
+      # Left empty = the server applies the smart defaults listed below, where <MEMORY_DIR> and
+      # <DAILY_NOTES_FOLDER> stand for the resolved values (defaults "About Me" and "Daily Notes").
+      # ORPHAN_EXCLUDE_FOLDERS resolves its daily-notes value from the DAILY_NOTES_FOLDER env var
+      # alone — it never reads daily-notes.json.
       #   PROTECTED_PATHS           default: "<MEMORY_DIR>, <DAILY_NOTES_FOLDER>"
       #   ORPHAN_EXCLUDE_FOLDERS    default: "<DAILY_NOTES_FOLDER>, Templates, <MEMORY_DIR>"
       #   SERVICE_DOCUMENTATION_URL default: https://github.com/aliasunder/vault-cortex
