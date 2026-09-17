@@ -272,6 +272,10 @@ describe("atomicWriteFileExclusive", () => {
 })
 
 describe("path traversal", () => {
+  it("resolves a child entry when the vault is the filesystem root", () => {
+    expect(resolveSafePath("/", "note.md")).toBe("/note.md")
+  })
+
   it("rejects the vault root because it does not name an entry", () => {
     expect(() => resolveSafePath(vault, ".")).toThrow(
       'path traversal blocked: "." resolves to the vault root',

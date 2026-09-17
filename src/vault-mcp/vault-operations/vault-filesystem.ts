@@ -10,7 +10,16 @@ import {
   rmdir,
 } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
-import { join, dirname, relative, resolve, parse, posix } from "node:path"
+import {
+  join,
+  dirname,
+  relative,
+  resolve,
+  parse,
+  posix,
+  isAbsolute,
+  sep,
+} from "node:path"
 import picomatch from "picomatch"
 import { describeError } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
@@ -77,14 +86,18 @@ const resolvePathWithinVault = (
   }
   const vaultRoot = resolve(vaultPath)
   const resolvedPath = resolve(vaultRoot, relativePath)
-  const isInsideVault =
-    resolvedPath === vaultRoot || resolvedPath.startsWith(vaultRoot + "/")
+  const pathFromVaultRoot = relative(vaultRoot, resolvedPath)
+  const escapesVault =
+    pathFromVaultRoot === ".." ||
+    pathFromVaultRoot.startsWith(`..${sep}`) ||
+    isAbsolute(pathFromVaultRoot)
+  const isInsideVault = !escapesVault
   if (!isInsideVault) {
     throw new Error(
       `path traversal blocked: "${relativePath}" escapes vault root`,
     )
   }
-  if (hasHiddenPathSegment(relative(vaultRoot, resolvedPath))) {
+  if (hasHiddenPathSegment(pathFromVaultRoot)) {
     throw new Error(
       `hidden path blocked: "${relativePath}" targets a hidden file or folder`,
     )
