@@ -65,18 +65,26 @@ const INVALID_MEMORY_ENTRY_DATE_MESSAGE =
 const isString = (value: unknown): value is string => typeof value === "string"
 
 /** Appends "(newest first)" when absent (case-insensitive match). */
-const headingWithNewestFirstSuffix = (sectionName: string): string =>
-  sectionName.trimEnd().toLowerCase().endsWith("(newest first)")
+const headingWithNewestFirstSuffix = (sectionName: string): string => {
+  return sectionName.trimEnd().toLowerCase().endsWith("(newest first)")
     ? sectionName
     : `${sectionName} (newest first)`
+}
+
+/** Matches runs of non-alphanumeric characters (replaced with hyphens in kebab-case). */
+const NON_ALPHANUMERIC_RUN_PATTERN = /[^a-z0-9]+/g
+
+/** Matches a leading or trailing hyphen left over after kebab-case replacement. */
+const LEADING_TRAILING_HYPHEN_PATTERN = /^-|-$/g
 
 /** Converts a string to kebab-case for use as a tag. */
-const toKebabCase = (text: string): string =>
-  text
+const toKebabCase = (text: string): string => {
+  return text
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
+    .replace(NON_ALPHANUMERIC_RUN_PATTERN, "-")
+    .replace(LEADING_TRAILING_HYPHEN_PATTERN, "")
+}
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -98,8 +106,11 @@ export type MemoryEntryPolicy = "append-only" | "living"
  *  other than the explicit "living" opt-in (missing, misspelled, wrong type)
  *  as the append-only default — the safe reading, since append-only forbids
  *  destructive maintenance. */
-const entryPolicyFromFrontmatter = (value: unknown): MemoryEntryPolicy =>
-  typeof value === "string" && value === "living" ? "living" : "append-only"
+const entryPolicyFromFrontmatter = (value: unknown): MemoryEntryPolicy => {
+  return typeof value === "string" && value === "living"
+    ? "living"
+    : "append-only"
+}
 
 export type MemoryFileOutline = Readonly<{
   file: string
@@ -178,10 +189,15 @@ const findSection = (
   // Memory headings are canonically suffixed "(newest first)"; resolve the
   // caller's name to that form so a short name matches the stored heading
   // (and update_memory doesn't append a duplicate section).
-  const normalizedSectionName = headingWithNewestFirstSuffix(sectionName).trim().toLowerCase()
-  return sections.find(
-    (section) => section.level === level && section.heading.toLowerCase() === normalizedSectionName,
-  )
+  const normalizedSectionName = headingWithNewestFirstSuffix(sectionName)
+    .trim()
+    .toLowerCase()
+  return sections.find((section) => {
+    return (
+      section.level === level &&
+      section.heading.toLowerCase() === normalizedSectionName
+    )
+  })
 }
 
 /** Matches the HTML character entities the decoder understands — decimal
@@ -207,8 +223,8 @@ const NAMED_ENTITY_VALUES: Readonly<Record<string, string>> = {
  *  double-unescaping would misread deliberately double-encoded names). An
  *  out-of-range numeric entity is left as-is rather than thrown on: this
  *  feeds a similarity comparison, not a renderer. */
-const decodeBasicHtmlEntities = (text: string): string =>
-  text.replace(HTML_ENTITY_PATTERN, (entity, entityBody: string) => {
+const decodeBasicHtmlEntities = (text: string): string => {
+  return text.replace(HTML_ENTITY_PATTERN, (entity, entityBody: string) => {
     const loweredEntityBody = entityBody.toLowerCase()
 
     if (loweredEntityBody.startsWith("#x")) {
@@ -221,6 +237,7 @@ const decodeBasicHtmlEntities = (text: string): string =>
     }
     return NAMED_ENTITY_VALUES[loweredEntityBody] ?? entity
   })
+}
 
 /** Matches the canonical "(newest first)" suffix at the end of a section
  *  name, with any surrounding whitespace. */
@@ -233,12 +250,13 @@ const NEWEST_FIRST_SUFFIX_PATTERN = /\s*\(newest first\)\s*$/i
  *  of the name rather than the shared suffix. Deliberately broader than
  *  findSection's own normalization — the matcher stays strict; only the
  *  create-guard uses this looser fold. */
-const sectionComparisonForm = (sectionName: string): string =>
-  decodeBasicHtmlEntities(sectionName)
+const sectionComparisonForm = (sectionName: string): string => {
+  return decodeBasicHtmlEntities(sectionName)
     .toLowerCase()
     .replace(NEWEST_FIRST_SUFFIX_PATTERN, "")
     .trim()
     .replace(/\s+/g, " ")
+}
 
 /** Matches every digit run so the near-miss guard can exempt sections that
  *  differ only in their numbers ("2025" vs "2026"). */
@@ -435,28 +453,30 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   const renderMemoryTemplate = (
     spec: MemoryTemplateSpec,
     created: string,
-  ): { fileName: string; content: string } => ({
-    fileName: spec.fileName,
-    content: [
-      "---",
-      `title: ${spec.title}`,
-      `created: ${created}`,
-      "type: profile",
-      `entry-policy: ${spec.entryPolicy}`,
-      "tags:",
-      "  - memory",
-      `  - ${spec.tag}`,
-      "related:",
-      ...spec.related.map((sibling) => `  - "[[${memoryDir}/${sibling}]]"`),
-      "---",
-      "",
-      `# ${spec.title}`,
-      "",
-      spec.scope,
-      "",
-      ...spec.sections.flatMap((section) => [`## ${section}`, ""]),
-    ].join("\n"),
-  })
+  ): { fileName: string; content: string } => {
+    return {
+      fileName: spec.fileName,
+      content: [
+        "---",
+        `title: ${spec.title}`,
+        `created: ${created}`,
+        "type: profile",
+        `entry-policy: ${spec.entryPolicy}`,
+        "tags:",
+        "  - memory",
+        `  - ${spec.tag}`,
+        "related:",
+        ...spec.related.map((sibling) => `  - "[[${memoryDir}/${sibling}]]"`),
+        "---",
+        "",
+        `# ${spec.title}`,
+        "",
+        spec.scope,
+        "",
+        ...spec.sections.flatMap((section) => [`## ${section}`, ""]),
+      ].join("\n"),
+    }
+  }
 
   const readMemoryFile = async (vaultPath: string, file: string): Promise<string> => {
     try {
@@ -930,15 +950,15 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         const leadingCallout = parseLeadingCallout(lines)
         const sections = parseSections(lines)
 
-        const headings: MemoryHeading[] = sections.map((section) =>
-          section.level === 1
+        const headings: MemoryHeading[] = sections.map((section) => {
+          return section.level === 1
             ? { level: 1 as const, text: section.heading }
             : {
                 level: 2 as const,
                 text: section.heading,
                 entryCount: section.entryCount,
-              },
-        )
+              }
+        })
 
         const bytes = Buffer.byteLength(raw, "utf8")
         return {
