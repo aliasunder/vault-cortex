@@ -22,7 +22,7 @@ export const isString = (value: unknown): value is string =>
  *  gray-matter may parse multi-value YAML fields as a single string
  *  or an array depending on syntax (flow vs block). */
 export const coerceToArray = (value: unknown): string[] => {
-  if (Array.isArray(value)) return value
+  if (Array.isArray(value)) return value.map(String)
   return value ? [String(value)] : []
 }
 

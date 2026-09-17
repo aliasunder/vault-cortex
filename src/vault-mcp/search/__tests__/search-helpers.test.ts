@@ -37,8 +37,12 @@ describe("isString", () => {
 // ── coerceToArray ─────────────────────────────────────────────
 
 describe("coerceToArray", () => {
-  it("passes through an existing array", () => {
+  it("preserves string array values", () => {
     expect(coerceToArray(["a", "b"])).toEqual(["a", "b"])
+  })
+
+  it("stringifies non-string array elements", () => {
+    expect(coerceToArray(["a", 2, true])).toEqual(["a", "2", "true"])
   })
 
   it("wraps a scalar string in an array", () => {
