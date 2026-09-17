@@ -503,6 +503,52 @@ describe("updateMemory idempotency", () => {
     expect(fileContent).toBe(PRINCIPLES_MD)
   })
 
+  it("ignores a dated-bullet-looking line inside a code fence when computing insertion offsets", async () => {
+    const fencedFixture = `---
+title: Fenced
+type: profile
+created: 2026-01-01T00:00:00-05:00
+---
+
+# Fenced
+
+## Notes (newest first)
+- **2026-06-15**: Entry with a code example
+  \`\`\`markdown
+  - **2026-01-01**: This looks like an entry but is inside a fence
+  \`\`\`
+- **2026-06-14**: Earlier entry
+`
+    await writeFile(join(vault, "About Me/Fenced.md"), fencedFixture, "utf8")
+
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Fenced",
+        section: "Notes",
+        entry: "New entry appended at top",
+        date: "2026-06-16",
+      },
+      logger,
+    )
+
+    const section = await getMemory(
+      { vaultPath: vault, file: "Fenced", section: "Notes" },
+      logger,
+    )
+    const sectionLines = section.split("\n")
+    const isBullet = (line: string): boolean => line.startsWith("- **")
+    const entryBullets = sectionLines.filter(isBullet)
+
+    // The new entry lands before the first real entry, and the fenced
+    // bullet is not among the top-level bullets.
+    expect(entryBullets).toEqual([
+      "- **2026-06-16**: New entry appended at top",
+      "- **2026-06-15**: Entry with a code example",
+      "- **2026-06-14**: Earlier entry",
+    ])
+  })
+
   // A multiline entry would write a block the line-based duplicate guard
   // (and deleteMemory's exact line match) can never detect — it must be
   // rejected before anything is written.

@@ -16,7 +16,13 @@ import {
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
-import { splitIntoLines } from "../obsidian-markdown/lines.js"
+import {
+  splitIntoLines,
+  advanceFence,
+  advanceComment,
+  type OpenFence,
+  type CommentResult,
+} from "../obsidian-markdown/lines.js"
 import { levenshteinDistance } from "../../utils/levenshtein-distance.js"
 import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
@@ -757,12 +763,55 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           match.bodyEndLine,
         )
 
-        // An exact duplicate in this section means the entry already landed,
-        // typically from an MCP client retrying after a gateway timeout.
-        // Splicing again would create a duplicate that deleteMemory refuses
-        // to disambiguate, so no-op instead. The same bullet under a different
-        // heading is a distinct entry and does not suppress the append.
-        if (bodyLines.includes(bullet)) {
+        // Walk the section body with fence/comment awareness so a dated-bullet-
+        // looking line inside a code block or %% comment is never treated as a
+        // real entry. parseHeadings ends the span at the next same-or-higher
+        // heading, so the section can never begin mid-fence.
+        const entryLineOffsets: number[] = []
+        // Loop-carried parser state — each iteration reads the previous
+        // iteration's fence/comment position (same pattern as parseMemoryEntries).
+        let scanFence: OpenFence = null
+        let scanCommentOpen = false
+
+        for (
+          let offsetIndex = 0;
+          offsetIndex < bodyLines.length;
+          offsetIndex++
+        ) {
+          const bodyLine = bodyLines[offsetIndex]
+
+          if (!bodyLine) continue
+
+          const fenceResult: ReturnType<typeof advanceFence> | null =
+            scanCommentOpen ? null : advanceFence(bodyLine, scanFence)
+          scanFence = fenceResult ? fenceResult.openFence : scanFence
+
+          const commentResult: CommentResult | null = fenceResult?.lineIsCode
+            ? null
+            : advanceComment(bodyLine, scanCommentOpen)
+          scanCommentOpen = commentResult
+            ? commentResult.commentOpen
+            : scanCommentOpen
+
+          const insideCodeOrComment =
+            (fenceResult?.lineIsCode ?? false) ||
+            (commentResult?.lineIsComment ?? false)
+          if (insideCodeOrComment) continue
+
+          if (ENTRY_PATTERN.test(bodyLine)) {
+            entryLineOffsets.push(offsetIndex)
+          }
+        }
+
+        // Duplicate check scoped to genuine entries (not fenced lines).
+        // An exact duplicate means the entry already landed, typically from an
+        // MCP client retrying after a gateway timeout. The same bullet under a
+        // different heading is a distinct entry and does not suppress the append.
+        const isDuplicate = entryLineOffsets.some(
+          (offset) => bodyLines[offset] === bullet,
+        )
+
+        if (isDuplicate) {
           logger.info("memory entry unchanged", {
             file: params.file,
             section: params.section,
@@ -772,14 +821,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           return "unchanged"
         }
 
-        // File + section exist — find the first and last dated bullet within the
-        // section body to determine where to insert. Offsets are relative to bodyStartLine.
-        const firstBulletOffset = bodyLines.findIndex((line) =>
-          ENTRY_PATTERN.test(line),
-        )
-        const lastBulletOffset = bodyLines.findLastIndex((line) =>
-          ENTRY_PATTERN.test(line),
-        )
+        const firstBulletOffset = entryLineOffsets.at(0) ?? -1
+        const lastBulletOffset = entryLineOffsets.at(-1) ?? -1
 
         // Compute the absolute line index in the full content array for insertion.
         // "top" inserts before the first existing bullet (newest-first ordering).
