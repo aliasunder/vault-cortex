@@ -84,6 +84,7 @@ const sweepOneEntry = async (
     const parentInsideTrashRoot =
       realParentOrNull === realTrashRootOrNull ||
       realParentOrNull.startsWith(realTrashRootOrNull + sep)
+
     if (!parentInsideTrashRoot) {
       logger.warn("trash entry parent escapes .trash — skipped", {
         trashPath,
