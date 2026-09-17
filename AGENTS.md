@@ -171,7 +171,7 @@ src/
       task-mutations.ts                # Task create + state mutations (status, priority, heading moves, sub-tasks)
       task-format-config.ts            # Tasks-plugin format config reader (emoji vs Dataview)
       trash-config.ts                  # Obsidian "Deleted files" config reader (trashOption from .obsidian/app.json)
-      trash-sweeper.ts                 # Retention sweep over recorded .trash/ entries (TRASH_RETENTION_DAYS; row store injected from search)
+      trash-sweeper.ts                 # Trash bookkeeping: orphan purge (boot) + retention sweep (daily); row store injected from search
       asset-operations.ts              # Asset read dispatch + browsing (image fit, canvas linearize/raw, extension filter, statted slice)
     mcp-core/                          # MCP protocol surface
       mcp-router.ts                    # /mcp session routes + transport lifecycle
