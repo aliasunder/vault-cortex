@@ -554,6 +554,8 @@ describe("purgeOrphanedTrashEntries", () => {
     const vault = await createTestVault()
     const index = createSearchIndex(":memory:")
     index.recordTrashEntry(".trash/deleted-mid-flight.md")
+    // Control orphan: proves the purge ran.
+    index.recordTrashEntry(".trash/control-orphan.md")
     const racingStore: TrashEntryStore = {
       listAllTrashEntries: () => {
         const listed = index.listAllTrashEntries()
@@ -574,11 +576,12 @@ describe("purgeOrphanedTrashEntries", () => {
       logger,
     )
 
-    // The row was already gone — no purge logged.
-    const purgeCalls = infoSpy.mock.calls.filter(
-      ([message]) => message === "orphaned trash entries purged",
-    )
-    expect(purgeCalls).toEqual([])
+    // The deleted-mid-flight row was skipped; the control orphan was purged.
+    expect(infoSpy).toHaveBeenCalledWith("orphaned trash entries purged", {
+      checked: 2,
+      purged: 1,
+    })
+    expect(index.getTrashEntry(".trash/control-orphan.md")).toBeNull()
   })
 
   it("drops a row when the parent folder is gone", async () => {
