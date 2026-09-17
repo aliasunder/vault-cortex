@@ -91,6 +91,7 @@ Prefer vault_search when you don't know the path.${whenToolEnabledText("vault_ge
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included. Modes are mutually exclusive — set at most one of properties_only, outline, or heading. Paged reads normalize line endings to LF; unpaged reads stay byte-identical.
 
 Errors:
+- "note not found" — no note exists at this path; verify it with vault_list_notes
 - "heading not found" — no heading matches the text; error lists available headings
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or read the full note (omit heading) when headings share the same level
 - "outline, heading, and properties_only are mutually exclusive" — only one mode per call
