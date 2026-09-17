@@ -214,6 +214,33 @@ describe("sweepExpiredTrashEntries", () => {
     )
   })
 
+  it("keeps the row and warns when realpath fails with a non-ENOENT error", async () => {
+    const vault = await createTestVault()
+    const lockedDir = join(vault, ".trash", "noaccess")
+    await mkdir(lockedDir, { recursive: true })
+    await writeFile(join(lockedDir, "stuck.md"), "perm error", "utf8")
+    const index = createSearchIndex(":memory:")
+    recordEntryDaysAgo(index, ".trash/noaccess/stuck.md", 31)
+    // Remove all permissions from .trash/ so realpath on the parent fails.
+    await chmod(join(vault, ".trash"), 0o000)
+    onTestFinished(() => chmod(join(vault, ".trash"), 0o755))
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
+
+    expect(index.getTrashEntry(".trash/noaccess/stuck.md")?.trashPath).toBe(
+      ".trash/noaccess/stuck.md",
+    )
+    expect(warnSpy).toHaveBeenCalledWith("failed to resolve trash entry path", {
+      trashPath: ".trash/noaccess/stuck.md",
+      error: expect.stringMatching(/EACCES/),
+    })
+  })
+
   it("keeps the row and warns when unlink fails with a non-ENOENT error", async () => {
     // A permission error during unlink keeps the row so the next sweep
     // retries; one bad row never aborts the sweep.
