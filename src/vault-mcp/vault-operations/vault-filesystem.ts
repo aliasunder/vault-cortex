@@ -98,9 +98,7 @@ export const resolveSafePath = (
     isAbsolute(pathFromVaultRoot)
 
   if (escapesVault) {
-    throw new Error(
-      `path traversal blocked: "${notePath}" escapes vault root`,
-    )
+    throw new Error(`path traversal blocked: "${notePath}" escapes vault root`)
   }
 
   if (resolvedPath === vaultRoot) {
