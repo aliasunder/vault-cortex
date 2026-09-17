@@ -494,10 +494,16 @@ describe("error handling", () => {
   })
 
   it.each([
-    ["outline + heading", { outline: true, heading: "Active" }],
-    ["outline + properties_only", { outline: true, properties_only: true }],
-    ["heading + properties_only", { heading: "Active", properties_only: true }],
-  ] as const)("vault_read_note rejects %s", async (_label, modes) => {
+    { label: "outline + heading", modes: { outline: true, heading: "Active" } },
+    {
+      label: "outline + properties_only",
+      modes: { outline: true, properties_only: true },
+    },
+    {
+      label: "heading + properties_only",
+      modes: { heading: "Active", properties_only: true },
+    },
+  ])("vault_read_note rejects $label", async ({ modes }) => {
     const [, , handler] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     const result = (await handler(
       { path: "note.md", ...modes },
