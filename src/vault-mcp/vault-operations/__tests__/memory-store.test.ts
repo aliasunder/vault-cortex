@@ -514,9 +514,9 @@ created: 2026-01-01T00:00:00-05:00
 
 ## Notes (newest first)
 - **2026-06-15**: Entry with a code example
-  \`\`\`markdown
-  - **2026-01-01**: This looks like an entry but is inside a fence
-  \`\`\`
+\`\`\`
+- **2026-01-01**: This looks like an entry but is inside a fence
+\`\`\`
 - **2026-06-14**: Earlier entry
 `
     await writeFile(join(vault, "About Me/Fenced.md"), fencedFixture, "utf8")
@@ -536,17 +536,56 @@ created: 2026-01-01T00:00:00-05:00
       { vaultPath: vault, file: "Fenced", section: "Notes" },
       logger,
     )
-    const sectionLines = section.split("\n")
-    const isBullet = (line: string): boolean => line.startsWith("- **")
-    const entryBullets = sectionLines.filter(isBullet)
 
-    // The new entry lands before the first real entry, and the fenced
-    // bullet is not among the top-level bullets.
-    expect(entryBullets).toEqual([
-      "- **2026-06-16**: New entry appended at top",
-      "- **2026-06-15**: Entry with a code example",
-      "- **2026-06-14**: Earlier entry",
-    ])
+    // The new entry is inserted before the first real entry, not before
+    // the column-0 fenced bullet that matches ENTRY_PATTERN.
+    expect(section).toBe(
+      [
+        "- **2026-06-16**: New entry appended at top",
+        "- **2026-06-15**: Entry with a code example",
+        "```",
+        "- **2026-01-01**: This looks like an entry but is inside a fence",
+        "```",
+        "- **2026-06-14**: Earlier entry",
+      ].join("\n"),
+    )
+  })
+
+  it("does not treat a fenced duplicate as an existing entry in the idempotency guard", async () => {
+    const fencedDuplicateFixture = `---
+title: FencedDup
+type: profile
+created: 2026-01-01T00:00:00-05:00
+---
+
+# FencedDup
+
+## Notes (newest first)
+- **2026-06-15**: Real entry
+\`\`\`
+- **2026-06-10**: Retry-safe entry
+\`\`\`
+`
+    await writeFile(
+      join(vault, "About Me/FencedDup.md"),
+      fencedDuplicateFixture,
+      "utf8",
+    )
+
+    const outcome = await updateMemory(
+      {
+        vaultPath: vault,
+        file: "FencedDup",
+        section: "Notes",
+        entry: "Retry-safe entry",
+        date: "2026-06-10",
+      },
+      logger,
+    )
+
+    // The fenced line has the exact same bullet text, but the guard must
+    // not treat it as a duplicate — the entry should be appended.
+    expect(outcome).toBe("appended")
   })
 
   // A multiline entry would write a block the line-based duplicate guard
