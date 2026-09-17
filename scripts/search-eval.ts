@@ -129,8 +129,11 @@ const createVaultSnapshot = (params: {
   const excludedExactPaths = new Set(
     params.excludePaths.map((path) => resolve(vaultRoot, path)),
   )
+  // resolve() strips trailing slashes, so append sep — without it,
+  // prefix "sessions" also matches sibling "sessions-archive.md".
   const excludedPrefixes = params.excludePrefixes.map((prefix) => {
-    return resolve(vaultRoot, prefix)
+    const resolved = resolve(vaultRoot, prefix)
+    return resolved.endsWith(sep) ? resolved : resolved + sep
   })
 
   rmSync(params.snapshotDir, { recursive: true, force: true })
