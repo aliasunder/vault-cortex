@@ -149,7 +149,7 @@
         },
         {
           "name": "LOG_DIR",
-          "description": "Directory for log files that survive container re-creation. The container's own log is always written but discarded when the container is recreated; date-stamped files under LOG_DIR persist on the data volume. Default: /data/logs (remote image), none (local image). none keeps only the container log.",
+          "description": "Directory for log files that survive container re-creation. The container's own log is always written but discarded when the container is recreated; date-stamped files under LOG_DIR persist on the data volume. Default: /data/logs (remote image), $STORAGE_ROOT/data/logs (single-volume mode), none (local image). none keeps only the container log.",
           "format": "filepath"
         },
         {

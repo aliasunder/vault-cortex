@@ -100,7 +100,7 @@ services:
       # Left empty = the server applies smart defaults
       # (<MEMORY_DIR>/<DAILY_NOTES_FOLDER> below are the resolved values, defaults "About Me" / "Daily Notes"):
       #   PROTECTED_PATHS           default: "<MEMORY_DIR>, <DAILY_NOTES_FOLDER>"
-      #   ORPHAN_EXCLUDE_FOLDERS    default: "<DAILY_NOTES_FOLDER>, Templates, <MEMORY_DIR>"
+      #   ORPHAN_EXCLUDE_FOLDERS    default: "<DAILY_NOTES_FOLDER>, Templates, <MEMORY_DIR>" (daily-notes entry from the env var only — doesn't read daily-notes.json)
       #   SERVICE_DOCUMENTATION_URL default: https://github.com/aliasunder/vault-cortex
       #   DAILY_NOTES_FOLDER        default: read from the vault's .obsidian/daily-notes.json, else "Daily Notes"
       #   DAILY_NOTES_FORMAT        default: read from the vault's .obsidian/daily-notes.json, else "YYYY-MM-DD"
