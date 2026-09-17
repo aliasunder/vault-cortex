@@ -233,7 +233,21 @@ const main = async (): Promise<void> => {
   )
   mkdirSync(workDir, { recursive: true })
 
-  if (cliArgs["reuse-snapshot"] && existsSync(snapshotDir)) {
+  const snapshotReused =
+    Boolean(cliArgs["reuse-snapshot"]) && existsSync(snapshotDir)
+  // An index can only be reused over the snapshot it was built from — when
+  // the snapshot directory is absent and would be rebuilt this run, the
+  // index would describe a corpus that no longer exists.
+  if (cliArgs["reuse-index"] && !snapshotReused) {
+    throw new Error(
+      "--reuse-index requires the snapshot it was built from, but the snapshot is missing and would be rebuilt this run — re-run without --reuse-index",
+    )
+  }
+  // Decided before createSearchIndex opens the database — the factory
+  // creates the file, so checking afterwards would always report true.
+  const indexReused = Boolean(cliArgs["reuse-index"]) && existsSync(indexDbPath)
+
+  if (snapshotReused) {
     console.log(`reusing snapshot: ${snapshotDir}`)
   } else {
     console.log(`snapshotting vault ${judgment.vault_path} → ${snapshotDir}`)
@@ -258,7 +272,7 @@ const main = async (): Promise<void> => {
     },
   })
 
-  if (cliArgs["reuse-index"] && existsSync(indexDbPath)) {
+  if (indexReused) {
     console.log(`reusing index: ${indexDbPath}`)
   } else {
     console.log("rebuilding index (FTS + embedding — this takes minutes)…")
@@ -346,9 +360,9 @@ const main = async (): Promise<void> => {
     )
   }
 
-  // KNN-window diversity across the scoring runs (Codex finding 4): when a
-  // repeated metadata prefix lets one note's chunks flood the window, hits
-  // rise while unique notes fall — a shrinking ratio is the warning sign.
+  // KNN-window diversity across the scoring runs: when a repeated metadata
+  // prefix lets one note's chunks flood the window, hits rise while unique
+  // notes fall — a shrinking ratio is the warning sign.
   const totalKnnHits = vectorSearchStats.reduce(
     (sum, stats) => sum + stats.knnHits,
     0,

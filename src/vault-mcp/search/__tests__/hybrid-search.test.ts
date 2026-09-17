@@ -1805,6 +1805,66 @@ describe("hybridSearch — ranking tuning", () => {
     ])
   })
 
+  it("file-leg weight 0 excludes file results instead of surfacing them at score 0", async () => {
+    const zeroWeightIndex = createSearchIndex(
+      ":memory:",
+      createHybridMockEmbedder(),
+      undefined,
+      { fileToolsEnabled: true, ranking: { fileLegWeight: 0 } },
+    )
+    await seedNoteAndFile(zeroWeightIndex)
+
+    // The file matches "deployment guide" on both file legs, but at weight 0
+    // the legs are skipped entirely — RRF would otherwise emit the file at
+    // score 0 and it would fill the candidate window.
+    const zeroWeighted = await zeroWeightIndex.hybridSearch(
+      { query: "deployment guide" },
+      logger,
+    )
+    expect(zeroWeighted.results.map((result) => result.path)).toEqual([
+      "notes/career.md",
+    ])
+  })
+
+  it("fallback fusion at file-leg weight 0 returns notes only", async () => {
+    // No embedder — hybridSearch takes the FTS-only fallback path.
+    const zeroWeightIndex = createSearchIndex(
+      ":memory:",
+      undefined,
+      undefined,
+      {
+        fileToolsEnabled: true,
+        ranking: { fileLegWeight: 0 },
+      },
+    )
+    zeroWeightIndex.upsertNote(
+      {
+        filePath: "target.md",
+        rawContent: "---\ntitle: Target\n---\n\nDeployment checklist.\n",
+        fileStat: testStat(1100),
+      },
+      logger,
+    )
+    zeroWeightIndex.upsertNonMdFile("docs/guide.txt", 200)
+    zeroWeightIndex.upsertFileContent(
+      {
+        filePath: "docs/guide.txt",
+        rawContent: FILE_CONTENT,
+        fileStat: testStat(2000, 200),
+      },
+      logger,
+    )
+
+    const zeroWeighted = await zeroWeightIndex.hybridSearch(
+      { query: "deployment" },
+      logger,
+    )
+    expect(zeroWeighted.search_mode).toBe("fts")
+    expect(zeroWeighted.results.map((result) => result.path)).toEqual([
+      "target.md",
+    ])
+  })
+
   it("prefixes reranker document text for file results when rerankKindPrefix is set", async () => {
     const capturingReranker = {
       rerankPairs: vi

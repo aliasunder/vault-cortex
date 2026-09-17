@@ -380,7 +380,11 @@ export const hybridSearch = async (
     params.filters?.created ||
     params.filters?.modified,
   )
-  const fileContentResults = hasNoteSpecificFilters
+  // Weight 0 must exclude the file legs, not just zero their contribution —
+  // RRF would still emit their identifiers at score 0, so file results
+  // would surface whenever the candidate window has room.
+  const skipFileContentLegs = hasNoteSpecificFilters || fileLegWeight === 0
+  const fileContentResults = skipFileContentLegs
     ? []
     : runFileContentFts(context, {
         query: params.query,
@@ -408,7 +412,7 @@ export const hybridSearch = async (
 
   // File content vector search — same skip condition as file content FTS
   const fileContentVectorHits =
-    hasNoteSpecificFilters || !queryEmbeddingBuffer
+    skipFileContentLegs || !queryEmbeddingBuffer
       ? []
       : fileContentVectorSearch(
           context,

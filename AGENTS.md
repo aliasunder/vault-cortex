@@ -91,6 +91,7 @@ scripts/                               # Dev/ops helpers (not shipped in Docker)
   generate-dockerhub-readme.ts         # Generates DOCKERHUB.md (WAF-safe Docker Hub README) from README.md
   render-social-preview.ts             # Renders social-preview.svg → .png via Puppeteer
   search-eval.ts                       # Search ranking eval harness (judgment-file A/B scoring)
+  search-eval-snapshot.ts              # Vault copy for the eval harness (hidden/prefix exclusions)
 cli/                                   # npx vault-cortex CLI (published as vault-cortex npm package)
   src/
     bin.ts                             # Entry point (version injection + run)
