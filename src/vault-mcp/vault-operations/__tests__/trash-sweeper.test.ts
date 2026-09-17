@@ -524,6 +524,8 @@ describe("purgeOrphanedTrashEntries", () => {
     // Back-date the original so the refresh (recorded at "now") gets a
     // different trashedAt — both within the same second would match.
     recordEntryDaysAgo(index, ".trash/raced.md", 1)
+    // Control orphan: proves the purge ran (dropped if the function executes).
+    index.recordTrashEntry(".trash/control-orphan.md")
     const racingStore: TrashEntryStore = {
       listAllTrashEntries: () => {
         const listed = index.listAllTrashEntries()
@@ -545,6 +547,7 @@ describe("purgeOrphanedTrashEntries", () => {
     expect(index.getTrashEntry(".trash/raced.md")?.trashPath).toBe(
       ".trash/raced.md",
     )
+    expect(index.getTrashEntry(".trash/control-orphan.md")).toBeNull()
   })
 
   it("skips a row deleted between listing and lock acquisition", async () => {
@@ -647,6 +650,8 @@ describe("purgeOrphanedTrashEntries", () => {
     await writeFile(join(vault, "Live", "note.md"), "live note", "utf8")
     const index = createSearchIndex(":memory:")
     index.recordTrashEntry(".trash/../Live/note.md")
+    // Control orphan: proves the purge ran.
+    index.recordTrashEntry(".trash/control-orphan.md")
 
     await trashSweeper.purgeOrphanedTrashEntries(
       { vaultPath: vault, trashEntryStore: index },
@@ -658,5 +663,28 @@ describe("purgeOrphanedTrashEntries", () => {
     )
     const liveContent = await readFile(join(vault, "Live", "note.md"), "utf8")
     expect(liveContent).toBe("live note")
+    expect(index.getTrashEntry(".trash/control-orphan.md")).toBeNull()
+  })
+
+  it("retains a dangling symlink's row — lstat sees the link itself", async () => {
+    const vault = await createTestVault()
+    await symlink(
+      join(vault, "nonexistent-target"),
+      join(vault, ".trash", "dangling.md"),
+    )
+    const index = createSearchIndex(":memory:")
+    index.recordTrashEntry(".trash/dangling.md")
+    // Control orphan: proves the purge ran.
+    index.recordTrashEntry(".trash/control-orphan.md")
+
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
+
+    expect(index.getTrashEntry(".trash/dangling.md")?.trashPath).toBe(
+      ".trash/dangling.md",
+    )
+    expect(index.getTrashEntry(".trash/control-orphan.md")).toBeNull()
   })
 })
