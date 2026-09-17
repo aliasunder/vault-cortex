@@ -386,7 +386,10 @@ Both models lazy-load on first use (~1–2s cold start each, cached after). Tota
 2. **File content FTS5** — linearized canvas, extracted PDF text, plain text files (skipped when note-specific filters are active)
 3. **Note vector search** — embed the query → sqlite-vec KNN over `note_vectors` → deduplicate to best chunk per note
 4. **File content vector search** — same query embedding → KNN over `file_content_vectors` → deduplicate to best chunk per file (same skip condition as step 2)
-5. RRF fusion (`computeRrfScores`): score = Σ(1/(k+rank)) across all available lists, k=60, with top-rank bonuses (+0.05 rank 1, +0.02 ranks 2–3). The two file-content legs contribute at half weight (0.5, applied to base term + bonus together) — a large file matching scattered common words across its chunks earns leg rank too easily, so a file result needs either a strong match or corroboration from another leg to reach the top ranks. When a note-specific filter (tags, type, related, properties, created, modified) is active, both file-content legs are skipped entirely and only the two note legs fuse. Ties break by path so equal scores order deterministically.
+5. **RRF fusion** (`computeRrfScores`) — score = Σ(1/(k+rank)) across all available lists, k=60, with top-rank bonuses (+0.05 rank 1, +0.02 ranks 2–3):
+   - The two file-content legs contribute at half weight (0.5, applied to base term + bonus together) — a large file matching scattered common words across its chunks earns leg rank too easily, so a file result needs a strong match or corroboration from another leg to reach the top ranks
+   - Under a note-specific filter only the two note legs fuse — steps 2 and 4 skipped the file legs
+   - Ties break by path so equal scores order deterministically
 6. Build merged results: FTS results keep their metadata and snippet (score replaced with RRF score); vector-only results get metadata from their respective tables and a snippet from their best-matching chunk text
 7. Apply user filters (folder, tags, type, related, properties, created, modified) to vector-only note results — FTS results are already filtered via SQL
 
