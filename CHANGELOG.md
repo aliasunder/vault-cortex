@@ -102,6 +102,23 @@
 
 
 
+
+## [0.52.1] — 2026-09-17
+
+### Features
+
+- **trash:** Purge orphaned trash_entries rows at boot (#578)
+
+### Documentation
+
+- Bring task docs current and revise README prose, config section, and sibling claims (#579)
+- Cap CLI README demo GIF at 720px, fix product name casing (#577)
+- Update CHANGELOG.md for v0.52.0
+
+### Maintenance
+
+- **ci:** Bump umm-actually to v0.4.5 (#580)
+
 ## [0.52.0] — 2026-09-16
 
 ### Features
