@@ -447,7 +447,8 @@ export const hybridSearch = async (
         toRankedList(ftsResults), // note FTS
         toRankedList(fileContentResults), // file FTS
       ],
-      listWeights: [1, fileLegWeight], // note=full, file=down-weighted
+      // The note list keeps full weight; the file list is down-weighted.
+      listWeights: [1, fileLegWeight],
     })
     const ftsResultsByPath = new Map(
       ftsResults.map((result) => [result.path, result]),
@@ -482,7 +483,8 @@ export const hybridSearch = async (
   // file-content legs are down-weighted so a large file matching scattered
   // common words across its chunks cannot out-rank topical notes on leg
   // rank alone.
-  // Index-aligned: rankedLists[i] contributes at listWeights[i]
+  // rankedLists[i] contributes at listWeights[i] — the two note legs keep
+  // full weight, the two file-content legs take the down-weight.
   const rankedLists = [
     toRankedList(ftsResults), // note FTS
     toRankedList(vectorHits), // note KNN
