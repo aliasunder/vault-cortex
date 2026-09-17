@@ -41,7 +41,7 @@
 - **[Plugin-free](#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
 - **[Hybrid search](#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
 - **[Structured memory](#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
-- **[Tasks](#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
+- **[Tasks](#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call — completing a recurring task spawns its next occurrence. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
 - **[Link graph](#tools)** — backlinks, outgoing links, and orphan detection across the vault
 - **[Files](#files)** — read the vault's non-markdown files too: images arrive as actual images (shrunk to fit when needed), PDFs as structured text or rendered pages, canvases as readable outlines, data files as text
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
@@ -264,8 +264,8 @@ Task metadata lives in plain markdown — scattered across files, encoded in emo
 The task layer handles this so agents don't have to:
 
 - **Find** — filter by status, six date fields (due, scheduled, start, created, done, cancelled), priority, folder, or Kanban lane. Each result carries its note path, line number, and nearest heading when the task sits under one (the lane on a Kanban board) — no follow-up reads needed to locate a task
-- **Create** — add a correctly-formatted task in one call: description, priority, dates, block_id, and checklist sub-items, placed under a heading or nested under a parent task
-- **Update** — complete, reprioritize, edit the text, set or clear dates, add checklist items, and move tasks between headings in a single call. Marking a task done auto-detects the done lane and stamps the completion date; reversing it removes the date
+- **Create** — add a correctly-formatted task in one call: description, priority, dates, recurrence, block_id, and checklist sub-items, placed under a heading or nested under a parent task
+- **Update** — complete, reprioritize, edit the text, set or clear dates, add checklist items, and move tasks between headings in a single call. Marking a task done auto-detects the done lane and stamps the completion date; reversing it removes the date. Completing a recurring task creates its next occurrence with dates advanced exactly as the Tasks plugin computes them, and a task carrying an "On completion" delete action is removed instead of left checked off
 - **Both formats** — whichever format you use, [Tasks plugin](https://publish.obsidian.md/tasks/) emoji signifiers or [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, the server reads both and writes in the format your Tasks plugin is configured for
 
 See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks) for the indexing model, date cascade sorting, and Kanban lane detection.
