@@ -1834,6 +1834,124 @@ describe("hybridSearch — ranking tuning", () => {
     )
   })
 
+  it("uses 'PDF file' kind label for .pdf file results", async () => {
+    const pdfContent = "quarterly earnings report for fiscal year"
+    const capturingReranker = {
+      rerankPairs: vi
+        .fn()
+        .mockImplementation((_query: string, documents: string[]) => {
+          return Promise.resolve(documents.map(() => 0))
+        }),
+    }
+    const index = createSearchIndex(
+      ":memory:",
+      createHybridMockEmbedder(),
+      capturingReranker,
+      { fileToolsEnabled: true, ranking: { rerankKindPrefix: true } },
+    )
+    // Seed a note so the reranker fires (needs >= 2 candidates)
+    index.upsertNote(
+      {
+        filePath: "notes/career.md",
+        rawContent: NOTE_CONTENT,
+        fileStat: testStat(500),
+      },
+      logger,
+    )
+    await index.embedNote(
+      { notePath: "notes/career.md", rawContent: NOTE_CONTENT },
+      logger,
+    )
+    index.upsertNonMdFile("docs/report.pdf", 100)
+    index.upsertFileContent(
+      {
+        filePath: "docs/report.pdf",
+        rawContent: pdfContent,
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+    await index.embedFileContent({ filePath: "docs/report.pdf" }, logger)
+
+    await index.hybridSearch({ query: "quarterly earnings" }, logger)
+
+    expect(capturingReranker.rerankPairs).toHaveBeenCalledTimes(1)
+    expect(capturingReranker.rerankPairs).toHaveBeenCalledWith(
+      "quarterly earnings",
+      [
+        `PDF file: report\n\n${pdfContent}`,
+        "Career\n\n\nCareer goals and aspirations.",
+      ],
+    )
+  })
+
+  it("uses 'Canvas file' kind label for .canvas file results", async () => {
+    const canvasJson = JSON.stringify({
+      nodes: [
+        {
+          id: "t1",
+          type: "text",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 100,
+          text: "Infrastructure overview with deployment topology",
+        },
+      ],
+      edges: [],
+    })
+    const capturingReranker = {
+      rerankPairs: vi
+        .fn()
+        .mockImplementation((_query: string, documents: string[]) => {
+          return Promise.resolve(documents.map(() => 0))
+        }),
+    }
+    const index = createSearchIndex(
+      ":memory:",
+      createHybridMockEmbedder(),
+      capturingReranker,
+      { fileToolsEnabled: true, ranking: { rerankKindPrefix: true } },
+    )
+    // Seed a note so the reranker fires (needs >= 2 candidates)
+    index.upsertNote(
+      {
+        filePath: "notes/career.md",
+        rawContent: NOTE_CONTENT,
+        fileStat: testStat(500),
+      },
+      logger,
+    )
+    await index.embedNote(
+      { notePath: "notes/career.md", rawContent: NOTE_CONTENT },
+      logger,
+    )
+    index.upsertNonMdFile("Diagrams/infra.canvas", 300)
+    index.upsertFileContent(
+      {
+        filePath: "Diagrams/infra.canvas",
+        rawContent: canvasJson,
+        fileStat: testStat(2000, 300),
+      },
+      logger,
+    )
+    await index.embedFileContent({ filePath: "Diagrams/infra.canvas" }, logger)
+
+    await index.hybridSearch(
+      { query: "infrastructure deployment topology" },
+      logger,
+    )
+
+    expect(capturingReranker.rerankPairs).toHaveBeenCalledTimes(1)
+    expect(capturingReranker.rerankPairs).toHaveBeenCalledWith(
+      "infrastructure deployment topology",
+      [
+        "Canvas file: infra\n\nCanvas: 1 node, 0 edges\n\n[text]\nInfrastructure overview with deployment topology",
+        "Career\n\n\nCareer goals and aspirations.",
+      ],
+    )
+  })
+
   it("leaves reranker document text unprefixed by default", async () => {
     const capturingReranker = {
       rerankPairs: vi

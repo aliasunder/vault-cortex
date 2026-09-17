@@ -214,6 +214,21 @@ describe("chunkNoteContent", () => {
       expect(enrichedChunks.length).toBeGreaterThan(1)
     })
 
+    it("floors the budget at MIN_CHUNK_TOKENS when the prefix is very large", () => {
+      // A ~420-token prefix would shrink the budget to ~30 without the
+      // floor, but MIN_CHUNK_TOKENS (50) catches it. 120 body tokens
+      // at a 50-token floor → 3 chunks; without the floor (budget ~30)
+      // it would be 5.
+      const hugePrefix = `Tags: ${generateTokens(419)}.`
+      const body = generateTokens(120)
+
+      const chunks = chunkNoteContent("Note", body, {
+        metadataPrefix: hugePrefix,
+      })
+
+      expect(chunks).toHaveLength(3)
+    })
+
     it("produces identical chunks with a null prefix as with no options", () => {
       const body = `## One\n\n${generateTokens(300)}\n\n## Two\n\n${generateTokens(300)}`
 
