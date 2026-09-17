@@ -23,6 +23,7 @@ import {
 } from "node:fs/promises"
 import { basename, join } from "node:path"
 import { tmpdir } from "node:os"
+import { DateTime } from "luxon"
 
 // Every node:fs/promises export becomes a pass-through spy — real behavior
 // everywhere, and a test can inject a one-shot competitor or failure at the
@@ -2220,6 +2221,42 @@ describe("write size logging", () => {
 })
 
 describe("readNoteOutline", () => {
+  const getExpectedFileMetadata = async (
+    path: string,
+  ): Promise<{ bytes: number; modified: string }> => {
+    const fileStats = await stat(join(vault, path))
+    const modified = DateTime.fromMillis(Math.round(fileStats.mtimeMs)).toISO()
+    if (modified === null)
+      throw new Error(`invalid test mtime: ${fileStats.mtimeMs}`)
+    return { bytes: fileStats.size, modified }
+  }
+
+  it("returns whole-file bytes and modified time", async () => {
+    const path = "metadata.md"
+    const body = "# Café\n\nrésumé\n"
+    const content = `---\ntitle: Café\n---\n${body}`
+    const modifiedAt = DateTime.fromISO("2026-09-17T14:30:00.000Z")
+    if (!modifiedAt.isValid) throw new Error("invalid test timestamp")
+    await writeFile(join(vault, path), content, "utf8")
+    await utimes(
+      join(vault, path),
+      modifiedAt.toSeconds(),
+      modifiedAt.toSeconds(),
+    )
+
+    expect(await readNoteOutline({ vaultPath: vault, path }, logger)).toEqual({
+      bytes: Buffer.byteLength(content, "utf8"),
+      modified: modifiedAt.toLocal().toISO(),
+      headings: [
+        {
+          level: 1,
+          text: "Café",
+          bytes: Buffer.byteLength(body, "utf8"),
+        },
+      ],
+    })
+  })
+
   it("returns each heading's level, text, and section byte size", async () => {
     const body = "# Title\n\nIntro line.\n\n## Active\n\n- one\n- two\n"
     await writeFile(join(vault, "outline.md"), body, "utf8")
@@ -2233,6 +2270,7 @@ describe("readNoteOutline", () => {
     // child — its byte size is the whole body. "## Active" is just its own span.
     // No leading callout, so `leading_callout` is omitted from the outline object.
     expect(outline).toEqual({
+      ...(await getExpectedFileMetadata("outline.md")),
       headings: [
         { level: 1, text: "Title", bytes: Buffer.byteLength(body, "utf8") },
         {
@@ -2248,7 +2286,11 @@ describe("readNoteOutline", () => {
     await writeFile(join(vault, "flat.md"), "just prose, no headings\n", "utf8")
     expect(
       await readNoteOutline({ vaultPath: vault, path: "flat.md" }, logger),
-    ).toEqual({ leading_content: "just prose, no headings", headings: [] })
+    ).toEqual({
+      ...(await getExpectedFileMetadata("flat.md")),
+      leading_content: "just prose, no headings",
+      headings: [],
+    })
   })
 
   it("returns prose above the first heading as leading_content", async () => {
@@ -2258,6 +2300,7 @@ describe("readNoteOutline", () => {
     expect(
       await readNoteOutline({ vaultPath: vault, path: "intro.md" }, logger),
     ).toEqual({
+      ...(await getExpectedFileMetadata("intro.md")),
       leading_content: "Intro prose.\nSecond line.",
       headings: [
         {
@@ -2279,6 +2322,7 @@ describe("readNoteOutline", () => {
     expect(
       await readNoteOutline({ vaultPath: vault, path: "both.md" }, logger),
     ).toEqual({
+      ...(await getExpectedFileMetadata("both.md")),
       leading_callout: {
         type: "info",
         title: "Scope",
@@ -2304,6 +2348,7 @@ describe("readNoteOutline", () => {
       logger,
     )
     expect(outline).toEqual({
+      ...(await getExpectedFileMetadata("calloutonly.md")),
       leading_callout: { type: "info", title: "Scope", body: "only this" },
       headings: [
         {
@@ -2351,6 +2396,7 @@ describe("readNoteOutline", () => {
       logger,
     )
     expect(outline).toEqual({
+      ...(await getExpectedFileMetadata("blank.md")),
       headings: [
         {
           level: 2,
@@ -2383,7 +2429,7 @@ describe("readNoteOutline", () => {
 
     expect(
       await readNoteOutline({ vaultPath: vault, path: "board.md" }, logger),
-    ).toEqual({ headings: [] })
+    ).toEqual({ ...(await getExpectedFileMetadata("board.md")), headings: [] })
   })
 
   it("keeps a board's leading note out of its trailing settings block", async () => {
@@ -2417,7 +2463,10 @@ describe("readNoteOutline", () => {
 
     expect(
       await readNoteOutline({ vaultPath: vault, path: "fmonly.md" }, logger),
-    ).toEqual({ headings: [] })
+    ).toEqual({
+      ...(await getExpectedFileMetadata("fmonly.md")),
+      headings: [],
+    })
   })
 
   it("surfaces a leading callout below the H1 alongside the headings", async () => {
@@ -2434,6 +2483,7 @@ describe("readNoteOutline", () => {
     // the callout sits below an H1 that H1 is the first heading, leaving the
     // region above it empty.
     expect(outline).toEqual({
+      ...(await getExpectedFileMetadata("scoped.md")),
       leading_callout: {
         type: "info",
         title: "Scope of this file",
@@ -2460,6 +2510,7 @@ describe("readNoteOutline", () => {
     // The H1 is the first heading, so the intro prose lives inside its section
     // rather than above it — neither leading key applies.
     expect(outline).toEqual({
+      ...(await getExpectedFileMetadata("nocallout.md")),
       headings: [
         { level: 1, text: "Title", bytes: Buffer.byteLength(body, "utf8") },
         {
@@ -2487,6 +2538,7 @@ describe("readNoteOutline", () => {
       logger,
     )
     expect(outline).toEqual({
+      ...(await getExpectedFileMetadata("fm.md")),
       headings: [
         { level: 2, text: "Only", bytes: Buffer.byteLength(body, "utf8") },
       ],

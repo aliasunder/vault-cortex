@@ -22,6 +22,7 @@ import {
 } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
+import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import {
   withExclusiveFileLock,
   withFileLock,
@@ -304,39 +305,27 @@ type HeadingOutline = Readonly<{
   bytes: number
 }>
 
-/** A note's outline: its optional leading callout (a top-of-file `> [!type]`
- *  block — info, warning, etc.), any other body text above the first heading,
- *  and the heading tree. `leading_callout` and `leading_content` are each
- *  omitted when absent, and never overlap — together they cover the whole
- *  region above the first heading. */
+/** `leading_callout` and `leading_content` are omitted when absent and never overlap. */
 type NoteOutline = Readonly<{
+  bytes: number
+  modified: string
   leading_callout?: LeadingCallout
   leading_content?: string
   headings: HeadingOutline[]
 }>
 
-/**
- * Returns a note's heading tree (no bodies) — H1–H6 with each section's byte
- * size, so an agent can pick which section to read without pulling the whole
- * file — plus any leading callout (a top-of-file `> [!type]` block — info,
- * warning, etc.), so notable context or state is visible without a full read.
- * Frontmatter is excluded (line
- * ranges are body-relative, matching vault_patch_note). A note with no headings
- * returns an empty headings array.
- *
- * Any remaining body text above the first heading comes back as
- * `leading_content`, with the callout's own lines excluded so the two never
- * repeat the same text. Without it that region is invisible to every structured
- * read, which is how a displaced intro block can go unnoticed.
- */
+/** Returns file metadata and the heading tree without section bodies, plus visible content above the first heading. */
 const readNoteOutline = async (
   params: { vaultPath: string; path: string },
   logger: Logger,
 ): Promise<NoteOutline> => {
   assertPathHasExtension(params.path, ".md")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
-  const content = await readFileOrNull(fullPath)
-  if (content === null) {
+  const [content, fileStats] = await Promise.all([
+    readFileOrNull(fullPath),
+    statOrNull(fullPath),
+  ])
+  if (content === null || fileStats === null) {
     throw new Error(`note not found: "${params.path}"`)
   }
   const lines = splitIntoLines(parseNote(content).content)
@@ -370,16 +359,22 @@ const readNoteOutline = async (
       bytes: Buffer.byteLength(sectionText, "utf8"),
     }
   })
-  const totalBytes = outline.reduce((sum, section) => sum + section.bytes, 0)
+  const totalSectionBytes = outline.reduce(
+    (sum, section) => sum + section.bytes,
+    0,
+  )
   logger.info("read note outline", {
     path: params.path,
     headingCount: outline.length,
     hasCallout: calloutSpan !== null,
     hasLeadingContent: leadingContent !== "",
-    totalBytes,
+    fileBytes: fileStats.size,
+    totalSectionBytes,
   })
   // Omit either key when absent, rather than emitting an explicit null.
   return {
+    bytes: fileStats.size,
+    modified: mtimeToIso(fileStats.mtimeMs),
     ...(calloutSpan ? { leading_callout: calloutSpan.callout } : {}),
     ...(leadingContent ? { leading_content: leadingContent } : {}),
     headings: outline,

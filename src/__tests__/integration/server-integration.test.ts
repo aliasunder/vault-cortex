@@ -128,9 +128,17 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md", outline: true },
       })
       expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("Tasks")
-      expect(text).not.toContain("alpha-task-1")
+      expect(JSON.parse(textContent(result))).toEqual({
+        bytes: 518,
+        modified: expect.stringMatching(
+          /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}(?:Z|[+-]\d{2}:\d{2})$/,
+        ),
+        headings: [
+          { level: 1, text: "Project Alpha", bytes: 362 },
+          { level: 2, text: "Tasks", bytes: 198 },
+          { level: 2, text: "Notes", bytes: 97 },
+        ],
+      })
     })
 
     it("vault_read_note — heading mode", async () => {

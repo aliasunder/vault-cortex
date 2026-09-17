@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest"
 import { DateTime, Settings } from "luxon"
+import { mtimeToIso } from "../../../utils/mtime-to-iso.js"
 import {
   isString,
   coerceToArray,
   buildFtsMetadataText,
-  mtimeToIso,
   rowToMetadata,
   rowToTaskEntry,
   noteRowToSearchResult,
@@ -103,24 +103,6 @@ describe("buildFtsMetadataText", () => {
 
   it("returns empty string for empty frontmatter", () => {
     expect(buildFtsMetadataText({})).toBe("")
-  })
-})
-
-// ── mtimeToIso ────────────────────────────────────────────────
-
-describe("mtimeToIso", () => {
-  it("converts a valid epoch ms to an ISO string", () => {
-    const iso = mtimeToIso(1700000000000)
-    expect(iso).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-  })
-
-  it("rounds fractional milliseconds", () => {
-    const iso = mtimeToIso(1700000000000.7)
-    expect(iso).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-  })
-
-  it("throws on invalid mtime", () => {
-    expect(() => mtimeToIso(NaN)).toThrow("invalid mtime: NaN")
   })
 })
 

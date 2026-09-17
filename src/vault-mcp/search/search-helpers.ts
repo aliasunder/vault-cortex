@@ -2,6 +2,7 @@
 
 import { posix } from "node:path"
 import { DateTime } from "luxon"
+import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import type {
   NoteRow,
@@ -131,15 +132,6 @@ export const buildFtsMetadataText = (
 }
 
 // ── Row mappers ────────────────────────────────────────────────
-
-/** Converts mtime (epoch ms) to an ISO string, throwing if the value is
- *  invalid — mtime comes from stat().mtimeMs during indexing, so null
- *  indicates data corruption rather than an expected edge case. */
-export const mtimeToIso = (mtime: number): string => {
-  const iso = DateTime.fromMillis(Math.round(mtime)).toISO()
-  if (iso === null) throw new Error(`invalid mtime: ${mtime}`)
-  return iso
-}
 
 /** Transforms a raw SQLite row (JSON strings) into a typed NoteMetadata object. */
 export const rowToMetadata = (row: NoteRow): NoteMetadata => ({

@@ -100,9 +100,9 @@ Errors:
 - "absolute path blocked" — the path starts at the filesystem root; use a vault-relative path
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not accessible, matching Obsidian
 
-Returns: Raw markdown string (default); JSON object of properties (properties_only); JSON outline object (outline); raw markdown of the section, heading line included (heading). When start_line or limit is given, the result is preceded by a window-metadata text block ("path — lines 1–20 of 250 (continue with start_line: 21)").
+Returns: Raw markdown string (default); JSON object of properties (properties_only); JSON outline object with file-level bytes and modified time (outline); raw markdown of the section, heading line included (heading). When start_line or limit is given, the result is preceded by a window-metadata text block ("path — lines 1–20 of 250 (continue with start_line: 21)").
 
-Outline shape: { leading_callout?, leading_content?, headings } — headings is [{ level, text, bytes }]; leading_callout ({ type, title, body }) is the note's top-of-file callout; leading_content is the rest of the body text above the first heading, with the callout's own lines excluded so the two never repeat the same text. Either key is omitted when the note has none. Empty headings ("##" with no text) appear with text: "" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section (which includes child headings) or the full note${whenToolEnabledText("vault_replace_in_note", ", and edit via vault_replace_in_note")}.`,
+Outline shape: { bytes, modified, leading_callout?, leading_content?, headings } — bytes is the whole file's on-disk size; modified is its filesystem modification time; headings is [{ level, text, bytes }], where bytes is that section's read cost. If the note changes during the read, the top-level metadata may describe a different file version than the parsed outline. leading_callout ({ type, title, body }) is the note's top-of-file callout; leading_content is the rest of the body text above the first heading, with the callout's own lines excluded so the two never repeat the same text. Either key is omitted when the note has none. Empty headings ("##" with no text) appear with text: "" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section (which includes child headings) or the full note${whenToolEnabledText("vault_replace_in_note", ", and edit via vault_replace_in_note")}.`,
       inputSchema: {
         path: z
           .string()
@@ -120,7 +120,7 @@ Outline shape: { leading_callout?, leading_content?, headings } — headings is 
           .boolean()
           .optional()
           .describe(
-            "If true, returns { leading_callout?, leading_content?, headings } as JSON instead of body content — a cheap structure fetch for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
+            "If true, returns { bytes, modified, leading_callout?, leading_content?, headings } as JSON instead of body content — a cheap structure fetch with whole-file metadata for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
           ),
         heading: z
           .string()
