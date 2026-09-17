@@ -18,9 +18,9 @@ import type {
 export const isString = (value: unknown): value is string =>
   typeof value === "string"
 
-/** Coerces a YAML frontmatter field to a string array.
- *  gray-matter may parse multi-value YAML fields as a single string
- *  or an array depending on syntax (flow vs block). */
+/** Coerces a YAML frontmatter field to a string array, stringifying
+ *  non-string elements. gray-matter may parse multi-value YAML fields
+ *  as a scalar or an array depending on syntax (flow vs block). */
 export const coerceToArray = (value: unknown): string[] => {
   if (Array.isArray(value)) return value.map(String)
   return value ? [String(value)] : []
