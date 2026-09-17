@@ -1,8 +1,6 @@
 /** Vault CRUD tool registrations — read, write, patch, replace, delete, move. */
 
 import { z } from "zod"
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
-import type { Logger } from "../../../logger.js"
 import type { VaultConfig } from "../../config.js"
 import {
   vaultFs,
@@ -66,185 +64,6 @@ const describeProtectedPaths = (config: VaultConfig): string => {
   return `${config.memoryDir}/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/)`
 }
 
-type ReadNoteParams = {
-  vaultPath: string
-  path: string
-  propertiesOnly?: boolean | undefined
-  outline?: boolean | undefined
-  heading?: string | undefined
-  headingLevel?: number | undefined
-  startLine?: number | undefined
-  limit?: number | undefined
-}
-
-const readNoteByMode = (
-  params: ReadNoteParams,
-  reqLogger: Logger,
-): Promise<CallToolResult> => {
-  const returnError = (message: string): Promise<CallToolResult> => {
-    reqLogger.warn("tool_error", { error: message })
-    return Promise.resolve({
-      content: [{ type: "text", text: message }],
-      isError: true,
-    })
-  }
-
-  // More than one content mode would make the result ambiguous. A present
-  // heading selects section mode even before the schema rejects an empty one.
-  const selectedModeCount = [
-    params.propertiesOnly === true,
-    params.outline === true,
-    params.heading !== undefined,
-  ].filter(Boolean).length
-  if (selectedModeCount > 1) {
-    return returnError(
-      "outline, heading, and properties_only are mutually exclusive — set at most one",
-    )
-  }
-
-  if (params.headingLevel !== undefined && params.heading === undefined) {
-    return returnError("heading_level requires a heading")
-  }
-
-  const isPagedRead =
-    params.startLine !== undefined || params.limit !== undefined
-  if (isPagedRead && params.outline) {
-    return returnError("line paging is not available in outline mode")
-  }
-  if (isPagedRead && params.propertiesOnly) {
-    return returnError("line paging is not available in properties_only mode")
-  }
-
-  if (params.propertiesOnly) {
-    return safeHandler(
-      reqLogger,
-      () => {
-        return vaultFs.readNoteProperties(
-          { vaultPath: params.vaultPath, path: params.path },
-          reqLogger,
-        )
-      },
-      (properties) => {
-        reqLogger.info("tool_result", { mode: "properties" })
-        return JSON.stringify(properties, null, 2)
-      },
-    )
-  }
-
-  if (params.outline) {
-    return safeHandler(
-      reqLogger,
-      () => {
-        return vaultFs.readNoteOutline(
-          { vaultPath: params.vaultPath, path: params.path },
-          reqLogger,
-        )
-      },
-      (outline) => {
-        reqLogger.info("tool_result", { mode: "outline" })
-        return JSON.stringify(outline)
-      },
-    )
-  }
-
-  const heading = params.heading
-  if (heading) {
-    if (!isPagedRead) {
-      return safeHandler(
-        reqLogger,
-        () => {
-          return vaultFs.readNoteSection(
-            {
-              vaultPath: params.vaultPath,
-              path: params.path,
-              heading,
-              headingLevel: params.headingLevel,
-            },
-            reqLogger,
-          )
-        },
-        (text) => {
-          reqLogger.info("tool_result", { mode: "section" })
-          return text
-        },
-      )
-    }
-
-    return safeHandlerContent(
-      reqLogger,
-      () => {
-        return vaultFs.readNoteSection(
-          {
-            vaultPath: params.vaultPath,
-            path: params.path,
-            heading,
-            headingLevel: params.headingLevel,
-          },
-          reqLogger,
-        )
-      },
-      (text) => {
-        const { text: windowText, lineWindow } = pageTextByLines({
-          text,
-          path: params.path,
-          startLine: params.startLine,
-          limit: params.limit,
-        })
-        reqLogger.info("tool_result", { mode: "section", lineWindow })
-        return [
-          {
-            type: "text" as const,
-            text: describeTextWindow(params.path, lineWindow),
-          },
-          { type: "text" as const, text: windowText },
-        ]
-      },
-    )
-  }
-
-  if (!isPagedRead) {
-    return safeHandler(
-      reqLogger,
-      () => {
-        return vaultFs.readNote(
-          { vaultPath: params.vaultPath, path: params.path },
-          reqLogger,
-        )
-      },
-      (text) => {
-        reqLogger.info("tool_result", { mode: "full" })
-        return text
-      },
-    )
-  }
-
-  return safeHandlerContent(
-    reqLogger,
-    () => {
-      return vaultFs.readNote(
-        { vaultPath: params.vaultPath, path: params.path },
-        reqLogger,
-      )
-    },
-    (text) => {
-      const { text: windowText, lineWindow } = pageTextByLines({
-        text,
-        path: params.path,
-        startLine: params.startLine,
-        limit: params.limit,
-      })
-      reqLogger.info("tool_result", { mode: "full", lineWindow })
-      return [
-        {
-          type: "text" as const,
-          text: describeTextWindow(params.path, lineWindow),
-        },
-        { type: "text" as const, text: windowText },
-      ]
-    },
-  )
-}
-
 export const registerVaultCrudTools = ({
   registerTool,
   whenToolEnabledText,
@@ -283,7 +102,7 @@ Errors:
 
 Returns: Raw markdown string (default); JSON object of properties (properties_only); JSON outline object with file-level bytes and modified time (outline); raw markdown of the section, heading line included (heading). When start_line or limit is given, the result is preceded by a window-metadata text block ("path — lines 1–20 of 250 (continue with start_line: 21)").
 
-Outline shape: { bytes, modified, leading_callout?, leading_content?, headings } — bytes is the whole file's on-disk size; modified is its filesystem modification time; headings is [{ level, text, bytes }], where bytes is the exact UTF-8 byte length of the text heading mode returns. If the note changes during the read, the top-level metadata may describe a different file version than the parsed outline. leading_callout ({ type, title, body }) is the note's top-of-file callout; leading_content is the rest of the body text above the first heading, with the callout's own lines excluded so the two never repeat the same text. Either key is omitted when the note has none. Empty headings ("##" with no text) appear with text: "" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section (which includes child headings) or the full note${whenToolEnabledText("vault_replace_in_note", ", and edit via vault_replace_in_note")}.`,
+Outline shape: { bytes, modified, leading_callout?, leading_content?, headings } — bytes is the whole file's on-disk size; modified is its filesystem modification time; headings is [{ level, text, bytes }], where bytes is that section's read cost. If the note changes during the read, the top-level metadata may describe a different file version than the parsed outline. leading_callout ({ type, title, body }) is the note's top-of-file callout; leading_content is the rest of the body text above the first heading, with the callout's own lines excluded so the two never repeat the same text. Either key is omitted when the note has none. Empty headings ("##" with no text) appear with text: "" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section (which includes child headings) or the full note${whenToolEnabledText("vault_replace_in_note", ", and edit via vault_replace_in_note")}.`,
       inputSchema: {
         path: z
           .string()
@@ -301,7 +120,7 @@ Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }
           .boolean()
           .optional()
           .describe(
-            "If true, returns { bytes, modified, leading_callout?, leading_content?, headings } as JSON instead of body content — a cheap structure fetch with whole-file metadata for large notes. headings: [{ level, text, bytes }], where bytes is the exact UTF-8 byte length of the text heading mode returns; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
+            "If true, returns { bytes, modified, leading_callout?, leading_content?, headings } as JSON instead of body content — a cheap structure fetch with whole-file metadata for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
           ),
         heading: z
           .string()
@@ -362,18 +181,145 @@ Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }
         startLine: start_line,
         limit,
       })
-      return readNoteByMode(
-        {
-          vaultPath,
-          path,
-          propertiesOnly: properties_only,
-          outline,
-          heading,
-          headingLevel: heading_level,
-          startLine: start_line,
-          limit,
-        },
+
+      const returnError = (
+        message: string,
+      ): { content: Array<{ type: "text"; text: string }>; isError: true } => {
+        reqLogger.warn("tool_error", { error: message })
+        return {
+          content: [{ type: "text" as const, text: message }],
+          isError: true as const,
+        }
+      }
+
+      // The read modes select different content; allowing more than one would
+      // make the result ambiguous, so reject the combination up front. An empty
+      // heading still counts as section mode (heading !== undefined) so it's
+      // rejected here rather than silently falling through to a full read.
+      const selectedModeCount = [
+        properties_only === true,
+        outline === true,
+        heading !== undefined,
+      ].filter(Boolean).length
+      if (selectedModeCount > 1) {
+        return returnError(
+          "outline, heading, and properties_only are mutually exclusive — set at most one",
+        )
+      }
+
+      // heading_level only disambiguates a heading; on its own it would be
+      // silently ignored, so require its companion explicitly.
+      if (heading_level !== undefined && heading === undefined) {
+        return returnError("heading_level requires a heading")
+      }
+
+      const isPagedRead = start_line !== undefined || limit !== undefined
+
+      if (isPagedRead && outline) {
+        return returnError("line paging is not available in outline mode")
+      }
+      if (isPagedRead && properties_only) {
+        return returnError(
+          "line paging is not available in properties_only mode",
+        )
+      }
+
+      if (properties_only) {
+        return safeHandler(
+          reqLogger,
+          () => vaultFs.readNoteProperties({ vaultPath, path }, reqLogger),
+          (properties) => {
+            reqLogger.info("tool_result", { mode: "properties" })
+            return JSON.stringify(properties, null, 2)
+          },
+        )
+      }
+
+      if (outline) {
+        return safeHandler(
+          reqLogger,
+          () => vaultFs.readNoteOutline({ vaultPath, path }, reqLogger),
+          (outline) => {
+            reqLogger.info("tool_result", { mode: "outline" })
+            return JSON.stringify(outline)
+          },
+        )
+      }
+
+      // A present heading selects section mode; its absence falls through to a
+      // full read. The schema's min(1) already rejects an empty heading, so a
+      // truthy check is sufficient.
+      if (heading) {
+        if (isPagedRead) {
+          return safeHandlerContent(
+            reqLogger,
+            () =>
+              vaultFs.readNoteSection(
+                { vaultPath, path, heading, headingLevel: heading_level },
+                reqLogger,
+              ),
+            (text) => {
+              const { text: windowText, lineWindow } = pageTextByLines({
+                text,
+                path,
+                startLine: start_line,
+                limit,
+              })
+              reqLogger.info("tool_result", { mode: "section", lineWindow })
+              return [
+                {
+                  type: "text" as const,
+                  text: describeTextWindow(path, lineWindow),
+                },
+                { type: "text" as const, text: windowText },
+              ]
+            },
+          )
+        }
+        return safeHandler(
+          reqLogger,
+          () =>
+            vaultFs.readNoteSection(
+              { vaultPath, path, heading, headingLevel: heading_level },
+              reqLogger,
+            ),
+          (text) => {
+            reqLogger.info("tool_result", { mode: "section" })
+            return text
+          },
+        )
+      }
+
+      if (isPagedRead) {
+        return safeHandlerContent(
+          reqLogger,
+          () => vaultFs.readNote({ vaultPath, path }, reqLogger),
+          (text) => {
+            const { text: windowText, lineWindow } = pageTextByLines({
+              text,
+              path,
+              startLine: start_line,
+              limit,
+            })
+            reqLogger.info("tool_result", { mode: "full", lineWindow })
+            return [
+              {
+                type: "text" as const,
+                text: describeTextWindow(path, lineWindow),
+              },
+              { type: "text" as const, text: windowText },
+            ]
+          },
+        )
+      }
+
+      return safeHandler(
         reqLogger,
+        () => vaultFs.readNote({ vaultPath, path }, reqLogger),
+        (text) => {
+          reqLogger.info("tool_result", { mode: "full" })
+          return text
+        },
       )
     },
   )

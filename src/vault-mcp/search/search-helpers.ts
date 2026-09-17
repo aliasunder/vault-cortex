@@ -18,17 +18,10 @@ import type {
 export const isString = (value: unknown): value is string =>
   typeof value === "string"
 
-/** Coerces a YAML frontmatter field's primitive values to a string array.
- *  gray-matter may parse the field as a scalar or an array depending on its
- *  YAML value. */
+/** Normalizes a YAML string or string array and drops unsupported values. */
 export const coerceToArray = (value: unknown): string[] => {
-  if (Array.isArray(value)) {
-    return value
-      .filter((element) => element != null && typeof element !== "object")
-      .map(String)
-  }
-  if (value == null || value === "" || typeof value === "object") return []
-  return [String(value)]
+  if (Array.isArray(value)) return value.filter(isString)
+  return isString(value) && value ? [value] : []
 }
 
 // ── JSON column parsers (private) ──────────────────────────────

@@ -41,11 +41,9 @@ describe("coerceToArray", () => {
     expect(coerceToArray(["a", "b"])).toEqual(["a", "b"])
   })
 
-  it("stringifies primitive array values and drops structured values", () => {
+  it("keeps only strings from mixed array values", () => {
     expect(coerceToArray(["a", 2, true, null, { nested: "value" }])).toEqual([
       "a",
-      "2",
-      "true",
     ])
   })
 
@@ -53,29 +51,12 @@ describe("coerceToArray", () => {
     expect(coerceToArray("solo")).toEqual(["solo"])
   })
 
-  it("wraps a number in a stringified array", () => {
-    expect(coerceToArray(42)).toEqual(["42"])
-  })
-
-  it("wraps false in a stringified array", () => {
-    expect(coerceToArray(false)).toEqual(["false"])
-  })
-
-  it("returns an empty array for a structured scalar", () => {
-    expect(coerceToArray({ nested: "value" })).toEqual([])
-  })
-
-  it("returns empty array for null", () => {
-    expect(coerceToArray(null)).toEqual([])
-  })
-
-  it("returns empty array for undefined", () => {
-    expect(coerceToArray(undefined)).toEqual([])
-  })
-
-  it("returns empty array for empty string", () => {
-    expect(coerceToArray("")).toEqual([])
-  })
+  it.each([42, false, null, undefined, "", { nested: "value" }])(
+    "returns an empty array for unsupported value %j",
+    (value) => {
+      expect(coerceToArray(value)).toEqual([])
+    },
+  )
 })
 
 // ── buildFtsMetadataText ──────────────────────────────────────
