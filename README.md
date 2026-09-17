@@ -164,7 +164,7 @@ claude mcp add --scope user --transport http vault-cortex http://localhost:8000/
 `--scope user` registers the server for every project; omit it to scope it to the current directory only.
 
 <details>
-<summary><strong>Claude Desktop</strong> (localhost requires mcp-remote bridge)</summary>
+<summary><strong>Claude Desktop</strong> (http URLs require the mcp-remote bridge)</summary>
 
 A remote server with a publicly reachable `https` URL adds directly in Claude Desktop's "Add custom connector" dialog — no file editing. Any `http` URL — localhost included — is rejected by that dialog, so register it in [`claude_desktop_config.json`](https://modelcontextprotocol.io/docs/develop/connect-local-servers) instead (Claude Desktop → Settings → Developer → Edit Config opens the file) through the [mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge:
 
@@ -227,7 +227,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams
 
 Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your "references" file. In testing against a real vault, 30% of natural-language queries returned zero or tangential results with keywords alone. Hybrid search eliminated those misses in the same test.
 
-Hybrid search combines three ranking signals via [Reciprocal Rank Fusion](./ARCHITECTURE.md#hybrid-search):
+Hybrid search fuses the keyword and vector rankings via [Reciprocal Rank Fusion](./ARCHITECTURE.md#hybrid-search), then the reranker refines the fused result:
 
 - **Keywords** (FTS5) stay precise on exact terms, jargon, and property values
 - **Vectors** (sqlite-vec) bridge the vocabulary gap by matching on meaning
@@ -385,7 +385,7 @@ All settings are environment variables with sensible defaults. Some defaults der
 | `MEMORY_ENABLED`            | —           | `true`                                                                           | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` still supplies the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS` when `false`.                                                                                                               |
 | `FILE_TOOLS_ENABLED`        | —           | `true`                                                                           | Set `false` to hide file tools (`vault_read_file`, `vault_list_files`) — useful for remote deployments where Obsidian Sync has attachment syncing disabled.                                                                                                                                                                                     |
 | `READONLY_MODE`             | —           | `false`                                                                          | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — connected clients can read and search but never edit.                                                                                                                                                                                               |
-| `DISABLED_TOOLS`            | —           | —                                                                                | Hide individual tools by name, comma-separated (e.g. `vault_delete_note,vault_move_note`). Names match the Name column in the [tools table](#tools). Subtractive only — it cannot re-enable a tool another setting hides. An unknown tool name stops the server at startup, so typos surface immediately.                                       |
+| `DISABLED_TOOLS`            | —           | —                                                                                | Hide individual tools by name, comma-separated (e.g. `vault_delete_note,vault_move_note`). Names match the Tool column in the [tools table](#tools). Subtractive only — it cannot re-enable a tool another setting hides. An unknown tool name stops the server at startup, so typos surface immediately.                                       |
 | `MEMORY_DIR`                | —           | `About Me`                                                                       | Vault folder for structured memory files                                                                                                                                                                                                                                                                                                        |
 | `PROTECTED_PATHS`           | —           | `MEMORY_DIR`, daily notes folder                                                 | Folders that `vault_delete_note` and `vault_move_note` refuse to touch. The default daily notes folder is read from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`). Overrides the default entirely when set.                                                                                                      |
 | `ORPHAN_EXCLUDE_FOLDERS`    | —           | `DAILY_NOTES_FOLDER, Templates, MEMORY_DIR`                                      | Folders excluded from orphan detection. The daily-notes part of the default comes from `DAILY_NOTES_FOLDER` only — this one doesn't read `daily-notes.json`.                                                                                                                                                                                    |
@@ -437,7 +437,7 @@ Vault Cortex writes to personal notes — the file safety layer is built to prev
 - **Bounded trash with a retention sweep** — notes the server moves to `.trash/` under the system-default setting are cleaned up after `TRASH_RETENTION_DAYS` (default 30 days; `none` keeps them forever). The sweep removes only files it recorded — notes Obsidian itself trashed, and "Move to Obsidian trash" deletes, are never touched.
 - **Injection prevention** — search queries are parameterized and FTS5-sanitized; prompt content is wrapped in XML data markers with closing-tag escaping to prevent tag-breakout injection.
 - **Container hardening** — non-root user, PID 1 init, no package managers in the runtime image, digest-pinned base, graceful shutdown.
-- **Zero-write option** — `READONLY_MODE=true` hides every tool that edits the vault, so a connected client can read and search but never change a note.
+- **Read-only mode** — `READONLY_MODE=true` hides every tool that edits the vault, so a connected client can read and search but never change a note.
 
 See [ARCHITECTURE.md → Data Integrity](./ARCHITECTURE.md#data-integrity) for mechanism details and [SECURITY.md → Runtime Hardening](./SECURITY.md#runtime-hardening) for how each part of the server is hardened.
 
