@@ -270,6 +270,143 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     ])
   })
 
+  const TAGGED_NOTE = "---\ntags: [project]\n---\n\n# Tagged\n"
+
+  /** Two same-mtime notes sharing content, zzz.md inserted first. */
+  const createReverseInsertedPair = (rawContent: string): SearchIndex => {
+    const tieIndex = createSearchIndex(":memory:")
+    tieIndex.upsertNote(
+      { filePath: "zzz.md", rawContent, fileStat: testStat(1000) },
+      logger,
+    )
+    tieIndex.upsertNote(
+      { filePath: "aaa.md", rawContent, fileStat: testStat(1000) },
+      logger,
+    )
+    return tieIndex
+  }
+
+  it("orders equal-mtime tag search results by path", () => {
+    const tieIndex = createReverseInsertedPair(TAGGED_NOTE)
+    const results = tieIndex.searchByTag({ tag: "project" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-count tags alphabetically in the tag listing", () => {
+    const tieIndex = createReverseInsertedPair(
+      "---\ntags: [zzz-tag, aaa-tag]\n---\n\n# Tags\n",
+    )
+    const results = tieIndex.listAllTags({}, logger)
+    expect(results.map((tagCount) => tagCount.tag)).toEqual([
+      "aaa-tag",
+      "zzz-tag",
+    ])
+  })
+
+  it("orders equal-mtime recent notes by path", () => {
+    const tieIndex = createReverseInsertedPair(IDENTICAL_NOTE)
+    const results = tieIndex.recentNotes({}, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-created recent notes by path in created sort", () => {
+    const tieIndex = createReverseInsertedPair(
+      "---\ncreated: 2026-01-01T00:00:00-05:00\n---\n\n# Created\n",
+    )
+    const results = tieIndex.recentNotes({ sort_by: "created" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-count property keys alphabetically", () => {
+    const tieIndex = createReverseInsertedPair(
+      "---\nzz_last: 1\naa_first: 1\n---\n\n# Props\n",
+    )
+    const results = tieIndex.listPropertyKeys({}, logger)
+    expect(results.map((keyInfo) => keyInfo.key)).toEqual([
+      "aa_first",
+      "zz_last",
+    ])
+  })
+
+  it("orders equal-count property values alphabetically", () => {
+    const tieIndex = createReverseInsertedPair(
+      "---\nstatus: [zzz-value, aaa-value]\n---\n\n# Values\n",
+    )
+    const results = tieIndex.listPropertyValues({ key: "status" }, logger)
+    expect(results.map((valueCount) => valueCount.value)).toEqual([
+      "aaa-value",
+      "zzz-value",
+    ])
+  })
+
+  it("orders equal-mtime property search results by path", () => {
+    const tieIndex = createReverseInsertedPair(
+      "---\nstatus: active\n---\n\n# Status\n",
+    )
+    const results = tieIndex.searchByProperty(
+      { key: "status", value: "active" },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders same-title backlinks by source path", () => {
+    const tieIndex = createSearchIndex(":memory:")
+    tieIndex.upsertNote(
+      {
+        filePath: "Target.md",
+        rawContent: "# Target\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    const linkingNote = "---\ntitle: Same Title\n---\n\n[[Target]]\n"
+    tieIndex.upsertNote(
+      { filePath: "zzz.md", rawContent: linkingNote, fileStat: testStat(1000) },
+      logger,
+    )
+    tieIndex.upsertNote(
+      { filePath: "aaa.md", rawContent: linkingNote, fileStat: testStat(1000) },
+      logger,
+    )
+
+    const backlinks = tieIndex.getBacklinks({ path: "Target.md" }, logger)
+    expect(backlinks.map((backlink) => backlink.path)).toEqual([
+      "aaa.md",
+      "zzz.md",
+    ])
+  })
+
+  it("orders equal-mtime orphans by path", () => {
+    const tieIndex = createReverseInsertedPair(IDENTICAL_NOTE)
+    const results = tieIndex.findOrphans({}, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-mtime notes by path in the modified-on-date listing", () => {
+    const middayMtime = DateTime.fromISO("2026-06-15T12:00:00").toMillis()
+    const tieIndex = createSearchIndex(":memory:")
+    tieIndex.upsertNote(
+      {
+        filePath: "zzz.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(middayMtime),
+      },
+      logger,
+    )
+    tieIndex.upsertNote(
+      {
+        filePath: "aaa.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(middayMtime),
+      },
+      logger,
+    )
+
+    const results = tieIndex.modifiedOnDate({ date: "2026-06-15" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
   it("orders equal-bm25 file results by path in FTS-only hybrid search", async () => {
     const tieIndex = createSearchIndex(":memory:", undefined, undefined, {
       fileToolsEnabled: true,
