@@ -2,6 +2,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs"
@@ -9,6 +10,10 @@ import { tmpdir } from "node:os"
 import { dirname, join, relative } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
 import { createVaultSnapshot } from "../search-eval-snapshot.js"
+
+// Test-owned copy of the marker name the snapshot writes — drift between
+// this and the module's constant should fail these tests.
+const SNAPSHOT_MARKER = ".search-eval-snapshot"
 
 const createTempVault = (): { vaultPath: string; snapshotDir: string } => {
   const rootDir = mkdtempSync(join(tmpdir(), "search-eval-snapshot-"))
@@ -50,6 +55,7 @@ describe("createVaultSnapshot", () => {
     })
 
     expect(listSnapshotFiles(snapshotDir)).toEqual([
+      SNAPSHOT_MARKER,
       join("notes", "keep.md"),
       "sessions-archive.md",
     ])
@@ -68,7 +74,10 @@ describe("createVaultSnapshot", () => {
       excludePrefixes: [],
     })
 
-    expect(listSnapshotFiles(snapshotDir)).toEqual([join("notes", "keep.md")])
+    expect(listSnapshotFiles(snapshotDir)).toEqual([
+      SNAPSHOT_MARKER,
+      join("notes", "keep.md"),
+    ])
   })
 
   it("skips exactly the excluded paths and copies everything else", () => {
@@ -84,14 +93,16 @@ describe("createVaultSnapshot", () => {
     })
 
     expect(listSnapshotFiles(snapshotDir)).toEqual([
+      SNAPSHOT_MARKER,
       join("research", "keep.md"),
     ])
   })
 
-  it("replaces an existing snapshot so stale files from a prior run cannot survive", () => {
+  it("replaces an existing harness snapshot so stale files from a prior run cannot survive", () => {
     const { vaultPath, snapshotDir } = createTempVault()
     writeVaultFile(vaultPath, "current.md")
     mkdirSync(snapshotDir, { recursive: true })
+    writeFileSync(join(snapshotDir, SNAPSHOT_MARKER), "")
     writeFileSync(join(snapshotDir, "stale.md"), "from a prior run\n")
 
     createVaultSnapshot({
@@ -101,6 +112,30 @@ describe("createVaultSnapshot", () => {
       excludePrefixes: [],
     })
 
-    expect(listSnapshotFiles(snapshotDir)).toEqual(["current.md"])
+    expect(listSnapshotFiles(snapshotDir)).toEqual([
+      SNAPSHOT_MARKER,
+      "current.md",
+    ])
+  })
+
+  it("refuses to delete a directory that is not a harness snapshot", () => {
+    const { vaultPath, snapshotDir } = createTempVault()
+    writeVaultFile(vaultPath, "current.md")
+    mkdirSync(snapshotDir, { recursive: true })
+    writeFileSync(join(snapshotDir, "operator-data.md"), "not ours to delete\n")
+
+    expect(() => {
+      createVaultSnapshot({
+        vaultPath,
+        snapshotDir,
+        excludePaths: [],
+        excludePrefixes: [],
+      })
+    }).toThrow(
+      `${snapshotDir} exists but is not a harness snapshot — remove it or choose another --work-dir`,
+    )
+    expect(readFileSync(join(snapshotDir, "operator-data.md"), "utf8")).toBe(
+      "not ours to delete\n",
+    )
   })
 })

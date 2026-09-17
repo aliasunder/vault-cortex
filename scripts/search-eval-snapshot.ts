@@ -1,7 +1,12 @@
 // ── Eval vault snapshot ────────────────────────────────────────
 
-import { cpSync, mkdirSync, rmSync } from "node:fs"
-import { resolve, sep } from "node:path"
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { join, relative, resolve, sep } from "node:path"
+import { hasHiddenPathSegment } from "../src/utils/has-hidden-path-segment.js"
+
+/** Marks a directory as harness-created so the pre-copy delete can never
+ *  destroy an operator's own same-named folder under --work-dir. */
+const SNAPSHOT_MARKER = ".search-eval-snapshot"
 
 /** Copies the vault to the snapshot directory, skipping hidden entries and
  *  every judgment-file exclusion. All index builds read the snapshot, so
@@ -23,17 +28,23 @@ export const createVaultSnapshot = (params: {
     return resolved.endsWith(sep) ? resolved : resolved + sep
   })
 
+  const isForeignDirectory =
+    existsSync(params.snapshotDir) &&
+    !existsSync(join(params.snapshotDir, SNAPSHOT_MARKER))
+  if (isForeignDirectory) {
+    throw new Error(
+      `${params.snapshotDir} exists but is not a harness snapshot — remove it or choose another --work-dir`,
+    )
+  }
   rmSync(params.snapshotDir, { recursive: true, force: true })
   mkdirSync(params.snapshotDir, { recursive: true })
+  writeFileSync(join(params.snapshotDir, SNAPSHOT_MARKER), "")
   cpSync(vaultRoot, params.snapshotDir, {
     recursive: true,
     filter: (source) => {
       const absoluteSource = resolve(source)
-      const relativeFromRoot = absoluteSource.slice(vaultRoot.length)
-      const isHidden = relativeFromRoot
-        .split(sep)
-        .some((segment) => segment.startsWith("."))
-      if (isHidden) return false
+      const relativeFromRoot = relative(vaultRoot, absoluteSource)
+      if (hasHiddenPathSegment(relativeFromRoot)) return false
       if (excludedExactPaths.has(absoluteSource)) return false
       return !excludedPrefixes.some((prefix) => {
         return absoluteSource.startsWith(prefix)

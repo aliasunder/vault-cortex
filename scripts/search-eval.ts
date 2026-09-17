@@ -16,8 +16,9 @@
  *     order, not ranking. Any embedding error fails the run.
  *  3. Assert a probe query returns search_mode "hybrid" with reranked true.
  *  4. Run every judgment query at each --limits value, reporting the rank
- *     of the first expected result, file pollution in the top 5, and
- *     latency. The requested limit shapes the candidate and rerank windows,
+ *     of the first expected result, file pollution in the top 5 (or the
+ *     limit when it is smaller — the report labels the window it measured),
+ *     and latency. The requested limit shapes the candidate and rerank windows,
  *     so the production default (20) is the primary reading and small
  *     limits cover the exclusion boundary they create.
  *
@@ -127,7 +128,10 @@ type QueryScore = {
   query: string
   limit: number
   expectedRank: number | null
-  filesInTop5: number
+  // The pollution metric targets the top 5, but results are truncated to the
+  // query's limit first — the window records how deep the count actually saw.
+  pollutionWindow: number
+  filesInWindow: number
   latencyMs: number
   topPaths: string[]
 }
@@ -155,17 +159,25 @@ const rankOfFirstExpected = (
   return index === -1 ? null : index + 1
 }
 
-/** File results in the top 5 that are not themselves expected — for the
+/** File results in the window that are not themselves expected — for the
  *  precision class no file is a correct answer, so every one is pollution. */
-const countUnexpectedFilesInTop5 = (
+const countUnexpectedFilesInWindow = (
   results: readonly SearchResult[],
   judgmentQuery: JudgmentQuery,
+  windowSize: number,
 ): number => {
-  return results.slice(0, 5).filter((result) => {
+  return results.slice(0, windowSize).filter((result) => {
     return (
       result.kind === "file" && !matchesExpectedPath(judgmentQuery, result.path)
     )
   }).length
+}
+
+/** The ids behind a miss count, as a parenthesized suffix — empty when
+ *  nothing was missed. */
+const formatMissedIds = (misses: readonly QueryScore[]): string => {
+  if (misses.length === 0) return ""
+  return ` (${misses.map((entry) => entry.id).join(", ")})`
 }
 
 // ── Main ───────────────────────────────────────────────────────
@@ -322,22 +334,21 @@ const main = async (): Promise<void> => {
         logger,
       )
       const latencyMs = Math.round(performance.now() - queryStartMs)
+      const pollutionWindow = Math.min(5, limit)
       scores.push({
         id: judgmentQuery.id,
         class: judgmentQuery.class,
         query: judgmentQuery.query,
         limit,
         expectedRank: rankOfFirstExpected(searchResult.results, judgmentQuery),
-        filesInTop5: countUnexpectedFilesInTop5(
+        pollutionWindow,
+        filesInWindow: countUnexpectedFilesInWindow(
           searchResult.results,
           judgmentQuery,
+          pollutionWindow,
         ),
         latencyMs,
-        topPaths: searchResult.results
-          .slice(0, 5)
-          .map(
-            (result) => `${result.kind === "file" ? "F " : "  "}${result.path}`,
-          ),
+        topPaths: searchResult.results.slice(0, 5).map((result) => result.path),
       })
     }
   }
@@ -354,7 +365,9 @@ const main = async (): Promise<void> => {
     const gate =
       score.expectedRank !== null && score.expectedRank <= 3 ? "pass" : "FAIL"
     const pollutionText =
-      score.class === "precision" ? ` files@5=${score.filesInTop5}` : ""
+      score.class === "precision"
+        ? ` files@${score.pollutionWindow}=${score.filesInWindow}`
+        : ""
     console.log(
       `  [${score.class}] ${score.id}: expected ${rankText} (top-3 ${gate})${pollutionText} ${score.latencyMs}ms`,
     )
@@ -383,7 +396,7 @@ const main = async (): Promise<void> => {
       (entry) => entry.limit === limit && entry.expectedRank === null,
     )
     console.log(
-      `at limit ${limit}: ${missesAtLimit.length} queries lose their expected result${missesAtLimit.length > 0 ? ` (${missesAtLimit.map((entry) => entry.id).join(", ")})` : ""}`,
+      `at limit ${limit}: ${missesAtLimit.length} queries lose their expected result${formatMissedIds(missesAtLimit)}`,
     )
   }
 
