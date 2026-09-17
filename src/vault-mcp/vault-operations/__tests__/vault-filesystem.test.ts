@@ -35,6 +35,7 @@ import {
   atomicWriteFile,
   atomicWriteFileExclusive,
   pruneEmptyParents,
+  resolveSafePath,
 } from "../vault-filesystem.js"
 import { parseNote } from "../../obsidian-markdown/frontmatter.js"
 import { logger } from "../../../logger.js"
@@ -271,6 +272,12 @@ describe("atomicWriteFileExclusive", () => {
 })
 
 describe("path traversal", () => {
+  it("rejects the vault root because it does not name an entry", () => {
+    expect(() => resolveSafePath(vault, ".")).toThrow(
+      'path traversal blocked: "." resolves to the vault root',
+    )
+  })
+
   // Paths carry .md so they clear the markdown-path guard and reach the
   // traversal check (the behavior under test).
   it.each(["../escape.md", "../../etc/passwd.md", "foo/../../escape.md"])(

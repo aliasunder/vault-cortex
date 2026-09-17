@@ -41,6 +41,14 @@ describe("coerceToArray", () => {
     expect(coerceToArray(["a", "b"])).toEqual(["a", "b"])
   })
 
+  it("stringifies primitive array values and drops structured values", () => {
+    expect(coerceToArray(["a", 2, true, null, { nested: "value" }])).toEqual([
+      "a",
+      "2",
+      "true",
+    ])
+  })
+
   it("wraps a scalar string in an array", () => {
     expect(coerceToArray("solo")).toEqual(["solo"])
   })

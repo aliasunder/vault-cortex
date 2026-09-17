@@ -18,11 +18,15 @@ import type {
 export const isString = (value: unknown): value is string =>
   typeof value === "string"
 
-/** Coerces a YAML frontmatter field to a string array.
- *  gray-matter may parse multi-value YAML fields as a single string
- *  or an array depending on syntax (flow vs block). */
+/** Coerces a YAML frontmatter field's primitive values to a string array.
+ *  gray-matter may parse the field as a scalar or an array depending on its
+ *  YAML value. */
 export const coerceToArray = (value: unknown): string[] => {
-  if (Array.isArray(value)) return value
+  if (Array.isArray(value)) {
+    return value
+      .filter((element) => element != null && typeof element !== "object")
+      .map(String)
+  }
   return value ? [String(value)] : []
 }
 
@@ -347,11 +351,10 @@ export const noteMatchesSearchFilters = (
       note.mtime >= dayToEpochMsRange(filters.modified.before).startMs
     )
       return false
-    if (
-      filters.modified.after !== undefined &&
-      note.mtime < dayToEpochMsRange(filters.modified.after).endMs
-    )
-      return false
+    if (filters.modified.after !== undefined) {
+      const firstAllowedMs = dayToEpochMsRange(filters.modified.after).endMs
+      if (note.mtime < firstAllowedMs) return false
+    }
   }
 
   return true

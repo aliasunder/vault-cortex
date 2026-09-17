@@ -80,6 +80,11 @@ export const resolveSafePath = (
   }
   const normalizedVault = resolve(vaultPath)
   const resolved = resolve(normalizedVault, notePath)
+  if (resolved === normalizedVault) {
+    throw new Error(
+      `path traversal blocked: "${notePath}" resolves to the vault root`,
+    )
+  }
   if (!resolved.startsWith(normalizedVault + "/")) {
     throw new Error(`path traversal blocked: "${notePath}" escapes vault root`)
   }
@@ -103,7 +108,8 @@ export const resolveVaultRelativePath = (params: {
   // resolveSafePath is called for its safety guards; its absolute result is
   // an intermediate, converted straight back to vault-relative.
   const resolvedPath = resolveSafePath(params.vaultPath, normalizedInput)
-  return relative(resolve(params.vaultPath), resolvedPath)
+  const relativePath = relative(resolve(params.vaultPath), resolvedPath)
+  return toVaultRelativePath(relativePath)
 }
 
 /** True when the path sits under one of the protected folders (memory, daily
@@ -297,15 +303,14 @@ const readNote = async (
   return content
 }
 
-/** One heading in a note's outline: its level, text, and the byte size of its
- *  section (heading line through the next same-or-higher heading). */
+/** One heading and the exact UTF-8 byte length returned by a section read. */
 type HeadingOutline = Readonly<{
   level: number
   text: string
   bytes: number
 }>
 
-/** `leading_callout` and `leading_content` are omitted when absent and never overlap. */
+/** The optional leading fields are omitted when absent and never overlap. */
 type NoteOutline = Readonly<{
   bytes: number
   modified: string
@@ -332,11 +337,9 @@ const readNoteOutline = async (
   const headings = parseHeadings(lines)
   const calloutSpan = parseLeadingCalloutSpan(lines)
 
-  // Everything above the first heading that the callout doesn't already cover,
-  // so the two fields describe the region without repeating bytes. Filtering by
-  // index (rather than subtracting spans) keeps the callout-after-a-leading-H1
-  // case safe, because that span sits outside the region entirely — no index
-  // matches, nothing is removed, and no negative slice is possible.
+  // linesBeforeFirstHeading returns a zero-based prefix, so its indices still
+  // match the callout span. Filtering that prefix also keeps a callout after a
+  // leading H1 outside the region without span subtraction or negative slices.
   const regionLines = linesBeforeFirstHeading(lines, headings)
   const regionOutsideCallout = regionLines.filter(
     (_line, index) =>
@@ -731,7 +734,7 @@ const deleteNote = async (
   })
 }
 
-/** Walks the vault (or a folder within it) and returns the sorted
+/** Recursively walks the vault (or a folder within it) and returns the sorted
  *  vault-relative paths of every file of the requested kind — "note"
  *  (.md files) or "file" (everything else). The .md extension is the
  *  single definition of that boundary. Follows valid symlinks; hidden
