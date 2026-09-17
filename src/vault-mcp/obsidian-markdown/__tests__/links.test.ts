@@ -613,6 +613,15 @@ describe("resolve", () => {
     expect(links.resolve({ target: "note", allPaths })).toBe("note.md")
   })
 
+  it("breaks an equal-length basename tie lexicographically, not by input order", () => {
+    // zzz/Note.md first in the list — without the tie-break, input order
+    // (an unordered SQL scan at the call sites) would decide the winner.
+    const equalLengthPaths = ["zzz/Note.md", "aaa/Note.md"]
+    expect(links.resolve({ target: "Note", allPaths: equalLengthPaths })).toBe(
+      "aaa/Note.md",
+    )
+  })
+
   it("returns null for unresolvable target", () => {
     expect(links.resolve({ target: "NonExistent", allPaths })).toBeNull()
   })

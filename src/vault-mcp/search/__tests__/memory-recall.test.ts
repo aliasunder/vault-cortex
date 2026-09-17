@@ -416,6 +416,29 @@ describe("memoryRecall", () => {
     expect(result.entries.map((entry) => entry.file)).toEqual(["Aaa"])
   })
 
+  it("keeps the lower entry_index entry when identical same-file entries tie", async () => {
+    // Two identical entries in one file tie on rank and file, so entry_index
+    // decides the limit cut. Within one file, entry ids ascend with
+    // entry_index by construction, so this pins the first-entry-wins
+    // contract and a wrong sort direction — a dropped entry_index key alone
+    // is not observable here.
+    const identicalEntry = "- **2026-07-02**: Pacing beats crunch every time."
+    const index = await createRecallIndex({
+      withEmbedder: false,
+      files: {
+        Solo: `# Solo\n\n## First section (newest first)\n\n${identicalEntry}\n\n## Second section (newest first)\n\n${identicalEntry}\n`,
+      },
+    })
+
+    const result = await index.memoryRecall(
+      { query: "pacing crunch", limit: 1 },
+      logger,
+    )
+    expect(result.entries.map((entry) => entry.section)).toEqual([
+      "First section (newest first)",
+    ])
+  })
+
   it("ranks tied-distance vector hits by file, not insertion order", async () => {
     const identicalEntry = "- **2026-07-02**: Pacing beats crunch every time."
     // Both entries embed to the same topic vector, so the KNN leg ties on

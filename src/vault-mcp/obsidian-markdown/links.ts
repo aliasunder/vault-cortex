@@ -304,14 +304,11 @@ const resolve = (params: {
   const onlyMatch =
     basenameMatches.length === 1 ? basenameMatches[0] : undefined
   if (onlyMatch) return onlyMatch
-  // Multiple matches: prefer the shortest path (Obsidian's resolution heuristic)
-  if (basenameMatches.length > 1) {
-    return basenameMatches.reduce((shortest, candidatePath) =>
-      candidatePath.length < shortest.length ? candidatePath : shortest,
-    )
-  }
-
-  return null
+  // With multiple matches, Obsidian's heuristic prefers the shortest path;
+  // shortestOf also breaks equal-length ties lexicographically, so the
+  // winner never depends on allPaths order (callers feed it from unordered
+  // SQL scans that change across index rebuilds).
+  return shortestOf(basenameMatches)
 }
 
 /** Strips the file extension from a path, or returns the path unchanged when
