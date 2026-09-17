@@ -224,13 +224,25 @@ const startServer = async (): Promise<void> => {
   // Started after listen so a large trash backlog (unlinks at bind-mount
   // latency) can never stall /healthz past container health-check budgets.
   // Sync deploys never trash (the delete handler bypasses to "none") and a
-  // read-only server never modifies the vault, so neither sweeps.
+  // read-only server never modifies the vault, so neither runs.
+  const trashBookkeepingEnabled =
+    !config.readOnlyMode && !config.obsidianSyncEnabled
+
+  // Orphan purge: drops rows whose .trash/ file is gone — runs once at boot
+  // regardless of TRASH_RETENTION_DAYS.
+  if (trashBookkeepingEnabled) {
+    void trashSweeper
+      .purgeOrphanedTrashEntries({ vaultPath, trashEntryStore: search }, logger)
+      .catch((error: unknown) => {
+        logger.error("orphaned trash entry purge failed", {
+          error: describeError(error),
+        })
+      })
+  }
+
+  // Retention sweep: unlinks expired files on a daily schedule.
   const { trashRetentionDays } = config
-  const trashSweepEnabled =
-    trashRetentionDays !== null &&
-    !config.readOnlyMode &&
-    !config.obsidianSyncEnabled
-  if (trashSweepEnabled) {
+  if (trashBookkeepingEnabled && trashRetentionDays !== null) {
     trashSweeper.startTrashSweepSchedule(
       {
         vaultPath,

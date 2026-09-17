@@ -2467,6 +2467,10 @@ export const createSearchIndex = (
     [string],
     { trash_path: string; trashed_at: number }
   >(`SELECT trash_path, trashed_at FROM trash_entries WHERE trash_key = ?`)
+  const selectAllTrashEntriesStmt = db.prepare<
+    [],
+    { trash_path: string; trashed_at: number }
+  >(`SELECT trash_path, trashed_at FROM trash_entries`)
   const selectExpiredTrashEntriesStmt = db.prepare<
     [number],
     { trash_path: string; trashed_at: number }
@@ -2491,6 +2495,14 @@ export const createSearchIndex = (
     const row = selectTrashEntryStmt.get(caseFoldPath(trashPath))
     if (!row) return null
     return { trashPath: row.trash_path, trashedAt: row.trashed_at }
+  }
+
+  /** Every recorded trash entry — the orphan purge's candidate list. */
+  const listAllTrashEntries = (): TrashEntry[] => {
+    return selectAllTrashEntriesStmt.all().map((row) => ({
+      trashPath: row.trash_path,
+      trashedAt: row.trashed_at,
+    }))
   }
 
   /** Rows recorded strictly before the cutoff — the sweep's candidate list. */
@@ -2565,6 +2577,7 @@ export const createSearchIndex = (
     embedFileContent,
     recordTrashEntry,
     getTrashEntry,
+    listAllTrashEntries,
     listExpiredTrashEntries,
     deleteTrashEntry,
     fullTextSearch: bindQueryContext(queries.fullTextSearch),
@@ -2600,5 +2613,8 @@ export type TrashEntry = {
  *  vault-operations/ never runtime-imports search/ (lint-enforced layering). */
 export type TrashEntryStore = Pick<
   SearchIndex,
-  "listExpiredTrashEntries" | "getTrashEntry" | "deleteTrashEntry"
+  | "listAllTrashEntries"
+  | "listExpiredTrashEntries"
+  | "getTrashEntry"
+  | "deleteTrashEntry"
 >

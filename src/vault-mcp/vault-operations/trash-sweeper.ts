@@ -1,14 +1,13 @@
-/** Retention sweep over `.trash/` — removes files this server previously
- *  moved there (recorded in the index's trash_entries table) once they are
- *  older than the retention window. The sweep reads rows, never walks the
- *  folder, so Obsidian's own trash entries and hand-placed files are out of
- *  its reach. */
+/** Trash bookkeeping — retention sweep (unlink expired files) and orphan
+ *  purge (drop rows whose files are gone). Both operate on trash_entries
+ *  rows, never walk the .trash/ folder, so Obsidian's own trash entries
+ *  and hand-placed files are out of reach. */
 
 import { unlink } from "node:fs/promises"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { DateTime } from "luxon"
 import { describeError } from "../../utils/describe-error.js"
-import { realpathOrNull } from "../../utils/fs.js"
+import { realpathOrNull, statOrNull } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
 import { pruneEmptyParents, trashDomainLockKey } from "./vault-filesystem.js"
@@ -188,7 +187,54 @@ const startTrashSweepSchedule = (params: SweepParams, logger: Logger): void => {
   runAndReschedule()
 }
 
+/** Drops trash_entries rows whose .trash/ file no longer exists — runs once
+ *  at boot regardless of TRASH_RETENTION_DAYS, so rows left behind by manual
+ *  .trash/ emptying or retention=none don't accumulate. Never unlinks files. */
+const purgeOrphanedTrashEntries = async (
+  params: { vaultPath: string; trashEntryStore: TrashEntryStore },
+  logger: Logger,
+): Promise<void> => {
+  const allEntries = params.trashEntryStore.listAllTrashEntries()
+  if (allEntries.length === 0) return
+
+  // Sequential async loop — each iteration awaits the lock.
+  let purgedCount = 0
+  for (const entry of allEntries) {
+    const wasPurged = await withFileLock(
+      trashDomainLockKey(params.vaultPath),
+      async () => {
+        // Re-read under the lock: a concurrent trash move can replace the
+        // row (INSERT OR REPLACE refreshes trashedAt), meaning a new file
+        // now lives at this path — dropping the row would orphan it.
+        const currentEntry = params.trashEntryStore.getTrashEntry(
+          entry.trashPath,
+        )
+        if (!currentEntry || currentEntry.trashedAt !== entry.trashedAt) {
+          return false
+        }
+
+        const fileStat = await statOrNull(
+          resolve(params.vaultPath, entry.trashPath),
+        )
+        if (fileStat) return false
+
+        params.trashEntryStore.deleteTrashEntry(entry.trashPath)
+        return true
+      },
+    )
+    if (wasPurged) purgedCount++
+  }
+
+  if (purgedCount > 0) {
+    logger.info("orphaned trash entries purged", {
+      checked: allEntries.length,
+      purged: purgedCount,
+    })
+  }
+}
+
 export const trashSweeper = {
   sweepExpiredTrashEntries,
   startTrashSweepSchedule,
+  purgeOrphanedTrashEntries,
 }
