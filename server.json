@@ -118,12 +118,12 @@
         },
         {
           "name": "DAILY_NOTES_FOLDER",
-          "description": "Vault folder for daily notes. Overrides the folder configured in Obsidian's daily-notes plugin.",
+          "description": "Vault folder for daily notes. Overrides the folder configured in Obsidian's daily-notes plugin. When unset, read from the vault's .obsidian/daily-notes.json, falling back to \"Daily Notes\".",
           "default": "Daily Notes"
         },
         {
           "name": "DAILY_NOTES_FORMAT",
-          "description": "Filename date format for daily notes (Moment.js tokens). Overrides the format configured in Obsidian's daily-notes plugin.",
+          "description": "Filename date format for daily notes (Moment.js tokens). Overrides the format configured in Obsidian's daily-notes plugin. When unset, read from the vault's .obsidian/daily-notes.json, falling back to \"YYYY-MM-DD\".",
           "default": "YYYY-MM-DD"
         },
         {
