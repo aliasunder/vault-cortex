@@ -266,7 +266,7 @@ The task layer handles this so agents don't have to:
 - **Find** — filter by status, six date fields (due, scheduled, start, created, done, cancelled), priority, folder, or Kanban lane. Each result carries its note path, line number, and nearest heading when the task sits under one (the lane on a Kanban board) — no follow-up reads needed to locate a task
 - **Create** — add a correctly-formatted task in one call: description, priority, dates, recurrence, "On completion" action, block_id, and checklist sub-items, placed under a heading or nested under a parent task
 - **Update** — complete, reprioritize, edit the text, set or clear dates and recurrence, add checklist items, and move tasks between headings in a single call
-- **Complete** — marking a task done auto-detects the done lane and stamps the completion date; reversing it removes the date. Completion also runs the Tasks plugin's own behaviors:
+- **Complete** — marking a task done auto-detects the done lane and stamps the completion date, honoring the plugin's "Set done date" setting; reversing it removes the date. Completion also runs the Tasks plugin's own behaviors:
   - a recurring task spawns its next occurrence, dates advanced the way the plugin computes them
   - a task set to delete "On completion" disappears from the note
 - **Both formats** — whichever format you use, [Tasks plugin](https://publish.obsidian.md/tasks/) emoji signifiers or [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, the server reads both and writes in the format your Tasks plugin is configured for — read from the plugin's settings when your vault syncs `.obsidian/`, with emoji signifiers as the default otherwise

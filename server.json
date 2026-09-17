@@ -164,7 +164,7 @@
         },
         {
           "name": "ORPHAN_EXCLUDE_FOLDERS",
-          "description": "Comma-separated vault folder names excluded from vault_find_orphans. Default: \"Daily Notes\", \"Templates\", MEMORY_DIR."
+          "description": "Comma-separated vault folder names excluded from vault_find_orphans. Default: DAILY_NOTES_FOLDER (else \"Daily Notes\"), \"Templates\", MEMORY_DIR."
         },
         {
           "name": "SERVICE_DOCUMENTATION_URL",
