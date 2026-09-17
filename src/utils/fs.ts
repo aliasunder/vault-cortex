@@ -1,4 +1,4 @@
-import { readFile, readdir, realpath, stat } from "node:fs/promises"
+import { lstat, readFile, readdir, realpath, stat } from "node:fs/promises"
 import type { Dirent, Stats } from "node:fs"
 import { isErrnoException } from "./is-errno-exception.js"
 
@@ -18,6 +18,17 @@ export const readFileOrNull = async (path: string): Promise<string | null> => {
 export const statOrNull = async (path: string): Promise<Stats | null> => {
   try {
     return await stat(path)
+  } catch (error) {
+    if (isErrnoException(error, "ENOENT")) return null
+    throw error
+  }
+}
+
+/** Like statOrNull, but does not follow symlinks — checks whether the
+ *  directory entry itself exists, not its target. */
+export const lstatOrNull = async (path: string): Promise<Stats | null> => {
+  try {
+    return await lstat(path)
   } catch (error) {
     if (isErrnoException(error, "ENOENT")) return null
     throw error

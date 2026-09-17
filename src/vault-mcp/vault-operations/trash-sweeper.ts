@@ -7,7 +7,7 @@ import { unlink } from "node:fs/promises"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { DateTime } from "luxon"
 import { describeError } from "../../utils/describe-error.js"
-import { realpathOrNull, statOrNull } from "../../utils/fs.js"
+import { lstatOrNull, realpathOrNull } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
 import { pruneEmptyParents, trashDomainLockKey } from "./vault-filesystem.js"
@@ -74,29 +74,35 @@ const sweepOneEntry = async (
   // notes. The final component itself is never followed (unlink removes a
   // symlink, not its target). A missing parent means the file is gone (the
   // user emptied the trash) — drop the row.
-  try {
-    const realTrashRootOrNull = await realpathOrNull(trashRoot)
-    const realParentOrNull = await realpathOrNull(dirname(resolvedPath))
-    if (realTrashRootOrNull === null || realParentOrNull === null) {
-      trashEntryStore.deleteTrashEntry(trashPath)
-      return "missing"
-    }
-    const parentInsideTrashRoot =
-      realParentOrNull === realTrashRootOrNull ||
-      realParentOrNull.startsWith(realTrashRootOrNull + sep)
 
-    if (!parentInsideTrashRoot) {
-      logger.warn("trash entry parent escapes .trash — skipped", {
-        trashPath,
-      })
-      return "skipped"
-    }
+  // Assigned inside the try; used outside — the try/catch boundary forces let.
+  let realTrashRootOrNull: string | null
+  let realParentOrNull: string | null
+  try {
+    realTrashRootOrNull = await realpathOrNull(trashRoot)
+    realParentOrNull = await realpathOrNull(dirname(resolvedPath))
   } catch (error) {
     // Non-ENOENT realpath failure (EACCES, EIO) — keep the row so the
     // next sweep retries; one bad row never aborts the sweep.
     logger.warn("failed to resolve trash entry path", {
       trashPath,
       error: describeError(error),
+    })
+    return "skipped"
+  }
+
+  if (realTrashRootOrNull === null || realParentOrNull === null) {
+    trashEntryStore.deleteTrashEntry(trashPath)
+    return "missing"
+  }
+
+  const parentInsideTrashRoot =
+    realParentOrNull === realTrashRootOrNull ||
+    realParentOrNull.startsWith(realTrashRootOrNull + sep)
+
+  if (!parentInsideTrashRoot) {
+    logger.warn("trash entry parent escapes .trash — skipped", {
+      trashPath,
     })
     return "skipped"
   }
@@ -226,13 +232,14 @@ const purgeOrphanedTrashEntries = async (
           return false
         }
 
-        // Non-ENOENT stat failures (EACCES, EIO) keep the row so the next
-        // boot retries — one bad row never aborts the purge.
+        // lstat (not stat) so a dangling symlink in .trash/ is still
+        // recognized as present — stat would follow it, get ENOENT, and
+        // drop the row, stranding an unlinkable symlink with no record.
         try {
-          const fileStat = await statOrNull(
+          const entryExists = await lstatOrNull(
             resolve(params.vaultPath, entry.trashPath),
           )
-          if (fileStat) return false
+          if (entryExists) return false
         } catch (error) {
           logger.warn("failed to stat trash entry", {
             trashPath: entry.trashPath,
