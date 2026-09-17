@@ -2,7 +2,7 @@
 
 import express from "express"
 import type { Request, Response, NextFunction } from "express"
-import { resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createSearchIndex } from "./search/search-index.js"
 import { createEmbedder } from "./search/embedder.js"
@@ -116,7 +116,7 @@ const startServer = async (): Promise<void> => {
   }
 
   const indexDbPath = env.get("INDEX_DB_PATH").asString()
-  const dataDir = indexDbPath ? indexDbPath.replace(/\/[^/]+$/, "") : "/data"
+  const dataDir = indexDbPath ? dirname(indexDbPath) : "/data"
   const searchDbPath = indexDbPath ?? `${dataDir}/search.db`
   const oauthDbPath = `${dataDir}/oauth.db`
   const port = env.get("PORT").default("8000").asPortNumber()

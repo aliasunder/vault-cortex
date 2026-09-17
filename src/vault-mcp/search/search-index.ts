@@ -72,6 +72,7 @@ const truncateToUtf8ByteLimit = (content: string, maxBytes: number): string => {
     const characterBytes = Buffer.byteLength(character, "utf8")
     if (usedBytes + characterBytes > maxBytes) break
     usedBytes += characterBytes
+    // .length is UTF-16 code units — matches .slice()'s indexing
     endIndex += character.length
   }
   return content.slice(0, endIndex)
@@ -859,6 +860,18 @@ export const createSearchIndex = (
       )
     : null
 
+  // ── Rebuild staleness checks ─────────────────────────────────────
+  // Used by rebuildFromVault's embedding pass to skip notes/files the file
+  // watcher already re-indexed while the pass was running.
+  const selectNoteMtimeStmt = db.prepare<[string], { mtime: number }>(
+    "SELECT mtime FROM notes WHERE path = ?",
+  )
+  const selectFileMtimeStmt = fileToolsEnabled
+    ? db.prepare<[string], { mtime: number }>(
+        "SELECT mtime FROM file_content WHERE path = ?",
+      )
+    : null
+
   // ── Memory-entry prepared statements (conditional on memoryDir) ──
   const insertMemoryEntryStmt = memoryDir
     ? db.prepare(
@@ -1440,6 +1453,7 @@ export const createSearchIndex = (
       content: parsed.content,
       tags: JSON.stringify(tags),
       related: JSON.stringify(related),
+      // First path segment only — search filters drill into subfolders
       folder: filePath.includes("/") ? filePath.split("/")[0] : "",
       type: isString(frontmatter.type) ? frontmatter.type : null,
       created: isString(frontmatter.created)
@@ -2315,15 +2329,6 @@ export const createSearchIndex = (
             })
           }
 
-          // Guard against the file watcher having processed a newer version
-          // of a note (or removed it entirely) while Pass 3 was running. The
-          // notes table mtime is updated by upsertNote (file watcher) and
-          // removeNote deletes the row — so a mismatch or absence means this
-          // snapshot entry is stale and should be skipped.
-          const selectNoteMtimeStmt = db.prepare<[string], { mtime: number }>(
-            "SELECT mtime FROM notes WHERE path = ?",
-          )
-
           // Running totals accumulated across the sequential embedding loop
           let chunksEmbedded = 0
           let entriesEmbedded = 0
@@ -2401,11 +2406,7 @@ export const createSearchIndex = (
             }
           }
 
-          if (filesForEmbedding.length > 0) {
-            const selectFileMtimeStmt = db.prepare<[string], { mtime: number }>(
-              "SELECT mtime FROM file_content WHERE path = ?",
-            )
-
+          if (filesForEmbedding.length > 0 && selectFileMtimeStmt) {
             let fileChunksEmbedded = 0
             let fileEmbedErrors = 0
             for (const file of filesForEmbedding) {

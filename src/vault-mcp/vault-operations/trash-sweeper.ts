@@ -113,6 +113,8 @@ const sweepOneEntry = async (
   // The trash move mkdir'd the file's folder chain, so a purge can strand
   // empty folder skeletons; pruning them (rooted at .trash/, which is never
   // removed) keeps the folder's growth bounded along with its files.
+  // pruneEmptyParents walks up from `path` and stops at `vaultPath` — here
+  // the pruning root is .trash/, not the vault itself.
   await pruneEmptyParents(
     { vaultPath: trashRoot, path: relative(trashRoot, resolvedPath) },
     logger,
