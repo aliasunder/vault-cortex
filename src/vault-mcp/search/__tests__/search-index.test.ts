@@ -244,6 +244,32 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
   })
 
+  it("orders equal-mtime folder listings by path regardless of insertion order", () => {
+    const tieIndex = createSearchIndex(":memory:")
+    tieIndex.upsertNote(
+      {
+        filePath: "docs/zzz.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    tieIndex.upsertNote(
+      {
+        filePath: "docs/aaa.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const results = tieIndex.searchByFolder({ folder: "docs" }, logger)
+    expect(results.map((result) => result.path)).toEqual([
+      "docs/aaa.md",
+      "docs/zzz.md",
+    ])
+  })
+
   it("orders equal-bm25 file results by path in FTS-only hybrid search", async () => {
     const tieIndex = createSearchIndex(":memory:", undefined, undefined, {
       fileToolsEnabled: true,
@@ -272,6 +298,86 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     // internal order decides which tied file takes RRF rank 1, so this
     // exercises the leg-level tie-break, not the fusion one.
     const { results } = await tieIndex.hybridSearch({ query: "walrus" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.txt", "zzz.txt"])
+  })
+
+  /** Every text embeds to the same vector, so all KNN distances tie. */
+  const createUniformEmbedder = () => ({
+    embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+    embedBatch: vi.fn().mockImplementation((texts: string[]) => {
+      return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
+    }),
+  })
+
+  it("orders tied-distance note vector hits by path regardless of insertion order", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder())
+    // vec0 returns tied distances in reverse insertion order, so inserting
+    // aaa.md first means the unfixed order is zzz.md first.
+    tieIndex.upsertNote(
+      {
+        filePath: "aaa.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    await tieIndex.embedNote(
+      { notePath: "aaa.md", rawContent: IDENTICAL_NOTE },
+      logger,
+    )
+    tieIndex.upsertNote(
+      {
+        filePath: "zzz.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    await tieIndex.embedNote(
+      { notePath: "zzz.md", rawContent: IDENTICAL_NOTE },
+      logger,
+    )
+
+    // "orca" shares no stems with the note content, so the FTS leg is empty
+    // and the ranking comes from the vector leg's tied distances alone.
+    const { results } = await tieIndex.hybridSearch({ query: "orca" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders tied-distance file vector hits by path regardless of insertion order", async () => {
+    const tieIndex = createSearchIndex(
+      ":memory:",
+      createUniformEmbedder(),
+      undefined,
+      { fileToolsEnabled: true },
+    )
+    const identicalFileContent = "walrus habitat survey notes"
+    // vec0 returns tied distances in reverse insertion order, so inserting
+    // aaa.txt first means the unfixed order is zzz.txt first.
+    tieIndex.upsertNonMdFile("aaa.txt", 100)
+    tieIndex.upsertFileContent(
+      {
+        filePath: "aaa.txt",
+        rawContent: identicalFileContent,
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+    await tieIndex.embedFileContent({ filePath: "aaa.txt" }, logger)
+    tieIndex.upsertNonMdFile("zzz.txt", 100)
+    tieIndex.upsertFileContent(
+      {
+        filePath: "zzz.txt",
+        rawContent: identicalFileContent,
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+    await tieIndex.embedFileContent({ filePath: "zzz.txt" }, logger)
+
+    // "orca" shares no stems with the file content, so the FTS legs are
+    // empty and the ranking comes from the file vector leg's tied distances.
+    const { results } = await tieIndex.hybridSearch({ query: "orca" }, logger)
     expect(results.map((result) => result.path)).toEqual(["aaa.txt", "zzz.txt"])
   })
 })

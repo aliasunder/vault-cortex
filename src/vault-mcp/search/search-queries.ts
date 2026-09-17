@@ -785,7 +785,7 @@ export const searchByTag = (
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
     FROM notes n
     WHERE ${condition}
-    ORDER BY mtime DESC
+    ORDER BY mtime DESC, path
     LIMIT ?
   `
 
@@ -824,7 +824,7 @@ export const searchByFolder = (
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
     FROM notes
     WHERE ${condition}
-    ORDER BY mtime DESC
+    ORDER BY mtime DESC, path
     LIMIT ?
   `
 
@@ -1144,7 +1144,7 @@ export const listAllTags = (
     SELECT value as tag, COUNT(DISTINCT notes.path) as count
     FROM notes, json_each(notes.tags)
     GROUP BY value
-    ORDER BY count DESC
+    ORDER BY count DESC, tag
   `
   const results = context.db.prepare<unknown[], TagCount>(sql).all()
   logger.info("listed all tags", { count: results.length })
@@ -1166,8 +1166,8 @@ export const recentNotes = (
   // "created IS NULL" sorts NULLs last in a DESC ordering (SQLite evaluates 0/1)
   const orderClause =
     sortBy === "created"
-      ? "ORDER BY created IS NULL, created DESC"
-      : "ORDER BY mtime DESC" // SQL column is still `mtime`
+      ? "ORDER BY created IS NULL, created DESC, path"
+      : "ORDER BY mtime DESC, path" // SQL column is still `mtime`
 
   const sql = `
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
@@ -1202,7 +1202,7 @@ export const listPropertyKeys = (
     FROM notes n, json_each(n.properties) property
     ${folderCondition}
     GROUP BY property.key
-    ORDER BY count DESC
+    ORDER BY count DESC, property.key
   `
   const keySqlParams: Record<string, string> = escapedFolder
     ? { folder: escapedFolder }
@@ -1232,7 +1232,7 @@ export const listPropertyKeys = (
     ) element
     WHERE typeof(element.value) IN ('text', 'integer', 'real')
     GROUP BY element.value
-    ORDER BY count DESC
+    ORDER BY count DESC, element.value
     LIMIT 3
   `
   const sampleStmt = context.db.prepare<
@@ -1290,7 +1290,7 @@ export const listPropertyValues = (
     ) element
     WHERE typeof(element.value) IN ('text', 'integer', 'real')
     GROUP BY element.value
-    ORDER BY count DESC
+    ORDER BY count DESC, element.value
     LIMIT @limit
   `
 
@@ -1352,7 +1352,7 @@ export const searchByProperty = (
        AND CAST(json_extract(n.properties, '$.' || @key) AS TEXT) = @value)
     )
     ${folderCondition}
-    ORDER BY mtime DESC
+    ORDER BY mtime DESC, path
     LIMIT @limit
   `
 
@@ -1395,7 +1395,7 @@ export const getBacklinks = (
     LEFT JOIN non_md_files f ON f.path = l.source
     WHERE l.target = ?
       AND (n.path IS NOT NULL OR f.path IS NOT NULL)
-    ORDER BY COALESCE(n.title, f.basename)
+    ORDER BY COALESCE(n.title, f.basename), l.source
   `
   const rows = context.db
     .prepare<unknown[], { path: string; title: string; bytes: number }>(sql)
@@ -1503,7 +1503,7 @@ export const findOrphans = (
     FROM notes
     WHERE path NOT IN (SELECT DISTINCT target FROM links WHERE source != target)
       ${whereClause}
-    ORDER BY mtime DESC
+    ORDER BY mtime DESC, path
     LIMIT ?
   `
 
@@ -1589,7 +1589,7 @@ export const modifiedOnDate = (
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
     FROM notes
     WHERE mtime >= ? AND mtime < ?
-    ORDER BY mtime DESC
+    ORDER BY mtime DESC, path
     LIMIT ?
   `
   const rows = context.db
