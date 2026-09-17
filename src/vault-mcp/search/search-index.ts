@@ -356,6 +356,11 @@ export const createSearchIndex = (
     /** When true, creates file_content + file_content_fts tables for
      *  full-text search of non-markdown file content (e.g. canvas). */
     fileToolsEnabled?: boolean | undefined
+    /** Ranking tuning overrides for hybridSearch (file-leg RRF weight,
+     *  reranker kind prefix). Omitted in production — the server ships the
+     *  defaults in hybrid-search.ts; the search-eval harness sets these to
+     *  measure candidate values. */
+    ranking?: queries.RankingTuning | undefined
   },
 ) => {
   const memoryDir = options?.memoryDir
@@ -2534,6 +2539,7 @@ export const createSearchIndex = (
       selectNoteMetadataStmt,
     },
     reranker,
+    ranking: options?.ranking,
     selectFirstChunkStmt,
     // Null when no memory dir is configured — memoryRecall rejects with a
     // remediation message. knnStmt is additionally null without an embedder

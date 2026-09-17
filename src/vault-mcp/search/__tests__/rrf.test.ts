@@ -173,6 +173,95 @@ describe("computeRrfScores", () => {
     expect(twoListsWithEmpties).toEqual(twoLists)
   })
 
+  it("scales a weighted list's whole contribution, bonus included", () => {
+    const result = computeRrfScores({
+      rankedLists: [[{ identifier: "file.pdf" }]],
+      listWeights: [0.5],
+    })
+
+    // 0.5 * (1/61 + 0.05) — NOT 0.5 * (1/61) + 0.05. An unscaled bonus
+    // would leave the rank-1 boost dominating the down-weighted list.
+    expect(result).toEqual([
+      {
+        identifier: "file.pdf",
+        score: Number((0.5 * (1 / 61 + 0.05)).toPrecision(4)),
+      },
+    ])
+  })
+
+  it("defaults a missing listWeights entry to full weight", () => {
+    const result = computeRrfScores({
+      rankedLists: [[{ identifier: "file.pdf" }], [{ identifier: "note.md" }]],
+      listWeights: [0.5],
+    })
+
+    expect(result).toEqual([
+      { identifier: "note.md", score: RANK_1_SCORE },
+      {
+        identifier: "file.pdf",
+        score: Number((0.5 * (1 / 61 + 0.05)).toPrecision(4)),
+      },
+    ])
+  })
+
+  it("produces identical scores at weight 1 as with no listWeights", () => {
+    const rankedLists = [
+      [{ identifier: "a.md" }, { identifier: "b.md" }],
+      [{ identifier: "a.md" }],
+    ]
+
+    expect(computeRrfScores({ rankedLists, listWeights: [1, 1] })).toEqual(
+      computeRrfScores({ rankedLists }),
+    )
+  })
+
+  it("demotes a two-leg file hit below a two-leg note hit at weight 0.5", () => {
+    // The pollution shape: a file topping both file legs vs a note topping
+    // both note legs. Unweighted they tie; the file-leg weight breaks it.
+    const result = computeRrfScores({
+      rankedLists: [
+        [{ identifier: "note.md" }],
+        [{ identifier: "note.md" }],
+        [{ identifier: "file.pdf" }],
+        [{ identifier: "file.pdf" }],
+      ],
+      listWeights: [1, 1, 0.5, 0.5],
+    })
+
+    expect(result).toEqual([
+      {
+        identifier: "note.md",
+        score: Number((2 * (1 / 61 + 0.05)).toPrecision(4)),
+      },
+      {
+        identifier: "file.pdf",
+        score: Number((2 * 0.5 * (1 / 61 + 0.05)).toPrecision(4)),
+      },
+    ])
+  })
+
+  it("zeroes a list's contribution at weight 0", () => {
+    const result = computeRrfScores({
+      rankedLists: [[{ identifier: "file.pdf" }], [{ identifier: "note.md" }]],
+      listWeights: [0, 1],
+    })
+
+    expect(result).toEqual([
+      { identifier: "note.md", score: RANK_1_SCORE },
+      { identifier: "file.pdf", score: 0 },
+    ])
+  })
+
+  it("breaks score ties by identifier ascending", () => {
+    // Insertion order is z-first — an implementation keeping Map order
+    // would return z.md first, so this fails without the tie-breaker.
+    const result = computeRrfScores({
+      rankedLists: [[{ identifier: "z.md" }], [{ identifier: "a.md" }]],
+    })
+
+    expect(result.map((entry) => entry.identifier)).toEqual(["a.md", "z.md"])
+  })
+
   it("produces identical 2-list scores to previous named-param signature", () => {
     // Regression: the old API was ftsRanked + vectorRanked; verify the
     // new rankedLists API produces identical scores.

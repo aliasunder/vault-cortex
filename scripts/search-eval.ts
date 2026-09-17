@@ -1,0 +1,378 @@
+/** Search ranking eval harness — measures hybrid search against a local
+ *  judgment file of queries with expected results.
+ *
+ *  The judgment file stays OUTSIDE the repo (it names real vault content):
+ *
+ *    npx tsx scripts/search-eval.ts --judgment ~/.config/vault-cortex/search-eval.json
+ *
+ *  Method, in order:
+ *  1. Copy the vault once to a snapshot directory, skipping the judgment
+ *     file's `exclude_paths`/`exclude_prefixes` — notes that quote the eval
+ *     queries verbatim (research notes, session logs) would otherwise match
+ *     their own documentation. Reruns reuse the snapshot via
+ *     --reuse-snapshot so every configuration sees an identical corpus.
+ *  2. Build the search index with real ONNX models and AWAIT the background
+ *     embedding pass — scoring a partially embedded index measures indexing
+ *     order, not ranking. Any embedding error fails the run.
+ *  3. Assert a probe query returns search_mode "hybrid" with reranked true.
+ *  4. Run every judgment query at each --limits value, reporting the rank
+ *     of the first expected result, file pollution in the top 5, and
+ *     latency. The requested limit shapes the candidate and rerank windows,
+ *     so the production default (20) is the primary reading and small
+ *     limits cover the exclusion boundary they create.
+ *
+ *  Ranking overrides (--file-leg-weight, --kind-prefix) map to
+ *  createSearchIndex's `ranking` option. They are query-time settings: one
+ *  built index serves a whole sweep via --reuse-snapshot --reuse-index.
+ *
+ *  Usage:
+ *    npx tsx scripts/search-eval.ts --judgment <path> [--label baseline]
+ *      [--file-leg-weight 0.5] [--kind-prefix] [--limits 20,5,3]
+ *      [--work-dir <dir>] [--reuse-snapshot] [--reuse-index]
+ *      [--json-out <path>]
+ */
+
+import { parseArgs } from "node:util"
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { readFile } from "node:fs/promises"
+import { join, resolve, sep } from "node:path"
+import { tmpdir } from "node:os"
+import { z } from "zod"
+import type { Logger } from "../src/logger.js"
+import { createEmbedder } from "../src/vault-mcp/search/embedder.js"
+import { createReranker } from "../src/vault-mcp/search/reranker.js"
+import { createSearchIndex } from "../src/vault-mcp/search/search-index.js"
+import type { SearchResult } from "../src/vault-mcp/search/search-index.js"
+
+// ── Judgment file schema ───────────────────────────────────────
+
+const judgmentQuerySchema = z.object({
+  id: z.string().min(1),
+  class: z.enum(["recall", "precision", "sentinel", "filtered"]),
+  query: z.string().min(1),
+  expected_any: z.array(z.string().min(1)).optional(),
+  expected_prefix: z.string().min(1).optional(),
+  filters: z.object({ folder: z.string().min(1) }).optional(),
+})
+
+const judgmentFileSchema = z.object({
+  vault_path: z.string().min(1),
+  exclude_paths: z.array(z.string().min(1)),
+  exclude_prefixes: z.array(z.string().min(1)),
+  queries: z.array(judgmentQuerySchema).min(1),
+})
+
+type JudgmentQuery = z.infer<typeof judgmentQuerySchema>
+
+// ── Counting logger ────────────────────────────────────────────
+
+/** Silences the index's per-query info logs and records warn/error lines so
+ *  the embedding pass can be failed on any logged problem. */
+const createCountingLogger = (): {
+  logger: Logger
+  problems: { level: string; message: string }[]
+} => {
+  const problems: { level: string; message: string }[] = []
+  const printProblem = (
+    level: "warn" | "error",
+    message: string,
+    data: Record<string, unknown> | undefined,
+  ): void => {
+    problems.push({ level, message })
+    if (data) {
+      console.error(`[${level}] ${message}`, data)
+      return
+    }
+    console.error(`[${level}] ${message}`)
+  }
+  const logger: Logger = {
+    debug: () => {},
+    info: () => {},
+    warn: (message, data) => {
+      printProblem("warn", message, data)
+    },
+    error: (message, data) => {
+      printProblem("error", message, data)
+    },
+    child: () => logger,
+  }
+  return { logger, problems }
+}
+
+// ── Snapshot ───────────────────────────────────────────────────
+
+/** Copies the vault to the snapshot directory, skipping hidden entries and
+ *  every judgment-file exclusion. All index builds read the snapshot, so
+ *  live vault writes between runs cannot confound an A/B comparison. */
+const createVaultSnapshot = (params: {
+  vaultPath: string
+  snapshotDir: string
+  excludePaths: readonly string[]
+  excludePrefixes: readonly string[]
+}): void => {
+  const vaultRoot = resolve(params.vaultPath)
+  const excludedExactPaths = new Set(
+    params.excludePaths.map((path) => resolve(vaultRoot, path)),
+  )
+  const excludedPrefixes = params.excludePrefixes.map((prefix) =>
+    resolve(vaultRoot, prefix),
+  )
+
+  rmSync(params.snapshotDir, { recursive: true, force: true })
+  mkdirSync(params.snapshotDir, { recursive: true })
+  cpSync(vaultRoot, params.snapshotDir, {
+    recursive: true,
+    filter: (source) => {
+      const absoluteSource = resolve(source)
+      const relativeFromRoot = absoluteSource.slice(vaultRoot.length)
+      const isHidden = relativeFromRoot
+        .split(sep)
+        .some((segment) => segment.startsWith("."))
+      if (isHidden) return false
+      if (excludedExactPaths.has(absoluteSource)) return false
+      return !excludedPrefixes.some((prefix) =>
+        absoluteSource.startsWith(prefix),
+      )
+    },
+  })
+}
+
+// ── Scoring ────────────────────────────────────────────────────
+
+type QueryScore = {
+  id: string
+  class: JudgmentQuery["class"]
+  query: string
+  limit: number
+  expectedRank: number | null
+  filesInTop5: number
+  latencyMs: number
+  topPaths: string[]
+}
+
+const rankOfFirstExpected = (
+  results: readonly SearchResult[],
+  judgmentQuery: JudgmentQuery,
+): number | null => {
+  const matchesExpected = (result: SearchResult): boolean => {
+    if (judgmentQuery.expected_any?.includes(result.path)) return true
+    return Boolean(
+      judgmentQuery.expected_prefix &&
+      result.path.startsWith(judgmentQuery.expected_prefix),
+    )
+  }
+  const index = results.findIndex(matchesExpected)
+  return index === -1 ? null : index + 1
+}
+
+/** File results in the top 5 that are not themselves expected — for the
+ *  precision class no file is a correct answer, so every one is pollution. */
+const countUnexpectedFilesInTop5 = (
+  results: readonly SearchResult[],
+  judgmentQuery: JudgmentQuery,
+): number => {
+  const expectedPaths = new Set(judgmentQuery.expected_any ?? [])
+  return results
+    .slice(0, 5)
+    .filter(
+      (result) => result.kind === "file" && !expectedPaths.has(result.path),
+    ).length
+}
+
+// ── Main ───────────────────────────────────────────────────────
+
+const main = async (): Promise<void> => {
+  const { values: cliArgs } = parseArgs({
+    options: {
+      judgment: { type: "string" },
+      label: { type: "string", default: "run" },
+      "file-leg-weight": { type: "string" },
+      "kind-prefix": { type: "boolean", default: false },
+      limits: { type: "string", default: "20,5,3" },
+      "work-dir": { type: "string" },
+      "reuse-snapshot": { type: "boolean", default: false },
+      "reuse-index": { type: "boolean", default: false },
+      "json-out": { type: "string" },
+    },
+  })
+
+  if (!cliArgs.judgment) {
+    throw new Error(
+      "--judgment <path> is required (a local judgment JSON — see the file header)",
+    )
+  }
+
+  const judgmentRaw: unknown = JSON.parse(
+    await readFile(cliArgs.judgment, "utf8"),
+  )
+  const judgment = judgmentFileSchema.parse(judgmentRaw)
+
+  const limits = cliArgs.limits.split(",").map((limitText) => {
+    const limit = Number(limitText.trim())
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new Error(
+        `--limits entries must be positive integers: ${limitText}`,
+      )
+    }
+    return limit
+  })
+
+  const fileLegWeight = cliArgs["file-leg-weight"]
+    ? Number(cliArgs["file-leg-weight"])
+    : undefined
+  if (fileLegWeight !== undefined && !(fileLegWeight >= 0)) {
+    throw new Error("--file-leg-weight must be a number >= 0")
+  }
+
+  // A reused index over a freshly copied snapshot would score a corpus the
+  // index never saw — the two reuse flags only make sense together.
+  if (cliArgs["reuse-index"] && !cliArgs["reuse-snapshot"]) {
+    throw new Error("--reuse-index requires --reuse-snapshot")
+  }
+
+  const workDir =
+    cliArgs["work-dir"] ?? join(tmpdir(), "vault-cortex-search-eval")
+  const snapshotDir = join(workDir, "vault-snapshot")
+  const indexDbPath = join(workDir, "search-eval.db")
+  mkdirSync(workDir, { recursive: true })
+
+  if (cliArgs["reuse-snapshot"] && existsSync(snapshotDir)) {
+    console.log(`reusing snapshot: ${snapshotDir}`)
+  } else {
+    console.log(`snapshotting vault ${judgment.vault_path} → ${snapshotDir}`)
+    createVaultSnapshot({
+      vaultPath: judgment.vault_path,
+      snapshotDir,
+      excludePaths: judgment.exclude_paths,
+      excludePrefixes: judgment.exclude_prefixes,
+    })
+  }
+
+  const { logger, problems } = createCountingLogger()
+  const embedder = createEmbedder(logger)
+  const reranker = createReranker(logger)
+  const search = createSearchIndex(indexDbPath, embedder, reranker, {
+    memoryDir: "About Me",
+    fileToolsEnabled: true,
+    ranking: {
+      fileLegWeight,
+      rerankKindPrefix: cliArgs["kind-prefix"],
+    },
+  })
+
+  if (cliArgs["reuse-index"] && existsSync(indexDbPath)) {
+    console.log(`reusing index: ${indexDbPath}`)
+  } else {
+    console.log("rebuilding index (FTS + embedding — this takes minutes)…")
+    const rebuildStartMs = performance.now()
+    const { count, embedding } = await search.rebuildFromVault(
+      { vaultPath: snapshotDir },
+      logger,
+    )
+    // Scoring against a partially embedded index measures indexing order,
+    // not ranking — wait for the background pass and fail on any error.
+    await embedding
+    const embedProblems = problems.filter((problem) =>
+      problem.message.includes("embed"),
+    )
+    if (embedProblems.length > 0) {
+      throw new Error(
+        `embedding pass logged ${embedProblems.length} problem(s) — fix before scoring`,
+      )
+    }
+    const rebuildSeconds = Math.round(
+      (performance.now() - rebuildStartMs) / 1000,
+    )
+    console.log(`indexed ${count} notes in ${rebuildSeconds}s`)
+  }
+
+  // Probe: the run is only meaningful fully hybrid + reranked.
+  const firstQuery = judgment.queries[0]
+  if (!firstQuery) throw new Error("judgment file has no queries")
+  const probe = await search.hybridSearch({ query: firstQuery.query }, logger)
+  if (probe.search_mode !== "hybrid" || !probe.reranked) {
+    throw new Error(
+      `probe query ran search_mode=${probe.search_mode} reranked=${String(probe.reranked)} — expected hybrid + reranked (is the index fully embedded?)`,
+    )
+  }
+
+  const scores: QueryScore[] = []
+  for (const judgmentQuery of judgment.queries) {
+    for (const limit of limits) {
+      const queryStartMs = performance.now()
+      const searchResult = await search.hybridSearch(
+        {
+          query: judgmentQuery.query,
+          limit,
+          ...(judgmentQuery.filters ? { filters: judgmentQuery.filters } : {}),
+        },
+        logger,
+      )
+      const latencyMs = Math.round(performance.now() - queryStartMs)
+      scores.push({
+        id: judgmentQuery.id,
+        class: judgmentQuery.class,
+        query: judgmentQuery.query,
+        limit,
+        expectedRank: rankOfFirstExpected(searchResult.results, judgmentQuery),
+        filesInTop5: countUnexpectedFilesInTop5(
+          searchResult.results,
+          judgmentQuery,
+        ),
+        latencyMs,
+        topPaths: searchResult.results
+          .slice(0, 5)
+          .map(
+            (result) => `${result.kind === "file" ? "F " : "  "}${result.path}`,
+          ),
+      })
+    }
+  }
+
+  // ── Report ──────────────────────────────────────────────────
+  const primaryLimit = limits[0] ?? 20
+  console.log(
+    `\n=== ${cliArgs.label} · fileLegWeight=${fileLegWeight ?? "default"} · kindPrefix=${String(cliArgs["kind-prefix"])} ===`,
+  )
+  console.log(`per-query results at limit ${primaryLimit}:`)
+  for (const score of scores.filter((entry) => entry.limit === primaryLimit)) {
+    const rankText =
+      score.expectedRank === null ? "MISS" : `#${score.expectedRank}`
+    const gate =
+      score.expectedRank !== null && score.expectedRank <= 3 ? "pass" : "FAIL"
+    const pollutionText =
+      score.class === "precision" ? ` files@5=${score.filesInTop5}` : ""
+    console.log(
+      `  [${score.class}] ${score.id}: expected ${rankText} (top-3 ${gate})${pollutionText} ${score.latencyMs}ms`,
+    )
+  }
+
+  const otherLimits = limits.slice(1)
+  for (const limit of otherLimits) {
+    const missesAtLimit = scores.filter(
+      (entry) => entry.limit === limit && entry.expectedRank === null,
+    )
+    console.log(
+      `at limit ${limit}: ${missesAtLimit.length} queries lose their expected result${missesAtLimit.length > 0 ? ` (${missesAtLimit.map((entry) => entry.id).join(", ")})` : ""}`,
+    )
+  }
+
+  if (cliArgs["json-out"]) {
+    writeFileSync(
+      cliArgs["json-out"],
+      JSON.stringify(
+        {
+          label: cliArgs.label,
+          fileLegWeight: fileLegWeight ?? null,
+          kindPrefix: cliArgs["kind-prefix"],
+          scores,
+        },
+        null,
+        2,
+      ),
+    )
+    console.log(`full results written to ${cliArgs["json-out"]}`)
+  }
+}
+
+await main()

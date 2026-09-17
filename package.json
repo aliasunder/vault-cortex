@@ -48,6 +48,7 @@
     "sync:lobehub-manifest": "tsx scripts/sync-lobehub-manifest.ts",
     "publish:lobehub": "npm run sync:lobehub-manifest && npx -y @lobehub/market-cli@0.0.38 plugin publish --dir .",
     "generate:dockerhub-readme": "tsx scripts/generate-dockerhub-readme.ts",
+    "eval:search": "tsx scripts/search-eval.ts",
     "dev:mcp": "tsx watch src/vault-mcp/server.ts",
     "dev:docker": "docker compose -f docker-compose.local.yml up --build",
     "start": "node dist/src/vault-mcp/server.js",

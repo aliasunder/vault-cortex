@@ -71,6 +71,13 @@ export type MemoryEntryVectorHitRow = MemoryEntryRow & { distance: number }
  *  binds it into every exported query function, so the query modules stay
  *  plain functions with no state of their own. Each optional group is
  *  `null` when its feature is off, and each query degrades accordingly. */
+/** Overrides for hybridSearch's ranking constants (file-leg RRF weight,
+ *  reranker kind prefix). A missing field keeps that shipped default. */
+export type RankingTuning = {
+  readonly fileLegWeight?: number | undefined
+  readonly rerankKindPrefix?: boolean | undefined
+}
+
 export type SearchQueryContext = {
   readonly db: Database.Database
   readonly vector: {
@@ -85,6 +92,10 @@ export type SearchQueryContext = {
     readonly selectNoteMetadataStmt: Database.Statement<[string], NoteRow>
   }
   readonly reranker: Reranker | undefined
+  /** Ranking tuning for hybridSearch — undefined means the shipped
+   *  defaults in hybrid-search.ts. Set by the search-eval harness to
+   *  measure candidate values against the judgment set. */
+  readonly ranking?: RankingTuning | undefined
   readonly selectFirstChunkStmt: Database.Statement<
     [string],
     { chunk_text: string }
