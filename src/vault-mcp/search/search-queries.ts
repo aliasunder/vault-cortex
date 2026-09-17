@@ -648,8 +648,8 @@ export const memoryRecall = async (
   // RRF fusion: dedupes by entry id, orders most-agreed-first.
   const fusedScores = computeRrfScores({
     rankedLists: [
-      ftsRows.map((row) => ({ identifier: String(row.id) })),
-      vectorRows.map((row) => ({ identifier: String(row.id) })),
+      { items: ftsRows.map((row) => ({ identifier: String(row.id) })) },
+      { items: vectorRows.map((row) => ({ identifier: String(row.id) })) },
     ],
   })
   const rowsById = new Map<string, MemoryEntryRow>([

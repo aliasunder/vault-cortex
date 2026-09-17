@@ -444,11 +444,9 @@ export const hybridSearch = async (
     // only place a thin file match can be demoted at all.
     const fallbackRrf = computeRrfScores({
       rankedLists: [
-        toRankedList(ftsResults), // note FTS
-        toRankedList(fileContentResults), // file FTS
+        { items: toRankedList(ftsResults) }, // note FTS
+        { items: toRankedList(fileContentResults), weight: fileLegWeight },
       ],
-      // The note list keeps full weight; the file list is down-weighted.
-      listWeights: [1, fileLegWeight],
     })
     const ftsResultsByPath = new Map(
       ftsResults.map((result) => [result.path, result]),
@@ -478,22 +476,17 @@ export const hybridSearch = async (
     return { results: fallbackSliced, search_mode: "fts", reranked: false }
   }
 
-  // Compute RRF scores from all four ranked lists — an empty list
-  // contributes no scores, so each leg is passed unconditionally. The two
-  // file-content legs are down-weighted so a large file matching scattered
-  // common words across its chunks cannot out-rank topical notes on leg
-  // rank alone.
-  // rankedLists[i] contributes at listWeights[i] — the two note legs keep
-  // full weight, the two file-content legs take the down-weight.
-  const rankedLists = [
-    toRankedList(ftsResults), // note FTS
-    toRankedList(vectorHits), // note KNN
-    toRankedList(fileContentResults), // file FTS
-    toRankedList(fileContentVectorHits), // file KNN
-  ]
+  // An empty list contributes no scores, so each leg is passed
+  // unconditionally. The file-content legs are down-weighted so a large
+  // file matching scattered common words across its chunks cannot out-rank
+  // topical notes on leg rank alone.
   const rrfScores = computeRrfScores({
-    rankedLists,
-    listWeights: [1, 1, fileLegWeight, fileLegWeight],
+    rankedLists: [
+      { items: toRankedList(ftsResults) }, // note FTS
+      { items: toRankedList(vectorHits) }, // note KNN
+      { items: toRankedList(fileContentResults), weight: fileLegWeight },
+      { items: toRankedList(fileContentVectorHits), weight: fileLegWeight },
+    ],
   })
 
   // Index all result sources by path for O(1) lookup

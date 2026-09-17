@@ -10,8 +10,8 @@
  *  2. Add top-rank bonuses: +0.05 for rank 1, +0.02 for ranks 2–3 in any
  *     list, rewarding results that any system placed highly
  *  3. Scale each list's whole contribution (base term + bonus) by its
- *     listWeights entry — the bonus must scale too, because at rank 1 it
- *     is ~3× the base term and would otherwise dominate a down-weighted list
+ *     weight — the bonus must scale too, because at rank 1 it is ~3× the
+ *     base term and would otherwise dominate a down-weighted list
  *  4. Sum contributions per identifier across all lists — an identifier in
  *     multiple lists gets a higher combined score than one appearing in
  *     only one list
@@ -20,10 +20,12 @@
  *
  *  Inspired by qmd: https://github.com/tobi/qmd#score-normalization--fusion */
 export const computeRrfScores = (params: {
-  rankedLists: ReadonlyArray<readonly { identifier: string }[]>
-  /** Per-list contribution multiplier, index-aligned with rankedLists.
-   *  A missing entry means 1 (full weight). */
-  listWeights?: readonly number[]
+  /** Each list carries its own contribution multiplier — a missing weight
+   *  means 1 (full contribution). */
+  rankedLists: ReadonlyArray<{
+    items: readonly { identifier: string }[]
+    weight?: number | undefined
+  }>
   dampingConstant?: number
 }): { identifier: string; score: number }[] => {
   const dampingConstant = params.dampingConstant ?? 60
@@ -48,8 +50,8 @@ export const computeRrfScores = (params: {
     }
   }
 
-  for (const [listIndex, rankedList] of params.rankedLists.entries()) {
-    accumulateScores(rankedList, params.listWeights?.[listIndex] ?? 1)
+  for (const rankedList of params.rankedLists) {
+    accumulateScores(rankedList.items, rankedList.weight ?? 1)
   }
 
   return [...scoresByIdentifier.entries()]
