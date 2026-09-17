@@ -215,7 +215,7 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 | Tool                      | Input                            | Annotation       |
 | ------------------------- | -------------------------------- | ---------------- |
-| `vault_get_memory`        | `file?, section?`                | readOnlyHint     |
+| `vault_get_memory`        | `file?, section?, on_or_after?`  | readOnlyHint     |
 | `vault_update_memory`     | `file, section, entry, options?` | !destructiveHint |
 | `vault_delete_memory`     | `file, section, date, entry`     | destructiveHint  |
 | `vault_list_memory_files` | —                                | readOnlyHint     |
