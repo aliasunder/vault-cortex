@@ -72,7 +72,9 @@ export type RankingTuning = {
   readonly rerankKindPrefix?: boolean | undefined
   /** Index-time, unlike the other two: prefixes note chunk text with
    *  frontmatter type/tags before embedding, so flipping it re-embeds
-   *  every note once. */
+   *  every note once. The prefix is stored in chunk_text, so vector-only
+   *  snippets currently surface it as note content — separating embedded
+   *  text from display text is part of the enrichment follow-up. */
   readonly enrichChunkMetadata?: boolean | undefined
 }
 
