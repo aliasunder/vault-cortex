@@ -324,15 +324,22 @@ export const noteMatchesSearchFilters = (
   // conditions); with a bound set, notes without created never match, like
   // SQL NULL comparisons.
   if (filters.created) {
-    const { on, before, after } = filters.created
+    const {
+      on: createdOn,
+      before: createdBefore,
+      after: createdAfter,
+    } = filters.created
     const hasCreatedBound =
-      on !== undefined || before !== undefined || after !== undefined
+      createdOn !== undefined ||
+      createdBefore !== undefined ||
+      createdAfter !== undefined
     if (hasCreatedBound) {
       if (note.created === null) return false
       const createdDay = note.created.slice(0, 10)
-      if (on !== undefined && createdDay !== on) return false
-      if (before !== undefined && createdDay >= before) return false
-      if (after !== undefined && createdDay <= after) return false
+      if (createdOn !== undefined && createdDay !== createdOn) return false
+      if (createdBefore !== undefined && createdDay >= createdBefore)
+        return false
+      if (createdAfter !== undefined && createdDay <= createdAfter) return false
     }
   }
 
@@ -340,22 +347,26 @@ export const noteMatchesSearchFilters = (
   // exclusive at day granularity: before/after match strictly earlier/later
   // days, on matches within the day.
   if (filters.modified) {
-    const { on, before, after } = filters.modified
+    const {
+      on: modifiedOn,
+      before: modifiedBefore,
+      after: modifiedAfter,
+    } = filters.modified
 
-    if (on !== undefined) {
-      const dayRange = dayToEpochMsRange(on)
+    if (modifiedOn !== undefined) {
+      const dayRange = dayToEpochMsRange(modifiedOn)
       const withinDay =
         note.mtime >= dayRange.startMs && note.mtime < dayRange.endMs
       if (!withinDay) return false
     }
 
-    if (before !== undefined) {
-      const lastAllowedMs = dayToEpochMsRange(before).startMs
+    if (modifiedBefore !== undefined) {
+      const lastAllowedMs = dayToEpochMsRange(modifiedBefore).startMs
       if (note.mtime >= lastAllowedMs) return false
     }
 
-    if (after !== undefined) {
-      const firstAllowedMs = dayToEpochMsRange(after).endMs
+    if (modifiedAfter !== undefined) {
+      const firstAllowedMs = dayToEpochMsRange(modifiedAfter).endMs
       if (note.mtime < firstAllowedMs) return false
     }
   }
