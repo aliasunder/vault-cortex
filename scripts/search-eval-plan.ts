@@ -5,23 +5,28 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { z } from "zod"
 import { isHarnessSnapshot } from "./search-eval-snapshot.js"
+import type { SearchResult } from "../src/vault-mcp/search/search-index.js"
 
+// Strict objects: a plain schema would strip a typoed key (a misspelled
+// expectation or filter field) and silently score a different query shape
+// than the judgment file describes.
 const judgmentQuerySchema = z
-  .object({
+  .strictObject({
     id: z.string().min(1),
     class: z.enum(["recall", "precision", "sentinel", "filtered"]),
     query: z.string().min(1),
     expected_any: z.array(z.string().min(1)).optional(),
     expected_prefix: z.string().min(1).optional(),
-    filters: z.object({ folder: z.string().min(1) }).optional(),
+    filters: z.strictObject({ folder: z.string().min(1) }).optional(),
   })
-  // Zod strips unknown keys, so a typoed expectation field would otherwise
-  // parse cleanly into a query that reads MISS on every run.
   .refine((query) => Boolean(query.expected_any || query.expected_prefix), {
     message: "each query needs expected_any or expected_prefix",
   })
+  .refine((query) => query.class !== "filtered" || Boolean(query.filters), {
+    message: "a filtered query needs filters.folder",
+  })
 
-export const judgmentFileSchema = z.object({
+export const judgmentFileSchema = z.strictObject({
   vault_path: z.string().min(1),
   exclude_paths: z.array(z.string().min(1)),
   exclude_prefixes: z.array(z.string().min(1)),
@@ -29,6 +34,45 @@ export const judgmentFileSchema = z.object({
 })
 
 export type JudgmentQuery = z.infer<typeof judgmentQuerySchema>
+
+// ── Scoring ────────────────────────────────────────────────────
+
+/** True when the path is one of the judgment entry's expected answers —
+ *  by exact `expected_any` match or by `expected_prefix`. */
+const matchesExpectedPath = (
+  judgmentQuery: JudgmentQuery,
+  path: string,
+): boolean => {
+  if (judgmentQuery.expected_any?.includes(path)) return true
+  return Boolean(
+    judgmentQuery.expected_prefix &&
+    path.startsWith(judgmentQuery.expected_prefix),
+  )
+}
+
+export const rankOfFirstExpected = (
+  results: readonly SearchResult[],
+  judgmentQuery: JudgmentQuery,
+): number | null => {
+  const index = results.findIndex((result) => {
+    return matchesExpectedPath(judgmentQuery, result.path)
+  })
+  return index === -1 ? null : index + 1
+}
+
+/** File results in the window that are not themselves expected — for the
+ *  precision class no file is a correct answer, so every one is pollution. */
+export const countUnexpectedFilesInWindow = (
+  results: readonly SearchResult[],
+  judgmentQuery: JudgmentQuery,
+  windowSize: number,
+): number => {
+  return results.slice(0, windowSize).filter((result) => {
+    return (
+      result.kind === "file" && !matchesExpectedPath(judgmentQuery, result.path)
+    )
+  }).length
+}
 
 type EvalCliArgs = {
   judgment?: string | undefined

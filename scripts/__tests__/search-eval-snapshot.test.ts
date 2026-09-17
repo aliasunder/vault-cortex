@@ -9,7 +9,10 @@ import {
 import { tmpdir } from "node:os"
 import { dirname, join, relative } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
-import { createVaultSnapshot } from "../search-eval-snapshot.js"
+import {
+  createVaultSnapshot,
+  snapshotMatchesProvenance,
+} from "../search-eval-snapshot.js"
 
 // Test-owned copy of the marker name the snapshot writes — drift between
 // this and the module's constant should fail these tests.
@@ -116,6 +119,55 @@ describe("createVaultSnapshot", () => {
       SNAPSHOT_MARKER,
       "current.md",
     ])
+  })
+
+  it("records provenance a matching reuse accepts, in any exclusion order", () => {
+    const { vaultPath, snapshotDir } = createTempVault()
+    writeVaultFile(vaultPath, "current.md")
+
+    createVaultSnapshot({
+      vaultPath,
+      snapshotDir,
+      excludePaths: ["a.md", "b.md"],
+      excludePrefixes: ["sessions"],
+    })
+
+    expect(
+      snapshotMatchesProvenance(snapshotDir, {
+        vaultPath,
+        excludePaths: ["b.md", "a.md"],
+        excludePrefixes: ["sessions"],
+      }),
+    ).toBe(true)
+  })
+
+  it("reports a mismatch for different exclusions and for a pre-provenance marker", () => {
+    const { vaultPath, snapshotDir } = createTempVault()
+    writeVaultFile(vaultPath, "current.md")
+
+    createVaultSnapshot({
+      vaultPath,
+      snapshotDir,
+      excludePaths: [],
+      excludePrefixes: ["sessions"],
+    })
+    expect(
+      snapshotMatchesProvenance(snapshotDir, {
+        vaultPath,
+        excludePaths: ["newly-excluded.md"],
+        excludePrefixes: ["sessions"],
+      }),
+    ).toBe(false)
+
+    // A marker from before provenance was recorded must read as mismatch.
+    writeFileSync(join(snapshotDir, SNAPSHOT_MARKER), "")
+    expect(
+      snapshotMatchesProvenance(snapshotDir, {
+        vaultPath,
+        excludePaths: [],
+        excludePrefixes: ["sessions"],
+      }),
+    ).toBe(false)
   })
 
   it("refuses to delete a directory that is not a harness snapshot", () => {

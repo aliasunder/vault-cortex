@@ -2,7 +2,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
-import { judgmentFileSchema, resolveEvalRunPlan } from "../search-eval-plan.js"
+import {
+  countUnexpectedFilesInWindow,
+  judgmentFileSchema,
+  rankOfFirstExpected,
+  resolveEvalRunPlan,
+} from "../search-eval-plan.js"
+import type { JudgmentQuery } from "../search-eval-plan.js"
+import type { SearchResult } from "../../src/vault-mcp/search/search-index.js"
 
 // Test-owned copy of the marker name the snapshot module writes.
 const SNAPSHOT_MARKER = ".search-eval-snapshot"
@@ -193,5 +200,128 @@ describe("judgmentFileSchema", () => {
       ],
     })
     expect(parsed.success).toBe(true)
+  })
+
+  it("rejects an unknown key on a query so a typoed filter cannot score unfiltered", () => {
+    const parsed = judgmentFileSchema.safeParse({
+      ...baseJudgment,
+      queries: [
+        {
+          id: "q1",
+          class: "recall",
+          query: "some text",
+          expected_any: ["Notes/plan.md"],
+          filter: { folder: "Journal" },
+        },
+      ],
+    })
+    expect(parsed.success).toBe(false)
+  })
+
+  it("rejects a filtered-class query that declares no filters", () => {
+    const parsed = judgmentFileSchema.safeParse({
+      ...baseJudgment,
+      queries: [
+        {
+          id: "q1",
+          class: "filtered",
+          query: "some text",
+          expected_any: ["Notes/plan.md"],
+        },
+      ],
+    })
+    expect(parsed.success).toBe(false)
+    if (parsed.success) return
+    expect(parsed.error.issues.map((issue) => issue.message)).toEqual([
+      "a filtered query needs filters.folder",
+    ])
+  })
+
+  it("rejects an unknown key at the file level", () => {
+    const parsed = judgmentFileSchema.safeParse({
+      ...baseJudgment,
+      excluded_paths: ["typo.md"],
+      queries: [
+        {
+          id: "q1",
+          class: "recall",
+          query: "some text",
+          expected_any: ["Notes/plan.md"],
+        },
+      ],
+    })
+    expect(parsed.success).toBe(false)
+  })
+})
+
+// Only path and kind drive the scoring helpers — the rest is fixed filler.
+const searchResultAt = (path: string, kind: "note" | "file"): SearchResult => {
+  return {
+    path,
+    title: path,
+    snippet: "",
+    score: 1,
+    tags: [],
+    folder: "",
+    type: null,
+    modified: "2026-01-01T00:00:00Z",
+    bytes: 100,
+    kind,
+  }
+}
+
+describe("rankOfFirstExpected", () => {
+  const expectedByPrefix: JudgmentQuery = {
+    id: "q1",
+    class: "sentinel",
+    query: "deployment guide",
+    expected_prefix: "docs/",
+  }
+
+  it("returns the 1-based rank of the first result matching the prefix", () => {
+    const results = [
+      searchResultAt("notes/career.md", "note"),
+      searchResultAt("docs/guide.txt", "file"),
+      searchResultAt("docs/other.txt", "file"),
+    ]
+    expect(rankOfFirstExpected(results, expectedByPrefix)).toBe(2)
+  })
+
+  it("returns null when no result matches", () => {
+    const results = [searchResultAt("notes/career.md", "note")]
+    expect(rankOfFirstExpected(results, expectedByPrefix)).toBeNull()
+  })
+})
+
+describe("countUnexpectedFilesInWindow", () => {
+  const expectsOneFile: JudgmentQuery = {
+    id: "q1",
+    class: "precision",
+    query: "budget planning",
+    expected_any: ["docs/budget.txt"],
+  }
+
+  it("counts only unexpected files inside the window", () => {
+    const results = [
+      searchResultAt("docs/budget.txt", "file"), // expected — not pollution
+      searchResultAt("notes/plan.md", "note"), // note — never pollution
+      searchResultAt("docs/noise.txt", "file"), // pollution, in window
+      searchResultAt("docs/late-noise.txt", "file"), // outside the window
+    ]
+    expect(countUnexpectedFilesInWindow(results, expectsOneFile, 3)).toBe(1)
+  })
+
+  it("treats a prefix-expected file as expected, not pollution", () => {
+    const expectsPrefix: JudgmentQuery = {
+      id: "q2",
+      class: "sentinel",
+      query: "deployment guide",
+      expected_prefix: "docs/",
+    }
+    const results = [
+      searchResultAt("docs/guide.txt", "file"),
+      searchResultAt("assets/photo-notes.txt", "file"),
+    ]
+    expect(countUnexpectedFilesInWindow(results, expectsPrefix, 5)).toBe(1)
   })
 })

@@ -40,14 +40,21 @@
 import { parseArgs } from "node:util"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
-import { judgmentFileSchema, resolveEvalRunPlan } from "./search-eval-plan.js"
+import {
+  countUnexpectedFilesInWindow,
+  judgmentFileSchema,
+  rankOfFirstExpected,
+  resolveEvalRunPlan,
+} from "./search-eval-plan.js"
 import type { JudgmentQuery } from "./search-eval-plan.js"
-import { createVaultSnapshot } from "./search-eval-snapshot.js"
+import {
+  createVaultSnapshot,
+  snapshotMatchesProvenance,
+} from "./search-eval-snapshot.js"
 import type { Logger } from "../src/logger.js"
 import { createEmbedder } from "../src/vault-mcp/search/embedder.js"
 import { createReranker } from "../src/vault-mcp/search/reranker.js"
 import { createSearchIndex } from "../src/vault-mcp/search/search-index.js"
-import type { SearchResult } from "../src/vault-mcp/search/search-index.js"
 
 // ── Counting logger ────────────────────────────────────────────
 
@@ -115,43 +122,6 @@ type QueryScore = {
   topPaths: string[]
 }
 
-/** True when the path is one of the judgment entry's expected answers —
- *  by exact `expected_any` match or by `expected_prefix`. */
-const matchesExpectedPath = (
-  judgmentQuery: JudgmentQuery,
-  path: string,
-): boolean => {
-  if (judgmentQuery.expected_any?.includes(path)) return true
-  return Boolean(
-    judgmentQuery.expected_prefix &&
-    path.startsWith(judgmentQuery.expected_prefix),
-  )
-}
-
-const rankOfFirstExpected = (
-  results: readonly SearchResult[],
-  judgmentQuery: JudgmentQuery,
-): number | null => {
-  const index = results.findIndex((result) => {
-    return matchesExpectedPath(judgmentQuery, result.path)
-  })
-  return index === -1 ? null : index + 1
-}
-
-/** File results in the window that are not themselves expected — for the
- *  precision class no file is a correct answer, so every one is pollution. */
-const countUnexpectedFilesInWindow = (
-  results: readonly SearchResult[],
-  judgmentQuery: JudgmentQuery,
-  windowSize: number,
-): number => {
-  return results.slice(0, windowSize).filter((result) => {
-    return (
-      result.kind === "file" && !matchesExpectedPath(judgmentQuery, result.path)
-    )
-  }).length
-}
-
 /** The ids behind a miss count, as a parenthesized suffix — empty when
  *  nothing was missed. */
 const formatMissedIds = (misses: readonly QueryScore[]): string => {
@@ -199,7 +169,22 @@ const main = async (): Promise<void> => {
   mkdirSync(workDir, { recursive: true, mode: 0o700 })
 
   if (snapshotReused) {
-    console.log(`reusing snapshot: ${snapshotDir}`)
+    // A marker-bearing snapshot may still have been built from another
+    // vault or other exclusion lists — scoring it would attribute the
+    // numbers to a judgment file that describes a different corpus.
+    const provenanceMatches = snapshotMatchesProvenance(snapshotDir, {
+      vaultPath: judgment.vault_path,
+      excludePaths: judgment.exclude_paths,
+      excludePrefixes: judgment.exclude_prefixes,
+    })
+    if (!provenanceMatches) {
+      throw new Error(
+        "--reuse-snapshot found a snapshot built from a different vault or exclusion lists — re-run without --reuse-snapshot to rebuild it",
+      )
+    }
+    console.log(
+      `reusing snapshot: ${snapshotDir} (vault ${judgment.vault_path})`,
+    )
   } else {
     console.log(`snapshotting vault ${judgment.vault_path} → ${snapshotDir}`)
     createVaultSnapshot({
@@ -354,7 +339,12 @@ const main = async (): Promise<void> => {
           label: cliArgs.label,
           fileLegWeight: fileLegWeight ?? null,
           kindPrefix: cliArgs["kind-prefix"],
+          // Index-time flag: with indexReused true, the scored index kept
+          // whatever enrichment it was built with, regardless of this value.
           enrichMetadata: cliArgs["enrich-metadata"],
+          indexDbPath,
+          indexReused,
+          snapshotReused,
           knnDiversity: { totalKnnHits, totalUniqueNotes },
           scores,
         },
