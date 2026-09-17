@@ -88,7 +88,7 @@ describe("statOrNull", () => {
 })
 
 describe("lstatOrNull", () => {
-  it("returns Stats for an existing file without following symlinks", async () => {
+  it("returns Stats when the path exists", async () => {
     const dir = await makeTempDir()
     const path = join(dir, "file.txt")
     await writeFile(path, "12345", "utf8")

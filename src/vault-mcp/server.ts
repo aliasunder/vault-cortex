@@ -228,8 +228,10 @@ const startServer = async (): Promise<void> => {
   const trashBookkeepingEnabled =
     !config.readOnlyMode && !config.obsidianSyncEnabled
 
-  // Orphan purge: drops rows whose .trash/ file is gone — runs once at boot
-  // regardless of TRASH_RETENTION_DAYS.
+  process.on("SIGTERM", createShutdownHandler(httpServer))
+
+  // Orphan purge: drops rows whose .trash/ entry is gone — runs once at
+  // boot regardless of TRASH_RETENTION_DAYS.
   if (trashBookkeepingEnabled) {
     try {
       await trashSweeper.purgeOrphanedTrashEntries(
@@ -255,8 +257,6 @@ const startServer = async (): Promise<void> => {
       logger,
     )
   }
-
-  process.on("SIGTERM", createShutdownHandler(httpServer))
 }
 
 // Node ESM has no `require.main` — compare argv[1] to this module's path

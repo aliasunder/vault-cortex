@@ -1100,8 +1100,9 @@ Docker hardening, and durability seatbelts above.
 - **Recorded trash bookkeeping** (`trash-sweeper.ts`): two row-driven
   operations (neither walks the folder):
   - **Orphan purge** — runs once at boot regardless of
-    `TRASH_RETENTION_DAYS`. Drops rows whose `.trash/` file no longer
-    exists, so manual emptying or `retention=none` never leaves
+    `TRASH_RETENTION_DAYS`. Drops rows whose `.trash/` entry no longer
+    exists on disk (uses lstat, so dangling symlinks are kept), so
+    manual emptying or `retention=none` never leaves
     unbounded stale rows.
   - **Retention sweep** — runs at startup and daily. Purges recorded
     entries older than `TRASH_RETENTION_DAYS`. Each unlink is

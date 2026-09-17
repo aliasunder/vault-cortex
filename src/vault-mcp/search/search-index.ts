@@ -2334,6 +2334,8 @@ export const createSearchIndex = (
           let entriesEmbedded = 0
           let embedErrors = 0
           for (const note of notesForEmbedding) {
+            // The watcher can update the index between the Pass 1 snapshot and
+            // this embed — skip the note if its mtime changed.
             const currentNote = selectNoteMtimeStmt.get(note.relativePath)
             const noteIsStale =
               !currentNote || currentNote.mtime !== note.snapshotMtimeMs
@@ -2410,6 +2412,7 @@ export const createSearchIndex = (
             let fileChunksEmbedded = 0
             let fileEmbedErrors = 0
             for (const file of filesForEmbedding) {
+              // Same watcher-race guard as for notes above.
               const currentFile = selectFileMtimeStmt.get(file.path)
               const fileIsStale =
                 !currentFile || currentFile.mtime !== file.mtime
