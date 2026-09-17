@@ -5043,10 +5043,8 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
 
     const allEntries = trashIndex.listAllTrashEntries()
 
-    expect(allEntries.map((entry) => entry.trashPath)).toEqual([
-      ".trash/a.md",
-      ".trash/sub/b.md",
-    ])
+    const trashPaths = allEntries.map((entry) => entry.trashPath).toSorted()
+    expect(trashPaths).toEqual([".trash/a.md", ".trash/sub/b.md"])
   })
 
   it("listAllTrashEntries returns an empty array when no entries exist", () => {

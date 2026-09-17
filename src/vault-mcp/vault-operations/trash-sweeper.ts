@@ -215,10 +215,20 @@ const purgeOrphanedTrashEntries = async (
           return false
         }
 
-        const fileStat = await statOrNull(
-          resolve(params.vaultPath, entry.trashPath),
-        )
-        if (fileStat) return false
+        // Non-ENOENT stat failures (EACCES, EIO) keep the row so the next
+        // boot retries — one bad row never aborts the purge.
+        try {
+          const fileStat = await statOrNull(
+            resolve(params.vaultPath, entry.trashPath),
+          )
+          if (fileStat) return false
+        } catch (error) {
+          logger.warn("failed to stat trash entry", {
+            trashPath: entry.trashPath,
+            error: describeError(error),
+          })
+          return false
+        }
 
         params.trashEntryStore.deleteTrashEntry(entry.trashPath)
         return true

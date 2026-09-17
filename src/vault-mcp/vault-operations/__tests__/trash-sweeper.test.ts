@@ -584,6 +584,33 @@ describe("purgeOrphanedTrashEntries", () => {
     })
   })
 
+  it("keeps the row and warns when stat fails with a non-ENOENT error", async () => {
+    const vault = await createTestVault()
+    const lockedDir = join(vault, ".trash", "locked")
+    await mkdir(lockedDir, { recursive: true })
+    await writeFile(join(lockedDir, "stuck.md"), "perm error", "utf8")
+    const index = createSearchIndex(":memory:")
+    index.recordTrashEntry(".trash/locked/stuck.md")
+    // Remove traverse permission from the parent so stat fails with EACCES.
+    await chmod(lockedDir, 0o000)
+    onTestFinished(() => chmod(lockedDir, 0o755))
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
+
+    expect(index.getTrashEntry(".trash/locked/stuck.md")?.trashPath).toBe(
+      ".trash/locked/stuck.md",
+    )
+    expect(warnSpy).toHaveBeenCalledWith("failed to stat trash entry", {
+      trashPath: ".trash/locked/stuck.md",
+      error: expect.stringMatching(/EACCES/),
+    })
+  })
+
   it("retains a traversal-path row when the target exists outside .trash/", async () => {
     const base = await mkdtemp(join(tmpdir(), "trash-traversal-"))
     onTestFinished(() => rm(base, { recursive: true, force: true }))
