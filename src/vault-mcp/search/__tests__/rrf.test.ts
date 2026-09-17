@@ -179,8 +179,9 @@ describe("computeRrfScores", () => {
       listWeights: [0.5],
     })
 
-    // 0.5 * (1/61 + 0.05) — NOT 0.5 * (1/61) + 0.05. An unscaled bonus
-    // would leave the rank-1 boost dominating the down-weighted list.
+    // The expected score is 0.5 * (1/61 + 0.05), never 0.5 * (1/61) + 0.05
+    // — an unscaled bonus would leave the rank-1 boost dominating the
+    // down-weighted list.
     expect(result).toEqual([
       {
         identifier: "file.pdf",
@@ -216,8 +217,9 @@ describe("computeRrfScores", () => {
   })
 
   it("demotes a two-leg file hit below a two-leg note hit at weight 0.5", () => {
-    // The pollution shape: a file topping both file legs vs a note topping
-    // both note legs. Unweighted they tie; the file-leg weight breaks it.
+    // The pollution shape has a file topping both file legs against a note
+    // topping both note legs. Unweighted they tie; the file-leg weight
+    // breaks the tie.
     const result = computeRrfScores({
       rankedLists: [
         [{ identifier: "note.md" }],

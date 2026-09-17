@@ -245,21 +245,20 @@ const tryRerank = async (params: {
       const fileVectorHit = params.fileContentVectorHitsByPath.get(result.path)
       if (fileVectorHit) return fileVectorHit.chunkText
 
-      // FTS-only note: use chunk index 0 (title + intro) from note_chunks
+      // An FTS-only note uses chunk index 0 (title + intro) from note_chunks
       if (params.selectFirstChunkStmt) {
         const chunkRow = params.selectFirstChunkStmt.get(result.path)
         if (chunkRow) return chunkRow.chunk_text
       }
 
-      // FTS-only file: use chunk index 0 from file_content_chunks
+      // An FTS-only file uses chunk index 0 from file_content_chunks
       if (params.selectFirstFileChunkStmt) {
         const fileChunkRow = params.selectFirstFileChunkStmt.get(result.path)
         if (fileChunkRow) return fileChunkRow.chunk_text
       }
 
-      // Fallback: use the snippet (truncated, but better than nothing —
-      // covers the edge case where chunks aren't yet indexed during
-      // background embedding startup)
+      // Fall back to the snippet — truncated, but better than nothing when
+      // chunks aren't yet indexed during background embedding startup
       return result.snippet
     }
 
@@ -300,10 +299,10 @@ const tryRerank = async (params: {
     })
 
     return {
-      // Path tie-breaker, defense-in-depth: with the current blend weights,
-      // candidates whose blended scores tie also tied in RRF and so arrive
-      // already path-sorted — the arm exists so a future weight change
-      // cannot silently reintroduce row-order-dependent output.
+      // The path tie-break arm is defense in depth. With the current blend
+      // weights, candidates whose blended scores tie also tied in RRF and
+      // arrive already path-sorted — the arm exists so a future weight
+      // change cannot silently reintroduce row-order-dependent output.
       results: scoredResults.toSorted((resultA, resultB) => {
         if (resultA.score !== resultB.score) {
           return resultB.score - resultA.score

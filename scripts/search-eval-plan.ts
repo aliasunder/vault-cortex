@@ -101,9 +101,9 @@ type EvalRunPlan = {
 }
 
 /** Validates the CLI arguments and decides snapshot/index reuse from the
- *  work directory's current state — BEFORE anything opens the index
- *  database (createSearchIndex creates the file, so a later existence
- *  check would always report true). Throws on any invalid combination. */
+ *  work directory's current state, before anything opens the index
+ *  database — createSearchIndex creates the file, so a later existence
+ *  check would always report true. Throws on any invalid combination. */
 export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
   if (!cliArgs.judgment) {
     throw new Error(

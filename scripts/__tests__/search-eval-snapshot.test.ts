@@ -212,8 +212,8 @@ describe("createVaultSnapshot", () => {
     const { vaultPath, snapshotDir } = createTempVault()
     const missingVault = join(vaultPath, "..", "does-not-exist")
 
-    // cpSync throws on the missing source AFTER the ownership marker is
-    // written — the aborted-copy state this test freezes.
+    // cpSync throws on the missing source after the ownership marker is
+    // written, freezing the aborted-copy state this test exercises.
     expect(() => {
       createVaultSnapshot({
         vaultPath: missingVault,

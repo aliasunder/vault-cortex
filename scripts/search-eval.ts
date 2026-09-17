@@ -1,7 +1,8 @@
 /** Search ranking eval harness — measures hybrid search against a local
  *  judgment file of queries with expected results.
  *
- *  The judgment file stays OUTSIDE the repo (it names real vault content):
+ *  The judgment file stays outside the repo because it names real vault
+ *  content:
  *
  *    npx tsx scripts/search-eval.ts --judgment ~/.config/vault-cortex/search-eval.json
  *
@@ -11,30 +12,31 @@
  *     queries verbatim (research notes, session logs) would otherwise match
  *     their own documentation. Reruns reuse the snapshot via
  *     --reuse-snapshot so every configuration sees an identical corpus.
- *  2. Build the search index with real ONNX models and AWAIT the background
- *     embedding pass — scoring a partially embedded index measures indexing
- *     order, not ranking. Any embedding error fails the run.
+ *  2. Build the search index with real ONNX models and await the full
+ *     background embedding pass — scoring a partially embedded index
+ *     measures indexing order, not ranking. Any embedding error fails
+ *     the run.
  *  3. Assert a probe query returns search_mode "hybrid" with reranked true.
  *  4. Run every judgment query at each --limits value, reporting the rank
  *     of the first expected result, file pollution in the top 5 (or the
- *     limit when it is smaller — the report labels the window it measured),
- *     and latency. The requested limit shapes the candidate and rerank windows,
- *     so the production default (20) is the primary reading and small
- *     limits cover the exclusion boundary they create.
+ *     limit when smaller — the report labels the measured window), and
+ *     latency. The requested limit shapes the candidate and rerank
+ *     windows, so the production default (20) is the primary reading and
+ *     small limits cover the exclusion boundary they create.
  *
- *  Ranking overrides (--file-leg-weight, --kind-prefix, --enrich-metadata)
- *  map to createSearchIndex's `ranking` option. The first two are
- *  query-time settings defaulting to the shipped runtime values (0.5 /
- *  off): one built index serves a whole sweep via --reuse-snapshot
- *  --reuse-index. --enrich-metadata defaults off — the default run's index
- *  is byte-identical to production chunking — and is index-time: it
- *  prefixes note chunks with frontmatter type/tags before embedding, so it
- *  builds its own index file (search-eval-enriched.db) and its first run
- *  re-embeds every note.
+ *  Ranking overrides map to createSearchIndex's `ranking` option:
+ *  - --file-leg-weight and --kind-prefix are query-time and default to
+ *    the shipped runtime values (0.5 / off), so one built index serves a
+ *    whole sweep via --reuse-snapshot --reuse-index.
+ *  - --enrich-metadata defaults off, which keeps the default run's index
+ *    byte-identical to production chunking. It is index-time — it
+ *    prefixes note chunks with frontmatter type/tags before embedding,
+ *    builds its own index file (search-eval-enriched.db), and re-embeds
+ *    every note on its first run.
  *
  *  Judgment file fields (validated by judgmentFileSchema in
  *  scripts/search-eval-plan.ts): vault_path, exclude_paths,
- *  exclude_prefixes, and queries — each query carrying id, class
+ *  exclude_prefixes, and queries — each query carries id, class
  *  (recall/precision/sentinel/filtered), query, expected_any or
  *  expected_prefix, and filters.folder on the filtered class.
  *
@@ -130,8 +132,6 @@ type QueryScore = {
   topPaths: string[]
 }
 
-/** The ids behind a miss count, as a parenthesized suffix — empty when
- *  nothing was missed. */
 const formatMissedIds = (misses: readonly QueryScore[]): string => {
   if (misses.length === 0) return ""
   return ` (${misses.map((entry) => entry.id).join(", ")})`
@@ -171,9 +171,9 @@ const main = async (): Promise<void> => {
 
   const judgmentRaw: unknown = JSON.parse(await readFile(judgmentPath, "utf8"))
   const judgment = judgmentFileSchema.parse(judgmentRaw)
-  // Owner-only: the work dir holds a full copy of a private vault under a
-  // predictable temp-dir name, so default modes would expose it to every
-  // local user on a shared host.
+  // The work dir is created owner-only because it holds a full copy of a
+  // private vault under a predictable temp-dir name — default modes would
+  // expose it to every local user on a shared host.
   mkdirSync(workDir, { recursive: true, mode: 0o700 })
 
   if (snapshotReused) {
@@ -242,11 +242,13 @@ const main = async (): Promise<void> => {
     console.log(`indexed ${count} notes in ${rebuildSeconds}s`)
   }
 
-  // Probe: the run is only meaningful fully hybrid + reranked. A fixed
-  // probe string keeps the check independent of the judgment file's query
-  // order — with a healthy index, KNN returns neighbors for any text.
+  // The run is only meaningful fully hybrid + reranked, so a probe query
+  // checks the pipeline before scoring. A fixed probe string keeps the
+  // check independent of the judgment file's query order — with a healthy
+  // index, KNN returns neighbors for any text.
   const PROBE_QUERY = "vault search eval probe"
   const probe = await search.hybridSearch({ query: PROBE_QUERY }, logger)
+
   if (probe.search_mode !== "hybrid" || !probe.reranked) {
     throw new Error(
       `probe query ran search_mode=${probe.search_mode} reranked=${String(probe.reranked)} — expected hybrid + reranked (is the index fully embedded?)`,
@@ -317,9 +319,9 @@ const main = async (): Promise<void> => {
     )
   }
 
-  // KNN-window diversity across the scoring runs: when a repeated metadata
-  // prefix lets one note's chunks flood the window, hits rise while unique
-  // notes fall — a shrinking ratio is the warning sign.
+  // The note-KNN diversity ratio covers the scoring runs. When a repeated
+  // metadata prefix lets one note's chunks flood the window, hits rise
+  // while unique notes fall, so a shrinking ratio is the warning sign.
   const scoringVectorSearchStats = vectorSearchStats.slice(
     vectorSearchStatsBeforeScoring,
   )
@@ -355,8 +357,9 @@ const main = async (): Promise<void> => {
           label: cliArgs.label,
           fileLegWeight: fileLegWeight ?? null,
           kindPrefix: cliArgs["kind-prefix"],
-          // Index-time flag: with indexReused true, the scored index kept
-          // whatever enrichment it was built with, regardless of this value.
+          // enrichMetadata is index-time — with indexReused true, the scored
+          // index kept whatever enrichment it was built with, regardless of
+          // this value.
           enrichMetadata: cliArgs["enrich-metadata"],
           indexDbPath,
           indexReused,

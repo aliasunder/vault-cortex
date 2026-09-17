@@ -1639,9 +1639,8 @@ describe("hybridSearch — folder-scoped vector candidate window", () => {
 describe("hybridSearch — ranking tuning", () => {
   const EMBEDDING_DIMENSIONS = 384
 
-  /** Uniform-embedding mock (same as the sibling describes): every text
-   *  embeds identically, so vector legs contribute rank without favoring
-   *  any one item. */
+  /** Uniform-embedding mock — every text embeds identically, so vector
+   *  legs contribute rank without favoring any one item. */
   const createHybridMockEmbedder = () => ({
     embedText: vi
       .fn()
@@ -1660,7 +1659,8 @@ describe("hybridSearch — ranking tuning", () => {
 
   /** Seeds one embedded note (no lexical overlap with "deployment guide")
    *  and one embedded text file (lexical + vector match) — the pollution
-   *  shape: the file earns two leg ranks, the note only its vector leg. */
+   *  shape, where the file earns two leg ranks and the note only its
+   *  vector leg. */
   const seedNoteAndFile = async (
     index: ReturnType<typeof createSearchIndex>,
   ): Promise<void> => {
@@ -1705,7 +1705,8 @@ describe("hybridSearch — ranking tuning", () => {
     )
     await seedNoteAndFile(weightedIndex)
 
-    // Control: at full weight the file's two leg ranks beat the note's one.
+    // The control run shows the file's two leg ranks beating the note's
+    // one at full weight.
     const unweighted = await unweightedIndex.hybridSearch(
       { query: "deployment guide" },
       logger,
@@ -1777,8 +1778,8 @@ describe("hybridSearch — ranking tuning", () => {
     })
     seedFallbackCorpus(weightedIndex)
 
-    // Control: the file's rank-1 leg score ties the decoy's and beats
-    // target.md's rank-2 score, so it sits second (path tie-breaker).
+    // In the control run the file's rank-1 leg score ties the decoy's and
+    // beats target.md's rank-2 score, so it sits second (path tie-breaker).
     const unweighted = await unweightedIndex.hybridSearch(
       { query: "deployment" },
       logger,
