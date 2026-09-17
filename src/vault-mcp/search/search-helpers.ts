@@ -27,7 +27,8 @@ export const coerceToArray = (value: unknown): string[] => {
       .filter((element) => element != null && typeof element !== "object")
       .map(String)
   }
-  return value ? [String(value)] : []
+  if (value == null || value === "" || typeof value === "object") return []
+  return [String(value)]
 }
 
 // ── JSON column parsers (private) ──────────────────────────────

@@ -330,11 +330,14 @@ describe("registerTools", () => {
 
   it("every tool has all 4 annotation hints", () => {
     for (const [, config] of calls) {
-      const annotations = config.annotations!
-      expect(annotations).toHaveProperty("readOnlyHint")
-      expect(annotations).toHaveProperty("destructiveHint")
-      expect(annotations).toHaveProperty("idempotentHint")
-      expect(annotations).toHaveProperty("openWorldHint")
+      const annotations = config.annotations
+      if (!annotations) throw new Error("registered tool has no annotations")
+      expect(Object.keys(annotations).toSorted()).toEqual([
+        "destructiveHint",
+        "idempotentHint",
+        "openWorldHint",
+        "readOnlyHint",
+      ])
     }
   })
 })
@@ -493,10 +496,14 @@ describe("error handling", () => {
     )
   })
 
-  it("vault_read_note rejects combining outline with heading", async () => {
+  it.each([
+    { outline: true, heading: "Active" },
+    { outline: true, properties_only: true },
+    { heading: "Active", properties_only: true },
+  ])("vault_read_note rejects combining content modes: %j", async (modes) => {
     const [, , handler] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     const result = (await handler(
-      { path: "note.md", outline: true, heading: "Active" },
+      { path: "note.md", ...modes },
       mockExtra,
     )) as {
       content: Array<{ text: string }>

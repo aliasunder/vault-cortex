@@ -118,7 +118,9 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md" },
       })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("Project Alpha")
+      expect(textContent(result)).toBe(
+        '---\ntitle: Project Alpha\ntype: project\ntags:\n  - project\n  - active\nstatus: active\nrelated:\n  - "[[Projects/beta]]"\ncreated: 2026-01-10T10:00:00-05:00\n---\n\n# Project Alpha\n\nThis is a test project for integration testing.\n\n## Tasks\n\n- [ ] First task for Alpha ➕ 2026-01-10 📅 2026-02-20 ^alpha-task-1\n- [x] Completed task ➕ 2026-01-05 ✅ 2026-01-08 ^alpha-done-1\n- [ ] Second task ⏫ ➕ 2026-01-12 ^alpha-task-2\n\n## Notes\n\nSome notes about the project. Links to [[Projects/beta]] and [[About Me/Preferences]].\n',
+      )
     })
 
     it("vault_read_note — outline mode", async () => {
@@ -148,9 +150,9 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md", heading: "Tasks" },
       })
       expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("alpha-task-1")
-      expect(text).not.toContain("Some notes about the project")
+      expect(textContent(result)).toBe(
+        "## Tasks\n\n- [ ] First task for Alpha ➕ 2026-01-10 📅 2026-02-20 ^alpha-task-1\n- [x] Completed task ➕ 2026-01-05 ✅ 2026-01-08 ^alpha-done-1\n- [ ] Second task ⏫ ➕ 2026-01-12 ^alpha-task-2\n",
+      )
     })
 
     it("vault_read_note — properties_only", async () => {
@@ -160,9 +162,14 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md", properties_only: true },
       })
       expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("active")
-      expect(text).not.toContain("Some notes about the project")
+      expect(JSON.parse(textContent(result))).toEqual({
+        title: "Project Alpha",
+        type: "project",
+        tags: ["project", "active"],
+        status: "active",
+        related: ["[[Projects/beta]]"],
+        created: "2026-01-10T10:00:00-05:00",
+      })
     })
 
     it("vault_list_notes", async () => {

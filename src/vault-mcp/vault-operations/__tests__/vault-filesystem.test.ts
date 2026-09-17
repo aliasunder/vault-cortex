@@ -1719,6 +1719,11 @@ describe("listNotes", () => {
     expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md"])
   })
 
+  it("accepts an explicit dot as the vault root folder", async () => {
+    const files = await listNotes({ vaultPath: vault, folder: "." }, logger)
+    expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md"])
+  })
+
   it("lists files under a specific folder", async () => {
     const files = await listNotes({ vaultPath: vault, folder: "notes" }, logger)
     expect(files).toEqual(["notes/a.md", "notes/b.md"])

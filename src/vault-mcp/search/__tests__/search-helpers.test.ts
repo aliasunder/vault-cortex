@@ -37,7 +37,7 @@ describe("isString", () => {
 // ── coerceToArray ─────────────────────────────────────────────
 
 describe("coerceToArray", () => {
-  it("passes through an existing array", () => {
+  it("preserves string array values", () => {
     expect(coerceToArray(["a", "b"])).toEqual(["a", "b"])
   })
 
@@ -55,6 +55,14 @@ describe("coerceToArray", () => {
 
   it("wraps a number in a stringified array", () => {
     expect(coerceToArray(42)).toEqual(["42"])
+  })
+
+  it("wraps false in a stringified array", () => {
+    expect(coerceToArray(false)).toEqual(["false"])
+  })
+
+  it("returns an empty array for a structured scalar", () => {
+    expect(coerceToArray({ nested: "value" })).toEqual([])
   })
 
   it("returns empty array for null", () => {
