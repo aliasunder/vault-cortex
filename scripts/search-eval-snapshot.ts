@@ -8,6 +8,14 @@ import { hasHiddenPathSegment } from "../src/utils/has-hidden-path-segment.js"
  *  destroy an operator's own same-named folder under --work-dir. */
 const SNAPSHOT_MARKER = ".search-eval-snapshot"
 
+/** True when the directory exists and carries the harness marker — the only
+ *  directories the harness may delete, or adopt via --reuse-snapshot. */
+export const isHarnessSnapshot = (snapshotDir: string): boolean => {
+  return (
+    existsSync(snapshotDir) && existsSync(join(snapshotDir, SNAPSHOT_MARKER))
+  )
+}
+
 /** Copies the vault to the snapshot directory, skipping hidden entries and
  *  every judgment-file exclusion. All index builds read the snapshot, so
  *  live vault writes between runs cannot confound an A/B comparison. */
@@ -29,8 +37,7 @@ export const createVaultSnapshot = (params: {
   })
 
   const isForeignDirectory =
-    existsSync(params.snapshotDir) &&
-    !existsSync(join(params.snapshotDir, SNAPSHOT_MARKER))
+    existsSync(params.snapshotDir) && !isHarnessSnapshot(params.snapshotDir)
   if (isForeignDirectory) {
     throw new Error(
       `${params.snapshotDir} exists but is not a harness snapshot — remove it or choose another --work-dir`,

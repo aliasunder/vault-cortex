@@ -38,37 +38,16 @@
  */
 
 import { parseArgs } from "node:util"
-import { existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { mkdirSync, writeFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
-import { join } from "node:path"
-import { tmpdir } from "node:os"
-import { z } from "zod"
+import { judgmentFileSchema, resolveEvalRunPlan } from "./search-eval-plan.js"
+import type { JudgmentQuery } from "./search-eval-plan.js"
 import { createVaultSnapshot } from "./search-eval-snapshot.js"
 import type { Logger } from "../src/logger.js"
 import { createEmbedder } from "../src/vault-mcp/search/embedder.js"
 import { createReranker } from "../src/vault-mcp/search/reranker.js"
 import { createSearchIndex } from "../src/vault-mcp/search/search-index.js"
 import type { SearchResult } from "../src/vault-mcp/search/search-index.js"
-
-// ── Judgment file schema ───────────────────────────────────────
-
-const judgmentQuerySchema = z.object({
-  id: z.string().min(1),
-  class: z.enum(["recall", "precision", "sentinel", "filtered"]),
-  query: z.string().min(1),
-  expected_any: z.array(z.string().min(1)).optional(),
-  expected_prefix: z.string().min(1).optional(),
-  filters: z.object({ folder: z.string().min(1) }).optional(),
-})
-
-const judgmentFileSchema = z.object({
-  vault_path: z.string().min(1),
-  exclude_paths: z.array(z.string().min(1)),
-  exclude_prefixes: z.array(z.string().min(1)),
-  queries: z.array(judgmentQuerySchema).min(1),
-})
-
-type JudgmentQuery = z.infer<typeof judgmentQuerySchema>
 
 // ── Counting logger ────────────────────────────────────────────
 
@@ -198,66 +177,23 @@ const main = async (): Promise<void> => {
     },
   })
 
-  if (!cliArgs.judgment) {
-    throw new Error(
-      "--judgment <path> is required (a local judgment JSON — see the file header)",
-    )
-  }
-
-  const judgmentRaw: unknown = JSON.parse(
-    await readFile(cliArgs.judgment, "utf8"),
-  )
-  const judgment = judgmentFileSchema.parse(judgmentRaw)
-
-  const limits = cliArgs.limits.split(",").map((limitText) => {
-    const limit = Number(limitText.trim())
-    if (!Number.isInteger(limit) || limit < 1) {
-      throw new Error(
-        `--limits entries must be positive integers: ${limitText}`,
-      )
-    }
-    return limit
-  })
-
-  const fileLegWeight = cliArgs["file-leg-weight"]
-    ? Number(cliArgs["file-leg-weight"])
-    : undefined
-  // Strict undefined check — 0 is a valid weight (removes the file legs).
-  // Negated >= catches NaN (which fails every comparison).
-  if (fileLegWeight !== undefined && !(fileLegWeight >= 0)) {
-    throw new Error("--file-leg-weight must be a number >= 0")
-  }
-
-  // A reused index over a freshly copied snapshot would score a corpus the
-  // index never saw — the two reuse flags only make sense together.
-  if (cliArgs["reuse-index"] && !cliArgs["reuse-snapshot"]) {
-    throw new Error("--reuse-index requires --reuse-snapshot")
-  }
-
-  const workDir =
-    cliArgs["work-dir"] ?? join(tmpdir(), "vault-cortex-search-eval")
-  const snapshotDir = join(workDir, "vault-snapshot")
-  // Enrichment changes every note chunk's text, so it gets its own index
-  // file — the plain index stays reusable for weight sweeps.
-  const indexDbPath = join(
+  // Validation and the snapshot/index reuse decisions live in the plan
+  // resolver (search-eval-plan.ts) so they are testable — this script's
+  // top-level await makes it unimportable.
+  const {
+    judgmentPath,
+    limits,
+    fileLegWeight,
     workDir,
-    cliArgs["enrich-metadata"] ? "search-eval-enriched.db" : "search-eval.db",
-  )
-  mkdirSync(workDir, { recursive: true })
+    snapshotDir,
+    indexDbPath,
+    snapshotReused,
+    indexReused,
+  } = resolveEvalRunPlan(cliArgs)
 
-  const snapshotReused =
-    Boolean(cliArgs["reuse-snapshot"]) && existsSync(snapshotDir)
-  // An index can only be reused over the snapshot it was built from — when
-  // the snapshot directory is absent and would be rebuilt this run, the
-  // index would describe a corpus that no longer exists.
-  if (cliArgs["reuse-index"] && !snapshotReused) {
-    throw new Error(
-      "--reuse-index requires the snapshot it was built from, but the snapshot is missing and would be rebuilt this run — re-run without --reuse-index",
-    )
-  }
-  // Decided before createSearchIndex opens the database — the factory
-  // creates the file, so checking afterwards would always report true.
-  const indexReused = Boolean(cliArgs["reuse-index"]) && existsSync(indexDbPath)
+  const judgmentRaw: unknown = JSON.parse(await readFile(judgmentPath, "utf8"))
+  const judgment = judgmentFileSchema.parse(judgmentRaw)
+  mkdirSync(workDir, { recursive: true })
 
   if (snapshotReused) {
     console.log(`reusing snapshot: ${snapshotDir}`)

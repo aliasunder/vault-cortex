@@ -1,12 +1,15 @@
 /** Heading-aware chunking for embedding. Splits a note into chunks sized for
  *  the embedding model's context window (512 tokens for bge-small-en-v1.5).
  *
- *  Algorithm:
+ *  Algorithm (a metadata prefix, when configured, lowers the chunk budget
+ *  by its own token cost — see chunkNoteContent):
  *  1. Strip markdown syntax (via plaintext.ts)
- *  2. Short notes (< CHUNK_THRESHOLD_TOKENS) → single chunk
+ *  2. Short notes (< CHUNK_THRESHOLD_TOKENS) → single chunk, unless a
+ *     metadata prefix lowers the budget below the body's token count
  *  3. Longer notes → split at heading boundaries (via parseHeadings)
  *  4. Tiny sections (< MIN_CHUNK_TOKENS) → merged with adjacent
- *  5. Oversized sections (> MAX_CHUNK_TOKENS) → sub-split at paragraph boundaries
+ *  5. Sections over the budget (MAX_CHUNK_TOKENS, minus the prefix cost
+ *     when one is configured) → sub-split at paragraph boundaries
  *  6. Every chunk is prefixed with the note title for embedding context */
 
 import { parseHeadings } from "../obsidian-markdown/headings.js"
