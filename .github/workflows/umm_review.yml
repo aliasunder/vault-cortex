@@ -102,8 +102,8 @@ jobs:
           # Per-attempt cap on a single model request; a timed-out attempt
           # aborts and advances the retry/fallback ladder. Empty = 900
           request_timeout_seconds: ${{ vars.UMM_REQUEST_TIMEOUT_SECONDS }}
-          # Shared cap across review work. Empty = 1500; keep below 1800
-          # to leave time to publish before the 30-minute job timeout.
+          # Shared cap across review work. Empty = 1500. Use 1500 or less
+          # to leave publication headroom before the 30-minute job timeout.
           review_timeout_seconds: ${{ vars.UMM_REVIEW_TIMEOUT_SECONDS }}
           # Positive integer cap on posted findings (highest severity
           # first). Empty = uncapped
