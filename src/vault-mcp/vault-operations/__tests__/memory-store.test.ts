@@ -2182,6 +2182,40 @@ created: 2026-01-01T00:00:00-05:00
     ])
   })
 
+  it("filters correctly when entries are not in date order", async () => {
+    const outOfOrderFixture = `---
+title: OutOfOrder
+type: profile
+created: 2026-01-01T00:00:00-05:00
+---
+
+# OutOfOrder
+
+## Items (newest first)
+- **2026-05-04**: Older entry placed first
+- **2026-05-06**: Newer entry placed second
+- **2026-05-03**: Oldest entry placed last
+`
+    await writeFile(
+      join(vault, "About Me/OutOfOrder.md"),
+      outOfOrderFixture,
+      "utf8",
+    )
+
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "OutOfOrder",
+        section: "Items",
+        onOrAfter: "2026-05-05",
+      },
+      logger,
+    )
+    expect(entries.map((entry) => entry.text)).toEqual([
+      "- **2026-05-06**: Newer entry placed second",
+    ])
+  })
+
   it("returns empty array when boundary is newer than all entries", async () => {
     const entries = await getMemoryEntries(
       {
