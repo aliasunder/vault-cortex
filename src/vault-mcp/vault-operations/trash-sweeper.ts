@@ -224,9 +224,10 @@ const purgeOrphanedTrashEntries = async (
         const currentEntry = params.trashEntryStore.getTrashEntry(
           entry.trashPath,
         )
-        if (!currentEntry || currentEntry.trashedAt !== entry.trashedAt) {
-          return false
-        }
+        const rowWasRefreshed =
+          !currentEntry || currentEntry.trashedAt !== entry.trashedAt
+
+        if (rowWasRefreshed) return false
 
         // lstat (not stat) so a dangling symlink in .trash/ is still
         // recognized as present — stat would follow it, get ENOENT, and
