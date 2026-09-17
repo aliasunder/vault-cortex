@@ -231,13 +231,16 @@ const startServer = async (): Promise<void> => {
   // Orphan purge: drops rows whose .trash/ file is gone — runs once at boot
   // regardless of TRASH_RETENTION_DAYS.
   if (trashBookkeepingEnabled) {
-    void trashSweeper
-      .purgeOrphanedTrashEntries({ vaultPath, trashEntryStore: search }, logger)
-      .catch((error: unknown) => {
-        logger.error("orphaned trash entry purge failed", {
-          error: describeError(error),
-        })
+    try {
+      await trashSweeper.purgeOrphanedTrashEntries(
+        { vaultPath, trashEntryStore: search },
+        logger,
+      )
+    } catch (error) {
+      logger.error("orphaned trash entry purge failed", {
+        error: describeError(error),
       })
+    }
   }
 
   // Retention sweep: unlinks expired files on a daily schedule.
