@@ -755,7 +755,7 @@ export const createSearchIndex = (
          JOIN file_content fc ON fc.path = file_content_fts.path
          WHERE file_content_fts MATCH ?
            AND fc.path LIKE ? ESCAPE '\\'
-         ORDER BY rank LIMIT ?`,
+         ORDER BY rank, fc.path LIMIT ?`,
       )
     : null
   const selectFileContentMetadataStmt = fileToolsEnabled
@@ -949,7 +949,10 @@ export const createSearchIndex = (
   // Query side — memoryRecall's two retrieval legs plus row hydration.
   const memoryFtsSearchStmt = memoryDir
     ? db.prepare<[string], { entry_id: number }>(
-        `SELECT entry_id FROM memory_entries_fts WHERE memory_entries_fts MATCH ? ORDER BY rank`,
+        `SELECT entry_id FROM memory_entries_fts
+         JOIN memory_entries me ON me.id = memory_entries_fts.entry_id
+         WHERE memory_entries_fts MATCH ?
+         ORDER BY rank, me.file, me.entry_index`,
       )
     : null
   const selectMemoryEntryByIdStmt = memoryDir
@@ -966,11 +969,14 @@ export const createSearchIndex = (
            JOIN memory_entries me ON me.id = mev.entry_id
            WHERE mev.embedding MATCH ?
              AND mev.k = ?
-           ORDER BY mev.distance`,
+           ORDER BY mev.distance, me.file, me.entry_index`,
         )
       : null
 
   // ── Vector query statements ─────────────────────────────────────
+  // Every retrieval leg orders ties by a stable content key (path, then chunk
+  // or entry position) — equal scores otherwise arrive in insertion order,
+  // which changes across index rebuilds and would flip fused rankings.
   /** KNN search — finds the k nearest chunks to a query embedding. */
   const knnSearchStmt = embedder
     ? db.prepare<
@@ -982,7 +988,7 @@ export const createSearchIndex = (
          JOIN note_chunks nc ON nc.id = nv.chunk_id
          WHERE nv.embedding MATCH ?
            AND nv.k = ?
-         ORDER BY nv.distance`,
+         ORDER BY nv.distance, nc.note_path, nc.chunk_index`,
       )
     : null
 
@@ -1004,7 +1010,7 @@ export const createSearchIndex = (
            AND nv.chunk_id IN (
              SELECT id FROM note_chunks WHERE note_path LIKE ? ESCAPE '\\'
            )
-         ORDER BY nv.distance`,
+         ORDER BY nv.distance, nc.note_path, nc.chunk_index`,
       )
     : null
 
@@ -1027,7 +1033,7 @@ export const createSearchIndex = (
          JOIN file_content_chunks fc ON fc.id = fv.chunk_id
          WHERE fv.embedding MATCH ?
            AND fv.k = ?
-         ORDER BY fv.distance`,
+         ORDER BY fv.distance, fc.file_path, fc.chunk_index`,
       )
     : null
 
@@ -1045,7 +1051,7 @@ export const createSearchIndex = (
            AND fv.chunk_id IN (
              SELECT id FROM file_content_chunks WHERE file_path LIKE ? ESCAPE '\\'
            )
-         ORDER BY fv.distance`,
+         ORDER BY fv.distance, fc.file_path, fc.chunk_index`,
       )
     : null
 

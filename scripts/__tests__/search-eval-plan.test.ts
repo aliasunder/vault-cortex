@@ -77,15 +77,27 @@ describe("resolveEvalRunPlan", () => {
 
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": "abc" })
-    }).toThrow("--file-leg-weight must be a number >= 0")
+    }).toThrow("--file-leg-weight must be a finite number >= 0")
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": "-1" })
-    }).toThrow("--file-leg-weight must be a number >= 0")
+    }).toThrow("--file-leg-weight must be a finite number >= 0")
     // An unset shell variable interpolates to --file-leg-weight= — that
     // must reject, not silently run the shipped default.
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": "" })
-    }).toThrow("--file-leg-weight must be a number >= 0")
+    }).toThrow("--file-leg-weight must be a finite number >= 0")
+  })
+
+  it("rejects a non-finite weight", () => {
+    // Infinity passes a bare >= 0 check and would turn every file
+    // contribution into Infinity in the report.
+    expect(() => {
+      resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": "Infinity" })
+    }).toThrow("--file-leg-weight must be a finite number >= 0")
+    // 1e400 overflows Number to Infinity the same way.
+    expect(() => {
+      resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": "1e400" })
+    }).toThrow("--file-leg-weight must be a finite number >= 0")
   })
 
   it("rejects --reuse-index without --reuse-snapshot", () => {
@@ -312,6 +324,25 @@ describe("rankOfFirstExpected", () => {
   it("returns null when no result matches", () => {
     const results = [searchResultAt("notes/career.md", "note")]
     expect(rankOfFirstExpected(results, expectedByPrefix)).toBeNull()
+  })
+
+  it("matches a prefix whose case differs from the result path", () => {
+    // On a case-insensitive vault mount the on-disk folder can be "Docs/"
+    // while the judgment file says "docs" — the snapshot exclusions fold
+    // case, so expectation matching must too, or the query reads as MISS.
+    const results = [searchResultAt("Docs/guide.txt", "file")]
+    expect(rankOfFirstExpected(results, expectedByPrefix)).toBe(1)
+  })
+
+  it("matches an expected_any entry whose case differs from the result path", () => {
+    const expectedExactly: JudgmentQuery = {
+      id: "q4",
+      class: "sentinel",
+      query: "deployment guide",
+      expected_any: ["docs/Guide.txt"],
+    }
+    const results = [searchResultAt("Docs/guide.txt", "file")]
+    expect(rankOfFirstExpected(results, expectedExactly)).toBe(1)
   })
 })
 

@@ -279,7 +279,10 @@ export const fullTextSearch = (
   const includeLeadingCallout = params.include_leading_callout ?? false
   queryParams.push(limit)
 
-  // FTS5 rank is negative (lower = better), negated for human-friendly scoring
+  // FTS5 rank is negative (lower = better), negated for human-friendly scoring.
+  // The path tie-break keeps equal-bm25 rows in the same order across index
+  // rebuilds — without it they arrive in insertion order, which follows the
+  // directory listing.
   const sql = `
     SELECT n.path, n.title,
            snippet(notes_fts, 2, '', '', '...', ${Number(snippetTokens)}) as snippet,
@@ -288,7 +291,7 @@ export const fullTextSearch = (
     FROM notes_fts
     JOIN notes n ON n.path = notes_fts.path
     WHERE ${conditions.join(" AND ")}
-    ORDER BY rank
+    ORDER BY rank, n.path
     LIMIT ?
   `
 

@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { z } from "zod"
 import { isHarnessSnapshot } from "./search-eval-snapshot.js"
+import { caseFoldPath } from "../src/utils/case-fold-path.js"
 import type { SearchResult } from "../src/vault-mcp/search/search-index.js"
 
 // The schemas are strict because a plain schema would strip a typoed key
@@ -39,20 +40,26 @@ export type JudgmentQuery = z.infer<typeof judgmentQuerySchema>
 
 /** True when the path is one of the judgment entry's expected answers —
  *  by exact `expected_any` match or by `expected_prefix`. A prefix without
- *  a trailing slash matches at a path-segment boundary, mirroring the
- *  snapshot exclusions — "docs" must not swallow "docs2/noise.txt". */
+ *  a trailing slash matches at a path-segment boundary, and both sides are
+ *  case-folded, mirroring the snapshot exclusions — "docs" must not swallow
+ *  "docs2/noise.txt", and "docs" must match an on-disk "Docs/" the way the
+ *  exclusions would on a case-insensitive vault mount. */
 const matchesExpectedPath = (
   judgmentQuery: JudgmentQuery,
   path: string,
 ): boolean => {
-  if (judgmentQuery.expected_any?.includes(path)) return true
+  const foldedPath = caseFoldPath(path)
+  const foldedExpectedPaths = judgmentQuery.expected_any?.map(caseFoldPath)
+
+  if (foldedExpectedPaths?.includes(foldedPath)) return true
 
   const expectedPrefix = judgmentQuery.expected_prefix
+
   if (!expectedPrefix) return false
   const folderPrefix = expectedPrefix.endsWith("/")
     ? expectedPrefix
     : `${expectedPrefix}/`
-  return path.startsWith(folderPrefix)
+  return foldedPath.startsWith(caseFoldPath(folderPrefix))
 }
 
 export const rankOfFirstExpected = (
@@ -113,6 +120,7 @@ export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
 
   const limits = cliArgs.limits.split(",").map((limitText) => {
     const limit = Number(limitText.trim())
+
     if (!Number.isInteger(limit) || limit < 1) {
       throw new Error(
         `--limits entries must be positive integers: ${limitText}`,
@@ -127,12 +135,14 @@ export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
   const fileLegWeight =
     rawFileLegWeight === undefined ? undefined : Number(rawFileLegWeight)
   // Strict undefined check — 0 is a valid weight (removes the file legs).
-  // Negated >= catches NaN (which fails every comparison).
+  // Number.isFinite rejects NaN and Infinity (an Infinity weight passes
+  // a bare >= 0 and turns every file contribution into Infinity).
   const fileLegWeightInvalid =
     rawFileLegWeight === "" ||
-    (fileLegWeight !== undefined && !(fileLegWeight >= 0))
+    (fileLegWeight !== undefined &&
+      !(Number.isFinite(fileLegWeight) && fileLegWeight >= 0))
   if (fileLegWeightInvalid) {
-    throw new Error("--file-leg-weight must be a number >= 0")
+    throw new Error("--file-leg-weight must be a finite number >= 0")
   }
 
   // A reused index over a freshly copied snapshot would score a corpus the

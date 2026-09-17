@@ -216,6 +216,66 @@ describe("schema creation", () => {
   })
 })
 
+describe("equal-score tie-breaking in retrieval legs", () => {
+  const IDENTICAL_NOTE = "# Shared\n\nwalrus habitat survey notes\n"
+
+  it("orders equal-bm25 notes by path regardless of insertion order", () => {
+    const tieIndex = createSearchIndex(":memory:")
+    // Reverse-alphabetical insertion — without the path tie-break, equal
+    // bm25 scores return in insertion order and zzz.md would rank first.
+    tieIndex.upsertNote(
+      {
+        filePath: "zzz.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    tieIndex.upsertNote(
+      {
+        filePath: "aaa.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const results = tieIndex.fullTextSearch({ query: "walrus" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-bm25 file results by path in FTS-only hybrid search", async () => {
+    const tieIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+    const identicalFileContent = "walrus habitat survey notes"
+    tieIndex.upsertNonMdFile("zzz.txt", 100)
+    tieIndex.upsertFileContent(
+      {
+        filePath: "zzz.txt",
+        rawContent: identicalFileContent,
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+    tieIndex.upsertNonMdFile("aaa.txt", 100)
+    tieIndex.upsertFileContent(
+      {
+        filePath: "aaa.txt",
+        rawContent: identicalFileContent,
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+
+    // With no embedder, fusion runs over the FTS legs alone — the file leg's
+    // internal order decides which tied file takes RRF rank 1, so this
+    // exercises the leg-level tie-break, not the fusion one.
+    const { results } = await tieIndex.hybridSearch({ query: "walrus" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.txt", "zzz.txt"])
+  })
+})
+
 describe("leading callout", () => {
   it("surfaces a note's leading callout in discovery results", () => {
     index.upsertNote(

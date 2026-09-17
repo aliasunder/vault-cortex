@@ -397,6 +397,25 @@ describe("memoryRecall", () => {
     expect(result.truncated).toBe(true)
   })
 
+  it("ranks tied FTS matches by file and entry position, not insertion order", async () => {
+    const identicalEntry = "- **2026-07-02**: Pacing beats crunch every time."
+    // Zzz is upserted before Aaa — without the tie-break, equal-bm25 entries
+    // return in insertion order and Zzz's copy would win the limit cut.
+    const index = await createRecallIndex({
+      withEmbedder: false,
+      files: {
+        Zzz: `# Zzz\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+        Aaa: `# Aaa\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+      },
+    })
+
+    const result = await index.memoryRecall(
+      { query: "pacing crunch", limit: 1 },
+      logger,
+    )
+    expect(result.entries.map((entry) => entry.file)).toEqual(["Aaa"])
+  })
+
   it("rejects with a remediation message when no memory dir is configured", async () => {
     const index = createSearchIndex(":memory:")
     await expect(
