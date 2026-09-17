@@ -67,26 +67,30 @@ import type { Logger } from "../../logger.js"
 export const toVaultRelativePath = (input: string): string =>
   posix.normalize(input.replace(/\\/g, "/"))
 
-/** Resolves a vault-relative path at or below the vault root; throws on
- *  absolute, escaping, and hidden paths before any filesystem access. */
-const resolvePathWithinVault = (
+/** Resolves a note path within the vault; throws on absolute paths,
+ *  traversal, hidden paths (dot-prefixed segments — Obsidian ignores
+ *  them), and the vault root itself (which names no entry). Hidden is
+ *  checked on the resolved relative path (so "./" and "../" normalize)
+ *  before any fs access (no existence leak). Internal ".obsidian/"
+ *  config readers deliberately bypass this via direct readFile. */
+export const resolveSafePath = (
   vaultPath: string,
-  relativePath: string,
-): { vaultRoot: string; resolvedPath: string } => {
+  notePath: string,
+): string => {
   // Vault paths are relative to the vault root — Obsidian has no other
   // form. An absolute input is rejected even when it lands inside the vault,
   // because accepting it would tie behavior to the deployment's mount point,
   // and a vault root whose name shadows a top-level folder (root "/vault",
   // folder "vault/") would let one leading slash silently select the wrong
   // file.
-  if (posix.isAbsolute(relativePath)) {
+  if (posix.isAbsolute(notePath)) {
     throw new Error(
-      `absolute path blocked: "${relativePath}" must be vault-relative`,
+      `absolute path blocked: "${notePath}" must be vault-relative`,
     )
   }
 
   const vaultRoot = resolve(vaultPath)
-  const resolvedPath = resolve(vaultRoot, relativePath)
+  const resolvedPath = resolve(vaultRoot, notePath)
   const pathFromVaultRoot = relative(vaultRoot, resolvedPath)
   const escapesVault =
     pathFromVaultRoot === ".." ||
@@ -95,33 +99,22 @@ const resolvePathWithinVault = (
 
   if (escapesVault) {
     throw new Error(
-      `path traversal blocked: "${relativePath}" escapes vault root`,
+      `path traversal blocked: "${notePath}" escapes vault root`,
     )
   }
 
-  if (hasHiddenPathSegment(pathFromVaultRoot)) {
-    throw new Error(
-      `hidden path blocked: "${relativePath}" targets a hidden file or folder`,
-    )
-  }
-
-  return { vaultRoot, resolvedPath }
-}
-
-/** Resolves a vault entry and rejects the root itself, which names no entry. */
-export const resolveSafePath = (
-  vaultPath: string,
-  notePath: string,
-): string => {
-  const { vaultRoot, resolvedPath } = resolvePathWithinVault(
-    vaultPath,
-    notePath,
-  )
   if (resolvedPath === vaultRoot) {
     throw new Error(
       `path traversal blocked: "${notePath}" resolves to the vault root`,
     )
   }
+
+  if (hasHiddenPathSegment(pathFromVaultRoot)) {
+    throw new Error(
+      `hidden path blocked: "${notePath}" targets a hidden file or folder`,
+    )
+  }
+
   return resolvedPath
 }
 
@@ -779,7 +772,7 @@ const listVaultFilePaths = async (
   logger: Logger,
 ): Promise<string[]> => {
   const searchRoot = params.folder
-    ? resolvePathWithinVault(params.vaultPath, params.folder).resolvedPath
+    ? resolveSafePath(params.vaultPath, params.folder)
     : resolve(params.vaultPath)
   const allEntries = await readdirOrNull(searchRoot)
   if (!allEntries) return []
