@@ -557,7 +557,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         }
         throw err
       }
-      const mdFiles = filenames.filter(isVisibleMemoryFile).sort()
+      const mdFiles = filenames.filter(isVisibleMemoryFile).toSorted()
       const contents = await Promise.all(
         mdFiles.map(async (filename) => {
           const raw = await readFile(join(dir, filename), "utf8")
@@ -981,7 +981,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       throw err
     }
 
-    const mdFiles = filenames.filter(isVisibleMemoryFile).sort()
+    const mdFiles = filenames.filter(isVisibleMemoryFile).toSorted()
 
     const outlines = await Promise.all(
       mdFiles.map(async (filename) => {
@@ -1037,7 +1037,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     const names = filenames
       .filter(isVisibleMemoryFile)
       .map((filename) => basename(filename, ".md"))
-      .sort()
+      .toSorted()
     logger.debug("listed memory file names", { count: names.length })
     return names
   }
