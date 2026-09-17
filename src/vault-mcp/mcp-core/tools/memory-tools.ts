@@ -154,6 +154,7 @@ Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entrie
         reqLogger,
         () => memoryStore.getMemory({ vaultPath, file, section }, reqLogger),
         (text) => {
+          // Three read modes: "all" (no file), "file" (file only), "section" (file + section).
           const scopeWithFile = !section ? "file" : "section"
           const mode = !file ? "all" : scopeWithFile
           reqLogger.info("tool_result", { mode })

@@ -269,7 +269,8 @@ const findNearMissSection = (
   const isNearMissOfRequested = (section: ParsedSection): boolean => {
     if (section.level !== 2) return false
     const existingForm = sectionComparisonForm(section.heading)
-
+    // Catches what findSection's stricter normalization misses — e.g.
+    // "&amp;" decoded to "&", or extra whitespace collapsed.
     if (existingForm === requestedForm) return true
     const differsOnlyInDigits =
       existingForm.replace(DIGIT_RUN_PATTERN, "") === requestedFormWithoutDigits
@@ -520,9 +521,9 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   ): Promise<string> => {
     if (!params.file) {
       const dir = join(params.vaultPath, memoryDir)
-      let entries: string[]
+      let filenames: string[]
       try {
-        entries = await readdir(dir)
+        filenames = await readdir(dir)
       } catch (err) {
         if (isErrnoException(err, "ENOENT")) {
           logger.info("get memory", { mode: "all", fileCount: 0 })
@@ -530,7 +531,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         }
         throw err
       }
-      const mdFiles = entries.filter(isVisibleMemoryFile).sort()
+      const mdFiles = filenames.filter(isVisibleMemoryFile).sort()
       const contents = await Promise.all(
         mdFiles.map(async (filename) => {
           const raw = await readFile(join(dir, filename), "utf8")
@@ -601,6 +602,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       (entry) => entry.section === match.heading,
     )
 
+    // YYYY-MM-DD strings sort lexicographically in chronological order;
+    // onOrAfter is validated above, and entry dates are YYYY-MM-DD by construction.
     const filteredEntries = onOrAfter
       ? sectionEntries.filter((entry) => entry.date >= onOrAfter)
       : sectionEntries
@@ -754,10 +757,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         const firstBulletOffset = bodyLines.findIndex((line) =>
           ENTRY_PATTERN.test(line),
         )
-        const lastBulletOffset = bodyLines.reduce(
-          (lastMatchIndex, line, index) =>
-            ENTRY_PATTERN.test(line) ? index : lastMatchIndex,
-          -1,
+        const lastBulletOffset = bodyLines.findLastIndex((line) =>
+          ENTRY_PATTERN.test(line),
         )
 
         // Compute the absolute line index in the full content array for insertion.
@@ -909,15 +910,15 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     logger: Logger,
   ): Promise<MemoryFileOutline[]> => {
     const dir = join(params.vaultPath, memoryDir)
-    let entries: string[]
+    let filenames: string[]
     try {
-      entries = await readdir(dir)
+      filenames = await readdir(dir)
     } catch (err) {
       if (isErrnoException(err, "ENOENT")) return []
       throw err
     }
 
-    const mdFiles = entries.filter(isVisibleMemoryFile).sort()
+    const mdFiles = filenames.filter(isVisibleMemoryFile).sort()
 
     const outlines = await Promise.all(
       mdFiles.map(async (filename) => {
@@ -963,14 +964,14 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     logger: Logger,
   ): Promise<string[]> => {
     const dir = join(params.vaultPath, memoryDir)
-    let entries: string[]
+    let filenames: string[]
     try {
-      entries = await readdir(dir)
+      filenames = await readdir(dir)
     } catch (err) {
       if (isErrnoException(err, "ENOENT")) return []
       throw err
     }
-    const names = entries
+    const names = filenames
       .filter(isVisibleMemoryFile)
       .map((filename) => basename(filename, ".md"))
       .sort()
