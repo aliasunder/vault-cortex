@@ -7,7 +7,7 @@ describe("computeRrfScores", () => {
 
   it("scores an identifier appearing in one list only", () => {
     const result = computeRrfScores({
-      rankedLists: [[{ identifier: "a.md" }], []],
+      rankedLists: [{ items: [{ identifier: "a.md" }] }, { items: [] }],
     })
 
     expect(result).toEqual([{ identifier: "a.md", score: RANK_1_SCORE }])
@@ -15,7 +15,7 @@ describe("computeRrfScores", () => {
 
   it("scores an identifier appearing in the second list only", () => {
     const result = computeRrfScores({
-      rankedLists: [[], [{ identifier: "a.md" }]],
+      rankedLists: [{ items: [] }, { items: [{ identifier: "a.md" }] }],
     })
 
     expect(result).toEqual([{ identifier: "a.md", score: RANK_1_SCORE }])
@@ -23,7 +23,10 @@ describe("computeRrfScores", () => {
 
   it("combines scores when an identifier appears in both lists", () => {
     const result = computeRrfScores({
-      rankedLists: [[{ identifier: "a.md" }], [{ identifier: "a.md" }]],
+      rankedLists: [
+        { items: [{ identifier: "a.md" }] },
+        { items: [{ identifier: "a.md" }] },
+      ],
     })
 
     // rank 1 in both lists: score doubles
@@ -35,11 +38,13 @@ describe("computeRrfScores", () => {
   it("applies +0.02 bonus for ranks 2-3", () => {
     const result = computeRrfScores({
       rankedLists: [
-        [
-          { identifier: "first.md" },
-          { identifier: "second.md" },
-          { identifier: "third.md" },
-        ],
+        {
+          items: [
+            { identifier: "first.md" },
+            { identifier: "second.md" },
+            { identifier: "third.md" },
+          ],
+        },
       ],
     })
 
@@ -57,12 +62,14 @@ describe("computeRrfScores", () => {
   it("applies no bonus for rank 4 and beyond", () => {
     const result = computeRrfScores({
       rankedLists: [
-        [
-          { identifier: "1.md" },
-          { identifier: "2.md" },
-          { identifier: "3.md" },
-          { identifier: "4.md" },
-        ],
+        {
+          items: [
+            { identifier: "1.md" },
+            { identifier: "2.md" },
+            { identifier: "3.md" },
+            { identifier: "4.md" },
+          ],
+        },
       ],
     })
 
@@ -76,8 +83,8 @@ describe("computeRrfScores", () => {
   it("handles disjoint lists with equal-rank identifiers", () => {
     const result = computeRrfScores({
       rankedLists: [
-        [{ identifier: "fts-only.md" }],
-        [{ identifier: "vec-only.md" }],
+        { items: [{ identifier: "fts-only.md" }] },
+        { items: [{ identifier: "vec-only.md" }] },
       ],
     })
 
@@ -90,7 +97,7 @@ describe("computeRrfScores", () => {
 
   it("returns empty array for empty inputs", () => {
     const result = computeRrfScores({
-      rankedLists: [[], []],
+      rankedLists: [{ items: [] }, { items: [] }],
     })
     expect(result).toEqual([])
   })
@@ -105,8 +112,8 @@ describe("computeRrfScores", () => {
   it("sorts results by score descending", () => {
     const result = computeRrfScores({
       rankedLists: [
-        [{ identifier: "a.md" }, { identifier: "b.md" }],
-        [{ identifier: "a.md" }],
+        { items: [{ identifier: "a.md" }, { identifier: "b.md" }] },
+        { items: [{ identifier: "a.md" }] },
       ],
     })
 
@@ -120,7 +127,7 @@ describe("computeRrfScores", () => {
 
   it("accepts a custom dampingConstant", () => {
     const result = computeRrfScores({
-      rankedLists: [[{ identifier: "a.md" }]],
+      rankedLists: [{ items: [{ identifier: "a.md" }] }],
       dampingConstant: 10,
     })
 
@@ -136,9 +143,9 @@ describe("computeRrfScores", () => {
     // incorrectly rank b.md above a.md.
     const result = computeRrfScores({
       rankedLists: [
-        [{ identifier: "b.md" }, { identifier: "a.md" }],
-        [{ identifier: "b.md" }, { identifier: "a.md" }],
-        [{ identifier: "a.md" }],
+        { items: [{ identifier: "b.md" }, { identifier: "a.md" }] },
+        { items: [{ identifier: "b.md" }, { identifier: "a.md" }] },
+        { items: [{ identifier: "a.md" }] },
       ],
     })
 
@@ -157,29 +164,133 @@ describe("computeRrfScores", () => {
 
   it("ignores empty lists among N without affecting scores", () => {
     const twoLists = computeRrfScores({
-      rankedLists: [[{ identifier: "a.md" }], [{ identifier: "a.md" }]],
+      rankedLists: [
+        { items: [{ identifier: "a.md" }] },
+        { items: [{ identifier: "a.md" }] },
+      ],
     })
 
     const twoListsWithEmpties = computeRrfScores({
       rankedLists: [
-        [],
-        [{ identifier: "a.md" }],
-        [],
-        [{ identifier: "a.md" }],
-        [],
+        { items: [] },
+        { items: [{ identifier: "a.md" }] },
+        { items: [] },
+        { items: [{ identifier: "a.md" }] },
+        { items: [] },
       ],
     })
 
     expect(twoListsWithEmpties).toEqual(twoLists)
   })
 
-  it("produces identical 2-list scores to previous named-param signature", () => {
-    // Regression: the old API was ftsRanked + vectorRanked; verify the
-    // new rankedLists API produces identical scores.
+  it("scales a weighted list's whole contribution, bonus included", () => {
+    const result = computeRrfScores({
+      rankedLists: [{ items: [{ identifier: "file.pdf" }], weight: 0.5 }],
+    })
+
+    // The expected score is 0.5 * (1/61 + 0.05), never 0.5 * (1/61) + 0.05
+    // — an unscaled bonus would leave the rank-1 boost dominating the
+    // down-weighted list.
+    expect(result).toEqual([
+      {
+        identifier: "file.pdf",
+        score: Number((0.5 * (1 / 61 + 0.05)).toPrecision(4)),
+      },
+    ])
+  })
+
+  it("defaults a list without a weight to full contribution", () => {
     const result = computeRrfScores({
       rankedLists: [
-        [{ identifier: "a.md" }, { identifier: "b.md" }],
-        [{ identifier: "a.md" }],
+        { items: [{ identifier: "file.pdf" }], weight: 0.5 },
+        { items: [{ identifier: "note.md" }] },
+      ],
+    })
+
+    expect(result).toEqual([
+      { identifier: "note.md", score: RANK_1_SCORE },
+      {
+        identifier: "file.pdf",
+        score: Number((0.5 * (1 / 61 + 0.05)).toPrecision(4)),
+      },
+    ])
+  })
+
+  it("produces identical scores at weight 1 as with no weight", () => {
+    const firstList = [{ identifier: "a.md" }, { identifier: "b.md" }]
+    const secondList = [{ identifier: "a.md" }]
+
+    expect(
+      computeRrfScores({
+        rankedLists: [
+          { items: firstList, weight: 1 },
+          { items: secondList, weight: 1 },
+        ],
+      }),
+    ).toEqual(
+      computeRrfScores({
+        rankedLists: [{ items: firstList }, { items: secondList }],
+      }),
+    )
+  })
+
+  it("demotes a two-leg file hit below a two-leg note hit at weight 0.5", () => {
+    // The pollution shape has a file topping both file legs against a note
+    // topping both note legs. Unweighted they tie; the file-leg weight
+    // breaks the tie.
+    const result = computeRrfScores({
+      rankedLists: [
+        { items: [{ identifier: "note.md" }] },
+        { items: [{ identifier: "note.md" }] },
+        { items: [{ identifier: "file.pdf" }], weight: 0.5 },
+        { items: [{ identifier: "file.pdf" }], weight: 0.5 },
+      ],
+    })
+
+    expect(result).toEqual([
+      {
+        identifier: "note.md",
+        score: Number((2 * (1 / 61 + 0.05)).toPrecision(4)),
+      },
+      {
+        identifier: "file.pdf",
+        score: Number((2 * 0.5 * (1 / 61 + 0.05)).toPrecision(4)),
+      },
+    ])
+  })
+
+  it("zeroes a list's contribution at weight 0", () => {
+    const result = computeRrfScores({
+      rankedLists: [
+        { items: [{ identifier: "file.pdf" }], weight: 0 },
+        { items: [{ identifier: "note.md" }] },
+      ],
+    })
+
+    expect(result).toEqual([
+      { identifier: "note.md", score: RANK_1_SCORE },
+      { identifier: "file.pdf", score: 0 },
+    ])
+  })
+
+  it("breaks score ties by identifier ascending", () => {
+    // Insertion order is z-first — an implementation keeping Map order
+    // would return z.md first, so this fails without the tie-breaker.
+    const result = computeRrfScores({
+      rankedLists: [
+        { items: [{ identifier: "z.md" }] },
+        { items: [{ identifier: "a.md" }] },
+      ],
+    })
+
+    expect(result.map((entry) => entry.identifier)).toEqual(["a.md", "z.md"])
+  })
+
+  it("scores a 2-list fusion identically to the two lists summed by hand", () => {
+    const result = computeRrfScores({
+      rankedLists: [
+        { items: [{ identifier: "a.md" }, { identifier: "b.md" }] },
+        { items: [{ identifier: "a.md" }] },
       ],
     })
 

@@ -1635,3 +1635,406 @@ describe("hybridSearch — folder-scoped vector candidate window", () => {
     expect(results.map((result) => result.path)).toEqual(["Docs/inside.txt"])
   })
 })
+
+describe("hybridSearch — ranking tuning", () => {
+  const EMBEDDING_DIMENSIONS = 384
+
+  /** Uniform-embedding mock — every text embeds identically, so vector
+   *  legs contribute rank without favoring any one item. */
+  const createHybridMockEmbedder = () => ({
+    embedText: vi
+      .fn()
+      .mockResolvedValue(new Float32Array(EMBEDDING_DIMENSIONS).fill(0.1)),
+    embedBatch: vi.fn().mockImplementation((texts: string[]) => {
+      return Promise.resolve(
+        texts.map(() => new Float32Array(EMBEDDING_DIMENSIONS).fill(0.1)),
+      )
+    }),
+  })
+
+  const NOTE_CONTENT =
+    "---\ntitle: Career\ntags: [personal]\n---\n\nCareer goals and aspirations.\n"
+  const FILE_CONTENT =
+    "Comprehensive deployment guide covering infrastructure and monitoring setup."
+
+  /** Seeds one embedded note (no lexical overlap with "deployment guide")
+   *  and one embedded text file (lexical + vector match) — the pollution
+   *  shape, where the file earns two leg ranks and the note only its
+   *  vector leg. */
+  const seedNoteAndFile = async (
+    index: ReturnType<typeof createSearchIndex>,
+  ): Promise<void> => {
+    index.upsertNote(
+      {
+        filePath: "notes/career.md",
+        rawContent: NOTE_CONTENT,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    await index.embedNote(
+      { notePath: "notes/career.md", rawContent: NOTE_CONTENT },
+      logger,
+    )
+    index.upsertNonMdFile("docs/guide.txt", 200)
+    index.upsertFileContent(
+      {
+        filePath: "docs/guide.txt",
+        rawContent: FILE_CONTENT,
+        fileStat: testStat(2000, 200),
+      },
+      logger,
+    )
+    await index.embedFileContent({ filePath: "docs/guide.txt" }, logger)
+  }
+
+  it("file-leg weight demotes a two-leg file hit below a note-vector hit", async () => {
+    // Full weight pinned explicitly — the shipped default is below 1.
+    const unweightedIndex = createSearchIndex(
+      ":memory:",
+      createHybridMockEmbedder(),
+      undefined,
+      { fileToolsEnabled: true, ranking: { fileLegWeight: 1 } },
+    )
+    await seedNoteAndFile(unweightedIndex)
+    const weightedIndex = createSearchIndex(
+      ":memory:",
+      createHybridMockEmbedder(),
+      undefined,
+      { fileToolsEnabled: true, ranking: { fileLegWeight: 0.2 } },
+    )
+    await seedNoteAndFile(weightedIndex)
+
+    // The control run shows the file's two leg ranks beating the note's
+    // one at full weight.
+    const unweighted = await unweightedIndex.hybridSearch(
+      { query: "deployment guide" },
+      logger,
+    )
+    expect(unweighted.results.map((result) => result.path)).toEqual([
+      "docs/guide.txt",
+      "notes/career.md",
+    ])
+
+    // At 0.2 the file's contribution (2 × 0.0664 × 0.2) drops below the
+    // note's single full-weight leg (0.0664) — the order flips.
+    const weighted = await weightedIndex.hybridSearch(
+      { query: "deployment guide" },
+      logger,
+    )
+    expect(weighted.results.map((result) => result.path)).toEqual([
+      "notes/career.md",
+      "docs/guide.txt",
+    ])
+  })
+
+  it("fallback fusion without vectors applies the file-leg weight", async () => {
+    const seedFallbackCorpus = (
+      index: ReturnType<typeof createSearchIndex>,
+    ): void => {
+      index.upsertNote(
+        {
+          filePath: "decoy.md",
+          rawContent:
+            "---\ntitle: Decoy\n---\n\nDeployment deployment deployment runbook.\n",
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      index.upsertNote(
+        {
+          filePath: "target.md",
+          rawContent: "---\ntitle: Target\n---\n\nDeployment checklist.\n",
+          fileStat: testStat(1100),
+        },
+        logger,
+      )
+      index.upsertNonMdFile("docs/guide.txt", 200)
+      index.upsertFileContent(
+        {
+          filePath: "docs/guide.txt",
+          rawContent: FILE_CONTENT,
+          fileStat: testStat(2000, 200),
+        },
+        logger,
+      )
+    }
+
+    // No embedder — hybridSearch takes the FTS-only fallback fusion path.
+    // Full weight pinned explicitly — the shipped default is below 1.
+    const unweightedIndex = createSearchIndex(
+      ":memory:",
+      undefined,
+      undefined,
+      {
+        fileToolsEnabled: true,
+        ranking: { fileLegWeight: 1 },
+      },
+    )
+    seedFallbackCorpus(unweightedIndex)
+    const weightedIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+      ranking: { fileLegWeight: 0.4 },
+    })
+    seedFallbackCorpus(weightedIndex)
+
+    // In the control run the file's rank-1 leg score ties the decoy's and
+    // beats target.md's rank-2 score, so it sits second (path tie-breaker).
+    const unweighted = await unweightedIndex.hybridSearch(
+      { query: "deployment" },
+      logger,
+    )
+    expect(unweighted.search_mode).toBe("fts")
+    expect(unweighted.results.map((result) => result.path)).toEqual([
+      "decoy.md",
+      "docs/guide.txt",
+      "target.md",
+    ])
+
+    // Weighted, the same file hit (0.0664 × 0.4) drops below target.md's
+    // rank-2 note score (0.0361) — the fallback path must apply the
+    // weight; the eval harness never exercises this path.
+    const weighted = await weightedIndex.hybridSearch(
+      { query: "deployment" },
+      logger,
+    )
+    expect(weighted.search_mode).toBe("fts")
+    expect(weighted.results.map((result) => result.path)).toEqual([
+      "decoy.md",
+      "target.md",
+      "docs/guide.txt",
+    ])
+  })
+
+  it("file-leg weight 0 excludes file results instead of surfacing them at score 0", async () => {
+    const zeroWeightIndex = createSearchIndex(
+      ":memory:",
+      createHybridMockEmbedder(),
+      undefined,
+      { fileToolsEnabled: true, ranking: { fileLegWeight: 0 } },
+    )
+    await seedNoteAndFile(zeroWeightIndex)
+
+    // The file matches "deployment guide" on both file legs, but at weight 0
+    // the legs are skipped entirely — RRF would otherwise emit the file at
+    // score 0 and it would fill the candidate window.
+    const zeroWeighted = await zeroWeightIndex.hybridSearch(
+      { query: "deployment guide" },
+      logger,
+    )
+    expect(zeroWeighted.results.map((result) => result.path)).toEqual([
+      "notes/career.md",
+    ])
+  })
+
+  it("fallback fusion at file-leg weight 0 returns notes only", async () => {
+    // No embedder — hybridSearch takes the FTS-only fallback path.
+    const zeroWeightIndex = createSearchIndex(
+      ":memory:",
+      undefined,
+      undefined,
+      {
+        fileToolsEnabled: true,
+        ranking: { fileLegWeight: 0 },
+      },
+    )
+    zeroWeightIndex.upsertNote(
+      {
+        filePath: "target.md",
+        rawContent: "---\ntitle: Target\n---\n\nDeployment checklist.\n",
+        fileStat: testStat(1100),
+      },
+      logger,
+    )
+    zeroWeightIndex.upsertNonMdFile("docs/guide.txt", 200)
+    zeroWeightIndex.upsertFileContent(
+      {
+        filePath: "docs/guide.txt",
+        rawContent: FILE_CONTENT,
+        fileStat: testStat(2000, 200),
+      },
+      logger,
+    )
+
+    const zeroWeighted = await zeroWeightIndex.hybridSearch(
+      { query: "deployment" },
+      logger,
+    )
+    expect(zeroWeighted.search_mode).toBe("fts")
+    expect(zeroWeighted.results.map((result) => result.path)).toEqual([
+      "target.md",
+    ])
+  })
+
+  it("prefixes reranker document text for file results when rerankKindPrefix is set", async () => {
+    const capturingReranker = {
+      rerankPairs: vi
+        .fn()
+        .mockImplementation((_query: string, documents: string[]) => {
+          return Promise.resolve(documents.map(() => 0))
+        }),
+    }
+    const prefixIndex = createSearchIndex(
+      ":memory:",
+      createHybridMockEmbedder(),
+      capturingReranker,
+      { fileToolsEnabled: true, ranking: { rerankKindPrefix: true } },
+    )
+    await seedNoteAndFile(prefixIndex)
+
+    await prefixIndex.hybridSearch({ query: "deployment guide" }, logger)
+
+    expect(capturingReranker.rerankPairs).toHaveBeenCalledTimes(1)
+    expect(capturingReranker.rerankPairs).toHaveBeenCalledWith(
+      "deployment guide",
+      [
+        `File: guide\n\n${FILE_CONTENT}`,
+        // The chunk keeps the body's leading newline after the title prefix.
+        "Career\n\n\nCareer goals and aspirations.",
+      ],
+    )
+  })
+
+  it("uses 'PDF file' kind label for .pdf file results", async () => {
+    const pdfContent = "quarterly earnings report for fiscal year"
+    const capturingReranker = {
+      rerankPairs: vi
+        .fn()
+        .mockImplementation((_query: string, documents: string[]) => {
+          return Promise.resolve(documents.map(() => 0))
+        }),
+    }
+    const index = createSearchIndex(
+      ":memory:",
+      createHybridMockEmbedder(),
+      capturingReranker,
+      { fileToolsEnabled: true, ranking: { rerankKindPrefix: true } },
+    )
+    // Seed a note so the reranker fires (needs >= 2 candidates)
+    index.upsertNote(
+      {
+        filePath: "notes/career.md",
+        rawContent: NOTE_CONTENT,
+        fileStat: testStat(500),
+      },
+      logger,
+    )
+    await index.embedNote(
+      { notePath: "notes/career.md", rawContent: NOTE_CONTENT },
+      logger,
+    )
+    index.upsertNonMdFile("docs/report.pdf", 100)
+    index.upsertFileContent(
+      {
+        filePath: "docs/report.pdf",
+        rawContent: pdfContent,
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+    await index.embedFileContent({ filePath: "docs/report.pdf" }, logger)
+
+    await index.hybridSearch({ query: "quarterly earnings" }, logger)
+
+    expect(capturingReranker.rerankPairs).toHaveBeenCalledTimes(1)
+    expect(capturingReranker.rerankPairs).toHaveBeenCalledWith(
+      "quarterly earnings",
+      [
+        `PDF file: report\n\n${pdfContent}`,
+        "Career\n\n\nCareer goals and aspirations.",
+      ],
+    )
+  })
+
+  it("uses 'Canvas file' kind label for .canvas file results", async () => {
+    const canvasJson = JSON.stringify({
+      nodes: [
+        {
+          id: "t1",
+          type: "text",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 100,
+          text: "Infrastructure overview with deployment topology",
+        },
+      ],
+      edges: [],
+    })
+    const capturingReranker = {
+      rerankPairs: vi
+        .fn()
+        .mockImplementation((_query: string, documents: string[]) => {
+          return Promise.resolve(documents.map(() => 0))
+        }),
+    }
+    const index = createSearchIndex(
+      ":memory:",
+      createHybridMockEmbedder(),
+      capturingReranker,
+      { fileToolsEnabled: true, ranking: { rerankKindPrefix: true } },
+    )
+    // Seed a note so the reranker fires (needs >= 2 candidates)
+    index.upsertNote(
+      {
+        filePath: "notes/career.md",
+        rawContent: NOTE_CONTENT,
+        fileStat: testStat(500),
+      },
+      logger,
+    )
+    await index.embedNote(
+      { notePath: "notes/career.md", rawContent: NOTE_CONTENT },
+      logger,
+    )
+    index.upsertNonMdFile("Diagrams/infra.canvas", 300)
+    index.upsertFileContent(
+      {
+        filePath: "Diagrams/infra.canvas",
+        rawContent: canvasJson,
+        fileStat: testStat(2000, 300),
+      },
+      logger,
+    )
+    await index.embedFileContent({ filePath: "Diagrams/infra.canvas" }, logger)
+
+    await index.hybridSearch(
+      { query: "infrastructure deployment topology" },
+      logger,
+    )
+
+    expect(capturingReranker.rerankPairs).toHaveBeenCalledTimes(1)
+    expect(capturingReranker.rerankPairs).toHaveBeenCalledWith(
+      "infrastructure deployment topology",
+      [
+        "Canvas file: infra\n\nCanvas: 1 node, 0 edges\n\n[text]\nInfrastructure overview with deployment topology",
+        "Career\n\n\nCareer goals and aspirations.",
+      ],
+    )
+  })
+
+  it("leaves reranker document text unprefixed by default", async () => {
+    const capturingReranker = {
+      rerankPairs: vi
+        .fn()
+        .mockImplementation((_query: string, documents: string[]) => {
+          return Promise.resolve(documents.map(() => 0))
+        }),
+    }
+    const defaultIndex = createSearchIndex(
+      ":memory:",
+      createHybridMockEmbedder(),
+      capturingReranker,
+      { fileToolsEnabled: true },
+    )
+    await seedNoteAndFile(defaultIndex)
+
+    await defaultIndex.hybridSearch({ query: "deployment guide" }, logger)
+
+    expect(capturingReranker.rerankPairs).toHaveBeenCalledTimes(1)
+    expect(capturingReranker.rerankPairs).toHaveBeenCalledWith(
+      "deployment guide",
+      [`guide\n\n${FILE_CONTENT}`, "Career\n\n\nCareer goals and aspirations."],
+    )
+  })
+})

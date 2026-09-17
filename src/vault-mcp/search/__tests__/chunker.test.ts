@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { chunkNoteContent } from "../chunker.js"
+import { buildChunkMetadataPrefix, chunkNoteContent } from "../chunker.js"
 
 /** Generate a string of approximately N whitespace-separated tokens. */
 const generateTokens = (count: number): string =>
@@ -178,5 +178,100 @@ describe("chunkNoteContent", () => {
       const chunks = chunkNoteContent("Note", "")
       expect(chunks).toHaveLength(1)
     })
+  })
+
+  describe("metadata prefix enrichment", () => {
+    it("prefixes every chunk with title plus the metadata line", () => {
+      const section1 = generateTokens(300)
+      const section2 = generateTokens(300)
+      const body = `## One\n\n${section1}\n\n## Two\n\n${section2}`
+
+      const chunks = chunkNoteContent("Note", body, {
+        metadataPrefix: "Type: session-log. Tags: project/vault-cortex.",
+      })
+
+      expect(chunks.length).toBeGreaterThan(1)
+      const prefixedChunks = chunks.filter((chunk) => {
+        return chunk.text.startsWith(
+          "Note\nType: session-log. Tags: project/vault-cortex.\n\n",
+        )
+      })
+      expect(prefixedChunks).toHaveLength(chunks.length)
+    })
+
+    it("counts the prefix against the chunk budget", () => {
+      // 440 body tokens fit one 450-token chunk bare. "Note" plus the
+      // 15-token prefix costs 16 tokens, leaving a 434-token budget
+      // (450 − 16), so the body splits exactly at word 434.
+      const body = generateTokens(440)
+      const bodyWords = body.split(" ")
+      const longPrefix = `Tags: ${generateTokens(14)}.`
+
+      expect(chunkNoteContent("Note", body)).toEqual([
+        { index: 0, text: `Note\n\n${body}` },
+      ])
+      expect(
+        chunkNoteContent("Note", body, { metadataPrefix: longPrefix }),
+      ).toEqual([
+        {
+          index: 0,
+          text: `Note\n${longPrefix}\n\n${bodyWords.slice(0, 434).join(" ")}`,
+        },
+        {
+          index: 1,
+          text: `Note\n${longPrefix}\n\n${bodyWords.slice(434).join(" ")}`,
+        },
+      ])
+    })
+
+    it("floors the budget at MIN_CHUNK_TOKENS when the prefix is very large", () => {
+      // A ~420-token prefix would shrink the budget to ~30 without the
+      // floor, but MIN_CHUNK_TOKENS (50) catches it. 120 body tokens
+      // at a 50-token floor → 3 chunks; without the floor (budget ~30)
+      // it would be 5.
+      const hugePrefix = `Tags: ${generateTokens(419)}.`
+      const body = generateTokens(120)
+
+      const chunks = chunkNoteContent("Note", body, {
+        metadataPrefix: hugePrefix,
+      })
+
+      expect(chunks).toHaveLength(3)
+    })
+
+    it("produces identical chunks with a null prefix as with no options", () => {
+      const body = `## One\n\n${generateTokens(300)}\n\n## Two\n\n${generateTokens(300)}`
+
+      expect(chunkNoteContent("Note", body, { metadataPrefix: null })).toEqual(
+        chunkNoteContent("Note", body),
+      )
+    })
+  })
+})
+
+describe("buildChunkMetadataPrefix", () => {
+  it("joins type and tags into one line", () => {
+    expect(
+      buildChunkMetadataPrefix({
+        type: "session-log",
+        tags: ["session-log", "project/vault-cortex"],
+      }),
+    ).toBe("Type: session-log. Tags: session-log, project/vault-cortex.")
+  })
+
+  it("emits type alone when there are no tags", () => {
+    expect(buildChunkMetadataPrefix({ type: "reference", tags: [] })).toBe(
+      "Type: reference.",
+    )
+  })
+
+  it("emits tags alone when type is null", () => {
+    expect(buildChunkMetadataPrefix({ type: null, tags: ["daily-note"] })).toBe(
+      "Tags: daily-note.",
+    )
+  })
+
+  it("returns null when the note has neither type nor tags", () => {
+    expect(buildChunkMetadataPrefix({ type: null, tags: [] })).toBeNull()
   })
 })

@@ -64,6 +64,20 @@ export type MemoryEntryRow = {
 /** A memory-entry KNN hit: the full row plus its cosine distance. */
 export type MemoryEntryVectorHitRow = MemoryEntryRow & { distance: number }
 
+/** Overrides for hybridSearch's ranking constants (file-leg RRF weight,
+ *  reranker kind prefix) and the index-time chunk metadata enrichment.
+ *  A missing field keeps that shipped default. */
+export type RankingTuning = {
+  readonly fileLegWeight?: number | undefined
+  readonly rerankKindPrefix?: boolean | undefined
+  /** Index-time, unlike the other two: prefixes note chunk text with
+   *  frontmatter type/tags before embedding, so flipping it re-embeds
+   *  every note once. The prefix is stored in chunk_text, so vector-only
+   *  snippets currently surface it as note content — separating embedded
+   *  text from display text is part of the enrichment follow-up. */
+  readonly enrichChunkMetadata?: boolean | undefined
+}
+
 /** Everything a read-side query needs from the search index, handed to it
  *  as its first argument: the open database, the prepared statements the
  *  index compiled once at startup, and the optional ML models (embedder,
@@ -85,6 +99,10 @@ export type SearchQueryContext = {
     readonly selectNoteMetadataStmt: Database.Statement<[string], NoteRow>
   }
   readonly reranker: Reranker | undefined
+  /** Ranking tuning for hybridSearch — undefined means the shipped
+   *  defaults in hybrid-search.ts. Set by the search-eval harness to
+   *  measure candidate values against the judgment set. */
+  readonly ranking?: RankingTuning | undefined
   readonly selectFirstChunkStmt: Database.Statement<
     [string],
     { chunk_text: string }
@@ -630,8 +648,8 @@ export const memoryRecall = async (
   // RRF fusion: dedupes by entry id, orders most-agreed-first.
   const fusedScores = computeRrfScores({
     rankedLists: [
-      ftsRows.map((row) => ({ identifier: String(row.id) })),
-      vectorRows.map((row) => ({ identifier: String(row.id) })),
+      { items: ftsRows.map((row) => ({ identifier: String(row.id) })) },
+      { items: vectorRows.map((row) => ({ identifier: String(row.id) })) },
     ],
   })
   const rowsById = new Map<string, MemoryEntryRow>([

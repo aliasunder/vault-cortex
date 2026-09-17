@@ -3614,6 +3614,72 @@ It has multiple sentences to verify chunking works correctly.
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
     })
 
+    it("prefixes chunk text with type and tags when enrichChunkMetadata is set", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const enrichedIndex = createSearchIndex(
+        ":memory:",
+        mockEmbedder,
+        undefined,
+        { ranking: { enrichChunkMetadata: true } },
+      )
+
+      await enrichedIndex.embedNote(
+        {
+          notePath: "typed.md",
+          rawContent:
+            "---\ntitle: Typed Note\ntype: reference\ntags: [search, ranking]\n---\n\nBody content for enrichment.\n",
+        },
+        logger,
+      )
+
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
+      expect(mockEmbedder.embedText).toHaveBeenCalledWith(
+        "Typed Note\nType: reference. Tags: search, ranking.\n\n\nBody content for enrichment.",
+      )
+    })
+
+    it("embeds unprefixed chunk text under enrichment when the note has no type or tags", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const enrichedIndex = createSearchIndex(
+        ":memory:",
+        mockEmbedder,
+        undefined,
+        { ranking: { enrichChunkMetadata: true } },
+      )
+
+      await enrichedIndex.embedNote(
+        {
+          notePath: "bare.md",
+          rawContent: "---\ntitle: Bare Note\n---\n\nBody without metadata.\n",
+        },
+        logger,
+      )
+
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
+      expect(mockEmbedder.embedText).toHaveBeenCalledWith(
+        "Bare Note\n\n\nBody without metadata.",
+      )
+    })
+
+    it("leaves chunk text unprefixed by default even when frontmatter has type and tags", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const defaultIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      await defaultIndex.embedNote(
+        {
+          notePath: "typed.md",
+          rawContent:
+            "---\ntitle: Typed Note\ntype: reference\ntags: [search, ranking]\n---\n\nBody content for enrichment.\n",
+        },
+        logger,
+      )
+
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
+      expect(mockEmbedder.embedText).toHaveBeenCalledWith(
+        "Typed Note\n\n\nBody content for enrichment.",
+      )
+    })
+
     it("content-hash gating skips unchanged chunks on re-embed", async () => {
       const mockEmbedder = createMockEmbedder()
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
@@ -4317,7 +4383,8 @@ describe("canvas file content and links", () => {
         path: "Diagrams/arch.canvas",
         title: "arch",
         snippet: expect.any(String),
-        score: 0.06639,
+        // Rank-1 RRF (1/61 + 0.05) scaled by the shipped file-leg weight 0.5
+        score: 0.0332,
         tags: [],
         folder: "Diagrams",
         type: null,
