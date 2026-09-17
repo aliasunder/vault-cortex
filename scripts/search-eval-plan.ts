@@ -43,7 +43,10 @@ export type JudgmentQuery = z.infer<typeof judgmentQuerySchema>
  *  a trailing slash matches at a path-segment boundary, and both sides are
  *  case-folded, mirroring the snapshot exclusions — "docs" must not swallow
  *  "docs2/noise.txt", and "docs" must match an on-disk "Docs/" the way the
- *  exclusions would on a case-insensitive vault mount. */
+ *  exclusions would on a case-insensitive vault mount. The folding means a
+ *  case-sensitive vault holding two paths that differ only in case would
+ *  credit either as expected — the same trade-off the exclusions make, and
+ *  worth it because judgment files are typed by hand against one vault. */
 const matchesExpectedPath = (
   judgmentQuery: JudgmentQuery,
   path: string,
@@ -136,9 +139,11 @@ export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
     rawFileLegWeight === undefined ? undefined : Number(rawFileLegWeight)
   // Strict undefined check — 0 is a valid weight (removes the file legs).
   // Number.isFinite rejects NaN and Infinity (an Infinity weight passes
-  // a bare >= 0 and turns every file contribution into Infinity).
+  // a bare >= 0 and turns every file contribution into Infinity), and the
+  // trim catches whitespace-only values, which Number() coerces to 0 —
+  // a silently disabled file leg instead of a rejection.
   const fileLegWeightInvalid =
-    rawFileLegWeight === "" ||
+    (rawFileLegWeight !== undefined && rawFileLegWeight.trim() === "") ||
     (fileLegWeight !== undefined &&
       !(Number.isFinite(fileLegWeight) && fileLegWeight >= 0))
   if (fileLegWeightInvalid) {

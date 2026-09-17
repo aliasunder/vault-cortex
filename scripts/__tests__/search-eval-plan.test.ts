@@ -100,6 +100,14 @@ describe("resolveEvalRunPlan", () => {
     }).toThrow("--file-leg-weight must be a finite number >= 0")
   })
 
+  it("rejects a whitespace-only weight", () => {
+    // Number(" ") coerces to 0 — accepted, it would silently disable the
+    // file legs instead of rejecting like the empty string.
+    expect(() => {
+      resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": " " })
+    }).toThrow("--file-leg-weight must be a finite number >= 0")
+  })
+
   it("rejects --reuse-index without --reuse-snapshot", () => {
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, "reuse-index": true })
