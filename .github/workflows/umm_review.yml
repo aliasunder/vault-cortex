@@ -85,10 +85,10 @@ jobs:
           permission-checks: write
 
       # Every optional input is overridable via a repo variable (Settings →
-      # Secrets and variables → Actions → Variables); unset vars fall back
-      # to the action's defaults. Inputs whose default is empty
-      # (fallback_model, max_findings) pass empty when the var is unset —
-      # identical to omitting them.
+      # Secrets and variables → Actions → Variables). Unset vars use the action
+      # default unless the expression below supplies an explicit workflow default.
+      # Inputs whose default is empty (fallback_model, max_findings) pass empty
+      # when the var is unset — identical to omitting them.
       - uses: aliasunder/umm-actually@d3d9d89743d627e41a07586e97ceace216c7a721 # v0.4.5
         with:
           github_token: ${{ steps.app-token.outputs.token }}
