@@ -2,7 +2,7 @@
 
 import express from "express"
 import type { Request, Response, NextFunction } from "express"
-import { resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createSearchIndex } from "./search/search-index.js"
 import { createEmbedder } from "./search/embedder.js"
@@ -116,7 +116,7 @@ const startServer = async (): Promise<void> => {
   }
 
   const indexDbPath = env.get("INDEX_DB_PATH").asString()
-  const dataDir = indexDbPath ? indexDbPath.replace(/\/[^/]+$/, "") : "/data"
+  const dataDir = indexDbPath ? dirname(indexDbPath) : "/data"
   const searchDbPath = indexDbPath ?? `${dataDir}/search.db`
   const oauthDbPath = `${dataDir}/oauth.db`
   const port = env.get("PORT").default("8000").asPortNumber()
@@ -224,13 +224,30 @@ const startServer = async (): Promise<void> => {
   // Started after listen so a large trash backlog (unlinks at bind-mount
   // latency) can never stall /healthz past container health-check budgets.
   // Sync deploys never trash (the delete handler bypasses to "none") and a
-  // read-only server never modifies the vault, so neither sweeps.
+  // read-only server never modifies the vault, so neither runs.
+  const trashBookkeepingEnabled =
+    !config.readOnlyMode && !config.obsidianSyncEnabled
+
+  process.on("SIGTERM", createShutdownHandler(httpServer))
+
+  // Orphan purge: drops rows whose .trash/ entry is gone — runs once at
+  // boot regardless of TRASH_RETENTION_DAYS.
+  if (trashBookkeepingEnabled) {
+    try {
+      await trashSweeper.purgeOrphanedTrashEntries(
+        { vaultPath, trashEntryStore: search },
+        logger,
+      )
+    } catch (error) {
+      logger.error("orphaned trash entry purge failed", {
+        error: describeError(error),
+      })
+    }
+  }
+
+  // Retention sweep: unlinks expired files on a daily schedule.
   const { trashRetentionDays } = config
-  const trashSweepEnabled =
-    trashRetentionDays !== null &&
-    !config.readOnlyMode &&
-    !config.obsidianSyncEnabled
-  if (trashSweepEnabled) {
+  if (trashBookkeepingEnabled && trashRetentionDays !== null) {
     trashSweeper.startTrashSweepSchedule(
       {
         vaultPath,
@@ -240,8 +257,6 @@ const startServer = async (): Promise<void> => {
       logger,
     )
   }
-
-  process.on("SIGTERM", createShutdownHandler(httpServer))
 }
 
 // Node ESM has no `require.main` — compare argv[1] to this module's path

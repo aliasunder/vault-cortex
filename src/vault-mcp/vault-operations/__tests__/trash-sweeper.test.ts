@@ -15,6 +15,7 @@ import { DateTime } from "luxon"
 import { trashSweeper } from "../trash-sweeper.js"
 import { vaultFs } from "../vault-filesystem.js"
 import { createSearchIndex } from "../../search/search-index.js"
+import type { TrashEntryStore } from "../../search/search-index.js"
 import { logger } from "../../../logger.js"
 
 /** A temp vault with a .trash/ folder, removed when the test finishes. */
@@ -106,7 +107,8 @@ describe("sweepExpiredTrashEntries", () => {
     const index = createSearchIndex(":memory:")
     await writeFile(join(vault, ".trash", "raced.md"), "fresh copy", "utf8")
     recordEntryDaysAgo(index, ".trash/raced.md", 31)
-    const racingStore = {
+    const racingStore: TrashEntryStore = {
+      listAllTrashEntries: index.listAllTrashEntries,
       listExpiredTrashEntries: (cutoffEpochSeconds: number) => {
         const listed = index.listExpiredTrashEntries(cutoffEpochSeconds)
         // The concurrent delete lands between the snapshot and the per-row
@@ -210,6 +212,33 @@ describe("sweepExpiredTrashEntries", () => {
       "trash entry parent escapes .trash — skipped",
       { trashPath: ".trash/linkdir/live.md" },
     )
+  })
+
+  it("keeps the row and warns when realpath fails with a non-ENOENT error", async () => {
+    const vault = await createTestVault()
+    const lockedDir = join(vault, ".trash", "noaccess")
+    await mkdir(lockedDir, { recursive: true })
+    await writeFile(join(lockedDir, "stuck.md"), "perm error", "utf8")
+    const index = createSearchIndex(":memory:")
+    recordEntryDaysAgo(index, ".trash/noaccess/stuck.md", 31)
+    // Remove all permissions from .trash/ so realpath on the parent fails.
+    await chmod(join(vault, ".trash"), 0o000)
+    onTestFinished(() => chmod(join(vault, ".trash"), 0o755))
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
+
+    expect(index.getTrashEntry(".trash/noaccess/stuck.md")?.trashPath).toBe(
+      ".trash/noaccess/stuck.md",
+    )
+    expect(warnSpy).toHaveBeenCalledWith("failed to resolve trash entry path", {
+      trashPath: ".trash/noaccess/stuck.md",
+      error: expect.stringMatching(/EACCES/),
+    })
   })
 
   it("keeps the row and warns when unlink fails with a non-ENOENT error", async () => {
@@ -394,7 +423,8 @@ describe("startTrashSweepSchedule", () => {
     const listExpiredTrashEntries = vi.fn(() => {
       throw new Error("index unavailable")
     })
-    const throwingStore = {
+    const throwingStore: TrashEntryStore = {
+      listAllTrashEntries: () => [],
       listExpiredTrashEntries,
       getTrashEntry: () => null,
       deleteTrashEntry: (): void => undefined,
@@ -415,5 +445,249 @@ describe("startTrashSweepSchedule", () => {
     // The finally re-armed the chain: one day later the sweep runs again.
     await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000)
     expect(listExpiredTrashEntries).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("purgeOrphanedTrashEntries", () => {
+  it("drops rows for missing files; existing files and their rows survive untouched", async () => {
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    await writeFile(join(vault, ".trash", "present.md"), "still here", "utf8")
+    index.recordTrashEntry(".trash/present.md")
+    index.recordTrashEntry(".trash/gone.md")
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
+
+    expect(index.getTrashEntry(".trash/gone.md")).toBeNull()
+    expect(index.getTrashEntry(".trash/present.md")?.trashPath).toBe(
+      ".trash/present.md",
+    )
+    const presentContent = await readFile(
+      join(vault, ".trash", "present.md"),
+      "utf8",
+    )
+    expect(presentContent).toBe("still here")
+    expect(infoSpy).toHaveBeenCalledWith("orphaned trash entries purged", {
+      checked: 2,
+      purged: 1,
+    })
+  })
+
+  it("no log when the table is empty", async () => {
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
+
+    const purgeCalls = infoSpy.mock.calls.filter(
+      ([message]) => message === "orphaned trash entries purged",
+    )
+    expect(purgeCalls).toEqual([])
+  })
+
+  it("no log when all entries have files on disk", async () => {
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    await writeFile(join(vault, ".trash", "a.md"), "content", "utf8")
+    await writeFile(join(vault, ".trash", "b.md"), "content", "utf8")
+    index.recordTrashEntry(".trash/a.md")
+    index.recordTrashEntry(".trash/b.md")
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
+
+    const purgeCalls = infoSpy.mock.calls.filter(
+      ([message]) => message === "orphaned trash entries purged",
+    )
+    expect(purgeCalls).toEqual([])
+    expect(index.getTrashEntry(".trash/a.md")?.trashPath).toBe(".trash/a.md")
+    expect(index.getTrashEntry(".trash/b.md")?.trashPath).toBe(".trash/b.md")
+  })
+
+  it("skips a row refreshed between listing and processing", async () => {
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    // Back-date the original so the refresh (recorded at "now") gets a
+    // different trashedAt — both within the same second would match.
+    recordEntryDaysAgo(index, ".trash/raced.md", 1)
+    // Control orphan: proves the purge ran (dropped if the function executes).
+    index.recordTrashEntry(".trash/control-orphan.md")
+    const racingStore: TrashEntryStore = {
+      listAllTrashEntries: () => {
+        const listed = index.listAllTrashEntries()
+        // A concurrent trash move refreshes the row between the snapshot
+        // and the per-row lock.
+        index.recordTrashEntry(".trash/raced.md")
+        return listed
+      },
+      listExpiredTrashEntries: index.listExpiredTrashEntries,
+      getTrashEntry: index.getTrashEntry,
+      deleteTrashEntry: index.deleteTrashEntry,
+    }
+
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: racingStore },
+      logger,
+    )
+
+    expect(index.getTrashEntry(".trash/raced.md")?.trashPath).toBe(
+      ".trash/raced.md",
+    )
+    expect(index.getTrashEntry(".trash/control-orphan.md")).toBeNull()
+  })
+
+  it("skips a row deleted between listing and lock acquisition", async () => {
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    index.recordTrashEntry(".trash/deleted-mid-flight.md")
+    // Control orphan: proves the purge ran.
+    index.recordTrashEntry(".trash/control-orphan.md")
+    const racingStore: TrashEntryStore = {
+      listAllTrashEntries: () => {
+        const listed = index.listAllTrashEntries()
+        // A concurrent sweep (or manual cleanup) deletes the row between
+        // the snapshot and the per-row lock.
+        index.deleteTrashEntry(".trash/deleted-mid-flight.md")
+        return listed
+      },
+      listExpiredTrashEntries: index.listExpiredTrashEntries,
+      getTrashEntry: index.getTrashEntry,
+      deleteTrashEntry: index.deleteTrashEntry,
+    }
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: racingStore },
+      logger,
+    )
+
+    // The deleted-mid-flight row was skipped; the control orphan was purged.
+    expect(infoSpy).toHaveBeenCalledWith("orphaned trash entries purged", {
+      checked: 2,
+      purged: 1,
+    })
+    expect(index.getTrashEntry(".trash/control-orphan.md")).toBeNull()
+  })
+
+  it("drops a row when the parent folder is gone", async () => {
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    index.recordTrashEntry(".trash/vanished-folder/x.md")
+
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
+
+    expect(index.getTrashEntry(".trash/vanished-folder/x.md")).toBeNull()
+  })
+
+  it("logs checked and purged counts when orphans are found", async () => {
+    const vault = await createTestVault()
+    const index = createSearchIndex(":memory:")
+    index.recordTrashEntry(".trash/a.md")
+    index.recordTrashEntry(".trash/b.md")
+    index.recordTrashEntry(".trash/c.md")
+    const infoSpy = vi.spyOn(logger, "info")
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
+
+    expect(infoSpy).toHaveBeenCalledWith("orphaned trash entries purged", {
+      checked: 3,
+      purged: 3,
+    })
+  })
+
+  it("keeps the row and warns when stat fails with a non-ENOENT error", async () => {
+    const vault = await createTestVault()
+    const lockedDir = join(vault, ".trash", "locked")
+    await mkdir(lockedDir, { recursive: true })
+    await writeFile(join(lockedDir, "stuck.md"), "perm error", "utf8")
+    const index = createSearchIndex(":memory:")
+    index.recordTrashEntry(".trash/locked/stuck.md")
+    // Remove traverse permission from the parent so stat fails with EACCES.
+    await chmod(lockedDir, 0o000)
+    onTestFinished(() => chmod(lockedDir, 0o755))
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
+
+    expect(index.getTrashEntry(".trash/locked/stuck.md")?.trashPath).toBe(
+      ".trash/locked/stuck.md",
+    )
+    expect(warnSpy).toHaveBeenCalledWith("failed to stat trash entry", {
+      trashPath: ".trash/locked/stuck.md",
+      error: expect.stringMatching(/EACCES/),
+    })
+  })
+
+  it("retains a traversal-path row when the target exists outside .trash/", async () => {
+    const base = await mkdtemp(join(tmpdir(), "trash-traversal-"))
+    onTestFinished(() => rm(base, { recursive: true, force: true }))
+    const vault = join(base, "vault")
+    await mkdir(join(vault, ".trash"), { recursive: true })
+    await mkdir(join(vault, "Live"), { recursive: true })
+    await writeFile(join(vault, "Live", "note.md"), "live note", "utf8")
+    const index = createSearchIndex(":memory:")
+    index.recordTrashEntry(".trash/../Live/note.md")
+    // Control orphan: proves the purge ran.
+    index.recordTrashEntry(".trash/control-orphan.md")
+
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
+
+    expect(index.getTrashEntry(".trash/../Live/note.md")?.trashPath).toBe(
+      ".trash/../Live/note.md",
+    )
+    const liveContent = await readFile(join(vault, "Live", "note.md"), "utf8")
+    expect(liveContent).toBe("live note")
+    expect(index.getTrashEntry(".trash/control-orphan.md")).toBeNull()
+  })
+
+  it("retains a dangling symlink's row — lstat sees the link itself", async () => {
+    const vault = await createTestVault()
+    await symlink(
+      join(vault, "nonexistent-target"),
+      join(vault, ".trash", "dangling.md"),
+    )
+    const index = createSearchIndex(":memory:")
+    index.recordTrashEntry(".trash/dangling.md")
+    // Control orphan: proves the purge ran.
+    index.recordTrashEntry(".trash/control-orphan.md")
+
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
+
+    expect(index.getTrashEntry(".trash/dangling.md")?.trashPath).toBe(
+      ".trash/dangling.md",
+    )
+    expect(index.getTrashEntry(".trash/control-orphan.md")).toBeNull()
   })
 })

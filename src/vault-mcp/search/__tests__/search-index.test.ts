@@ -5036,6 +5036,23 @@ describe("file content vector embeddings", () => {
 })
 
 describe("trash entries (retention-sweep bookkeeping)", () => {
+  it("listAllTrashEntries returns every recorded entry", () => {
+    const trashIndex = createSearchIndex(":memory:")
+    trashIndex.recordTrashEntry(".trash/a.md")
+    trashIndex.recordTrashEntry(".trash/sub/b.md")
+
+    const allEntries = trashIndex.listAllTrashEntries()
+
+    const trashPaths = allEntries.map((entry) => entry.trashPath).toSorted()
+    expect(trashPaths).toEqual([".trash/a.md", ".trash/sub/b.md"])
+  })
+
+  it("listAllTrashEntries returns an empty array when no entries exist", () => {
+    const trashIndex = createSearchIndex(":memory:")
+
+    expect(trashIndex.listAllTrashEntries()).toEqual([])
+  })
+
   it("round-trips a recorded entry through get and list", () => {
     const trashIndex = createSearchIndex(":memory:")
     trashIndex.recordTrashEntry(".trash/Notes/gone.md")

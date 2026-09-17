@@ -45,7 +45,7 @@
     },
     {
       "title": "Vault Operations",
-      "purpose": "The filesystem I/O layer in vault-operations/: vault-filesystem.ts (base primitives including atomic writes and path safety), vault-patcher.ts, note-mover.ts, memory-store.ts, daily-notes.ts, task-mutations.ts, task-format-config.ts, trash-sweeper.ts (the retention sweep over recorded .trash/ entries), and asset-operations.ts (the use-case behind vault_read_file and vault_list_files). Derive the safety mechanisms (locking modes, TOCTOU guards, protected paths) from ARCHITECTURE.md's Data integrity section.",
+      "purpose": "The filesystem I/O layer in vault-operations/: vault-filesystem.ts (base primitives including atomic writes and path safety), vault-patcher.ts, note-mover.ts, memory-store.ts, daily-notes.ts, task-mutations.ts, task-format-config.ts, trash-sweeper.ts (boot-time orphan-row purge + daily retention sweep over recorded .trash/ entries), and asset-operations.ts (the use-case behind vault_read_file and vault_list_files). Derive the safety mechanisms (locking modes, TOCTOU guards, protected paths) from ARCHITECTURE.md's Data integrity section.",
       "parent": "Architecture"
     },
     {
