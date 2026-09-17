@@ -51,7 +51,15 @@ describe("coerceToArray", () => {
     expect(coerceToArray("solo")).toEqual(["solo"])
   })
 
-  it.each([42, false, null, undefined, "", { nested: "value" }])(
+  it("wraps a number in a stringified array", () => {
+    expect(coerceToArray(42)).toEqual(["42"])
+  })
+
+  it("wraps false in a stringified array", () => {
+    expect(coerceToArray(false)).toEqual(["false"])
+  })
+
+  it.each([null, undefined, "", { nested: "value" }])(
     "returns an empty array for unsupported value %j",
     (value) => {
       expect(coerceToArray(value)).toEqual([])

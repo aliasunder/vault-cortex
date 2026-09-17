@@ -18,11 +18,14 @@ import type {
 export const isString = (value: unknown): value is string =>
   typeof value === "string"
 
-/** Normalizes a YAML string or string array and drops unsupported values. */
+/** Coerces a YAML frontmatter field to a string array.
+ *  gray-matter may parse multi-value YAML fields as a single string
+ *  or an array depending on syntax (flow vs block). */
 export const coerceToArray = (value: unknown): string[] => {
   if (Array.isArray(value)) return value.filter(isString)
-
-  return isString(value) && value ? [value] : []
+  return value != null && value !== "" && typeof value !== "object"
+    ? [String(value)]
+    : []
 }
 
 // ── JSON column parsers (private) ──────────────────────────────
