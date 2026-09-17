@@ -21,6 +21,7 @@ export const isString = (value: unknown): value is string =>
 /** Normalizes a YAML string or string array and drops unsupported values. */
 export const coerceToArray = (value: unknown): string[] => {
   if (Array.isArray(value)) return value.filter(isString)
+
   return isString(value) && value ? [value] : []
 }
 
@@ -347,6 +348,7 @@ export const noteMatchesSearchFilters = (
       return false
     if (filters.modified.after !== undefined) {
       const firstAllowedMs = dayToEpochMsRange(filters.modified.after).endMs
+
       if (note.mtime < firstAllowedMs) return false
     }
   }

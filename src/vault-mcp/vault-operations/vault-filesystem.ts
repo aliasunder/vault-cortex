@@ -84,6 +84,7 @@ const resolvePathWithinVault = (
       `absolute path blocked: "${relativePath}" must be vault-relative`,
     )
   }
+
   const vaultRoot = resolve(vaultPath)
   const resolvedPath = resolve(vaultRoot, relativePath)
   const pathFromVaultRoot = relative(vaultRoot, resolvedPath)
@@ -91,17 +92,19 @@ const resolvePathWithinVault = (
     pathFromVaultRoot === ".." ||
     pathFromVaultRoot.startsWith(`..${sep}`) ||
     isAbsolute(pathFromVaultRoot)
-  const isInsideVault = !escapesVault
-  if (!isInsideVault) {
+
+  if (escapesVault) {
     throw new Error(
       `path traversal blocked: "${relativePath}" escapes vault root`,
     )
   }
+
   if (hasHiddenPathSegment(pathFromVaultRoot)) {
     throw new Error(
       `hidden path blocked: "${relativePath}" targets a hidden file or folder`,
     )
   }
+
   return { vaultRoot, resolvedPath }
 }
 
@@ -356,9 +359,11 @@ const readNoteOutline = async (
     readFileOrNull(fullPath),
     statOrNull(fullPath),
   ])
+
   if (content === null || fileStats === null) {
     throw new Error(`note not found: "${params.path}"`)
   }
+
   const lines = splitIntoLines(parseNote(content).content)
   const headings = parseHeadings(lines)
   const calloutSpan = parseLeadingCalloutSpan(lines)
