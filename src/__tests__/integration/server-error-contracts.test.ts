@@ -725,6 +725,15 @@ describe("memory errors", () => {
     expectToolError(result, "on_or_after requires file and section")
   })
 
+  it("vault_get_memory on_or_after with section but no file", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_memory",
+      args: { section: "Editor settings", on_or_after: "2026-01-01" },
+    })
+    expectToolError(result, "on_or_after requires file and section")
+  })
+
   it("vault_get_memory on_or_after with file but no section", async () => {
     const result = await callTool({
       client,

@@ -2096,7 +2096,7 @@ describe("getMemoryEntries", () => {
         section: "Decision heuristics (newest first)",
         date: "2026-05-06",
         text: "- **2026-05-06**: Secrets invisible at every layer",
-        entryIndex: expect.any(Number),
+        entryIndex: 0,
       },
     ])
   })
@@ -2149,19 +2149,19 @@ created: 2026-01-01T00:00:00-05:00
         section: "Items (newest first)",
         date: "2026-06-15",
         text: "- **2026-06-15**: Third entry on same day",
-        entryIndex: expect.any(Number),
+        entryIndex: 0,
       },
       {
         section: "Items (newest first)",
         date: "2026-06-15",
         text: "- **2026-06-15**: Second entry on same day",
-        entryIndex: expect.any(Number),
+        entryIndex: 1,
       },
       {
         section: "Items (newest first)",
         date: "2026-06-15",
         text: "- **2026-06-15**: First entry on same day",
-        entryIndex: expect.any(Number),
+        entryIndex: 2,
       },
     ])
   })
@@ -2257,7 +2257,7 @@ created: 2026-01-01T00:00:00-05:00
         section: "Notes (newest first)",
         date: "2026-06-15",
         text: "- **2026-06-15**: First line of the entry\n  Continuation line one\n  Continuation line two",
-        entryIndex: expect.any(Number),
+        entryIndex: 0,
       },
     ])
   })
@@ -2305,7 +2305,7 @@ created: 2026-01-01T00:00:00-05:00
         section: "Working style (newest first)",
         date: "2026-05-04",
         text: "- **2026-05-04**: Single-purpose files",
-        entryIndex: expect.any(Number),
+        entryIndex: 2,
       },
     ])
   })
@@ -2324,7 +2324,7 @@ created: 2026-01-01T00:00:00-05:00
         section: "Working style (newest first)",
         date: "2026-05-04",
         text: "- **2026-05-04**: Single-purpose files",
-        entryIndex: expect.any(Number),
+        entryIndex: 2,
       },
     ])
   })

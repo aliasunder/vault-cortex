@@ -49,7 +49,7 @@ export const registerMemoryTools = ({
       title: "Get Memory",
       description: `Read semantic memory from ${config.memoryDir}/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: single file content. With file+section: just that H2 section's entries. No args: all files concatenated (frontmatter stripped) — can be large. Returns empty string when no memory files exist yet.
 
-With file+section+on_or_after: returns structured JSON entries dated on or after the boundary date (inclusive), newest first. Designed for reconciliation consumers that know a boundary date and need deterministic chronological coverage without re-parsing the section.
+With file+section+on_or_after: returns structured JSON entries dated on or after the boundary date (inclusive), in document order (newest first when the section uses the default top-insertion convention). Designed for reconciliation consumers that know a boundary date and need deterministic chronological coverage without re-parsing the section.
 
 Example: vault_get_memory({ file: "Principles", section: "Decision heuristics (newest first)" })
 Example: vault_get_memory({ file: "Opinions", section: "Code patterns", on_or_after: "2026-09-01" })
@@ -65,7 +65,7 @@ Errors:
 - "section not found: …" — no H2 heading matches; the error lists the file's available sections
 - "date must be a real ISO calendar date" — on_or_after must be a valid YYYY-MM-DD date
 
-Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entries, total, on_or_after } where each entry is { file, section, date, text } — text is the full raw entry markdown (bullet + continuation lines, wikilinks intact), same shape as vault_memory_recall entries. Entries are in newest-first (document) order. An empty match returns { entries: [], total: 0 }.`,
+Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entries, total, on_or_after } where each entry is { file, section, date, text } — text is the full raw entry markdown (bullet + continuation lines, wikilinks intact), same shape as vault_memory_recall entries. Entries are in document order (newest first when the section uses the default top-insertion convention). An empty match returns { entries: [], total: 0 }.`,
       inputSchema: {
         file: z
           .string()
@@ -95,16 +95,6 @@ Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entrie
       })
       reqLogger.info("tool_call", { file, section, onOrAfter })
 
-      if (section && !file) {
-        reqLogger.warn("tool_error", {
-          error: "section requires a file",
-        })
-        return {
-          content: [{ type: "text" as const, text: "section requires a file" }],
-          isError: true as const,
-        }
-      }
-
       if (onOrAfter && (!file || !section)) {
         reqLogger.warn("tool_error", {
           error: "on_or_after requires file and section",
@@ -116,6 +106,16 @@ Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entrie
               text: "on_or_after requires file and section",
             },
           ],
+          isError: true as const,
+        }
+      }
+
+      if (section && !file) {
+        reqLogger.warn("tool_error", {
+          error: "section requires a file",
+        })
+        return {
+          content: [{ type: "text" as const, text: "section requires a file" }],
           isError: true as const,
         }
       }
