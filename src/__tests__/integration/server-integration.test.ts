@@ -11,7 +11,7 @@ import {
   vi,
 } from "vitest"
 import { DateTime } from "luxon"
-import { writeFile } from "node:fs/promises"
+import { stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import Database from "better-sqlite3"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
@@ -43,11 +43,13 @@ describe("default config", () => {
   let client: Client
   let cleanup: (() => Promise<void>) | undefined
   let port: number
+  let vaultPath: string
 
   beforeAll(async () => {
     port = await freePort()
     const server = await startServer(port)
     cleanup = server.cleanup
+    vaultPath = server.vaultPath
     client = await createTestClient(server.port)
   }, 30_000)
 
@@ -118,7 +120,9 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md" },
       })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("Project Alpha")
+      expect(textContent(result)).toBe(
+        '---\ntitle: Project Alpha\ntype: project\ntags:\n  - project\n  - active\nstatus: active\nrelated:\n  - "[[Projects/beta]]"\ncreated: 2026-01-10T10:00:00-05:00\n---\n\n# Project Alpha\n\nThis is a test project for integration testing.\n\n## Tasks\n\n- [ ] First task for Alpha ➕ 2026-01-10 📅 2026-02-20 ^alpha-task-1\n- [x] Completed task ➕ 2026-01-05 ✅ 2026-01-08 ^alpha-done-1\n- [ ] Second task ⏫ ➕ 2026-01-12 ^alpha-task-2\n\n## Notes\n\nSome notes about the project. Links to [[Projects/beta]] and [[About Me/Preferences]].\n',
+      )
     })
 
     it("vault_read_note — outline mode", async () => {
@@ -128,9 +132,26 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md", outline: true },
       })
       expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("Tasks")
-      expect(text).not.toContain("alpha-task-1")
+      const outline = JSON.parse(textContent(result))
+      if (typeof outline.modified !== "string") {
+        throw new Error("outline modified timestamp is missing")
+      }
+      expect(outline.modified).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}(?:Z|[+-]\d{2}:\d{2})$/,
+      )
+      const fixtureStats = await stat(join(vaultPath, "Projects/alpha.md"))
+      expect(DateTime.fromISO(outline.modified).toMillis()).toBe(
+        Math.round(fixtureStats.mtimeMs),
+      )
+      expect(outline).toEqual({
+        bytes: 518,
+        modified: outline.modified,
+        headings: [
+          { level: 1, text: "Project Alpha", bytes: 362 },
+          { level: 2, text: "Tasks", bytes: 198 },
+          { level: 2, text: "Notes", bytes: 97 },
+        ],
+      })
     })
 
     it("vault_read_note — heading mode", async () => {
@@ -140,9 +161,9 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md", heading: "Tasks" },
       })
       expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("alpha-task-1")
-      expect(text).not.toContain("Some notes about the project")
+      expect(textContent(result)).toBe(
+        "## Tasks\n\n- [ ] First task for Alpha ➕ 2026-01-10 📅 2026-02-20 ^alpha-task-1\n- [x] Completed task ➕ 2026-01-05 ✅ 2026-01-08 ^alpha-done-1\n- [ ] Second task ⏫ ➕ 2026-01-12 ^alpha-task-2\n",
+      )
     })
 
     it("vault_read_note — properties_only", async () => {
@@ -152,9 +173,14 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md", properties_only: true },
       })
       expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("active")
-      expect(text).not.toContain("Some notes about the project")
+      expect(JSON.parse(textContent(result))).toEqual({
+        title: "Project Alpha",
+        type: "project",
+        tags: ["project", "active"],
+        status: "active",
+        related: ["[[Projects/beta]]"],
+        created: "2026-01-10T10:00:00-05:00",
+      })
     })
 
     it("vault_list_notes", async () => {

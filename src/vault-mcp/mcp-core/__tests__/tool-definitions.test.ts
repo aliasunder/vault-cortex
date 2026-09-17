@@ -1,8 +1,16 @@
 import { describe, it, expect, beforeEach, vi, onTestFinished } from "vitest"
 import sharp from "sharp"
-import { mkdtemp, rm, writeFile, mkdir, readFile } from "node:fs/promises"
+import {
+  mkdtemp,
+  rm,
+  writeFile,
+  mkdir,
+  readFile,
+  utimes,
+} from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+import { DateTime } from "luxon"
 import type { z } from "zod"
 import { computeEnabledToolNames, registerTools } from "../tool-definitions.js"
 import { TOOL_NAMES, TOOL_REGISTRY } from "../tool-registry.js"
@@ -148,11 +156,11 @@ describe("registerTools", () => {
     expect(config.description).toContain("Cross-section move")
   })
 
-  it("vault_read_note description documents the outline's leading_content field", () => {
+  it("vault_read_note description documents the outline response", () => {
     // The only guard against this drifting from the actual response shape.
     const [, config] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     expect(config.description).toContain(
-      "Outline shape: { leading_callout?, leading_content?, headings }",
+      "Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }",
     )
   })
 
@@ -319,11 +327,14 @@ describe("registerTools", () => {
 
   it("every tool has all 4 annotation hints", () => {
     for (const [, config] of calls) {
-      const annotations = config.annotations!
-      expect(annotations).toHaveProperty("readOnlyHint")
-      expect(annotations).toHaveProperty("destructiveHint")
-      expect(annotations).toHaveProperty("idempotentHint")
-      expect(annotations).toHaveProperty("openWorldHint")
+      const annotations = config.annotations
+      if (!annotations) throw new Error("registered tool has no annotations")
+      expect(Object.keys(annotations).toSorted()).toEqual([
+        "destructiveHint",
+        "idempotentHint",
+        "openWorldHint",
+        "readOnlyHint",
+      ])
     }
   })
 })
@@ -482,10 +493,20 @@ describe("error handling", () => {
     )
   })
 
-  it("vault_read_note rejects combining outline with heading", async () => {
+  it.each([
+    { label: "outline + heading", modes: { outline: true, heading: "Active" } },
+    {
+      label: "outline + properties_only",
+      modes: { outline: true, properties_only: true },
+    },
+    {
+      label: "heading + properties_only",
+      modes: { heading: "Active", properties_only: true },
+    },
+  ])("vault_read_note rejects $label", async ({ modes }) => {
     const [, , handler] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
     const result = (await handler(
-      { path: "note.md", outline: true, heading: "Active" },
+      { path: "note.md", ...modes },
       mockExtra,
     )) as {
       content: Array<{ text: string }>
@@ -874,13 +895,18 @@ describe("vault_patch_note handler", () => {
 describe("vault_read_note outline mode", () => {
   const mockExtra = { requestId: "test-1", sessionId: "session-1" }
 
-  it("serializes leading_callout, leading_content, and headings in that order", async () => {
+  it("serializes file metadata, leading content, and headings in that order", async () => {
     const tempVault = await mkdtemp(join(tmpdir(), "tool-definitions-outline-"))
     onTestFinished(() => rm(tempVault, { recursive: true, force: true }))
-    await writeFile(
+    const content =
+      "> [!info] Scope\n> the callout body\n\nProse after the callout.\n\n## Section\n"
+    const modifiedAt = DateTime.fromISO("2026-09-17T14:30:00.000Z")
+    if (!modifiedAt.isValid) throw new Error("invalid test timestamp")
+    await writeFile(join(tempVault, "both.md"), content, "utf8")
+    await utimes(
       join(tempVault, "both.md"),
-      "> [!info] Scope\n> the callout body\n\nProse after the callout.\n\n## Section\n",
-      "utf8",
+      modifiedAt.toSeconds(),
+      modifiedAt.toSeconds(),
     )
     const server = { registerTool: vi.fn() }
     registerTools({
@@ -901,14 +927,21 @@ describe("vault_read_note outline mode", () => {
       mockExtra,
     )
 
+    const expectedOutline = JSON.stringify({
+      bytes: Buffer.byteLength(content, "utf8"),
+      modified: modifiedAt.toLocal().toISO(),
+      leading_callout: {
+        type: "info",
+        title: "Scope",
+        body: "the callout body",
+      },
+      leading_content: "Prose after the callout.",
+      headings: [{ level: 2, text: "Section", bytes: 11 }],
+    })
+
     // Exact JSON pins key order, which the conditional spreads determine.
     expect(result).toEqual({
-      content: [
-        {
-          type: "text",
-          text: '{"leading_callout":{"type":"info","title":"Scope","body":"the callout body"},"leading_content":"Prose after the callout.","headings":[{"level":2,"text":"Section","bytes":11}]}',
-        },
-      ],
+      content: [{ type: "text", text: expectedOutline }],
     })
   })
 })

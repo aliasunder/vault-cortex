@@ -150,7 +150,12 @@ Group modules register through a gated wrapper that skips disabled names and inj
 | `vault_move_note`         | `old_path, new_path, prune_empty_folders?`                                        | destructiveHint  |
 | `vault_update_properties` | `path, properties`                                                                | destructiveHint  |
 
-`vault_read_note` returns full content by default; optional `properties_only`, `outline`, or `heading` (with `heading_level` to disambiguate) modes return just the properties, the structure, or a single section — cheap partial reads for large notes. `outline` returns an object `{ leading_callout?, leading_content?, headings }` — the heading tree, any top-of-file callout (a `> [!type]` block), and any remaining body text above the first heading (the callout's own lines excluded, so the two never overlap). `start_line` and `limit` page the delivered rendition (full body or a heading section) by line range — the same idiom as `vault_read_file` paging; not available for JSON modes (outline, properties_only).
+`vault_read_note` supports four read shapes:
+
+- The default returns the full note.
+- `properties_only` returns parsed frontmatter. `heading` returns one section (`heading_level` disambiguates duplicate names).
+- `outline` returns `{ bytes, modified, leading_callout?, leading_content?, headings }`. Top-level `bytes` is the whole file's on-disk size; `modified` is its filesystem modification time. Each heading's `bytes` is the exact UTF-8 byte length of the text that `heading` mode returns for that section.
+- `start_line` and `limit` page a full note or heading section by line range. JSON modes do not support paging.
 
 The edit tools differ in how they locate the lines they change — by heading, by exact text, or by a short anchor substring:
 
