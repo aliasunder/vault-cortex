@@ -302,10 +302,14 @@ const tryRerank = async (params: {
       // already path-sorted — the arm exists so a future weight change
       // cannot silently reintroduce row-order-dependent output.
       results: scoredResults.toSorted((resultA, resultB) => {
-        return (
-          resultB.score - resultA.score ||
-          resultA.path.localeCompare(resultB.path)
-        )
+        if (resultA.score !== resultB.score) {
+          return resultB.score - resultA.score
+        }
+        // Code-unit comparison — localeCompare would order ties differently
+        // across deployments depending on the runtime's locale.
+        return resultA.path < resultB.path
+          ? -1
+          : Number(resultA.path > resultB.path)
       }),
     }
   } catch (error) {

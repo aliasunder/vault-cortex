@@ -21,15 +21,19 @@
  *     so the production default (20) is the primary reading and small
  *     limits cover the exclusion boundary they create.
  *
- *  Ranking overrides (--file-leg-weight, --kind-prefix) map to
- *  createSearchIndex's `ranking` option. They are query-time settings: one
- *  built index serves a whole sweep via --reuse-snapshot --reuse-index.
+ *  Ranking overrides (--file-leg-weight, --kind-prefix, --enrich-metadata)
+ *  map to createSearchIndex's `ranking` option. The first two are
+ *  query-time settings: one built index serves a whole sweep via
+ *  --reuse-snapshot --reuse-index. --enrich-metadata is index-time — it
+ *  prefixes note chunks with frontmatter type/tags before embedding, so it
+ *  builds its own index file (search-eval-enriched.db) and its first run
+ *  re-embeds every note.
  *
  *  Usage:
  *    npx tsx scripts/search-eval.ts --judgment <path> [--label baseline]
- *      [--file-leg-weight 0.5] [--kind-prefix] [--limits 20,5,3]
- *      [--work-dir <dir>] [--reuse-snapshot] [--reuse-index]
- *      [--json-out <path>]
+ *      [--file-leg-weight 0.5] [--kind-prefix] [--enrich-metadata]
+ *      [--limits 20,5,3] [--work-dir <dir>] [--reuse-snapshot]
+ *      [--reuse-index] [--json-out <path>]
  */
 
 import { parseArgs } from "node:util"
@@ -168,18 +172,26 @@ type QueryScore = {
   topPaths: string[]
 }
 
+/** True when the path is one of the judgment entry's expected answers —
+ *  by exact `expected_any` match or by `expected_prefix`. */
+const matchesExpectedPath = (
+  judgmentQuery: JudgmentQuery,
+  path: string,
+): boolean => {
+  if (judgmentQuery.expected_any?.includes(path)) return true
+  return Boolean(
+    judgmentQuery.expected_prefix &&
+    path.startsWith(judgmentQuery.expected_prefix),
+  )
+}
+
 const rankOfFirstExpected = (
   results: readonly SearchResult[],
   judgmentQuery: JudgmentQuery,
 ): number | null => {
-  const matchesExpected = (result: SearchResult): boolean => {
-    if (judgmentQuery.expected_any?.includes(result.path)) return true
-    return Boolean(
-      judgmentQuery.expected_prefix &&
-      result.path.startsWith(judgmentQuery.expected_prefix),
-    )
-  }
-  const index = results.findIndex(matchesExpected)
+  const index = results.findIndex((result) => {
+    return matchesExpectedPath(judgmentQuery, result.path)
+  })
   return index === -1 ? null : index + 1
 }
 
@@ -189,12 +201,11 @@ const countUnexpectedFilesInTop5 = (
   results: readonly SearchResult[],
   judgmentQuery: JudgmentQuery,
 ): number => {
-  const expectedPaths = new Set(judgmentQuery.expected_any ?? [])
-  return results
-    .slice(0, 5)
-    .filter(
-      (result) => result.kind === "file" && !expectedPaths.has(result.path),
-    ).length
+  return results.slice(0, 5).filter((result) => {
+    return (
+      result.kind === "file" && !matchesExpectedPath(judgmentQuery, result.path)
+    )
+  }).length
 }
 
 // ── Main ───────────────────────────────────────────────────────

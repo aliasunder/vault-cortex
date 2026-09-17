@@ -54,7 +54,10 @@ export const computeRrfScores = (params: {
 
   return [...scoresByIdentifier.entries()]
     .toSorted(([identifierA, scoreA], [identifierB, scoreB]) => {
-      return scoreB - scoreA || identifierA.localeCompare(identifierB)
+      if (scoreA !== scoreB) return scoreB - scoreA
+      // Code-unit comparison — localeCompare would order ties differently
+      // across deployments depending on the runtime's locale.
+      return identifierA < identifierB ? -1 : Number(identifierA > identifierB)
     })
     .map(([identifier, score]) => ({
       identifier,
