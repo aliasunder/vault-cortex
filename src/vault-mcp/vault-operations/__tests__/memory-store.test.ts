@@ -2144,8 +2144,26 @@ created: 2026-01-01T00:00:00-05:00
       },
       logger,
     )
-    expect(entries).toHaveLength(3)
-    expect(entries.every((entry) => entry.date === "2026-06-15")).toBe(true)
+    expect(entries).toEqual([
+      {
+        section: "Items (newest first)",
+        date: "2026-06-15",
+        text: "- **2026-06-15**: Third entry on same day",
+        entryIndex: expect.any(Number),
+      },
+      {
+        section: "Items (newest first)",
+        date: "2026-06-15",
+        text: "- **2026-06-15**: Second entry on same day",
+        entryIndex: expect.any(Number),
+      },
+      {
+        section: "Items (newest first)",
+        date: "2026-06-15",
+        text: "- **2026-06-15**: First entry on same day",
+        entryIndex: expect.any(Number),
+      },
+    ])
   })
 
   it("returns all entries when boundary is older than everything", async () => {
@@ -2158,7 +2176,10 @@ created: 2026-01-01T00:00:00-05:00
       },
       logger,
     )
-    expect(entries).toHaveLength(2)
+    expect(entries.map((entry) => entry.date)).toEqual([
+      "2026-05-06",
+      "2026-05-05",
+    ])
   })
 
   it("returns empty array when boundary is newer than all entries", async () => {
@@ -2268,22 +2289,6 @@ created: 2026-01-01T00:00:00-05:00
         logger,
       ),
     ).rejects.toThrow("date must be a real ISO calendar date")
-  })
-
-  it("returns all section entries when on_or_after is omitted", async () => {
-    const entries = await getMemoryEntries(
-      {
-        vaultPath: vault,
-        file: "Principles",
-        section: "Decision heuristics",
-      },
-      logger,
-    )
-    expect(entries).toHaveLength(2)
-    expect(entries.map((entry) => entry.date)).toEqual([
-      "2026-05-06",
-      "2026-05-05",
-    ])
   })
 
   it("returns entries with correct field shape", async () => {
