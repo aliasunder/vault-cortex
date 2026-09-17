@@ -24,11 +24,19 @@
  *
  *  Ranking overrides (--file-leg-weight, --kind-prefix, --enrich-metadata)
  *  map to createSearchIndex's `ranking` option. The first two are
- *  query-time settings: one built index serves a whole sweep via
- *  --reuse-snapshot --reuse-index. --enrich-metadata is index-time — it
+ *  query-time settings defaulting to the shipped runtime values (0.5 /
+ *  off): one built index serves a whole sweep via --reuse-snapshot
+ *  --reuse-index. --enrich-metadata defaults off — the default run's index
+ *  is byte-identical to production chunking — and is index-time: it
  *  prefixes note chunks with frontmatter type/tags before embedding, so it
  *  builds its own index file (search-eval-enriched.db) and its first run
  *  re-embeds every note.
+ *
+ *  Judgment file fields (validated by judgmentFileSchema in
+ *  scripts/search-eval-plan.ts): vault_path, exclude_paths,
+ *  exclude_prefixes, and queries — each query carrying id, class
+ *  (recall/precision/sentinel/filtered), query, expected_any or
+ *  expected_prefix, and filters.folder on the filtered class.
  *
  *  Usage:
  *    npx tsx scripts/search-eval.ts --judgment <path> [--label baseline]
@@ -262,6 +270,14 @@ const main = async (): Promise<void> => {
         logger,
       )
       const latencyMs = Math.round(performance.now() - queryStartMs)
+      // The probe proves the pipeline once; a reranker failure mid-sweep
+      // would otherwise degrade silently to RRF-only ordering while the
+      // report attributes the numbers to the reranked pipeline.
+      if (searchResult.search_mode !== "hybrid" || !searchResult.reranked) {
+        throw new Error(
+          `query ${judgmentQuery.id} ran search_mode=${searchResult.search_mode} reranked=${String(searchResult.reranked)} — expected hybrid + reranked`,
+        )
+      }
       const pollutionWindow = Math.min(5, limit)
       scores.push({
         id: judgmentQuery.id,

@@ -356,10 +356,11 @@ export const createSearchIndex = (
     /** When true, creates file_content + file_content_fts tables for
      *  full-text search of non-markdown file content (e.g. canvas). */
     fileToolsEnabled?: boolean | undefined
-    /** Ranking tuning overrides for hybridSearch (file-leg RRF weight,
-     *  reranker kind prefix). Omitted in production — the server ships the
-     *  defaults in hybrid-search.ts; the search-eval harness sets these to
-     *  measure candidate values. */
+    /** Query-time overrides for hybridSearch (file-leg RRF weight, reranker
+     *  kind prefix — defaults in hybrid-search.ts) plus the index-time
+     *  enrichChunkMetadata, which changes stored chunk text and re-embeds
+     *  every note when flipped. Omitted in production; the search-eval
+     *  harness sets these to measure candidate values. */
     ranking?: queries.RankingTuning | undefined
   },
 ) => {

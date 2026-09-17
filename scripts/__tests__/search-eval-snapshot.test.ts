@@ -64,6 +64,24 @@ describe("createVaultSnapshot", () => {
     ])
   })
 
+  it("matches exclusions case-insensitively for case-insensitive vault mounts", () => {
+    const { vaultPath, snapshotDir } = createTempVault()
+    writeVaultFile(vaultPath, join("Sessions", "log.md"))
+    writeVaultFile(vaultPath, join("notes", "keep.md"))
+
+    createVaultSnapshot({
+      vaultPath,
+      snapshotDir,
+      excludePaths: [],
+      excludePrefixes: ["sessions"],
+    })
+
+    expect(listSnapshotFiles(snapshotDir)).toEqual([
+      SNAPSHOT_MARKER,
+      join("notes", "keep.md"),
+    ])
+  })
+
   it("skips files with a hidden segment at any depth", () => {
     const { vaultPath, snapshotDir } = createTempVault()
     writeVaultFile(vaultPath, join(".obsidian", "app.json"))

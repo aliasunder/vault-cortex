@@ -10,6 +10,7 @@ import {
 } from "node:fs"
 import { join, relative, resolve, sep } from "node:path"
 import { z } from "zod"
+import { caseFoldPath } from "../src/utils/case-fold-path.js"
 import { hasHiddenPathSegment } from "../src/utils/has-hidden-path-segment.js"
 
 /** Marks a directory as harness-created so the pre-copy delete can never
@@ -83,13 +84,15 @@ export const createVaultSnapshot = (params: {
   excludePrefixes: readonly string[]
 }): void => {
   const vaultRoot = resolve(params.vaultPath)
+  // Exclusion comparisons are case-folded so a hand-authored exclusion
+  // still matches on a case-insensitive vault mount (macOS/Windows).
   const excludedExactPaths = new Set(
-    params.excludePaths.map((path) => resolve(vaultRoot, path)),
+    params.excludePaths.map((path) => caseFoldPath(resolve(vaultRoot, path))),
   )
   // resolve() strips trailing slashes, so append sep — without it,
   // prefix "sessions" also matches sibling "sessions-archive.md".
   const excludedPrefixes = params.excludePrefixes.map((prefix) => {
-    const resolved = resolve(vaultRoot, prefix)
+    const resolved = caseFoldPath(resolve(vaultRoot, prefix))
     return resolved.endsWith(sep) ? resolved : resolved + sep
   })
 
@@ -113,9 +116,11 @@ export const createVaultSnapshot = (params: {
       const absoluteSource = resolve(source)
       const relativeFromRoot = relative(vaultRoot, absoluteSource)
       if (hasHiddenPathSegment(relativeFromRoot)) return false
-      if (excludedExactPaths.has(absoluteSource)) return false
+
+      const foldedSource = caseFoldPath(absoluteSource)
+      if (excludedExactPaths.has(foldedSource)) return false
       return !excludedPrefixes.some((prefix) => {
-        return absoluteSource.startsWith(prefix)
+        return foldedSource.startsWith(prefix)
       })
     },
   })

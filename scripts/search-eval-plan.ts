@@ -7,15 +7,15 @@ import { z } from "zod"
 import { isHarnessSnapshot } from "./search-eval-snapshot.js"
 import type { SearchResult } from "../src/vault-mcp/search/search-index.js"
 
-// Strict objects: a plain schema would strip a typoed key (a misspelled
-// expectation or filter field) and silently score a different query shape
-// than the judgment file describes.
+// The schemas are strict because a plain schema would strip a typoed key
+// (a misspelled expectation or filter field) and silently score a
+// different query shape than the judgment file describes.
 const judgmentQuerySchema = z
   .strictObject({
     id: z.string().min(1),
     class: z.enum(["recall", "precision", "sentinel", "filtered"]),
     query: z.string().min(1),
-    expected_any: z.array(z.string().min(1)).optional(),
+    expected_any: z.array(z.string().min(1)).min(1).optional(),
     expected_prefix: z.string().min(1).optional(),
     filters: z.strictObject({ folder: z.string().min(1) }).optional(),
   })
@@ -121,12 +121,17 @@ export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
     return limit
   })
 
-  const fileLegWeight = cliArgs["file-leg-weight"]
-    ? Number(cliArgs["file-leg-weight"])
-    : undefined
+  // An empty string (--file-leg-weight= with an unset shell variable) must
+  // reject like any other non-number, not silently fall back to the default.
+  const rawFileLegWeight = cliArgs["file-leg-weight"]
+  const fileLegWeight =
+    rawFileLegWeight === undefined ? undefined : Number(rawFileLegWeight)
   // Strict undefined check — 0 is a valid weight (removes the file legs).
   // Negated >= catches NaN (which fails every comparison).
-  if (fileLegWeight !== undefined && !(fileLegWeight >= 0)) {
+  const fileLegWeightInvalid =
+    rawFileLegWeight === "" ||
+    (fileLegWeight !== undefined && !(fileLegWeight >= 0))
+  if (fileLegWeightInvalid) {
     throw new Error("--file-leg-weight must be a number >= 0")
   }
 

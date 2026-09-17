@@ -81,6 +81,11 @@ describe("resolveEvalRunPlan", () => {
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": "-1" })
     }).toThrow("--file-leg-weight must be a number >= 0")
+    // An unset shell variable interpolates to --file-leg-weight= — that
+    // must reject, not silently run the shipped default.
+    expect(() => {
+      resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": "" })
+    }).toThrow("--file-leg-weight must be a number >= 0")
   })
 
   it("rejects --reuse-index without --reuse-snapshot", () => {
@@ -181,7 +186,7 @@ describe("judgmentFileSchema", () => {
     ])
   })
 
-  it("accepts a query with expected_any and one with expected_prefix", () => {
+  it("accepts expected_any, expected_prefix, and a filtered query with filters", () => {
     const parsed = judgmentFileSchema.safeParse({
       ...baseJudgment,
       queries: [
@@ -197,9 +202,26 @@ describe("judgmentFileSchema", () => {
           query: "other text",
           expected_prefix: "docs/",
         },
+        {
+          id: "q3",
+          class: "filtered",
+          query: "budget",
+          expected_any: ["Notes/budget.md"],
+          filters: { folder: "Journal" },
+        },
       ],
     })
     expect(parsed.success).toBe(true)
+  })
+
+  it("rejects an empty expected_any list", () => {
+    const parsed = judgmentFileSchema.safeParse({
+      ...baseJudgment,
+      queries: [
+        { id: "q1", class: "recall", query: "some text", expected_any: [] },
+      ],
+    })
+    expect(parsed.success).toBe(false)
   })
 
   it("rejects an unknown key on a query so a typoed filter cannot score unfiltered", () => {
