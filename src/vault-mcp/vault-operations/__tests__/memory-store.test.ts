@@ -1859,7 +1859,7 @@ title: Big
     expect(content).toContain("Secrets invisible at every layer")
   })
 
-  it("skips the guard for files at or below the 200-byte floor", async () => {
+  it("skips the guard for files at or below the 1250-byte floor", async () => {
     const tiny = `---
 title: T
 ---
@@ -1869,8 +1869,8 @@ title: T
 ## S (newest first)
 - **2026-06-14**: hi
 `
-    // Sanity-check the fixture is genuinely under the guard's floor.
-    expect(Buffer.byteLength(tiny, "utf8")).toBeLessThan(200)
+    // Sanity-check the fixture is genuinely under the guard's 1250-byte floor.
+    expect(Buffer.byteLength(tiny, "utf8")).toBeLessThan(1250)
     await writeFile(join(vault, "About Me/T.md"), tiny, "utf8")
 
     await deleteMemory(
@@ -2275,6 +2275,20 @@ created: 2026-01-01T00:00:00-05:00
     ).rejects.toThrow(
       'section not found: "Nonexistent section" in About Me/Principles.md',
     )
+  })
+
+  it("throws when the memory file does not exist", async () => {
+    await expect(
+      getMemoryEntries(
+        {
+          vaultPath: vault,
+          file: "Ghost",
+          section: "Decision heuristics",
+          onOrAfter: "2026-05-01",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('memory file not found: "About Me/Ghost.md"')
   })
 
   it("throws on an invalid on_or_after date", async () => {
