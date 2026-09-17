@@ -337,19 +337,22 @@ export const noteMatchesSearchFilters = (
   // exclusive at day granularity: before/after match strictly earlier/later
   // days, on matches within the day.
   if (filters.modified) {
-    if (filters.modified.on !== undefined) {
-      const dayRange = dayToEpochMsRange(filters.modified.on)
-      if (note.mtime < dayRange.startMs || note.mtime >= dayRange.endMs)
-        return false
-    }
-    if (
-      filters.modified.before !== undefined &&
-      note.mtime >= dayToEpochMsRange(filters.modified.before).startMs
-    )
-      return false
-    if (filters.modified.after !== undefined) {
-      const firstAllowedMs = dayToEpochMsRange(filters.modified.after).endMs
+    const { on, before, after } = filters.modified
 
+    if (on !== undefined) {
+      const dayRange = dayToEpochMsRange(on)
+      const withinDay =
+        note.mtime >= dayRange.startMs && note.mtime < dayRange.endMs
+      if (!withinDay) return false
+    }
+
+    if (before !== undefined) {
+      const lastAllowedMs = dayToEpochMsRange(before).startMs
+      if (note.mtime >= lastAllowedMs) return false
+    }
+
+    if (after !== undefined) {
+      const firstAllowedMs = dayToEpochMsRange(after).endMs
       if (note.mtime < firstAllowedMs) return false
     }
   }
