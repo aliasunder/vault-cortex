@@ -114,9 +114,9 @@ const createVaultSnapshot = (params: {
   const excludedExactPaths = new Set(
     params.excludePaths.map((path) => resolve(vaultRoot, path)),
   )
-  const excludedPrefixes = params.excludePrefixes.map((prefix) =>
-    resolve(vaultRoot, prefix),
-  )
+  const excludedPrefixes = params.excludePrefixes.map((prefix) => {
+    return resolve(vaultRoot, prefix)
+  })
 
   rmSync(params.snapshotDir, { recursive: true, force: true })
   mkdirSync(params.snapshotDir, { recursive: true })
@@ -130,9 +130,9 @@ const createVaultSnapshot = (params: {
         .some((segment) => segment.startsWith("."))
       if (isHidden) return false
       if (excludedExactPaths.has(absoluteSource)) return false
-      return !excludedPrefixes.some((prefix) =>
-        absoluteSource.startsWith(prefix),
-      )
+      return !excludedPrefixes.some((prefix) => {
+        return absoluteSource.startsWith(prefix)
+      })
     },
   })
 }
@@ -220,6 +220,7 @@ const main = async (): Promise<void> => {
   const fileLegWeight = cliArgs["file-leg-weight"]
     ? Number(cliArgs["file-leg-weight"])
     : undefined
+  // Strict undefined check — 0 is a valid weight (removes the file legs).
   if (fileLegWeight !== undefined && !(fileLegWeight >= 0)) {
     throw new Error("--file-leg-weight must be a number >= 0")
   }
@@ -272,9 +273,9 @@ const main = async (): Promise<void> => {
     // Scoring against a partially embedded index measures indexing order,
     // not ranking — wait for the background pass and fail on any error.
     await embedding
-    const embedProblems = problems.filter((problem) =>
-      problem.message.includes("embed"),
-    )
+    const embedProblems = problems.filter((problem) => {
+      return problem.message.includes("embed")
+    })
     if (embedProblems.length > 0) {
       throw new Error(
         `embedding pass logged ${embedProblems.length} problem(s) — fix before scoring`,
