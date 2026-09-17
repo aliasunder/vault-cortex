@@ -74,35 +74,31 @@ const sweepOneEntry = async (
   // notes. The final component itself is never followed (unlink removes a
   // symlink, not its target). A missing parent means the file is gone (the
   // user emptied the trash) — drop the row.
-
-  // Assigned inside the try; used outside — the try/catch boundary forces let.
-  let realTrashRootOrNull: string | null
-  let realParentOrNull: string | null
   try {
-    realTrashRootOrNull = await realpathOrNull(trashRoot)
-    realParentOrNull = await realpathOrNull(dirname(resolvedPath))
+    const realTrashRootOrNull = await realpathOrNull(trashRoot)
+    const realParentOrNull = await realpathOrNull(dirname(resolvedPath))
+
+    if (realTrashRootOrNull === null || realParentOrNull === null) {
+      trashEntryStore.deleteTrashEntry(trashPath)
+      return "missing"
+    }
+
+    const parentInsideTrashRoot =
+      realParentOrNull === realTrashRootOrNull ||
+      realParentOrNull.startsWith(realTrashRootOrNull + sep)
+
+    if (!parentInsideTrashRoot) {
+      logger.warn("trash entry parent escapes .trash — skipped", {
+        trashPath,
+      })
+      return "skipped"
+    }
   } catch (error) {
     // Non-ENOENT realpath failure (EACCES, EIO) — keep the row so the
     // next sweep retries; one bad row never aborts the sweep.
     logger.warn("failed to resolve trash entry path", {
       trashPath,
       error: describeError(error),
-    })
-    return "skipped"
-  }
-
-  if (realTrashRootOrNull === null || realParentOrNull === null) {
-    trashEntryStore.deleteTrashEntry(trashPath)
-    return "missing"
-  }
-
-  const parentInsideTrashRoot =
-    realParentOrNull === realTrashRootOrNull ||
-    realParentOrNull.startsWith(realTrashRootOrNull + sep)
-
-  if (!parentInsideTrashRoot) {
-    logger.warn("trash entry parent escapes .trash — skipped", {
-      trashPath,
     })
     return "skipped"
   }
