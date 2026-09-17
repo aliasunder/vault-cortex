@@ -37,11 +37,12 @@
  */
 
 import { parseArgs } from "node:util"
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
-import { join, resolve, sep } from "node:path"
+import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { z } from "zod"
+import { createVaultSnapshot } from "./search-eval-snapshot.js"
 import type { Logger } from "../src/logger.js"
 import { createEmbedder } from "../src/vault-mcp/search/embedder.js"
 import { createReranker } from "../src/vault-mcp/search/reranker.js"
@@ -116,47 +117,6 @@ const createCountingLogger = (): {
     child: () => logger,
   }
   return { logger, problems, vectorSearchStats }
-}
-
-// ── Snapshot ───────────────────────────────────────────────────
-
-/** Copies the vault to the snapshot directory, skipping hidden entries and
- *  every judgment-file exclusion. All index builds read the snapshot, so
- *  live vault writes between runs cannot confound an A/B comparison. */
-const createVaultSnapshot = (params: {
-  vaultPath: string
-  snapshotDir: string
-  excludePaths: readonly string[]
-  excludePrefixes: readonly string[]
-}): void => {
-  const vaultRoot = resolve(params.vaultPath)
-  const excludedExactPaths = new Set(
-    params.excludePaths.map((path) => resolve(vaultRoot, path)),
-  )
-  // resolve() strips trailing slashes, so append sep — without it,
-  // prefix "sessions" also matches sibling "sessions-archive.md".
-  const excludedPrefixes = params.excludePrefixes.map((prefix) => {
-    const resolved = resolve(vaultRoot, prefix)
-    return resolved.endsWith(sep) ? resolved : resolved + sep
-  })
-
-  rmSync(params.snapshotDir, { recursive: true, force: true })
-  mkdirSync(params.snapshotDir, { recursive: true })
-  cpSync(vaultRoot, params.snapshotDir, {
-    recursive: true,
-    filter: (source) => {
-      const absoluteSource = resolve(source)
-      const relativeFromRoot = absoluteSource.slice(vaultRoot.length)
-      const isHidden = relativeFromRoot
-        .split(sep)
-        .some((segment) => segment.startsWith("."))
-      if (isHidden) return false
-      if (excludedExactPaths.has(absoluteSource)) return false
-      return !excludedPrefixes.some((prefix) => {
-        return absoluteSource.startsWith(prefix)
-      })
-    },
-  })
 }
 
 // ── Scoring ────────────────────────────────────────────────────

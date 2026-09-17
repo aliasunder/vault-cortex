@@ -39,9 +39,11 @@ const toRankedList = (
  *  candidate values against a judgment set of queries with expected results.
  *  0.5 is the largest sweep value (1.0/0.7/0.6/0.5/0.3) that removed every
  *  unrelated file from the top 5 of queries where files are off-topic, while
- *  every query that expects a specific file kept it in the top 3; results
- *  only degraded at 0.3. The harness overrides this per run via the ranking
- *  option. */
+ *  every query that expects a specific file kept it in the top 3 or at its
+ *  pre-change rank; results only degraded at 0.3. At exactly 0.5, a file at
+ *  rank 1 in both file legs scores the same as a note at rank 1 in a single
+ *  note leg, so the deterministic path tie-break orders that pair. The
+ *  harness overrides this per run via the ranking option. */
 const DEFAULT_FILE_LEG_WEIGHT = 0.5
 
 /** Whether reranker document text for file results is prefixed with the
