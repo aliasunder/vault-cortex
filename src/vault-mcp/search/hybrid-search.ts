@@ -297,8 +297,10 @@ const tryRerank = async (params: {
     })
 
     return {
-      // Path tie-breaker: equal blended scores would otherwise keep the
-      // incoming (RRF) order, which itself depends on SQLite row order.
+      // Path tie-breaker, defense-in-depth: with the current blend weights,
+      // candidates whose blended scores tie also tied in RRF and so arrive
+      // already path-sorted — the arm exists so a future weight change
+      // cannot silently reintroduce row-order-dependent output.
       results: scoredResults.toSorted((resultA, resultB) => {
         return (
           resultB.score - resultA.score ||

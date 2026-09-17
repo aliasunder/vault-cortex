@@ -313,10 +313,11 @@ const main = async (): Promise<void> => {
     console.log(`indexed ${count} notes in ${rebuildSeconds}s`)
   }
 
-  // Probe: the run is only meaningful fully hybrid + reranked.
-  const firstQuery = judgment.queries[0]
-  if (!firstQuery) throw new Error("judgment file has no queries")
-  const probe = await search.hybridSearch({ query: firstQuery.query }, logger)
+  // Probe: the run is only meaningful fully hybrid + reranked. A fixed
+  // probe string keeps the check independent of the judgment file's query
+  // order — with a healthy index, KNN returns neighbors for any text.
+  const PROBE_QUERY = "vault search eval probe"
+  const probe = await search.hybridSearch({ query: PROBE_QUERY }, logger)
   if (probe.search_mode !== "hybrid" || !probe.reranked) {
     throw new Error(
       `probe query ran search_mode=${probe.search_mode} reranked=${String(probe.reranked)} — expected hybrid + reranked (is the index fully embedded?)`,

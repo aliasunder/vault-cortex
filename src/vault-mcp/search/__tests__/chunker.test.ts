@@ -200,18 +200,28 @@ describe("chunkNoteContent", () => {
     })
 
     it("counts the prefix against the chunk budget", () => {
-      // 440 body tokens fit one 450-token chunk bare, but a ~15-token
-      // prefix pushes the budget below 440 and forces a split.
+      // 440 body tokens fit one 450-token chunk bare. "Note" plus the
+      // 15-token prefix costs 16 tokens, leaving a 434-token budget
+      // (450 − 16), so the body splits exactly at word 434.
       const body = generateTokens(440)
+      const bodyWords = body.split(" ")
       const longPrefix = `Tags: ${generateTokens(14)}.`
 
-      const bareChunks = chunkNoteContent("Note", body)
-      const enrichedChunks = chunkNoteContent("Note", body, {
-        metadataPrefix: longPrefix,
-      })
-
-      expect(bareChunks).toHaveLength(1)
-      expect(enrichedChunks.length).toBeGreaterThan(1)
+      expect(chunkNoteContent("Note", body)).toEqual([
+        { index: 0, text: `Note\n\n${body}` },
+      ])
+      expect(
+        chunkNoteContent("Note", body, { metadataPrefix: longPrefix }),
+      ).toEqual([
+        {
+          index: 0,
+          text: `Note\n${longPrefix}\n\n${bodyWords.slice(0, 434).join(" ")}`,
+        },
+        {
+          index: 1,
+          text: `Note\n${longPrefix}\n\n${bodyWords.slice(434).join(" ")}`,
+        },
+      ])
     })
 
     it("floors the budget at MIN_CHUNK_TOKENS when the prefix is very large", () => {
