@@ -170,6 +170,62 @@ describe("createVaultSnapshot", () => {
     ).toBe(false)
   })
 
+  it("reports a mismatch when the recorded vault path differs", () => {
+    const { vaultPath, snapshotDir } = createTempVault()
+    writeVaultFile(vaultPath, "current.md")
+
+    createVaultSnapshot({
+      vaultPath,
+      snapshotDir,
+      excludePaths: [],
+      excludePrefixes: [],
+    })
+
+    expect(
+      snapshotMatchesProvenance(snapshotDir, {
+        vaultPath: join(vaultPath, "..", "other-vault"),
+        excludePaths: [],
+        excludePrefixes: [],
+      }),
+    ).toBe(false)
+  })
+
+  it("never certifies an interrupted copy as a reusable snapshot", () => {
+    const { vaultPath, snapshotDir } = createTempVault()
+    const missingVault = join(vaultPath, "..", "does-not-exist")
+
+    // cpSync throws on the missing source AFTER the ownership marker is
+    // written — the aborted-copy state this test freezes.
+    expect(() => {
+      createVaultSnapshot({
+        vaultPath: missingVault,
+        snapshotDir,
+        excludePaths: [],
+        excludePrefixes: [],
+      })
+    }).toThrow(/ENOENT/)
+    expect(
+      snapshotMatchesProvenance(snapshotDir, {
+        vaultPath: missingVault,
+        excludePaths: [],
+        excludePrefixes: [],
+      }),
+    ).toBe(false)
+
+    // The ownership marker lets a plain re-run rebuild in place.
+    writeVaultFile(vaultPath, "current.md")
+    createVaultSnapshot({
+      vaultPath,
+      snapshotDir,
+      excludePaths: [],
+      excludePrefixes: [],
+    })
+    expect(listSnapshotFiles(snapshotDir)).toEqual([
+      SNAPSHOT_MARKER,
+      "current.md",
+    ])
+  })
+
   it("refuses to delete a directory that is not a harness snapshot", () => {
     const { vaultPath, snapshotDir } = createTempVault()
     writeVaultFile(vaultPath, "current.md")

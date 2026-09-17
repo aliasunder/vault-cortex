@@ -125,7 +125,10 @@ export const chunkNoteContent = (
     ? `${noteTitle}\n${metadataPrefix}`
     : noteTitle
   // Floor at MIN_CHUNK_TOKENS so a pathological tag list cannot shrink the
-  // budget to nothing.
+  // budget to nothing. The CHUNK_THRESHOLD_TOKENS gate below stays
+  // body-token-based, so a large prefix can drive this budget far under the
+  // threshold that routed a note to the single-chunk path — that note then
+  // splits into many near-floor fragments.
   const maxChunkTokens = metadataPrefix
     ? Math.max(
         MAX_CHUNK_TOKENS - approximateTokenCount(chunkPrefix),

@@ -311,6 +311,23 @@ describe("countUnexpectedFilesInWindow", () => {
     expect(countUnexpectedFilesInWindow(results, expectsOneFile, 3)).toBe(1)
   })
 
+  it("matches a slashless prefix at a path-segment boundary only", () => {
+    const expectsFolder: JudgmentQuery = {
+      id: "q3",
+      class: "sentinel",
+      query: "deployment guide",
+      expected_prefix: "docs",
+    }
+    const results = [
+      searchResultAt("docs2/noise.txt", "file"),
+      searchResultAt("docs/guide.txt", "file"),
+    ]
+    // "docs" must not swallow the docs2/ sibling — the expected result is
+    // the rank-2 file inside docs/, and the sibling counts as pollution.
+    expect(rankOfFirstExpected(results, expectsFolder)).toBe(2)
+    expect(countUnexpectedFilesInWindow(results, expectsFolder, 5)).toBe(1)
+  })
+
   it("treats a prefix-expected file as expected, not pollution", () => {
     const expectsPrefix: JudgmentQuery = {
       id: "q2",

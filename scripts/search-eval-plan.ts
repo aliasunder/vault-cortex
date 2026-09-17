@@ -38,16 +38,21 @@ export type JudgmentQuery = z.infer<typeof judgmentQuerySchema>
 // ── Scoring ────────────────────────────────────────────────────
 
 /** True when the path is one of the judgment entry's expected answers —
- *  by exact `expected_any` match or by `expected_prefix`. */
+ *  by exact `expected_any` match or by `expected_prefix`. A prefix without
+ *  a trailing slash matches at a path-segment boundary, mirroring the
+ *  snapshot exclusions — "docs" must not swallow "docs2/noise.txt". */
 const matchesExpectedPath = (
   judgmentQuery: JudgmentQuery,
   path: string,
 ): boolean => {
   if (judgmentQuery.expected_any?.includes(path)) return true
-  return Boolean(
-    judgmentQuery.expected_prefix &&
-    path.startsWith(judgmentQuery.expected_prefix),
-  )
+
+  const expectedPrefix = judgmentQuery.expected_prefix
+  if (!expectedPrefix) return false
+  const folderPrefix = expectedPrefix.endsWith("/")
+    ? expectedPrefix
+    : `${expectedPrefix}/`
+  return path.startsWith(folderPrefix)
 }
 
 export const rankOfFirstExpected = (

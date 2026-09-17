@@ -102,15 +102,11 @@ export const createVaultSnapshot = (params: {
   }
   rmSync(params.snapshotDir, { recursive: true, force: true })
   mkdirSync(params.snapshotDir, { recursive: true })
-  const provenance: SnapshotProvenance = {
-    vaultPath: vaultRoot,
-    excludePaths: [...params.excludePaths],
-    excludePrefixes: [...params.excludePrefixes],
-  }
-  writeFileSync(
-    join(params.snapshotDir, SNAPSHOT_MARKER),
-    JSON.stringify(provenance),
-  )
+  // Two-phase marker: the empty ownership claim before the copy lets a
+  // crashed run be deleted and rebuilt (the foreign-directory guard would
+  // otherwise refuse it); the provenance is written only after the copy
+  // completes, so a partial snapshot never passes the reuse check.
+  writeFileSync(join(params.snapshotDir, SNAPSHOT_MARKER), "")
   cpSync(vaultRoot, params.snapshotDir, {
     recursive: true,
     filter: (source) => {
@@ -123,4 +119,13 @@ export const createVaultSnapshot = (params: {
       })
     },
   })
+  const provenance: SnapshotProvenance = {
+    vaultPath: vaultRoot,
+    excludePaths: [...params.excludePaths],
+    excludePrefixes: [...params.excludePrefixes],
+  }
+  writeFileSync(
+    join(params.snapshotDir, SNAPSHOT_MARKER),
+    JSON.stringify(provenance),
+  )
 }
