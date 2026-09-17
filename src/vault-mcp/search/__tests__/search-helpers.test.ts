@@ -41,8 +41,12 @@ describe("coerceToArray", () => {
     expect(coerceToArray(["a", "b"])).toEqual(["a", "b"])
   })
 
-  it("stringifies non-string array elements", () => {
-    expect(coerceToArray(["a", 2, true])).toEqual(["a", "2", "true"])
+  it("stringifies primitive non-string array elements and drops null and objects", () => {
+    expect(coerceToArray(["a", 2, true, null, { nested: "value" }])).toEqual([
+      "a",
+      "2",
+      "true",
+    ])
   })
 
   it("wraps a scalar string in an array", () => {

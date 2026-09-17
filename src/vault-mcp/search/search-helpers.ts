@@ -22,7 +22,10 @@ export const isString = (value: unknown): value is string =>
  *  non-string elements. gray-matter may parse multi-value YAML fields
  *  as a scalar or an array depending on syntax (flow vs block). */
 export const coerceToArray = (value: unknown): string[] => {
-  if (Array.isArray(value)) return value.map(String)
+  if (Array.isArray(value))
+    return value
+      .filter((element) => element != null && typeof element !== "object")
+      .map(String)
   return value ? [String(value)] : []
 }
 
