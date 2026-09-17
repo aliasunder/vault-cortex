@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { chunkNoteContent } from "../chunker.js"
+import { buildChunkMetadataPrefix, chunkNoteContent } from "../chunker.js"
 
 /** Generate a string of approximately N whitespace-separated tokens. */
 const generateTokens = (count: number): string =>
@@ -178,5 +178,75 @@ describe("chunkNoteContent", () => {
       const chunks = chunkNoteContent("Note", "")
       expect(chunks).toHaveLength(1)
     })
+  })
+
+  describe("metadata prefix enrichment", () => {
+    it("prefixes every chunk with title plus the metadata line", () => {
+      const section1 = generateTokens(300)
+      const section2 = generateTokens(300)
+      const body = `## One\n\n${section1}\n\n## Two\n\n${section2}`
+
+      const chunks = chunkNoteContent("Note", body, {
+        metadataPrefix: "Type: session-log. Tags: project/vault-cortex.",
+      })
+
+      expect(chunks.length).toBeGreaterThan(1)
+      const prefixedChunks = chunks.filter((chunk) => {
+        return chunk.text.startsWith(
+          "Note\nType: session-log. Tags: project/vault-cortex.\n\n",
+        )
+      })
+      expect(prefixedChunks).toHaveLength(chunks.length)
+    })
+
+    it("counts the prefix against the chunk budget", () => {
+      // 440 body tokens fit one 450-token chunk bare, but a ~15-token
+      // prefix pushes the budget below 440 and forces a split.
+      const body = generateTokens(440)
+      const longPrefix = `Tags: ${generateTokens(14)}.`
+
+      const bareChunks = chunkNoteContent("Note", body)
+      const enrichedChunks = chunkNoteContent("Note", body, {
+        metadataPrefix: longPrefix,
+      })
+
+      expect(bareChunks).toHaveLength(1)
+      expect(enrichedChunks.length).toBeGreaterThan(1)
+    })
+
+    it("produces identical chunks with a null prefix as with no options", () => {
+      const body = `## One\n\n${generateTokens(300)}\n\n## Two\n\n${generateTokens(300)}`
+
+      expect(chunkNoteContent("Note", body, { metadataPrefix: null })).toEqual(
+        chunkNoteContent("Note", body),
+      )
+    })
+  })
+})
+
+describe("buildChunkMetadataPrefix", () => {
+  it("joins type and tags into one line", () => {
+    expect(
+      buildChunkMetadataPrefix({
+        type: "session-log",
+        tags: ["session-log", "project/vault-cortex"],
+      }),
+    ).toBe("Type: session-log. Tags: session-log, project/vault-cortex.")
+  })
+
+  it("emits type alone when there are no tags", () => {
+    expect(buildChunkMetadataPrefix({ type: "reference", tags: [] })).toBe(
+      "Type: reference.",
+    )
+  })
+
+  it("emits tags alone when type is null", () => {
+    expect(buildChunkMetadataPrefix({ type: null, tags: ["daily-note"] })).toBe(
+      "Tags: daily-note.",
+    )
+  })
+
+  it("returns null when the note has neither type nor tags", () => {
+    expect(buildChunkMetadataPrefix({ type: null, tags: [] })).toBeNull()
   })
 })

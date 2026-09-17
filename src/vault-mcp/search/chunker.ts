@@ -28,23 +28,26 @@ const approximateTokenCount = (text: string): number =>
   text.split(/\s+/).filter(Boolean).length
 
 /** Split a single oversized paragraph at word boundaries when it exceeds
- *  MAX_CHUNK_TOKENS and can't be split at paragraph boundaries. */
-const splitOversizedParagraph = (paragraph: string): string[] => {
+ *  maxChunkTokens and can't be split at paragraph boundaries. */
+const splitOversizedParagraph = (
+  paragraph: string,
+  maxChunkTokens: number,
+): string[] => {
   const words = paragraph.split(/\s+/).filter(Boolean)
-  if (words.length <= MAX_CHUNK_TOKENS) return [paragraph]
+  if (words.length <= maxChunkTokens) return [paragraph]
 
   const fragments: string[] = []
-  for (let start = 0; start < words.length; start += MAX_CHUNK_TOKENS) {
-    fragments.push(words.slice(start, start + MAX_CHUNK_TOKENS).join(" "))
+  for (let start = 0; start < words.length; start += maxChunkTokens) {
+    fragments.push(words.slice(start, start + maxChunkTokens).join(" "))
   }
   return fragments
 }
 
 /** Split oversized text into sub-chunks at paragraph boundaries,
- *  keeping each under MAX_CHUNK_TOKENS. Falls back to word-boundary
+ *  keeping each under maxChunkTokens. Falls back to word-boundary
  *  splitting for single paragraphs that exceed the limit. */
-const splitLargeText = (text: string): string[] => {
-  if (approximateTokenCount(text) <= MAX_CHUNK_TOKENS) return [text]
+const splitLargeText = (text: string, maxChunkTokens: number): string[] => {
+  if (approximateTokenCount(text) <= maxChunkTokens) return [text]
 
   const paragraphs = text.split(/\n\n+/)
   const subChunks: string[] = []
@@ -56,7 +59,7 @@ const splitLargeText = (text: string): string[] => {
       ? `${currentChunk}\n\n${paragraph}`
       : paragraph
 
-    if (approximateTokenCount(combined) > MAX_CHUNK_TOKENS && currentChunk) {
+    if (approximateTokenCount(combined) > maxChunkTokens && currentChunk) {
       subChunks.push(currentChunk)
       currentChunk = paragraph
     } else {
@@ -69,32 +72,76 @@ const splitLargeText = (text: string): string[] => {
   }
 
   // Word-boundary split for any chunks still over the limit
-  return subChunks.flatMap((chunk) =>
-    approximateTokenCount(chunk) > MAX_CHUNK_TOKENS
-      ? splitOversizedParagraph(chunk)
-      : [chunk],
-  )
+  return subChunks.flatMap((chunk) => {
+    return approximateTokenCount(chunk) > maxChunkTokens
+      ? splitOversizedParagraph(chunk, maxChunkTokens)
+      : [chunk]
+  })
 }
 
-/** Prefix each text fragment with the note title and assign sequential indices. */
-const toChunks = (fragments: string[], noteTitle: string): NoteChunk[] =>
-  fragments.map((fragment, index) => ({
+/** Prefix each text fragment with the chunk prefix (title, optionally
+ *  followed by a metadata line) and assign sequential indices. */
+const toChunks = (fragments: string[], chunkPrefix: string): NoteChunk[] => {
+  return fragments.map((fragment, index) => ({
     index,
-    text: `${noteTitle}\n\n${fragment}`.trim(),
+    text: `${chunkPrefix}\n\n${fragment}`.trim(),
   }))
+}
+
+/** One human-readable line naming the note's frontmatter type and tags, for
+ *  prepending to chunk text so the embedder and reranker can see metadata.
+ *  Null when the note has neither. */
+export const buildChunkMetadataPrefix = (params: {
+  type: string | null
+  tags: readonly string[]
+}): string | null => {
+  const typePart = params.type ? `Type: ${params.type}.` : null
+  const tagsPart =
+    params.tags.length > 0 ? `Tags: ${params.tags.join(", ")}.` : null
+  const parts = [typePart, tagsPart].filter(Boolean)
+  return parts.length > 0 ? parts.join(" ") : null
+}
 
 /** Split a note into chunks for embedding. Short notes become a single chunk;
  *  longer notes split at heading boundaries, with oversized sections further
- *  split at paragraph boundaries. Each chunk is prefixed with the note title. */
+ *  split at paragraph boundaries. Each chunk is prefixed with the note title
+ *  and, when `metadataPrefix` is given, a metadata line below it.
+ *
+ *  With a metadata prefix, the whole prefix counts against the chunk token
+ *  budget — the embedding and reranker windows truncate at 512 model tokens,
+ *  so an unbudgeted prefix would push body tail content out of view. Without
+ *  one, sizing stays byte-identical to the historical behavior so existing
+ *  content hashes don't churn. */
 export const chunkNoteContent = (
   noteTitle: string,
   bodyContent: string,
+  options?: { metadataPrefix?: string | null | undefined },
 ): NoteChunk[] => {
+  const metadataPrefix = options?.metadataPrefix
+  const chunkPrefix = metadataPrefix
+    ? `${noteTitle}\n${metadataPrefix}`
+    : noteTitle
+  // Floor at MIN_CHUNK_TOKENS so a pathological tag list cannot shrink the
+  // budget to nothing.
+  const maxChunkTokens = metadataPrefix
+    ? Math.max(
+        MAX_CHUNK_TOKENS - approximateTokenCount(chunkPrefix),
+        MIN_CHUNK_TOKENS,
+      )
+    : MAX_CHUNK_TOKENS
+
   const strippedBody = stripMarkdownSyntax(bodyContent)
   const tokenCount = approximateTokenCount(strippedBody)
 
   if (tokenCount < CHUNK_THRESHOLD_TOKENS) {
-    return toChunks([strippedBody], noteTitle)
+    // Only a metadata prefix tightens the single-chunk ceiling — without
+    // one, short-note behavior (and its content hashes) stays historical.
+    const exceedsBudgetWithPrefix =
+      Boolean(metadataPrefix) && tokenCount > maxChunkTokens
+    if (!exceedsBudgetWithPrefix) {
+      return toChunks([strippedBody], chunkPrefix)
+    }
+    return toChunks(splitLargeText(strippedBody, maxChunkTokens), chunkPrefix)
   }
 
   const bodyLines = splitIntoLines(bodyContent)
@@ -102,13 +149,13 @@ export const chunkNoteContent = (
 
   // No headings — split at paragraph boundaries if oversized
   if (headings.length === 0) {
-    return toChunks(splitLargeText(strippedBody), noteTitle)
+    return toChunks(splitLargeText(strippedBody, maxChunkTokens), chunkPrefix)
   }
 
   // Content before the first heading (preamble)
   const firstHeading = headings[0]
   if (firstHeading === undefined) {
-    return toChunks(splitLargeText(strippedBody), noteTitle)
+    return toChunks(splitLargeText(strippedBody, maxChunkTokens), chunkPrefix)
   }
   const preambleLines = bodyLines.slice(0, firstHeading.startLine)
   const preambleText = stripMarkdownSyntax(preambleLines.join("\n")).trim()
@@ -149,10 +196,12 @@ export const chunkNoteContent = (
     rawSections.push(pendingText)
   }
 
-  // Split oversized sections at paragraph boundaries, then prefix all with title
-  const allFragments = rawSections.flatMap((section) => splitLargeText(section))
+  // Split oversized sections at paragraph boundaries, then prefix all chunks
+  const allFragments = rawSections.flatMap((section) => {
+    return splitLargeText(section, maxChunkTokens)
+  })
 
   return allFragments.length > 0
-    ? toChunks(allFragments, noteTitle)
-    : toChunks([strippedBody], noteTitle)
+    ? toChunks(allFragments, chunkPrefix)
+    : toChunks([strippedBody], chunkPrefix)
 }

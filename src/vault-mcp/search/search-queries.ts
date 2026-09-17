@@ -72,10 +72,15 @@ export type MemoryEntryVectorHitRow = MemoryEntryRow & { distance: number }
  *  plain functions with no state of their own. Each optional group is
  *  `null` when its feature is off, and each query degrades accordingly. */
 /** Overrides for hybridSearch's ranking constants (file-leg RRF weight,
- *  reranker kind prefix). A missing field keeps that shipped default. */
+ *  reranker kind prefix) and the index-time chunk metadata enrichment.
+ *  A missing field keeps that shipped default. */
 export type RankingTuning = {
   readonly fileLegWeight?: number | undefined
   readonly rerankKindPrefix?: boolean | undefined
+  /** Index-time, unlike the other two: prefixes note chunk text with
+   *  frontmatter type/tags before embedding, so flipping it re-embeds
+   *  every note once. */
+  readonly enrichChunkMetadata?: boolean | undefined
 }
 
 export type SearchQueryContext = {

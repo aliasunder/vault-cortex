@@ -66,13 +66,17 @@ type JudgmentQuery = z.infer<typeof judgmentQuerySchema>
 
 // ── Counting logger ────────────────────────────────────────────
 
-/** Silences the index's per-query info logs and records warn/error lines so
- *  the embedding pass can be failed on any logged problem. */
+/** Silences the index's per-query info logs, records warn/error lines so
+ *  the embedding pass can be failed on any logged problem, and tallies the
+ *  note-KNN "vector search" lines (knnHits vs uniqueNotes) — the dedup
+ *  collapse ratio shows when one note's chunks flood the KNN window. */
 const createCountingLogger = (): {
   logger: Logger
   problems: { level: string; message: string }[]
+  vectorSearchStats: { knnHits: number; uniqueNotes: number }[]
 } => {
   const problems: { level: string; message: string }[] = []
+  const vectorSearchStats: { knnHits: number; uniqueNotes: number }[] = []
   const printProblem = (
     level: "warn" | "error",
     message: string,
@@ -87,7 +91,18 @@ const createCountingLogger = (): {
   }
   const logger: Logger = {
     debug: () => {},
-    info: () => {},
+    info: (message, data) => {
+      if (
+        message === "vector search" &&
+        typeof data?.knnHits === "number" &&
+        typeof data.uniqueNotes === "number"
+      ) {
+        vectorSearchStats.push({
+          knnHits: data.knnHits,
+          uniqueNotes: data.uniqueNotes,
+        })
+      }
+    },
     warn: (message, data) => {
       printProblem("warn", message, data)
     },
@@ -96,7 +111,7 @@ const createCountingLogger = (): {
     },
     child: () => logger,
   }
-  return { logger, problems }
+  return { logger, problems, vectorSearchStats }
 }
 
 // ── Snapshot ───────────────────────────────────────────────────
@@ -188,6 +203,7 @@ const main = async (): Promise<void> => {
       label: { type: "string", default: "run" },
       "file-leg-weight": { type: "string" },
       "kind-prefix": { type: "boolean", default: false },
+      "enrich-metadata": { type: "boolean", default: false },
       limits: { type: "string", default: "20,5,3" },
       "work-dir": { type: "string" },
       "reuse-snapshot": { type: "boolean", default: false },
@@ -234,7 +250,12 @@ const main = async (): Promise<void> => {
   const workDir =
     cliArgs["work-dir"] ?? join(tmpdir(), "vault-cortex-search-eval")
   const snapshotDir = join(workDir, "vault-snapshot")
-  const indexDbPath = join(workDir, "search-eval.db")
+  // Enrichment changes every note chunk's text, so it gets its own index
+  // file — the plain index stays reusable for weight sweeps.
+  const indexDbPath = join(
+    workDir,
+    cliArgs["enrich-metadata"] ? "search-eval-enriched.db" : "search-eval.db",
+  )
   mkdirSync(workDir, { recursive: true })
 
   if (cliArgs["reuse-snapshot"] && existsSync(snapshotDir)) {
@@ -249,7 +270,7 @@ const main = async (): Promise<void> => {
     })
   }
 
-  const { logger, problems } = createCountingLogger()
+  const { logger, problems, vectorSearchStats } = createCountingLogger()
   const embedder = createEmbedder(logger)
   const reranker = createReranker(logger)
   const search = createSearchIndex(indexDbPath, embedder, reranker, {
@@ -258,6 +279,7 @@ const main = async (): Promise<void> => {
     ranking: {
       fileLegWeight,
       rerankKindPrefix: cliArgs["kind-prefix"],
+      enrichChunkMetadata: cliArgs["enrich-metadata"],
     },
   })
 
@@ -348,6 +370,23 @@ const main = async (): Promise<void> => {
     )
   }
 
+  // KNN-window diversity across the scoring runs (Codex finding 4): when a
+  // repeated metadata prefix lets one note's chunks flood the window, hits
+  // rise while unique notes fall — a shrinking ratio is the warning sign.
+  const totalKnnHits = vectorSearchStats.reduce(
+    (sum, stats) => sum + stats.knnHits,
+    0,
+  )
+  const totalUniqueNotes = vectorSearchStats.reduce(
+    (sum, stats) => sum + stats.uniqueNotes,
+    0,
+  )
+  if (totalKnnHits > 0) {
+    console.log(
+      `note-KNN diversity: ${totalUniqueNotes} unique notes from ${totalKnnHits} chunk hits (${((100 * totalUniqueNotes) / totalKnnHits).toFixed(1)}%)`,
+    )
+  }
+
   const otherLimits = limits.slice(1)
   for (const limit of otherLimits) {
     const missesAtLimit = scores.filter(
@@ -366,6 +405,8 @@ const main = async (): Promise<void> => {
           label: cliArgs.label,
           fileLegWeight: fileLegWeight ?? null,
           kindPrefix: cliArgs["kind-prefix"],
+          enrichMetadata: cliArgs["enrich-metadata"],
+          knnDiversity: { totalKnnHits, totalUniqueNotes },
           scores,
         },
         null,

@@ -24,7 +24,7 @@ import { tasks } from "../obsidian-markdown/tasks.js"
 import type { TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
 import { contentHash, type Embedder } from "./embedder.js"
 import type { Reranker } from "./reranker.js"
-import { chunkNoteContent } from "./chunker.js"
+import { buildChunkMetadataPrefix, chunkNoteContent } from "./chunker.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
 import { describeError } from "../../utils/describe-error.js"
@@ -1627,7 +1627,18 @@ export const createSearchIndex = (
     const noteTitle =
       (isString(parsed.data.title) ? parsed.data.title : null) ??
       basename(notePath, ".md")
-    const chunks = chunkNoteContent(noteTitle, parsed.content)
+    // Metadata enrichment changes chunk text, so every note re-embeds once
+    // (content-hash gated) after the option flips — kept off until the
+    // search-eval measurements justify it.
+    const metadataPrefix = options?.ranking?.enrichChunkMetadata
+      ? buildChunkMetadataPrefix({
+          type: isString(parsed.data.type) ? parsed.data.type : null,
+          tags: coerceToArray(parsed.data.tags),
+        })
+      : null
+    const chunks = chunkNoteContent(noteTitle, parsed.content, {
+      metadataPrefix,
+    })
 
     // Load existing hashes for content-hash gating
     const existingHashes = new Map(
