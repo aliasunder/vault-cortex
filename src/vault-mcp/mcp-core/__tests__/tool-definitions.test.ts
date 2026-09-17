@@ -162,9 +162,6 @@ describe("registerTools", () => {
     expect(config.description).toContain(
       "Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }",
     )
-    expect(config.description).toContain(
-      "the top-level metadata may describe a different file version than the parsed outline",
-    )
   })
 
   it("vault_patch_note description routes a section-above-first-heading insert to insert_before", () => {

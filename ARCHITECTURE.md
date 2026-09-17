@@ -153,7 +153,7 @@ Group modules register through a gated wrapper that skips disabled names and inj
 `vault_read_note` supports four read shapes:
 
 - The default returns the full note. `properties_only` returns parsed frontmatter, and `heading` returns one section (`heading_level` disambiguates duplicate names).
-- `outline` returns `{ bytes, modified, leading_callout?, leading_content?, headings }`. Top-level `bytes` is the whole file's on-disk size, while each heading's `bytes` is the exact UTF-8 byte length of the text that `heading` mode returns. If the note changes during the read, the top-level metadata may describe a different file version than the parsed outline.
+- `outline` returns `{ bytes, modified, leading_callout?, leading_content?, headings }`. Top-level `bytes` is the whole file's on-disk size; `modified` is its filesystem modification time. Each heading's `bytes` is the exact UTF-8 byte length of the text that `heading` mode returns for that section.
 - `start_line` and `limit` page a full note or heading section by line range. JSON modes do not support paging.
 
 The edit tools differ in how they locate the lines they change — by heading, by exact text, or by a short anchor substring:
