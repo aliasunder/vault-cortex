@@ -193,7 +193,10 @@ const main = async (): Promise<void> => {
 
   const judgmentRaw: unknown = JSON.parse(await readFile(judgmentPath, "utf8"))
   const judgment = judgmentFileSchema.parse(judgmentRaw)
-  mkdirSync(workDir, { recursive: true })
+  // Owner-only: the work dir holds a full copy of a private vault under a
+  // predictable temp-dir name, so default modes would expose it to every
+  // local user on a shared host.
+  mkdirSync(workDir, { recursive: true, mode: 0o700 })
 
   if (snapshotReused) {
     console.log(`reusing snapshot: ${snapshotDir}`)
@@ -257,6 +260,10 @@ const main = async (): Promise<void> => {
     )
   }
 
+  // The probe's vault-wide KNN window would dilute the diversity ratio —
+  // only stats recorded from here on belong to the scoring runs.
+  const vectorSearchStatsBeforeScoring = vectorSearchStats.length
+
   const scores: QueryScore[] = []
   for (const judgmentQuery of judgment.queries) {
     for (const limit of limits) {
@@ -312,11 +319,14 @@ const main = async (): Promise<void> => {
   // KNN-window diversity across the scoring runs: when a repeated metadata
   // prefix lets one note's chunks flood the window, hits rise while unique
   // notes fall — a shrinking ratio is the warning sign.
-  const totalKnnHits = vectorSearchStats.reduce(
+  const scoringVectorSearchStats = vectorSearchStats.slice(
+    vectorSearchStatsBeforeScoring,
+  )
+  const totalKnnHits = scoringVectorSearchStats.reduce(
     (sum, stats) => sum + stats.knnHits,
     0,
   )
-  const totalUniqueNotes = vectorSearchStats.reduce(
+  const totalUniqueNotes = scoringVectorSearchStats.reduce(
     (sum, stats) => sum + stats.uniqueNotes,
     0,
   )
