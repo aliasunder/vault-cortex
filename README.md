@@ -454,7 +454,7 @@ Two methods:
 | **OAuth 2.1**     | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256, 6h)      |
 | **Static bearer** | Claude Code, MCP Inspector, curl                         | Raw `MCP_AUTH_TOKEN` |
 
-You don't pick a method up front — a client that supports OAuth walks you through it after you add the server URL, and the static token is for tools where you paste the token into a header yourself. Claude Code works either way.
+The method follows from your client — OAuth when it supports it, the raw token in a header otherwise ([Connect your MCP client](#connect-your-mcp-client) shows both).
 
 OAuth uses dynamic client registration — no manual Client ID or Secret needed:
 
