@@ -166,7 +166,7 @@ claude mcp add --scope user --transport http vault-cortex http://localhost:8000/
 <details>
 <summary><strong>Claude Desktop</strong> (localhost requires mcp-remote bridge)</summary>
 
-A remote server with a publicly reachable `https` URL adds directly in Claude Desktop's "Add custom connector" dialog — no file editing. Any `http` URL — localhost included — needs the file route, because the dialog only accepts `https` URLs: register it in [`claude_desktop_config.json`](https://modelcontextprotocol.io/docs/develop/connect-local-servers) (Claude Desktop → Settings → Developer → Edit Config opens the file) through the [mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge:
+A remote server with a publicly reachable `https` URL adds directly in Claude Desktop's "Add custom connector" dialog — no file editing. Any `http` URL — localhost included — is rejected by that dialog, so register it in [`claude_desktop_config.json`](https://modelcontextprotocol.io/docs/develop/connect-local-servers) instead (Claude Desktop → Settings → Developer → Edit Config opens the file) through the [mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge:
 
 ```json
 {
