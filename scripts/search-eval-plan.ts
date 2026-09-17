@@ -39,14 +39,11 @@ export type JudgmentQuery = z.infer<typeof judgmentQuerySchema>
 // ── Scoring ────────────────────────────────────────────────────
 
 /** True when the path is one of the judgment entry's expected answers —
- *  by exact `expected_any` match or by `expected_prefix`. A prefix without
- *  a trailing slash matches at a path-segment boundary, and both sides are
- *  case-folded, mirroring the snapshot exclusions — "docs" must not swallow
- *  "docs2/noise.txt", and "docs" must match an on-disk "Docs/" the way the
- *  exclusions would on a case-insensitive vault mount. The folding means a
- *  case-sensitive vault holding two paths that differ only in case would
- *  credit either as expected — the same trade-off the exclusions make, and
- *  worth it because judgment files are typed by hand against one vault. */
+ *  an exact `expected_any` match, or `expected_prefix` at a path-segment
+ *  boundary ("docs" never swallows "docs2/noise.txt"). Both sides are
+ *  case-folded like the snapshot exclusions, so a hand-typed "docs"
+ *  matches an on-disk "Docs/"; the cost is that paths differing only in
+ *  case both credit on a case-sensitive vault. */
 const matchesExpectedPath = (
   judgmentQuery: JudgmentQuery,
   path: string,
