@@ -34,8 +34,12 @@ const toRankedList = (
  *  the note legs' implicit 1. Below 1, a thin file match cannot reach the
  *  blend-protected top ranks on leg rank alone — it needs corroboration —
  *  while a strong file answer still surfaces through its leg presence.
- *  The search-eval harness overrides it per run via the ranking option. */
-const DEFAULT_FILE_LEG_WEIGHT = 1
+ *  0.5 is the largest sweep value (1.0/0.7/0.6/0.5/0.3) that removed every
+ *  unrelated file from the top 5 of the pollution eval queries while every
+ *  file-seeking sentinel kept its expected file in the top 3; sentinels
+ *  only degraded at 0.3. The search-eval harness overrides it per run via
+ *  the ranking option. */
+const DEFAULT_FILE_LEG_WEIGHT = 0.5
 
 /** Whether reranker document text for file results is prefixed with the
  *  file's kind ("PDF file:") so the cross-encoder can penalize a document

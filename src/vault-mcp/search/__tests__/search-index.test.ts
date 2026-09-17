@@ -4317,7 +4317,8 @@ describe("canvas file content and links", () => {
         path: "Diagrams/arch.canvas",
         title: "arch",
         snippet: expect.any(String),
-        score: 0.06639,
+        // Rank-1 RRF (1/61 + 0.05) scaled by the shipped file-leg weight 0.5
+        score: 0.0332,
         tags: [],
         folder: "Diagrams",
         type: null,

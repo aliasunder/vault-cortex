@@ -1689,11 +1689,12 @@ describe("hybridSearch — ranking tuning", () => {
   }
 
   it("file-leg weight demotes a two-leg file hit below a note-vector hit", async () => {
+    // Full weight pinned explicitly — the shipped default is below 1.
     const unweightedIndex = createSearchIndex(
       ":memory:",
       createHybridMockEmbedder(),
       undefined,
-      { fileToolsEnabled: true },
+      { fileToolsEnabled: true, ranking: { fileLegWeight: 1 } },
     )
     await seedNoteAndFile(unweightedIndex)
     const weightedIndex = createSearchIndex(
@@ -1759,12 +1760,14 @@ describe("hybridSearch — ranking tuning", () => {
     }
 
     // No embedder — hybridSearch takes the FTS-only fallback fusion path.
+    // Full weight pinned explicitly — the shipped default is below 1.
     const unweightedIndex = createSearchIndex(
       ":memory:",
       undefined,
       undefined,
       {
         fileToolsEnabled: true,
+        ranking: { fileLegWeight: 1 },
       },
     )
     seedFallbackCorpus(unweightedIndex)
