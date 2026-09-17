@@ -85,11 +85,11 @@ jobs:
           permission-checks: write
 
       # Every optional input is overridable via a repo variable (Settings →
-      # Secrets and variables → Actions → Variables); unset vars fall back
-      # to the action's defaults. Inputs whose default is empty
-      # (fallback_model, max_findings) pass empty when the var is unset —
-      # identical to omitting them.
-      - uses: aliasunder/umm-actually@a2b6b24cf1e7d7b6f9892b092e240780c7a2118e # v0.4.4
+      # Secrets and variables → Actions → Variables). Unset vars use the action
+      # default unless the expression below supplies an explicit workflow default.
+      # Inputs whose default is empty (fallback_model, max_findings) pass empty
+      # when the var is unset — identical to omitting them.
+      - uses: aliasunder/umm-actually@d3d9d89743d627e41a07586e97ceace216c7a721 # v0.4.5
         with:
           github_token: ${{ steps.app-token.outputs.token }}
           openrouter_api_key: ${{ secrets.OPENROUTER_KEY }}
@@ -100,8 +100,11 @@ jobs:
           # output. Empty = no fallback
           fallback_model: ${{ vars.UMM_FALLBACK_MODEL }}
           # Per-attempt cap on a single model request; a timed-out attempt
-          # aborts and advances the retry/fallback ladder. Empty = 600
+          # aborts and advances the retry/fallback ladder. Empty = 900
           request_timeout_seconds: ${{ vars.UMM_REQUEST_TIMEOUT_SECONDS }}
+          # Shared cap across review work. Empty = 1500. Use 1500 or less
+          # to leave publication headroom before the 30-minute job timeout.
+          review_timeout_seconds: ${{ vars.UMM_REVIEW_TIMEOUT_SECONDS }}
           # Positive integer cap on posted findings (highest severity
           # first). Empty = uncapped
           max_findings: ${{ vars.UMM_MAX_FINDINGS }}
