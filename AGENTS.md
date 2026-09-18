@@ -177,7 +177,7 @@ src/
       memory-store.ts                  # About Me/ heading-aware read/append/delete
       daily-notes.ts                   # Daily note config reader + path resolver (env settings > daily-notes.json)
       task-mutations.ts                # Task create + state mutations (status, priority, heading moves, sub-tasks)
-      task-format-config.ts            # Tasks-plugin format config reader (emoji vs Dataview)
+      task-format-config.ts            # Tasks-plugin format config reader (emoji vs Dataview) + status registry
       trash-config.ts                  # Obsidian "Deleted files" config reader (trashOption from .obsidian/app.json)
       trash-sweeper.ts                 # Trash bookkeeping: orphan purge (boot) + retention sweep (boot + daily); row store injected from search
       asset-operations.ts              # Asset read dispatch + browsing (image fit, canvas linearize/raw, extension filter, statted slice)
