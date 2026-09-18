@@ -5895,6 +5895,30 @@ title: Tasks
       ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
     })
 
+    it("createTask rejects a NON_TASK parent by line number", async () => {
+      resetTaskFormatConfigCache()
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [ ] Normal task ➕ 2026-07-02 ^normal\n`,
+      )
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Sub-task",
+            blockId: "sub",
+            parentLine: 5,
+          },
+          logger,
+        ),
+      ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
+    })
+
     it("allows updating a normal task when NON_TASK statuses exist", async () => {
       resetTaskFormatConfigCache()
       const vault = await createVault()
@@ -5910,8 +5934,13 @@ title: Tasks
         logger,
       )
 
-      expect(result.description).toBe("Normal task")
-      expect(result.changes).toEqual(["status: todo → done"])
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 6,
+        description: "Normal task",
+        block_id: "normal",
+        changes: ["status: todo → done"],
+      })
     })
   })
 })
