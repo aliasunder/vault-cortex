@@ -545,7 +545,7 @@ const compareMemoryEntriesChronologically = (
  *  reorder tied entries. NUL cannot appear in file names, so the key never
  *  collides across files. */
 const memoryEntryFusionKey = (row: MemoryEntryRow): string =>
-  `${row.file} ${String(row.entry_index)}`
+  `${row.file}\u0000${String(row.entry_index)}`
 
 const memoryEntryRowToWireEntry = (row: MemoryEntryRow): MemoryRecallEntry => ({
   file: row.file,
