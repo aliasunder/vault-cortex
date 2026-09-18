@@ -681,7 +681,7 @@ const CHECKBOX_CHAR_RE = /\[(.)\]/u
 /** The Tasks plugin's NON_TASK status type marks checkboxes that are
  *  excluded from the task system. The grammar regex still matches them,
  *  so callers guard after locating the line. */
-const rejectNonTaskLine = ({
+const rejectNonTaskCheckbox = ({
   taskLine,
   statusRegistry,
 }: {
@@ -1163,7 +1163,7 @@ const findParentLineIndex = ({
     const foundLine = bodyLines[foundIndex]
 
     if (statusRegistry && foundLine) {
-      rejectNonTaskLine({ taskLine: foundLine, statusRegistry })
+      rejectNonTaskCheckbox({ taskLine: foundLine, statusRegistry })
     }
     return foundIndex
   }
@@ -1174,7 +1174,7 @@ const findParentLineIndex = ({
     throw new Error(`parent task not found: line ${locator.line}`)
   }
   if (statusRegistry) {
-    rejectNonTaskLine({ taskLine: parentLineText, statusRegistry })
+    rejectNonTaskCheckbox({ taskLine: parentLineText, statusRegistry })
   }
   return parentLineIndex
 }
@@ -1528,7 +1528,10 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       taskFormat: format ?? pluginConfig.taskFormat,
     }
 
-    rejectNonTaskLine({ taskLine: originalTaskLine, statusRegistry: formatConfig.statusRegistry })
+    rejectNonTaskCheckbox({
+      taskLine: originalTaskLine,
+      statusRegistry: formatConfig.statusRegistry,
+    })
 
     // Prior field values, so every `changes` entry can state before → after.
     // Parsed from the whole note so `depth` counts task ancestors the way
