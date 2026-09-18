@@ -322,6 +322,8 @@ const findTaskBlockEnd = (lines: readonly string[], taskLineIndex: number): numb
   // Structural indent — blockquote markers stripped, the same measure the
   // parser uses for depth, so a quoted card's block matches its sub-tasks.
   const taskIndent = tasks.getTaskIndent(taskLine)
+  // Walks forward with variable-length jumps (blank lines skipped,
+  // sub-items grouped), then trims trailing blanks — both loops mutate.
   let endIndex = taskLineIndex + 1
 
   while (endIndex < lines.length) {
@@ -374,9 +376,8 @@ const subtaskIndentUnder = ({
   return firstChildPrefix ?? `${parentPrefix}  `
 }
 
-/** Top-of-section insertion index: the heading's body start, or just past
- *  a `**Complete**` marker — inserting above the marker would break
- *  done-lane detection on later reads. */
+/** Skips past a `**Complete**` marker when present — inserting above it
+ *  would break done-lane detection on later reads. */
 const taskInsertIndexUnderHeading = ({
   lines,
   heading,
@@ -393,9 +394,9 @@ const taskInsertIndexUnderHeading = ({
   return firstContent === "**Complete**" ? firstContentIndex + 1 : heading.bodyStartLine
 }
 
-/** Bottom-of-section insertion index: after the last non-blank line in
- *  the section body, so the task appends to the existing content without
- *  trailing blank-line gaps. Falls back to bodyStartLine for empty sections. */
+/** Appends after the last non-blank line in the section body so new tasks
+ *  land without trailing blank-line gaps. Falls back to bodyStartLine for
+ *  empty sections. */
 const taskAppendIndexUnderHeading = ({
   lines,
   heading,
@@ -462,7 +463,7 @@ const headingInsertIndex = ({
 }
 
 /** Resolves the effective insertion position for a new task under a heading.
- *  Priority: explicit param > Kanban setting > context default. */
+ *  The explicit param wins, then the Kanban setting, then the context default. */
 const resolveCreatePosition = ({
   explicitPosition,
   isKanbanBoard,
@@ -851,9 +852,9 @@ const resolveRecurrenceSpawn = ({
  *  content search — a vault can hold two byte-identical recurring lines,
  *  and a search would find the wrong one.
  *
- *  Worked example: spawn at 5; the completed block [3, 5) moves to done
- *  lane at line 8. Removing the block shifts the spawn to 5 − 2 = 3;
- *  reinserting at 8 lands below 3, so no shift. A subtask append at or
+ *  Worked example — spawn at 5, the completed block [3, 5) moves to done
+ *  lane at line 8. Removing the block shifts the spawn to 5 − 2 = 3,
+ *  reinserting at 8 lands below 3 so no shift. A subtask append at or
  *  above the spawn (the on-next-line layout) shifts it once more. */
 const spawnIndexAfterSplices = ({
   spawnIndex,
@@ -912,11 +913,13 @@ const detectDoneLane = (
   if (doneLanes.length === 1) {
     const lane = doneLanes[0]
 
-    if (!lane) throw new Error("unexpected empty done lanes")
+    if (!lane) {
+      throw new Error("unexpected empty done lanes")
+    }
     return lane
   }
 
-  // Fallback: look for a heading named "Done"
+  // No **Complete** marker found — fall back to a heading named "Done"
   const doneHeading = headings.find((heading) => heading.text === "Done")
 
   if (doneHeading) return "Done"
@@ -1009,7 +1012,7 @@ const parentTaskLocatorFrom = ({
   return undefined
 }
 
-/** Returns the parent's body-line index; throws when the locator resolves to nothing or to a non-task line. */
+/** Throws when the locator resolves to nothing or to a non-task line. */
 const findParentLineIndex = ({
   locator,
   bodyLines,
@@ -1068,9 +1071,15 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
   }
 
   // Validate dates
-  if (due) validateDate(due, "due")
-  if (scheduled) validateDate(scheduled, "scheduled")
-  if (start) validateDate(start, "start")
+  if (due) {
+    validateDate(due, "due")
+  }
+  if (scheduled) {
+    validateDate(scheduled, "scheduled")
+  }
+  if (start) {
+    validateDate(start, "start")
+  }
 
   if (parentBlockId && parentLine) {
     throw new Error("parentBlockId and parentLine are mutually exclusive")
@@ -1271,8 +1280,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     assignBlockId: newBlockId,
   } = params
 
-  // Validation: exactly one identifier
-  const identifierCount = (blockId ? 1 : 0) + (line ? 1 : 0)
+  // Exactly one identifier required
+  const identifierCount = [blockId, line].filter(Boolean).length
 
   if (identifierCount === 0) {
     throw new Error("exactly one of blockId or line is required")
@@ -1281,7 +1290,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     throw new Error("blockId and line are mutually exclusive")
   }
 
-  // Validation: at least one mutation
+  // At least one mutation required
   const hasMutation =
     status !== undefined ||
     priority !== undefined ||
@@ -1316,7 +1325,9 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     { field: "created", value: created },
   ]
   for (const { field, value } of dateParams) {
-    if (typeof value === "string") validateDate(value, field)
+    if (typeof value === "string") {
+      validateDate(value, field)
+    }
   }
 
   if (newDescription !== undefined && !newDescription.trim()) {
@@ -1350,8 +1361,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     const bodyLines = splitIntoLines(parsed.content)
     const headings = parseHeadings(bodyLines)
 
-    // Frontmatter offset — extractTasks uses the same formula:
-    // file_line = bodyStartLine + bodyLineIndex + 1.
+    // extractTasks uses the same formula (file_line = bodyStartLine +
+    // bodyLineIndex + 1), so the offset must match.
     const bodyStartLine = tasks.findBodyStartLine(splitIntoLines(fileContent))
 
     const taskLineIndex = locateTaskLine({
@@ -1393,7 +1404,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       validateBlockId(newBlockId, bodyLines, taskLineIndex)
     }
 
-    // Resolve format config: explicit param > plugin config > emoji default
+    // The explicit param wins, then the plugin config, then the emoji default
     const pluginConfig = await readTaskFormatConfig(vaultPath)
     const formatConfig = {
       ...pluginConfig,
@@ -1403,8 +1414,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     const today = todayIsoDate()
 
     // In-line edits, in the order they are applied to the task line.
-    // Description must be LAST: every field edit splits the line at the
-    // description/metadata boundary, and a signifier in new description
+    // Description must be LAST because every field edit splits the line at
+    // the description/metadata boundary, and a signifier in new description
     // text would shift that boundary — see the comment on the description
     // entry below. The recurrence spawn reads the fully edited line, so
     // an update that changes dates or the rule and completes in one call
@@ -1415,13 +1426,14 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       ...(status
         ? [
             {
-              apply: (taskLine: string) =>
-                tasks.updateTaskLineStatus({
+              apply: (taskLine: string) => {
+                return tasks.updateTaskLineStatus({
                   taskLine,
                   newStatus: status,
                   today,
                   config: formatConfig,
-                }),
+                })
+              },
               change: formatChange({
                 field: "status",
                 before: taskBefore.status,
@@ -1433,12 +1445,13 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       ...(priority !== undefined
         ? [
             {
-              apply: (taskLine: string) =>
-                tasks.updateTaskLinePriority({
+              apply: (taskLine: string) => {
+                return tasks.updateTaskLinePriority({
                   taskLine,
                   newPriority: priority,
                   config: formatConfig,
-                }),
+                })
+              },
               change: formatChange({
                 field: "priority",
                 before: taskBefore.priority,
@@ -1447,35 +1460,36 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
             },
           ]
         : []),
-      ...dateParams.flatMap(({ field, value }) =>
-        value === undefined
-          ? []
-          : [
-              {
-                apply: (taskLine: string) =>
-                  tasks.updateTaskLineDate({
-                    taskLine,
-                    field,
-                    date: value,
-                    config: formatConfig,
-                  }),
-                change: formatChange({
-                  field,
-                  before: taskBefore[`${field}Date`],
-                  after: value,
-                }),
-              },
-            ],
-      ),
+      ...dateParams.flatMap(({ field, value }) => {
+        if (value === undefined) return []
+        return [
+          {
+            apply: (taskLine: string) => {
+              return tasks.updateTaskLineDate({
+                taskLine,
+                field,
+                date: value,
+                config: formatConfig,
+              })
+            },
+            change: formatChange({
+              field,
+              before: taskBefore[`${field}Date`],
+              after: value,
+            }),
+          },
+        ]
+      }),
       ...(recurrence !== undefined
         ? [
             {
-              apply: (taskLine: string) =>
-                tasks.updateTaskLineRecurrence({
+              apply: (taskLine: string) => {
+                return tasks.updateTaskLineRecurrence({
                   taskLine,
                   recurrenceText: recurrence,
                   config: formatConfig,
-                }),
+                })
+              },
               change: formatChange({
                 field: "recurrence",
                 before: taskBefore.recurrence,
@@ -1505,12 +1519,13 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       ...(taskId !== undefined
         ? [
             {
-              apply: (taskLine: string) =>
-                tasks.updateTaskLineTaskId({
+              apply: (taskLine: string) => {
+                return tasks.updateTaskLineTaskId({
                   taskLine,
                   taskId,
                   config: formatConfig,
-                }),
+                })
+              },
               change: formatChange({
                 field: "task_id",
                 before: taskBefore.taskId,
@@ -1522,12 +1537,13 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       ...(dependsOn !== undefined
         ? [
             {
-              apply: (taskLine: string) =>
-                tasks.updateTaskLineDependsOn({
+              apply: (taskLine: string) => {
+                return tasks.updateTaskLineDependsOn({
                   taskLine,
                   dependsOn,
                   config: formatConfig,
-                }),
+                })
+              },
               change: formatChange({
                 field: "depends_on",
                 before: formatDependsOn(taskBefore.dependsOn),
@@ -1556,8 +1572,9 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       ...(newDescription !== undefined
         ? [
             {
-              apply: (taskLine: string) =>
-                tasks.replaceTaskLineDescription({ taskLine, newDescription }),
+              apply: (taskLine: string) => {
+                return tasks.replaceTaskLineDescription({ taskLine, newDescription })
+              },
               // The after-value previews the swap on the ORIGINAL line. The
               // field edits above never move the description/metadata
               // boundary (the old description is still in place while they
@@ -1774,7 +1791,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
           taskLineIndex: completedIndexAfterSpawn,
           targetLane,
           headings: headingsAfterSpawn,
-          position,
+          ...(position && { position }),
         })
       : {
           lines: linesWithSpawn,
