@@ -151,7 +151,8 @@ const fileContentVectorSearch = (
 
   try {
     // The same over-fetch-then-truncate as vectorSearch, so boundary ties
-    // resolve by path order instead of vec0's scan order.
+    // resolve by path order instead of vec0's scan order. Ties spanning the
+    // doubled window remain engine-chosen.
     const overFetchedFileRows = params.folderPathPattern
       ? knnSearchInFolderStmt.all(
           params.queryEmbeddingBuffer,

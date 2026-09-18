@@ -549,7 +549,7 @@ describe("memoryRecall", () => {
   it("rejects with a remediation message when no memory dir is configured", async () => {
     const index = createSearchIndex(":memory:")
     await expect(index.memoryRecall({ query: "anything" }, logger)).rejects.toThrow(
-      "memory recall is not available: the memory layer is disabled (MEMORY_ENABLED=false)",
+      /^memory recall is not available: the memory layer is disabled \(MEMORY_ENABLED=false\)$/,
     )
   })
 

@@ -650,14 +650,16 @@ describe("equal-score tie-breaking in retrieval legs", () => {
       fileToolsEnabled: true,
     })
     const identicalFileContent = "walrus habitat survey notes"
-    // Same eight-versus-six construction as the folder-scoped note test above
-    // — file legs scope to the folder in SQL alone, so the outside seed here
-    // genuinely proves the in-folder statement ran.
+    // Same eight-versus-six construction as the folder-scoped note test
+    // above. File legs scope to the folder in SQL alone, and assets/out.txt
+    // sorts before every docs/ path — with folder scoping intact the window
+    // never contains it, while the plain KNN statement would rank it first
+    // and fail the assertion.
     for (const filePath of [
       "docs/aaa.txt",
       "docs/bbb.txt",
       "docs/ccc.txt",
-      "other/out.txt",
+      "assets/out.txt",
       "docs/ddd.txt",
       "docs/eee.txt",
       "docs/fff.txt",
@@ -2115,13 +2117,13 @@ describe("searchByProperty", () => {
 describe("markdown path requirement", () => {
   it("getBacklinks rejects a path without .md or .canvas extension", () => {
     expect(() => index.getBacklinks({ path: "Projects/Plan" }, logger)).toThrow(
-      'path must end in ".md" or ".canvas" (received "Projects/Plan")',
+      /^path must end in "\.md" or "\.canvas" \(received "Projects\/Plan"\)$/,
     )
   })
 
   it("getOutgoingLinks rejects a path without .md or .canvas extension", () => {
     expect(() => index.getOutgoingLinks({ path: "Projects/Plan" }, logger)).toThrow(
-      'path must end in ".md" or ".canvas" (received "Projects/Plan")',
+      /^path must end in "\.md" or "\.canvas" \(received "Projects\/Plan"\)$/,
     )
   })
 })
@@ -4344,7 +4346,7 @@ Shared datefilter content for boundary tests.
         { query: "datefilter", filters: { created: { on: "March 10" } } },
         logger,
       ),
-    ).toThrow('invalid created.on date: "March 10". Use YYYY-MM-DD (e.g. 2026-07-03).')
+    ).toThrow(/^invalid created\.on date: "March 10"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/)
   })
 
   it("rejects a calendar-invalid created date", () => {
@@ -4357,7 +4359,9 @@ Shared datefilter content for boundary tests.
         },
         logger,
       ),
-    ).toThrow('invalid created.before date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).')
+    ).toThrow(
+      /^invalid created\.before date: "2026-02-31"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
+    )
   })
 })
 
@@ -4447,7 +4451,9 @@ Shared datefilter content for mtime boundary tests.
         { query: "datefilter", filters: { modified: { after: "yesterday" } } },
         logger,
       ),
-    ).toThrow('invalid modified.after date: "yesterday". Use YYYY-MM-DD (e.g. 2026-07-03).')
+    ).toThrow(
+      /^invalid modified\.after date: "yesterday"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
+    )
   })
 
   it("rejects a calendar-invalid modified date", () => {
@@ -4460,7 +4466,9 @@ Shared datefilter content for mtime boundary tests.
         },
         logger,
       ),
-    ).toThrow('invalid modified.before date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).')
+    ).toThrow(
+      /^invalid modified\.before date: "2026-02-31"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
+    )
   })
 
   it("date filters AND-combine with other filters and the text query", () => {
