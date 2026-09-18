@@ -367,7 +367,8 @@ const subtaskIndentUnder = ({
   lines: readonly string[]
   parentLineIndex: number
 }): string => {
-  const parentPrefix = LIST_ITEM_PREFIX_RE.exec(lines[parentLineIndex] ?? "")?.[0] ?? ""
+  const parentLine = lines[parentLineIndex]
+  const parentPrefix = parentLine ? (LIST_ITEM_PREFIX_RE.exec(parentLine)?.[0] ?? "") : ""
   const blockEnd = findTaskBlockEnd(lines, parentLineIndex)
   const firstChildIndex = parentLineIndex + 1
   const hasExistingChildren = firstChildIndex < blockEnd
@@ -431,7 +432,11 @@ const headingInsertIndexAtPosition = ({
   const cardStartIndices: number[] = []
   // Variable-length jumps through the section: each card's sub-item block
   // is skipped via findTaskBlockEnd, so the step size varies per iteration.
+  // lastCardBlockEnd tracks the end of the final card's block so an integer
+  // overshoot clamps to after the last card, not at the section's
+  // trailing-content position.
   let walkIndex = sectionStart
+  let lastCardBlockEnd = -1
 
   while (walkIndex < sectionEnd) {
     const line = lines[walkIndex]
@@ -441,10 +446,15 @@ const headingInsertIndexAtPosition = ({
       continue
     }
     cardStartIndices.push(walkIndex)
-    walkIndex = findTaskBlockEnd(lines, walkIndex)
+    const blockEnd = findTaskBlockEnd(lines, walkIndex)
+    lastCardBlockEnd = blockEnd
+    walkIndex = blockEnd
   }
 
-  return cardStartIndices[position - 1] ?? taskAppendIndexUnderHeading({ lines, heading })
+  return (
+    cardStartIndices[position - 1] ??
+    (lastCardBlockEnd >= 0 ? lastCardBlockEnd : taskAppendIndexUnderHeading({ lines, heading }))
+  )
 }
 
 const headingInsertIndex = ({
@@ -628,16 +638,18 @@ const moveTaskBlock = ({
   targetLane,
   headings,
   position,
+  beforePosition,
 }: {
   lines: readonly string[]
   taskLineIndex: number
   targetLane: string
   headings: readonly HeadingInfo[]
   position?: "top" | "bottom" | number
+  beforePosition?: number
 }): {
   lines: readonly string[]
   taskLineIndex: number
-  change?: string
+  changes: string[]
   /** Lines the move relocated (task + sub-items) — how far the splices
    *  shifted every line between the block's old and new positions. Absent
    *  when the task already sat under the target heading and nothing moved. */
@@ -654,16 +666,23 @@ const moveTaskBlock = ({
   const currentLane = currentHeading?.text ?? "(before first heading)"
   const isSameLane = currentLane === targetLane
 
-  if (isSameLane && !position) return { lines, taskLineIndex }
+  if (isSameLane && !position) return { lines, taskLineIndex, changes: [] }
 
   const taskBlockEnd = findTaskBlockEnd(lines, taskLineIndex)
   const taskBlock = lines.slice(taskLineIndex, taskBlockEnd)
   const linesWithoutBlock = lines.toSpliced(taskLineIndex, taskBlockEnd - taskLineIndex)
 
   // Heading positions shift once the block is gone — re-parse before placing
-  const headingAfterRemoval = parseHeadings(linesWithoutBlock).find(
-    (heading) => heading.text === targetLane,
-  )
+  const headingsAfterRemoval = parseHeadings(linesWithoutBlock)
+  const matchingHeadings = headingsAfterRemoval.filter((heading) => heading.text === targetLane)
+
+  if (matchingHeadings.length > 1 && isSameLane) {
+    throw new Error(
+      `cannot reorder within "${targetLane}" — the heading appears ${matchingHeadings.length} times; pass a heading to disambiguate`,
+    )
+  }
+
+  const headingAfterRemoval = matchingHeadings[0]
 
   if (!headingAfterRemoval) {
     throw new Error(`heading "${targetLane}" not found after line removal`)
@@ -678,26 +697,29 @@ const moveTaskBlock = ({
   // After removing the block, lines below it shift up by the block's
   // length — so insertAt (in the post-removal array) equalling the
   // original taskLineIndex means the card would land back where it was.
-  if (isSameLane && insertAt === taskLineIndex) return { lines, taskLineIndex }
+  if (isSameLane && insertAt === taskLineIndex) return { lines, taskLineIndex, changes: [] }
 
   const resultLines = linesWithoutBlock.toSpliced(insertAt, 0, ...taskBlock)
 
-  const change = isSameLane
-    ? formatChange({
-        field: "position",
-        before: positionOfTaskInLane(lines, targetHeading, taskLineIndex),
-        after: positionOfTaskInLane(resultLines, headingAfterRemoval, insertAt),
-      })
-    : formatChange({
-        field: "heading",
-        before: currentLane,
-        after: targetLane,
-      })
+  const changes: string[] = []
+
+  if (!isSameLane) {
+    changes.push(formatChange({ field: "heading", before: currentLane, after: targetLane }))
+  }
+  if (isSameLane) {
+    const before = beforePosition ?? positionOfTaskInLane(lines, targetHeading, taskLineIndex)
+    const after = positionOfTaskInLane(resultLines, headingAfterRemoval, insertAt)
+    changes.push(formatChange({ field: "position", before, after }))
+  } else if (typeof position === "number" && currentHeading) {
+    const before = beforePosition ?? positionOfTaskInLane(lines, currentHeading, taskLineIndex)
+    const after = positionOfTaskInLane(resultLines, headingAfterRemoval, insertAt)
+    changes.push(formatChange({ field: "position", before, after }))
+  }
 
   return {
     lines: resultLines,
     taskLineIndex: insertAt,
-    change,
+    changes,
     movedBlockLength: taskBlock.length,
   }
 }
@@ -727,9 +749,9 @@ const positionOfTaskInLane = (
     if (walkIndex === taskLineIndex) return cardPosition
     walkIndex = findTaskBlockEnd(lines, walkIndex)
   }
-  // Task was not found among the section's cards — place it after the
-  // last counted position as a defensive fallback.
-  return cardPosition + 1
+  throw new Error(
+    `task at line ${taskLineIndex} not found in the "${heading.text}" section (${cardPosition} cards scanned)`,
+  )
 }
 
 /** Appends checklist items under a task, after its existing sub-items. */
@@ -1796,9 +1818,25 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
         ? headingsAfterSpawn.findLast((heading) => heading.startLine < completedIndexAfterSpawn)
             ?.text
         : undefined
+
+    if (!targetHeadingParam && !autoDoneLane && position && !currentHeadingForReorder) {
+      throw new Error("cannot reorder a task that sits above the first heading — pass a heading")
+    }
+
+    // Pre-spawn position for accurate before/after reporting — the spawn
+    // may add a card to the same lane, inflating the count.
+    const preSpawnHeading =
+      recurrenceSpawn.kind === "spawn" && currentHeadingForReorder
+        ? headings.findLast((heading) => heading.startLine < taskLineIndex)
+        : undefined
+    const beforePositionInLane = preSpawnHeading
+      ? positionOfTaskInLane(linesWithEdits, preSpawnHeading, taskLineIndex)
+      : undefined
+
     const targetLane = autoDoneLane
       ? detectDoneLane(linesWithSpawn, headingsAfterSpawn)
       : (targetHeadingParam ?? currentHeadingForReorder)
+    const noMoveChanges: string[] = []
     const moved = targetLane
       ? moveTaskBlock({
           lines: linesWithSpawn,
@@ -1806,11 +1844,12 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
           targetLane,
           headings: headingsAfterSpawn,
           ...(position && { position }),
+          ...(beforePositionInLane && { beforePosition: beforePositionInLane }),
         })
       : {
           lines: linesWithSpawn,
           taskLineIndex: completedIndexAfterSpawn,
-          change: undefined,
+          changes: noMoveChanges,
           movedBlockLength: undefined,
         }
 
@@ -1865,7 +1904,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
 
     const changes = [
       ...lineChanges,
-      moved.change,
+      ...moved.changes,
       withSubtasks.change,
       ...(nextOccurrence
         ? [

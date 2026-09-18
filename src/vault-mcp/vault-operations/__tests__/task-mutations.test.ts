@@ -2919,7 +2919,7 @@ kanban-plugin: board
         expect(content).toBe(
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n\n## Up Next\n\n- [ ] Charlie ^charlie\n- [ ] Alpha ^alpha\n- [ ] Delta ^delta\n`,
         )
-        expect(result.changes).toEqual(["heading: Active → Up Next"])
+        expect(result.changes).toEqual(["heading: Active → Up Next", "position: 1 → 2"])
       })
 
       it("position-only call without heading or status succeeds", async () => {
@@ -2983,6 +2983,91 @@ kanban-plugin: board
           ),
         ).rejects.toThrow(
           "cannot reposition a sub-task — the parent's position determines placement",
+        )
+      })
+
+      it("same-lane reorder with position past card count clamps to bottom", async () => {
+        const vault = await createVault()
+        const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n- [ ] Charlie ^charlie\n\n## Done\n`
+        await writeTestNote(vault, "board.md", board)
+
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "alpha",
+            position: 99,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n- [ ] Charlie ^charlie\n- [ ] Alpha ^alpha\n\n## Done\n`,
+        )
+        expect(result.changes).toEqual(["position: 1 → 3"])
+      })
+
+      it("rejects position-only reorder on a task above all headings", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n\n## Later\n\n- [ ] Charlie ^charlie\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await expect(
+          taskMutations.updateTask(
+            {
+              vaultPath: vault,
+              path: "notes.md",
+              blockId: "alpha",
+              position: 2,
+            },
+            logger,
+          ),
+        ).rejects.toThrow(
+          "cannot reorder a task that sits above the first heading — pass a heading",
+        )
+      })
+
+      it("rejects same-lane reorder when the heading name is ambiguous", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Tasks\n\n- [ ] Alpha ^alpha\n\n## Tasks\n\n- [ ] Bravo ^bravo\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await expect(
+          taskMutations.updateTask(
+            {
+              vaultPath: vault,
+              path: "notes.md",
+              blockId: "alpha",
+              position: 2,
+            },
+            logger,
+          ),
+        ).rejects.toThrow(
+          `cannot reorder within "Tasks" — the heading appears 2 times; pass a heading to disambiguate`,
+        )
+      })
+
+      it("integer overshoot clamps to after last card, not trailing prose", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n\nSome trailing notes about the lane.\n\n## Done\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            description: "Charlie",
+            blockId: "charlie",
+            heading: "Active",
+            position: 99,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n- [ ] Charlie ➕ ${today()} ^charlie\n\nSome trailing notes about the lane.\n\n## Done\n`,
         )
       })
 

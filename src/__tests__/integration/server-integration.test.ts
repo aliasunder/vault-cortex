@@ -730,10 +730,11 @@ describe("default config", () => {
         args: { path: "Projects/board.md", heading: "Active" },
       })
       const activeText = textContent(readback)
-      const posTestIndex = activeText.indexOf("Position test card")
-      const inProgressIndex = activeText.indexOf("In-progress feature")
-      expect(posTestIndex).toBeGreaterThan(-1)
-      expect(posTestIndex).toBeLessThan(inProgressIndex)
+      const topLevelCards = activeText.split("\n").filter((cardLine) => /^- \[/.test(cardLine))
+      expect(topLevelCards.map((cardLine) => cardLine.includes("Position test card"))).toEqual([
+        true,
+        false,
+      ])
     })
 
     it("vault_update_task — same-lane reorder via position", async () => {
@@ -756,9 +757,11 @@ describe("default config", () => {
         args: { path: "Projects/board.md", heading: "Active" },
       })
       const activeText = textContent(readback)
-      const posTestIndex = activeText.indexOf("Position test card")
-      const inProgressIndex = activeText.indexOf("In-progress feature")
-      expect(inProgressIndex).toBeLessThan(posTestIndex)
+      const topLevelCards = activeText.split("\n").filter((cardLine) => /^- \[/.test(cardLine))
+      expect(topLevelCards.map((cardLine) => cardLine.includes("Position test card"))).toEqual([
+        false,
+        true,
+      ])
     })
   })
 
