@@ -122,6 +122,29 @@ describe("chunkContent", () => {
       ])
     })
 
+    it("sub-splits a large preamble and prefixes every fragment with the base prefix", () => {
+      const preambleWords = generateLabeledTokens(900, "preamble").split(" ")
+      const section = generateLabeledTokens(200, "section")
+      const body = `${preambleWords.join(" ")}\n\n## Section\n${section}`
+
+      const chunks = chunkContent({ noteTitle: "Note", bodyContent: body })
+
+      // 900 tokens against a 449-token budget → first 449 in chunk 0, the
+      // remaining 451 in chunk 1 (the sub-MIN tail merges backward into the
+      // second fragment). Both carry the bare title prefix — a refactor that
+      // drops the prefix from non-first preamble fragments ships chunks
+      // without attribution.
+      expect(chunks).toEqual([
+        { index: 0, text: `Note\n\n${preambleWords.slice(0, 449).join(" ")}` },
+        {
+          index: 1,
+          text: `Note\n\n${preambleWords.slice(449, 898).join(" ")}\n\n${preambleWords.slice(898).join(" ")}`,
+        },
+        { index: 2, text: `Note\nSection: Section\n\n${section}` },
+        { index: 3, text: "Note\n\nSection" },
+      ])
+    })
+
     it("emits a tiny preamble standalone rather than merging it into the first section", () => {
       const mainWords = generateLabeledTokens(520, "main").split(" ")
       const body = `intro line before headings\n\n## Main\n${mainWords.join(" ")}`
