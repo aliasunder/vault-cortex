@@ -5812,4 +5812,106 @@ title: Tasks
       )
     })
   })
+
+  describe("NON_TASK guard", () => {
+    const writePluginConfig = async (
+      vaultPath: string,
+      config: Record<string, unknown>,
+    ): Promise<void> => {
+      const pluginDir = join(vaultPath, ".obsidian", "plugins", "obsidian-tasks-plugin")
+      await mkdir(pluginDir, { recursive: true })
+      await writeFile(join(pluginDir, "data.json"), JSON.stringify(config), "utf8")
+    }
+
+    const NON_TASK_CONFIG = {
+      statusSettings: {
+        coreStatuses: [
+          { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
+          { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
+        ],
+        customStatuses: [
+          { symbol: ">", name: "Forwarded", nextStatusSymbol: " ", type: "NON_TASK" },
+        ],
+      },
+    }
+
+    it("updateTask rejects a NON_TASK checkbox by block_id", async () => {
+      resetTaskFormatConfigCache()
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [ ] Normal task ➕ 2026-07-02 ^normal\n`,
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          { vaultPath: vault, path: "tasks.md", blockId: "fwd", heading: "Done" },
+          logger,
+        ),
+      ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
+    })
+
+    it("updateTask rejects a NON_TASK checkbox by line number", async () => {
+      resetTaskFormatConfigCache()
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [ ] Normal task ➕ 2026-07-02 ^normal\n`,
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          { vaultPath: vault, path: "tasks.md", line: 5, status: "done" },
+          logger,
+        ),
+      ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
+    })
+
+    it("createTask rejects a NON_TASK parent by block_id", async () => {
+      resetTaskFormatConfigCache()
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [ ] Normal task ➕ 2026-07-02 ^normal\n`,
+      )
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Sub-task",
+            blockId: "sub",
+            parentBlockId: "fwd",
+          },
+          logger,
+        ),
+      ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
+    })
+
+    it("allows updating a normal task when NON_TASK statuses exist", async () => {
+      resetTaskFormatConfigCache()
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [ ] Normal task ➕ 2026-07-02 ^normal\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        { vaultPath: vault, path: "tasks.md", blockId: "normal", status: "done" },
+        logger,
+      )
+
+      expect(result.description).toBe("Normal task")
+      expect(result.changes).toEqual(["status: todo → done"])
+    })
+  })
 })

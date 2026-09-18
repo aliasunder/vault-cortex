@@ -343,8 +343,8 @@ export const createSearchIndex = (
     /** When true, creates file_content + file_content_fts tables for
      *  full-text search of non-markdown file content (e.g. canvas). */
     fileToolsEnabled?: boolean | undefined
-    /** The Tasks plugin's status registry — checkbox char → classified type.
-     *  Threaded to `extractTasks` so custom statuses are indexed correctly. */
+    /** Checkbox char → classified type from the Tasks plugin config.
+     *  Captured once at boot — a config change requires a server restart. */
     statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
     /** Query-time overrides for hybridSearch (file-leg RRF weight, reranker
      *  kind prefix — defaults in hybrid-search.ts) plus the index-time

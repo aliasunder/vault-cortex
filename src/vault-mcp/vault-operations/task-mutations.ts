@@ -25,7 +25,11 @@ import {
   nextOccurrenceDates,
   type NextOccurrenceDates,
 } from "../obsidian-markdown/recurrence.js"
-import { readTaskFormatConfig, type TaskFormatConfig } from "./task-format-config.js"
+import {
+  readTaskFormatConfig,
+  type TaskFormatConfig,
+  type StatusClassification,
+} from "./task-format-config.js"
 import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
@@ -544,6 +548,7 @@ const resolveNewTaskPlacement = ({
   heading,
   isKanbanBoard,
   position,
+  statusRegistry,
 }: {
   bodyLines: readonly string[]
   bodyStartLine: number
@@ -552,12 +557,14 @@ const resolveNewTaskPlacement = ({
   heading: string | undefined
   isKanbanBoard: boolean
   position: "top" | "bottom" | number | undefined
+  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
 }): NewTaskPlacement => {
   if (parentLocator) {
     const parentLineIndex = findParentLineIndex({
       locator: parentLocator,
       bodyLines,
       bodyStartLine,
+      statusRegistry,
     })
     const nearestHeading = headings.findLast(
       (headingInfo) => headingInfo.startLine < parentLineIndex,
@@ -666,6 +673,34 @@ const locateTaskLine = ({
     throw new Error(`no task at line ${line}`)
   }
   return taskLineIndex
+}
+
+/** Extracts the single character between `[` and `]` from a task line. */
+const CHECKBOX_CHAR_RE = /\[(.)\]/u
+
+/** The Tasks plugin's NON_TASK status type marks checkboxes that are
+ *  excluded from the task system. The grammar regex still matches them,
+ *  so callers guard after locating the line. */
+const rejectNonTaskLine = ({
+  taskLine,
+  statusRegistry,
+}: {
+  taskLine: string
+  statusRegistry: ReadonlyMap<string, StatusClassification>
+}): void => {
+  const charMatch = CHECKBOX_CHAR_RE.exec(taskLine)
+
+  if (!charMatch) return
+
+  const statusChar = charMatch[1]
+
+  if (!statusChar) return
+
+  const classification = tasks.statusForChar(statusChar, statusRegistry)
+
+  if (classification === "non_task") {
+    throw new Error(`checkbox "[${statusChar}]" is a NON_TASK status in the Tasks plugin registry`)
+  }
 }
 
 /** No-op when the task already sits under the target heading and no
@@ -1112,16 +1147,23 @@ const findParentLineIndex = ({
   locator,
   bodyLines,
   bodyStartLine,
+  statusRegistry,
 }: {
   locator: ParentLocator
   bodyLines: readonly string[]
   bodyStartLine: number
+  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
 }): number => {
   if (locator.kind === "blockId") {
     const foundIndex = tasks.findTaskByBlockId(bodyLines, locator.blockId)
 
     if (foundIndex === null) {
       throw new Error(`parent task not found: blockId "${locator.blockId}"`)
+    }
+    const foundLine = bodyLines[foundIndex]
+
+    if (statusRegistry && foundLine) {
+      rejectNonTaskLine({ taskLine: foundLine, statusRegistry })
     }
     return foundIndex
   }
@@ -1130,6 +1172,9 @@ const findParentLineIndex = ({
 
   if (!parentLineText || !tasks.isTaskLine(parentLineText)) {
     throw new Error(`parent task not found: line ${locator.line}`)
+  }
+  if (statusRegistry) {
+    rejectNonTaskLine({ taskLine: parentLineText, statusRegistry })
   }
   return parentLineIndex
 }
@@ -1253,6 +1298,7 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
       heading,
       isKanbanBoard,
       position,
+      statusRegistry: formatConfig.statusRegistry,
     })
 
     const taskLine = tasks.buildTaskLine(
@@ -1481,6 +1527,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       ...pluginConfig,
       taskFormat: format ?? pluginConfig.taskFormat,
     }
+
+    rejectNonTaskLine({ taskLine: originalTaskLine, statusRegistry: formatConfig.statusRegistry })
 
     // Prior field values, so every `changes` entry can state before → after.
     // Parsed from the whole note so `depth` counts task ancestors the way
