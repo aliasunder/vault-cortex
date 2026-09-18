@@ -76,7 +76,8 @@ const installStatementPoison = (sqlFragment: string) => {
   const message = `injected failure on: ${sqlFragment}`
   // Concrete function type: prepare's generic conditional return type doesn't
   // resolve through .call, so pin the default instantiation explicitly.
-  const realPrepare: (this: Database.Database, source: string) => Database.Statement = Database.prototype.prepare
+  const realPrepare: (this: Database.Database, source: string) => Database.Statement =
+    Database.prototype.prepare
   // Mutable arming flag: the patched .run closes over this object so tests
   // can trigger the failure long after the statement was prepared.
   const poisonState = { armed: false }
@@ -176,7 +177,10 @@ const versionALink = (): OutgoingLinkEntry => ({
 describe("schema creation", () => {
   it("creates a searchable index with notes and FTS tables", () => {
     const isolatedIndex = createSearchIndex(":memory:")
-    isolatedIndex.upsertNote({ filePath: "test.md", rawContent: "# Test\n", fileStat: testStat(1000) }, logger)
+    isolatedIndex.upsertNote(
+      { filePath: "test.md", rawContent: "# Test\n", fileStat: testStat(1000) },
+      logger,
+    )
     const results = isolatedIndex.fullTextSearch({ query: "Test" }, logger)
     expect(results).toHaveLength(1)
   })
@@ -239,7 +243,10 @@ describe("leading callout", () => {
     expect(withoutFlag).toHaveLength(1)
     expect(withoutFlag[0]?.leading_callout).toBeUndefined()
 
-    const withFlag = index.fullTextSearch({ query: "burnout", include_leading_callout: true }, logger)
+    const withFlag = index.fullTextSearch(
+      { query: "burnout", include_leading_callout: true },
+      logger,
+    )
     expect(withFlag[0]?.leading_callout?.title).toBe("Scope of this file")
   })
 
@@ -529,7 +536,9 @@ describe("upsertNote atomicity", () => {
       total: 1,
       tasks: [versionATask()],
     })
-    expect(atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger)).toEqual([versionALink()])
+    expect(atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger)).toEqual([
+      versionALink(),
+    ])
   })
 
   it("rolls back the link phase when a link statement fails mid-upsert", () => {
@@ -570,7 +579,9 @@ describe("upsertNote atomicity", () => {
       total: 1,
       tasks: [versionATask()],
     })
-    expect(atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger)).toEqual([versionALink()])
+    expect(atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger)).toEqual([
+      versionALink(),
+    ])
   })
 
   it("leaves no trace when a statement fails on a first-ever upsert", () => {
@@ -674,7 +685,9 @@ describe("removeNote atomicity", () => {
       total: 1,
       tasks: [versionATask()],
     })
-    expect(atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger)).toEqual([versionALink()])
+    expect(atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger)).toEqual([
+      versionALink(),
+    ])
   })
 })
 
@@ -761,13 +774,19 @@ describe("fullTextSearch", () => {
   })
 
   it("respects folder filter", () => {
-    const results = index.fullTextSearch({ query: "notes", filters: { folder: "Projects" } }, logger)
+    const results = index.fullTextSearch(
+      { query: "notes", filters: { folder: "Projects" } },
+      logger,
+    )
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe("Projects/notes.md")
   })
 
   it("strips trailing slashes from folder filter before matching", () => {
-    const results = index.fullTextSearch({ query: "notes", filters: { folder: "Projects/" } }, logger)
+    const results = index.fullTextSearch(
+      { query: "notes", filters: { folder: "Projects/" } },
+      logger,
+    )
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe("Projects/notes.md")
   })
@@ -850,7 +869,9 @@ describe("fullTextSearch", () => {
   })
 
   it("query with FTS5 operators does not throw", () => {
-    expect(() => index.fullTextSearch({ query: 'test "quoted" AND (grouped) OR NOT *wild*' }, logger)).not.toThrow()
+    expect(() =>
+      index.fullTextSearch({ query: 'test "quoted" AND (grouped) OR NOT *wild*' }, logger),
+    ).not.toThrow()
   })
 
   it("hyphenated query matches content containing the hyphenated term", () => {
@@ -1152,12 +1173,18 @@ describe("searchByFolder", () => {
 
   it("sorts results by most recently modified", () => {
     const results = index.searchByFolder({ folder: "About Me" }, logger)
-    expect(results.map((note) => note.path)).toEqual(["About Me/sub/deep.md", "About Me/Principles.md"])
+    expect(results.map((note) => note.path)).toEqual([
+      "About Me/sub/deep.md",
+      "About Me/Principles.md",
+    ])
   })
 
   it("strips trailing slashes from folder before matching", () => {
     const results = index.searchByFolder({ folder: "About Me/" }, logger)
-    expect(results.map((note) => note.path)).toEqual(["About Me/sub/deep.md", "About Me/Principles.md"])
+    expect(results.map((note) => note.path)).toEqual([
+      "About Me/sub/deep.md",
+      "About Me/Principles.md",
+    ])
   })
 })
 
@@ -1560,7 +1587,10 @@ describe("searchByProperty", () => {
       },
       logger,
     )
-    const results = index.searchByProperty({ key: "status", value: "in-progress", folder: "Projects" }, logger)
+    const results = index.searchByProperty(
+      { key: "status", value: "in-progress", folder: "Projects" },
+      logger,
+    )
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe("Projects/active.md")
   })
@@ -1574,7 +1604,10 @@ describe("searchByProperty", () => {
       },
       logger,
     )
-    const results = index.searchByProperty({ key: "status", value: "in-progress", limit: 1 }, logger)
+    const results = index.searchByProperty(
+      { key: "status", value: "in-progress", limit: 1 },
+      logger,
+    )
     expect(results).toHaveLength(1)
   })
 
@@ -1659,14 +1692,20 @@ describe("rebuildFromVault", () => {
   it("skips a note whose frontmatter fails to parse, warns, and indexes the rest", async () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
-    await writeFile(join(vaultDir, "broken.md"), "---\ntitle: [unclosed\n---\nbroken body text\n", "utf8")
+    await writeFile(
+      join(vaultDir, "broken.md"),
+      "---\ntitle: [unclosed\n---\nbroken body text\n",
+      "utf8",
+    )
     const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     expect(count).toBe(2)
     expect(warnSpy).toHaveBeenCalledWith(
       "skipped malformed note during rebuild",
       expect.objectContaining({ path: "broken.md" }),
     )
-    const healthyPaths = index.fullTextSearch({ query: "burnout" }, logger).map((result) => result.path)
+    const healthyPaths = index
+      .fullTextSearch({ query: "burnout" }, logger)
+      .map((result) => result.path)
     expect(healthyPaths).toEqual(["About Me/Principles.md"])
     expect(index.fullTextSearch({ query: "broken" }, logger)).toHaveLength(0)
   })
@@ -1681,16 +1720,25 @@ describe("rebuildFromVault", () => {
     expect(count).toBe(3)
     // The plugin line stays in the indexed content — it would vanish if
     // it were parsed as frontmatter
-    const firstLineHits = index.fullTextSearch({ query: "ExampleRegion1" }, logger).map((result) => result.path)
+    const firstLineHits = index
+      .fullTextSearch({ query: "ExampleRegion1" }, logger)
+      .map((result) => result.path)
     expect(firstLineHits).toEqual(["multi-column.md"])
-    const propertyHits = index.searchByProperty({ key: "start-multi-column", value: "ExampleRegion1" }, logger)
+    const propertyHits = index.searchByProperty(
+      { key: "start-multi-column", value: "ExampleRegion1" },
+      logger,
+    )
     expect(propertyHits).toHaveLength(0)
   })
 
   it("stores a link into a skipped note as its raw target", async () => {
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
-    await writeFile(join(vaultDir, "broken.md"), "---\ntitle: [unclosed\n---\nbroken body text\n", "utf8")
+    await writeFile(
+      join(vaultDir, "broken.md"),
+      "---\ntitle: [unclosed\n---\nbroken body text\n",
+      "utf8",
+    )
     await writeFile(join(vaultDir, "linker.md"), "# Linker\n\nSee [[broken]].\n", "utf8")
     await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     // exists: false proves the skip happened — an indexed broken.md
@@ -1724,7 +1772,11 @@ describe("rebuildFromVault", () => {
   })
 
   it("does not count extensionless wikilinks to non-md files as broken", async () => {
-    await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[Trip Route]] and [[missing-note]].\n", "utf8")
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[Trip Route]] and [[missing-note]].\n",
+      "utf8",
+    )
     await writeFile(join(vaultDir, "Trip Route.canvas"), "{}", "utf8")
     await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
@@ -1740,7 +1792,11 @@ describe("rebuildFromVault", () => {
   })
 
   it("resolves markdown-style file embeds through the two-pass rebuild", async () => {
-    await writeFile(join(vaultDir, "source.md"), "# Source\n\n![p](photo.png) and [[genuinely-missing]].\n", "utf8")
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\n![p](photo.png) and [[genuinely-missing]].\n",
+      "utf8",
+    )
     await writeFile(join(vaultDir, "photo.png"), "png-bytes", "utf8")
     await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
@@ -1768,7 +1824,11 @@ describe("rebuildFromVault", () => {
 
   it("resolves extensionless wikilinks to non-md files by basename", async () => {
     await mkdir(join(vaultDir, "canvases"), { recursive: true })
-    await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[Dashboard]] and [[genuinely-missing]].\n", "utf8")
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\nSee [[Dashboard]] and [[genuinely-missing]].\n",
+      "utf8",
+    )
     await writeFile(join(vaultDir, "canvases/Dashboard.canvas"), "{}", "utf8")
     await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
@@ -1855,7 +1915,11 @@ describe("rebuildFromVault", () => {
   })
 
   it("resolves explicit-extension wikilinks against the non-md file index", async () => {
-    await writeFile(join(vaultDir, "source.md"), "# Source\n\n![[photo.png]] and [[genuinely-missing]].\n", "utf8")
+    await writeFile(
+      join(vaultDir, "source.md"),
+      "# Source\n\n![[photo.png]] and [[genuinely-missing]].\n",
+      "utf8",
+    )
     await writeFile(join(vaultDir, "photo.png"), "binary", "utf8")
     await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
@@ -1885,7 +1949,11 @@ describe("rebuildFromVault", () => {
 
   it("indexes a symlinked .md file", async () => {
     await mkdir(join(vaultDir, "real"), { recursive: true })
-    await writeFile(join(vaultDir, "real/original.md"), "# Original\n\nSymlink target content.\n", "utf8")
+    await writeFile(
+      join(vaultDir, "real/original.md"),
+      "# Original\n\nSymlink target content.\n",
+      "utf8",
+    )
     await symlink("real/original.md", join(vaultDir, "linked.md"))
 
     const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
@@ -2087,7 +2155,10 @@ describe("getOutgoingLinks", () => {
       logger,
     )
 
-    const links = index.getOutgoingLinks({ path: "Daily Notes/2026-06-24.md", dailyNotesFolder: "Daily Notes" }, logger)
+    const links = index.getOutgoingLinks(
+      { path: "Daily Notes/2026-06-24.md", dailyNotesFolder: "Daily Notes" },
+      logger,
+    )
     const forwardRef = links.find((link) => link.path === "Daily Notes/2026-06-25")
     expect(forwardRef!.exists).toBe(false)
     expect(forwardRef!.daily_note_forward_ref).toBe(true)
@@ -2132,7 +2203,8 @@ describe("findOrphans", () => {
     index.upsertNote(
       {
         filePath: "Projects/orphan.md",
-        rawContent: "---\ntitle: Orphan\ntype: project\ntags: [project]\n---\n\n# Orphan\n\nNobody links here.\n",
+        rawContent:
+          "---\ntitle: Orphan\ntype: project\ntags: [project]\n---\n\n# Orphan\n\nNobody links here.\n",
         fileStat: testStat(3000),
       },
       logger,
@@ -2241,7 +2313,8 @@ describe("forward reference resolution", () => {
     index.upsertNote(
       {
         filePath: "source.md",
-        rawContent: '---\ntitle: Source\nrelated: ["[[folder/target]]"]\n---\n\n# Source\n\nProse only.\n',
+        rawContent:
+          '---\ntitle: Source\nrelated: ["[[folder/target]]"]\n---\n\n# Source\n\nProse only.\n',
         fileStat: testStat(1000),
       },
       logger,
@@ -2298,7 +2371,8 @@ describe("frontmatter links in the graph", () => {
     index.upsertNote(
       {
         filePath: "session.md",
-        rawContent: '---\ntitle: Session\nrelated: ["[[task-board]]"]\n---\n\n# Session\n\nProse with no links.\n',
+        rawContent:
+          '---\ntitle: Session\nrelated: ["[[task-board]]"]\n---\n\n# Session\n\nProse with no links.\n',
         fileStat: testStat(1000),
       },
       logger,
@@ -2322,7 +2396,8 @@ describe("frontmatter links in the graph", () => {
     index.upsertNote(
       {
         filePath: "session.md",
-        rawContent: '---\ntitle: Session\nrelated: ["[[task-board]]"]\n---\n\n# Session\n\nProse with no links.\n',
+        rawContent:
+          '---\ntitle: Session\nrelated: ["[[task-board]]"]\n---\n\n# Session\n\nProse with no links.\n',
         fileStat: testStat(1000),
       },
       logger,
@@ -2344,7 +2419,8 @@ describe("frontmatter links in the graph", () => {
     index.upsertNote(
       {
         filePath: "referencer.md",
-        rawContent: '---\ntitle: Referencer\nrelated: ["[[referenced]]"]\n---\n\n# Referencer\n\nNo body links.\n',
+        rawContent:
+          '---\ntitle: Referencer\nrelated: ["[[referenced]]"]\n---\n\n# Referencer\n\nNo body links.\n',
         fileStat: testStat(1000),
       },
       logger,
@@ -2609,7 +2685,8 @@ describe("brokenLinkCount", () => {
     index.upsertNote(
       {
         filePath: "Daily Notes/2026-06-24.md",
-        rawContent: "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing-note]].\n",
+        rawContent:
+          "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing-note]].\n",
         fileStat: testStat(1000),
       },
       logger,
@@ -3289,7 +3366,10 @@ It has multiple sentences to verify chunking works correctly.
       const mockEmbedder = createMockEmbedder()
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
-      await embeddingIndex.embedNote({ notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING }, logger)
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
 
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
     })
@@ -3347,7 +3427,9 @@ It has multiple sentences to verify chunking works correctly.
       )
 
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
-      expect(mockEmbedder.embedText).toHaveBeenCalledWith("Typed Note\n\n\nBody content for enrichment.")
+      expect(mockEmbedder.embedText).toHaveBeenCalledWith(
+        "Typed Note\n\n\nBody content for enrichment.",
+      )
     })
 
     it("content-hash gating skips unchanged chunks on re-embed", async () => {
@@ -3355,11 +3437,17 @@ It has multiple sentences to verify chunking works correctly.
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
       // First embed
-      await embeddingIndex.embedNote({ notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING }, logger)
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
 
       // Second embed with same content — should skip (hash match)
-      await embeddingIndex.embedNote({ notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING }, logger)
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
     })
 
@@ -3367,10 +3455,16 @@ It has multiple sentences to verify chunking works correctly.
       const mockEmbedder = createMockEmbedder()
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
-      await embeddingIndex.embedNote({ notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING }, logger)
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
 
-      const updatedNote = NOTE_FOR_EMBEDDING.replace("multiple sentences", "different content entirely")
+      const updatedNote = NOTE_FOR_EMBEDDING.replace(
+        "multiple sentences",
+        "different content entirely",
+      )
       await embeddingIndex.embedNote({ notePath: "test.md", rawContent: updatedNote }, logger)
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
     })
@@ -3387,7 +3481,10 @@ It has multiple sentences to verify chunking works correctly.
         },
         logger,
       )
-      await embeddingIndex.embedNote({ notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING }, logger)
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
 
       // Remove should not throw — cleanup should succeed
       embeddingIndex.removeNote("test.md")
@@ -3402,7 +3499,10 @@ It has multiple sentences to verify chunking works correctly.
         },
         logger,
       )
-      await embeddingIndex.embedNote({ notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING }, logger)
+      await embeddingIndex.embedNote(
+        { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
+        logger,
+      )
       expect(mockEmbedder.embedText).toHaveBeenCalled()
     })
 
@@ -3467,10 +3567,19 @@ It has multiple sentences to verify chunking works correctly.
         await rm(vaultDir, { recursive: true })
       })
 
-      await writeFile(join(vaultDir, "note1.md"), "---\ntitle: Note 1\n---\nFirst note content here.")
-      await writeFile(join(vaultDir, "note2.md"), "---\ntitle: Note 2\n---\nSecond note content here.")
+      await writeFile(
+        join(vaultDir, "note1.md"),
+        "---\ntitle: Note 1\n---\nFirst note content here.",
+      )
+      await writeFile(
+        join(vaultDir, "note2.md"),
+        "---\ntitle: Note 2\n---\nSecond note content here.",
+      )
 
-      const { count, embedding } = await embeddingIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+      const { count, embedding } = await embeddingIndex.rebuildFromVault(
+        { vaultPath: vaultDir },
+        logger,
+      )
       await embedding
 
       expect(count).toBe(2)
@@ -3493,7 +3602,10 @@ It has multiple sentences to verify chunking works correctly.
       await writeFile(join(vaultDir, "note2.md"), "---\ntitle: Note 2\n---\nSecond note content.")
 
       const warnSpy = vi.spyOn(logger, "warn")
-      const { count, embedding } = await embeddingIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
+      const { count, embedding } = await embeddingIndex.rebuildFromVault(
+        { vaultPath: vaultDir },
+        logger,
+      )
       await embedding
 
       expect(count).toBe(2)
@@ -3516,10 +3628,18 @@ It has multiple sentences to verify chunking works correctly.
         await rm(dbDir, { recursive: true })
       })
       const dbPath = join(dbDir, "search.db")
-      const embeddingIndex = createSearchIndex(dbPath, mockEmbedder, undefined, { fileToolsEnabled: true })
+      const embeddingIndex = createSearchIndex(dbPath, mockEmbedder, undefined, {
+        fileToolsEnabled: true,
+      })
 
-      await writeFile(join(vaultDir, "note1.md"), "---\ntitle: Note 1\n---\nFirst note content here.")
-      await writeFile(join(vaultDir, "guide.txt"), "Comprehensive deployment guide covering infrastructure setup.")
+      await writeFile(
+        join(vaultDir, "note1.md"),
+        "---\ntitle: Note 1\n---\nFirst note content here.",
+      )
+      await writeFile(
+        join(vaultDir, "guide.txt"),
+        "Comprehensive deployment guide covering infrastructure setup.",
+      )
 
       const { embedding } = await embeddingIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
       await embedding
@@ -3530,7 +3650,9 @@ It has multiple sentences to verify chunking works correctly.
         inspectDb.close()
       })
       const fileChunks = inspectDb
-        .prepare<[string], { count: number }>("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
+        .prepare<[string], { count: number }>(
+          "SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?",
+        )
         .get("guide.txt")
       expect(fileChunks?.count).toBe(1)
       const fileVectors = inspectDb
@@ -3548,7 +3670,9 @@ It has multiple sentences to verify chunking works correctly.
         await rm(dbDir, { recursive: true })
       })
       const dbPath = join(dbDir, "search.db")
-      const embeddingIndex = createSearchIndex(dbPath, mockEmbedder, undefined, { fileToolsEnabled: true })
+      const embeddingIndex = createSearchIndex(dbPath, mockEmbedder, undefined, {
+        fileToolsEnabled: true,
+      })
 
       await writeFile(join(vaultDir, "ephemeral.txt"), "Transient file body.")
 
@@ -3713,7 +3837,10 @@ Shared datefilter content for boundary tests.
   it("rejects a malformed created date with remediation text", () => {
     const dateIndex = indexWithCreatedDates()
     expect(() =>
-      dateIndex.fullTextSearch({ query: "datefilter", filters: { created: { on: "March 10" } } }, logger),
+      dateIndex.fullTextSearch(
+        { query: "datefilter", filters: { created: { on: "March 10" } } },
+        logger,
+      ),
     ).toThrow('invalid created.on date: "March 10". Use YYYY-MM-DD (e.g. 2026-07-03).')
   })
 
@@ -3813,7 +3940,10 @@ Shared datefilter content for mtime boundary tests.
   it("rejects a malformed modified date with remediation text", () => {
     const dateIndex = indexWithModifiedTimes()
     expect(() =>
-      dateIndex.fullTextSearch({ query: "datefilter", filters: { modified: { after: "yesterday" } } }, logger),
+      dateIndex.fullTextSearch(
+        { query: "datefilter", filters: { modified: { after: "yesterday" } } },
+        logger,
+      ),
     ).toThrow('invalid modified.after date: "yesterday". Use YYYY-MM-DD (e.g. 2026-07-03).')
   })
 
@@ -4251,11 +4381,17 @@ describe("canvas file content and links", () => {
         logger,
       )
       // Content before the cap IS searchable
-      const { results: foundResults } = await fileIndex.hybridSearch({ query: "alphanumeric beginning marker" }, logger)
+      const { results: foundResults } = await fileIndex.hybridSearch(
+        { query: "alphanumeric beginning marker" },
+        logger,
+      )
       expect(foundResults).toHaveLength(1)
       expect(foundResults[0]?.path).toBe("data/big.csv")
       // Content beyond the cap is NOT searchable — proves truncation
-      const { results: truncatedResults } = await fileIndex.hybridSearch({ query: "zyxwvut ending marker" }, logger)
+      const { results: truncatedResults } = await fileIndex.hybridSearch(
+        { query: "zyxwvut ending marker" },
+        logger,
+      )
       expect(truncatedResults).toHaveLength(0)
     })
 
@@ -4274,11 +4410,17 @@ describe("canvas file content and links", () => {
       )
       // Verify it was indexed first — without this, the removal assertion
       // could pass by the content never being indexed (silent no-op).
-      const { results: beforeResults } = await fileIndex.hybridSearch({ query: "removable diagnostics" }, logger)
+      const { results: beforeResults } = await fileIndex.hybridSearch(
+        { query: "removable diagnostics" },
+        logger,
+      )
       expect(beforeResults).toHaveLength(1)
       // Remove and verify it's gone
       fileIndex.removeFileContent({ filePath: "logs/app.log" }, logger)
-      const { results: afterResults } = await fileIndex.hybridSearch({ query: "removable diagnostics" }, logger)
+      const { results: afterResults } = await fileIndex.hybridSearch(
+        { query: "removable diagnostics" },
+        logger,
+      )
       expect(afterResults).toHaveLength(0)
     })
   })
@@ -4463,7 +4605,9 @@ describe("file content vector embeddings", () => {
         logger,
       )
 
-      await expect(index.embedFileContent({ filePath: "docs/overview.txt" }, logger)).resolves.toBeUndefined()
+      await expect(
+        index.embedFileContent({ filePath: "docs/overview.txt" }, logger),
+      ).resolves.toBeUndefined()
     })
   })
 
@@ -4508,7 +4652,9 @@ describe("file content vector embeddings", () => {
         .get("docs/overview.txt") as { count: number }
       expect(chunksAfter.count).toBe(0)
 
-      const vectorsAfter = inspectDb.prepare("SELECT COUNT(*) as count FROM file_content_vectors").get() as {
+      const vectorsAfter = inspectDb
+        .prepare("SELECT COUNT(*) as count FROM file_content_vectors")
+        .get() as {
         count: number
       }
       expect(vectorsAfter.count).toBe(0)
@@ -4574,7 +4720,9 @@ describe("file content vector embeddings", () => {
         .get("docs/long.txt") as { count: number }
       expect(chunkCountAfter.count).toBe(1)
 
-      const vectorCount = inspectDb.prepare("SELECT COUNT(*) as count FROM file_content_vectors").get() as {
+      const vectorCount = inspectDb
+        .prepare("SELECT COUNT(*) as count FROM file_content_vectors")
+        .get() as {
         count: number
       }
       expect(vectorCount.count).toBe(1)
@@ -4619,9 +4767,11 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
     if (!entry) throw new Error("entry missing after record")
 
     expect(trashIndex.listExpiredTrashEntries(entry.trashedAt)).toEqual([])
-    expect(trashIndex.listExpiredTrashEntries(entry.trashedAt + 1).map((listedEntry) => listedEntry.trashPath)).toEqual(
-      [".trash/boundary.md"],
-    )
+    expect(
+      trashIndex
+        .listExpiredTrashEntries(entry.trashedAt + 1)
+        .map((listedEntry) => listedEntry.trashPath),
+    ).toEqual([".trash/boundary.md"])
   })
 
   it("re-recording the same path restarts the retention clock", () => {

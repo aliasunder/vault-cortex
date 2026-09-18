@@ -114,7 +114,8 @@ export const createFileSinkExtension = (
   mkdirSync(logDir, { recursive: true })
   pruneOldLogFiles(logDir, retentionDays)
 
-  const logPath = (): string => join(logDir, `${LOG_FILE_PREFIX}${todayDateString()}${LOG_FILE_SUFFIX}`)
+  const logPath = (): string =>
+    join(logDir, `${LOG_FILE_PREFIX}${todayDateString()}${LOG_FILE_SUFFIX}`)
 
   // `line` is the same JSON string already written to stdout/stderr by emit()
   return (_entry: LogEntry, line: string): void => {

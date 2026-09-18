@@ -37,7 +37,10 @@ export type Prompts = {
    * treat "no picks" as "skip", never as a validation error.
    */
   multiselect: (message: string, options: SelectOption[]) => Promise<string[]>
-  text: (message: string, options?: { placeholder?: string; defaultValue?: string }) => Promise<string>
+  text: (
+    message: string,
+    options?: { placeholder?: string; defaultValue?: string },
+  ) => Promise<string>
   /** Like text, but input is masked — the value never echoes to the terminal or scrollback. */
   password: (message: string) => Promise<string>
   confirm: (message: string, initialValue: boolean) => Promise<boolean>
@@ -79,7 +82,8 @@ export const createPrompts = (): Prompts => ({
     exitOnCancel(await clack.select({ message, options, initialValue })),
   // required: false makes an empty submission legal — the Prompts contract
   // promises "no picks" resolves to [] instead of a re-prompt loop.
-  multiselect: async (message, options) => exitOnCancel(await clack.multiselect({ message, options, required: false })),
+  multiselect: async (message, options) =>
+    exitOnCancel(await clack.multiselect({ message, options, required: false })),
   text: async (message, options = {}) =>
     exitOnCancel(
       await clack.text({
@@ -89,7 +93,8 @@ export const createPrompts = (): Prompts => ({
       }),
     ),
   password: async (message) => exitOnCancel(await clack.password({ message })),
-  confirm: async (message, initialValue) => exitOnCancel(await clack.confirm({ message, initialValue })),
+  confirm: async (message, initialValue) =>
+    exitOnCancel(await clack.confirm({ message, initialValue })),
   spinner: () => {
     const clackSpinner = clack.spinner()
     return {

@@ -46,7 +46,8 @@ const loadDotEnv = (): Record<string, string> => {
   return out
 }
 
-const expandHome = (path: string): string => (path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path)
+const expandHome = (path: string): string =>
+  path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path
 
 const env: NodeJS.ProcessEnv = { ...loadDotEnv(), ...process.env }
 
@@ -87,7 +88,10 @@ const waitForDocker = (ip: string, id: string, timeoutSec = 120): void => {
   console.log(`⏳ Waiting for Docker on the instance (up to ${timeoutSec}s)...`)
   while (Date.now() < deadline) {
     try {
-      execSync(`ssh ${id} ${sshOpts} ubuntu@${ip} 'docker --version' 2>/dev/null`, { stdio: "pipe", env })
+      execSync(`ssh ${id} ${sshOpts} ubuntu@${ip} 'docker --version' 2>/dev/null`, {
+        stdio: "pipe",
+        env,
+      })
       console.log(`✓ Docker is ready`)
       return
     } catch {
@@ -95,7 +99,9 @@ const waitForDocker = (ip: string, id: string, timeoutSec = 120): void => {
       execSync("sleep 5")
     }
   }
-  console.error(`✕ Docker not available on the instance after ${timeoutSec}s. Check cloud-init logs.`)
+  console.error(
+    `✕ Docker not available on the instance after ${timeoutSec}s. Check cloud-init logs.`,
+  )
   process.exit(1)
 }
 
@@ -117,7 +123,8 @@ const sshHost = (): string => {
   // (`vault-cortex-ip-${stage}`).
   const staticIpName = `vault-cortex-ip-${stage}`
   const ip = execSync(
-    `aws lightsail get-static-ip --static-ip-name ${staticIpName} ` + `--query staticIp.ipAddress --output text`,
+    `aws lightsail get-static-ip --static-ip-name ${staticIpName} ` +
+      `--query staticIp.ipAddress --output text`,
     { env },
   )
     .toString()
@@ -152,7 +159,10 @@ const sshOpts = "-o StrictHostKeyChecking=accept-new"
 
 const fetchGatewayUrl = (): string => {
   const stage = readStage()
-  return execSync(`aws apigatewayv2 get-apis --query "${gatewayApiEndpointQuery(stage)}" --output text`, { env })
+  return execSync(
+    `aws apigatewayv2 get-apis --query "${gatewayApiEndpointQuery(stage)}" --output text`,
+    { env },
+  )
     .toString()
     .trim()
 }
@@ -216,7 +226,10 @@ switch (sub) {
     if (publicUrlSource !== "PUBLIC_URL") {
       console.log(`> PUBLIC_URL derived from ${publicUrlSource}`)
     }
-    const shippedEnvContent = envContentWithPublicUrl(readFileSync(ENV_PATH, "utf8"), resolvedPublicUrl)
+    const shippedEnvContent = envContentWithPublicUrl(
+      readFileSync(ENV_PATH, "utf8"),
+      resolvedPublicUrl,
+    )
     const ip = sshHost()
     mask(ip)
     const id = sshIdentity()
@@ -236,11 +249,14 @@ switch (sub) {
       // stdin carries the token, stdout stays quiet on success, stderr is
       // inherited so a failure's cause is visible like every other step.
       try {
-        execSync(`ssh ${id} ${sshOpts} ubuntu@${ip} 'docker login ghcr.io -u ${ghcrUser} --password-stdin'`, {
-          input: ghcrToken,
-          stdio: ["pipe", "pipe", "inherit"],
-          env,
-        })
+        execSync(
+          `ssh ${id} ${sshOpts} ubuntu@${ip} 'docker login ghcr.io -u ${ghcrUser} --password-stdin'`,
+          {
+            input: ghcrToken,
+            stdio: ["pipe", "pipe", "inherit"],
+            env,
+          },
+        )
       } catch {
         // Same rule as run(): execSync's error message embeds the full
         // command string, so it must not escape to the uncaught handler.
@@ -285,6 +301,8 @@ switch (sub) {
   }
 
   default:
-    console.error(`Usage: tsx scripts/dev.ts <docker:build|docker:push|docker:publish|lightsail:up>`)
+    console.error(
+      `Usage: tsx scripts/dev.ts <docker:build|docker:push|docker:publish|lightsail:up>`,
+    )
     process.exit(1)
 }

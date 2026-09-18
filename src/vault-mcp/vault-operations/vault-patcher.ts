@@ -57,10 +57,14 @@ type PatchNoteResult = Readonly<{
  *  text and report nothing. Detection only — callers insert the caller's own
  *  lines verbatim, line endings untouched. */
 const leadingHeadingOfContent = (contentLines: readonly string[]): HeadingInfo | null => {
-  const normalizedLines = contentLines.map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
+  const normalizedLines = contentLines.map((line) =>
+    line.endsWith("\r") ? line.slice(0, -1) : line,
+  )
   const firstContentLineIndex = normalizedLines.findIndex((line) => line.trim() !== "")
   return (
-    parseHeadings(normalizedLines).find((contentHeading) => contentHeading.startLine === firstContentLineIndex) ?? null
+    parseHeadings(normalizedLines).find(
+      (contentHeading) => contentHeading.startLine === firstContentLineIndex,
+    ) ?? null
   )
 }
 
@@ -90,13 +94,29 @@ const applySectionOperation = (
 ): string[] => {
   switch (operation) {
     case "append":
-      return [...lines.slice(0, target.bodyEndLine), ...contentLines, ...lines.slice(target.bodyEndLine)]
+      return [
+        ...lines.slice(0, target.bodyEndLine),
+        ...contentLines,
+        ...lines.slice(target.bodyEndLine),
+      ]
     case "prepend":
-      return [...lines.slice(0, target.bodyStartLine), ...contentLines, ...lines.slice(target.bodyStartLine)]
+      return [
+        ...lines.slice(0, target.bodyStartLine),
+        ...contentLines,
+        ...lines.slice(target.bodyStartLine),
+      ]
     case "replace":
-      return [...lines.slice(0, target.bodyStartLine), ...contentLines, ...lines.slice(target.bodyEndLine)]
+      return [
+        ...lines.slice(0, target.bodyStartLine),
+        ...contentLines,
+        ...lines.slice(target.bodyEndLine),
+      ]
     case "insert_before":
-      return [...lines.slice(0, target.startLine), ...contentLines, ...lines.slice(target.startLine)]
+      return [
+        ...lines.slice(0, target.startLine),
+        ...contentLines,
+        ...lines.slice(target.startLine),
+      ]
   }
 }
 
@@ -147,7 +167,8 @@ const writePatchedNote = async (
 }
 
 /** Truncates anchor/preview text to keep error messages and confirmations short. */
-const truncateForMessage = (text: string): string => (text.length > 80 ? text.slice(0, 80) + "…" : text)
+const truncateForMessage = (text: string): string =>
+  text.length > 80 ? text.slice(0, 80) + "…" : text
 
 /** Collapses runs of 3+ newlines down to one blank line, so removing content
  *  doesn't leave a visible multi-line gap. */
@@ -176,7 +197,9 @@ const resolveAnchorLine = (params: {
   const regionSuffix = role === "end" ? " at or after the start anchor" : ""
 
   if (matchingLineIndices.length === 0) {
-    throw new Error(`${anchorLabel} not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`)
+    throw new Error(
+      `${anchorLabel} not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`,
+    )
   }
   if (matchingLineIndices.length > 1 && !firstMatch) {
     throw new Error(
@@ -186,7 +209,9 @@ const resolveAnchorLine = (params: {
   const matchedIndex = matchingLineIndices[0]
 
   if (matchedIndex === undefined) {
-    throw new Error(`${anchorLabel} not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`)
+    throw new Error(
+      `${anchorLabel} not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`,
+    )
   }
   return matchedIndex
 }
@@ -260,10 +285,14 @@ const patchNote = async (
       // cheapest-first: only a heading-led prepend pays for the body parse.
       // Detection runs on the pre-patch lines — afterwards the note's first
       // heading is the inserted one.
-      const insertsLeadingHeading = operation === "prepend" && leadingHeadingOfContent(contentLines) !== null
-      const displacedLeadingContent = insertsLeadingHeading ? findDisplacedLeadingContent(lines) : null
+      const insertsLeadingHeading =
+        operation === "prepend" && leadingHeadingOfContent(contentLines) !== null
+      const displacedLeadingContent = insertsLeadingHeading
+        ? findDisplacedLeadingContent(lines)
+        : null
 
-      const updatedLines = operation === "append" ? [...lines, ...contentLines] : [...contentLines, ...lines]
+      const updatedLines =
+        operation === "append" ? [...lines, ...contentLines] : [...contentLines, ...lines]
       const afterBytes = await writePatchedNote(fullPath, data, updatedLines, logger)
       logger.info("patched note", {
         path,
@@ -304,13 +333,16 @@ const patchNote = async (
     // without it, the caller may not realize children will be destroyed.
     if (operation === "replace" && !includeChildren) {
       const childHeadings = headings.filter(
-        (candidate) => candidate.startLine >= target.bodyStartLine && candidate.startLine < target.bodyEndLine,
+        (candidate) =>
+          candidate.startLine >= target.bodyStartLine && candidate.startLine < target.bodyEndLine,
       )
 
       if (childHeadings.length > 0) {
         const childList = childHeadings.map((child) => child.text).join(", ")
         const noun = childHeadings.length === 1 ? "child heading" : "child headings"
-        throw new Error(`section "${targetDesc}" has ${childHeadings.length} ${noun} (${childList})`)
+        throw new Error(
+          `section "${targetDesc}" has ${childHeadings.length} ${noun} (${childList})`,
+        )
       }
     }
 

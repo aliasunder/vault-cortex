@@ -218,7 +218,10 @@ describe("pollHealth", () => {
   it("returns true as soon as the endpoint responds ok", async () => {
     const fetchStub = async (): Promise<Response> => okResponse
 
-    const healthy = await pollHealth({ url: "http://127.0.0.1:8000/healthz", timeoutMs: 100, intervalMs: 1 }, fetchStub)
+    const healthy = await pollHealth(
+      { url: "http://127.0.0.1:8000/healthz", timeoutMs: 100, intervalMs: 1 },
+      fetchStub,
+    )
 
     expect(healthy).toBe(true)
   })
@@ -254,7 +257,10 @@ describe("pollHealth", () => {
       throw new Error("ECONNREFUSED")
     }
 
-    const healthy = await pollHealth({ url: "http://127.0.0.1:8000/healthz", timeoutMs: 20, intervalMs: 1 }, fetchStub)
+    const healthy = await pollHealth(
+      { url: "http://127.0.0.1:8000/healthz", timeoutMs: 20, intervalMs: 1 },
+      fetchStub,
+    )
 
     expect(healthy).toBe(false)
   })
@@ -270,7 +276,12 @@ describe("buildDockerLogsArgs", () => {
   })
 
   it("adds --since with its value when provided", () => {
-    expect(buildDockerLogsArgs({ follow: false, since: "10m" })).toEqual(["logs", "--since", "10m", CONTAINER_NAME])
+    expect(buildDockerLogsArgs({ follow: false, since: "10m" })).toEqual([
+      "logs",
+      "--since",
+      "10m",
+      CONTAINER_NAME,
+    ])
   })
 
   it("combines --follow and --since in flag order", () => {
@@ -314,13 +325,19 @@ describe("classifyDaemonStatus", () => {
 
 describe("probeHealth", () => {
   it("returns true when the endpoint responds ok", async () => {
-    const probeResult = await probeHealth({ url: "http://example.test/healthz" }, async () => okResponse)
+    const probeResult = await probeHealth(
+      { url: "http://example.test/healthz" },
+      async () => okResponse,
+    )
 
     expect(probeResult).toBe(true)
   })
 
   it("returns false on a non-2xx response", async () => {
-    const probeResult = await probeHealth({ url: "http://example.test/healthz" }, async () => failResponse)
+    const probeResult = await probeHealth(
+      { url: "http://example.test/healthz" },
+      async () => failResponse,
+    )
 
     expect(probeResult).toBe(false)
   })

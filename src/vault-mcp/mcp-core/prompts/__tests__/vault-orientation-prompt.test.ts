@@ -444,7 +444,9 @@ describe("vault-orientation with DISABLED_TOOLS", () => {
     expect(text).not.toContain("vault_get_memory")
     // The rest of the menu survives — the memory group is still enabled.
     expect(text).toContain("- `vault_read_note` — read any note's full content")
-    expect(text).toContain("- `vault_list_files` — browse non-markdown files (images, canvases, data files)")
+    expect(text).toContain(
+      "- `vault_list_files` — browse non-markdown files (images, canvases, data files)",
+    )
   })
 
   it("drops the search line when vault_search is disabled", async () => {

@@ -57,7 +57,11 @@ describe("readDailyNotesConfig", () => {
 
   it("uses default format when config has empty format string", async () => {
     const { readDailyNotesConfig } = await import("../daily-notes.js")
-    await writeFile(join(vaultDir, ".obsidian", "daily-notes.json"), JSON.stringify({ folder: "Journal" }), "utf8")
+    await writeFile(
+      join(vaultDir, ".obsidian", "daily-notes.json"),
+      JSON.stringify({ folder: "Journal" }),
+      "utf8",
+    )
     const config = await readDailyNotesConfig(vaultDir)
     expect(config).toEqual({ folder: "Journal", format: "YYYY-MM-DD" })
   })
@@ -111,7 +115,11 @@ describe("readDailyNotesConfig", () => {
       format: "YYYY-MM-DD",
     })
 
-    await writeFile(configFilePath, JSON.stringify({ folder: "Journal", format: "DD-MM-YYYY" }), "utf8")
+    await writeFile(
+      configFilePath,
+      JSON.stringify({ folder: "Journal", format: "DD-MM-YYYY" }),
+      "utf8",
+    )
     const afterFix = await readDailyNotesConfig(vaultDir)
     expect(afterFix).toEqual({ folder: "Journal", format: "DD-MM-YYYY" })
   })
@@ -252,24 +260,30 @@ describe("getDailyNotePath", () => {
 
   it("throws on invalid date format", async () => {
     const { getDailyNotePath } = await import("../daily-notes.js")
-    await expect(getDailyNotePath({ vaultPath: vaultDir, date: "not-a-date" })).rejects.toThrow("invalid date")
+    await expect(getDailyNotePath({ vaultPath: vaultDir, date: "not-a-date" })).rejects.toThrow(
+      "invalid date",
+    )
   })
 
   it("rejects partial ISO dates (year only)", async () => {
     const { getDailyNotePath } = await import("../daily-notes.js")
-    await expect(getDailyNotePath({ vaultPath: vaultDir, date: "2026" })).rejects.toThrow("invalid date")
+    await expect(getDailyNotePath({ vaultPath: vaultDir, date: "2026" })).rejects.toThrow(
+      "invalid date",
+    )
   })
 
   it("rejects partial ISO dates (year-month only)", async () => {
     const { getDailyNotePath } = await import("../daily-notes.js")
-    await expect(getDailyNotePath({ vaultPath: vaultDir, date: "2026-05" })).rejects.toThrow("invalid date")
+    await expect(getDailyNotePath({ vaultPath: vaultDir, date: "2026-05" })).rejects.toThrow(
+      "invalid date",
+    )
   })
 
   it("rejects full ISO timestamps", async () => {
     const { getDailyNotePath } = await import("../daily-notes.js")
-    await expect(getDailyNotePath({ vaultPath: vaultDir, date: "2026-05-13T14:30:00Z" })).rejects.toThrow(
-      "invalid date",
-    )
+    await expect(
+      getDailyNotePath({ vaultPath: vaultDir, date: "2026-05-13T14:30:00Z" }),
+    ).rejects.toThrow("invalid date")
   })
 
   it("rejects a format containing unsupported tokens (Do)", async () => {

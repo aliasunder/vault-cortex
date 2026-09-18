@@ -248,7 +248,9 @@ describe("judgmentFileSchema", () => {
     })
     expect(parsed.success).toBe(false)
     if (parsed.success) return
-    expect(parsed.error.issues.map((issue) => issue.message)).toEqual(["a filtered query needs filters.folder"])
+    expect(parsed.error.issues.map((issue) => issue.message)).toEqual([
+      "a filtered query needs filters.folder",
+    ])
   })
 
   it("rejects an unknown key at the file level", () => {
@@ -332,7 +334,10 @@ describe("countUnexpectedFilesInWindow", () => {
       query: "deployment guide",
       expected_prefix: "docs",
     }
-    const results = [searchResultAt("docs2/noise.txt", "file"), searchResultAt("docs/guide.txt", "file")]
+    const results = [
+      searchResultAt("docs2/noise.txt", "file"),
+      searchResultAt("docs/guide.txt", "file"),
+    ]
     // "docs" must not swallow the docs2/ sibling — the expected result is
     // the rank-2 file inside docs/, and the sibling counts as pollution.
     expect(rankOfFirstExpected(results, expectsFolder)).toBe(2)
@@ -346,7 +351,10 @@ describe("countUnexpectedFilesInWindow", () => {
       query: "deployment guide",
       expected_prefix: "docs/",
     }
-    const results = [searchResultAt("docs/guide.txt", "file"), searchResultAt("assets/photo-notes.txt", "file")]
+    const results = [
+      searchResultAt("docs/guide.txt", "file"),
+      searchResultAt("assets/photo-notes.txt", "file"),
+    ]
     expect(countUnexpectedFilesInWindow(results, expectsPrefix, 5)).toBe(1)
   })
 })

@@ -76,7 +76,9 @@ describe("extractPdfText", () => {
         { text: "!", x: 420, y: 680, fontSize: 18 },
       ])
       const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(`${HEADER}\n\n` + "# Heading\n" + "The body text of this line keeps its size dominant !")
+      expect(result.text).toBe(
+        `${HEADER}\n\n` + "# Heading\n" + "The body text of this line keeps its size dominant !",
+      )
     })
 
     it("renders sizes smaller than body as plain text, never headings", async () => {
@@ -91,7 +93,9 @@ describe("extractPdfText", () => {
       ])
       const result = await extractPdfText(toPdfData(pdfBuffer))
       expect(result.text).toBe(
-        `${HEADER}\n\n` + "Body copy long enough to dominate the character count.\n" + "small footer",
+        `${HEADER}\n\n` +
+          "Body copy long enough to dominate the character count.\n" +
+          "small footer",
       )
     })
   })
@@ -242,7 +246,9 @@ describe("extractPdfText", () => {
         { text: "line two", x: 72, y: 620, fontSize: 12, font: "courier" },
       ])
       const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(`${HEADER}\n\n\`\`\`\nline one\n\`\`\`\nsee \`cmd\`\n\`\`\`\nline two\n\`\`\``)
+      expect(result.text).toBe(
+        `${HEADER}\n\n\`\`\`\nline one\n\`\`\`\nsee \`cmd\`\n\`\`\`\nline two\n\`\`\``,
+      )
     })
   })
 

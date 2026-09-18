@@ -262,7 +262,9 @@ describe("client registration sweep", () => {
     backdate.run(eightDaysAgo, stale.client_id)
     backdate.run(eightDaysAgo, kept.client_id)
     oauthDb
-      .prepare("INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)")
+      .prepare(
+        "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
+      )
       .run(
         "hmac-sha256:unreachable-after-rotation",
         kept.client_id,

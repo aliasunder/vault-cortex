@@ -52,7 +52,12 @@ export type DockerRunner = {
  * VAULT_PATH in .env is the host path (for the -v mount); the container
  * must see /vault. PORT/HOST/INDEX_DB_PATH are hardcoded infrastructure.
  */
-const CONTAINER_ENV_OVERRIDES = ["VAULT_PATH=/vault", "PORT=8000", "HOST=0.0.0.0", "INDEX_DB_PATH=/data/index.db"]
+const CONTAINER_ENV_OVERRIDES = [
+  "VAULT_PATH=/vault",
+  "PORT=8000",
+  "HOST=0.0.0.0",
+  "INDEX_DB_PATH=/data/index.db",
+]
 
 /** Node one-liner matching the compose healthcheck — exits 0 on HTTP 200. */
 const HEALTH_CMD =
@@ -119,7 +124,12 @@ export const buildDockerRunArgs = (params: DockerRunParams): string[] => {
  */
 export const buildDockerLogsArgs = (params: DockerLogsParams): string[] => {
   const { follow, since } = params
-  return ["logs", ...(follow ? ["--follow"] : []), ...(since ? ["--since", since] : []), CONTAINER_NAME]
+  return [
+    "logs",
+    ...(follow ? ["--follow"] : []),
+    ...(since ? ["--since", since] : []),
+    CONTAINER_NAME,
+  ]
 }
 
 /**
@@ -129,9 +139,13 @@ export const buildDockerLogsArgs = (params: DockerLogsParams): string[] => {
  * daemon isn't answering. `status` alone can't make that call: it is null
  * for ENOENT *and* for timeouts, so the split keys on the error code.
  */
-export const classifyDaemonStatus = (spawnResult: { status: number | null; error?: Error }): DaemonStatus => {
+export const classifyDaemonStatus = (spawnResult: {
+  status: number | null
+  error?: Error
+}): DaemonStatus => {
   if (spawnResult.status === 0) return "running"
-  const spawnErrorCode = spawnResult.error && "code" in spawnResult.error ? spawnResult.error.code : undefined
+  const spawnErrorCode =
+    spawnResult.error && "code" in spawnResult.error ? spawnResult.error.code : undefined
   return spawnErrorCode === "ENOENT" ? "not-installed" : "not-running"
 }
 

@@ -72,11 +72,16 @@ describe("buildProgram init", () => {
   it("passes all init flags through to runInit", async () => {
     const { program, initCalls } = buildCapturingProgram()
 
-    await program.parseAsync(["init", "--mode", "remote", "--vault-path", "/vaults/Mine", "--dir", "./out", "--yes"], {
-      from: "user",
-    })
+    await program.parseAsync(
+      ["init", "--mode", "remote", "--vault-path", "/vaults/Mine", "--dir", "./out", "--yes"],
+      {
+        from: "user",
+      },
+    )
 
-    expect(initCalls).toEqual([{ mode: "remote", vaultPath: "/vaults/Mine", dir: "./out", yes: true }])
+    expect(initCalls).toEqual([
+      { mode: "remote", vaultPath: "/vaults/Mine", dir: "./out", yes: true },
+    ])
   })
 
   it("invokes init with no flags when none are given", async () => {
@@ -90,7 +95,9 @@ describe("buildProgram init", () => {
   it("rejects unknown options instead of passing them through", async () => {
     const { program, initCalls } = buildCapturingProgram()
 
-    await expect(program.parseAsync(["init", "--bogus"], { from: "user" })).rejects.toThrow("unknown option '--bogus'")
+    await expect(program.parseAsync(["init", "--bogus"], { from: "user" })).rejects.toThrow(
+      "unknown option '--bogus'",
+    )
     expect(initCalls).toEqual([])
   })
 
@@ -178,7 +185,9 @@ describe("buildProgram logs", () => {
   it("passes all logs flags through to runLogs", async () => {
     const { program, logsCalls } = buildCapturingProgram()
 
-    await program.parseAsync(["logs", "--dir", "/opt/vault-cortex", "--follow", "--since", "10m"], { from: "user" })
+    await program.parseAsync(["logs", "--dir", "/opt/vault-cortex", "--follow", "--since", "10m"], {
+      from: "user",
+    })
 
     expect(logsCalls).toEqual([{ dir: "/opt/vault-cortex", follow: true, since: "10m" }])
   })

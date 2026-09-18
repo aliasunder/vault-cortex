@@ -119,7 +119,9 @@ export const parseLeadingCalloutSpan = (lines: readonly string[]): LeadingCallou
   // Body = consecutive `>` lines after the opener, until the next callout
   // opener (stacked callout), a non-blockquote line (incl. a blank line), or EOF.
   const afterOpener = normalizedLines.slice(cursor + 1)
-  const stopIndex = afterOpener.findIndex((line) => CALLOUT_OPENER_REGEX.test(line) || !CALLOUT_BODY_REGEX.test(line))
+  const stopIndex = afterOpener.findIndex(
+    (line) => CALLOUT_OPENER_REGEX.test(line) || !CALLOUT_BODY_REGEX.test(line),
+  )
   const bodyRange = stopIndex === -1 ? afterOpener : afterOpener.slice(0, stopIndex)
   const bodyLines = bodyRange.map((line) => CALLOUT_BODY_REGEX.exec(line)?.[1] ?? "")
 

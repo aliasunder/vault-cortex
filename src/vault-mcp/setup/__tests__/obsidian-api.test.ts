@@ -253,10 +253,14 @@ describe("describeApiFailure", () => {
   it("names a timeout without internals", () => {
     const timeout = new Error("aborted")
     timeout.name = "TimeoutError"
-    expect(describeApiFailure(timeout)).toBe("Obsidian's servers did not answer in time — try again.")
+    expect(describeApiFailure(timeout)).toBe(
+      "Obsidian's servers did not answer in time — try again.",
+    )
   })
 
   it("wraps any other failure as a reachability problem", () => {
-    expect(describeApiFailure(new Error("fetch failed"))).toBe("Could not reach Obsidian's servers (fetch failed).")
+    expect(describeApiFailure(new Error("fetch failed"))).toBe(
+      "Could not reach Obsidian's servers (fetch failed).",
+    )
   })
 })

@@ -23,7 +23,9 @@ export const buildProgram = (options: ProgramOptions): Command => {
 
   program
     .name("vault-cortex")
-    .description("Set up a Vault Cortex MCP server for your Obsidian vault.\nRun `vault-cortex init` to get started.")
+    .description(
+      "Set up a Vault Cortex MCP server for your Obsidian vault.\nRun `vault-cortex init` to get started.",
+    )
     .version(options.version)
 
   program
@@ -55,7 +57,9 @@ export const buildProgram = (options: ProgramOptions): Command => {
 
   program
     .command("start")
-    .description("Start the server with the saved settings and verify health (same cycle as restart)")
+    .description(
+      "Start the server with the saved settings and verify health (same cycle as restart)",
+    )
     .option("--dir <path>", "directory containing .env (default: ./vault-cortex)")
     .action(async (flags: RestartFlags) => {
       process.exitCode = await options.runStart(flags)
@@ -63,7 +67,9 @@ export const buildProgram = (options: ProgramOptions): Command => {
 
   program
     .command("restart")
-    .description("Re-create the container from .env and verify health (applies .env edits; no image pull)")
+    .description(
+      "Re-create the container from .env and verify health (applies .env edits; no image pull)",
+    )
     .option("--dir <path>", "directory containing .env (default: ./vault-cortex)")
     .action(async (flags: RestartFlags) => {
       process.exitCode = await options.runRestart(flags)
@@ -89,7 +95,9 @@ export const buildProgram = (options: ProgramOptions): Command => {
 
   program
     .command("get-sync-token")
-    .description("Sign in to your Obsidian account and print the Sync auth token, or write it to .env")
+    .description(
+      "Sign in to your Obsidian account and print the Sync auth token, or write it to .env",
+    )
     .option("--dir <path>", "directory containing .env to update with the token")
     .action(async (flags: GetSyncTokenFlags) => {
       process.exitCode = await options.runGetSyncToken(flags)

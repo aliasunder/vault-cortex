@@ -65,7 +65,13 @@ const REPLACED_H2 = new Set(["License"])
 const COMPACT_H2 = new Set(["Properties", "Configuration", "Deployment Options"])
 
 // Directories that need /tree/ instead of /blob/ in GitHub links
-const DIRECTORY_PATHS = ["deploy/local/", "deploy/remote/", "deploy/render/", "deploy/railway/", "templates/memory/"]
+const DIRECTORY_PATHS = [
+  "deploy/local/",
+  "deploy/remote/",
+  "deploy/render/",
+  "deploy/railway/",
+  "templates/memory/",
+]
 
 const rewriteUrls = (line: string): string => {
   let result = line
@@ -98,7 +104,8 @@ const compressTableRow = (line: string): string => {
   return cells.join(" | ").trim()
 }
 
-const isContentsLine = (line: string): boolean => line.startsWith("**Contents**") || line.startsWith("**Contents** —")
+const isContentsLine = (line: string): boolean =>
+  line.startsWith("**Contents**") || line.startsWith("**Contents** —")
 
 const parseHeading = (line: string): { level: number; text: string } | undefined => {
   const match = line.match(/^(#{2,3})\s+(.+)$/)
@@ -195,7 +202,9 @@ const generate = (): void => {
         continue
       } else if (line.trim() !== "") {
         const lastTableIdx = output.findLastIndex((outputLine) => outputLine.startsWith("|"))
-        const lastHeadingIdx = output.findLastIndex((outputLine) => parseHeading(outputLine) !== undefined)
+        const lastHeadingIdx = output.findLastIndex(
+          (outputLine) => parseHeading(outputLine) !== undefined,
+        )
 
         if (lastTableIdx > lastHeadingIdx) {
           compactTableDone = true

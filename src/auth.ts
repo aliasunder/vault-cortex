@@ -107,7 +107,13 @@ const forwardedNodeAddress = (forValue: string): string => {
  * shorter than `hops` yields its first element — the same rule Express
  * applies to X-Forwarded-For when every hop is trusted.
  */
-const forwardedClientIpBehindHops = ({ forwarded, hops }: { forwarded: string; hops: number }): string | undefined => {
+const forwardedClientIpBehindHops = ({
+  forwarded,
+  hops,
+}: {
+  forwarded: string
+  hops: number
+}): string | undefined => {
   const forValues = forwarded
     .split(",")
     .map((element) => FORWARDED_FOR_CLIENT.exec(element)?.[1])
@@ -135,7 +141,10 @@ const forwardedClientIpBehindHops = ({ forwarded, hops }: { forwarded: string; h
  * - `2` — a CDN fronts the proxy; the peer is the CDN and the client is
  *   the element before it.
  */
-export const extractClientIp = (req: Pick<Request, "headers" | "ip">, trustForwardedHops: number): string => {
+export const extractClientIp = (
+  req: Pick<Request, "headers" | "ip">,
+  trustForwardedHops: number,
+): string => {
   if (trustForwardedHops > 0) {
     // Node's HTTP parser joins duplicate header lines into one string, but
     // middleware or custom stacks can deliver an array instead — join

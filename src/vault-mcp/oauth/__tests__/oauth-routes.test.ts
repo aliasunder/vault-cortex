@@ -24,10 +24,14 @@ type LogCall = {
 }
 const recordingLogger = (sink: LogCall[]): Logger => {
   const make = (props: Record<string, unknown>): Logger => ({
-    debug: (message, data = {}) => sink.push({ level: "debug", message, data: { ...props, ...data } }),
-    info: (message, data = {}) => sink.push({ level: "info", message, data: { ...props, ...data } }),
-    warn: (message, data = {}) => sink.push({ level: "warn", message, data: { ...props, ...data } }),
-    error: (message, data = {}) => sink.push({ level: "error", message, data: { ...props, ...data } }),
+    debug: (message, data = {}) =>
+      sink.push({ level: "debug", message, data: { ...props, ...data } }),
+    info: (message, data = {}) =>
+      sink.push({ level: "info", message, data: { ...props, ...data } }),
+    warn: (message, data = {}) =>
+      sink.push({ level: "warn", message, data: { ...props, ...data } }),
+    error: (message, data = {}) =>
+      sink.push({ level: "error", message, data: { ...props, ...data } }),
     child: (childProps) => make({ ...props, ...childProps }),
   })
   return make({})
@@ -176,14 +180,17 @@ describe("OAuth consent token submission", () => {
     },
   ]
 
-  it.each(rejectionScenarios)("rejects $name without redirecting or issuing a code", async ({ token }) => {
-    const requestId = await startPendingRequest()
-    const response = await submitToken(requestId, token)
-    expect(response.status).toBe(200)
-    expect(response.headers.get("location")).toBeNull()
-    const body = await response.text()
-    expect(body).toContain("Invalid token. Please try again.")
-  })
+  it.each(rejectionScenarios)(
+    "rejects $name without redirecting or issuing a code",
+    async ({ token }) => {
+      const requestId = await startPendingRequest()
+      const response = await submitToken(requestId, token)
+      expect(response.status).toBe(200)
+      expect(response.headers.get("location")).toBeNull()
+      const body = await response.text()
+      expect(body).toContain("Invalid token. Please try again.")
+    },
+  )
 })
 
 describe("OAuth consent body validation", () => {
@@ -722,7 +729,9 @@ describe("OAuth protected resource metadata", () => {
     const rootResponse = await fetch(`${baseUrl}/.well-known/oauth-protected-resource`)
     const suffixedResponse = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`)
     const rootDocument = OAuthProtectedResourceMetadataSchema.parse(await rootResponse.json())
-    const suffixedDocument = OAuthProtectedResourceMetadataSchema.parse(await suffixedResponse.json())
+    const suffixedDocument = OAuthProtectedResourceMetadataSchema.parse(
+      await suffixedResponse.json(),
+    )
     expect(suffixedDocument).toEqual({
       ...rootDocument,
       resource: SUFFIXED_RESOURCE,
@@ -735,7 +744,9 @@ describe("OAuth protected resource metadata", () => {
   })
 
   it("rejects non-GET methods on the suffixed route with 405 and an Allow header", async () => {
-    const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`, { method: "POST" })
+    const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`, {
+      method: "POST",
+    })
     expect(response.status).toBe(405)
     expect(response.headers.get("allow")).toBe("GET, OPTIONS")
   })
@@ -750,7 +761,9 @@ describe("OAuth protected resource metadata", () => {
     })
     expect(response.status).toBe(204)
     expect(response.headers.get("access-control-allow-origin")).toBe("*")
-    expect(response.headers.get("access-control-allow-methods")).toBe("GET,HEAD,PUT,PATCH,POST,DELETE")
+    expect(response.headers.get("access-control-allow-methods")).toBe(
+      "GET,HEAD,PUT,PATCH,POST,DELETE",
+    )
   })
 
   it("leaves the suffixed discovery route unlimited past 5 requests", async () => {
@@ -769,7 +782,10 @@ describe("OAuth refresh over HTTP", () => {
     typeof value === "object" && value !== null && "client_id" in value && "client_secret" in value
 
   const isIssuedTokens = (value: unknown): value is IssuedTokens =>
-    typeof value === "object" && value !== null && "access_token" in value && "refresh_token" in value
+    typeof value === "object" &&
+    value !== null &&
+    "access_token" in value &&
+    "refresh_token" in value
 
   const base64Url = (buffer: Buffer): string =>
     buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
@@ -804,7 +820,10 @@ describe("OAuth refresh over HTTP", () => {
 
   // Each registration carries its own Forwarded address so two clients in one
   // test don't share a rate-limit bucket.
-  const registerClient = async (baseUrl: string, forwardedClientIp: string): Promise<RegisteredClient> => {
+  const registerClient = async (
+    baseUrl: string,
+    forwardedClientIp: string,
+  ): Promise<RegisteredClient> => {
     const response = await fetch(`${baseUrl}/register`, {
       method: "POST",
       headers: {

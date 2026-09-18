@@ -12,7 +12,10 @@ const mockedReadDailyNotesConfig = vi.mocked(readDailyNotesConfig)
 
 const makeConfig = (
   overrides: Partial<
-    Pick<VaultConfig, "memoryDir" | "protectedPathsOverride" | "dailyNotesFolder" | "dailyNotesFormat">
+    Pick<
+      VaultConfig,
+      "memoryDir" | "protectedPathsOverride" | "dailyNotesFolder" | "dailyNotesFormat"
+    >
   > = {},
 ): VaultConfig =>
   ({

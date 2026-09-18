@@ -36,11 +36,15 @@ const startSetupServer = (): void => {
   const publicUrl = URL.parse(env.get("PUBLIC_URL").default("").asString())
   // The Sync client's credential file. obsidian-headless resolves its config
   // home the same way: XDG_CONFIG_HOME, else $HOME/.config.
-  const configHome = env.get("XDG_CONFIG_HOME").asString() || join(env.get("HOME").required().asString(), ".config")
+  const configHome =
+    env.get("XDG_CONFIG_HOME").asString() || join(env.get("HOME").required().asString(), ".config")
   const tokenFilePath = join(configHome, "obsidian-headless", "auth_token")
   // Override exists for the boot tests, which point it at a stub inside the
   // container; the production value is the default.
-  const obsidianApiBaseUrl = env.get("OBSIDIAN_API_URL").default("https://api.obsidian.md").asUrlString()
+  const obsidianApiBaseUrl = env
+    .get("OBSIDIAN_API_URL")
+    .default("https://api.obsidian.md")
+    .asUrlString()
   const vaultName = env.get("VAULT_NAME").default("").asString().trim()
   const vaultPassword = env.get("VAULT_PASSWORD").asString() || undefined
   const savedLoginRejected = env.get("SETUP_REASON").default("").asString() === "login-failed"

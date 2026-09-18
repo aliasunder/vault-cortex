@@ -57,8 +57,14 @@ export const createOAuthRoutes = ({
     // The default handler sends the 429 silently — log the offender, then
     // send the SDK's per-endpoint message unchanged. The query string is
     // stripped from the logged path (authorize carries client_id/state).
-    handler: (req: Request, res: Response, _next: NextFunction, options: { statusCode: number; message: unknown }) => {
-      const requestPath = URL.parse(req.originalUrl, "http://localhost")?.pathname ?? req.originalUrl
+    handler: (
+      req: Request,
+      res: Response,
+      _next: NextFunction,
+      options: { statusCode: number; message: unknown },
+    ) => {
+      const requestPath =
+        URL.parse(req.originalUrl, "http://localhost")?.pathname ?? req.originalUrl
       routeLogger.warn("oauth_rate_limited", {
         clientIp: extractClientIp(req, trustForwardedHops),
         path: requestPath,
@@ -121,74 +127,82 @@ export const createOAuthRoutes = ({
   )
 
   // Consent form submission (unauthenticated — part of authorize flow)
-  router.post("/oauth/decide", express.urlencoded({ extended: false }), (req: Request, res: Response) => {
-    const body: Record<string, unknown> = req.body
-    const { request_id, token, action } = body
-    const hasStringFields = typeof request_id === "string" && typeof token === "string" && typeof action === "string"
+  router.post(
+    "/oauth/decide",
+    express.urlencoded({ extended: false }),
+    (req: Request, res: Response) => {
+      const body: Record<string, unknown> = req.body
+      const { request_id, token, action } = body
+      const hasStringFields =
+        typeof request_id === "string" && typeof token === "string" && typeof action === "string"
 
-    if (!hasStringFields) {
-      res.status(400).send("Invalid form submission.")
-      return
-    }
-    const clientIp = extractClientIp(req, trustForwardedHops)
-    const pending = getPendingRequest(request_id, routeLogger.child({ clientIp, requestId: request_id }))
+      if (!hasStringFields) {
+        res.status(400).send("Invalid form submission.")
+        return
+      }
+      const clientIp = extractClientIp(req, trustForwardedHops)
+      const pending = getPendingRequest(
+        request_id,
+        routeLogger.child({ clientIp, requestId: request_id }),
+      )
 
-    if (!pending) {
-      routeLogger.warn("oauth_consent_expired", {
+      if (!pending) {
+        routeLogger.warn("oauth_consent_expired", {
+          clientIp,
+          requestId: request_id,
+        })
+        res.status(400).send("Authorization request expired or invalid.")
+        return
+      }
+
+      const clientId = pending.client.client_id
+      const consentLogger = routeLogger.child({
         clientIp,
         requestId: request_id,
+        clientId,
       })
-      res.status(400).send("Authorization request expired or invalid.")
-      return
-    }
 
-    const clientId = pending.client.client_id
-    const consentLogger = routeLogger.child({
-      clientIp,
-      requestId: request_id,
-      clientId,
-    })
+      if (action !== "approve") {
+        consentLogger.info("oauth_consent_denied_by_user")
+        deletePendingRequest(request_id)
+        const redirectUrl = new URL(pending.params.redirectUri)
+        redirectUrl.searchParams.set("error", "access_denied")
+        if (pending.params.state) redirectUrl.searchParams.set("state", pending.params.state)
+        res.redirect(redirectUrl.toString())
+        return
+      }
 
-    if (action !== "approve") {
-      consentLogger.info("oauth_consent_denied_by_user")
-      deletePendingRequest(request_id)
+      // Tolerate whitespace introduced when the token is copied from a
+      // terminal: a 64-character token wraps across lines in a narrow
+      // terminal, and selecting it captures the wrap as an embedded
+      // newline (plus possible leading/trailing spaces). A valid
+      // MCP_AUTH_TOKEN never contains whitespace, so stripping it is safe
+      // and keeps the consent flow forgiving — mirroring the trim()
+      // already applied to bearer-header auth in parseBearer().
+      const submittedToken = token?.replace(/\s+/g, "") ?? ""
+
+      if (!submittedToken || !safeEqual(submittedToken, authToken)) {
+        consentLogger.warn("oauth_consent_bad_token")
+        res.type("html").send(
+          renderConsentPage({
+            clientName: pending.client.client_name ?? pending.client.client_id,
+            clientId,
+            scopes: pending.params.scopes ?? [],
+            requestId: request_id,
+            error: "Invalid token. Please try again.",
+          }),
+        )
+        return
+      }
+
+      const code = approveRequest(request_id, consentLogger)
+      consentLogger.info("oauth_consent_completed")
       const redirectUrl = new URL(pending.params.redirectUri)
-      redirectUrl.searchParams.set("error", "access_denied")
+      redirectUrl.searchParams.set("code", code)
       if (pending.params.state) redirectUrl.searchParams.set("state", pending.params.state)
       res.redirect(redirectUrl.toString())
-      return
-    }
-
-    // Tolerate whitespace introduced when the token is copied from a
-    // terminal: a 64-character token wraps across lines in a narrow
-    // terminal, and selecting it captures the wrap as an embedded
-    // newline (plus possible leading/trailing spaces). A valid
-    // MCP_AUTH_TOKEN never contains whitespace, so stripping it is safe
-    // and keeps the consent flow forgiving — mirroring the trim()
-    // already applied to bearer-header auth in parseBearer().
-    const submittedToken = token?.replace(/\s+/g, "") ?? ""
-
-    if (!submittedToken || !safeEqual(submittedToken, authToken)) {
-      consentLogger.warn("oauth_consent_bad_token")
-      res.type("html").send(
-        renderConsentPage({
-          clientName: pending.client.client_name ?? pending.client.client_id,
-          clientId,
-          scopes: pending.params.scopes ?? [],
-          requestId: request_id,
-          error: "Invalid token. Please try again.",
-        }),
-      )
-      return
-    }
-
-    const code = approveRequest(request_id, consentLogger)
-    consentLogger.info("oauth_consent_completed")
-    const redirectUrl = new URL(pending.params.redirectUri)
-    redirectUrl.searchParams.set("code", code)
-    if (pending.params.state) redirectUrl.searchParams.set("state", pending.params.state)
-    res.redirect(redirectUrl.toString())
-  })
+    },
+  )
 
   return router
 }

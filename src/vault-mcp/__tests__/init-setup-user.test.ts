@@ -64,7 +64,9 @@ const runSetupUser = (options: SetupUserRunOptions): SetupUserRun => {
   const vaultPath = join(tempDir, "vault")
   const indexDbPathOption = options.indexDbPath ?? "data/index.db"
   const indexDbPath =
-    options.rawIndexDbPath || isAbsolute(indexDbPathOption) ? indexDbPathOption : join(tempDir, indexDbPathOption)
+    options.rawIndexDbPath || isAbsolute(indexDbPathOption)
+      ? indexDbPathOption
+      : join(tempDir, indexDbPathOption)
   const dataDir = resolve(indexDbPath, "..")
   const xdgConfigDir = join(tempDir, "persist", "config")
   const configDir = options.xdgConfigHome ? xdgConfigDir : join(homeDir, ".config")
@@ -151,14 +153,18 @@ describe("init-setup-user ownership script", () => {
     const run = runSetupUser({ indexDbPath: "/index.db" })
 
     expect(run.status).toBe(1)
-    expect(run.stderr).toContain("INDEX_DB_PATH must be an absolute path with at least one directory component")
+    expect(run.stderr).toContain(
+      "INDEX_DB_PATH must be an absolute path with at least one directory component",
+    )
   })
 
   it("rejects a relative INDEX_DB_PATH so the index cannot land on the ephemeral layer", () => {
     const run = runSetupUser({ indexDbPath: "index.db", rawIndexDbPath: true })
 
     expect(run.status).toBe(1)
-    expect(run.stderr).toContain("INDEX_DB_PATH must be an absolute path with at least one directory component")
+    expect(run.stderr).toContain(
+      "INDEX_DB_PATH must be an absolute path with at least one directory component",
+    )
     expect(run.calls).toEqual([])
   })
 
@@ -167,7 +173,9 @@ describe("init-setup-user ownership script", () => {
     const legacyConfigDir = join(run.homeDir, ".config")
 
     expect(run.status).toBe(0)
-    expect(run.calls).toEqual([`chown 1000:1000 /home/obsidian ${run.vaultPath} ${run.dataDir} ${legacyConfigDir}`])
+    expect(run.calls).toEqual([
+      `chown 1000:1000 /home/obsidian ${run.vaultPath} ${run.dataDir} ${legacyConfigDir}`,
+    ])
     expect(run.stdout).not.toContain("fixing ownership recursively")
   })
 

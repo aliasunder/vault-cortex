@@ -58,7 +58,10 @@ const dockerInstallLine = (platform: NodeJS.Platform): string => {
  * testable; `nextStep` is appended verbatim, as in
  * buildDaemonNotRunningMessage.
  */
-export const buildDockerNotInstalledMessage = (params: { nextStep: string; platform?: NodeJS.Platform }): string => {
+export const buildDockerNotInstalledMessage = (params: {
+  nextStep: string
+  platform?: NodeJS.Platform
+}): string => {
   const { nextStep, platform = process.platform } = params
   return (
     "No container runtime found — the server runs in Docker, so you need\n" +
@@ -69,14 +72,17 @@ export const buildDockerNotInstalledMessage = (params: { nextStep: string; platf
 
 // targetDir is quoted: these lines are meant to be copy-pasted into a
 // shell, and an unquoted path breaks on spaces or special characters.
-const upgradeCommand = (targetDir: string): string => `npx vault-cortex@latest upgrade --dir "${targetDir}"`
+const upgradeCommand = (targetDir: string): string =>
+  `npx vault-cortex@latest upgrade --dir "${targetDir}"`
 
 // Start guidance prints `start`, not `upgrade` — telling a user who has never
 // started anything to run "upgrade" reads as updating something they don't
 // have. `start` runs the same re-create cycle and pulls the image on demand.
-export const startCommand = (targetDir: string): string => `npx vault-cortex@latest start --dir "${targetDir}"`
+export const startCommand = (targetDir: string): string =>
+  `npx vault-cortex@latest start --dir "${targetDir}"`
 
-const startServerLine = (targetDir: string): string => `Start the server:\n  ${startCommand(targetDir)}`
+const startServerLine = (targetDir: string): string =>
+  `Start the server:\n  ${startCommand(targetDir)}`
 
 const startingInBackgroundLine = (): string =>
   `The server is starting in the background — check progress:\n  docker logs ${CONTAINER_NAME}`
@@ -105,7 +111,11 @@ const remoteStartLine = (params: {
  * token was written, it goes alone on its own line so selecting that line
  * copies just the token — no "Auth token: " prefix to trim.
  */
-const tokenBlock = (params: { targetDir: string; token: string; tokenWritten: boolean }): string => {
+const tokenBlock = (params: {
+  targetDir: string
+  token: string
+  tokenWritten: boolean
+}): string => {
   const { targetDir, token, tokenWritten } = params
   return tokenWritten
     ? `${paint("dim", "Auth token:")}\n  ${paint("cyan", token)}`
@@ -180,7 +190,8 @@ export const buildLocalConnectMessage = (params: {
 
   const baseUrl = `http://localhost:${port}`
 
-  const nonRunningLine = startStatus === "starting" ? startingInBackgroundLine() : startServerLine(targetDir)
+  const nonRunningLine =
+    startStatus === "starting" ? startingInBackgroundLine() : startServerLine(targetDir)
   const startLine = startStatus === "running" ? "The server is running." : nonRunningLine
 
   const tokenLine = tokenBlock({ targetDir, token, tokenWritten })

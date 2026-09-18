@@ -58,7 +58,9 @@ describe("runConfigure preconditions", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors).toEqual([`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`])
+    expect(scripted.errors).toEqual([
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
+    ])
   })
 })
 
@@ -144,7 +146,10 @@ describe("runConfigure with picked settings", () => {
       false, // decline the restart
     ])
 
-    const exitCode = await runConfigure({ dir: targetDir }, { prompts: scripted.prompts, docker, fetchFn: fetchNever })
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchNever },
+    )
 
     expect(exitCode).toBe(0)
     expect(readFileSync(envFilePath, "utf8")).toBe(
@@ -191,7 +196,9 @@ describe("runConfigure with picked settings", () => {
     ])
     expect(fetchedUrls).toEqual(["http://127.0.0.1:9100/healthz"])
     // The derived PUBLIC_URL follows the port and is reported as changed.
-    expect(readFileSync(envFilePath, "utf8").split("\n")).toContain("PUBLIC_URL=http://localhost:9100")
+    expect(readFileSync(envFilePath, "utf8").split("\n")).toContain(
+      "PUBLIC_URL=http://localhost:9100",
+    )
     expect(scripted.logs).toEqual([
       `Updated PORT, PUBLIC_URL in ${targetDir}/.env.`,
       "Starting container...",
@@ -233,7 +240,9 @@ describe("runConfigure with picked settings", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(readFileSync(envFilePath, "utf8")).toBe(`${LOCAL_ENV_CONTENT}DAILY_NOTES_FOLDER=Planner\n`)
+    expect(readFileSync(envFilePath, "utf8")).toBe(
+      `${LOCAL_ENV_CONTENT}DAILY_NOTES_FOLDER=Planner\n`,
+    )
     expect(scripted.logs).toEqual([`Updated DAILY_NOTES_FOLDER in ${targetDir}/.env.`])
   })
 
@@ -243,7 +252,10 @@ describe("runConfigure with picked settings", () => {
     // duplicate.
     const targetDir = makeTempTargetDir()
     const envFilePath = join(targetDir, ".env")
-    writeFileSync(envFilePath, `${LOCAL_ENV_CONTENT}\n# DAILY_NOTES_FOLDER=Journal\n# DAILY_NOTES_FORMAT=YYYY-MM-DD\n`)
+    writeFileSync(
+      envFilePath,
+      `${LOCAL_ENV_CONTENT}\n# DAILY_NOTES_FOLDER=Journal\n# DAILY_NOTES_FORMAT=YYYY-MM-DD\n`,
+    )
     const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "Planner"])
 
     const exitCode = await runConfigure(
@@ -300,7 +312,10 @@ describe("runConfigure with picked settings", () => {
     const envFilePath = join(targetDir, ".env")
     // Passes the light init'd-dir gate (detectMode sees a local .env) but
     // fails resolveDeployment's start validation: no PUBLIC_URL.
-    writeFileSync(envFilePath, "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nMEMORY_ENABLED=true\n")
+    writeFileSync(
+      envFilePath,
+      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nMEMORY_ENABLED=true\n",
+    )
     const { docker, dockerRunCalls } = createRecordingDocker()
     const scripted = createScriptedPrompts([
       ["MEMORY_ENABLED"],
@@ -308,7 +323,10 @@ describe("runConfigure with picked settings", () => {
       true, // restart now
     ])
 
-    const exitCode = await runConfigure({ dir: targetDir }, { prompts: scripted.prompts, docker, fetchFn: fetchNever })
+    const exitCode = await runConfigure(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker, fetchFn: fetchNever },
+    )
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([

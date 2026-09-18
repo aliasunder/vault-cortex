@@ -35,7 +35,8 @@ describe("runInit flag validation", () => {
     {
       name: "--yes with --mode remote exits 1 (remote needs interactive prompts)",
       flags: { yes: true, mode: "remote", vaultPath: "/tmp" },
-      expectedError: "--yes only supports local mode — remote setup needs interactive token prompts.",
+      expectedError:
+        "--yes only supports local mode — remote setup needs interactive token prompts.",
     },
     {
       name: "an unknown --mode exits 1",
@@ -101,7 +102,9 @@ describe("runInit --yes (non-interactive local)", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors).toEqual([`Path does not exist: ${join(tmpdir(), "vault-cli-no-such-vault")}`])
+    expect(scripted.errors).toEqual([
+      `Path does not exist: ${join(tmpdir(), "vault-cli-no-such-vault")}`,
+    ])
   })
 
   it("exits 1 on a differing existing .env and leaves it untouched", async () => {
@@ -122,7 +125,9 @@ describe("runInit --yes (non-interactive local)", () => {
 
     expect(exitCode).toBe(1)
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=existing\n")
-    expect(scripted.errors).toEqual(["Existing files differ (.env) — refusing to overwrite in --yes mode."])
+    expect(scripted.errors).toEqual([
+      "Existing files differ (.env) — refusing to overwrite in --yes mode.",
+    ])
   })
 })
 
@@ -225,7 +230,9 @@ describe("remote connect message https routing", () => {
     )
 
     expect(exitCode).toBe(0)
-    const connectMessage = scripted.prints.find((message) => message.includes("Connect your MCP client"))
+    const connectMessage = scripted.prints.find((message) =>
+      message.includes("Connect your MCP client"),
+    )
 
     if (!connectMessage) throw new Error("connect message was not printed")
     return connectMessage
@@ -286,7 +293,9 @@ describe("remote connect message https routing", () => {
     expect(scripted.errors[0]).toContain("Leave /mcp off PUBLIC_URL")
     // The accepted base origin is stored verbatim — not silently rewritten —
     // and the connect URL appends /mcp exactly once.
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain("PUBLIC_URL=https://vault.example.com\n")
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
+      "PUBLIC_URL=https://vault.example.com\n",
+    )
     const connectMessage = scripted.prints[0]
     expect(connectMessage).toContain("https://vault.example.com/mcp")
     expect(connectMessage).not.toContain("https://vault.example.com/mcp/mcp")
@@ -313,7 +322,9 @@ describe("remote connect message https routing", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.errors).toHaveLength(0)
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain("PUBLIC_URL=https://vault.example.com\n")
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
+      "PUBLIC_URL=https://vault.example.com\n",
+    )
     expect(scripted.prints[0]).toContain("https://vault.example.com/mcp")
     expect(scripted.prints[0]).not.toContain("https://vault.example.com//mcp")
   })
@@ -1129,7 +1140,13 @@ describe("runInit guided optional settings", () => {
   it("uncomments the TZ line when the timezone is picked", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
-    const scripted = createScriptedPrompts(["local", vaultDir, targetDir, ["TZ"], "America/Toronto"])
+    const scripted = createScriptedPrompts([
+      "local",
+      vaultDir,
+      targetDir,
+      ["TZ"],
+      "America/Toronto",
+    ])
 
     const exitCode = await runInit(
       {},
@@ -1271,14 +1288,19 @@ describe("runInit guided optional settings", () => {
     expect(exitCode).toBe(0)
     // --mode remote skips the mode select, so this is the flow's only select.
     // The option list itself is pinned in optional-settings.test.ts.
-    const selectsAsked = scripted.selectCalls.map(({ message, initialValue }) => ({ message, initialValue }))
+    const selectsAsked = scripted.selectCalls.map(({ message, initialValue }) => ({
+      message,
+      initialValue,
+    }))
     expect(selectsAsked).toEqual([
       {
         message: "Obsidian Sync direction:",
         initialValue: "bidirectional",
       },
     ])
-    expect(readFileSync(join(targetDir, ".env"), "utf8").split("\n")).toContain("SYNC_MODE=pull-only")
+    expect(readFileSync(join(targetDir, ".env"), "utf8").split("\n")).toContain(
+      "SYNC_MODE=pull-only",
+    )
   })
 })
 
@@ -1407,7 +1429,8 @@ describe("validatePublicUrl", () => {
   it("rejects a non-http URL", () => {
     expect(validatePublicUrl("ws://vault.example.com")).toEqual({
       kind: "error",
-      message: "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
+      message:
+        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
     })
   })
 
@@ -1422,7 +1445,8 @@ describe("validatePublicUrl", () => {
   it("rejects invalid syntax", () => {
     expect(validatePublicUrl("not-a-url")).toEqual({
       kind: "error",
-      message: "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
+      message:
+        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
     })
   })
 

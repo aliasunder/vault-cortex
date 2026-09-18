@@ -105,7 +105,8 @@ describe("stripMarkdownSyntax", () => {
     },
     {
       name: "mixed syntax all stripped",
-      input: "## My Note\n\n**Bold** and [[link|display]] with `code`\n\n> [!tip] A tip\n> Some advice\n\n%% secret %%",
+      input:
+        "## My Note\n\n**Bold** and [[link|display]] with `code`\n\n> [!tip] A tip\n> Some advice\n\n%% secret %%",
       expected: "My Note\n\nBold and display with `code`\n\nA tip\nSome advice\n\n",
     },
     {

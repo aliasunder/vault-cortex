@@ -66,7 +66,11 @@ describe("registerPrompts — registration", () => {
 describe("registerPrompts — genericness", () => {
   it("descriptions interpolate a custom MEMORY_DIR and never hardcode 'About Me/'", () => {
     const calls = captureRegistration(loadConfig({ MEMORY_DIR: "Profile" }))
-    for (const promptName of [PROMPT_NAMES.VAULT_ORIENTATION, PROMPT_NAMES.MEMORY_REVIEW, PROMPT_NAMES.DAILY_REVIEW]) {
+    for (const promptName of [
+      PROMPT_NAMES.VAULT_ORIENTATION,
+      PROMPT_NAMES.MEMORY_REVIEW,
+      PROMPT_NAMES.DAILY_REVIEW,
+    ]) {
       const [, config] = findCall(calls, promptName)
       expect(config.description).toContain("Profile/")
       expect(config.description).not.toContain("About Me/")
@@ -91,14 +95,20 @@ describe("READONLY_MODE=true", () => {
   it("registers vault-orientation and daily-review but not memory-review", () => {
     const calls = captureRegistration(loadConfig({ READONLY_MODE: "true" }))
     const registeredNames = calls.map((call) => call[0])
-    expect(new Set(registeredNames)).toEqual(new Set([PROMPT_NAMES.VAULT_ORIENTATION, PROMPT_NAMES.DAILY_REVIEW]))
+    expect(new Set(registeredNames)).toEqual(
+      new Set([PROMPT_NAMES.VAULT_ORIENTATION, PROMPT_NAMES.DAILY_REVIEW]),
+    )
     expect(registeredNames).toHaveLength(2)
   })
 
   it("with MEMORY_ENABLED=false registers the same 2 prompts", () => {
-    const calls = captureRegistration(loadConfig({ READONLY_MODE: "true", MEMORY_ENABLED: "false" }))
+    const calls = captureRegistration(
+      loadConfig({ READONLY_MODE: "true", MEMORY_ENABLED: "false" }),
+    )
     const registeredNames = calls.map((call) => call[0])
-    expect(new Set(registeredNames)).toEqual(new Set([PROMPT_NAMES.VAULT_ORIENTATION, PROMPT_NAMES.DAILY_REVIEW]))
+    expect(new Set(registeredNames)).toEqual(
+      new Set([PROMPT_NAMES.VAULT_ORIENTATION, PROMPT_NAMES.DAILY_REVIEW]),
+    )
     expect(registeredNames).toHaveLength(2)
   })
 })
@@ -110,7 +120,9 @@ describe("DISABLED_TOOLS", () => {
     // memory-review proposes memory writes, so it follows its write tool.
     const calls = captureRegistration(loadConfig({ DISABLED_TOOLS: "vault_update_memory" }))
     const registeredNames = calls.map((call) => call[0])
-    expect(new Set(registeredNames)).toEqual(new Set([PROMPT_NAMES.VAULT_ORIENTATION, PROMPT_NAMES.DAILY_REVIEW]))
+    expect(new Set(registeredNames)).toEqual(
+      new Set([PROMPT_NAMES.VAULT_ORIENTATION, PROMPT_NAMES.DAILY_REVIEW]),
+    )
     expect(registeredNames).toHaveLength(2)
   })
 

@@ -92,7 +92,11 @@ type LinkGrammar = "wikilink" | "markdown"
 
 /** Determines which link form (basename, absolute, relative) was used, so the
  *  replacement can be written back in the same style. */
-const classifyLinkForm = (params: { rawTarget: string; sourcePath: string; resolvedTarget: string }): LinkForm => {
+const classifyLinkForm = (params: {
+  rawTarget: string
+  sourcePath: string
+  resolvedTarget: string
+}): LinkForm => {
   const { rawTarget, sourcePath, resolvedTarget } = params
   // The resolved path carries the file's real extension — ".md" for notes,
   // the asset's own otherwise — so one rule covers both kinds (a stem-form
@@ -123,7 +127,8 @@ const buildReplacementTarget = (params: {
   const { form, desiredTarget, newSourcePath, keepExtension, resolveFromNewSource } = params
   const absoluteForm = keepExtension ? desiredTarget : links.stripExtension(desiredTarget)
 
-  const resolvesToDesired = (candidate: string): boolean => resolveFromNewSource(candidate) === desiredTarget
+  const resolvesToDesired = (candidate: string): boolean =>
+    resolveFromNewSource(candidate) === desiredTarget
 
   if (form === "basename") {
     const basename = posix.basename(absoluteForm)
@@ -173,7 +178,9 @@ const rewriteTarget = (
   // unmoved note, or an asset — assets never move) keeps its resolved path,
   // and the rewrite below only re-expresses how the link reaches it.
   const desiredTarget =
-    targetKind === "note" && resolvedBefore === context.oldTargetPath ? context.newTargetPath : resolvedBefore
+    targetKind === "note" && resolvedBefore === context.oldTargetPath
+      ? context.newTargetPath
+      : resolvedBefore
 
   // Resolves against the post-move vault from the source's new location —
   // shared by the "already resolves" check and the candidate verifier.
@@ -200,7 +207,8 @@ const rewriteTarget = (
   // real extension (markdown links always keep theirs; a wikilink to a note
   // never carries ".md"; a stem-form asset link stays extensionless).
   const resolvedExtension = posix.extname(desiredTarget)
-  const keepExtension = (targetKind === "asset" || grammar === "markdown") && originalExtension === resolvedExtension
+  const keepExtension =
+    (targetKind === "asset" || grammar === "markdown") && originalExtension === resolvedExtension
 
   return buildReplacementTarget({
     form: classifyLinkForm({
@@ -231,7 +239,11 @@ type LinkEdit = { start: number; end: number; replacement: string }
 /** Takes a raw link target (with its original extension state and grammar) and
  *  returns its replacement, or null to leave the link unchanged. Created by
  *  binding rewriteTarget to a context. */
-type RewriteLink = (params: { rawTarget: string; originalExtension: string; grammar: LinkGrammar }) => string | null
+type RewriteLink = (params: {
+  rawTarget: string
+  originalExtension: string
+  grammar: LinkGrammar
+}) => string | null
 
 /** Splices link replacements into text in start order. Shared by body-line and
  *  frontmatter-string rewriting. */
@@ -252,7 +264,10 @@ const applyLinkEdits = (text: string, edits: LinkEdit[]): string => {
 
 /** Rewrites link targets in a single body line, skipping links inside
  *  inline-code spans. */
-const rewriteBodyLine = (line: string, rewriteLink: RewriteLink): { line: string; linksRewritten: number } => {
+const rewriteBodyLine = (
+  line: string,
+  rewriteLink: RewriteLink,
+): { line: string; linksRewritten: number } => {
   const codeSpans = links.inlineCodeSpans(line)
   const isInsideCode = (position: number): boolean =>
     codeSpans.some((span) => position >= span.start && position < span.end)
@@ -312,7 +327,10 @@ const rewriteMarkdownLinkText = (linkText: string, rewriteLink: RewriteLink): st
 }
 
 /** Rewrites every link in a note body, skipping fenced code blocks. */
-const rewriteBody = (body: string, rewriteLink: RewriteLink): { body: string; linksRewritten: number } => {
+const rewriteBody = (
+  body: string,
+  rewriteLink: RewriteLink,
+): { body: string; linksRewritten: number } => {
   // Code lines (fence delimiters and fenced content) pass through verbatim;
   // links.classifyLines owns the fence state machine. The tally runs over a
   // sequential line walk, so a plain loop with mutable counters.
@@ -427,7 +445,9 @@ const indexedSpellingForAliasedPath = async (params: {
   if (!inputStats) return params.path
 
   const foldedPath = caseFoldPath(params.path)
-  const indexedSpelling = params.allNotePaths.find((notePath) => caseFoldPath(notePath) === foldedPath)
+  const indexedSpelling = params.allNotePaths.find(
+    (notePath) => caseFoldPath(notePath) === foldedPath,
+  )
 
   if (!indexedSpelling) return params.path
 
@@ -436,13 +456,19 @@ const indexedSpellingForAliasedPath = async (params: {
   // filesystem it lives on. Both must match — inode numbers repeat across
   // filesystems, so ino alone can name two different files.
   const namesSameFile =
-    indexedStats !== null && indexedStats.ino === inputStats.ino && indexedStats.dev === inputStats.dev
+    indexedStats !== null &&
+    indexedStats.ino === inputStats.ino &&
+    indexedStats.dev === inputStats.dev
   return namesSameFile ? indexedSpelling : params.path
 }
 
 /** True when both spellings resolve to one existing file (inode equality) —
  *  a case-variant pair on a case-insensitive filesystem. */
-const namesSameFileOnDisk = async (params: { vaultPath: string; pathA: string; pathB: string }): Promise<boolean> => {
+const namesSameFileOnDisk = async (params: {
+  vaultPath: string
+  pathA: string
+  pathB: string
+}): Promise<boolean> => {
   const [statsA, statsB] = await Promise.all([
     statOrNull(resolveSafePath(params.vaultPath, params.pathA)),
     statOrNull(resolveSafePath(params.vaultPath, params.pathB)),
@@ -450,7 +476,9 @@ const namesSameFileOnDisk = async (params: { vaultPath: string; pathA: string; p
   // ino is the file's identity on disk, independent of its name; dev is the
   // filesystem it lives on. Both must match — inode numbers repeat across
   // filesystems, so ino alone can name two different files.
-  return statsA !== null && statsB !== null && statsA.ino === statsB.ino && statsA.dev === statsB.dev
+  return (
+    statsA !== null && statsB !== null && statsA.ino === statsB.ino && statsA.dev === statsB.dev
+  )
 }
 
 /** Caps concurrent file handles during rewriting and filesystem scanning. */
@@ -651,9 +679,12 @@ const moveNote = async (
           to: newPath,
           error: describeError(error),
         })
-        throw new Error(`move aborted: could not resolve backlink source "${source}". Nothing was written.`, {
-          cause: error,
-        })
+        throw new Error(
+          `move aborted: could not resolve backlink source "${source}". Nothing was written.`,
+          {
+            cause: error,
+          },
+        )
       }
     })
     // Dedupe by resolved path — duplicate or alias spellings of the same
@@ -668,9 +699,14 @@ const moveNote = async (
     )
     const backlinkSources = [...backlinkSourcesByFullPath.values()]
 
-    const lockPaths = [oldFullPath, newFullPath, ...backlinkSources.map((backlinkSource) => backlinkSource.fullPath)]
+    const lockPaths = [
+      oldFullPath,
+      newFullPath,
+      ...backlinkSources.map((backlinkSource) => backlinkSource.fullPath),
+    ]
 
-    const lockResult: { retry: true; additionalSources: string[] } | { retry: false; result: MoveResult } =
+    const lockResult:
+      { retry: true; additionalSources: string[] } | { retry: false; result: MoveResult } =
       await withExclusiveMultiFileLock(lockPaths, async () => {
         // ── Filesystem verification: catch backlinks the index missed ──
         const knownPaths = new Set([
@@ -710,7 +746,10 @@ const moveNote = async (
         // Bind rewriteTarget to a context for one source note, producing a simple
         // callback. Backlink sources stay put (before === after); the moved note
         // shifts old → new.
-        const rewriteLinkForSource = (sourceLocation: { before: string; after: string }): RewriteLink => {
+        const rewriteLinkForSource = (sourceLocation: {
+          before: string
+          after: string
+        }): RewriteLink => {
           const context: RewriteContext = {
             oldSourcePath: sourceLocation.before,
             newSourcePath: sourceLocation.after,
@@ -733,7 +772,10 @@ const moveNote = async (
         }> => {
           try {
             const rawContent = await readFile(oldFullPath, "utf8")
-            const rewrite = rewriteNoteContent(rawContent, rewriteLinkForSource({ before: oldPath, after: newPath }))
+            const rewrite = rewriteNoteContent(
+              rawContent,
+              rewriteLinkForSource({ before: oldPath, after: newPath }),
+            )
             return {
               content: rewrite?.content ?? rawContent,
               linksRewritten: rewrite?.linksRewritten ?? 0,
@@ -744,7 +786,9 @@ const moveNote = async (
               to: newPath,
               error: describeError(error),
             })
-            throw new Error(`move aborted: could not read "${oldPath}". Nothing was written.`, { cause: error })
+            throw new Error(`move aborted: could not read "${oldPath}". Nothing was written.`, {
+              cause: error,
+            })
           }
         }
         const { content: movedContent, linksRewritten: movedLinksRewritten } = await planMovedNote()
@@ -756,7 +800,10 @@ const moveNote = async (
             mapper: async ({ source, fullPath }) => {
               try {
                 const rawContent = await readFile(fullPath, "utf8")
-                const rewrite = rewriteNoteContent(rawContent, rewriteLinkForSource({ before: source, after: source }))
+                const rewrite = rewriteNoteContent(
+                  rawContent,
+                  rewriteLinkForSource({ before: source, after: source }),
+                )
                 return rewrite === null
                   ? null
                   : {
@@ -772,9 +819,12 @@ const moveNote = async (
                   to: newPath,
                   error: describeError(error),
                 })
-                throw new Error(`move aborted: could not read backlink source "${source}". Nothing was written.`, {
-                  cause: error,
-                })
+                throw new Error(
+                  `move aborted: could not read backlink source "${source}". Nothing was written.`,
+                  {
+                    cause: error,
+                  },
+                )
               }
             },
           })
@@ -796,7 +846,10 @@ const moveNote = async (
               to: newPath,
               error: describeError(error),
             })
-            throw new Error(`move aborted: could not rename to "${newPath}". Nothing was written.`, { cause: error })
+            throw new Error(
+              `move aborted: could not rename to "${newPath}". Nothing was written.`,
+              { cause: error },
+            )
           }
           if (movedLinksRewritten > 0) {
             try {
@@ -834,7 +887,9 @@ const moveNote = async (
               to: newPath,
               error: describeError(error),
             })
-            throw new Error(`move aborted: could not write to "${newPath}". Nothing was written.`, { cause: error })
+            throw new Error(`move aborted: could not write to "${newPath}". Nothing was written.`, {
+              cause: error,
+            })
           }
         }
 
@@ -845,7 +900,10 @@ const moveNote = async (
           concurrency: REWRITE_CONCURRENCY,
           mapper: async (planned) => {
             try {
-              await atomicWriteFile({ filePath: planned.fullPath, content: planned.content }, logger)
+              await atomicWriteFile(
+                { filePath: planned.fullPath, content: planned.content },
+                logger,
+              )
               sourcesWritten += 1
             } catch (error) {
               logger.error("note move failed while writing a backlink source", {
@@ -896,7 +954,9 @@ const moveNote = async (
 
         // Prune from the OLD note's folder — a same-folder rename or a move into a
         // subfolder leaves the source non-empty, so nothing is pruned in those cases.
-        const prunedEmptyFolders = pruneEmptyFolders ? await pruneEmptyParents({ vaultPath, path: oldPath }, logger) : 0
+        const prunedEmptyFolders = pruneEmptyFolders
+          ? await pruneEmptyParents({ vaultPath, path: oldPath }, logger)
+          : 0
 
         logger.info("note move complete", {
           from: oldPath,

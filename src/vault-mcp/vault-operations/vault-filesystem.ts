@@ -11,7 +11,11 @@ import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import { withExclusiveFileLock, withFileLock } from "../../utils/file-write-lock.js"
 import { links } from "../obsidian-markdown/links.js"
 import { parseNote, stringifyNote, mergeFrontmatter } from "../obsidian-markdown/frontmatter.js"
-import { parseHeadings, findHeading, linesBeforeFirstHeading } from "../obsidian-markdown/headings.js"
+import {
+  parseHeadings,
+  findHeading,
+  linesBeforeFirstHeading,
+} from "../obsidian-markdown/headings.js"
 import { parseLeadingCalloutSpan } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { splitIntoLines, trimBlankEdgeLines } from "../obsidian-markdown/lines.js"
@@ -26,7 +30,8 @@ import type { Logger } from "../../logger.js"
  *  forward slashes and collapsing "./" and "../" segments. Purely lexical —
  *  absolute and vault-escaping paths pass through unchanged, so safety checks
  *  belong to resolveSafePath and prefix guards to resolveVaultRelativePath. */
-export const toVaultRelativePath = (input: string): string => posix.normalize(input.replace(/\\/g, "/"))
+export const toVaultRelativePath = (input: string): string =>
+  posix.normalize(input.replace(/\\/g, "/"))
 
 /** Resolves a note path within the vault; throws on absolute paths,
  *  traversal, hidden paths (dot-prefixed segments — Obsidian ignores
@@ -49,7 +54,9 @@ export const resolveSafePath = (vaultPath: string, notePath: string): string => 
   const resolvedPath = resolve(vaultRoot, notePath)
   const pathFromVaultRoot = relative(vaultRoot, resolvedPath)
   const escapesVault =
-    pathFromVaultRoot === ".." || pathFromVaultRoot.startsWith(`..${sep}`) || isAbsolute(pathFromVaultRoot)
+    pathFromVaultRoot === ".." ||
+    pathFromVaultRoot.startsWith(`..${sep}`) ||
+    isAbsolute(pathFromVaultRoot)
 
   if (escapesVault) {
     throw new Error(`path traversal blocked: "${notePath}" escapes vault root`)
@@ -70,7 +77,10 @@ export const resolveSafePath = (vaultPath: string, notePath: string): string => 
  *  this form so path aliases (separator variants, traversal segments) can't
  *  evade them. Throws resolveSafePath's absolute/traversal/hidden errors for
  *  unsafe input. */
-export const resolveVaultRelativePath = (params: { vaultPath: string; notePath: string }): string => {
+export const resolveVaultRelativePath = (params: {
+  vaultPath: string
+  notePath: string
+}): string => {
   const normalizedInput = toVaultRelativePath(params.notePath)
   // resolveSafePath is called for its safety guards; its absolute result is
   // an intermediate, converted straight back to vault-relative.
@@ -83,7 +93,10 @@ export const resolveVaultRelativePath = (params: { vaultPath: string; notePath: 
  *  notes). The comparison is case-folded so a case-aliased spelling can't slip
  *  past the guard on a case-insensitive filesystem (macOS/Windows bind
  *  mounts); the path must already be canonical (resolveVaultRelativePath). */
-export const isProtectedPath = (params: { path: string; protectedPaths: readonly string[] }): boolean => {
+export const isProtectedPath = (params: {
+  path: string
+  protectedPaths: readonly string[]
+}): boolean => {
   const foldedPath = caseFoldPath(params.path)
   return params.protectedPaths
     .map((folder) => (folder.endsWith("/") ? folder : `${folder}/`))
@@ -141,7 +154,10 @@ export const pruneEmptyParents = async (
  * Overwrites an existing target; use `atomicWriteFileExclusive` when the file
  * must not already exist.
  */
-export const atomicWriteFile = async (params: { filePath: string; content: string }, logger: Logger): Promise<void> => {
+export const atomicWriteFile = async (
+  params: { filePath: string; content: string },
+  logger: Logger,
+): Promise<void> => {
   const tmpPath = `${params.filePath}.${randomUUID()}.tmp`
   try {
     await writeFile(tmpPath, params.content, "utf8")
@@ -231,7 +247,11 @@ export const atomicWriteFileExclusive = async (
 }
 
 /** Combines body + frontmatter into a gray-matter serialized string. Merges with existing frontmatter if file already exists; keys set to null are removed. */
-const serializeNote = (existing: string | null, body: string, frontmatter?: Record<string, unknown>): string => {
+const serializeNote = (
+  existing: string | null,
+  body: string,
+  frontmatter?: Record<string, unknown>,
+): string => {
   if (!existing) return stringifyNote(body, mergeFrontmatter({}, frontmatter ?? {}))
 
   const parsed = parseNote(existing)
@@ -242,7 +262,10 @@ const serializeNote = (existing: string | null, body: string, frontmatter?: Reco
 // ── Exported functions ──────────────────────────────────────────
 
 /** Reads a .md note by relative path. Returns raw content including frontmatter. */
-const readNote = async (params: { vaultPath: string; path: string }, logger: Logger): Promise<string> => {
+const readNote = async (
+  params: { vaultPath: string; path: string },
+  logger: Logger,
+): Promise<string> => {
   assertPathHasExtension(params.path, ".md")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
   const content = await readFileOrNull(fullPath)
@@ -271,7 +294,10 @@ type NoteOutline = Readonly<{
 }>
 
 /** Returns file metadata and the heading tree without section bodies, plus visible content above the first heading. */
-const readNoteOutline = async (params: { vaultPath: string; path: string }, logger: Logger): Promise<NoteOutline> => {
+const readNoteOutline = async (
+  params: { vaultPath: string; path: string },
+  logger: Logger,
+): Promise<NoteOutline> => {
   assertPathHasExtension(params.path, ".md")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
   const [content, fileStats] = await Promise.all([readFileOrNull(fullPath), statOrNull(fullPath)])
@@ -289,7 +315,8 @@ const readNoteOutline = async (params: { vaultPath: string; path: string }, logg
   // leading H1 outside the region without span subtraction or negative slices.
   const regionLines = linesBeforeFirstHeading(lines, headings)
   const regionOutsideCallout = regionLines.filter(
-    (_line, index) => calloutSpan === null || index < calloutSpan.startLine || index >= calloutSpan.endLine,
+    (_line, index) =>
+      calloutSpan === null || index < calloutSpan.startLine || index >= calloutSpan.endLine,
   )
   const leadingContent = trimBlankEdgeLines(regionOutsideCallout).join("\n")
 
@@ -566,7 +593,9 @@ const moveNoteToTrash = async (
       return candidateRelativePath
     }
 
-    throw new Error(`${TRASH_COLLISION_ERROR_PREFIX} "${params.relativePath}" — 100 collisions in .trash/`)
+    throw new Error(
+      `${TRASH_COLLISION_ERROR_PREFIX} "${params.relativePath}" — 100 collisions in .trash/`,
+    )
   })
 }
 
@@ -643,7 +672,8 @@ const deleteNote = async (
       }
     } catch (error) {
       // Collision-exhaustion errors from moveNoteToTrash are already vault-relative
-      const isTrashCollisionError = error instanceof Error && error.message.startsWith(TRASH_COLLISION_ERROR_PREFIX)
+      const isTrashCollisionError =
+        error instanceof Error && error.message.startsWith(TRASH_COLLISION_ERROR_PREFIX)
 
       if (isTrashCollisionError) {
         throw error
@@ -687,7 +717,9 @@ const listVaultFilePaths = async (
   },
   logger: Logger,
 ): Promise<string[]> => {
-  const searchRoot = params.folder ? resolveSafePath(params.vaultPath, params.folder) : resolve(params.vaultPath)
+  const searchRoot = params.folder
+    ? resolveSafePath(params.vaultPath, params.folder)
+    : resolve(params.vaultPath)
   const allEntries = await readdirOrNull(searchRoot)
 
   if (!allEntries) return []
@@ -814,7 +846,10 @@ const readAsset = async (
       totalBytesRead += bytesRead
     }
     if (totalBytesRead === readBuffer.length) {
-      throw new Error(`file changed while reading: "${params.path}" grew past its ` + `measured size — retry the read`)
+      throw new Error(
+        `file changed while reading: "${params.path}" grew past its ` +
+          `measured size — retry the read`,
+      )
     }
     const buffer = readBuffer.subarray(0, totalBytesRead)
     logger.info("read asset", { path: params.path, bytes: buffer.length })

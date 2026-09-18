@@ -94,7 +94,10 @@ export const requireInitializedDir = (
  * (local). Reports each failure via prompts.error and returns undefined.
  * Shared by upgrade and restart so their precondition checks can't drift.
  */
-export const resolveDeployment = (dirFlag: string | undefined, prompts: Prompts): Deployment | undefined => {
+export const resolveDeployment = (
+  dirFlag: string | undefined,
+  prompts: Prompts,
+): Deployment | undefined => {
   const initialized = requireInitializedDir(dirFlag, prompts)
 
   if (!initialized) return undefined
@@ -104,7 +107,9 @@ export const resolveDeployment = (dirFlag: string | undefined, prompts: Prompts)
   const vaultPath = mode === "local" ? readEnvVaultPath(envFilePath) : undefined
 
   if (mode === "local" && !vaultPath) {
-    prompts.error(`VAULT_PATH is empty or missing in ${targetDir}/.env — cannot start the container.`)
+    prompts.error(
+      `VAULT_PATH is empty or missing in ${targetDir}/.env — cannot start the container.`,
+    )
     return undefined
   }
   if (mode === "local" && !hasEnvPublicUrl(envFilePath)) {
@@ -141,7 +146,9 @@ export const ensureDaemonRunning = (docker: DockerRunner, prompts: Prompts): boo
  * URL, so probing it would only duplicate the health check the start cycle
  * just ran.
  */
-const shouldRunPostStartProbe = (deployment: Deployment): deployment is Deployment & { publicUrl: string } => {
+const shouldRunPostStartProbe = (
+  deployment: Deployment,
+): deployment is Deployment & { publicUrl: string } => {
   return deployment.mode === "remote" && deployment.publicUrl !== undefined
 }
 
@@ -268,7 +275,9 @@ export const runDown = async (flags: DownFlags, deps: DownDeps): Promise<number>
     return 1
   }
 
-  prompts.log("Container stopped and removed. Your vault data, search index, and settings are untouched.")
+  prompts.log(
+    "Container stopped and removed. Your vault data, search index, and settings are untouched.",
+  )
   prompts.outro(`Start again with: npx vault-cortex@latest start --dir "${initialized.targetDir}"`)
   return 0
 }

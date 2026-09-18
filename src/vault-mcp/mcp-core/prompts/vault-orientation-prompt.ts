@@ -35,7 +35,9 @@ const deriveFolderCounts = (paths: readonly string[]): FolderCount[] => {
       counts.set(folder, (counts.get(folder) ?? 0) + 1)
     }
   }
-  return [...counts.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name))
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => a.name.localeCompare(b.name))
 }
 
 /** Formats a single property key with its adoption rate, sample values, and
@@ -47,7 +49,8 @@ const formatPropertyLine = (
 ): string => {
   const percentage = totalNotes > 0 ? Math.round((propertyKey.count / totalNotes) * 100) : 0
   const displayPercentage = propertyKey.count > 0 && percentage === 0 ? "<1" : String(percentage)
-  const samples = propertyKey.sample_values.length > 0 ? ` — e.g. ${propertyKey.sample_values.join(", ")}` : ""
+  const samples =
+    propertyKey.sample_values.length > 0 ? ` — e.g. ${propertyKey.sample_values.join(", ")}` : ""
   const isLowAdoption = totalNotes > 0 && propertyKey.count / totalNotes < lowAdoptionThreshold
   const lowAdoptionFlag = isLowAdoption ? " (low adoption)" : ""
 
@@ -119,7 +122,9 @@ export const registerVaultOrientationPrompt = ({
   whenToolEnabledText,
   formatEnabledToolList,
 }: PromptRegistrationContext): void => {
-  const memoryStore = config.memoryEnabled ? createMemoryStore({ memoryDir: config.memoryDir }) : undefined
+  const memoryStore = config.memoryEnabled
+    ? createMemoryStore({ memoryDir: config.memoryDir })
+    : undefined
 
   // Zero-arg: omit argsSchema entirely so the SDK calls back as (extra) =>.
   // An empty {} schema would be treated as "has schema" and break arg parsing.
@@ -143,10 +148,15 @@ export const registerVaultOrientationPrompt = ({
       try {
         const tags = search.listAllTags({}, reqLogger)
         const propertyKeys = search.listPropertyKeys({}, reqLogger)
-        const recent = search.recentNotes({ sort_by: "modified", limit: ORIENTATION_RECENT_LIMIT }, reqLogger)
+        const recent = search.recentNotes(
+          { sort_by: "modified", limit: ORIENTATION_RECENT_LIMIT },
+          reqLogger,
+        )
         const paths = await vaultFs.listNotes({ vaultPath }, reqLogger)
         const memoryFiles =
-          config.memoryEnabled && memoryStore ? await memoryStore.listMemoryFiles({ vaultPath }, reqLogger) : []
+          config.memoryEnabled && memoryStore
+            ? await memoryStore.listMemoryFiles({ vaultPath }, reqLogger)
+            : []
         const orphanResults = search.findOrphans(
           {
             excludeFolders: [...config.orphanExcludeFolders],
@@ -160,7 +170,10 @@ export const registerVaultOrientationPrompt = ({
           folder: config.dailyNotesFolder,
           format: config.dailyNotesFormat,
         })
-        const brokenLinkResult = search.brokenLinkCount({ dailyNotesFolder: dailyNotesConfig.folder }, reqLogger)
+        const brokenLinkResult = search.brokenLinkCount(
+          { dailyNotesFolder: dailyNotesConfig.folder },
+          reqLogger,
+        )
         const stats = search.vaultStats({}, reqLogger)
 
         const folderCounts = deriveFolderCounts(paths)
@@ -197,12 +210,16 @@ export const registerVaultOrientationPrompt = ({
           ORIENTATION_LOW_ADOPTION_THRESHOLD,
         )
 
-        const recentSection = recent.length > 0 ? recent.map(formatNoteLine).join("\n") : "No notes yet."
+        const recentSection =
+          recent.length > 0 ? recent.map(formatNoteLine).join("\n") : "No notes yet."
 
         const orphanCountLabel = `${orphans.length}${hasMoreOrphans ? "+" : ""}`
         const orphanSection =
           orphans.length > 0
-            ? [`${orphanCountLabel} orphan notes (no incoming links):`, ...orphans.map(formatNoteLine)].join("\n")
+            ? [
+                `${orphanCountLabel} orphan notes (no incoming links):`,
+                ...orphans.map(formatNoteLine),
+              ].join("\n")
             : "No orphans found — every note has at least one incoming link."
 
         const memorySectionContent =
@@ -215,13 +232,18 @@ export const registerVaultOrientationPrompt = ({
         // keyed on its own tool being served — a suggestion the client cannot
         // act on is worse than a shorter menu. The orphan line additionally
         // requires orphans to exist.
-        const goDeeperEntries: ReadonlyArray<readonly [name: ToolName, line: string, show?: boolean]> = [
+        const goDeeperEntries: ReadonlyArray<
+          readonly [name: ToolName, line: string, show?: boolean]
+        > = [
           [
             "vault_search",
             `- \`vault_search\` — ${config.embeddingEnabled ? "hybrid" : "full-text"} search across all notes`,
           ],
           ["vault_search_by_tag", "- `vault_search_by_tag` — explore notes by tag"],
-          ["vault_list_property_values", "- `vault_list_property_values` — explore values for any property key"],
+          [
+            "vault_list_property_values",
+            "- `vault_list_property_values` — explore values for any property key",
+          ],
           [
             "vault_find_orphans",
             "- `vault_find_orphans` — full orphan list with exclusion control",
@@ -229,7 +251,10 @@ export const registerVaultOrientationPrompt = ({
           ],
           ["vault_get_memory", "- `vault_get_memory` — read memory files in detail"],
           ["vault_read_note", "- `vault_read_note` — read any note's full content"],
-          ["vault_list_files", "- `vault_list_files` — browse non-markdown files (images, canvases, data files)"],
+          [
+            "vault_list_files",
+            "- `vault_list_files` — browse non-markdown files (images, canvases, data files)",
+          ],
         ]
         const goDeeper = goDeeperEntries
           .filter(([name, , show]) => isToolEnabled(name) && show !== false)

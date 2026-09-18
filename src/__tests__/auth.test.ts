@@ -35,37 +35,53 @@ describe("tokenBindingForServer", () => {
 
 describe("mcpResourceUrl", () => {
   it("appends /mcp to the origin", () => {
-    expect(mcpResourceUrl(new URL("https://mcp.example.com")).href).toBe("https://mcp.example.com/mcp")
+    expect(mcpResourceUrl(new URL("https://mcp.example.com")).href).toBe(
+      "https://mcp.example.com/mcp",
+    )
   })
 
   it("replaces a path prefix rather than nesting under it", () => {
-    expect(mcpResourceUrl(new URL("https://mcp.example.com/vault/")).href).toBe("https://mcp.example.com/mcp")
+    expect(mcpResourceUrl(new URL("https://mcp.example.com/vault/")).href).toBe(
+      "https://mcp.example.com/mcp",
+    )
   })
 })
 
 describe("canonicalResourceUri", () => {
   it("keeps a canonical URI unchanged", () => {
-    expect(canonicalResourceUri(new URL("https://mcp.example.com/mcp"))).toBe("https://mcp.example.com/mcp")
+    expect(canonicalResourceUri(new URL("https://mcp.example.com/mcp"))).toBe(
+      "https://mcp.example.com/mcp",
+    )
   })
 
   it("drops a trailing slash", () => {
-    expect(canonicalResourceUri(new URL("https://mcp.example.com/mcp/"))).toBe("https://mcp.example.com/mcp")
+    expect(canonicalResourceUri(new URL("https://mcp.example.com/mcp/"))).toBe(
+      "https://mcp.example.com/mcp",
+    )
   })
 
   it("drops the trailing slash of a bare origin", () => {
-    expect(canonicalResourceUri(new URL("https://mcp.example.com/"))).toBe("https://mcp.example.com")
+    expect(canonicalResourceUri(new URL("https://mcp.example.com/"))).toBe(
+      "https://mcp.example.com",
+    )
   })
 
   it("lowercases the scheme and host and drops a default port", () => {
-    expect(canonicalResourceUri(new URL("HTTPS://MCP.Example.COM:443/mcp"))).toBe("https://mcp.example.com/mcp")
+    expect(canonicalResourceUri(new URL("HTTPS://MCP.Example.COM:443/mcp"))).toBe(
+      "https://mcp.example.com/mcp",
+    )
   })
 
   it("keeps a non-default port", () => {
-    expect(canonicalResourceUri(new URL("http://127.0.0.1:8000/mcp"))).toBe("http://127.0.0.1:8000/mcp")
+    expect(canonicalResourceUri(new URL("http://127.0.0.1:8000/mcp"))).toBe(
+      "http://127.0.0.1:8000/mcp",
+    )
   })
 
   it("drops the query and fragment", () => {
-    expect(canonicalResourceUri(new URL("https://mcp.example.com/mcp?x=1#frag"))).toBe("https://mcp.example.com/mcp")
+    expect(canonicalResourceUri(new URL("https://mcp.example.com/mcp?x=1#frag"))).toBe(
+      "https://mcp.example.com/mcp",
+    )
   })
 })
 
@@ -220,12 +236,18 @@ describe("extractClientIp", () => {
   // before it. TRUST_FORWARDED_HOPS=2 selects that element.
   describe("when two trusted proxies write the Forwarded header", () => {
     it("takes the for= element before the last one", () => {
-      const request = requestWith({ forwarded: "for=203.0.113.7, for=70.41.3.18, for=172.69.214.195" }, "10.0.0.1")
+      const request = requestWith(
+        { forwarded: "for=203.0.113.7, for=70.41.3.18, for=172.69.214.195" },
+        "10.0.0.1",
+      )
       expect(extractClientIp(request, TRUSTED_TWO_HOPS)).toBe("70.41.3.18")
     })
 
     it("returns the bare IPv6 visitor behind an IPv4 CDN element", () => {
-      const request = requestWith({ forwarded: 'for="[2606:4700:4700::1111]:4711", for=172.69.214.195' }, "10.0.0.1")
+      const request = requestWith(
+        { forwarded: 'for="[2606:4700:4700::1111]:4711", for=172.69.214.195' },
+        "10.0.0.1",
+      )
       expect(extractClientIp(request, TRUSTED_TWO_HOPS)).toBe("2606:4700:4700::1111")
     })
 
@@ -250,7 +272,10 @@ describe("extractClientIp", () => {
     })
 
     it("skips elements without for= when counting hops", () => {
-      const request = requestWith({ forwarded: "for=70.41.3.18, proto=https, for=172.69.214.195" }, "10.0.0.1")
+      const request = requestWith(
+        { forwarded: "for=70.41.3.18, proto=https, for=172.69.214.195" },
+        "10.0.0.1",
+      )
       expect(extractClientIp(request, TRUSTED_TWO_HOPS)).toBe("70.41.3.18")
     })
 

@@ -75,7 +75,9 @@ describe("atomicWriteFile", () => {
     // the catch-and-cleanup branch, not the initial writeFile.
     const target = join(vault, "occupied")
     await mkdir(target)
-    await expect(atomicWriteFile({ filePath: target, content: "body\n" }, logger)).rejects.toThrow(/EISDIR/)
+    await expect(atomicWriteFile({ filePath: target, content: "body\n" }, logger)).rejects.toThrow(
+      /EISDIR/,
+    )
     const entries = await readdir(vault)
     expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
   })
@@ -90,7 +92,9 @@ describe("atomicWriteFile", () => {
       throw new Error("EPERM: injected cleanup failure")
     })
 
-    await expect(atomicWriteFile({ filePath: target, content: "body\n" }, logger)).rejects.toThrow(/EISDIR/)
+    await expect(atomicWriteFile({ filePath: target, content: "body\n" }, logger)).rejects.toThrow(
+      /EISDIR/,
+    )
 
     // The temp path carries a random UUID, so only its shape is assertable
     expect(warnSpy).toHaveBeenCalledTimes(1)
@@ -112,7 +116,9 @@ describe("atomicWriteFileExclusive", () => {
     const target = join(vault, "taken.md")
     await atomicWriteFile({ filePath: target, content: "original\n" }, logger)
 
-    await expect(atomicWriteFileExclusive({ filePath: target, content: "overwrite\n" }, logger)).rejects.toMatchObject({
+    await expect(
+      atomicWriteFileExclusive({ filePath: target, content: "overwrite\n" }, logger),
+    ).rejects.toMatchObject({
       code: "EEXIST",
     })
     // The no-clobber guard must not have modified the existing file.
@@ -128,7 +134,9 @@ describe("atomicWriteFileExclusive", () => {
   it("leaves no .tmp staging file behind when the target already exists", async () => {
     const target = join(vault, "exists.md")
     await atomicWriteFile({ filePath: target, content: "original\n" }, logger)
-    await expect(atomicWriteFileExclusive({ filePath: target, content: "body\n" }, logger)).rejects.toMatchObject({
+    await expect(
+      atomicWriteFileExclusive({ filePath: target, content: "body\n" }, logger),
+    ).rejects.toMatchObject({
       code: "EEXIST",
     })
     const entries = await readdir(vault)
@@ -146,7 +154,9 @@ describe("atomicWriteFileExclusive", () => {
       throw new Error("EPERM: injected cleanup failure")
     })
 
-    await expect(atomicWriteFileExclusive({ filePath: target, content: "overwrite\n" }, logger)).rejects.toMatchObject({
+    await expect(
+      atomicWriteFileExclusive({ filePath: target, content: "overwrite\n" }, logger),
+    ).rejects.toMatchObject({
       code: "EEXIST",
     })
 
@@ -223,7 +233,10 @@ describe("atomicWriteFileExclusive", () => {
       })
 
       await expect(
-        atomicWriteFileExclusive({ filePath: target, content: "body\n", hardLinksSupported: false }, logger),
+        atomicWriteFileExclusive(
+          { filePath: target, content: "body\n", hardLinksSupported: false },
+          logger,
+        ),
       ).rejects.toThrow("EIO: injected swap failure")
 
       expect(warnSpy).toHaveBeenCalledTimes(1)
@@ -241,29 +254,39 @@ describe("path traversal", () => {
   })
 
   it("rejects the vault root because it does not name an entry", () => {
-    expect(() => resolveSafePath(vault, ".")).toThrow('path traversal blocked: "." resolves to the vault root')
+    expect(() => resolveSafePath(vault, ".")).toThrow(
+      'path traversal blocked: "." resolves to the vault root',
+    )
   })
 
   // Paths carry .md so they clear the markdown-path guard and reach the
   // traversal check (the behavior under test).
-  it.each(["../escape.md", "../../etc/passwd.md", "foo/../../escape.md"])("readNote rejects %s", async (path) => {
-    await expect(readNote({ vaultPath: vault, path }, logger)).rejects.toThrow("path traversal blocked")
-  })
+  it.each(["../escape.md", "../../etc/passwd.md", "foo/../../escape.md"])(
+    "readNote rejects %s",
+    async (path) => {
+      await expect(readNote({ vaultPath: vault, path }, logger)).rejects.toThrow(
+        "path traversal blocked",
+      )
+    },
+  )
 
-  it.each(["../escape.md", "../../etc/passwd.md", "foo/../../escape.md"])("deleteNote rejects %s", async (path) => {
-    await expect(
-      deleteNote(
-        {
-          vaultPath: vault,
-          path,
-          protectedPaths: [],
-          pruneEmptyFolders: false,
-          trashOption: "system",
-        },
-        logger,
-      ),
-    ).rejects.toThrow("path traversal blocked")
-  })
+  it.each(["../escape.md", "../../etc/passwd.md", "foo/../../escape.md"])(
+    "deleteNote rejects %s",
+    async (path) => {
+      await expect(
+        deleteNote(
+          {
+            vaultPath: vault,
+            path,
+            protectedPaths: [],
+            pruneEmptyFolders: false,
+            trashOption: "system",
+          },
+          logger,
+        ),
+      ).rejects.toThrow("path traversal blocked")
+    },
+  )
 })
 
 describe("absolute paths", () => {
@@ -300,27 +323,27 @@ describe("markdown path requirement", () => {
   })
 
   it("readNoteOutline rejects a path without the .md extension", async () => {
-    await expect(readNoteOutline({ vaultPath: vault, path: "Projects/Plan" }, logger)).rejects.toThrow(
-      'path must end in ".md" (received "Projects/Plan")',
-    )
+    await expect(
+      readNoteOutline({ vaultPath: vault, path: "Projects/Plan" }, logger),
+    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
   })
 
   it("readNoteSection rejects a path without the .md extension", async () => {
-    await expect(readNoteSection({ vaultPath: vault, path: "Projects/Plan", heading: "Any" }, logger)).rejects.toThrow(
-      'path must end in ".md" (received "Projects/Plan")',
-    )
+    await expect(
+      readNoteSection({ vaultPath: vault, path: "Projects/Plan", heading: "Any" }, logger),
+    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
   })
 
   it("readNoteProperties rejects a path without the .md extension", async () => {
-    await expect(readNoteProperties({ vaultPath: vault, path: "Projects/Plan" }, logger)).rejects.toThrow(
-      'path must end in ".md" (received "Projects/Plan")',
-    )
+    await expect(
+      readNoteProperties({ vaultPath: vault, path: "Projects/Plan" }, logger),
+    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
   })
 
   it("writeNote rejects a path without the .md extension", async () => {
-    await expect(writeNote({ vaultPath: vault, path: "Projects/Plan", body: "x" }, logger)).rejects.toThrow(
-      'path must end in ".md" (received "Projects/Plan")',
-    )
+    await expect(
+      writeNote({ vaultPath: vault, path: "Projects/Plan", body: "x" }, logger),
+    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
   })
 
   it("updateProperties rejects a path without the .md extension", async () => {
@@ -417,7 +440,9 @@ describe("writeNote", () => {
       logger,
     )
     const content = await readFile(join(vault, "existing.md"), "utf8")
-    expect(content).toBe("---\ntitle: Original\ndate: 2025-01-01\ncreated: 2026-05-13T20:00:00-04:00\n---\nnew body\n")
+    expect(content).toBe(
+      "---\ntitle: Original\ndate: 2025-01-01\ncreated: 2026-05-13T20:00:00-04:00\n---\nnew body\n",
+    )
   })
 
   it("merges new frontmatter keys without destroying existing", async () => {
@@ -438,7 +463,11 @@ describe("writeNote", () => {
   })
 
   it("removes keys set to null when merging into an existing note", async () => {
-    await writeFile(join(vault, "merge.md"), "---\ntitle: Keep\ndraft: true\n---\nold body\n", "utf8")
+    await writeFile(
+      join(vault, "merge.md"),
+      "---\ntitle: Keep\ndraft: true\n---\nold body\n",
+      "utf8",
+    )
     await writeNote(
       {
         vaultPath: vault,
@@ -521,7 +550,9 @@ describe("writeNote", () => {
   })
 
   it("rejects body containing a control character", async () => {
-    await expect(writeNote({ vaultPath: vault, path: "bad.md", body: "hello\x00world" }, logger)).rejects.toThrow(
+    await expect(
+      writeNote({ vaultPath: vault, path: "bad.md", body: "hello\x00world" }, logger),
+    ).rejects.toThrow(
       "body contains a control character (U+0000 at position 5) — control characters other than tab, LF, and CR are not allowed",
     )
   })
@@ -545,20 +576,23 @@ describe("deleteNote", () => {
     await expect(readFile(join(vault, "delete-me.md"))).rejects.toThrow(/ENOENT/)
   })
 
-  it.each(["About Me/Principles.md", "Daily Notes/2025-01-01.md"])("rejects protected path %s", async (path) => {
-    await expect(
-      deleteNote(
-        {
-          vaultPath: vault,
-          path,
-          protectedPaths: DEFAULT_PROTECTED,
-          pruneEmptyFolders: false,
-          trashOption: "system",
-        },
-        logger,
-      ),
-    ).rejects.toThrow("cannot delete protected path")
-  })
+  it.each(["About Me/Principles.md", "Daily Notes/2025-01-01.md"])(
+    "rejects protected path %s",
+    async (path) => {
+      await expect(
+        deleteNote(
+          {
+            vaultPath: vault,
+            path,
+            protectedPaths: DEFAULT_PROTECTED,
+            pruneEmptyFolders: false,
+            trashOption: "system",
+          },
+          logger,
+        ),
+      ).rejects.toThrow("cannot delete protected path")
+    },
+  )
 
   it.each(["About Me/Principles.md", "Daily Notes/2025-01-01.md"])(
     "protected-path rejection for %s is structural — no MCP tool name",
@@ -685,7 +719,9 @@ describe("deleteNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(`absolute path blocked: "${vault}/About Me/Principles.md" must be vault-relative`)
+    ).rejects.toThrow(
+      `absolute path blocked: "${vault}/About Me/Principles.md" must be vault-relative`,
+    )
     expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe("protected")
   })
 
@@ -1663,7 +1699,11 @@ describe("listAssets", () => {
 
 describe("readNoteProperties", () => {
   it("returns parsed frontmatter as an object", async () => {
-    await writeFile(join(vault, "test.md"), "---\ntitle: Test\ntags: [a, b]\nstatus: active\n---\n\n# Body\n", "utf8")
+    await writeFile(
+      join(vault, "test.md"),
+      "---\ntitle: Test\ntags: [a, b]\nstatus: active\n---\n\n# Body\n",
+      "utf8",
+    )
     const properties = await readNoteProperties({ vaultPath: vault, path: "test.md" }, logger)
     expect(properties).toEqual({
       title: "Test",
@@ -1673,7 +1713,9 @@ describe("readNoteProperties", () => {
   })
 
   it("throws on non-existent file", async () => {
-    await expect(readNoteProperties({ vaultPath: vault, path: "missing.md" }, logger)).rejects.toThrow("note not found")
+    await expect(
+      readNoteProperties({ vaultPath: vault, path: "missing.md" }, logger),
+    ).rejects.toThrow("note not found")
   })
 
   it("returns empty object for file with no frontmatter", async () => {
@@ -1725,8 +1767,15 @@ describe("updateProperties", () => {
     // The serializer must not re-parse the body — an HR-leading body read
     // back through gray-matter's string form is consumed as an unclosed
     // frontmatter fence and erased.
-    await writeFile(join(vault, "rules.md"), "---\ntitle: Original\n---\n---\nbody after rule\n", "utf8")
-    await updateProperties({ vaultPath: vault, path: "rules.md", properties: { status: "active" } }, logger)
+    await writeFile(
+      join(vault, "rules.md"),
+      "---\ntitle: Original\n---\n---\nbody after rule\n",
+      "utf8",
+    )
+    await updateProperties(
+      { vaultPath: vault, path: "rules.md", properties: { status: "active" } },
+      logger,
+    )
     const written = await readFile(join(vault, "rules.md"), "utf8")
     expect(written).toBe("---\ntitle: Original\nstatus: active\n---\n---\nbody after rule\n")
   })
@@ -1795,7 +1844,9 @@ describe("updateProperties", () => {
       logger,
     )
     const content = await readFile(join(vault, "stamped.md"), "utf8")
-    expect(content).toBe("---\ntitle: Stamped\ncreated: 2026-05-13T20:00:00-04:00\nstatus: active\n---\nbody\n")
+    expect(content).toBe(
+      "---\ntitle: Stamped\ncreated: 2026-05-13T20:00:00-04:00\nstatus: active\n---\nbody\n",
+    )
   })
 
   it("deletes a key set to null", async () => {
@@ -1948,7 +1999,10 @@ describe("write size logging", () => {
     const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
     onTestFinished(() => infoSpy.mockRestore())
 
-    await updateProperties({ vaultPath: vault, path: "p.md", properties: { status: "active" } }, logger)
+    await updateProperties(
+      { vaultPath: vault, path: "p.md", properties: { status: "active" } },
+      logger,
+    )
     const written = await readFile(join(vault, "p.md"), "utf8")
 
     expect(infoSpy).toHaveBeenCalledWith("updated properties", {
@@ -1960,7 +2014,9 @@ describe("write size logging", () => {
 })
 
 describe("readNoteOutline", () => {
-  const getExpectedFileMetadata = async (path: string): Promise<{ bytes: number; modified: string }> => {
+  const getExpectedFileMetadata = async (
+    path: string,
+  ): Promise<{ bytes: number; modified: string }> => {
     const fileStats = await stat(join(vault, path))
     const modified = DateTime.fromMillis(Math.round(fileStats.mtimeMs)).toISO()
 
@@ -2143,7 +2199,8 @@ describe("readNoteOutline", () => {
   })
 
   it("keeps a board's leading note out of its trailing settings block", async () => {
-    const body = "Board notes.\n\n## Backlog\n\n- card\n\n%% kanban:settings\n```json\n{}\n```\n%%\n"
+    const body =
+      "Board notes.\n\n## Backlog\n\n- card\n\n%% kanban:settings\n```json\n{}\n```\n%%\n"
     await writeFile(join(vault, "lanes.md"), body, "utf8")
 
     const outline = await readNoteOutline({ vaultPath: vault, path: "lanes.md" }, logger)
@@ -2219,7 +2276,11 @@ describe("readNoteOutline", () => {
     // The heading sits after a multi-line frontmatter block; bytes must be
     // computed on the body only, so a longer frontmatter doesn't change them.
     const body = "## Only\n\nbody\n"
-    await writeFile(join(vault, "fm.md"), `---\ntitle: A\ntags:\n  - x\n  - y\n---\n${body}`, "utf8")
+    await writeFile(
+      join(vault, "fm.md"),
+      `---\ntitle: A\ntags:\n  - x\n  - y\n---\n${body}`,
+      "utf8",
+    )
     const outline = await readNoteOutline({ vaultPath: vault, path: "fm.md" }, logger)
     expect(outline).toEqual({
       ...(await getExpectedFileMetadata("fm.md")),
@@ -2242,14 +2303,20 @@ describe("readNoteSection", () => {
   })
 
   it("returns the heading line plus its body, stopping at the next same-level heading", async () => {
-    const section = await readNoteSection({ vaultPath: vault, path: "board.md", heading: "Active" }, logger)
+    const section = await readNoteSection(
+      { vaultPath: vault, path: "board.md", heading: "Active" },
+      logger,
+    )
     expect(section).toBe("## Active\n\n- [ ] task A\n")
   })
 
   it("includes child headings in a parent section", async () => {
     const body = "## Parent\n\nintro\n\n### Child\n\nchild body\n\n## Sibling\n\nx\n"
     await writeFile(join(vault, "nested.md"), body, "utf8")
-    const section = await readNoteSection({ vaultPath: vault, path: "nested.md", heading: "Parent" }, logger)
+    const section = await readNoteSection(
+      { vaultPath: vault, path: "nested.md", heading: "Parent" },
+      logger,
+    )
     expect(section).toBe("## Parent\n\nintro\n\n### Child\n\nchild body\n")
   })
 
@@ -2267,13 +2334,18 @@ describe("readNoteSection", () => {
   it("excludes a trailing Kanban %% settings block from the last section", async () => {
     const withSettings = "## Active\n\n- [ ] task\n\n%% kanban:settings\n```\n{}\n```\n%%\n"
     await writeFile(join(vault, "kanban.md"), withSettings, "utf8")
-    const section = await readNoteSection({ vaultPath: vault, path: "kanban.md", heading: "Active" }, logger)
+    const section = await readNoteSection(
+      { vaultPath: vault, path: "kanban.md", heading: "Active" },
+      logger,
+    )
     // The blank line before the %% block is absorbed too — no dangling blank.
     expect(section).toBe("## Active\n\n- [ ] task")
   })
 
   it("throws and lists available headings when the heading is not found", async () => {
-    await expect(readNoteSection({ vaultPath: vault, path: "board.md", heading: "Missing" }, logger)).rejects.toThrow(
+    await expect(
+      readNoteSection({ vaultPath: vault, path: "board.md", heading: "Missing" }, logger),
+    ).rejects.toThrow(
       'heading not found: "Missing". Available headings: # Board, ## Active, ## Done',
     )
   })
@@ -2281,21 +2353,21 @@ describe("readNoteSection", () => {
   it("throws ambiguous when two headings share text and level", async () => {
     const body = "## Dup\n\na\n\n## Dup\n\nb\n"
     await writeFile(join(vault, "amb.md"), body, "utf8")
-    await expect(readNoteSection({ vaultPath: vault, path: "amb.md", heading: "Dup" }, logger)).rejects.toThrow(
-      'ambiguous heading: "Dup"',
-    )
+    await expect(
+      readNoteSection({ vaultPath: vault, path: "amb.md", heading: "Dup" }, logger),
+    ).rejects.toThrow('ambiguous heading: "Dup"')
   })
 
   it("throws note not found for a missing path", async () => {
-    await expect(readNoteSection({ vaultPath: vault, path: "missing.md", heading: "Active" }, logger)).rejects.toThrow(
-      'note not found: "missing.md"',
-    )
+    await expect(
+      readNoteSection({ vaultPath: vault, path: "missing.md", heading: "Active" }, logger),
+    ).rejects.toThrow('note not found: "missing.md"')
   })
 
   it("throws heading cannot be empty for an empty heading", async () => {
-    await expect(readNoteSection({ vaultPath: vault, path: "board.md", heading: "" }, logger)).rejects.toThrow(
-      "heading cannot be empty",
-    )
+    await expect(
+      readNoteSection({ vaultPath: vault, path: "board.md", heading: "" }, logger),
+    ).rejects.toThrow("heading cannot be empty")
   })
 })
 
@@ -2515,7 +2587,9 @@ describe("concurrent writes (exclusive lock)", () => {
     await expect(readFile(join(vault, "reborn.md"), "utf8")).rejects.toThrow(/ENOENT/)
 
     await writeNote({ vaultPath: vault, path: "reborn.md", body: "second life" }, logger)
-    expect(parseNote(await readFile(join(vault, "reborn.md"), "utf8")).content).toBe("second life\n")
+    expect(parseNote(await readFile(join(vault, "reborn.md"), "utf8")).content).toBe(
+      "second life\n",
+    )
   })
 })
 
@@ -2531,26 +2605,28 @@ describe("readAsset", () => {
 
   it("rejects a .md path as not a file", async () => {
     await writeFile(join(vault, "note.md"), "# note", "utf8")
-    await expect(readAsset({ vaultPath: vault, path: "note.md", maxBytes: 1024 }, logger)).rejects.toThrow(
-      'not a file: "note.md" is a markdown note',
-    )
+    await expect(
+      readAsset({ vaultPath: vault, path: "note.md", maxBytes: 1024 }, logger),
+    ).rejects.toThrow('not a file: "note.md" is a markdown note')
   })
 
   it("blocks path traversal out of the vault", async () => {
-    await expect(readAsset({ vaultPath: vault, path: "../outside.png", maxBytes: 1024 }, logger)).rejects.toThrow(
-      'path traversal blocked: "../outside.png" escapes vault root',
-    )
+    await expect(
+      readAsset({ vaultPath: vault, path: "../outside.png", maxBytes: 1024 }, logger),
+    ).rejects.toThrow('path traversal blocked: "../outside.png" escapes vault root')
   })
 
   it("rejects a missing file as file not found", async () => {
-    await expect(readAsset({ vaultPath: vault, path: "ghost.png", maxBytes: 1024 }, logger)).rejects.toThrow(
-      'file not found: "ghost.png"',
-    )
+    await expect(
+      readAsset({ vaultPath: vault, path: "ghost.png", maxBytes: 1024 }, logger),
+    ).rejects.toThrow('file not found: "ghost.png"')
   })
 
   it("rejects a file over the byte cap before reading it", async () => {
     await writeFile(join(vault, "big.bin"), "12345678901", "utf8")
-    await expect(readAsset({ vaultPath: vault, path: "big.bin", maxBytes: 10 }, logger)).rejects.toThrow(
+    await expect(
+      readAsset({ vaultPath: vault, path: "big.bin", maxBytes: 10 }, logger),
+    ).rejects.toThrow(
       'file too large: "big.bin" is 11 bytes (cap 10 bytes — raise MAX_FILE_BYTES to read larger files)',
     )
   })
@@ -2569,7 +2645,10 @@ describe("statAssets", () => {
 
   it("drops a path that vanished instead of throwing", async () => {
     await writeFile(join(vault, "kept.png"), "1234", "utf8")
-    const statted = await statAssets({ vaultPath: vault, paths: ["kept.png", "vanished.png"] }, logger)
+    const statted = await statAssets(
+      { vaultPath: vault, paths: ["kept.png", "vanished.png"] },
+      logger,
+    )
     expect(statted).toEqual([{ path: "kept.png", bytes: 4 }])
   })
 })
@@ -2600,9 +2679,9 @@ describe("hidden paths", () => {
 
   it("readNoteOutline rejects a note inside a hidden folder", async () => {
     await createHiddenFixtures()
-    await expect(readNoteOutline({ vaultPath: vault, path: ".trash/secret.md" }, logger)).rejects.toThrow(
-      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
-    )
+    await expect(
+      readNoteOutline({ vaultPath: vault, path: ".trash/secret.md" }, logger),
+    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
   })
 
   it("readNoteSection rejects a note inside a hidden folder", async () => {
@@ -2614,9 +2693,9 @@ describe("hidden paths", () => {
 
   it("readNoteProperties rejects a note inside a hidden folder", async () => {
     await createHiddenFixtures()
-    await expect(readNoteProperties({ vaultPath: vault, path: ".trash/secret.md" }, logger)).rejects.toThrow(
-      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
-    )
+    await expect(
+      readNoteProperties({ vaultPath: vault, path: ".trash/secret.md" }, logger),
+    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
   })
 
   it("readAsset rejects a plugin data file inside .obsidian", async () => {
@@ -2630,13 +2709,15 @@ describe("hidden paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('hidden path blocked: ".obsidian/plugins/some-plugin/data.json" targets a hidden file or folder')
+    ).rejects.toThrow(
+      'hidden path blocked: ".obsidian/plugins/some-plugin/data.json" targets a hidden file or folder',
+    )
   })
 
   it("writeNote rejects a hidden path and creates nothing on disk", async () => {
-    await expect(writeNote({ vaultPath: vault, path: ".secret/new.md", body: "# New\n" }, logger)).rejects.toThrow(
-      'hidden path blocked: ".secret/new.md" targets a hidden file or folder',
-    )
+    await expect(
+      writeNote({ vaultPath: vault, path: ".secret/new.md", body: "# New\n" }, logger),
+    ).rejects.toThrow('hidden path blocked: ".secret/new.md" targets a hidden file or folder')
     const entries = await readdir(vault)
     expect(entries).not.toContain(".secret")
   })
@@ -2644,7 +2725,10 @@ describe("hidden paths", () => {
   it("updateProperties rejects a note inside a hidden folder", async () => {
     await createHiddenFixtures()
     await expect(
-      updateProperties({ vaultPath: vault, path: ".trash/secret.md", properties: { a: 1 } }, logger),
+      updateProperties(
+        { vaultPath: vault, path: ".trash/secret.md", properties: { a: 1 } },
+        logger,
+      ),
     ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
   })
 

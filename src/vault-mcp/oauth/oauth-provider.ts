@@ -15,7 +15,10 @@ import Database from "better-sqlite3"
 import { createHmac, randomUUID, randomBytes } from "node:crypto"
 import { DateTime } from "luxon"
 import type { Response } from "express"
-import type { OAuthServerProvider, AuthorizationParams } from "@modelcontextprotocol/sdk/server/auth/provider.js"
+import type {
+  OAuthServerProvider,
+  AuthorizationParams,
+} from "@modelcontextprotocol/sdk/server/auth/provider.js"
 import type { OAuthRegisteredClientsStore } from "@modelcontextprotocol/sdk/server/auth/clients.js"
 import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js"
 import type {
@@ -119,7 +122,9 @@ const initDb = (dbPath: string, logger: Logger): Database.Database => {
   // first read. Accepted trade-off — a one-time forced re-auth for any
   // currently-active session — and it keeps the new column NOT NULL
   // without an arbitrary backfill timestamp.
-  const hasExpiresAt = db.prepare("SELECT 1 FROM pragma_table_info('refresh_tokens') WHERE name = 'expires_at'").get()
+  const hasExpiresAt = db
+    .prepare("SELECT 1 FROM pragma_table_info('refresh_tokens') WHERE name = 'expires_at'")
+    .get()
 
   if (!hasExpiresAt) {
     db.exec("ALTER TABLE refresh_tokens ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0")
@@ -230,7 +235,12 @@ export type OAuthProvider = {
   deletePendingRequest: (id: string) => void
 }
 
-export const createOAuthProvider = ({ authToken, dbPath, serverUrl, logger }: OAuthProviderOptions): OAuthProvider => {
+export const createOAuthProvider = ({
+  authToken,
+  dbPath,
+  serverUrl,
+  logger,
+}: OAuthProviderOptions): OAuthProvider => {
   const oauthLogger = logger.child({ component: "oauth" })
   const db = initDb(dbPath, oauthLogger)
   const store = new SqliteClientsStore(db, oauthLogger)
@@ -283,16 +293,23 @@ export const createOAuthProvider = ({ authToken, dbPath, serverUrl, logger }: OA
   const insertRefreshTokenStmt = db.prepare<[string, string, string, number]>(
     "INSERT INTO refresh_tokens (token, client_id, scopes, expires_at) VALUES (?, ?, ?, ?)",
   )
-  const deleteExpiredRefreshTokensStmt = db.prepare<[number]>("DELETE FROM refresh_tokens WHERE expires_at < ?")
-  const selectRefreshTokenStmt = db.prepare<[string, string], { scopes: string; expires_at: number }>(
-    "SELECT scopes, expires_at FROM refresh_tokens WHERE token = ? AND client_id = ?",
+  const deleteExpiredRefreshTokensStmt = db.prepare<[number]>(
+    "DELETE FROM refresh_tokens WHERE expires_at < ?",
   )
+  const selectRefreshTokenStmt = db.prepare<
+    [string, string],
+    { scopes: string; expires_at: number }
+  >("SELECT scopes, expires_at FROM refresh_tokens WHERE token = ? AND client_id = ?")
   const deleteRefreshTokenStmt = db.prepare<[string]>("DELETE FROM refresh_tokens WHERE token = ?")
   const insertRevokedTokenStmt = db.prepare<[string, number]>(
     "INSERT OR IGNORE INTO revoked_tokens (token, revoked_at) VALUES (?, ?)",
   )
-  const selectRevokedTokenStmt = db.prepare<[string]>("SELECT 1 FROM revoked_tokens WHERE token = ?")
-  const deleteExpiredRevokedTokensStmt = db.prepare<[number]>("DELETE FROM revoked_tokens WHERE revoked_at < ?")
+  const selectRevokedTokenStmt = db.prepare<[string]>(
+    "SELECT 1 FROM revoked_tokens WHERE token = ?",
+  )
+  const deleteExpiredRevokedTokensStmt = db.prepare<[number]>(
+    "DELETE FROM revoked_tokens WHERE revoked_at < ?",
+  )
   const insertConsumedRefreshTokenStmt = db.prepare<[string, string, number]>(
     "INSERT OR IGNORE INTO consumed_refresh_tokens (token, client_id, expires_at) VALUES (?, ?, ?)",
   )
@@ -305,9 +322,15 @@ export const createOAuthProvider = ({ authToken, dbPath, serverUrl, logger }: OA
   const deleteExpiredConsumedTokensStmt = db.prepare<[number]>(
     "DELETE FROM consumed_refresh_tokens WHERE expires_at < ?",
   )
-  const deleteConsumedRefreshTokenStmt = db.prepare<[string]>("DELETE FROM consumed_refresh_tokens WHERE token = ?")
-  const deleteClientRefreshTokensStmt = db.prepare<[string]>("DELETE FROM refresh_tokens WHERE client_id = ?")
-  const deleteClientConsumedTokensStmt = db.prepare<[string]>("DELETE FROM consumed_refresh_tokens WHERE client_id = ?")
+  const deleteConsumedRefreshTokenStmt = db.prepare<[string]>(
+    "DELETE FROM consumed_refresh_tokens WHERE token = ?",
+  )
+  const deleteClientRefreshTokensStmt = db.prepare<[string]>(
+    "DELETE FROM refresh_tokens WHERE client_id = ?",
+  )
+  const deleteClientConsumedTokensStmt = db.prepare<[string]>(
+    "DELETE FROM consumed_refresh_tokens WHERE client_id = ?",
+  )
   // revoked_clients is a mint-time cutoff, not a ban: only access tokens
   // with iat strictly before revoked_at are rejected, so a re-consented
   // client keeps working under the same client_id.
@@ -317,7 +340,9 @@ export const createOAuthProvider = ({ authToken, dbPath, serverUrl, logger }: OA
   const selectRevokedClientStmt = db.prepare<[string], { revoked_at: number }>(
     "SELECT revoked_at FROM revoked_clients WHERE client_id = ?",
   )
-  const deleteExpiredRevokedClientsStmt = db.prepare<[number]>("DELETE FROM revoked_clients WHERE revoked_at < ?")
+  const deleteExpiredRevokedClientsStmt = db.prepare<[number]>(
+    "DELETE FROM revoked_clients WHERE revoked_at < ?",
+  )
   /** A revoked access JWT outlives its revocation by at most its own
    *  lifetime, so rows older than that can never be presented again. The
    *  same bound holds for a client revocation: every token minted at or
@@ -400,7 +425,15 @@ export const createOAuthProvider = ({ authToken, dbPath, serverUrl, logger }: OA
    *  transaction — a crash between the two would silently drop reuse
    *  detection for this token. */
   const consumeLiveRefreshRow = db.transaction(
-    ({ storageKey, clientId, expiresAt }: { storageKey: string; clientId: string; expiresAt: number }): void => {
+    ({
+      storageKey,
+      clientId,
+      expiresAt,
+    }: {
+      storageKey: string
+      clientId: string
+      expiresAt: number
+    }): void => {
       deleteRefreshTokenStmt.run(storageKey)
       insertConsumedRefreshTokenStmt.run(storageKey, clientId, expiresAt)
     },
@@ -417,7 +450,13 @@ export const createOAuthProvider = ({ authToken, dbPath, serverUrl, logger }: OA
    *  - Isolated: a different auth token derives a different key.
    *  - Reuse: a consumed, unexpired key presented again reports "reuse" —
    *    the caller revokes the grant. */
-  const consumeRefreshToken = ({ token, clientId }: { token: string; clientId: string }): ConsumeRefreshTokenResult => {
+  const consumeRefreshToken = ({
+    token,
+    clientId,
+  }: {
+    token: string
+    clientId: string
+  }): ConsumeRefreshTokenResult => {
     const storageKey = refreshTokenStorageKey(token)
     const now = DateTime.now().toUnixInteger()
 
@@ -469,7 +508,11 @@ export const createOAuthProvider = ({ authToken, dbPath, serverUrl, logger }: OA
      *  The default is applied here, before the request is stored, so the
      *  consent page, the code exchange, and every later refresh read the
      *  same value. */
-    async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void> {
+    async authorize(
+      client: OAuthClientInformationFull,
+      params: AuthorizationParams,
+      res: Response,
+    ): Promise<void> {
       // Thrown before anything is sent, so the SDK's handler can still
       // redirect the client with error=invalid_target.
       assertResourceIsThisServer(params.resource, client.client_id)
@@ -694,8 +737,13 @@ export const createOAuthProvider = ({ authToken, dbPath, serverUrl, logger }: OA
      *  added to the revocation list, so revoked_tokens never holds a
      *  refresh token or an arbitrary string in plaintext.
      *  https://www.rfc-editor.org/rfc/rfc7009 */
-    async revokeToken(client: OAuthClientInformationFull, request: OAuthTokenRevocationRequest): Promise<void> {
-      const { changes: refreshTokensDeleted } = deleteRefreshTokenStmt.run(refreshTokenStorageKey(request.token))
+    async revokeToken(
+      client: OAuthClientInformationFull,
+      request: OAuthTokenRevocationRequest,
+    ): Promise<void> {
+      const { changes: refreshTokensDeleted } = deleteRefreshTokenStmt.run(
+        refreshTokenStorageKey(request.token),
+      )
       const isValidAccessToken = verifyAccessJwt(request.token) !== null
 
       if (isValidAccessToken) {

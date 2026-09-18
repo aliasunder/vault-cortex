@@ -20,7 +20,8 @@ const MATTER_OPTIONS = {
         // YAML.parse returns null for empty/comment-only input; gray-matter
         // expects an object for `data`
         const parsed: unknown = parseYaml(input)
-        const isPlainObject = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+        const isPlainObject =
+          typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
 
         if (!isPlainObject) return {}
         // parseYaml returns a plain object for valid YAML mappings;
@@ -127,6 +128,8 @@ export const mergeFrontmatter = (
       .map(([updateKey]) => updateKey),
   )
   return Object.fromEntries(
-    Object.entries({ ...existing, ...updates }).filter(([mergedKey]) => !deletedKeys.has(mergedKey)),
+    Object.entries({ ...existing, ...updates }).filter(
+      ([mergedKey]) => !deletedKeys.has(mergedKey),
+    ),
   )
 }

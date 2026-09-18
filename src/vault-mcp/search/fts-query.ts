@@ -102,6 +102,8 @@ const ANY_TERM_STOPWORDS = new Set([
  *  Quoted phrases and punctuated compounds are deliberate and always kept. */
 export const sanitizeFtsQueryAnyTerm = (raw: string): string => {
   const parts = sanitizedFtsParts(raw)
-  const contentParts = parts.filter((part) => part.startsWith('"') || !ANY_TERM_STOPWORDS.has(part.toLowerCase()))
+  const contentParts = parts.filter(
+    (part) => part.startsWith('"') || !ANY_TERM_STOPWORDS.has(part.toLowerCase()),
+  )
   return contentParts.length === 0 ? '""' : contentParts.join(" OR ")
 }

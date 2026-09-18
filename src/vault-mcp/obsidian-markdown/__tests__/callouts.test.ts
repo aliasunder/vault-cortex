@@ -3,7 +3,12 @@ import { parseLeadingCallout, parseLeadingCalloutSpan } from "../callouts.js"
 
 describe("parseLeadingCallout", () => {
   it("parses a callout that is the first body line (before any heading)", () => {
-    const lines = ["> [!info] Scope of this file", "> **Contains:** identity facts.", "", "## Identity"]
+    const lines = [
+      "> [!info] Scope of this file",
+      "> **Contains:** identity facts.",
+      "",
+      "## Identity",
+    ]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "info",
       title: "Scope of this file",
@@ -12,7 +17,16 @@ describe("parseLeadingCallout", () => {
   })
 
   it("skips a single leading H1 and blank lines before the callout", () => {
-    const lines = ["", "# Me", "", "> [!info] Scope of this file", "> line one", "> line two", "", "## Section"]
+    const lines = [
+      "",
+      "# Me",
+      "",
+      "> [!info] Scope of this file",
+      "> line one",
+      "> line two",
+      "",
+      "## Section",
+    ]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "info",
       title: "Scope of this file",
@@ -60,7 +74,14 @@ describe("parseLeadingCallout", () => {
   })
 
   it("returns null when a callout appears after real body content", () => {
-    const lines = ["# Title", "", "Intro paragraph.", "", "> [!note] Too late", "> not a leading callout"]
+    const lines = [
+      "# Title",
+      "",
+      "Intro paragraph.",
+      "",
+      "> [!note] Too late",
+      "> not a leading callout",
+    ]
     expect(parseLeadingCallout(lines)).toBeNull()
   })
 

@@ -4,7 +4,14 @@ import { posix } from "node:path"
 import { DateTime } from "luxon"
 import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
-import type { NoteRow, NoteMetadata, SearchResult, SearchFilters, TaskRow, TaskEntry } from "./search-index.js"
+import type {
+  NoteRow,
+  NoteMetadata,
+  SearchResult,
+  SearchFilters,
+  TaskRow,
+  TaskEntry,
+} from "./search-index.js"
 
 // ── Type guards ────────────────────────────────────────────────
 
@@ -14,7 +21,8 @@ export const isString = (value: unknown): value is string => typeof value === "s
  *  non-string elements. gray-matter may parse multi-value YAML fields
  *  as a scalar or an array depending on syntax (flow vs block). */
 export const coerceToArray = (value: unknown): string[] => {
-  if (Array.isArray(value)) return value.filter((element) => element != null && typeof element !== "object").map(String)
+  if (Array.isArray(value))
+    return value.filter((element) => element != null && typeof element !== "object").map(String)
   return value ? [String(value)] : []
 }
 
@@ -47,7 +55,9 @@ const parseRecord = (json: string): Record<string, unknown> => {
 const isLeadingCalloutShape = (
   value: Record<string, unknown>,
 ): value is { type: string; title: string; body: string } =>
-  typeof value.type === "string" && typeof value.title === "string" && typeof value.body === "string"
+  typeof value.type === "string" &&
+  typeof value.title === "string" &&
+  typeof value.body === "string"
 
 /** Parses a JSON column that must contain a LeadingCallout ({type, title, body}).
  *  Throws on corruption — the indexer stores JSON.stringify(parseLeadingCallout(...)). */
@@ -68,7 +78,8 @@ export const stripTrailingSlashes = (folder: string): string => folder.replace(/
 /** Folds only A–Z, exactly as SQLite's default LIKE does — so the TypeScript
  *  mirror below can never disagree with the SQL predicate on a non-ASCII
  *  folder name. */
-const foldAsciiCase = (value: string): string => value.replace(/[A-Z]/g, (character) => character.toLowerCase())
+const foldAsciiCase = (value: string): string =>
+  value.replace(/[A-Z]/g, (character) => character.toLowerCase())
 
 /** TypeScript mirror of the `path LIKE 'folder/%'` predicate the SQL legs
  *  apply — segment-boundary (so "Docs" never matches "Docs2/") and
@@ -78,13 +89,15 @@ export const pathIsInFolder = ({ path, folder }: { path: string; folder: string 
 
 /** Escapes LIKE-wildcard characters (`\`, `%`, `_`) in a value so it is
  *  matched literally in a `LIKE ... ESCAPE '\'` clause. */
-export const escapeLikeWildcards = (value: string): string => value.replace(/[\\%_]/g, (character) => `\\${character}`)
+export const escapeLikeWildcards = (value: string): string =>
+  value.replace(/[\\%_]/g, (character) => `\\${character}`)
 
 /** The `LIKE ... ESCAPE '\'` pattern that selects every path inside a folder
  *  — segment-boundary (`Docs/%`, so "Docs" never matches "Docs2/") with the
  *  folder's own wildcard characters escaped. One definition keeps every
  *  search leg's folder predicate identical. */
-export const folderLikePattern = (folder: string): string => `${escapeLikeWildcards(stripTrailingSlashes(folder))}/%`
+export const folderLikePattern = (folder: string): string =>
+  `${escapeLikeWildcards(stripTrailingSlashes(folder))}/%`
 
 // ── FTS metadata builder ───────────────────────────────────────
 
@@ -96,7 +109,9 @@ export const buildFtsMetadataText = (frontmatter: Record<string, unknown>): stri
     if (key === "title") continue
     if (value == null) continue
     if (Array.isArray(value)) {
-      const primitiveElements = value.filter((element) => element != null && typeof element !== "object").map(String)
+      const primitiveElements = value
+        .filter((element) => element != null && typeof element !== "object")
+        .map(String)
 
       if (primitiveElements.length > 0) {
         lines.push(`${key}: ${primitiveElements.join(" ")}`)
@@ -151,7 +166,8 @@ export const rowToTaskEntry = (row: TaskRow): TaskEntry => ({
   block_id: row.block_id ?? undefined,
   depth: row.depth,
   parent_block_id: row.parent_block_id ?? undefined,
-  subtask_progress: row.subtask_total > 0 ? { done: row.subtask_done, total: row.subtask_total } : undefined,
+  subtask_progress:
+    row.subtask_total > 0 ? { done: row.subtask_done, total: row.subtask_total } : undefined,
   is_kanban_task: Boolean(row.is_kanban_task),
   done_lanes: row.kanban_done_lanes ? parseStringArray(row.kanban_done_lanes) : undefined,
 })
@@ -159,7 +175,10 @@ export const rowToTaskEntry = (row: TaskRow): TaskEntry => ({
 /** Builds a SearchResult from a NoteRow and caller-provided snippet + score.
  *  Shared by fullTextSearch (FTS rows) and hybridSearch (vector-only rows). */
 export const noteRowToSearchResult = (params: {
-  row: Pick<NoteRow, "path" | "title" | "tags" | "folder" | "type" | "created" | "mtime" | "bytes"> & {
+  row: Pick<
+    NoteRow,
+    "path" | "title" | "tags" | "folder" | "type" | "created" | "mtime" | "bytes"
+  > & {
     leading_callout?: string | null
   }
   snippet: string
@@ -196,7 +215,10 @@ export type FileContentFtsRow = {
 
 /** Builds a SearchResult from a file_content FTS row. File results carry no
  *  tags, type, created, or leading_callout — those are note-specific metadata. */
-export const fileContentRowToSearchResult = (row: FileContentFtsRow, score: number): SearchResult => ({
+export const fileContentRowToSearchResult = (
+  row: FileContentFtsRow,
+  score: number,
+): SearchResult => ({
   path: row.path,
   title: row.title,
   snippet: row.snippet,
@@ -272,7 +294,8 @@ export const noteMatchesSearchFilters = (note: NoteRow, filters: SearchFilters):
   // SQL NULL comparisons.
   if (filters.created) {
     const { on: createdOn, before: createdBefore, after: createdAfter } = filters.created
-    const hasCreatedBound = createdOn !== undefined || createdBefore !== undefined || createdAfter !== undefined
+    const hasCreatedBound =
+      createdOn !== undefined || createdBefore !== undefined || createdAfter !== undefined
 
     if (hasCreatedBound) {
       if (note.created === null) return false

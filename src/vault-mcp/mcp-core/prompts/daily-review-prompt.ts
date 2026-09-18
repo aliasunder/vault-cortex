@@ -104,7 +104,8 @@ const formatTasksSection = ({
 }): string => {
   if (tasks.length === 0) return emptyMessage
   const lines = tasks.map((task) => formatTaskForPrompt(task, includePath)).join("\n")
-  const overflowHint = total > tasks.length ? `\n\n_Showing ${tasks.length} of ${total}.${overflowToolHint}_` : ""
+  const overflowHint =
+    total > tasks.length ? `\n\n_Showing ${tasks.length} of ${total}.${overflowToolHint}_` : ""
   return `${lines}${overflowHint}`
 }
 
@@ -151,7 +152,9 @@ export const registerDailyReviewPrompt = ({
         const resolvedDate = args.date ?? DateTime.now().toISODate()
 
         if (!resolvedDate) {
-          return textResult("Could not determine today's date. Pass an explicit date in YYYY-MM-DD format.")
+          return textResult(
+            "Could not determine today's date. Pass an explicit date in YYYY-MM-DD format.",
+          )
         }
         const dateArg = resolvedDate
 
@@ -160,7 +163,9 @@ export const registerDailyReviewPrompt = ({
         const tomorrow = DateTime.fromISO(dateArg).plus({ days: 1 }).toISODate()
 
         if (!tomorrow) {
-          return textResult("Could not compute the next day. Pass an explicit date in YYYY-MM-DD format.")
+          return textResult(
+            "Could not compute the next day. Pass an explicit date in YYYY-MM-DD format.",
+          )
         }
 
         const dailyNote = await getDailyNote(
@@ -174,7 +179,10 @@ export const registerDailyReviewPrompt = ({
           },
           reqLogger,
         )
-        const modifiedOnDate = search.modifiedOnDate({ date: dateArg, limit: DAILY_RECENT_LIMIT }, reqLogger)
+        const modifiedOnDate = search.modifiedOnDate(
+          { date: dateArg, limit: DAILY_RECENT_LIMIT },
+          reqLogger,
+        )
         const dailyNotesConfig = await readDailyNotesConfig(vaultPath, {
           folder: config.dailyNotesFolder,
           format: config.dailyNotesFormat,
@@ -188,7 +196,9 @@ export const registerDailyReviewPrompt = ({
               reqLogger,
             )
           : []
-        const backlinks = dailyNote.exists ? search.getBacklinks({ path: dailyNote.path }, reqLogger) : []
+        const backlinks = dailyNote.exists
+          ? search.getBacklinks({ path: dailyNote.path }, reqLogger)
+          : []
 
         // Task queries — vault-wide due/scheduled + daily-note-scoped
         const dueOrOverdue = search.listTasks(
@@ -233,22 +243,33 @@ export const registerDailyReviewPrompt = ({
             date: dateArg,
           },
           maxChars,
-          truncationToolName: isToolEnabled("vault_get_daily_note") ? "vault_get_daily_note" : undefined,
+          truncationToolName: isToolEnabled("vault_get_daily_note")
+            ? "vault_get_daily_note"
+            : undefined,
         })
         const dailySection =
           dailyNote.exists && trimmedDaily.length > 0
             ? cappedDailyContent
             : `_No daily note exists at \`${dailyNote.path}\` yet._`
 
-        const brokenLinks = outgoingLinks.filter((link) => !link.exists && !link.daily_note_forward_ref)
-        const outgoingSection = formatOutgoingLinksSection(dailyNote.exists, outgoingLinks, brokenLinks)
+        const brokenLinks = outgoingLinks.filter(
+          (link) => !link.exists && !link.daily_note_forward_ref,
+        )
+        const outgoingSection = formatOutgoingLinksSection(
+          dailyNote.exists,
+          outgoingLinks,
+          brokenLinks,
+        )
         const backlinksSection = formatBacklinksSection(dailyNote.exists, backlinks)
         const modifiedSection =
           modifiedOnDate.length > 0
             ? modifiedOnDate.map(formatNoteLine).join("\n")
             : `No notes were modified on ${dateArg}.`
 
-        const taskOverflowHint = whenToolEnabledText("vault_list_tasks", " Use vault_list_tasks for the full list.")
+        const taskOverflowHint = whenToolEnabledText(
+          "vault_list_tasks",
+          " Use vault_list_tasks for the full list.",
+        )
         const dueSection = formatTasksSection({
           tasks: dueOrOverdue.tasks,
           total: dueOrOverdue.total,
@@ -274,7 +295,9 @@ export const registerDailyReviewPrompt = ({
           : null
 
         const hasTaskData =
-          dueOrOverdue.tasks.length > 0 || scheduledToday.tasks.length > 0 || dailyNoteTasks.tasks.length > 0
+          dueOrOverdue.tasks.length > 0 ||
+          scheduledToday.tasks.length > 0 ||
+          dailyNoteTasks.tasks.length > 0
         // Write directives name only served tools; without them, the step
         // falls back to conversational output.
         const memoryStepText = isToolEnabled("vault_update_memory")
@@ -284,10 +307,18 @@ export const registerDailyReviewPrompt = ({
         // vault_update_task is the atomic path for status, priority, and lane
         // moves, but it takes no date fields — rescheduling is still a note
         // edit. Each sentence stands alone so any subset reads correctly.
-        const rescheduleTools = formatEnabledToolList([TOOL_NAMES.VAULT_PATCH_NOTE, TOOL_NAMES.VAULT_REPLACE_IN_NOTE])
+        const rescheduleTools = formatEnabledToolList([
+          TOOL_NAMES.VAULT_PATCH_NOTE,
+          TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
+        ])
         const taskUpdateDirective = [
-          whenToolEnabledText(TOOL_NAMES.VAULT_UPDATE_TASK, "Update status or priority with vault_update_task."),
-          rescheduleTools.length > 0 ? `Reschedule by editing the date with ${rescheduleTools}.` : "",
+          whenToolEnabledText(
+            TOOL_NAMES.VAULT_UPDATE_TASK,
+            "Update status or priority with vault_update_task.",
+          ),
+          rescheduleTools.length > 0
+            ? `Reschedule by editing the date with ${rescheduleTools}.`
+            : "",
         ]
           .filter(Boolean)
           .join(" ")
@@ -349,7 +380,9 @@ export const registerDailyReviewPrompt = ({
           `## Tasks scheduled for ${dateArg}`,
           "",
           scheduledSection,
-          ...(dailyTasksSection !== null ? ["", "## Tasks in the daily note", "", dailyTasksSection] : []),
+          ...(dailyTasksSection !== null
+            ? ["", "## Tasks in the daily note", "", dailyTasksSection]
+            : []),
           "",
           "## How to review",
           "",

@@ -6,9 +6,10 @@ import { parseNote } from "../../obsidian-markdown/frontmatter.js"
 import { createMemoryStore } from "../memory-store.js"
 import { logger } from "../../../logger.js"
 
-const { getMemory, updateMemory, listMemoryFiles, listMemoryFileNames, deleteMemory } = createMemoryStore({
-  memoryDir: "About Me",
-})
+const { getMemory, updateMemory, listMemoryFiles, listMemoryFileNames, deleteMemory } =
+  createMemoryStore({
+    memoryDir: "About Me",
+  })
 
 let vault: string
 
@@ -74,7 +75,11 @@ describe("getMemory", () => {
   // leak through the concatenate-all read — the enumeration filter, not just
   // the explicit-name rejection, is what excludes it.
   it("excludes a pre-existing hidden memory file from the all-files read", async () => {
-    await writeFile(join(vault, "About Me", ".secret.md"), "# Hidden\n\nleaked-fixture-content\n", "utf8")
+    await writeFile(
+      join(vault, "About Me", ".secret.md"),
+      "# Hidden\n\nleaked-fixture-content\n",
+      "utf8",
+    )
     const result = await getMemory({ vaultPath: vault }, logger)
     expect(result).not.toContain("leaked-fixture-content")
     // The visible files still come back — proves the read ran normally.
@@ -432,7 +437,9 @@ describe("updateMemory", () => {
 
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const principles = outlines.find((outline) => outline.file === "Principles")!
-    const workingStyle = principles.headings.find((heading) => heading.text === "Working style (newest first)")
+    const workingStyle = principles.headings.find(
+      (heading) => heading.text === "Working style (newest first)",
+    )
     expect(workingStyle?.entryCount).toBe(2)
   })
 })
@@ -468,7 +475,8 @@ describe("updateMemory idempotency", () => {
     // retry neither duplicated the entry nor touched anything else.
     const contentAfterSecondCall = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     expect(contentAfterSecondCall).toBe(contentAfterFirstCall)
-    const bulletOccurrenceCount = contentAfterSecondCall.split("- **2026-07-02**: retry-safe entry").length - 1
+    const bulletOccurrenceCount =
+      contentAfterSecondCall.split("- **2026-07-02**: retry-safe entry").length - 1
     expect(bulletOccurrenceCount).toBe(1)
   })
 
@@ -497,25 +505,28 @@ describe("updateMemory idempotency", () => {
   it.each([
     { lineBreakKind: "a line feed", entry: "line one\nline two" },
     { lineBreakKind: "a carriage return", entry: "carriage\rreturn" },
-  ])("rejects an entry containing $lineBreakKind, which duplicate detection could never see", async ({ entry }) => {
-    await expect(
-      updateMemory(
-        {
-          vaultPath: vault,
-          file: "Principles",
-          section: "Decision heuristics (newest first)",
-          entry,
-          date: "2026-07-02",
-        },
-        logger,
-      ),
-    ).rejects.toThrow(
-      "entry must be a single line: memory entries are single dated bullets — collapse newlines or append multiple entries",
-    )
-    // Nothing was written — the file is byte-identical to the fixture.
-    const fileContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
-    expect(fileContent).toBe(PRINCIPLES_MD)
-  })
+  ])(
+    "rejects an entry containing $lineBreakKind, which duplicate detection could never see",
+    async ({ entry }) => {
+      await expect(
+        updateMemory(
+          {
+            vaultPath: vault,
+            file: "Principles",
+            section: "Decision heuristics (newest first)",
+            entry,
+            date: "2026-07-02",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        "entry must be a single line: memory entries are single dated bullets — collapse newlines or append multiple entries",
+      )
+      // Nothing was written — the file is byte-identical to the fixture.
+      const fileContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
+      expect(fileContent).toBe(PRINCIPLES_MD)
+    },
+  )
 
   // The date lands inside the same single-line bullet as the entry, so a
   // malformed or newline-bearing date corrupts the format the same way a
@@ -560,7 +571,9 @@ describe("updateMemory idempotency", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("section must be a single line: section names become H2 headings — remove line breaks")
+    ).rejects.toThrow(
+      "section must be a single line: section names become H2 headings — remove line breaks",
+    )
     // Nothing was written — the file is byte-identical to the fixture.
     const fileContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     expect(fileContent).toBe(PRINCIPLES_MD)
@@ -621,7 +634,9 @@ describe("updateMemory idempotency", () => {
         ),
       ).rejects.toThrow(`memory file must be a bare name without path separators: "${file}"`)
       // No file escaped the memory directory into the vault root.
-      await expect(readFile(join(vault, "Escaped.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(readFile(join(vault, "Escaped.md"), "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      })
     },
   )
 
@@ -805,9 +820,18 @@ describe("updateMemory auto-creation", () => {
 
   it("reports created-section then appended for subsequent writes", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "outcome-"))
-    const first = await updateMemory({ vaultPath: emptyVault, file: "Notes", section: "A", entry: "one" }, logger)
-    const second = await updateMemory({ vaultPath: emptyVault, file: "Notes", section: "B", entry: "two" }, logger)
-    const third = await updateMemory({ vaultPath: emptyVault, file: "Notes", section: "B", entry: "three" }, logger)
+    const first = await updateMemory(
+      { vaultPath: emptyVault, file: "Notes", section: "A", entry: "one" },
+      logger,
+    )
+    const second = await updateMemory(
+      { vaultPath: emptyVault, file: "Notes", section: "B", entry: "two" },
+      logger,
+    )
+    const third = await updateMemory(
+      { vaultPath: emptyVault, file: "Notes", section: "B", entry: "three" },
+      logger,
+    )
     expect(first).toBe("created-file")
     expect(second).toBe("created-section")
     expect(third).toBe("appended")
@@ -996,7 +1020,10 @@ describe("updateMemory near-duplicate section guard", () => {
       logger,
     )
     expect(outcome).toBe("created-section")
-    const secondYearBody = await getMemory({ vaultPath: emptyVault, file: "Yearly", section: "2026" }, logger)
+    const secondYearBody = await getMemory(
+      { vaultPath: emptyVault, file: "Yearly", section: "2026" },
+      logger,
+    )
     expect(secondYearBody).toBe("- **2026-07-31**: Second year")
   })
 
@@ -1461,7 +1488,11 @@ describe("listMemoryFiles", () => {
   })
 
   it("falls back to filename when no frontmatter title", async () => {
-    await writeFile(join(vault, "About Me/NoTitle.md"), "---\ntype: profile\n---\n\n# NoTitle\n", "utf8")
+    await writeFile(
+      join(vault, "About Me/NoTitle.md"),
+      "---\ntype: profile\n---\n\n# NoTitle\n",
+      "utf8",
+    )
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const noTitle = outlines.find((outline) => outline.file === "NoTitle")
     expect(noTitle?.title).toBe("NoTitle")
@@ -1501,7 +1532,9 @@ describe("listMemoryFiles", () => {
     // silently authorize destructive maintenance.
     await writeFile(
       join(vault, "About Me/Typo.md"),
-      ["---", "title: Typo", "type: profile", "entry-policy: sometimes", "---", "", "# Typo"].join("\n"),
+      ["---", "title: Typo", "type: profile", "entry-policy: sometimes", "---", "", "# Typo"].join(
+        "\n",
+      ),
       "utf8",
     )
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
@@ -1534,19 +1567,28 @@ describe("listMemoryFiles", () => {
     )
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const fenced = outlines.find((outline) => outline.file === "Fenced")!
-    expect(fenced.headings.map((heading) => heading.text)).toEqual(["Fenced", "Real (newest first)"])
+    expect(fenced.headings.map((heading) => heading.text)).toEqual([
+      "Fenced",
+      "Real (newest first)",
+    ])
   })
 
   it("includes correct entry counts per section", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const principles = outlines.find((outline) => outline.file === "Principles")!
-    const heuristics = principles.headings.find((heading) => heading.text === "Decision heuristics (newest first)")
+    const heuristics = principles.headings.find(
+      (heading) => heading.text === "Decision heuristics (newest first)",
+    )
     expect(heuristics?.entryCount).toBe(2)
 
-    const workingStyle = principles.headings.find((heading) => heading.text === "Working style (newest first)")
+    const workingStyle = principles.headings.find(
+      (heading) => heading.text === "Working style (newest first)",
+    )
     expect(workingStyle?.entryCount).toBe(1)
 
-    const emptySection = principles.headings.find((heading) => heading.text === "Empty section (newest first)")
+    const emptySection = principles.headings.find(
+      (heading) => heading.text === "Empty section (newest first)",
+    )
     expect(emptySection?.entryCount).toBe(0)
   })
 
@@ -1616,16 +1658,19 @@ describe("custom memoryDir", () => {
     const customVault = await mkdtemp(join(tmpdir(), "custom-mem-"))
     await mkdir(join(customVault, "Profile"), { recursive: true })
     await writeFile(join(customVault, "Profile/Principles.md"), PRINCIPLES_MD, "utf8")
-    const result = await customStore.getMemory({ vaultPath: customVault, file: "Principles" }, logger)
+    const result = await customStore.getMemory(
+      { vaultPath: customVault, file: "Principles" },
+      logger,
+    )
     expect(result).toContain("# Principles")
     await rm(customVault, { recursive: true })
   })
 
   it("error messages reference the configured directory name", async () => {
     const customVault = await mkdtemp(join(tmpdir(), "custom-mem-"))
-    await expect(customStore.getMemory({ vaultPath: customVault, file: "Nonexistent" }, logger)).rejects.toThrow(
-      'memory file not found: "Profile/Nonexistent.md"',
-    )
+    await expect(
+      customStore.getMemory({ vaultPath: customVault, file: "Nonexistent" }, logger),
+    ).rejects.toThrow('memory file not found: "Profile/Nonexistent.md"')
     await rm(customVault, { recursive: true })
   })
 
@@ -1667,7 +1712,11 @@ describe("bootstrapMemoryDir", () => {
     expect(parsed.data["entry-policy"]).toBe("append-only")
     expect(parsed.data.tags).toEqual(["memory", "principles"])
     expect(parsed.data.created).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
-    expect(parsed.data.related).toEqual(["[[About Me/Opinions]]", "[[About Me/Me]]", "[[About Me/Agents]]"])
+    expect(parsed.data.related).toEqual([
+      "[[About Me/Opinions]]",
+      "[[About Me/Me]]",
+      "[[About Me/Agents]]",
+    ])
     await rm(emptyVault, { recursive: true })
   })
 
@@ -1678,7 +1727,9 @@ describe("bootstrapMemoryDir", () => {
     const agents = outlines.find((outline) => outline.file === "Agents")
     expect(agents).toBeDefined()
     expect(agents?.entry_policy).toBe("append-only")
-    const sectionNames = agents?.headings.filter((heading) => heading.level === 2).map((heading) => heading.text)
+    const sectionNames = agents?.headings
+      .filter((heading) => heading.level === 2)
+      .map((heading) => heading.text)
     expect(sectionNames).toEqual([
       "Communication (newest first)",
       "Working style (newest first)",
@@ -1693,7 +1744,9 @@ describe("bootstrapMemoryDir", () => {
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
     const routines = outlines.find((outline) => outline.file === "Routines")
     expect(routines?.entry_policy).toBe("living")
-    const sectionNames = routines?.headings.filter((heading) => heading.level === 2).map((heading) => heading.text)
+    const sectionNames = routines?.headings
+      .filter((heading) => heading.level === 2)
+      .map((heading) => heading.text)
     expect(sectionNames).toEqual([
       "Active commitments (newest first)",
       "Upcoming (newest first)",
@@ -1708,7 +1761,9 @@ describe("bootstrapMemoryDir", () => {
     await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
     const principles = outlines.find((outline) => outline.file === "Principles")!
-    const sectionNames = principles.headings.filter((heading) => heading.level === 2).map((heading) => heading.text)
+    const sectionNames = principles.headings
+      .filter((heading) => heading.level === 2)
+      .map((heading) => heading.text)
     expect(sectionNames).toEqual([
       "Decision heuristics (newest first)",
       "Working style (newest first)",
@@ -1726,7 +1781,10 @@ describe("bootstrapMemoryDir", () => {
     expect(opinions.leading_callout?.type).toBe("info")
     expect(opinions.leading_callout?.title).toBe("Scope of this file")
     expect(opinions.leading_callout?.body).toContain("**Contains:**")
-    const totalEntries = opinions.headings.reduce((sum, heading) => sum + (heading.entryCount ?? 0), 0)
+    const totalEntries = opinions.headings.reduce(
+      (sum, heading) => sum + (heading.entryCount ?? 0),
+      0,
+    )
     expect(totalEntries).toBe(0)
     await rm(emptyVault, { recursive: true })
   })

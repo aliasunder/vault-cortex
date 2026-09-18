@@ -176,7 +176,8 @@ const splitMarkdownLink = (linkText: string): MarkdownLinkParts | null => {
   const encodedExtension = parts[3] ?? ""
   const heading = parts[4] ?? ""
   const closeParen = parts[5]
-  const hasRequiredGroups = prefix !== undefined && encodedPath !== undefined && closeParen !== undefined
+  const hasRequiredGroups =
+    prefix !== undefined && encodedPath !== undefined && closeParen !== undefined
 
   if (!hasRequiredGroups) return null
   const decodedTarget = safeDecodeURIComponent(`${encodedPath}${encodedExtension}`)
@@ -276,7 +277,11 @@ const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
  *  (exact), shortest path / basename, and — when the linking note's `sourcePath`
  *  is supplied — path from current file, including upward "../" segments.
  *  Returns null if unresolvable. */
-const resolve = (params: { target: string; allPaths: readonly string[]; sourcePath?: string }): string | null => {
+const resolve = (params: {
+  target: string
+  allPaths: readonly string[]
+  sourcePath?: string
+}): string | null => {
   const { target, allPaths, sourcePath } = params
   const targetWithExtension = target.endsWith(".md") ? target : `${target}.md`
 
@@ -295,7 +300,8 @@ const resolve = (params: { target: string; allPaths: readonly string[]; sourcePa
 
   // Basename match: find all paths that end with the target filename
   const basenameMatches = allPaths.filter(
-    (candidatePath) => candidatePath === targetWithExtension || candidatePath.endsWith(`/${targetWithExtension}`),
+    (candidatePath) =>
+      candidatePath === targetWithExtension || candidatePath.endsWith(`/${targetWithExtension}`),
   )
   const onlyMatch = basenameMatches.length === 1 ? basenameMatches[0] : undefined
 
@@ -341,7 +347,8 @@ const getExtension = (filePath: string): string => {
 const shortestOf = (paths: string[]): string | null => {
   if (paths.length === 0) return null
   return paths.reduce((shortest, candidatePath) =>
-    candidatePath.length < shortest.length || (candidatePath.length === shortest.length && candidatePath < shortest)
+    candidatePath.length < shortest.length ||
+    (candidatePath.length === shortest.length && candidatePath < shortest)
       ? candidatePath
       : shortest,
   )
@@ -380,13 +387,17 @@ const resolveAsset = (params: {
     return relativeTarget
   }
 
-  const fullPathSuffixMatch = shortestOf(allAssetPaths.filter((assetPath) => assetPath.endsWith(`/${target}`)))
+  const fullPathSuffixMatch = shortestOf(
+    allAssetPaths.filter((assetPath) => assetPath.endsWith(`/${target}`)),
+  )
 
   if (fullPathSuffixMatch) return fullPathSuffixMatch
 
   // ── Stem family: exact → relative → suffix/basename ──
 
-  const exactStemMatch = shortestOf(allAssetPaths.filter((assetPath) => stripExtension(assetPath) === target))
+  const exactStemMatch = shortestOf(
+    allAssetPaths.filter((assetPath) => stripExtension(assetPath) === target),
+  )
 
   if (exactStemMatch) return exactStemMatch
 
@@ -402,9 +413,13 @@ const resolveAsset = (params: {
   // stem); a bare name matches on the filename stem only. Either way this is
   // the last tier: shortestOf returns null on no match — the unresolved case.
   if (target.includes("/")) {
-    return shortestOf(allAssetPaths.filter((assetPath) => stripExtension(assetPath).endsWith(`/${target}`)))
+    return shortestOf(
+      allAssetPaths.filter((assetPath) => stripExtension(assetPath).endsWith(`/${target}`)),
+    )
   }
-  return shortestOf(allAssetPaths.filter((assetPath) => stripExtension(posix.basename(assetPath)) === target))
+  return shortestOf(
+    allAssetPaths.filter((assetPath) => stripExtension(posix.basename(assetPath)) === target),
+  )
 }
 
 /** A note's complete link set — body links unioned with frontmatter wikilinks,

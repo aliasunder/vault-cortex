@@ -10,7 +10,13 @@ type ConsentPageParams = {
   error?: string
 }
 
-export const renderConsentPage = ({ clientName, clientId, scopes, requestId, error }: ConsentPageParams): string => {
+export const renderConsentPage = ({
+  clientName,
+  clientId,
+  scopes,
+  requestId,
+  error,
+}: ConsentPageParams): string => {
   const scopeList = scopes.length
     ? scopes.map((scope) => `<li>${escapeHtml(scope)}</li>`).join("")
     : "<li><em>No specific scopes requested</em></li>"

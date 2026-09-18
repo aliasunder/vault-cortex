@@ -56,7 +56,8 @@ export default $config({
     // unset repo Variable as "", which env-var's default() does not cover
     // and asBool() rejects.
     const originAccessServiceTokenEnabled =
-      Boolean(originUrl) && env("ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED").asString()?.toLowerCase() === "true"
+      Boolean(originUrl) &&
+      env("ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED").asString()?.toLowerCase() === "true"
 
     // Optional custom domain on API Gateway (e.g. mcp.example.com), replacing
     // the auto-generated execute-api URL. DNS stays external (any provider):
@@ -80,15 +81,20 @@ export default $config({
     const parsedPublicUrlOverride = publicUrlOverride ? URL.parse(publicUrlOverride) : undefined
 
     const publicUrlIsHttp =
-      parsedPublicUrlOverride?.protocol === "https:" || parsedPublicUrlOverride?.protocol === "http:"
+      parsedPublicUrlOverride?.protocol === "https:" ||
+      parsedPublicUrlOverride?.protocol === "http:"
 
     if (publicUrlOverride && !publicUrlIsHttp) {
-      throw new Error("PUBLIC_URL must be an absolute http(s) URL, e.g. " + "https://mcp.example.com")
+      throw new Error(
+        "PUBLIC_URL must be an absolute http(s) URL, e.g. " + "https://mcp.example.com",
+      )
     }
 
     // Credentials in the URL would be minted into every token's `iss`
     // claim and served by the discovery documents — fail the deploy.
-    const publicUrlHasCredentials = parsedPublicUrlOverride ? urlHasCredentials(parsedPublicUrlOverride) : false
+    const publicUrlHasCredentials = parsedPublicUrlOverride
+      ? urlHasCredentials(parsedPublicUrlOverride)
+      : false
 
     if (publicUrlHasCredentials) {
       throw new Error("PUBLIC_URL must not contain credentials (user:password@)")
@@ -103,7 +109,8 @@ export default $config({
 
     // DISABLE_EXECUTE_API_ENDPOINT=true: the gateway stops answering on its
     // default execute-api hostname, so the custom domain is the only way in.
-    const disableExecuteApiEndpoint = env("DISABLE_EXECUTE_API_ENDPOINT").asString()?.toLowerCase() === "true"
+    const disableExecuteApiEndpoint =
+      env("DISABLE_EXECUTE_API_ENDPOINT").asString()?.toLowerCase() === "true"
 
     if (disableExecuteApiEndpoint && !customDomain) {
       throw new Error(
@@ -112,7 +119,8 @@ export default $config({
       )
     }
 
-    const expandHome = (path: string): string => (path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path)
+    const expandHome = (path: string): string =>
+      path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path
 
     /**
      * Resolve the SSH public key to upload to Lightsail.
@@ -123,7 +131,9 @@ export default $config({
      */
     const readSshPublicKey = (): string => {
       if (sshPubkey) return sshPubkey
-      const candidates = sshPubkeyPath ? [expandHome(sshPubkeyPath)] : [expandHome("~/.ssh/vault-cortex.pub")]
+      const candidates = sshPubkeyPath
+        ? [expandHome(sshPubkeyPath)]
+        : [expandHome("~/.ssh/vault-cortex.pub")]
       for (const path of candidates) {
         if (existsSync(path)) return readFileSync(path, "utf8").trim()
       }
@@ -146,7 +156,9 @@ export default $config({
     // secrets (CI). See deploy.yml and .env.example.
     // ──────────────────────────────────────────────────────────────
     const mcpAuthToken = new sst.Secret("McpAuthToken")
-    const originAccessClientId = originAccessServiceTokenEnabled ? new sst.Secret("OriginAccessClientId") : undefined
+    const originAccessClientId = originAccessServiceTokenEnabled
+      ? new sst.Secret("OriginAccessClientId")
+      : undefined
     const originAccessClientSecret = originAccessServiceTokenEnabled
       ? new sst.Secret("OriginAccessClientSecret")
       : undefined

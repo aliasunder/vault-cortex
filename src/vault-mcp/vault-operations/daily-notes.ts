@@ -43,7 +43,10 @@ const readDailyNotesFileConfig = async (vaultPath: string): Promise<DailyNotesCo
   if (cachedFileConfig) return cachedFileConfig
 
   try {
-    const configFileContent = await readFile(join(vaultPath, ".obsidian", "daily-notes.json"), "utf8")
+    const configFileContent = await readFile(
+      join(vaultPath, ".obsidian", "daily-notes.json"),
+      "utf8",
+    )
     const parsedConfig: Record<string, unknown> = JSON.parse(configFileContent)
     const fileConfig = {
       folder:

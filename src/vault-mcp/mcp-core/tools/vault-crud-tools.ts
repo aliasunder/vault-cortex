@@ -19,7 +19,10 @@ import { describeTextWindow, safeHandler, safeHandlerContent } from "./tool-help
  *  returns the facts and this composes them. The heading is named by its bare
  *  text, which is what the `heading` param matches; the level rides along so an
  *  ambiguous-heading retry has what it needs. */
-const describeDisplacedLeadingContent = ({ bytes, firstHeading }: DisplacedLeadingContent): string => {
+const describeDisplacedLeadingContent = ({
+  bytes,
+  firstHeading,
+}: DisplacedLeadingContent): string => {
   if (!firstHeading) {
     return `The note's entire pre-existing body (${bytes} bytes) is now nested under the inserted heading — the note has no other headings to end the new section. To add a section below existing content instead, use operation "append".`
   }
@@ -143,7 +146,10 @@ Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }
           ),
       },
     },
-    async ({ path, properties_only, outline, heading, heading_level, start_line, limit }, extra) => {
+    async (
+      { path, properties_only, outline, heading, heading_level, start_line, limit },
+      extra,
+    ) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_READ_NOTE,
@@ -158,7 +164,9 @@ Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }
         limit,
       })
 
-      const returnError = (message: string): { content: Array<{ type: "text"; text: string }>; isError: true } => {
+      const returnError = (
+        message: string,
+      ): { content: Array<{ type: "text"; text: string }>; isError: true } => {
         reqLogger.warn("tool_error", { error: message })
         return {
           content: [{ type: "text" as const, text: message }],
@@ -170,12 +178,16 @@ Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }
       // make the result ambiguous, so reject the combination up front. An empty
       // heading still counts as section mode (heading !== undefined) so it's
       // rejected here rather than silently falling through to a full read.
-      const selectedModeCount = [properties_only === true, outline === true, heading !== undefined].filter(
-        Boolean,
-      ).length
+      const selectedModeCount = [
+        properties_only === true,
+        outline === true,
+        heading !== undefined,
+      ].filter(Boolean).length
 
       if (selectedModeCount > 1) {
-        return returnError("outline, heading, and properties_only are mutually exclusive — set at most one")
+        return returnError(
+          "outline, heading, and properties_only are mutually exclusive — set at most one",
+        )
       }
 
       // heading_level only disambiguates a heading; on its own it would be
@@ -222,7 +234,11 @@ Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }
         if (isPagedRead) {
           return safeHandlerContent(
             reqLogger,
-            () => vaultFs.readNoteSection({ vaultPath, path, heading, headingLevel: heading_level }, reqLogger),
+            () =>
+              vaultFs.readNoteSection(
+                { vaultPath, path, heading, headingLevel: heading_level },
+                reqLogger,
+              ),
             (text) => {
               const { text: windowText, lineWindow } = pageTextByLines({
                 text,
@@ -243,7 +259,11 @@ Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }
         }
         return safeHandler(
           reqLogger,
-          () => vaultFs.readNoteSection({ vaultPath, path, heading, headingLevel: heading_level }, reqLogger),
+          () =>
+            vaultFs.readNoteSection(
+              { vaultPath, path, heading, headingLevel: heading_level },
+              reqLogger,
+            ),
           (text) => {
             reqLogger.info("tool_result", { mode: "section" })
             return text
@@ -486,7 +506,9 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
           .min(1)
           .max(6)
           .optional()
-          .describe("Heading level (1-6) for disambiguation when multiple headings share the same text"),
+          .describe(
+            "Heading level (1-6) for disambiguation when multiple headings share the same text",
+          ),
         include_children: z
           .boolean()
           .optional()
@@ -567,14 +589,18 @@ Returns: Confirmation message with replacement count (number of occurrences repl
         path: z
           .string()
           .min(1)
-          .describe('Vault-relative path to the note, including the ".md" extension (e.g. "Projects/plan.md")'),
+          .describe(
+            'Vault-relative path to the note, including the ".md" extension (e.g. "Projects/plan.md")',
+          ),
         old_text: z
           .string()
           .min(1)
           .describe(
             "Exact text to find (case-sensitive). Matches in the body only — text inside frontmatter properties is not searched.",
           ),
-        new_text: z.string().describe('Replacement text. Empty string ("") deletes the matched text.'),
+        new_text: z
+          .string()
+          .describe('Replacement text. Empty string ("") deletes the matched text.'),
         replace_all_occurrences: z
           .boolean()
           .optional()
@@ -923,7 +949,10 @@ Errors:
 
 Returns: Confirmation message naming the outcome — "Deleted" for permanent removal, "Moved to trash" when the note landed in .trash/. Notes how many empty folders were pruned when any were.`,
       inputSchema: {
-        path: z.string().min(1).describe('Vault-relative path of the note to delete, including the ".md" extension'),
+        path: z
+          .string()
+          .min(1)
+          .describe('Vault-relative path of the note to delete, including the ".md" extension'),
         prune_empty_folders: z
           .boolean()
           .optional()
@@ -978,7 +1007,8 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
             ...(trashLocation ? { trash_location: trashLocation } : {}),
           })
           const folderLabel = prunedEmptyFolders > 1 ? "folders" : "folder"
-          const pruneSuffix = prunedEmptyFolders > 0 ? ` (removed ${prunedEmptyFolders} empty ${folderLabel})` : ""
+          const pruneSuffix =
+            prunedEmptyFolders > 0 ? ` (removed ${prunedEmptyFolders} empty ${folderLabel})` : ""
           return trashLocation
             ? `Moved ${path} to trash (${trashLocation})${pruneSuffix}`
             : `Deleted ${path}${pruneSuffix}`
@@ -1020,7 +1050,9 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
         old_path: z
           .string()
           .min(1)
-          .describe('Current vault-relative path of the note to move (e.g. "Inbox/Draft.md"). Must end in .md.'),
+          .describe(
+            'Current vault-relative path of the note to move (e.g. "Inbox/Draft.md"). Must end in .md.',
+          ),
         new_path: z
           .string()
           .min(1)
@@ -1036,7 +1068,10 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
           ),
       },
     },
-    async ({ old_path: oldPath, new_path: newPath, prune_empty_folders: pruneEmptyFolders }, extra) => {
+    async (
+      { old_path: oldPath, new_path: newPath, prune_empty_folders: pruneEmptyFolders },
+      extra,
+    ) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_MOVE_NOTE,
@@ -1112,7 +1147,10 @@ Obsidian syntax: Use arrays for multi-value fields (tags: [a, b]), quote wikilin
 
 Returns: Confirmation message.`,
       inputSchema: {
-        path: z.string().min(1).describe('Vault-relative path to the note, including the ".md" extension'),
+        path: z
+          .string()
+          .min(1)
+          .describe('Vault-relative path to the note, including the ".md" extension'),
         properties: z
           .record(z.string().min(1), z.unknown())
           .describe(

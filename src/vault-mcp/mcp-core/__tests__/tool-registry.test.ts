@@ -89,8 +89,12 @@ describe("TOOL_REGISTRY", () => {
   })
 
   it("the flag-gated groups contain exactly the memory and asset tools", () => {
-    const memoryTools = TOOL_REGISTRY.filter((entry) => entry.group === "memory").map((entry) => entry.name)
-    const assetTools = TOOL_REGISTRY.filter((entry) => entry.group === "asset").map((entry) => entry.name)
+    const memoryTools = TOOL_REGISTRY.filter((entry) => entry.group === "memory").map(
+      (entry) => entry.name,
+    )
+    const assetTools = TOOL_REGISTRY.filter((entry) => entry.group === "asset").map(
+      (entry) => entry.name,
+    )
     expect(memoryTools.toSorted()).toEqual([
       "vault_delete_memory",
       "vault_get_memory",

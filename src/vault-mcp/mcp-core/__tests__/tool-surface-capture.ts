@@ -91,7 +91,9 @@ const silentLogger: Logger = {
  *  capture would silently understate the surface in the baseline. */
 const assertSinglePage = (listName: string, nextCursor?: string): void => {
   if (nextCursor) {
-    throw new Error(`${listName} returned a paginated response; the surface capture reads one page only`)
+    throw new Error(
+      `${listName} returned a paginated response; the surface capture reads one page only`,
+    )
   }
 }
 
@@ -156,4 +158,5 @@ export const captureToolSurface = async (combo: SurfaceCombo): Promise<SurfaceCa
 
 /** Byte-exact committed form: pre-serialized so vitest writes the file
  *  verbatim (the snapshot directory is prettier-ignored to keep it that way). */
-export const serializeSurfaceCapture = (capture: SurfaceCapture): string => `${JSON.stringify(capture, null, 2)}\n`
+export const serializeSurfaceCapture = (capture: SurfaceCapture): string =>
+  `${JSON.stringify(capture, null, 2)}\n`

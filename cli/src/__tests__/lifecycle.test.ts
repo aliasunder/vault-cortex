@@ -44,10 +44,15 @@ describe("runDown", () => {
     const targetDir = join(tmpdir(), "vault-cli-down-missing")
     const scripted = createScriptedPrompts()
 
-    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerReady })
+    const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady },
+    )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors).toEqual([`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`])
+    expect(scripted.errors).toEqual([
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
+    ])
   })
 
   it("exits 1 when Docker daemon is not running", async () => {
@@ -55,7 +60,10 @@ describe("runDown", () => {
     writeLocalEnv(targetDir)
     const scripted = createScriptedPrompts()
 
-    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerDown })
+    const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerDown },
+    )
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
@@ -71,7 +79,10 @@ describe("runDown", () => {
     writeLocalEnv(targetDir)
     const scripted = createScriptedPrompts()
 
-    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerNotInstalled })
+    const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerNotInstalled },
+    )
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([buildDockerNotInstalledMessage({ nextStep: "" })])
@@ -91,7 +102,10 @@ describe("runDown", () => {
     }
     const scripted = createScriptedPrompts()
 
-    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerNoContainer })
+    const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerNoContainer },
+    )
 
     expect(exitCode).toBe(0)
     expect(removeCalls).toEqual([])
@@ -113,7 +127,10 @@ describe("runDown", () => {
     }
     const scripted = createScriptedPrompts()
 
-    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerWithRemoveSpy })
+    const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerWithRemoveSpy },
+    )
 
     expect(exitCode).toBe(0)
     expect(scripted.errors).toEqual([])
@@ -133,14 +150,19 @@ describe("runDown", () => {
     }
     const scripted = createScriptedPrompts()
 
-    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerSpy })
+    const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerSpy },
+    )
 
     expect(exitCode).toBe(0)
     expect(removeCalls).toEqual(["called"])
     expect(scripted.logs).toEqual([
       "Container stopped and removed. Your vault data, search index, and settings are untouched.",
     ])
-    expect(scripted.outros).toEqual([`Start again with: npx vault-cortex@latest start --dir "${targetDir}"`])
+    expect(scripted.outros).toEqual([
+      `Start again with: npx vault-cortex@latest start --dir "${targetDir}"`,
+    ])
   })
 
   it("exits 1 when the container removal fails", async () => {
@@ -152,10 +174,15 @@ describe("runDown", () => {
     }
     const scripted = createScriptedPrompts()
 
-    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerRemoveFails })
+    const exitCode = await runDown(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerRemoveFails },
+    )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors).toEqual(["Could not remove the container — check: docker rm -f vault-cortex"])
+    expect(scripted.errors).toEqual([
+      "Could not remove the container — check: docker rm -f vault-cortex",
+    ])
     expect(scripted.outros).toEqual([])
   })
 })
@@ -165,10 +192,15 @@ describe("runLogs", () => {
     const targetDir = join(tmpdir(), "vault-cli-logs-missing")
     const scripted = createScriptedPrompts()
 
-    const exitCode = await runLogs({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerReady })
+    const exitCode = await runLogs(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady },
+    )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors).toEqual([`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`])
+    expect(scripted.errors).toEqual([
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
+    ])
   })
 
   it("exits 1 when Docker daemon is not running", async () => {
@@ -176,7 +208,10 @@ describe("runLogs", () => {
     writeLocalEnv(targetDir)
     const scripted = createScriptedPrompts()
 
-    const exitCode = await runLogs({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerDown })
+    const exitCode = await runLogs(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerDown },
+    )
 
     expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
@@ -199,7 +234,10 @@ describe("runLogs", () => {
     }
     const scripted = createScriptedPrompts()
 
-    const exitCode = await runLogs({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerNoContainer })
+    const exitCode = await runLogs(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerNoContainer },
+    )
 
     expect(exitCode).toBe(1)
     expect(streamCalls).toEqual([])
@@ -243,7 +281,10 @@ describe("runLogs", () => {
     }
     const scripted = createScriptedPrompts()
 
-    const exitCode = await runLogs({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerSpy })
+    const exitCode = await runLogs(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerSpy },
+    )
 
     expect(exitCode).toBe(0)
     expect(streamCalls).toEqual([{ follow: false, since: undefined }])
@@ -258,7 +299,10 @@ describe("runLogs", () => {
     }
     const scripted = createScriptedPrompts()
 
-    const exitCode = await runLogs({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerInterrupted })
+    const exitCode = await runLogs(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerInterrupted },
+    )
 
     expect(exitCode).toBe(130)
   })
@@ -310,7 +354,9 @@ describe("runStart", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors).toEqual([`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`])
+    expect(scripted.errors).toEqual([
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
+    ])
   })
 })
 
@@ -325,7 +371,9 @@ describe("runRestart", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors).toEqual([`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`])
+    expect(scripted.errors).toEqual([
+      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
+    ])
   })
 
   it("exits 1 when local .env has no VAULT_PATH", async () => {
@@ -441,7 +489,10 @@ describe("runRestart", () => {
     )
     const scripted = createScriptedPrompts()
 
-    await runRestart({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchOk })
+    await runRestart(
+      { dir: targetDir },
+      { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchOk },
+    )
 
     const envAfter = readFileSync(join(targetDir, ".env"), "utf8")
     expect(envAfter).toContain("VAULT_PATH=/home/user/My Vault\n")
@@ -501,7 +552,10 @@ describe("runRestart", () => {
 
     expect(exitCode).toBe(0)
     // Order proves the probe ran after the container health poll.
-    expect(fetchedUrls).toEqual(["http://127.0.0.1:8000/healthz", "https://vault.example.com/healthz"])
+    expect(fetchedUrls).toEqual([
+      "http://127.0.0.1:8000/healthz",
+      "https://vault.example.com/healthz",
+    ])
   })
 
   it("keeps a successful remote restart at exit 0 when the public URL does not answer", async () => {
@@ -592,7 +646,9 @@ describe("runRestart", () => {
 
     expect(exitCode).toBe(1)
     expect(runCalls).toEqual([])
-    expect(scripted.errors).toEqual(["Could not remove the existing container — check: docker rm -f vault-cortex"])
+    expect(scripted.errors).toEqual([
+      "Could not remove the existing container — check: docker rm -f vault-cortex",
+    ])
   })
 
   it("proceeds past a failed removal probe when no container exists", async () => {

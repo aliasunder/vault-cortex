@@ -149,11 +149,15 @@ describe("loadConfig", () => {
     })
 
     it("rejects path traversal", () => {
-      expect(() => loadConfig({ DAILY_NOTES_FOLDER: "../escape" })).toThrow("path traversal (..) not allowed")
+      expect(() => loadConfig({ DAILY_NOTES_FOLDER: "../escape" })).toThrow(
+        "path traversal (..) not allowed",
+      )
     })
 
     it("rejects absolute paths", () => {
-      expect(() => loadConfig({ DAILY_NOTES_FOLDER: "/etc/notes" })).toThrow("absolute paths not allowed")
+      expect(() => loadConfig({ DAILY_NOTES_FOLDER: "/etc/notes" })).toThrow(
+        "absolute paths not allowed",
+      )
     })
   })
 
@@ -502,7 +506,11 @@ describe("loadConfig", () => {
       const config = loadConfig({
         DISABLED_TOOLS: "vault_write_note, vault_delete_note ,vault_move_note",
       })
-      expect([...config.disabledTools].toSorted()).toEqual(["vault_delete_note", "vault_move_note", "vault_write_note"])
+      expect([...config.disabledTools].toSorted()).toEqual([
+        "vault_delete_note",
+        "vault_move_note",
+        "vault_write_note",
+      ])
     })
 
     it("drops empty entries from trailing or doubled commas", () => {

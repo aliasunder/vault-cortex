@@ -404,9 +404,13 @@ const isRunning = async (name: string): Promise<boolean> => {
  *  restart scenarios ignore the first boot's output. */
 export const containerLogs = async (name: string, since?: string): Promise<string> => {
   const sinceArgs = since ? ["--since", since] : []
-  const { stdout } = await execFileAsync("sh", ["-c", 'docker logs "$@" 2>&1', "sh", ...sinceArgs, name], {
-    maxBuffer: 64 * 1024 * 1024,
-  })
+  const { stdout } = await execFileAsync(
+    "sh",
+    ["-c", 'docker logs "$@" 2>&1', "sh", ...sinceArgs, name],
+    {
+      maxBuffer: 64 * 1024 * 1024,
+    },
+  )
   return stdout
 }
 
@@ -427,13 +431,18 @@ export const waitForHealthz = async ({
   const deadline = Date.now() + deadlineMs
   while (Date.now() < deadline) {
     if (!(await isRunning(name))) {
-      throw new Error(`container ${name} stopped before /healthz answered:\n${await containerLogs(name)}`)
+      throw new Error(
+        `container ${name} stopped before /healthz answered:\n${await containerLogs(name)}`,
+      )
     }
     // Each attempt is capped at the shorter of 5 s and the remaining budget:
     // a server that accepts the connection but never answers would otherwise
     // hold `fetch` open past the deadline and the failure would surface as a
     // bare hook timeout with no logs attached.
-    const attemptTimeoutMs = Math.max(0, Math.min(HEALTHZ_ATTEMPT_TIMEOUT_MS, deadline - Date.now()))
+    const attemptTimeoutMs = Math.max(
+      0,
+      Math.min(HEALTHZ_ATTEMPT_TIMEOUT_MS, deadline - Date.now()),
+    )
     try {
       const response = await fetch(`http://127.0.0.1:${port}/healthz`, {
         signal: AbortSignal.timeout(attemptTimeoutMs),
@@ -446,36 +455,58 @@ export const waitForHealthz = async ({
     }
     await sleep(500)
   }
-  throw new Error(`container ${name} did not answer /healthz within ${deadlineMs}ms:\n${await containerLogs(name)}`)
+  throw new Error(
+    `container ${name} did not answer /healthz within ${deadlineMs}ms:\n${await containerLogs(name)}`,
+  )
 }
 
 /** Wait for the container to stop on its own (a one-shot init script failed
  *  and S6_BEHAVIOUR_IF_STAGE2_FAILS=2 halted the container). Kills the
  *  container at the deadline so a check that failed to fire cannot hang the
  *  suite. */
-export const waitForStopped = async ({ name, deadlineMs }: { name: string; deadlineMs: number }): Promise<void> => {
+export const waitForStopped = async ({
+  name,
+  deadlineMs,
+}: {
+  name: string
+  deadlineMs: number
+}): Promise<void> => {
   const deadline = Date.now() + deadlineMs
   while (Date.now() < deadline) {
     if (!(await isRunning(name))) return
     await sleep(500)
   }
   await docker(["kill", name])
-  throw new Error(`container ${name} was still running after ${deadlineMs}ms:\n${await containerLogs(name)}`)
+  throw new Error(
+    `container ${name} was still running after ${deadlineMs}ms:\n${await containerLogs(name)}`,
+  )
 }
 
 /** Run a command inside the container and report its outcome — non-zero
  *  exits are data here (`test -e` on an absent path), not errors. */
-export const execInContainer = (name: string, argv: string[]): Promise<CommandResult> => docker(["exec", name, ...argv])
+export const execInContainer = (name: string, argv: string[]): Promise<CommandResult> =>
+  docker(["exec", name, ...argv])
 
 /** Raw bytes of a file inside the container — no trimming, so a stray
  *  trailing newline in a `container_environment` value fails an exact
  *  assertion. */
-export const readContainerFile = ({ name, path }: { name: string; path: string }): Promise<string> =>
-  dockerOrThrow(["exec", name, "cat", path])
+export const readContainerFile = ({
+  name,
+  path,
+}: {
+  name: string
+  path: string
+}): Promise<string> => dockerOrThrow(["exec", name, "cat", path])
 
 /** Whether a path exists inside the container, via `test -e`'s exit code
  *  rather than a failed `cat` (which could also mean a permissions error). */
-export const pathExistsInContainer = async ({ name, path }: { name: string; path: string }): Promise<boolean> => {
+export const pathExistsInContainer = async ({
+  name,
+  path,
+}: {
+  name: string
+  path: string
+}): Promise<boolean> => {
   const result = await execInContainer(name, ["test", "-e", path])
   return result.code === 0
 }

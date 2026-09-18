@@ -4,7 +4,11 @@ import { fitImageToByteBudget } from "../fit-image-to-byte-budget.js"
 
 /** Gaussian-noise fixture — noise resists compression, so size assertions
  *  exercise the real descent logic instead of trivially fitting. */
-const noiseImage = (params: { width: number; height: number; alpha?: boolean }): Promise<Buffer> => {
+const noiseImage = (params: {
+  width: number
+  height: number
+  alpha?: boolean
+}): Promise<Buffer> => {
   const channels = params.alpha ? 4 : 3
   return sharp({
     create: {

@@ -2,7 +2,10 @@
  *  generic path-extension guard — the caller supplies the required
  *  extension(s) (e.g. ".md" or [".md", ".canvas"]). Keeps no domain
  *  knowledge: it knows nothing about vaults, Markdown, or MCP. */
-export const assertPathHasExtension = (path: string, extension: string | readonly string[]): void => {
+export const assertPathHasExtension = (
+  path: string,
+  extension: string | readonly string[],
+): void => {
   const extensions = typeof extension === "string" ? [extension] : extension
 
   if (extensions.some((ext) => path.endsWith(ext))) return

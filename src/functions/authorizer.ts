@@ -33,12 +33,22 @@ import { urlHasCredentials } from "../utils/url-has-credentials.js"
 import { verifyJwt, verifyUnboundJwt } from "../jwt.js"
 import { logger as rootLogger } from "../logger.js"
 
-const OPEN_PATH_PREFIXES = ["/.well-known/", "/authorize", "/token", "/register", "/revoke", "/oauth/", "/healthz"]
+const OPEN_PATH_PREFIXES = [
+  "/.well-known/",
+  "/authorize",
+  "/token",
+  "/register",
+  "/revoke",
+  "/oauth/",
+  "/healthz",
+]
 
 const isOpenPath = (path: string): boolean =>
   OPEN_PATH_PREFIXES.some((prefix) => path === prefix || path.startsWith(prefix))
 
-export const handler = async (event: APIGatewayRequestAuthorizerEventV2): Promise<{ isAuthorized: boolean }> => {
+export const handler = async (
+  event: APIGatewayRequestAuthorizerEventV2,
+): Promise<{ isAuthorized: boolean }> => {
   const path = event.rawPath ?? "/"
   const requestId = event.requestContext?.requestId
   const sourceIp = event.requestContext?.http?.sourceIp

@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs"
 import { describe, it, expect, vi } from "vitest"
-import { envContentWithPublicUrl, gatewayApiEndpointQuery, resolvePublicUrl } from "../instance-env.js"
+import {
+  envContentWithPublicUrl,
+  gatewayApiEndpointQuery,
+  resolvePublicUrl,
+} from "../instance-env.js"
 
 describe("resolvePublicUrl", () => {
   it("returns an explicit PUBLIC_URL without querying the gateway", () => {
@@ -49,7 +53,9 @@ describe("resolvePublicUrl", () => {
   })
 
   it("queries the gateway when neither PUBLIC_URL nor CUSTOM_DOMAIN is set", () => {
-    const queryGatewayUrl = vi.fn().mockReturnValue("https://abc123.execute-api.us-east-1.amazonaws.com")
+    const queryGatewayUrl = vi
+      .fn()
+      .mockReturnValue("https://abc123.execute-api.us-east-1.amazonaws.com")
 
     const resolved = resolvePublicUrl({
       publicUrl: undefined,
@@ -65,7 +71,9 @@ describe("resolvePublicUrl", () => {
   })
 
   it("treats an empty CUSTOM_DOMAIN as unset and falls through to the gateway", () => {
-    const queryGatewayUrl = vi.fn().mockReturnValue("https://abc123.execute-api.us-east-1.amazonaws.com")
+    const queryGatewayUrl = vi
+      .fn()
+      .mockReturnValue("https://abc123.execute-api.us-east-1.amazonaws.com")
 
     const resolved = resolvePublicUrl({
       publicUrl: undefined,
@@ -105,17 +113,22 @@ describe("resolvePublicUrl", () => {
         customDomain: undefined,
         queryGatewayUrl,
       })
-    }).toThrow(/^could not resolve the public URL from PUBLIC_URL, CUSTOM_DOMAIN, or the API Gateway$/)
+    }).toThrow(
+      /^could not resolve the public URL from PUBLIC_URL, CUSTOM_DOMAIN, or the API Gateway$/,
+    )
   })
 })
 
 describe("envContentWithPublicUrl", () => {
   it("replaces an existing PUBLIC_URL line in place", () => {
-    const envFileContent = "MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=https://old.example.com\nVAULT_NAME=My Vault\n"
+    const envFileContent =
+      "MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=https://old.example.com\nVAULT_NAME=My Vault\n"
 
     const rewritten = envContentWithPublicUrl(envFileContent, "https://new.example.com")
 
-    expect(rewritten).toBe("MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=https://new.example.com\nVAULT_NAME=My Vault\n")
+    expect(rewritten).toBe(
+      "MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=https://new.example.com\nVAULT_NAME=My Vault\n",
+    )
   })
 
   it("fills in an empty PUBLIC_URL= line", () => {
@@ -147,7 +160,9 @@ describe("envContentWithPublicUrl", () => {
 
     const rewritten = envContentWithPublicUrl(envFileContent, "https://mcp.example.com")
 
-    expect(rewritten).toBe("# PUBLIC_URL=https://commented.example.com\nPUBLIC_URL=https://mcp.example.com\n")
+    expect(rewritten).toBe(
+      "# PUBLIC_URL=https://commented.example.com\nPUBLIC_URL=https://mcp.example.com\n",
+    )
   })
 
   it("appends to empty content without a leading blank line", () => {
@@ -181,7 +196,10 @@ describe("gatewayApiEndpointQuery", () => {
   it.each(["deploy.yml", "test_deploy.yml"])(
     "matches the query %s embeds, so CI and laptop deploys resolve the same gateway",
     (workflowFile) => {
-      const workflowContent = readFileSync(new URL(`../../.github/workflows/${workflowFile}`, import.meta.url), "utf8")
+      const workflowContent = readFileSync(
+        new URL(`../../.github/workflows/${workflowFile}`, import.meta.url),
+        "utf8",
+      )
 
       expect(workflowContent).toContain(gatewayApiEndpointQuery("${SST_STAGE}"))
     },

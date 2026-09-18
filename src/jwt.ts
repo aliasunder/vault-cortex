@@ -47,7 +47,8 @@ const b64urlEncode = (obj: object): string => b64url(Buffer.from(JSON.stringify(
 
 const HEADER = b64urlEncode({ alg: "HS256", typ: "JWT" })
 
-const hmac = (data: string, secret: string): string => b64url(createHmac("sha256", secret).update(data).digest())
+const hmac = (data: string, secret: string): string =>
+  b64url(createHmac("sha256", secret).update(data).digest())
 
 export const signJwt = (payload: JwtPayload, secret: string): string => {
   const body = `${HEADER}.${b64urlEncode(payload)}`
@@ -107,7 +108,12 @@ const payloadWithVerifiedSignature = (token: string, secret: string): unknown =>
 /** Returns the payload when the signature, expiry, issuer, and audience all
  *  check out; null otherwise. Issuer and audience are compared as exact
  *  strings — callers canonicalize before passing them in. */
-export const verifyJwt = ({ token, secret, expectedIssuer, expectedAudience }: VerifyJwtOptions): JwtPayload | null => {
+export const verifyJwt = ({
+  token,
+  secret,
+  expectedIssuer,
+  expectedAudience,
+}: VerifyJwtOptions): JwtPayload | null => {
   const decoded = payloadWithVerifiedSignature(token, secret)
 
   if (!isJwtPayload(decoded)) return null
@@ -122,7 +128,10 @@ export const verifyJwt = ({ token, secret, expectedIssuer, expectedAudience }: V
  *  that names any audience goes through `verifyJwt`. Lets clients holding a
  *  pre-binding token reach the server that rejects it with a 401, which is
  *  the signal they refresh on; a gateway-level deny would strand them. */
-export const verifyUnboundJwt = ({ token, secret }: VerifyUnboundJwtOptions): JwtBaseClaims | null => {
+export const verifyUnboundJwt = ({
+  token,
+  secret,
+}: VerifyUnboundJwtOptions): JwtBaseClaims | null => {
   const decoded = payloadWithVerifiedSignature(token, secret)
 
   if (!isJwtBaseClaims(decoded)) return null

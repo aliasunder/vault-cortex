@@ -126,7 +126,8 @@ Delivered by the stubbed first sync. Links to [[Sync Log]].
 
 const OWNERSHIP_LINE = "Ownership IDs changed"
 
-const uniqueName = (scenario: string): string => `remote-boot-${scenario}-${randomBytes(4).toString("hex")}`
+const uniqueName = (scenario: string): string =>
+  `remote-boot-${scenario}-${randomBytes(4).toString("hex")}`
 
 const bootedStartedAt = async (name: string): Promise<string> => {
   const result = await docker(["inspect", "-f", "{{.State.StartedAt}}", name])
@@ -238,12 +239,22 @@ describe("remote image boot — three-volume layout (anonymous /vault, /data, /h
   })
 
   it("keeps `ob sync --continuous` supervised as svc-obsidian-sync", async () => {
-    const status = await execInContainer(name, ["/command/s6-svstat", "-o", "up", "/run/service/svc-obsidian-sync"])
+    const status = await execInContainer(name, [
+      "/command/s6-svstat",
+      "-o",
+      "up",
+      "/run/service/svc-obsidian-sync",
+    ])
     expect(status.stdout.trim()).toBe("true")
   })
 
   it("runs the MCP server as the obsidian user (UID 1000)", async () => {
-    const pidResult = await execInContainer(name, ["/command/s6-svstat", "-o", "pid", "/run/service/svc-vault-mcp"])
+    const pidResult = await execInContainer(name, [
+      "/command/s6-svstat",
+      "-o",
+      "pid",
+      "/run/service/svc-vault-mcp",
+    ])
     const pid = pidResult.stdout.trim()
     const owner = await execInContainer(name, ["stat", "-c", "%u", `/proc/${pid}`])
     expect(owner.stdout.trim()).toBe("1000")
@@ -286,7 +297,8 @@ describe("remote image boot — three-volume layout (anonymous /vault, /data, /h
             type: null,
             tags: ["ci", "remote-boot"],
             bytes: 108,
-            snippet: "\n# Remote Boot\n\nDelivered by the stubbed first sync. Links to [[Sync Log]].\n",
+            snippet:
+              "\n# Remote Boot\n\nDelivered by the stubbed first sync. Links to [[Sync Log]].\n",
           },
         ],
       })
@@ -336,13 +348,15 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
   it("derives VAULT_PATH, INDEX_DB_PATH, LOG_DIR, XDG_CONFIG_HOME and PUBLIC_URL under /persist", async () => {
     const published = Object.fromEntries(
       await Promise.all(
-        ["VAULT_PATH", "INDEX_DB_PATH", "LOG_DIR", "XDG_CONFIG_HOME", "PUBLIC_URL"].map(async (variable) => [
-          variable,
-          await readContainerFile({
-            name,
-            path: `/run/s6/container_environment/${variable}`,
-          }),
-        ]),
+        ["VAULT_PATH", "INDEX_DB_PATH", "LOG_DIR", "XDG_CONFIG_HOME", "PUBLIC_URL"].map(
+          async (variable) => [
+            variable,
+            await readContainerFile({
+              name,
+              path: `/run/s6/container_environment/${variable}`,
+            }),
+          ],
+        ),
       ),
     )
     expect(published).toEqual({
@@ -355,7 +369,9 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
   })
 
   it("advertises the PUBLIC_URL derived from RAILWAY_PUBLIC_DOMAIN to MCP clients", async () => {
-    const response = await fetch(`http://127.0.0.1:${port}/.well-known/oauth-protected-resource/mcp`)
+    const response = await fetch(
+      `http://127.0.0.1:${port}/.well-known/oauth-protected-resource/mcp`,
+    )
     const metadata: unknown = await response.json()
     expect(metadata).toEqual({
       resource: "https://ci.example.test/mcp",
@@ -452,11 +468,15 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
     })
 
     it("keeps the ownership record unchanged", async () => {
-      expect(await readContainerFile({ name, path: "/persist/config/.applied-ids" })).toBe("1000:1000\n")
+      expect(await readContainerFile({ name, path: "/persist/config/.applied-ids" })).toBe(
+        "1000:1000\n",
+      )
     })
 
     it("runs the full Sync sequence again, appending to the first boot's log", async () => {
-      expect(await readContainerFile({ name, path: "/persist/config/ob-calls.log" })).toBe(callLogOf(2))
+      expect(await readContainerFile({ name, path: "/persist/config/ob-calls.log" })).toBe(
+        callLogOf(2),
+      )
     })
 
     it("keeps the sync state and the synced notes", async () => {
@@ -464,9 +484,9 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
         name,
         configDir: "/persist/config",
       })
-      const syncedNotes = (await listFilesInContainer({ name, directory: "/persist/vault" })).filter(
-        (path) => !path.startsWith("/persist/vault/About Me/"),
-      )
+      const syncedNotes = (
+        await listFilesInContainer({ name, directory: "/persist/vault" })
+      ).filter((path) => !path.startsWith("/persist/vault/About Me/"))
       expect({ knownSyncFiles, syncedNotes }).toEqual({
         knownSyncFiles: 2,
         syncedNotes: ["/persist/vault/Projects/Remote Boot.md", "/persist/vault/Sync Log.md"],
@@ -503,7 +523,9 @@ describe("remote image boot — first sync keeps failing (OB_STUB_SYNC_FAIL=1)",
           ...FIRST_SYNC_ATTEMPT_LINES,
           "[obsidian-sync] ERROR: First sync failed and the memory folder ('About Me') has not synced yet.",
         ])
-        expect(logs).toContain("s6-rc: warning: unable to start service init-first-sync: command exited 1")
+        expect(logs).toContain(
+          "s6-rc: warning: unable to start service init-first-sync: command exited 1",
+        )
       },
       FAILING_SYNC_TEST_TIMEOUT_MS,
     )
@@ -650,7 +672,9 @@ describe("remote image boot — empty remote vault with the memory layer disable
     it("syncs again instead of stopping on the empty-vault guard", async () => {
       const logsSinceRestart = await containerLogs(name, restartedAt)
       expect(logsSinceRestart).toContain("[obsidian-sync] First sync complete.")
-      expect(logsSinceRestart).not.toContain("The vault is empty but this device has previously synced.")
+      expect(logsSinceRestart).not.toContain(
+        "The vault is empty but this device has previously synced.",
+      )
     })
   })
 })
@@ -715,7 +739,9 @@ describe("remote image boot — vault wiped after files arrived while the contai
     expect(logsSinceRestart).toContain(
       "[obsidian-sync] ERROR: The vault is empty but this device has previously synced.",
     )
-    expect(logsSinceRestart).toContain("s6-rc: warning: unable to start service init-first-sync: command exited 1")
+    expect(logsSinceRestart).toContain(
+      "s6-rc: warning: unable to start service init-first-sync: command exited 1",
+    )
     expect(logsSinceRestart).not.toContain("First sync (attempt")
   })
 })
@@ -779,7 +805,9 @@ describe("remote image boot — notes deleted by hand while the container ran", 
   it("boots again after the restart without the deletion-storm guard firing", async () => {
     const logsSinceRestart = await containerLogs(name, restartedAt)
     expect(logsSinceRestart).toContain("[obsidian-sync] First sync complete.")
-    expect(logsSinceRestart).not.toContain("The vault is empty but this device has previously synced.")
+    expect(logsSinceRestart).not.toContain(
+      "The vault is empty but this device has previously synced.",
+    )
   })
 
   it("records no files once the deleted note's row is gone", async () => {
@@ -822,7 +850,9 @@ describe("remote image boot — remote vault holding only synced .obsidian/ sett
   })
 
   it("records the synced settings file in the sync state", async () => {
-    expect(await listFilesInContainer({ name, directory: "/vault" })).toEqual(["/vault/.obsidian/appearance.json"])
+    expect(await listFilesInContainer({ name, directory: "/vault" })).toEqual([
+      "/vault/.obsidian/appearance.json",
+    ])
     expect(await countSyncStateFiles({ name, configDir: "/home/obsidian/.config" })).toBe(1)
   })
 
@@ -843,7 +873,9 @@ describe("remote image boot — remote vault holding only synced .obsidian/ sett
     it("reads the synced settings as content and syncs again", async () => {
       const logsSinceRestart = await containerLogs(name, restartedAt)
       expect(logsSinceRestart).toContain("[obsidian-sync] First sync complete.")
-      expect(logsSinceRestart).not.toContain("The vault is empty but this device has previously synced.")
+      expect(logsSinceRestart).not.toContain(
+        "The vault is empty but this device has previously synced.",
+      )
     })
   })
 })
@@ -882,7 +914,9 @@ describe("remote image boot — safety checks in the init chain stop the contain
     expect(logs).toContain(
       "[vault-cortex] ERROR: STORAGE_ROOT must be an absolute path to a directory inside a persistent mount (e.g. /persist), not '/'.",
     )
-    expect(logs).toContain("s6-rc: warning: unable to start service init-derive-env: command exited 1")
+    expect(logs).toContain(
+      "s6-rc: warning: unable to start service init-derive-env: command exited 1",
+    )
   })
 
   it("refuses a relative INDEX_DB_PATH with the init-setup-user error", async () => {
@@ -893,7 +927,9 @@ describe("remote image boot — safety checks in the init chain stop the contain
     expect(logs).toContain(
       "[obsidian-sync] ERROR: INDEX_DB_PATH must be an absolute path with at least one directory component (got 'relative/index.db').",
     )
-    expect(logs).toContain("s6-rc: warning: unable to start service init-setup-user: command exited 1")
+    expect(logs).toContain(
+      "s6-rc: warning: unable to start service init-setup-user: command exited 1",
+    )
   })
 
   it("refuses to start without VAULT_NAME before registering the vault", async () => {
@@ -903,7 +939,9 @@ describe("remote image boot — safety checks in the init chain stop the contain
       env: envWithoutVaultName,
     })
     expect(logs).toContain("[obsidian-sync] ERROR: VAULT_NAME is not set.")
-    expect(logs).toContain("s6-rc: warning: unable to start service init-setup-vault: command exited 1")
+    expect(logs).toContain(
+      "s6-rc: warning: unable to start service init-setup-vault: command exited 1",
+    )
     // init-setup-vault runs after login, so the guard fires with the
     // device authenticated but never registered against a vault.
     expect(logs).toContain("[obsidian-sync] Authenticated.")
@@ -927,8 +965,12 @@ describe("remote image boot — safety checks in the init chain stop the contain
       env: BASE_ENV,
       volumes: [`${configVolume}:/home/obsidian/.config`],
     })
-    expect(logs).toContain("[obsidian-sync] ERROR: The vault is empty but this device has previously synced.")
-    expect(logs).toContain("s6-rc: warning: unable to start service init-first-sync: command exited 1")
+    expect(logs).toContain(
+      "[obsidian-sync] ERROR: The vault is empty but this device has previously synced.",
+    )
+    expect(logs).toContain(
+      "s6-rc: warning: unable to start service init-first-sync: command exited 1",
+    )
     // The guard sits before the first `ob sync`; the stub logs nothing
     // itself, but init-first-sync announces each attempt, so no attempt
     // line proves no sync was ever started.
@@ -1023,7 +1065,12 @@ describe("remote image boot — setup mode (no Sync token anywhere)", () => {
   })
 
   it("keeps svc-obsidian-sync up (idle) so the setup page can be served", async () => {
-    const status = await execInContainer(name, ["/command/s6-svstat", "-o", "up", "/run/service/svc-obsidian-sync"])
+    const status = await execInContainer(name, [
+      "/command/s6-svstat",
+      "-o",
+      "up",
+      "/run/service/svc-obsidian-sync",
+    ])
     expect(status.stdout.trim()).toBe("true")
   })
 
@@ -1034,7 +1081,9 @@ describe("remote image boot — setup mode (no Sync token anywhere)", () => {
     expect(html).toContain("<h1>Connect Obsidian Sync</h1>")
     // RAILWAY_PUBLIC_DOMAIN is a container env var, so the hint proves the
     // s6 longrun hands the platform variable to the setup server.
-    expect(html).toContain("value from the service's Variables tab on Railway — it proves this is your server.")
+    expect(html).toContain(
+      "value from the service's Variables tab on Railway — it proves this is your server.",
+    )
 
     const rejected = await postSetupForm(port, {
       token: "not-the-token",
@@ -1071,7 +1120,9 @@ describe("remote image boot — setup mode (no Sync token anywhere)", () => {
       const exitCode = await containerExitCode(name)
       const logs = await containerLogs(name)
       expect(exitCode).toBe(1)
-      expect(logs).toContain("[vault-cortex] Setup complete — restarting the container to start Obsidian Sync.")
+      expect(logs).toContain(
+        "[vault-cortex] Setup complete — restarting the container to start Obsidian Sync.",
+      )
     })
 
     describe("on the next boot", () => {

@@ -65,7 +65,9 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
         priority: z
           .array(z.enum(["highest", "high", "medium", "low", "lowest", "none"]))
           .optional()
-          .describe('Priority levels, OR-combined; "none" selects tasks with no priority signifier'),
+          .describe(
+            'Priority levels, OR-combined; "none" selects tasks with no priority signifier',
+          ),
         folder: z
           .string()
           .min(1)
@@ -82,7 +84,11 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .describe(
             'Exact heading text or array of headings, OR-combined, case-sensitive (e.g. "Active" or ["Active", "Up Next"])',
           ),
-        path: z.string().min(1).optional().describe('Restrict to one note (vault-relative path ending ".md")'),
+        path: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Restrict to one note (vault-relative path ending ".md")'),
         top_level_only: z
           .boolean()
           .optional()
@@ -98,7 +104,16 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .default(50)
           .describe("Max results (default 50); total always reports the full match count"),
         sort_by: z
-          .enum(["due", "scheduled", "start", "created", "done", "priority", "note_mtime", "position"])
+          .enum([
+            "due",
+            "scheduled",
+            "start",
+            "created",
+            "done",
+            "priority",
+            "note_mtime",
+            "position",
+          ])
           .optional()
           .default("due")
           .describe(
@@ -248,7 +263,9 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
         path: z
           .string()
           .min(1)
-          .describe('Vault-relative path to the note (must end in ".md"). The note must already exist.'),
+          .describe(
+            'Vault-relative path to the note (must end in ".md"). The note must already exist.',
+          ),
         description: z.string().min(1).describe("The task text (before metadata fields)."),
         block_id: z
           .string()
@@ -287,7 +304,9 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
         priority: z
           .enum(["highest", "high", "medium", "low", "lowest"])
           .optional()
-          .describe("Priority signifier (🔺⏫🔼🔽⏬). Omit for normal priority — no signifier is written."),
+          .describe(
+            "Priority signifier (🔺⏫🔼🔽⏬). Omit for normal priority — no signifier is written.",
+          ),
         recurrence: z
           .string()
           .min(1)
@@ -305,7 +324,9 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
           .string()
           .min(1)
           .optional()
-          .describe("Deadline (📅), YYYY-MM-DD, calendar-validated. Omit when there is no deadline."),
+          .describe(
+            "Deadline (📅), YYYY-MM-DD, calendar-validated. Omit when there is no deadline.",
+          ),
         scheduled: z
           .string()
           .min(1)
@@ -338,7 +359,9 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
         format: z
           .enum(["emoji", "dataview"])
           .optional()
-          .describe("Field format. Default: auto-detected from .obsidian/ config, falling back to emoji."),
+          .describe(
+            "Field format. Default: auto-detected from .obsidian/ config, falling back to emoji.",
+          ),
       },
     },
     async (
@@ -491,7 +514,10 @@ Obsidian syntax: The Tasks plugin reads metadata off the END of a task line, so 
 
 Returns: JSON { path, line, description, block_id, heading, subtasks, next_occurrence, changes, advisories, on_completion_applied } — line is the final 1-based position (when on_completion_applied is "delete", it is the position the task occupied before removal); description is the current text; block_id and heading reflect the task after the update (block_id is omitted when the task has none, heading when the task sits above the first heading); subtasks lists each checklist item added by add_subtasks as { line, description } (omitted when none were added) — checklist items carry no block_id, so line is the handle for a follow-up update; next_occurrence is present only when a completion spawned a recurring task's next occurrence: { line, description, due?, scheduled?, start? } with only the dates the occurrence has — it carries no block_id, so line is its handle; changes lists every field applied as "field: before → after", with "(none)" for an absent value (for subtasks the two sides are checklist-item counts, and a spawn adds "next_occurrence: (none) → line N"); advisories (omitted when the line round-trips clean and no recurrence notice applies) lists one sentence per place the stored line parses back differently than this call set (see Obsidian syntax above) or per recurrence event that did not produce a next occurrence; on_completion_applied (present only when the effective on_completion was delete — pre-existing on the task or set in the same call — and it was transitioned to done) is always "delete".`,
       inputSchema: {
-        path: z.string().min(1).describe('Vault-relative path to the note containing the task (must end in ".md")'),
+        path: z
+          .string()
+          .min(1)
+          .describe('Vault-relative path to the note containing the task (must end in ".md")'),
         block_id: z
           .string()
           .min(1)
@@ -504,7 +530,9 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .int()
           .min(1)
           .optional()
-          .describe("1-based line number from vault_list_tasks. Fragile if the file changed since the query."),
+          .describe(
+            "1-based line number from vault_list_tasks. Fragile if the file changed since the query.",
+          ),
         status: z
           .enum(["todo", "in_progress", "done", "cancelled"])
           .optional()
@@ -538,20 +566,32 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .describe(
             "New task description text. Replaces the existing description; metadata fields and block_id are preserved.",
           ),
-        due: z.string().min(1).nullable().optional().describe("Due date (YYYY-MM-DD) to set, or null to clear."),
+        due: z
+          .string()
+          .min(1)
+          .nullable()
+          .optional()
+          .describe("Due date (YYYY-MM-DD) to set, or null to clear."),
         scheduled: z
           .string()
           .min(1)
           .nullable()
           .optional()
           .describe("Scheduled date (YYYY-MM-DD) to set, or null to clear."),
-        start: z.string().min(1).nullable().optional().describe("Start date (YYYY-MM-DD) to set, or null to clear."),
+        start: z
+          .string()
+          .min(1)
+          .nullable()
+          .optional()
+          .describe("Start date (YYYY-MM-DD) to set, or null to clear."),
         created: z
           .string()
           .min(1)
           .nullable()
           .optional()
-          .describe("Created date (YYYY-MM-DD) to set or clear. Typically auto-stamped; use for corrections."),
+          .describe(
+            "Created date (YYYY-MM-DD) to set or clear. Typically auto-stamped; use for corrections.",
+          ),
         task_id: z
           .string()
           .min(1)

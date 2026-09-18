@@ -29,7 +29,9 @@ describe("matchLinksInLine", () => {
 
   it("does not match scheme-prefixed or anchor targets even when they end in .md", () => {
     // .md targets so the scheme/anchor guard — not the .md filter — excludes them.
-    expect(links.matchLinksInLine("[g](https://x.com/g.md) [m](mailto:m@x.md) [a](#a.md)")).toEqual([])
+    expect(links.matchLinksInLine("[g](https://x.com/g.md) [m](mailto:m@x.md) [a](#a.md)")).toEqual(
+      [],
+    )
   })
 
   it("finds a markdown asset embed with kind markdown, offsets excluding the embed marker", () => {
@@ -320,7 +322,13 @@ describe("extractFromBody", () => {
   })
 
   it("skips links inside fenced code blocks", () => {
-    const content = ["before [[Real Link]]", "```", "[[Fake Link]]", "```", "after [[Another Real Link]]"].join("\n")
+    const content = [
+      "before [[Real Link]]",
+      "```",
+      "[[Fake Link]]",
+      "```",
+      "after [[Another Real Link]]",
+    ].join("\n")
     const targets = links.extractFromBody(content)
     expect(targets).toEqual(["Real Link", "Another Real Link"])
   })
@@ -352,7 +360,9 @@ describe("extractFromBody", () => {
   })
 
   it("skips links inside indented fences (CommonMark §4.5)", () => {
-    const content = ["- list item:", "  ```", "  [[Fake Link]]", "  ```", "[[Real Link]]"].join("\n")
+    const content = ["- list item:", "  ```", "  [[Fake Link]]", "  ```", "[[Real Link]]"].join(
+      "\n",
+    )
     const targets = links.extractFromBody(content)
     expect(targets).toEqual(["Real Link"])
   })
@@ -370,7 +380,8 @@ describe("extractFromBody", () => {
   })
 
   it("handles multiple Templater expressions on one line", () => {
-    const content = "<% tp.file.include('[[Header]]') %> [[Real]] <% tp.file.include('[[Footer]]') %>"
+    const content =
+      "<% tp.file.include('[[Header]]') %> [[Real]] <% tp.file.include('[[Footer]]') %>"
     const targets = links.extractFromBody(content)
     expect(targets).toEqual(["Real"])
   })
@@ -382,7 +393,9 @@ describe("extractFromBody", () => {
   })
 
   it("extracts markdown links and embeds to non-.md assets", () => {
-    const targets = links.extractFromBody("![photo](pics/photo.png), [doc](papers/report.pdf), and [[Caption]]")
+    const targets = links.extractFromBody(
+      "![photo](pics/photo.png), [doc](papers/report.pdf), and [[Caption]]",
+    )
     expect(targets).toEqual(["Caption", "pics/photo.png", "papers/report.pdf"])
   })
 
@@ -443,7 +456,9 @@ describe("extractFromBody", () => {
   })
 
   it("extracts wikilinks to non-markdown assets alongside note links", () => {
-    const targets = links.extractFromBody("![[photo.png]] and ![[report.pdf]] and ![[song.mp3]] and [[Note A]]")
+    const targets = links.extractFromBody(
+      "![[photo.png]] and ![[report.pdf]] and ![[song.mp3]] and [[Note A]]",
+    )
     expect(targets).toEqual(["photo.png", "report.pdf", "song.mp3", "Note A"])
   })
 
@@ -471,11 +486,16 @@ describe("extractFromFrontmatter", () => {
   })
 
   it("extracts wikilinks from an array property (e.g. related)", () => {
-    expect(links.extractFromFrontmatter({ related: ["[[Note A]]", "[[Note B]]"] })).toEqual(["Note A", "Note B"])
+    expect(links.extractFromFrontmatter({ related: ["[[Note A]]", "[[Note B]]"] })).toEqual([
+      "Note A",
+      "Note B",
+    ])
   })
 
   it("strips alias and heading from a frontmatter wikilink", () => {
-    expect(links.extractFromFrontmatter({ related: ["[[Note A#Section|display]]"] })).toEqual(["Note A"])
+    expect(links.extractFromFrontmatter({ related: ["[[Note A#Section|display]]"] })).toEqual([
+      "Note A",
+    ])
   })
 
   it("extracts a wikilink embedded in surrounding text", () => {
@@ -532,11 +552,15 @@ describe("resolve", () => {
   ]
 
   it("resolves exact path match", () => {
-    expect(links.resolve({ target: "Projects/vault-cortex", allPaths })).toBe("Projects/vault-cortex.md")
+    expect(links.resolve({ target: "Projects/vault-cortex", allPaths })).toBe(
+      "Projects/vault-cortex.md",
+    )
   })
 
   it("resolves exact path with .md extension", () => {
-    expect(links.resolve({ target: "Projects/vault-cortex.md", allPaths })).toBe("Projects/vault-cortex.md")
+    expect(links.resolve({ target: "Projects/vault-cortex.md", allPaths })).toBe(
+      "Projects/vault-cortex.md",
+    )
   })
 
   it("resolves basename match", () => {
@@ -666,7 +690,9 @@ describe("resolveAsset", () => {
   ]
 
   it("resolves an exact path with extension", () => {
-    expect(links.resolveAsset({ target: "assets/photo.png", allAssetPaths })).toBe("assets/photo.png")
+    expect(links.resolveAsset({ target: "assets/photo.png", allAssetPaths })).toBe(
+      "assets/photo.png",
+    )
   })
 
   it("resolves a path relative to the source note's directory", () => {
@@ -691,7 +717,9 @@ describe("resolveAsset", () => {
   })
 
   it("resolves an extensionless target by exact stem", () => {
-    expect(links.resolveAsset({ target: "boards/Trip Route", allAssetPaths })).toBe("boards/Trip Route.canvas")
+    expect(links.resolveAsset({ target: "boards/Trip Route", allAssetPaths })).toBe(
+      "boards/Trip Route.canvas",
+    )
   })
 
   it("resolves an extensionless target relative to the source by stem", () => {
@@ -710,7 +738,9 @@ describe("resolveAsset", () => {
   })
 
   it("resolves a stem with folder segments as a suffix match", () => {
-    expect(links.resolveAsset({ target: "views/Inventory", allAssetPaths })).toBe("app/views/Inventory.base")
+    expect(links.resolveAsset({ target: "views/Inventory", allAssetPaths })).toBe(
+      "app/views/Inventory.base",
+    )
   })
 
   it("resolves a multi-dot stem when no full-filename match exists", () => {

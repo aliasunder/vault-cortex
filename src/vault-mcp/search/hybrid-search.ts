@@ -57,7 +57,11 @@ const fileKindLabel = (extension: string | undefined): string => {
 
 /** Embeds the query text and returns the Buffer for KNN queries. Null when
  *  no embedder is available or the embedding fails. */
-const embedQuery = async (context: SearchQueryContext, query: string, logger: Logger): Promise<Buffer | null> => {
+const embedQuery = async (
+  context: SearchQueryContext,
+  query: string,
+  logger: Logger,
+): Promise<Buffer | null> => {
   const { embedder } = context.vector
 
   if (!embedder) return null
@@ -89,7 +93,11 @@ const vectorSearch = (
 
   try {
     const noteKnnRows = params.folderPathPattern
-      ? knnSearchInFolderStmt.all(params.queryEmbeddingBuffer, params.limit, params.folderPathPattern)
+      ? knnSearchInFolderStmt.all(
+          params.queryEmbeddingBuffer,
+          params.limit,
+          params.folderPathPattern,
+        )
       : knnSearchStmt.all(params.queryEmbeddingBuffer, params.limit)
 
     // Deduplicate to best chunk per note — rows are ordered by distance
@@ -137,7 +145,11 @@ const fileContentVectorSearch = (
 
   try {
     const fileKnnRows = params.folderPathPattern
-      ? knnSearchInFolderStmt.all(params.queryEmbeddingBuffer, params.limit, params.folderPathPattern)
+      ? knnSearchInFolderStmt.all(
+          params.queryEmbeddingBuffer,
+          params.limit,
+          params.folderPathPattern,
+        )
       : knnSearchStmt.all(params.queryEmbeddingBuffer, params.limit)
 
     const bestChunkPerFile = new Map<string, VectorHit>()
@@ -325,7 +337,9 @@ export const hybridSearch = async (
   // One LIKE pattern shared by every leg that scopes to a folder in SQL —
   // the file-content FTS leg and both KNN legs (fullTextSearch builds its own
   // from the same helper), so no leg can drift from the others.
-  const folderPathPattern = params.filters?.folder ? folderLikePattern(params.filters.folder) : undefined
+  const folderPathPattern = params.filters?.folder
+    ? folderLikePattern(params.filters.folder)
+    : undefined
 
   // Run FTS with inflated limit to give RRF enough candidates
   const ftsResults = fullTextSearch(

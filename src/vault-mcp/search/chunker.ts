@@ -71,7 +71,9 @@ const splitLargeText = (text: string, maxChunkTokens: number): string[] => {
 
   // Word-boundary split for any chunks still over the limit
   return subChunks.flatMap((chunk) => {
-    return approximateTokenCount(chunk) > maxChunkTokens ? splitOversizedParagraph(chunk, maxChunkTokens) : [chunk]
+    return approximateTokenCount(chunk) > maxChunkTokens
+      ? splitOversizedParagraph(chunk, maxChunkTokens)
+      : [chunk]
   })
 }
 
@@ -87,7 +89,10 @@ const toChunks = (fragments: string[], chunkPrefix: string): NoteChunk[] => {
 /** One human-readable line naming the note's frontmatter type and tags, for
  *  prepending to chunk text so the embedder and reranker can see metadata.
  *  Null when the note has neither. */
-export const buildChunkMetadataPrefix = (params: { type: string | null; tags: readonly string[] }): string | null => {
+export const buildChunkMetadataPrefix = (params: {
+  type: string | null
+  tags: readonly string[]
+}): string | null => {
   const typePart = params.type ? `Type: ${params.type}.` : null
   const tagsPart = params.tags.length > 0 ? `Tags: ${params.tags.join(", ")}.` : null
   const parts = [typePart, tagsPart].filter(Boolean)
@@ -161,7 +166,8 @@ export const chunkNoteContent = (
 
   // Merges undersized sections with the next until the combined text is
   // large enough to stand as its own chunk
-  let pendingText = preambleText && approximateTokenCount(preambleText) < MIN_CHUNK_TOKENS ? preambleText : ""
+  let pendingText =
+    preambleText && approximateTokenCount(preambleText) < MIN_CHUNK_TOKENS ? preambleText : ""
 
   for (const heading of headings) {
     const sectionLines = bodyLines.slice(heading.startLine, heading.bodyEndLine)
@@ -187,5 +193,7 @@ export const chunkNoteContent = (
     return splitLargeText(section, maxChunkTokens)
   })
 
-  return allFragments.length > 0 ? toChunks(allFragments, chunkPrefix) : toChunks([strippedBody], chunkPrefix)
+  return allFragments.length > 0
+    ? toChunks(allFragments, chunkPrefix)
+    : toChunks([strippedBody], chunkPrefix)
 }

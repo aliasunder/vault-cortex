@@ -158,7 +158,13 @@ const remoteVaultsOf = (entries: unknown): RemoteVault[] => {
 
 /** Every vault the token can sync — the account's own and those shared
  *  with it, the same set `ob sync-setup` searches by name. */
-const listVaults = async ({ apiBaseUrl, token }: { apiBaseUrl: string; token: string }): Promise<RemoteVault[]> => {
+const listVaults = async ({
+  apiBaseUrl,
+  token,
+}: {
+  apiBaseUrl: string
+  token: string
+}): Promise<RemoteVault[]> => {
   const body = await postJson({
     apiBaseUrl,
     path: "/vault/list",

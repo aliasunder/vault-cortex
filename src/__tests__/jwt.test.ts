@@ -23,7 +23,10 @@ const buildPayload = (overrides: Partial<JwtPayload> = {}): JwtPayload => ({
 const signClaims = (claims: object, secret: string): string => {
   const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
   const body = Buffer.from(JSON.stringify(claims)).toString("base64url")
-  const sig = createHmac("sha256", secret).update(`${header}.${body}`).digest().toString("base64url")
+  const sig = createHmac("sha256", secret)
+    .update(`${header}.${body}`)
+    .digest()
+    .toString("base64url")
   return `${header}.${body}.${sig}`
 }
 
@@ -97,7 +100,9 @@ describe("verifyJwt", () => {
   it("returns null when the payload has been tampered with", () => {
     const token = signJwt(buildPayload(), SECRET)
     const [header, , sig] = token.split(".") as [string, string, string]
-    const tamperedBody = Buffer.from(JSON.stringify(buildPayload({ scope: "admin" }))).toString("base64url")
+    const tamperedBody = Buffer.from(JSON.stringify(buildPayload({ scope: "admin" }))).toString(
+      "base64url",
+    )
     expect(verify(`${header}.${tamperedBody}.${sig}`, SECRET)).toBeNull()
   })
 
@@ -118,7 +123,10 @@ describe("verifyJwt", () => {
   it("returns null when the payload body is not valid JSON", () => {
     const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
     const garbageBody = Buffer.from("not-json").toString("base64url")
-    const sig = createHmac("sha256", SECRET).update(`${header}.${garbageBody}`).digest().toString("base64url")
+    const sig = createHmac("sha256", SECRET)
+      .update(`${header}.${garbageBody}`)
+      .digest()
+      .toString("base64url")
     expect(verify(`${header}.${garbageBody}.${sig}`, SECRET)).toBeNull()
   })
 
@@ -131,7 +139,10 @@ describe("verifyJwt", () => {
   it("returns null for a payload missing required fields", () => {
     const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
     const body = Buffer.from(JSON.stringify({ foo: "bar" })).toString("base64url")
-    const sig = createHmac("sha256", SECRET).update(`${header}.${body}`).digest().toString("base64url")
+    const sig = createHmac("sha256", SECRET)
+      .update(`${header}.${body}`)
+      .digest()
+      .toString("base64url")
     expect(verify(`${header}.${body}.${sig}`, SECRET)).toBeNull()
   })
 
@@ -146,7 +157,10 @@ describe("verifyJwt", () => {
         aud: AUDIENCE,
       }),
     ).toString("base64url")
-    const sig = createHmac("sha256", SECRET).update(`${header}.${body}`).digest().toString("base64url")
+    const sig = createHmac("sha256", SECRET)
+      .update(`${header}.${body}`)
+      .digest()
+      .toString("base64url")
     expect(verify(`${header}.${body}.${sig}`, SECRET)).toBeNull()
   })
 
@@ -178,7 +192,10 @@ describe("verifyJwt", () => {
         iss: ISSUER,
       }),
     ).toString("base64url")
-    const sig = createHmac("sha256", SECRET).update(`${header}.${body}`).digest().toString("base64url")
+    const sig = createHmac("sha256", SECRET)
+      .update(`${header}.${body}`)
+      .digest()
+      .toString("base64url")
     expect(verify(`${header}.${body}.${sig}`, SECRET)).toBeNull()
   })
 

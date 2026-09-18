@@ -23,16 +23,24 @@ const createMockEmbedder = () => ({
   embedText: vi.fn().mockResolvedValue(new Float32Array(DIMENSIONS).fill(0.1)),
   embedBatch: vi
     .fn()
-    .mockImplementation((texts: string[]) => Promise.resolve(texts.map(() => new Float32Array(DIMENSIONS).fill(0.1)))),
+    .mockImplementation((texts: string[]) =>
+      Promise.resolve(texts.map(() => new Float32Array(DIMENSIONS).fill(0.1))),
+    ),
 })
 
 /** Builds a fileStat object for upsertNote. Defaults to size 100. */
-const testStat = (mtimeMs: number, size = 100): { mtimeMs: number; size: number } => ({ mtimeMs, size })
+const testStat = (mtimeMs: number, size = 100): { mtimeMs: number; size: number } => ({
+  mtimeMs,
+  size,
+})
 
 /** Total entry texts sent to the embedder across all embedBatch calls —
  *  the observable that proves how many entries were actually (re-)embedded. */
 const totalTextsEmbedded = (embedder: ReturnType<typeof createMockEmbedder>): number =>
-  embedder.embedBatch.mock.calls.reduce((sum: number, call: unknown[]) => sum + (call[0] as string[]).length, 0)
+  embedder.embedBatch.mock.calls.reduce(
+    (sum: number, call: unknown[]) => sum + (call[0] as string[]).length,
+    0,
+  )
 
 /** File-backed index plus a second read-only connection for asserting raw
  *  table state — :memory: databases can't be inspected from outside the
@@ -69,7 +77,9 @@ const selectEntryRows = (inspect: Database.Database): EntryRow[] =>
     .all()
 
 const countVectors = (inspect: Database.Database): number => {
-  const row = inspect.prepare<[], { n: number }>(`SELECT COUNT(*) AS n FROM memory_entry_vectors`).get()
+  const row = inspect
+    .prepare<[], { n: number }>(`SELECT COUNT(*) AS n FROM memory_entry_vectors`)
+    .get()
 
   if (row === undefined) throw new Error("count query returned no row")
   return row.n
@@ -170,7 +180,9 @@ describe("memory entry indexing", () => {
       logger,
     )
     await index.embedNote({ notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 }, logger)
-    const embeddedEntryTexts = embedder.embedBatch.mock.calls.flatMap((call: unknown[]) => call[0] as string[])
+    const embeddedEntryTexts = embedder.embedBatch.mock.calls.flatMap(
+      (call: unknown[]) => call[0] as string[],
+    )
     expect(embeddedEntryTexts).toEqual([
       "Opinions > Code patterns (newest first)\n- **2026-07-02**: Wrap function bodies in braces.",
       "Opinions > Code patterns (newest first)\n- **2026-05-07**: Immutable over mutable.",
@@ -210,7 +222,9 @@ describe("memory entry indexing", () => {
     await index.embedNote({ notePath: "About Me/Opinions.md", rawContent: withTopAppend }, logger)
 
     expect(totalTextsEmbedded(embedder)).toBe(1)
-    expect(embedder.embedBatch.mock.calls.flatMap((call: unknown[]) => call[0] as string[])).toEqual([
+    expect(
+      embedder.embedBatch.mock.calls.flatMap((call: unknown[]) => call[0] as string[]),
+    ).toEqual([
       "Opinions > Code patterns (newest first)\n- **2026-07-11**: Newest opinion lands on top.",
     ])
     // The shifted entries kept their rows; indices were refreshed in place.
@@ -306,7 +320,9 @@ describe("memory entry indexing", () => {
     index.removeNote("About Me/Opinions.md")
     expect(selectEntryRows(inspect)).toEqual([])
     expect(countVectors(inspect)).toBe(0)
-    const ftsCount = inspect.prepare<[], { n: number }>(`SELECT COUNT(*) AS n FROM memory_entries_fts`).get()
+    const ftsCount = inspect
+      .prepare<[], { n: number }>(`SELECT COUNT(*) AS n FROM memory_entries_fts`)
+      .get()
     expect(ftsCount?.n).toBe(0)
   })
 
@@ -358,7 +374,9 @@ describe("memory entry indexing", () => {
     )
     expect(selectEntryRows(inspect)).toHaveLength(3)
     const vectorTable = inspect
-      .prepare<[], { name: string }>(`SELECT name FROM sqlite_master WHERE name = 'memory_entry_vectors'`)
+      .prepare<[], { name: string }>(
+        `SELECT name FROM sqlite_master WHERE name = 'memory_entry_vectors'`,
+      )
       .get()
     expect(vectorTable).toBeUndefined()
   })

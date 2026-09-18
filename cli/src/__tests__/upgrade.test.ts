@@ -5,7 +5,13 @@ import { describe, expect, it } from "vitest"
 
 import type { DockerRunner } from "../docker.js"
 import { runUpgrade } from "../upgrade.js"
-import { createScriptedPrompts, dockerDown, dockerReady, fetchNever, fetchOk } from "./command-stubs.js"
+import {
+  createScriptedPrompts,
+  dockerDown,
+  dockerReady,
+  fetchNever,
+  fetchOk,
+} from "./command-stubs.js"
 
 const writeLocalEnv = (targetDir: string): void => {
   writeFileSync(
@@ -147,7 +153,10 @@ describe("runUpgrade", () => {
 
     expect(exitCode).toBe(0)
     // Order proves the probe ran after the container health poll.
-    expect(fetchedUrls).toEqual(["http://127.0.0.1:8000/healthz", "https://vault.example.com/healthz"])
+    expect(fetchedUrls).toEqual([
+      "http://127.0.0.1:8000/healthz",
+      "https://vault.example.com/healthz",
+    ])
   })
 
   it("keeps a successful remote upgrade at exit 0 when the public URL does not answer", async () => {

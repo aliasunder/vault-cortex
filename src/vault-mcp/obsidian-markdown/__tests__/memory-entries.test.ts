@@ -41,7 +41,11 @@ describe("parseMemoryEntries", () => {
   })
 
   it("ends an entry at the next dated bullet", () => {
-    const lines = ["## Process (newest first)", "- **2026-07-02**: Newer entry.", "- **2026-06-15**: Older entry."]
+    const lines = [
+      "## Process (newest first)",
+      "- **2026-07-02**: Newer entry.",
+      "- **2026-06-15**: Older entry.",
+    ]
     expect(parseMemoryEntries(lines)).toEqual([
       {
         section: "Process (newest first)",
@@ -84,7 +88,11 @@ describe("parseMemoryEntries", () => {
   })
 
   it("ends the final entry at EOF", () => {
-    const lines = ["## Only section", "- **2026-03-03**: Final entry,", "  with a continuation line at EOF."]
+    const lines = [
+      "## Only section",
+      "- **2026-03-03**: Final entry,",
+      "  with a continuation line at EOF.",
+    ]
     expect(parseMemoryEntries(lines)).toEqual([
       {
         section: "Only section",
@@ -221,7 +229,10 @@ describe("parseMemoryEntries", () => {
       "## Section B",
       "- **2026-03-01**: First in B.",
     ]
-    const entryIndexByDate = parseMemoryEntries(lines).map((entry) => [entry.date, entry.entryIndex])
+    const entryIndexByDate = parseMemoryEntries(lines).map((entry) => [
+      entry.date,
+      entry.entryIndex,
+    ])
     expect(entryIndexByDate).toEqual([
       ["2026-02-01", 0],
       ["2026-01-01", 1],

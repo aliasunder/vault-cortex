@@ -2,7 +2,14 @@ import { describe, it, expect, onTestFinished } from "vitest"
 import { mkdtemp, realpath, rm, symlink, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { readFileOrNull, readdirOrNull, realpathOrNull, fileExists, lstatOrNull, statOrNull } from "../fs.js"
+import {
+  readFileOrNull,
+  readdirOrNull,
+  realpathOrNull,
+  fileExists,
+  lstatOrNull,
+  statOrNull,
+} from "../fs.js"
 
 const makeTempDir = async (): Promise<string> => {
   const dir = await mkdtemp(join(tmpdir(), "utils-fs-test-"))

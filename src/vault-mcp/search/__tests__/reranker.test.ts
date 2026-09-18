@@ -237,10 +237,13 @@ describe("createReranker", () => {
       const reranker = await loadReranker()
       await reranker.rerankPairs("trigger load", ["doc"])
 
-      expect(mockedAutoModel.from_pretrained).toHaveBeenCalledWith("Xenova/ms-marco-MiniLM-L-6-v2", {
-        dtype: "q8",
-        session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
-      })
+      expect(mockedAutoModel.from_pretrained).toHaveBeenCalledWith(
+        "Xenova/ms-marco-MiniLM-L-6-v2",
+        {
+          dtype: "q8",
+          session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
+        },
+      )
     })
 
     it("retries after a model load failure", async () => {

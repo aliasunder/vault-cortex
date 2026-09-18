@@ -58,14 +58,16 @@ const cleanTranscript = (strippedOutput: string): string => {
     // glyph — keep the first of each consecutive identical fragment.
     const fragments = cursorTrimmed.split(SPINNER_GLYPHS)
     const withoutRepeats = fragments.filter(
-      (fragment, index) => index === 0 || fragment.slice(1).trim() !== fragments[index - 1]?.slice(1).trim(),
+      (fragment, index) =>
+        index === 0 || fragment.slice(1).trim() !== fragments[index - 1]?.slice(1).trim(),
     )
     return [withoutRepeats.join("")]
   })
   return cleanedLines.join("\n")
 }
 
-const sleep = (ms: number): Promise<void> => new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolveSleep) => setTimeout(resolveSleep, ms))
 
 /**
  * Run the CLI in a real PTY with the fake docker shim on PATH,
@@ -83,7 +85,9 @@ const drivePty = (options: PtyOptions): Promise<PtyResult> => {
 
     const npxPath = process.env.NVM_BIN ? `${process.env.NVM_BIN}/npx` : "npx"
 
-    const envEntries = Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)
+    const envEntries = Object.entries(process.env).filter(
+      (entry): entry is [string, string] => entry[1] !== undefined,
+    )
     const childEnv: Record<string, string> = {
       ...Object.fromEntries(envEntries),
       // Fake docker shim first on PATH so the CLI finds it

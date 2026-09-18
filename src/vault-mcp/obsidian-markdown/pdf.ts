@@ -90,7 +90,9 @@ const dominantRoundedFontSize = (items: readonly StructuredTextItem[]): number =
  *  Known graceful edge: a document that is mostly heading-sized text by
  *  volume (a poster, a title page) picks that size as body and renders
  *  everything plain — readable, unlike the inverse failure. */
-const buildHeadingLevels = (allItems: readonly StructuredTextItem[]): ReadonlyMap<number, number> => {
+const buildHeadingLevels = (
+  allItems: readonly StructuredTextItem[],
+): ReadonlyMap<number, number> => {
   if (allItems.length === 0) return new Map()
   const bodySize = dominantRoundedFontSize(allItems)
   const distinctSizes = [...new Set(allItems.map((item) => roundFontSize(item.fontSize)))]
@@ -129,7 +131,10 @@ const isWordGap = (previousItem: StructuredTextItem, nextItem: StructuredTextIte
  *  gap is a word boundary and neither string already carries whitespace at
  *  the junction (pdfjs bakes literal spaces into merged runs; adding another
  *  would double them). */
-const needsSpaceBetween = (previousItem: StructuredTextItem, nextItem: StructuredTextItem): boolean => {
+const needsSpaceBetween = (
+  previousItem: StructuredTextItem,
+  nextItem: StructuredTextItem,
+): boolean => {
   const junctionHasWhitespace = /\s$/.test(previousItem.str) || /^\s/.test(nextItem.str)
 
   if (junctionHasWhitespace) return false
@@ -258,7 +263,10 @@ const renderFenceBlock = (orderedLines: readonly (readonly StructuredTextItem[])
       return lineText
     }
     const characterAdvance = firstItem.width / firstItem.str.length
-    const indentCharacters = Math.max(0, Math.round((lineStartX - blockLeftMargin) / characterAdvance))
+    const indentCharacters = Math.max(
+      0,
+      Math.round((lineStartX - blockLeftMargin) / characterAdvance),
+    )
     return `${" ".repeat(indentCharacters)}${lineText}`
   })
 
@@ -310,9 +318,13 @@ const rejoinOrphanedMarkers = (
         lineIndex,
         distance: Math.abs(lineY(line) - markerY),
       }))
-      .filter((candidate) => !isMarkerLine[candidate.lineIndex] && candidate.distance < LINE_GROUP_Y_THRESHOLD)
+      .filter(
+        (candidate) =>
+          !isMarkerLine[candidate.lineIndex] && candidate.distance < LINE_GROUP_Y_THRESHOLD,
+      )
     const nearestTarget = targetCandidates.reduce(
-      (bestCandidate, candidate) => (candidate.distance < bestCandidate.distance ? candidate : bestCandidate),
+      (bestCandidate, candidate) =>
+        candidate.distance < bestCandidate.distance ? candidate : bestCandidate,
       { lineIndex: -1, distance: Infinity },
     )
 

@@ -105,15 +105,20 @@ export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
       // Fence/comment precedence, as in parseHeadings: fences advance only
       // outside comments, comment toggles run only outside fences. Explicit
       // annotations break the inference cycle through the loop-carried state.
-      const fenceResult: ReturnType<typeof advanceFence> | null = commentOpen ? null : advanceFence(line, openFence)
+      const fenceResult: ReturnType<typeof advanceFence> | null = commentOpen
+        ? null
+        : advanceFence(line, openFence)
       openFence = fenceResult !== null ? fenceResult.openFence : openFence
 
-      const commentResult: CommentResult | null = fenceResult?.lineIsCode ? null : advanceComment(line, commentOpen)
+      const commentResult: CommentResult | null = fenceResult?.lineIsCode
+        ? null
+        : advanceComment(line, commentOpen)
       commentOpen = commentResult !== null ? commentResult.commentOpen : commentOpen
 
       // Inside code or a comment this line cannot START an entry, but it is
       // legitimate continuation content for one already open.
-      const lineCannotStartEntry = (fenceResult?.lineIsCode ?? false) || (commentResult?.lineIsComment ?? false)
+      const lineCannotStartEntry =
+        (fenceResult?.lineIsCode ?? false) || (commentResult?.lineIsComment ?? false)
 
       if (lineCannotStartEntry) {
         if (openEntry !== null) openEntry.textLines.push(line)

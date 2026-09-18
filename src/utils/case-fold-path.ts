@@ -5,4 +5,5 @@
  *  NFC re-normalizes because case mapping does not always preserve
  *  normalization form. Folded values are for comparison only and never touch
  *  disk. */
-export const caseFoldPath = (path: string): string => path.normalize("NFC").toUpperCase().toLowerCase().normalize("NFC")
+export const caseFoldPath = (path: string): string =>
+  path.normalize("NFC").toUpperCase().toLowerCase().normalize("NFC")

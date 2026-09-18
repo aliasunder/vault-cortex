@@ -59,7 +59,9 @@ describe("parseHeadings", () => {
 
   it("recognizes a heading after a blockquoted fence implicitly closes", () => {
     const lines = ["> ```", "> ## Hidden inside fence", "## Visible after implicit close"]
-    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual(["Visible after implicit close"])
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
+      "Visible after implicit close",
+    ])
   })
 
   it("ignores ATX headings inside an indented fenced code block (CommonMark §4.5)", () => {
@@ -404,7 +406,8 @@ describe("parseHeadings", () => {
 })
 
 describe("linesBeforeFirstHeading", () => {
-  const regionOf = (lines: readonly string[]): readonly string[] => linesBeforeFirstHeading(lines, parseHeadings(lines))
+  const regionOf = (lines: readonly string[]): readonly string[] =>
+    linesBeforeFirstHeading(lines, parseHeadings(lines))
 
   it("returns the lines above the first heading", () => {
     expect(regionOf(["Intro.", "", "## Section", "body"])).toEqual(["Intro.", ""])

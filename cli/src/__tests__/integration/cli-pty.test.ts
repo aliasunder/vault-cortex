@@ -8,7 +8,13 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
 
-import { createPtyWorkDir, drivePty, killHealthServer, seedEnv, type PtyPrompt } from "./pty-harness.js"
+import {
+  createPtyWorkDir,
+  drivePty,
+  killHealthServer,
+  seedEnv,
+  type PtyPrompt,
+} from "./pty-harness.js"
 
 // Down arrow in terminal escape sequences
 const DOWN = "\x1b[B"

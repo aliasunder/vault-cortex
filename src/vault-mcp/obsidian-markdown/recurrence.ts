@@ -201,7 +201,8 @@ const correctedNextHit = ({
     const candidateDay = DateTime.fromJSDate(candidateHit, { zone: "utc" })
 
     const skipsTooManyMonths =
-      monthIntervalToEnforce !== null && monthsSkipped({ after: queryDay, next: candidateDay }) > monthIntervalToEnforce
+      monthIntervalToEnforce !== null &&
+      monthsSkipped({ after: queryDay, next: candidateDay }) > monthIntervalToEnforce
     const skipsTooManyYears =
       yearIntervalToEnforce !== null && candidateDay.year - queryDay.year > yearIntervalToEnforce
 
@@ -283,7 +284,9 @@ const shiftByReferenceOffset = ({
   // disagree across timezone discontinuities. Truncation toward zero matches
   // moment's behavior: on a spring-forward day the 23-hour gap gives 0, not 1.
   const dayDistance = Math.trunc(dateInZone.diff(referenceInZone).as("days"))
-  const shifted = DateTime.fromISO(nextReferenceDate, { zone }).plus({ days: dayDistance }).toISODate()
+  const shifted = DateTime.fromISO(nextReferenceDate, { zone })
+    .plus({ days: dayDistance })
+    .toISODate()
 
   if (shifted === null) throw new Error("invalid shifted occurrence date")
   return shifted
@@ -303,7 +306,8 @@ export const nextOccurrenceDates = (params: NextOccurrenceParams): NextOccurrenc
 
   // The rule's dtstart anchors the series: the reference date normally, the
   // completion day for "when done" rules or when the task has no dates.
-  const seriesAnchor = parsedRule.advanceFromCompletionDay || referenceDate === null ? params.today : referenceDate
+  const seriesAnchor =
+    parsedRule.advanceFromCompletionDay || referenceDate === null ? params.today : referenceDate
   const rule = new RRule({
     ...parsedRule.rruleOptions,
     dtstart: utcMidnight(seriesAnchor),

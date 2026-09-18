@@ -10,7 +10,10 @@ const createVault = async (): Promise<string> => {
   return vaultPath
 }
 
-const writePluginConfig = async (vaultPath: string, config: Record<string, unknown>): Promise<void> => {
+const writePluginConfig = async (
+  vaultPath: string,
+  config: Record<string, unknown>,
+): Promise<void> => {
   const pluginDir = join(vaultPath, ".obsidian", "plugins", "obsidian-tasks-plugin")
   await mkdir(pluginDir, { recursive: true })
   await writeFile(join(pluginDir, "data.json"), JSON.stringify(config), "utf8")

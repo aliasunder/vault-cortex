@@ -86,7 +86,10 @@ export const createEmbedder = (logger: Logger) => {
     // The pipeline returns all embeddings concatenated in a single flat array
     // (e.g. 3 inputs × 384 dims = 1152 floats). Slice out each input's embedding.
     return texts.map(
-      (_text, index) => new Float32Array(data.slice(index * EMBEDDING_DIMENSIONS, (index + 1) * EMBEDDING_DIMENSIONS)),
+      (_text, index) =>
+        new Float32Array(
+          data.slice(index * EMBEDDING_DIMENSIONS, (index + 1) * EMBEDDING_DIMENSIONS),
+        ),
     )
   }
 

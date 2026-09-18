@@ -78,12 +78,19 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
           ),
         filters: z
           .object({
-            folder: z.string().min(1).optional().describe('Restrict to a folder path prefix (e.g. "Projects")'),
+            folder: z
+              .string()
+              .min(1)
+              .optional()
+              .describe('Restrict to a folder path prefix (e.g. "Projects")'),
             tags: z
               .array(z.string().min(1))
               .optional()
               .describe("Require all listed tags (AND — every tag must be present)"),
-            related: z.array(z.string().min(1)).optional().describe("Require all listed related links"),
+            related: z
+              .array(z.string().min(1))
+              .optional()
+              .describe("Require all listed related links"),
             type: z
               .string()
               .min(1)
@@ -92,7 +99,9 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
             properties: z
               .record(z.string().min(1), z.union([z.string().min(1), z.number(), z.boolean()]))
               .optional()
-              .describe('Match arbitrary frontmatter properties by key-value (e.g. { status: "active", priority: 1 })'),
+              .describe(
+                'Match arbitrary frontmatter properties by key-value (e.g. { status: "active", priority: 1 })',
+              ),
             created: dateFilterSchema.describe(
               'Created date bounds (YYYY-MM-DD) on the frontmatter "created" property — notes without a parseable value never match',
             ),
@@ -101,7 +110,9 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
             ),
           })
           .optional()
-          .describe("Optional structured filters — all conditions AND-combine with each other and with the text query"),
+          .describe(
+            "Optional structured filters — all conditions AND-combine with each other and with the text query",
+          ),
         limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),
         snippet_tokens: z
           .number()
@@ -134,7 +145,10 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
       return safeHandler(
         reqLogger,
         async () => {
-          return search.hybridSearch({ query, filters, limit, snippet_tokens, include_leading_callout }, reqLogger)
+          return search.hybridSearch(
+            { query, filters, limit, snippet_tokens, include_leading_callout },
+            reqLogger,
+          )
         },
         (searchResult) => {
           reqLogger.info("tool_result", {
@@ -177,7 +191,11 @@ Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, fol
           .describe(
             'Tag name without "#" prefix (e.g. "project", "session-log"). Hierarchical tags use "/" separators (e.g. "project/vault-cortex").',
           ),
-        exact: z.boolean().optional().default(false).describe("Exact match only (default: false, prefix match)"),
+        exact: z
+          .boolean()
+          .optional()
+          .default(false)
+          .describe("Exact match only (default: false, prefix match)"),
       },
     },
     async ({ tag, exact }, extra) => {
@@ -254,7 +272,13 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .optional()
           .default("modified")
           .describe('Sort order (default "modified")'),
-        limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20, no upper cap)"),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .default(20)
+          .describe("Max results (default 20, no upper cap)"),
       },
     },
     async ({ sort_by, limit }, extra) => {
@@ -298,8 +322,14 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
         folder: z
           .string()
           .min(1)
-          .describe(`Folder path (e.g. "Projects"${config.memoryEnabled ? `, "${config.memoryDir}"` : ""})`),
-        recursive: z.boolean().optional().default(true).describe("Include subfolders (default: true)"),
+          .describe(
+            `Folder path (e.g. "Projects"${config.memoryEnabled ? `, "${config.memoryDir}"` : ""})`,
+          ),
+        recursive: z
+          .boolean()
+          .optional()
+          .default(true)
+          .describe("Include subfolders (default: true)"),
         limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),
       },
     },
@@ -379,7 +409,11 @@ Returns: JSON array of { value, count } sorted by count descending.`,
           .describe(
             'Property key name — use vault_list_property_keys to discover valid keys (e.g. "status", "type", "tags").',
           ),
-        folder: z.string().min(1).optional().describe('Restrict to a folder prefix (e.g. "Projects")'),
+        folder: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Restrict to a folder prefix (e.g. "Projects")'),
         limit: z
           .number()
           .int()
@@ -437,7 +471,11 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .describe(
             'Value to match (exact, case-sensitive, e.g. "active", "session-log"). Use vault_list_property_values to discover valid values for a key.',
           ),
-        folder: z.string().min(1).optional().describe('Restrict to a folder prefix (e.g. "Projects")'),
+        folder: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Restrict to a folder prefix (e.g. "Projects")'),
         limit: z
           .number()
           .int()
@@ -553,7 +591,10 @@ Errors: Rejects paths that don't end in .md or .canvas. A path not in the index 
             folder: config.dailyNotesFolder,
             format: config.dailyNotesFormat,
           })
-          return search.getOutgoingLinks({ path, dailyNotesFolder: dailyNotesConfig.folder }, reqLogger)
+          return search.getOutgoingLinks(
+            { path, dailyNotesFolder: dailyNotesConfig.folder },
+            reqLogger,
+          )
         },
         (outgoingLinks) => {
           reqLogger.info("tool_result", { resultCount: outgoingLinks.length })

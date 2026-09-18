@@ -83,7 +83,9 @@ describe("memory-review handler", () => {
 
   it("completes file names by prefix (case-insensitive)", async () => {
     const { calls } = await setupVault()
-    const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].argsSchema as { file: unknown }
+    const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].argsSchema as {
+      file: unknown
+    }
     const complete = getCompleter(argsSchema.file as never) as unknown as (
       value: string,
       context?: unknown,
@@ -241,7 +243,9 @@ describe("memory-review error degradation", () => {
     })
     await writeFile(join(vault, "About Me"), "not a directory", "utf8")
     const calls = registerWithSearch(vault, {} as SearchIndex)
-    const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].argsSchema as { file: unknown }
+    const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].argsSchema as {
+      file: unknown
+    }
     const complete = getCompleter(argsSchema.file as never) as unknown as (
       value: string,
       context?: unknown,
@@ -297,7 +301,9 @@ describe("memory-review logging", () => {
     })
     await writeFile(join(vault, "About Me"), "not a directory", "utf8")
     const calls = registerWithSearch(vault, {} as SearchIndex, recordingLogger(logs))
-    const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].argsSchema as { file: unknown }
+    const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].argsSchema as {
+      file: unknown
+    }
     const complete = getCompleter(argsSchema.file as never) as unknown as (
       value: string,
       context?: unknown,

@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest"
 import { isErrnoException } from "../is-errno-exception.js"
 
 /** Creates a minimal ErrnoException-shaped error for testing. */
-const makeErrno = (code: string): NodeJS.ErrnoException => Object.assign(new Error(`fake ${code}`), { code })
+const makeErrno = (code: string): NodeJS.ErrnoException =>
+  Object.assign(new Error(`fake ${code}`), { code })
 
 describe("isErrnoException", () => {
   describe("with code argument", () => {

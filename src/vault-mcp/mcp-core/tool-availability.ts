@@ -32,7 +32,9 @@ export type ToolAvailability = {
 }
 
 /** Binds the enabled set into the availability view its consumers share. */
-export const createToolAvailability = (enabledToolNames: ReadonlySet<ToolName>): ToolAvailability => {
+export const createToolAvailability = (
+  enabledToolNames: ReadonlySet<ToolName>,
+): ToolAvailability => {
   const isToolEnabled = (name: ToolName): boolean => enabledToolNames.has(name)
   return {
     isToolEnabled,

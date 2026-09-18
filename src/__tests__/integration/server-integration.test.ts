@@ -23,7 +23,9 @@ vi.setConfig({ testTimeout: 15_000 })
 
 /** Extract joined text from a prompt result's messages. */
 const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string =>
-  result.messages.map((message) => (message.content.type === "text" ? message.content.text : "")).join("\n")
+  result.messages
+    .map((message) => (message.content.type === "text" ? message.content.text : ""))
+    .join("\n")
 
 // ── Default config (33 tools, 3 prompts) ──────────────────────
 
@@ -121,7 +123,9 @@ describe("default config", () => {
       if (typeof outline.modified !== "string") {
         throw new Error("outline modified timestamp is missing")
       }
-      expect(outline.modified).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}(?:Z|[+-]\d{2}:\d{2})$/)
+      expect(outline.modified).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}(?:Z|[+-]\d{2}:\d{2})$/,
+      )
       const fixtureStats = await stat(join(vaultPath, "Projects/alpha.md"))
       expect(DateTime.fromISO(outline.modified).toMillis()).toBe(Math.round(fixtureStats.mtimeMs))
       expect(outline).toEqual({
@@ -455,11 +459,13 @@ describe("default config", () => {
 
       expect(topOnlyJson.total).toBe(3)
       expect(
-        topOnlyJson.tasks.map((task: { description: string; depth: number; is_kanban_task: boolean }) => ({
-          description: task.description,
-          depth: task.depth,
-          is_kanban_task: task.is_kanban_task,
-        })),
+        topOnlyJson.tasks.map(
+          (task: { description: string; depth: number; is_kanban_task: boolean }) => ({
+            description: task.description,
+            depth: task.depth,
+            is_kanban_task: task.is_kanban_task,
+          }),
+        ),
       ).toEqual([
         { description: "In-progress feature", depth: 0, is_kanban_task: true },
         { description: "Planned work", depth: 0, is_kanban_task: true },
@@ -847,7 +853,9 @@ describe("default config", () => {
         args: { path: "Scratch/test-moved.md" },
       })
       expect(deleteResult.isError).not.toBe(true)
-      expect(textContent(deleteResult)).toBe("Moved Scratch/test-moved.md to trash (.trash/Scratch/test-moved.md)")
+      expect(textContent(deleteResult)).toBe(
+        "Moved Scratch/test-moved.md to trash (.trash/Scratch/test-moved.md)",
+      )
       const afterDelete = await callTool({
         client,
         name: "vault_read_note",
@@ -872,7 +880,9 @@ describe("default config", () => {
       })
 
       expect(deleteResult.isError).not.toBe(true)
-      expect(textContent(deleteResult)).toBe("Moved Scratch/trash-test.md to trash (.trash/Scratch/trash-test.md)")
+      expect(textContent(deleteResult)).toBe(
+        "Moved Scratch/trash-test.md to trash (.trash/Scratch/trash-test.md)",
+      )
 
       const afterDelete = await callTool({
         client,
@@ -980,7 +990,9 @@ describe("default config", () => {
       expect(response.headers.get("content-type")).toContain("text/html")
       const html = await response.text()
       expect(html).toContain("<h1>Already set up</h1>")
-      expect(html).toContain("This server is set up and running — there is nothing to do on this page.")
+      expect(html).toContain(
+        "This server is set up and running — there is nothing to do on this page.",
+      )
     })
 
     it("does not redirect a browser GET on the root once configured — that behavior belongs to setup mode only", async () => {
@@ -1548,7 +1560,9 @@ describe("boot rejection", () => {
   it.each(["/vault*path", "/vault?path", "/vault[path]"])(
     "VAULT_PATH=%s with glob characters exits with error",
     async (vaultPath) => {
-      const { exitCode, stderr } = await startServerExpectingFailure(await freePort(), { VAULT_PATH: vaultPath })
+      const { exitCode, stderr } = await startServerExpectingFailure(await freePort(), {
+        VAULT_PATH: vaultPath,
+      })
       expect(exitCode).toBe(1)
       expect(stderr).toContain("VAULT_PATH must not contain glob characters (*, ?, [)")
     },
@@ -1590,7 +1604,9 @@ const readTrashEntryRows = (dataDir: string): string[] => {
   const db = new Database(join(dataDir, "search.db"), { readonly: true })
   try {
     return db
-      .prepare<[], { trash_path: string }>("SELECT trash_path FROM trash_entries ORDER BY trash_path")
+      .prepare<[], { trash_path: string }>(
+        "SELECT trash_path FROM trash_entries ORDER BY trash_path",
+      )
       .all()
       .map((row) => row.trash_path)
   } finally {
@@ -1621,7 +1637,9 @@ describe("trash retention over real HTTP", () => {
     })
 
     expect(deleteResult.isError).not.toBe(true)
-    expect(textContent(deleteResult)).toBe("Moved Scratch/system-trash.md to trash (.trash/Scratch/system-trash.md)")
+    expect(textContent(deleteResult)).toBe(
+      "Moved Scratch/system-trash.md to trash (.trash/Scratch/system-trash.md)",
+    )
     expect(readTrashEntryRows(server.dataDir)).toEqual([".trash/Scratch/system-trash.md"])
   }, 30_000)
 
@@ -1645,7 +1663,9 @@ describe("trash retention over real HTTP", () => {
     })
 
     expect(deleteResult.isError).not.toBe(true)
-    expect(textContent(deleteResult)).toBe("Moved Scratch/local-trash.md to trash (.trash/Scratch/local-trash.md)")
+    expect(textContent(deleteResult)).toBe(
+      "Moved Scratch/local-trash.md to trash (.trash/Scratch/local-trash.md)",
+    )
     expect(readTrashEntryRows(server.dataDir)).toEqual([])
   }, 30_000)
 

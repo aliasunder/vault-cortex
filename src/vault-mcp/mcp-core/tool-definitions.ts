@@ -39,7 +39,10 @@ export const computeEnabledToolNames = (config: VaultConfig): ReadonlySet<ToolNa
 
 /** Binds the SDK server and the enabled set into the gate every group module
  *  registers through. See RegisterGatedTool for the contract. */
-const createGatedRegisterTool = (server: McpServer, enabledToolNames: ReadonlySet<ToolName>): RegisterGatedTool => {
+const createGatedRegisterTool = (
+  server: McpServer,
+  enabledToolNames: ReadonlySet<ToolName>,
+): RegisterGatedTool => {
   return (name, config, handler) => {
     const entry = TOOL_REGISTRY_BY_NAME.get(name)
 
@@ -54,7 +57,10 @@ const createGatedRegisterTool = (server: McpServer, enabledToolNames: ReadonlySe
 /** Group register functions, invoked in registration order. Groups whose
  *  tools are all disabled are skipped entirely, so a disabled group performs
  *  none of its per-group setup. */
-const GROUP_REGISTRARS: readonly (readonly [ToolGroup, (context: ToolRegistrationContext) => void])[] = [
+const GROUP_REGISTRARS: readonly (readonly [
+  ToolGroup,
+  (context: ToolRegistrationContext) => void,
+])[] = [
   ["vault-crud", registerVaultCrudTools],
   ["search", registerSearchTools],
   ["memory", registerMemoryTools],

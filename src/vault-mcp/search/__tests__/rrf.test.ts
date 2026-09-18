@@ -27,14 +27,20 @@ describe("computeRrfScores", () => {
     })
 
     // rank 1 in both lists: score doubles
-    expect(result).toEqual([{ identifier: "a.md", score: Number((RANK_1_SCORE * 2).toPrecision(4)) }])
+    expect(result).toEqual([
+      { identifier: "a.md", score: Number((RANK_1_SCORE * 2).toPrecision(4)) },
+    ])
   })
 
   it("applies +0.02 bonus for ranks 2-3", () => {
     const result = computeRrfScores({
       rankedLists: [
         {
-          items: [{ identifier: "first.md" }, { identifier: "second.md" }, { identifier: "third.md" }],
+          items: [
+            { identifier: "first.md" },
+            { identifier: "second.md" },
+            { identifier: "third.md" },
+          ],
         },
       ],
     })
@@ -54,7 +60,12 @@ describe("computeRrfScores", () => {
     const result = computeRrfScores({
       rankedLists: [
         {
-          items: [{ identifier: "1.md" }, { identifier: "2.md" }, { identifier: "3.md" }, { identifier: "4.md" }],
+          items: [
+            { identifier: "1.md" },
+            { identifier: "2.md" },
+            { identifier: "3.md" },
+            { identifier: "4.md" },
+          ],
         },
       ],
     })
@@ -68,7 +79,10 @@ describe("computeRrfScores", () => {
 
   it("handles disjoint lists with equal-rank identifiers", () => {
     const result = computeRrfScores({
-      rankedLists: [{ items: [{ identifier: "fts-only.md" }] }, { items: [{ identifier: "vec-only.md" }] }],
+      rankedLists: [
+        { items: [{ identifier: "fts-only.md" }] },
+        { items: [{ identifier: "vec-only.md" }] },
+      ],
     })
 
     // Both are rank 1 in their respective lists — same score
@@ -94,7 +108,10 @@ describe("computeRrfScores", () => {
 
   it("sorts results by score descending", () => {
     const result = computeRrfScores({
-      rankedLists: [{ items: [{ identifier: "a.md" }, { identifier: "b.md" }] }, { items: [{ identifier: "a.md" }] }],
+      rankedLists: [
+        { items: [{ identifier: "a.md" }, { identifier: "b.md" }] },
+        { items: [{ identifier: "a.md" }] },
+      ],
     })
 
     // a.md: rank 1 in both → 2 * (1/61 + 0.05)
@@ -174,7 +191,10 @@ describe("computeRrfScores", () => {
 
   it("defaults a list without a weight to full contribution", () => {
     const result = computeRrfScores({
-      rankedLists: [{ items: [{ identifier: "file.pdf" }], weight: 0.5 }, { items: [{ identifier: "note.md" }] }],
+      rankedLists: [
+        { items: [{ identifier: "file.pdf" }], weight: 0.5 },
+        { items: [{ identifier: "note.md" }] },
+      ],
     })
 
     expect(result).toEqual([
@@ -231,7 +251,10 @@ describe("computeRrfScores", () => {
 
   it("zeroes a list's contribution at weight 0", () => {
     const result = computeRrfScores({
-      rankedLists: [{ items: [{ identifier: "file.pdf" }], weight: 0 }, { items: [{ identifier: "note.md" }] }],
+      rankedLists: [
+        { items: [{ identifier: "file.pdf" }], weight: 0 },
+        { items: [{ identifier: "note.md" }] },
+      ],
     })
 
     expect(result).toEqual([
@@ -252,7 +275,10 @@ describe("computeRrfScores", () => {
 
   it("scores a 2-list fusion identically to the two lists summed by hand", () => {
     const result = computeRrfScores({
-      rankedLists: [{ items: [{ identifier: "a.md" }, { identifier: "b.md" }] }, { items: [{ identifier: "a.md" }] }],
+      rankedLists: [
+        { items: [{ identifier: "a.md" }, { identifier: "b.md" }] },
+        { items: [{ identifier: "a.md" }] },
+      ],
     })
 
     expect(result).toEqual([

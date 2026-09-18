@@ -23,7 +23,11 @@ const topicSeedFor = (text: string): number => {
   const lowered = text.toLowerCase()
 
   if (lowered.includes("testing")) return 2
-  if (lowered.includes("pacing") || lowered.includes("recovery") || lowered.includes("sustainable")) {
+  if (
+    lowered.includes("pacing") ||
+    lowered.includes("recovery") ||
+    lowered.includes("sustainable")
+  ) {
     return 1
   }
   return 3
@@ -31,10 +35,14 @@ const topicSeedFor = (text: string): number => {
 
 /** Content-aware mock embedder — same topic → identical vector. */
 const createTopicMockEmbedder = () => ({
-  embedText: vi.fn().mockImplementation((text: string) => Promise.resolve(seededEmbedding(topicSeedFor(text)))),
+  embedText: vi
+    .fn()
+    .mockImplementation((text: string) => Promise.resolve(seededEmbedding(topicSeedFor(text)))),
   embedBatch: vi
     .fn()
-    .mockImplementation((texts: string[]) => Promise.resolve(texts.map((text) => seededEmbedding(topicSeedFor(text))))),
+    .mockImplementation((texts: string[]) =>
+      Promise.resolve(texts.map((text) => seededEmbedding(topicSeedFor(text)))),
+    ),
 })
 
 /** Mock cross-encoder: for an on-topic query, on-topic documents get a
@@ -52,7 +60,9 @@ const createTopicMockReranker = (): Reranker => ({
 
         if (lowered.includes("walk")) return -1 // sigmoid ≈ 0.27 — kept, least relevant
         const documentIsOnTopic =
-          lowered.includes("pacing") || lowered.includes("recovery") || lowered.includes("rest blocks")
+          lowered.includes("pacing") ||
+          lowered.includes("recovery") ||
+          lowered.includes("rest blocks")
         return documentIsOnTopic ? 6 : -8 // -8: sigmoid ≈ 0.0003 — dropped
       }),
     )
@@ -72,7 +82,10 @@ const createRecallIndex = async (options?: {
   const files = options?.files ?? DEFAULT_FILES
   for (const [fileName, content] of Object.entries(files)) {
     const filePath = `About Me/${fileName}.md`
-    index.upsertNote({ filePath, rawContent: content, fileStat: { mtimeMs: 1000, size: 100 } }, logger)
+    index.upsertNote(
+      { filePath, rawContent: content, fileStat: { mtimeMs: 1000, size: 100 } },
+      logger,
+    )
     await index.embedNote({ notePath: filePath, rawContent: content }, logger)
   }
   return index
@@ -214,7 +227,10 @@ describe("memoryRecall", () => {
 `,
       },
     })
-    const { entries, reranked, search_mode } = await index.memoryRecall({ query: "pacing recovery" }, logger)
+    const { entries, reranked, search_mode } = await index.memoryRecall(
+      { query: "pacing recovery" },
+      logger,
+    )
     // The margin cut keeps the semantic neighbor the reranker would have
     // dropped — proof the fallback path ran, not a silently-empty rerank.
     expect(reranked).toBe(false)
@@ -230,7 +246,10 @@ describe("memoryRecall", () => {
     // kept by the cut (sigmoid ≈ 0.27) but least relevant, so limit: 2
     // drops it even though it is the NEWEST entry — truncation follows
     // relevance, never a date end.
-    const { entries, total, truncated } = await index.memoryRecall({ query: "pacing recovery", limit: 2 }, logger)
+    const { entries, total, truncated } = await index.memoryRecall(
+      { query: "pacing recovery", limit: 2 },
+      logger,
+    )
     expect(total).toBe(3)
     expect(truncated).toBe(true)
     expect(entries.map((entry) => entry.date)).toEqual(["2026-06-20", "2026-07-02"])
@@ -239,7 +258,10 @@ describe("memoryRecall", () => {
   it("restricts recall to one file when file is given", async () => {
     const index = await createRecallIndex()
     // Both files contain matches — the filter must exclude, not just include.
-    const { entries } = await index.memoryRecall({ query: "pacing recovery", file: "Routines" }, logger)
+    const { entries } = await index.memoryRecall(
+      { query: "pacing recovery", file: "Routines" },
+      logger,
+    )
     expect(entries.map((entry) => [entry.file, entry.date])).toEqual([["Routines", "2026-07-10"]])
   })
 
@@ -249,7 +271,10 @@ describe("memoryRecall", () => {
     })
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
-    const result = await index.memoryRecall({ query: "quantum chromodynamics of the vacuum" }, logger)
+    const result = await index.memoryRecall(
+      { query: "quantum chromodynamics of the vacuum" },
+      logger,
+    )
     // No content word appears anywhere and the stopwords ("of", "the" — both
     // present in fixture entries) are dropped from the rescue, so the
     // any-term rescue also finds nothing — a genuine no-match keeps the
@@ -273,7 +298,10 @@ describe("memoryRecall", () => {
 
   it("serves lexical-only recall with search_mode fts when no embedder exists", async () => {
     const index = await createRecallIndex({ withEmbedder: false })
-    const { entries, search_mode, reranked } = await index.memoryRecall({ query: "pacing recovery" }, logger)
+    const { entries, search_mode, reranked } = await index.memoryRecall(
+      { query: "pacing recovery" },
+      logger,
+    )
     expect(search_mode).toBe("fts")
     expect(reranked).toBe(false)
     // Lexical matches only — the drifted-vocabulary entry (2026-06-20,
@@ -420,7 +448,9 @@ describe("memoryRecall", () => {
     // Verify the adaptive floor computed correctly — not just that entries
     // survived. Without this, the test would also pass if the computation
     // degenerated to the sanity floor (0.001).
-    const rerankLogCalls = infoSpy.mock.calls.filter(([message]) => message === "memory recall rerank")
+    const rerankLogCalls = infoSpy.mock.calls.filter(
+      ([message]) => message === "memory recall rerank",
+    )
     expect(rerankLogCalls).toEqual([
       [
         "memory recall rerank",
@@ -477,7 +507,10 @@ describe("memoryRecall", () => {
 `,
       },
     })
-    const { entries, reranked } = await index.memoryRecall({ query: "how agents should communicate" }, logger)
+    const { entries, reranked } = await index.memoryRecall(
+      { query: "how agents should communicate" },
+      logger,
+    )
     expect(reranked).toBe(true)
     // Only the Agents entry survives — the Opinions entry has identical
     // text but scores below the floor because its file name doesn't
@@ -528,13 +561,18 @@ describe("memoryRecall", () => {
     })
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
-    const { entries, reranked } = await index.memoryRecall({ query: "deep work and focus habits" }, logger)
+    const { entries, reranked } = await index.memoryRecall(
+      { query: "deep work and focus habits" },
+      logger,
+    )
     expect(reranked).toBe(true)
     // "borderline" at sigmoid(-3) ≈ 0.047 is below MAX_FLOOR (0.05) — the
     // ceiling binds, so the entry is cut just as it would be under the old
     // absolute floor. Only the strong "focused" entry survives.
     expect(entries.map((entry) => entry.date)).toEqual(["2026-07-02"])
-    const rerankLogCalls = infoSpy.mock.calls.filter(([message]) => message === "memory recall rerank")
+    const rerankLogCalls = infoSpy.mock.calls.filter(
+      ([message]) => message === "memory recall rerank",
+    )
     expect(rerankLogCalls).toEqual([
       [
         "memory recall rerank",
@@ -554,7 +592,9 @@ describe("memoryRecall", () => {
       rerankPairs: vi
         .fn()
         .mockImplementation((_query: string, documents: string[]) =>
-          Promise.resolve(documents.map((document) => (document.toLowerCase().includes("recovery") ? 6 : -8))),
+          Promise.resolve(
+            documents.map((document) => (document.toLowerCase().includes("recovery") ? 6 : -8)),
+          ),
         ),
     }
     const index = await createRecallIndex({
@@ -600,7 +640,9 @@ describe("memoryRecall", () => {
     // Both files hold an any-term hit on "testing" — the filter must
     // exclude Beta, not just include Alpha.
     const result = await index.memoryRecall({ query: "opinions on testing", file: "Alpha" }, logger)
-    expect(result.entries.map((entry) => [entry.file, entry.date])).toEqual([["Alpha", "2026-05-01"]])
+    expect(result.entries.map((entry) => [entry.file, entry.date])).toEqual([
+      ["Alpha", "2026-05-01"],
+    ])
     expect(result.total).toBe(1)
     expect(result.search_mode).toBe("fts")
   })

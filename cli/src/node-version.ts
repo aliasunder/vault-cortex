@@ -19,7 +19,13 @@ export const minimumNodeVersion = (enginesRange: string): string => {
  * Lives in this zero-import module so bin.ts can build it before any
  * dependency-laden import runs on an unsupported runtime.
  */
-export const nodeVersionRefusalMessage = ({ minimum, current }: { minimum: string; current: string }): string => {
+export const nodeVersionRefusalMessage = ({
+  minimum,
+  current,
+}: {
+  minimum: string
+  current: string
+}): string => {
   return (
     `vault-cortex requires Node.js >= ${minimum} (you have ${current}).\n` +
     `Upgrade at https://nodejs.org — or use a no-Node manual setup:\n` +

@@ -92,7 +92,10 @@ const encodeAttempt = async (params: {
  * Returns the fitted image with its final and original dimensions, or throws
  * when the image cannot be fitted within the attempt cap.
  */
-export const fitImageToByteBudget = async (params: { buffer: Buffer; budgetBytes: number }): Promise<FittedImage> => {
+export const fitImageToByteBudget = async (params: {
+  buffer: Buffer
+  budgetBytes: number
+}): Promise<FittedImage> => {
   const metadata = await sharp(params.buffer, { failOn: "none" }).metadata()
   const { width, height, format } = metadata
 
@@ -128,7 +131,9 @@ export const fitImageToByteBudget = async (params: { buffer: Buffer; budgetBytes
     // The quality this attempt encodes at: the next ladder rung while the
     // ladder descends, mid-ladder once dimension-shrinking takes over.
     const attemptQuality =
-      qualityLadderIndex < QUALITY_LADDER.length ? QUALITY_LADDER[qualityLadderIndex] : MID_LADDER_QUALITY
+      qualityLadderIndex < QUALITY_LADDER.length
+        ? QUALITY_LADDER[qualityLadderIndex]
+        : MID_LADDER_QUALITY
 
     if (!attemptQuality) break
     const { data, info } = await encodeAttempt({
@@ -161,7 +166,10 @@ export const fitImageToByteBudget = async (params: { buffer: Buffer; budgetBytes
     // when no further reduction is possible.
     qualityLadderIndex = QUALITY_LADDER.length
     const areaScale = Math.sqrt(params.budgetBytes / lastEncodedBytes)
-    const nextLongEdgePx = Math.max(MIN_LONG_EDGE_PX, Math.floor(longEdgePx * Math.min(areaScale, 0.7)))
+    const nextLongEdgePx = Math.max(
+      MIN_LONG_EDGE_PX,
+      Math.floor(longEdgePx * Math.min(areaScale, 0.7)),
+    )
 
     if (nextLongEdgePx >= longEdgePx) break
     longEdgePx = nextLongEdgePx

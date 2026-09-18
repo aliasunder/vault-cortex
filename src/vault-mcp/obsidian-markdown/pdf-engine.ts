@@ -50,7 +50,8 @@ type PdfEngine = Readonly<{
  *  CanvasFactory), page rendering, and tests must all wire the same backend,
  *  or output canvases could silently come from a different canvas package
  *  than the document's intermediate canvases. */
-export const canvasImport = (): Promise<typeof import("@napi-rs/canvas")> => import("@napi-rs/canvas")
+export const canvasImport = (): Promise<typeof import("@napi-rs/canvas")> =>
+  import("@napi-rs/canvas")
 
 /** Resolves pdfjs-dist's bundled font and cMap directories as plain paths
  *  (trailing slash required — pdfjs concatenates the file name directly). */

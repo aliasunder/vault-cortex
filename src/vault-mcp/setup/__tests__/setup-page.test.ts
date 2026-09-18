@@ -22,7 +22,9 @@ describe("renderSetupPage — sign-in", () => {
   it("explains a rejected saved login above the form", () => {
     const html = renderSetupPage({ ...SIGN_IN, savedLoginRejected: true })
 
-    expect(html).toContain("Your saved Obsidian login stopped working. Sign in again to replace it.")
+    expect(html).toContain(
+      "Your saved Obsidian login stopped working. Sign in again to replace it.",
+    )
   })
 
   it("warns when the page was served over plain HTTP", () => {
@@ -87,7 +89,9 @@ describe("renderSetupPage — blocked", () => {
 
     expect(html).toContain("Signed in as <strong>user@example.com</strong>.")
     expect(html).toContain("There is no vault named <code>Notes</code>")
-    expect(html).toContain("<ul><li><code>Work &lt;2026&gt;</code></li><li><code>Personal</code></li></ul>")
+    expect(html).toContain(
+      "<ul><li><code>Work &lt;2026&gt;</code></li><li><code>Personal</code></li></ul>",
+    )
     expect(html).toContain("Fix <code>VAULT_NAME</code>")
   })
 
@@ -282,7 +286,9 @@ describe("renderSetupPage — configured", () => {
     const html = renderSetupPage({ kind: "configured" })
 
     expect(html).toContain("<h1>Already set up</h1>")
-    expect(html).toContain("This server is set up and running — there is nothing to do on this page.")
+    expect(html).toContain(
+      "This server is set up and running — there is nothing to do on this page.",
+    )
     // The local image serves this page too and never touches Obsidian Sync,
     // so the copy stays mode-neutral.
     expect(html).not.toContain("Obsidian Sync")

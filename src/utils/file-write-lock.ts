@@ -103,5 +103,7 @@ export const withExclusiveMultiFileLock = <T>(
  *  planned against stale state from silently executing after the in-flight
  *  write changes the file. The caller should re-read the file and retry.
  *  This is the single-file case of withExclusiveMultiFileLock. */
-export const withExclusiveFileLock = <T>(filePath: string, operation: () => Promise<T>): Promise<T> =>
-  withExclusiveMultiFileLock([filePath], operation)
+export const withExclusiveFileLock = <T>(
+  filePath: string,
+  operation: () => Promise<T>,
+): Promise<T> => withExclusiveMultiFileLock([filePath], operation)

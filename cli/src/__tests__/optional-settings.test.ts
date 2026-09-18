@@ -54,11 +54,14 @@ describe("applyOptionalSettings", () => {
   })
 
   it("applies multiple overrides in one pass", () => {
-    const patched = applyOptionalSettings("MEMORY_ENABLED=true\nPORT=8000\n# TZ=America/New_York\n", {
-      MEMORY_ENABLED: "false",
-      PORT: "9000",
-      TZ: "America/Toronto",
-    })
+    const patched = applyOptionalSettings(
+      "MEMORY_ENABLED=true\nPORT=8000\n# TZ=America/New_York\n",
+      {
+        MEMORY_ENABLED: "false",
+        PORT: "9000",
+        TZ: "America/Toronto",
+      },
+    )
     expect(patched).toBe("MEMORY_ENABLED=false\nPORT=9000\nTZ=America/Toronto\n")
   })
 
@@ -81,7 +84,9 @@ describe("applyOptionalSettings", () => {
 
 describe("derivePublicUrlOverride", () => {
   it("follows a PORT change when PUBLIC_URL is the derived localhost form", () => {
-    const derived = derivePublicUrlOverride("PUBLIC_URL=http://localhost:8000\nPORT=8000\n", { PORT: "9000" })
+    const derived = derivePublicUrlOverride("PUBLIC_URL=http://localhost:8000\nPORT=8000\n", {
+      PORT: "9000",
+    })
     expect(derived).toEqual({
       PORT: "9000",
       PUBLIC_URL: "http://localhost:9000",
@@ -89,7 +94,9 @@ describe("derivePublicUrlOverride", () => {
   })
 
   it("derives from the current PORT, not the default", () => {
-    const derived = derivePublicUrlOverride("PUBLIC_URL=http://localhost:9100\nPORT=9100\n", { PORT: "9200" })
+    const derived = derivePublicUrlOverride("PUBLIC_URL=http://localhost:9100\nPORT=9100\n", {
+      PORT: "9200",
+    })
     expect(derived).toEqual({
       PORT: "9200",
       PUBLIC_URL: "http://localhost:9200",
@@ -97,7 +104,9 @@ describe("derivePublicUrlOverride", () => {
   })
 
   it("never touches a custom PUBLIC_URL", () => {
-    const derived = derivePublicUrlOverride("PUBLIC_URL=https://vault.example.com\nPORT=8000\n", { PORT: "9000" })
+    const derived = derivePublicUrlOverride("PUBLIC_URL=https://vault.example.com\nPORT=8000\n", {
+      PORT: "9000",
+    })
     expect(derived).toEqual({ PORT: "9000" })
   })
 
@@ -155,7 +164,10 @@ describe("askOptionalSettings chooser", () => {
   it("shows current values in the chooser hints, with 'not set' for absent vars", async () => {
     const scripted = createScriptedPrompts([[]])
 
-    await askOptionalSettings({ mode: "local", envContent: "MEMORY_ENABLED=false\nPORT=9000\n" }, scripted.prompts)
+    await askOptionalSettings(
+      { mode: "local", envContent: "MEMORY_ENABLED=false\nPORT=9000\n" },
+      scripted.prompts,
+    )
 
     expect(scripted.multiselectCalls[0].options.map((option) => option.hint)).toEqual([
       "MEMORY_ENABLED · currently false",
@@ -181,7 +193,9 @@ describe("askOptionalSettings chooser", () => {
       scripted.prompts,
     )
 
-    const memoryFolderOption = scripted.multiselectCalls[0].options.find((option) => option.value === "MEMORY_DIR")
+    const memoryFolderOption = scripted.multiselectCalls[0].options.find(
+      (option) => option.value === "MEMORY_DIR",
+    )
     expect(memoryFolderOption?.hint).toBe("MEMORY_DIR · currently About Me")
   })
 
@@ -190,8 +204,12 @@ describe("askOptionalSettings chooser", () => {
 
     await askOptionalSettings({ mode: "local", envContent: "MEMORY_ENABLED=0\n" }, scripted.prompts)
 
-    const memoryFolderOption = scripted.multiselectCalls[0].options.find((option) => option.value === "MEMORY_DIR")
-    expect(memoryFolderOption?.hint).toBe("MEMORY_DIR · currently not set · not used while Memory layer is off")
+    const memoryFolderOption = scripted.multiselectCalls[0].options.find(
+      (option) => option.value === "MEMORY_DIR",
+    )
+    expect(memoryFolderOption?.hint).toBe(
+      "MEMORY_DIR · currently not set · not used while Memory layer is off",
+    )
   })
 
   it("returns no overrides and asks nothing further when nothing is picked", async () => {
@@ -270,7 +288,10 @@ describe("askOptionalSettings per-setting prompts", () => {
   it("seeds a default-off toggle's confirm from the .env value when set", async () => {
     const scripted = createScriptedPrompts([["READONLY_MODE"], true])
 
-    const overrides = await askOptionalSettings({ mode: "local", envContent: "READONLY_MODE=true\n" }, scripted.prompts)
+    const overrides = await askOptionalSettings(
+      { mode: "local", envContent: "READONLY_MODE=true\n" },
+      scripted.prompts,
+    )
 
     expect(scripted.confirmCalls).toEqual([
       {
@@ -419,7 +440,9 @@ describe("askOptionalSettings per-setting prompts", () => {
       },
     ])
     expect(overrides).toEqual({})
-    expect(scripted.logs).toEqual(["Left unset — the server reads this setting from your vault's own config."])
+    expect(scripted.logs).toEqual([
+      "Left unset — the server reads this setting from your vault's own config.",
+    ])
   })
 
   it("keeps a set daily notes folder on a blank submit without recording a no-op", async () => {
@@ -521,7 +544,10 @@ describe("askOptionalSettings per-setting prompts", () => {
   it("shows a set daily notes folder in its chooser hint", async () => {
     const scripted = createScriptedPrompts([[]])
 
-    await askOptionalSettings({ mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" }, scripted.prompts)
+    await askOptionalSettings(
+      { mode: "local", envContent: "DAILY_NOTES_FOLDER=Journal\n" },
+      scripted.prompts,
+    )
 
     const dailyNotesFolderOption = scripted.multiselectCalls[0].options.find(
       (option) => option.value === "DAILY_NOTES_FOLDER",
@@ -558,7 +584,9 @@ describe("askFolder validation", () => {
       scripted.prompts,
     )
 
-    expect(scripted.errors).toEqual(["Absolute paths are not allowed — use a vault-relative folder name."])
+    expect(scripted.errors).toEqual([
+      "Absolute paths are not allowed — use a vault-relative folder name.",
+    ])
     expect(overrides).toEqual({ MEMORY_DIR: "My Notes" })
   })
 })
@@ -578,7 +606,9 @@ describe("DAILY_NOTES_FOLDER validate callback", () => {
 
     const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
-    expect(scripted.errors).toEqual(["Absolute paths are not allowed — use a vault-relative folder name."])
+    expect(scripted.errors).toEqual([
+      "Absolute paths are not allowed — use a vault-relative folder name.",
+    ])
     expect(overrides).toEqual({ DAILY_NOTES_FOLDER: "Journal" })
   })
 })

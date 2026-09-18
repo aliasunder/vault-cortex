@@ -70,7 +70,9 @@ describe("coerceToArray", () => {
 
 describe("buildFtsMetadataText", () => {
   it("flattens scalar properties with key prefix", () => {
-    expect(buildFtsMetadataText({ status: "active", priority: 1 })).toBe("status: active\npriority: 1")
+    expect(buildFtsMetadataText({ status: "active", priority: 1 })).toBe(
+      "status: active\npriority: 1",
+    )
   })
 
   it("excludes title from output", () => {
@@ -90,7 +92,9 @@ describe("buildFtsMetadataText", () => {
   })
 
   it("filters non-primitive elements from arrays", () => {
-    expect(buildFtsMetadataText({ mixed: ["text", { obj: true }, 42, null] })).toBe("mixed: text 42")
+    expect(buildFtsMetadataText({ mixed: ["text", { obj: true }, 42, null] })).toBe(
+      "mixed: text 42",
+    )
   })
 
   it("skips array with only non-primitive elements", () => {
@@ -184,7 +188,9 @@ describe("rowToMetadata", () => {
   })
 
   it("throws when tags column contains a non-array value", () => {
-    expect(() => rowToMetadata(makeNoteRow({ tags: '"not-an-array"' }))).toThrow("expected string[] from JSON column")
+    expect(() => rowToMetadata(makeNoteRow({ tags: '"not-an-array"' }))).toThrow(
+      "expected string[] from JSON column",
+    )
   })
 
   it("throws when tags column contains an array with non-string elements", () => {
@@ -194,7 +200,9 @@ describe("rowToMetadata", () => {
   })
 
   it("throws when properties column contains a non-object value", () => {
-    expect(() => rowToMetadata(makeNoteRow({ properties: '"string"' }))).toThrow("expected object from JSON column")
+    expect(() => rowToMetadata(makeNoteRow({ properties: '"string"' }))).toThrow(
+      "expected object from JSON column",
+    )
   })
 
   it("throws when leading_callout column has missing fields", () => {
@@ -277,7 +285,9 @@ describe("rowToTaskEntry", () => {
   })
 
   it("throws when tags column contains a non-array value", () => {
-    expect(() => rowToTaskEntry(makeTaskRow({ tags: '"not-an-array"' }))).toThrow("expected string[] from JSON column")
+    expect(() => rowToTaskEntry(makeTaskRow({ tags: '"not-an-array"' }))).toThrow(
+      "expected string[] from JSON column",
+    )
   })
 })
 
@@ -658,7 +668,9 @@ describe("dayToEpochMsRange", () => {
   })
 
   it("throws on a malformed date instead of returning NaN bounds", () => {
-    expect(() => dayToEpochMsRange("bad")).toThrow('invalid date: "bad". Use YYYY-MM-DD (e.g. 2026-07-03).')
+    expect(() => dayToEpochMsRange("bad")).toThrow(
+      'invalid date: "bad". Use YYYY-MM-DD (e.g. 2026-07-03).',
+    )
   })
 
   it("throws on a calendar-invalid date", () => {

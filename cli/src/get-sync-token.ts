@@ -16,7 +16,8 @@ export type GetSyncTokenDeps = {
 const OBSIDIAN_SIGNIN_URL = process.env.OBSIDIAN_SIGNIN_URL ?? "https://api.obsidian.md/user/signin"
 const SIGNIN_TIMEOUT_MS = 30_000
 
-const describeError = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+const describeError = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error)
 
 class ObsidianApiError extends Error {
   constructor(message: string) {
@@ -63,7 +64,9 @@ const callSigninApi = async (
     return body.token
   } catch (error) {
     if (error instanceof ObsidianApiError) throw error
-    throw new Error(`Unexpected response from Obsidian API (${describeError(error)})`, { cause: error })
+    throw new Error(`Unexpected response from Obsidian API (${describeError(error)})`, {
+      cause: error,
+    })
   }
 }
 
@@ -139,7 +142,10 @@ export const captureObsidianToken = async (deps: GetSyncTokenDeps): Promise<stri
  * Without --dir, prints the token to stdout.
  * With --dir, writes it directly to `<dir>/.env`.
  */
-export const runGetSyncToken = async (flags: GetSyncTokenFlags, deps: GetSyncTokenDeps): Promise<number> => {
+export const runGetSyncToken = async (
+  flags: GetSyncTokenFlags,
+  deps: GetSyncTokenDeps,
+): Promise<number> => {
   const { prompts } = deps
 
   prompts.intro("vault-cortex get-sync-token")
@@ -164,12 +170,14 @@ export const runGetSyncToken = async (flags: GetSyncTokenFlags, deps: GetSyncTok
 
   if (!patched) {
     prompts.error(
-      `Could not patch ${envFilePath} — the file is missing or has no ` + "OBSIDIAN_AUTH_TOKEN line. Run init first.",
+      `Could not patch ${envFilePath} — the file is missing or has no ` +
+        "OBSIDIAN_AUTH_TOKEN line. Run init first.",
     )
     return 1
   }
   prompts.log(
-    `Token written to ${envFilePath}\n\n` + `Start the server:\n  npx vault-cortex start --dir "${flags.dir}"`,
+    `Token written to ${envFilePath}\n\n` +
+      `Start the server:\n  npx vault-cortex start --dir "${flags.dir}"`,
   )
   prompts.outro("Done.")
   return 0

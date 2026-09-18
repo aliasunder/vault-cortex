@@ -67,7 +67,10 @@ export const createShutdownHandler =
  * disabled, or read-only mode (a read-only server never writes to the vault,
  * and this is the one server-initiated vault write).
  */
-export const bootstrapMemoryIfEnabled = async (config: VaultConfig, vaultPath: string): Promise<void> => {
+export const bootstrapMemoryIfEnabled = async (
+  config: VaultConfig,
+  vaultPath: string,
+): Promise<void> => {
   if (!config.memoryEnabled || config.readOnlyMode) return
   const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
   await memoryStore.bootstrapMemoryDir({ vaultPath }, logger)
@@ -91,7 +94,9 @@ const startServer = async (): Promise<void> => {
   const serverUrl = new URL(publicUrl)
 
   if (serverUrl.protocol !== "http:" && serverUrl.protocol !== "https:") {
-    throw new Error("PUBLIC_URL must be an http:// or https:// URL (e.g. https://vault.example.com)")
+    throw new Error(
+      "PUBLIC_URL must be an http:// or https:// URL (e.g. https://vault.example.com)",
+    )
   }
   // Credentials in the URL would be minted into every token's `iss`
   // claim and served by the discovery documents — refuse to start.
@@ -129,7 +134,8 @@ const startServer = async (): Promise<void> => {
   })
 
   const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
-  const reranker = config.embeddingEnabled && config.rerankMode === "blended" ? createReranker(logger) : undefined
+  const reranker =
+    config.embeddingEnabled && config.rerankMode === "blended" ? createReranker(logger) : undefined
   const search = createSearchIndex(searchDbPath, embedder, reranker, {
     memoryDir: config.memoryEnabled ? config.memoryDir : undefined,
     fileToolsEnabled: config.fileToolsEnabled,

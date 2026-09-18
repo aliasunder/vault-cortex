@@ -65,6 +65,9 @@ export const startFakeObsidianApi = async (
   return {
     baseUrl: `http://127.0.0.1:${port}`,
     requests,
-    close: () => new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
+    close: () =>
+      new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      ),
   }
 }

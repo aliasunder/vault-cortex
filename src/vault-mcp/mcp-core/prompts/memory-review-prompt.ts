@@ -12,7 +12,12 @@ import { completable } from "@modelcontextprotocol/sdk/server/completable.js"
 import { z } from "zod"
 import { createMemoryStore, type MemoryFileOutline } from "../../vault-operations/memory-store.js"
 import { describeError } from "../../../utils/describe-error.js"
-import { type PromptRegistrationContext, textResult, wrapWithDataMarkers, maxCharsArg } from "./prompt-helpers.js"
+import {
+  type PromptRegistrationContext,
+  textResult,
+  wrapWithDataMarkers,
+  maxCharsArg,
+} from "./prompt-helpers.js"
 
 const PROMPT_NAMES = {
   MEMORY_REVIEW: "memory-review",
@@ -41,7 +46,10 @@ const formatFileOutline = (outline: MemoryFileOutline): string => {
 /** Renders a structural overview of memory files: file count, scope callouts,
  *  section names with entry counts, and file sizes. Shown before the raw
  *  content in memory-review so the LLM has structural context. */
-const formatMemoryStructuralOverview = (outlines: readonly MemoryFileOutline[], memoryDir: string): string => {
+const formatMemoryStructuralOverview = (
+  outlines: readonly MemoryFileOutline[],
+  memoryDir: string,
+): string => {
   const fileCount = outlines.length
   const header = `${fileCount} memory file${fileCount === 1 ? "" : "s"} in ${memoryDir}/:`
   const fileDetails = outlines.map(formatFileOutline).join("\n")
@@ -74,7 +82,9 @@ export const registerMemoryReviewPrompt = ({
           z
             .string()
             .optional()
-            .describe(`Memory file to review (e.g. one from ${config.memoryDir}/); omit to review all`),
+            .describe(
+              `Memory file to review (e.g. one from ${config.memoryDir}/); omit to review all`,
+            ),
           // Autocomplete from the live set of memory file names (prefix match).
           // Uses the name-only lister (readdir, no parsing) because completion
           // fires per keystroke. No request context here, so use the session
@@ -155,7 +165,8 @@ export const registerMemoryReviewPrompt = ({
           maxChars,
           truncationToolName: isToolEnabled("vault_get_memory") ? "vault_get_memory" : undefined,
         })
-        const memoryContentOrEmpty = trimmedMemory.length > 0 ? cappedMemoryContent : "_(the selected memory is empty)_"
+        const memoryContentOrEmpty =
+          trimmedMemory.length > 0 ? cappedMemoryContent : "_(the selected memory is empty)_"
 
         // vault_update_memory is guaranteed here — this prompt is only
         // registered when it is served. vault_delete_memory is not: it can be

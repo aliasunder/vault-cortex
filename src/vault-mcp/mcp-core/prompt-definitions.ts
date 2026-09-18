@@ -7,9 +7,18 @@ import type { Logger } from "../../logger.js"
 import { computeEnabledToolNames } from "./tool-definitions.js"
 import { createToolAvailability } from "./tool-availability.js"
 import type { PromptRegistrationContext } from "./prompts/prompt-helpers.js"
-import { VAULT_ORIENTATION_PROMPT_NAMES, registerVaultOrientationPrompt } from "./prompts/vault-orientation-prompt.js"
-import { MEMORY_REVIEW_PROMPT_NAMES, registerMemoryReviewPrompt } from "./prompts/memory-review-prompt.js"
-import { DAILY_REVIEW_PROMPT_NAMES, registerDailyReviewPrompt } from "./prompts/daily-review-prompt.js"
+import {
+  VAULT_ORIENTATION_PROMPT_NAMES,
+  registerVaultOrientationPrompt,
+} from "./prompts/vault-orientation-prompt.js"
+import {
+  MEMORY_REVIEW_PROMPT_NAMES,
+  registerMemoryReviewPrompt,
+} from "./prompts/memory-review-prompt.js"
+import {
+  DAILY_REVIEW_PROMPT_NAMES,
+  registerDailyReviewPrompt,
+} from "./prompts/daily-review-prompt.js"
 
 export const PROMPT_NAMES = {
   ...VAULT_ORIENTATION_PROMPT_NAMES,

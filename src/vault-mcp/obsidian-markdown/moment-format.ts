@@ -31,7 +31,10 @@ const MOMENT_ESCAPE_RE = /\[([^\]]*)\]/g
 
 /** Matches any known Moment token — alternation order is longest-first
  *  (from MOMENT_TO_LUXON). */
-const MOMENT_TOKEN_RE = new RegExp(MOMENT_TO_LUXON.map(([momentToken]) => momentToken).join("|"), "g")
+const MOMENT_TOKEN_RE = new RegExp(
+  MOMENT_TO_LUXON.map(([momentToken]) => momentToken).join("|"),
+  "g",
+)
 
 const MOMENT_TOKEN_MAP = new Map(MOMENT_TO_LUXON)
 

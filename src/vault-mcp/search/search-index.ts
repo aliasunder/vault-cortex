@@ -26,7 +26,12 @@ import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { statOrNull } from "../../utils/fs.js"
 import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
-import { isString, coerceToArray, buildFtsMetadataText, escapeLikeWildcards } from "./search-helpers.js"
+import {
+  isString,
+  coerceToArray,
+  buildFtsMetadataText,
+  escapeLikeWildcards,
+} from "./search-helpers.js"
 import * as queries from "./search-queries.js"
 import { hybridSearch } from "./hybrid-search.js"
 
@@ -254,7 +259,8 @@ export type TaskPriorityFilter = TaskPriority | "none"
 /** Sort keys for listTasks. The five task dates and priority sort on the
  *  task's own metadata; note_mtime sorts on the owning note's modified time;
  *  position sorts by file path then line number (Kanban card order). */
-export type TaskSortKey = "due" | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime" | "position"
+export type TaskSortKey =
+  "due" | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime" | "position"
 
 /** listTasks response: tasks is the limit-capped page, total the full match
  *  count — so callers can tell "50 of 338" from "all 50". */
@@ -590,7 +596,9 @@ export const createSearchIndex = (
   // Same idempotent migration for non_md_files.bytes: a warm database from
   // before the column existed would fail the upsert. Nullable — NULL means
   // "not yet statted"; the startup rebuild backfills every row.
-  const nonMdColumns = db.prepare<unknown[], { name: string }>(`PRAGMA table_info(non_md_files)`).all()
+  const nonMdColumns = db
+    .prepare<unknown[], { name: string }>(`PRAGMA table_info(non_md_files)`)
+    .all()
 
   if (!nonMdColumns.some((column) => column.name === "bytes")) {
     db.exec(`ALTER TABLE non_md_files ADD COLUMN bytes INTEGER`)
@@ -604,7 +612,9 @@ export const createSearchIndex = (
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `)
   const deleteFtsStmt = db.prepare(`DELETE FROM notes_fts WHERE path = ?`)
-  const insertFtsStmt = db.prepare(`INSERT INTO notes_fts (path, title, content, metadata) VALUES (?, ?, ?, ?)`)
+  const insertFtsStmt = db.prepare(
+    `INSERT INTO notes_fts (path, title, content, metadata) VALUES (?, ?, ?, ?)`,
+  )
   const removeNotesStmt = db.prepare(`DELETE FROM notes WHERE path = ?`)
   const deleteTasksStmt = db.prepare(`DELETE FROM tasks WHERE note_path = ?`)
   const insertTaskStmt = db.prepare(`
@@ -680,8 +690,12 @@ export const createSearchIndex = (
          VALUES (?, ?, ?, ?, ?, ?)`,
       )
     : null
-  const deleteFileContentStmt = fileToolsEnabled ? db.prepare(`DELETE FROM file_content WHERE path = ?`) : null
-  const deleteFileContentFtsStmt = fileToolsEnabled ? db.prepare(`DELETE FROM file_content_fts WHERE path = ?`) : null
+  const deleteFileContentStmt = fileToolsEnabled
+    ? db.prepare(`DELETE FROM file_content WHERE path = ?`)
+    : null
+  const deleteFileContentFtsStmt = fileToolsEnabled
+    ? db.prepare(`DELETE FROM file_content_fts WHERE path = ?`)
+    : null
   const insertFileContentFtsStmt = fileToolsEnabled
     ? db.prepare(`INSERT INTO file_content_fts (path, title, content) VALUES (?, ?, ?)`)
     : null
@@ -735,17 +749,27 @@ export const createSearchIndex = (
       )
     : null
   const selectChunkIdStmt = embedder
-    ? db.prepare<[string, number], { id: number }>(`SELECT id FROM note_chunks WHERE note_path = ? AND chunk_index = ?`)
+    ? db.prepare<[string, number], { id: number }>(
+        `SELECT id FROM note_chunks WHERE note_path = ? AND chunk_index = ?`,
+      )
     : null
   const deleteStaleChunksStmt = embedder
     ? db.prepare(`DELETE FROM note_chunks WHERE note_path = ? AND chunk_index >= ?`)
     : null
-  const insertVectorStmt = embedder ? db.prepare(`INSERT INTO note_vectors (chunk_id, embedding) VALUES (?, ?)`) : null
-  const deleteVectorByChunkIdStmt = embedder ? db.prepare(`DELETE FROM note_vectors WHERE chunk_id = ?`) : null
-  const deleteVectorsForNoteStmt = embedder
-    ? db.prepare(`DELETE FROM note_vectors WHERE chunk_id IN (SELECT id FROM note_chunks WHERE note_path = ?)`)
+  const insertVectorStmt = embedder
+    ? db.prepare(`INSERT INTO note_vectors (chunk_id, embedding) VALUES (?, ?)`)
     : null
-  const deleteChunksForNoteStmt = embedder ? db.prepare(`DELETE FROM note_chunks WHERE note_path = ?`) : null
+  const deleteVectorByChunkIdStmt = embedder
+    ? db.prepare(`DELETE FROM note_vectors WHERE chunk_id = ?`)
+    : null
+  const deleteVectorsForNoteStmt = embedder
+    ? db.prepare(
+        `DELETE FROM note_vectors WHERE chunk_id IN (SELECT id FROM note_chunks WHERE note_path = ?)`,
+      )
+    : null
+  const deleteChunksForNoteStmt = embedder
+    ? db.prepare(`DELETE FROM note_chunks WHERE note_path = ?`)
+    : null
   const deleteStaleVectorsStmt = embedder
     ? db.prepare(
         `DELETE FROM note_vectors WHERE chunk_id IN (SELECT id FROM note_chunks WHERE note_path = ? AND chunk_index >= ?)`,
@@ -794,13 +818,17 @@ export const createSearchIndex = (
     : null
   // Reads the processed content from file_content for embedding.
   const selectFileContentForEmbeddingStmt = fileContentVectorEnabled
-    ? db.prepare<[string], { title: string; content: string }>("SELECT title, content FROM file_content WHERE path = ?")
+    ? db.prepare<[string], { title: string; content: string }>(
+        "SELECT title, content FROM file_content WHERE path = ?",
+      )
     : null
 
   // ── Rebuild staleness checks ─────────────────────────────────────
   // Used by rebuildFromVault's embedding pass to skip notes/files the file
   // watcher already re-indexed while the pass was running.
-  const selectNoteMtimeStmt = db.prepare<[string], { mtime: number }>("SELECT mtime FROM notes WHERE path = ?")
+  const selectNoteMtimeStmt = db.prepare<[string], { mtime: number }>(
+    "SELECT mtime FROM notes WHERE path = ?",
+  )
   const selectFileMtimeStmt = fileToolsEnabled
     ? db.prepare<[string], { mtime: number }>("SELECT mtime FROM file_content WHERE path = ?")
     : null
@@ -825,9 +853,15 @@ export const createSearchIndex = (
         `SELECT id, section, entry_text FROM memory_entries WHERE file = ?`,
       )
     : null
-  const deleteMemoryEntryByIdStmt = memoryDir ? db.prepare(`DELETE FROM memory_entries WHERE id = ?`) : null
-  const deleteMemoryEntriesForFileStmt = memoryDir ? db.prepare(`DELETE FROM memory_entries WHERE file = ?`) : null
-  const deleteMemoryFtsForFileStmt = memoryDir ? db.prepare(`DELETE FROM memory_entries_fts WHERE file = ?`) : null
+  const deleteMemoryEntryByIdStmt = memoryDir
+    ? db.prepare(`DELETE FROM memory_entries WHERE id = ?`)
+    : null
+  const deleteMemoryEntriesForFileStmt = memoryDir
+    ? db.prepare(`DELETE FROM memory_entries WHERE file = ?`)
+    : null
+  const deleteMemoryFtsForFileStmt = memoryDir
+    ? db.prepare(`DELETE FROM memory_entries_fts WHERE file = ?`)
+    : null
   const insertMemoryFtsStmt = memoryDir
     ? db.prepare(
         `INSERT INTO memory_entries_fts (entry_id, file, section, entry_text)
@@ -847,12 +881,16 @@ export const createSearchIndex = (
         )
       : null
   const insertMemoryVectorStmt =
-    memoryDir && embedder ? db.prepare(`INSERT INTO memory_entry_vectors (entry_id, embedding) VALUES (?, ?)`) : null
+    memoryDir && embedder
+      ? db.prepare(`INSERT INTO memory_entry_vectors (entry_id, embedding) VALUES (?, ?)`)
+      : null
   const deleteMemoryVectorByEntryIdStmt =
     memoryDir && embedder ? db.prepare(`DELETE FROM memory_entry_vectors WHERE entry_id = ?`) : null
   const deleteMemoryVectorsForFileStmt =
     memoryDir && embedder
-      ? db.prepare(`DELETE FROM memory_entry_vectors WHERE entry_id IN (SELECT id FROM memory_entries WHERE file = ?)`)
+      ? db.prepare(
+          `DELETE FROM memory_entry_vectors WHERE entry_id IN (SELECT id FROM memory_entries WHERE file = ?)`,
+        )
       : null
   // Query side — memoryRecall's two retrieval legs plus row hydration.
   const memoryFtsSearchStmt = memoryDir
@@ -979,7 +1017,8 @@ export const createSearchIndex = (
    *  family unmatched (stored paths always carry an extension) at the cost of
    *  three query misses. */
   const resolveNonMarkdownFile = (target: string, sourcePath?: string): string | null => {
-    const relativeTarget = sourcePath === undefined ? null : posix.join(posix.dirname(sourcePath), target)
+    const relativeTarget =
+      sourcePath === undefined ? null : posix.join(posix.dirname(sourcePath), target)
 
     // ── Full-filename family: exact → relative → path suffix ──
 
@@ -1033,7 +1072,9 @@ export const createSearchIndex = (
   /** Indexes pre-statted non-markdown files into the non_md_files table.
    *  The caller owns entry filtering and stat (fs work stays out of the
    *  write transaction); this just writes the rows. */
-  const indexNonMarkdownFiles = (files: ReadonlyArray<{ relativePath: string; bytes: number }>): number => {
+  const indexNonMarkdownFiles = (
+    files: ReadonlyArray<{ relativePath: string; bytes: number }>,
+  ): number => {
     for (const file of files) {
       const basePath = links.stripExtension(file.relativePath)
       const baseFilename = links.stripExtension(basename(file.relativePath))
@@ -1374,7 +1415,9 @@ export const createSearchIndex = (
       deleteTasksStmt.run(note.path)
       // Line→blockId lookup so each child can resolve its parent's
       // block_id from the same extraction batch (no second pass needed).
-      const blockIdByLine = new Map(extractedTasks.map((extractedTask) => [extractedTask.line, extractedTask.blockId]))
+      const blockIdByLine = new Map(
+        extractedTasks.map((extractedTask) => [extractedTask.line, extractedTask.blockId]),
+      )
       for (const extractedTask of extractedTasks) {
         const { parentLine } = extractedTask
         const parentBlockId = parentLine === null ? null : (blockIdByLine.get(parentLine) ?? null)
@@ -1487,7 +1530,8 @@ export const createSearchIndex = (
     }
 
     const parsed = parseNote(rawContent)
-    const noteTitle = (isString(parsed.data.title) ? parsed.data.title : null) ?? basename(notePath, ".md")
+    const noteTitle =
+      (isString(parsed.data.title) ? parsed.data.title : null) ?? basename(notePath, ".md")
     // Metadata enrichment changes chunk text, so every note re-embeds once
     // (content-hash gated) after the option flips — kept off until the
     // search-eval measurements justify it.
@@ -1538,7 +1582,9 @@ export const createSearchIndex = (
         const chunkRow = selectChunkIdStmt.get(notePath, chunk.index)
 
         if (!chunkRow) {
-          throw new Error(`chunk row missing after upsert: ${notePath} chunk ${String(chunk.index)}`)
+          throw new Error(
+            `chunk row missing after upsert: ${notePath} chunk ${String(chunk.index)}`,
+          )
         }
         insertVectorStmt.run(
           BigInt(chunkRow.id),
@@ -1584,7 +1630,11 @@ export const createSearchIndex = (
 
     if (unembeddedRows.length === 0) return 0
 
-    for (let batchStart = 0; batchStart < unembeddedRows.length; batchStart += MEMORY_EMBED_BATCH_SIZE) {
+    for (
+      let batchStart = 0;
+      batchStart < unembeddedRows.length;
+      batchStart += MEMORY_EMBED_BATCH_SIZE
+    ) {
       const batchRows = unembeddedRows.slice(batchStart, batchStart + MEMORY_EMBED_BATCH_SIZE)
       const embeddings = await embedder.embedBatch(
         batchRows.map((row) => `${row.file} > ${row.section}\n${row.entry_text}`),
@@ -1617,7 +1667,10 @@ export const createSearchIndex = (
    *  every note, plus entry-level vectors when the note is a memory file.
    *  No-op when the embedding pipeline is disabled (no embedder provided).
    *  Safe to call unconditionally. */
-  const embedNote = async (params: { notePath: string; rawContent: string }, logger: Logger): Promise<void> => {
+  const embedNote = async (
+    params: { notePath: string; rawContent: string },
+    logger: Logger,
+  ): Promise<void> => {
     if (!embedder) return
     await embedAndStoreChunks(params, logger)
     const memoryFile = memoryFileNameFromPath(params.notePath)
@@ -1680,7 +1733,9 @@ export const createSearchIndex = (
         const chunkRow = selectFileChunkIdStmt.get(params.filePath, chunk.index)
 
         if (!chunkRow) {
-          throw new Error(`file chunk row missing after upsert: ${params.filePath} chunk ${String(chunk.index)}`)
+          throw new Error(
+            `file chunk row missing after upsert: ${params.filePath} chunk ${String(chunk.index)}`,
+          )
         }
         insertFileVectorStmt.run(
           BigInt(chunkRow.id),
@@ -1786,20 +1841,25 @@ export const createSearchIndex = (
     // non-md files) — shared by the notes pass and the non-md stat pass.
     // Named stages keep each pass O(n) (a spread-accumulating reduce would
     // re-copy the array per entry) and let the chain read top-to-bottom.
-    const visibleFilesOfKind = (fileKind: "note" | "file"): { relativePath: string; absolutePath: string }[] => {
+    const visibleFilesOfKind = (
+      fileKind: "note" | "file",
+    ): { relativePath: string; absolutePath: string }[] => {
       const matchesKind = (directoryEntry: Dirent): boolean => {
         if (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink()) return false
         const isNoteFile = directoryEntry.name.endsWith(".md")
         return fileKind === "note" ? isNoteFile : !isNoteFile
       }
-      const toFilePaths = (directoryEntry: Dirent): { relativePath: string; absolutePath: string } => {
+      const toFilePaths = (
+        directoryEntry: Dirent,
+      ): { relativePath: string; absolutePath: string } => {
         const absolutePath = join(directoryEntry.parentPath, directoryEntry.name)
         return {
           relativePath: relative(normalizedVault, absolutePath),
           absolutePath,
         }
       }
-      const isVisiblePath = (file: { relativePath: string }): boolean => !hasHiddenPathSegment(file.relativePath)
+      const isVisiblePath = (file: { relativePath: string }): boolean =>
+        !hasHiddenPathSegment(file.relativePath)
 
       return entries.filter(matchesKind).map(toFilePaths).filter(isVisiblePath)
     }
@@ -1826,7 +1886,9 @@ export const createSearchIndex = (
     const canvasFiles = allNonMdFiles.filter((file) => file.relativePath.endsWith(".canvas"))
     // PDF and text files are only read when file content FTS is enabled —
     // without the tables, the extraction is wasted I/O.
-    const pdfFiles = fileToolsEnabled ? allNonMdFiles.filter((file) => file.relativePath.endsWith(".pdf")) : []
+    const pdfFiles = fileToolsEnabled
+      ? allNonMdFiles.filter((file) => file.relativePath.endsWith(".pdf"))
+      : []
     const textFiles = fileToolsEnabled
       ? allNonMdFiles.filter((file) => {
           const extension = posix.extname(file.relativePath)
@@ -1871,7 +1933,10 @@ export const createSearchIndex = (
       sizeBytes: number
     } | null> => {
       try {
-        const [buffer, fileStat] = await Promise.all([readFile(file.absolutePath), stat(file.absolutePath)])
+        const [buffer, fileStat] = await Promise.all([
+          readFile(file.absolutePath),
+          stat(file.absolutePath),
+        ])
         const pdfData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
         const pdfResult = await extractPdfText(pdfData)
         return {
@@ -2107,7 +2172,8 @@ export const createSearchIndex = (
             .map((row) => row.note_path)
 
           const deletedPaths = indexedChunkPaths.filter((path) => !currentPaths.has(path))
-          const hasDeletedNotes = deletedPaths.length > 0 && deleteVectorsForNoteStmt && deleteChunksForNoteStmt
+          const hasDeletedNotes =
+            deletedPaths.length > 0 && deleteVectorsForNoteStmt && deleteChunksForNoteStmt
 
           if (hasDeletedNotes) {
             for (const path of deletedPaths) {
@@ -2159,7 +2225,11 @@ export const createSearchIndex = (
           // Clean up vectors for files that no longer exist — runs
           // unconditionally so deletions while the server was down are caught
           // even when filesForEmbedding is empty (mirroring the note-side cleanup).
-          if (fileContentVectorEnabled && deleteFileVectorsForPathStmt && deleteFileChunksForPathStmt) {
+          if (
+            fileContentVectorEnabled &&
+            deleteFileVectorsForPathStmt &&
+            deleteFileChunksForPathStmt
+          ) {
             // Query the live table instead of the pre-loop snapshot — files
             // the watcher indexed during the note embedding loop are in the
             // table but absent from the snapshot.
@@ -2170,11 +2240,15 @@ export const createSearchIndex = (
                 .map((fileContentPathRow) => fileContentPathRow.path),
             )
             const indexedFileChunkPaths = db
-              .prepare<unknown[], { file_path: string }>("SELECT DISTINCT file_path FROM file_content_chunks")
+              .prepare<unknown[], { file_path: string }>(
+                "SELECT DISTINCT file_path FROM file_content_chunks",
+              )
               .all()
               .map((chunkPathRow) => chunkPathRow.file_path)
 
-            const deletedFilePaths = indexedFileChunkPaths.filter((path) => !currentFilePaths.has(path))
+            const deletedFilePaths = indexedFileChunkPaths.filter(
+              (path) => !currentFilePaths.has(path),
+            )
 
             if (deletedFilePaths.length > 0) {
               for (const path of deletedFilePaths) {
@@ -2252,9 +2326,10 @@ export const createSearchIndex = (
   const selectAllTrashEntriesStmt = db.prepare<[], { trash_path: string; trashed_at: number }>(
     `SELECT trash_path, trashed_at FROM trash_entries`,
   )
-  const selectExpiredTrashEntriesStmt = db.prepare<[number], { trash_path: string; trashed_at: number }>(
-    `SELECT trash_path, trashed_at FROM trash_entries WHERE trashed_at < ?`,
-  )
+  const selectExpiredTrashEntriesStmt = db.prepare<
+    [number],
+    { trash_path: string; trashed_at: number }
+  >(`SELECT trash_path, trashed_at FROM trash_entries WHERE trashed_at < ?`)
   const deleteTrashEntryStmt = db.prepare(`DELETE FROM trash_entries WHERE trash_key = ?`)
 
   /** Records a file this server moved to .trash/ — the retention sweep only

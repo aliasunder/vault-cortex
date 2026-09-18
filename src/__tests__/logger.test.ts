@@ -226,7 +226,8 @@ describe("source location resolution", () => {
       return true
     })
     onTestFinished(() => stdoutSpy.mockRestore())
-    return () => writtenChunks.filter((chunk) => chunk.startsWith("{")).map((chunk) => JSON.parse(chunk))
+    return () =>
+      writtenChunks.filter((chunk) => chunk.startsWith("{")).map((chunk) => JSON.parse(chunk))
   }
 
   it("emits a source field with a .ts extension when source maps are available", () => {
@@ -329,7 +330,8 @@ describe("logger child lazy props", () => {
       return true
     })
     onTestFinished(() => stdoutSpy.mockRestore())
-    return () => writtenChunks.filter((chunk) => chunk.startsWith("{")).map((chunk) => JSON.parse(chunk))
+    return () =>
+      writtenChunks.filter((chunk) => chunk.startsWith("{")).map((chunk) => JSON.parse(chunk))
   }
 
   it("resolves a function-valued prop at emit time, not at child creation", () => {

@@ -106,18 +106,21 @@ describe("print-derived-env — storage layout", () => {
     },
   )
 
-  it.each(["/my*vault", "/vault?", "/vault[0]"])("rejects VAULT_PATH=%s containing a glob character", (vaultPath) => {
-    const run = runPrinter({
-      VAULT_PATH: vaultPath,
-      INDEX_DB_PATH: "/data/index.db",
-    })
+  it.each(["/my*vault", "/vault?", "/vault[0]"])(
+    "rejects VAULT_PATH=%s containing a glob character",
+    (vaultPath) => {
+      const run = runPrinter({
+        VAULT_PATH: vaultPath,
+        INDEX_DB_PATH: "/data/index.db",
+      })
 
-    expect(run.status).toBe(1)
-    expect(run.stdout).toBe("")
-    expect(run.stderr).toBe(
-      `[vault-cortex] ERROR: VAULT_PATH must not contain glob characters (*, ?, [) — they break the container's find-path safety guards. Got '${vaultPath}'.\n`,
-    )
-  })
+      expect(run.status).toBe(1)
+      expect(run.stdout).toBe("")
+      expect(run.stderr).toBe(
+        `[vault-cortex] ERROR: VAULT_PATH must not contain glob characters (*, ?, [) — they break the container's find-path safety guards. Got '${vaultPath}'.\n`,
+      )
+    },
+  )
 
   it("keeps an explicit VAULT_PATH when STORAGE_ROOT is set", () => {
     const run = runPrinter({
@@ -136,7 +139,9 @@ describe("print-derived-env — storage layout", () => {
       INDEX_DB_PATH: "/custom/index.db",
     })
 
-    expect(run.stdout).toBe("VAULT_PATH=/persist/vault\nLOG_DIR=/persist/data/logs\nXDG_CONFIG_HOME=/persist/config\n")
+    expect(run.stdout).toBe(
+      "VAULT_PATH=/persist/vault\nLOG_DIR=/persist/data/logs\nXDG_CONFIG_HOME=/persist/config\n",
+    )
   })
 
   it("keeps an explicit XDG_CONFIG_HOME when STORAGE_ROOT is set", () => {

@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, onTestFinished } from "vitest"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { buildLobehubManifest, serializeLobehubManifest, type LobehubManifest } from "../lobehub-manifest.js"
+import {
+  buildLobehubManifest,
+  serializeLobehubManifest,
+  type LobehubManifest,
+} from "../lobehub-manifest.js"
 import { loadConfig } from "../../src/vault-mcp/config.js"
 import { TOOL_NAMES } from "../../src/vault-mcp/mcp-core/tool-registry.js"
 import { PROMPT_NAMES } from "../../src/vault-mcp/mcp-core/prompt-definitions.js"
@@ -29,12 +33,16 @@ const OBJECT_SCHEMA = { type: "object" } as const
 describe("buildLobehubManifest", () => {
   it("advertises every registered tool", async () => {
     const manifest = await buildLobehubManifest()
-    expect(manifest.tools.map((tool) => tool.name).toSorted()).toEqual(Object.values(TOOL_NAMES).toSorted())
+    expect(manifest.tools.map((tool) => tool.name).toSorted()).toEqual(
+      Object.values(TOOL_NAMES).toSorted(),
+    )
   })
 
   it("advertises every registered prompt", async () => {
     const manifest = await buildLobehubManifest()
-    expect(manifest.prompts.map((prompt) => prompt.name).toSorted()).toEqual(Object.values(PROMPT_NAMES).toSorted())
+    expect(manifest.prompts.map((prompt) => prompt.name).toSorted()).toEqual(
+      Object.values(PROMPT_NAMES).toSorted(),
+    )
   })
 
   it("advertises an object input schema for every tool", async () => {
@@ -76,7 +84,9 @@ describe("buildLobehubManifest", () => {
     }).toEqual({ memoryEnabled: false, fileToolsEnabled: false })
 
     const manifest = await buildLobehubManifest()
-    expect(manifest.tools.map((tool) => tool.name).toSorted()).toEqual(Object.values(TOOL_NAMES).toSorted())
+    expect(manifest.tools.map((tool) => tool.name).toSorted()).toEqual(
+      Object.values(TOOL_NAMES).toSorted(),
+    )
   })
 
   it("throws naming the tool when a tool has no description", async () => {

@@ -81,7 +81,8 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     placeholder: "blank = use your vault's daily notes settings",
     validate: (value) => {
       if (value.includes("..")) return "Path traversal (..) is not allowed in folder names."
-      if (value.startsWith("/")) return "Absolute paths are not allowed — use a vault-relative folder name."
+      if (value.startsWith("/"))
+        return "Absolute paths are not allowed — use a vault-relative folder name."
       return undefined
     },
   },
@@ -98,7 +99,9 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
       // Moment format tokens are all letters — digits outside of [...]
       // bracket escapes are almost always a mistake.
       const formatSegments = value.split(MOMENT_BRACKET_ESCAPE)
-      const hasDigitsInFormat = formatSegments.some((segment, index) => index % 2 === 0 && /\d/.test(segment))
+      const hasDigitsInFormat = formatSegments.some(
+        (segment, index) => index % 2 === 0 && /\d/.test(segment),
+      )
 
       if (hasDigitsInFormat)
         return "Date format should use Moment tokens (YYYY, MM, DD), not digits — wrap literal text in [...] brackets."
@@ -180,7 +183,10 @@ export const readOptionalValue = (envContent: string, name: string): string | un
  * a var with no line at all (a .env predating the setting) is appended —
  * the chosen value must land in the file, never be silently dropped.
  */
-export const applyOptionalSettings = (envContent: string, overrides: Record<string, string>): string =>
+export const applyOptionalSettings = (
+  envContent: string,
+  overrides: Record<string, string>,
+): string =>
   Object.entries(overrides).reduce((content, [name, value]) => {
     // Fresh RegExp per use (the /g flag makes instances stateful via
     // lastIndex); function replacements avoid $-pattern interpretation in
@@ -275,7 +281,9 @@ const askTimezone = async (currentValue: string | undefined, prompts: Prompts): 
   ).trim()
 
   if (answer !== "" && isValidTimezone(answer)) return answer
-  prompts.error(`"${answer}" is not a recognized IANA timezone (e.g. America/New_York, Europe/London).`)
+  prompts.error(
+    `"${answer}" is not a recognized IANA timezone (e.g. America/New_York, Europe/London).`,
+  )
   return askTimezone(currentValue, prompts)
 }
 
@@ -359,7 +367,9 @@ const askSettingValue = async (
       // heuristic (wrong for default-off toggles like READONLY_MODE).
       // Empty string matters: `READONLY_MODE=` in .env is read as unset
       // by Compose's `${VAR:-default}` and env-var's `.default()`.
-      const currentlyEnabled = !currentValue ? (setting.defaultEnabled ?? true) : isEnabledToggleValue(currentValue)
+      const currentlyEnabled = !currentValue
+        ? (setting.defaultEnabled ?? true)
+        : isEnabledToggleValue(currentValue)
       const enabled = await prompts.confirm(setting.question, currentlyEnabled)
       return String(enabled)
     }
@@ -412,10 +422,14 @@ export const askOptionalSettings = async (
   prompts: Prompts,
 ): Promise<Record<string, string>> => {
   const { mode, envContent } = params
-  const offeredSettings = OPTIONAL_SETTINGS.filter((setting) => !setting.remoteOnly || mode === "remote")
+  const offeredSettings = OPTIONAL_SETTINGS.filter(
+    (setting) => !setting.remoteOnly || mode === "remote",
+  )
   const chooserOptions = offeredSettings.map((setting) => {
     const currentValue = readOptionalValue(envContent, setting.name)
-    const requiredToggle = OPTIONAL_SETTINGS.find((candidate) => candidate.name === setting.requiresToggle)
+    const requiredToggle = OPTIONAL_SETTINGS.find(
+      (candidate) => candidate.name === setting.requiresToggle,
+    )
     const dependencyNote =
       requiredToggle && !isEnabledToggleValue(readOptionalValue(envContent, requiredToggle.name))
         ? ` · not used while ${requiredToggle.label} is off`
@@ -438,7 +452,10 @@ export const askOptionalSettings = async (
   const overrides: Record<string, string> = {}
   for (const setting of offeredSettings) {
     if (!pickedNames.includes(setting.name)) continue
-    const value = await askSettingValue({ setting, currentValue: readOptionalValue(envContent, setting.name) }, prompts)
+    const value = await askSettingValue(
+      { setting, currentValue: readOptionalValue(envContent, setting.name) },
+      prompts,
+    )
 
     if (value !== undefined) overrides[setting.name] = value
   }

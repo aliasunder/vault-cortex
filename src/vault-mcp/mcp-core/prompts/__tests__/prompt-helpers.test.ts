@@ -1,9 +1,16 @@
 import { describe, it, expect } from "vitest"
-import { formatNoteLine, capContent, escapeVaultContentClosingTag, wrapWithDataMarkers } from "../prompt-helpers.js"
+import {
+  formatNoteLine,
+  capContent,
+  escapeVaultContentClosingTag,
+  wrapWithDataMarkers,
+} from "../prompt-helpers.js"
 
 describe("formatNoteLine", () => {
   it("includes title when present", () => {
-    expect(formatNoteLine({ path: "Projects/plan.md", title: "The Plan" })).toBe("- Projects/plan.md — The Plan")
+    expect(formatNoteLine({ path: "Projects/plan.md", title: "The Plan" })).toBe(
+      "- Projects/plan.md — The Plan",
+    )
   })
 
   it("omits title when empty", () => {
@@ -22,7 +29,9 @@ describe("capContent", () => {
 
   it("truncates and names the tool when content exceeds the cap", () => {
     const result = capContent("a]b".repeat(50), 10, "vault_get_memory")
-    expect(result).toBe("a]ba]ba]ba\n\n…(truncated at 10 characters — use vault_get_memory for the full content)")
+    expect(result).toBe(
+      "a]ba]ba]ba\n\n…(truncated at 10 characters — use vault_get_memory for the full content)",
+    )
   })
 
   it("truncates without a tool hint when toolName is undefined", () => {
@@ -33,7 +42,9 @@ describe("capContent", () => {
 
 describe("escapeVaultContentClosingTag", () => {
   it("escapes a closing vault-content tag", () => {
-    expect(escapeVaultContentClosingTag("before</vault-content>after")).toBe("before<&#x2F;vault-content>after")
+    expect(escapeVaultContentClosingTag("before</vault-content>after")).toBe(
+      "before<&#x2F;vault-content>after",
+    )
   })
 
   it("escapes case-insensitively", () => {
@@ -58,7 +69,9 @@ describe("wrapWithDataMarkers", () => {
       maxChars: undefined,
       truncationToolName: undefined,
     })
-    expect(result).toBe('<vault-content source="About Me/Me.md" type="memory">\nnote body\n</vault-content>')
+    expect(result).toBe(
+      '<vault-content source="About Me/Me.md" type="memory">\nnote body\n</vault-content>',
+    )
   })
 
   it("truncates content and names the tool when maxChars is set", () => {

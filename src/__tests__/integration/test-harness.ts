@@ -83,7 +83,10 @@ const buildServerEnv = (
 })
 
 /** Copy the fixture vault to a tempdir and spawn the server process. */
-const spawnServerProcess = async (port: number, envOverrides: Record<string, string>): Promise<SpawnedServer> => {
+const spawnServerProcess = async (
+  port: number,
+  envOverrides: Record<string, string>,
+): Promise<SpawnedServer> => {
   const vaultPath = await mkdtemp(join(tmpdir(), "vc-integ-vault-"))
   await cp(FIXTURE_VAULT, vaultPath, { recursive: true })
 
@@ -127,7 +130,10 @@ const spawnServerProcess = async (port: number, envOverrides: Record<string, str
  *  3 s. Temp directories are removed only after this resolves — `kill()`
  *  alone just sends the signal, and deleting files a live process still
  *  holds masks the real failure. */
-const terminateChild = async (child: ChildProcess, signal: "SIGTERM" | "SIGKILL"): Promise<void> => {
+const terminateChild = async (
+  child: ChildProcess,
+  signal: "SIGTERM" | "SIGKILL",
+): Promise<void> => {
   // A child killed by a signal has exitCode null but signalCode set —
   // both are terminal states where kill() is a no-op and "close" has
   // already fired (or will never fire), so waiting would hang for 3 s.
@@ -143,8 +149,14 @@ const terminateChild = async (child: ChildProcess, signal: "SIGTERM" | "SIGKILL"
 }
 
 /** Boot the real server against a copy of the fixture vault. */
-export const startServer = async (port: number, envOverrides: Record<string, string> = {}): Promise<ServerHandle> => {
-  const { child, vaultPath, dataDir, stdout, stderr, started } = await spawnServerProcess(port, envOverrides)
+export const startServer = async (
+  port: number,
+  envOverrides: Record<string, string> = {},
+): Promise<ServerHandle> => {
+  const { child, vaultPath, dataDir, stdout, stderr, started } = await spawnServerProcess(
+    port,
+    envOverrides,
+  )
 
   // Both watchdogs are detached once the boot races settle: a timer that
   // fires later, or the exit event that cleanup() itself triggers, would
@@ -157,7 +169,9 @@ export const startServer = async (port: number, envOverrides: Record<string, str
   child.once("exit", rejectOnExit)
   const startTimeout = Promise.withResolvers<never>()
   const startTimeoutTimer = setTimeout(() => {
-    startTimeout.reject(new Error(`Server on port ${port} did not log "server started" within 15000ms`))
+    startTimeout.reject(
+      new Error(`Server on port ${port} did not log "server started" within 15000ms`),
+    )
   }, 15_000)
   startTimeoutTimer.unref()
 
@@ -240,7 +254,8 @@ type SdkCallToolResult = Awaited<ReturnType<Client["callTool"]>>
 /** Content-response branch of the SDK's CallToolResult union. */
 export type ToolResult = Extract<SdkCallToolResult, { content: unknown[] }>
 
-const isContentResult = (result: SdkCallToolResult): result is ToolResult => Array.isArray(result.content)
+const isContentResult = (result: SdkCallToolResult): result is ToolResult =>
+  Array.isArray(result.content)
 
 /** Call a tool and return the content-based result. */
 export const callTool = async ({

@@ -120,7 +120,9 @@ describe("hosted platform templates", () => {
     it("runs the image with the single-volume boot variables fixed", () => {
       const blueprint = readRenderBlueprint()
       const envVars = renderEnvVarsByKey(blueprint)
-      const fixedValues = Object.fromEntries(Object.keys(HOSTED_FIXED_ENV).map((key) => [key, envVars.get(key)?.value]))
+      const fixedValues = Object.fromEntries(
+        Object.keys(HOSTED_FIXED_ENV).map((key) => [key, envVars.get(key)?.value]),
+      )
       expect(blueprint.services[0].runtime).toBe("image")
       expect(fixedValues).toEqual(HOSTED_FIXED_ENV)
       expect(envVars.get("TRUST_PROXY_HOPS")?.value).toBe("2")
@@ -187,7 +189,9 @@ describe("hosted platform templates", () => {
         throw new Error("CONTRIBUTING.md has no '## Railway template' section")
       }
       const railwaySection = contributing.slice(sectionStart)
-      const tableRows = railwaySection.matchAll(/^\| `([A-Z_]+)`\s*\| (?:`([^`]*)`|_\(optional input\)_)\s*\|/gm)
+      const tableRows = railwaySection.matchAll(
+        /^\| `([A-Z_]+)`\s*\| (?:`([^`]*)`|_\(optional input\)_)\s*\|/gm,
+      )
       return new Map([...tableRows].map((row) => [row[1], row[2] ?? ""]))
     }
 
@@ -200,7 +204,9 @@ describe("hosted platform templates", () => {
         TRUST_PROXY_HOPS: "2",
         RAILWAY_HEALTHCHECK_TIMEOUT_SEC: "900",
       }
-      const recordedValues = Object.fromEntries(Object.keys(expectedValues).map((key) => [key, tableValues.get(key)]))
+      const recordedValues = Object.fromEntries(
+        Object.keys(expectedValues).map((key) => [key, tableValues.get(key)]),
+      )
       expect(recordedValues).toEqual(expectedValues)
     })
 
@@ -213,7 +219,9 @@ describe("hosted platform templates", () => {
     it("records the six deploy-form inputs, and the Railway guide's Deploy table lists the same six", () => {
       const contributing = readRepoFile("CONTRIBUTING.md")
       const railwaySection = contributing.slice(contributing.indexOf("## Railway template"))
-      const inputRows = railwaySection.matchAll(/^\| `([A-Z_]+)`\s*\| _\((required|optional) input\)_/gm)
+      const inputRows = railwaySection.matchAll(
+        /^\| `([A-Z_]+)`\s*\| _\((required|optional) input\)_/gm,
+      )
       const recordedInputs = Object.fromEntries([...inputRows].map((row) => [row[1], row[2]]))
       expect(recordedInputs).toEqual({
         TZ: "optional",
@@ -225,7 +233,10 @@ describe("hosted platform templates", () => {
       })
 
       const guide = readRepoFile("deploy/railway/README.md")
-      const deploySection = guide.slice(guide.indexOf("## Deploy"), guide.indexOf("## Your URL and token"))
+      const deploySection = guide.slice(
+        guide.indexOf("## Deploy"),
+        guide.indexOf("## Your URL and token"),
+      )
       const guideInputs = [...deploySection.matchAll(/^\| `([A-Z_]+)`/gm)].map((row) => row[1])
       expect(guideInputs).toEqual(Object.keys(recordedInputs))
     })

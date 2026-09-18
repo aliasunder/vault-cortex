@@ -19,7 +19,9 @@ describe("assertPathHasExtension", () => {
   })
 
   it("accepts a dotted name ending in the extension", () => {
-    expect(() => assertPathHasExtension("Code Projects/vault-cortex/CLAUDE.local.md", ".md")).not.toThrow()
+    expect(() =>
+      assertPathHasExtension("Code Projects/vault-cortex/CLAUDE.local.md", ".md"),
+    ).not.toThrow()
   })
 
   it("accepts a path matching any extension in an array", () => {

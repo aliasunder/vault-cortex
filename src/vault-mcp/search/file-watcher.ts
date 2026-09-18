@@ -73,7 +73,8 @@ export const startFileWatcher = (
       // PDF and text files are only read when file content FTS is enabled.
       const extension = extname(filePath)
       const isCanvas = extension === ".canvas"
-      const isIndexableNonCanvas = search.fileContentIndexingEnabled && INDEXABLE_TEXT_EXTENSIONS.has(extension)
+      const isIndexableNonCanvas =
+        search.fileContentIndexingEnabled && INDEXABLE_TEXT_EXTENSIONS.has(extension)
 
       if (isCanvas || isIndexableNonCanvas) {
         try {
@@ -185,7 +186,8 @@ export const startFileWatcher = (
       search.removeNonMdFile(relativePath)
       const deletedExtension = extname(filePath)
       const isDeletedCanvas = deletedExtension === ".canvas"
-      const isDeletedIndexable = search.fileContentIndexingEnabled && INDEXABLE_TEXT_EXTENSIONS.has(deletedExtension)
+      const isDeletedIndexable =
+        search.fileContentIndexingEnabled && INDEXABLE_TEXT_EXTENSIONS.has(deletedExtension)
 
       if (isDeletedCanvas || isDeletedIndexable) {
         search.removeFileContent({ filePath: relativePath }, logger)
@@ -283,7 +285,10 @@ export const startFileWatcher = (
    * the directory's actual contents against what chokidar tracks
    * (getWatched) and indexes anything chokidar missed.
    */
-  const rescanNewDirectory = async (dirPath: string, visitedRealPaths: Set<string>): Promise<void> => {
+  const rescanNewDirectory = async (
+    dirPath: string,
+    visitedRealPaths: Set<string>,
+  ): Promise<void> => {
     const entries = await readdirOrNull(dirPath)
 
     if (entries === null) {

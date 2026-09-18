@@ -184,7 +184,9 @@ describe("task indexing lifecycle", () => {
     )
 
     const result = index.listTasks({}, logger)
-    expect(result.tasks.map((entry) => entry.folder)).toEqual(["Code Projects/vault-cortex/task-notes"])
+    expect(result.tasks.map((entry) => entry.folder)).toEqual([
+      "Code Projects/vault-cortex/task-notes",
+    ])
   })
 
   it("stores an empty-string folder for root-level notes", () => {
@@ -230,7 +232,9 @@ describe("task indexing lifecycle", () => {
     )
     // Confirm the first version was actually indexed, so replacement can't
     // be satisfied by the first upsert never running.
-    expect(index.listTasks({}, logger).tasks.map((entry) => entry.description)).toEqual(["Old task"])
+    expect(index.listTasks({}, logger).tasks.map((entry) => entry.description)).toEqual([
+      "Old task",
+    ])
 
     index.upsertNote(
       {
@@ -334,7 +338,12 @@ describe("listTasks status filter", () => {
     const index = indexWithBoard()
     const result = index.listTasks({ status: "all" }, logger)
     // Created-only tasks sort DESC (newest first): Old idea (2026-06-02) before Ship release (2026-06-01).
-    expect(result.tasks.map((entry) => entry.status)).toEqual(["todo", "in_progress", "cancelled", "done"])
+    expect(result.tasks.map((entry) => entry.status)).toEqual([
+      "todo",
+      "in_progress",
+      "cancelled",
+      "done",
+    ])
   })
 })
 
@@ -498,7 +507,10 @@ describe("listTasks scope filters", () => {
   it("scopes to a folder, excluding tasks outside it", () => {
     const index = indexWithBoardAndPlain()
     const result = index.listTasks({ folder: "Projects" }, logger)
-    expect(result.tasks.map((entry) => entry.path)).toEqual(["Projects/board.md", "Projects/board.md"])
+    expect(result.tasks.map((entry) => entry.path)).toEqual([
+      "Projects/board.md",
+      "Projects/board.md",
+    ])
   })
 
   it("treats a trailing slash on folder as equivalent", () => {
@@ -598,7 +610,10 @@ describe("listTasks scope filters", () => {
 
   it("AND-combines folder, heading, and priority filters correctly", () => {
     const index = indexWithBoardAndPlain()
-    const result = index.listTasks({ folder: "Projects", heading: "Active", priority: ["high"] }, logger)
+    const result = index.listTasks(
+      { folder: "Projects", heading: "Active", priority: ["high"] },
+      logger,
+    )
     expect(result.tasks.map((entry) => entry.description)).toEqual(["Fix login bug"])
   })
 })
@@ -609,7 +624,11 @@ describe("listTasks sorting and paging", () => {
     index.upsertNote(
       {
         filePath: "a.md",
-        rawContent: ["- [ ] Due last 📅 2026-07-30", "- [ ] Due first 📅 2026-07-01", "- [ ] No due date"].join("\n"),
+        rawContent: [
+          "- [ ] Due last 📅 2026-07-30",
+          "- [ ] Due first 📅 2026-07-01",
+          "- [ ] No due date",
+        ].join("\n"),
         fileStat: testStat(1000),
       },
       logger,
@@ -652,13 +671,23 @@ describe("listTasks sorting and paging", () => {
     index.upsertNote(
       {
         filePath: "priorities.md",
-        rawContent: ["- [ ] P-low 🔽", "- [ ] P-none", "- [ ] P-highest 🔺", "- [ ] P-medium 🔼"].join("\n"),
+        rawContent: [
+          "- [ ] P-low 🔽",
+          "- [ ] P-none",
+          "- [ ] P-highest 🔺",
+          "- [ ] P-medium 🔼",
+        ].join("\n"),
         fileStat: testStat(1000),
       },
       logger,
     )
     const result = index.listTasks({ path: "priorities.md", sortBy: "priority" }, logger)
-    expect(result.tasks.map((entry) => entry.description)).toEqual(["P-highest", "P-medium", "P-none", "P-low"])
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "P-highest",
+      "P-medium",
+      "P-none",
+      "P-low",
+    ])
   })
 
   it("sorts by note_mtime newest-first by default", () => {
@@ -717,7 +746,10 @@ describe("listTasks sorting and paging", () => {
       logger,
     )
     const result = index.listTasks({}, logger)
-    expect(result.tasks.map((entry) => entry.description)).toEqual(["New note task", "Old note task"])
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "New note task",
+      "Old note task",
+    ])
   })
 
   it("defaults start sort to descending (most recently started first)", () => {
@@ -725,13 +757,18 @@ describe("listTasks sorting and paging", () => {
     index.upsertNote(
       {
         filePath: "starts.md",
-        rawContent: ["- [ ] Started early 🛫 2026-06-01", "- [ ] Started late 🛫 2026-07-01"].join("\n"),
+        rawContent: ["- [ ] Started early 🛫 2026-06-01", "- [ ] Started late 🛫 2026-07-01"].join(
+          "\n",
+        ),
         fileStat: testStat(1000),
       },
       logger,
     )
     const result = index.listTasks({ sortBy: "start" }, logger)
-    expect(result.tasks.map((entry) => entry.description)).toEqual(["Started late", "Started early"])
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Started late",
+      "Started early",
+    ])
   })
 
   it("defaults created sort to descending (most recently created first)", () => {
@@ -739,13 +776,18 @@ describe("listTasks sorting and paging", () => {
     index.upsertNote(
       {
         filePath: "created.md",
-        rawContent: ["- [ ] Created early ➕ 2026-06-01", "- [ ] Created late ➕ 2026-07-01"].join("\n"),
+        rawContent: ["- [ ] Created early ➕ 2026-06-01", "- [ ] Created late ➕ 2026-07-01"].join(
+          "\n",
+        ),
         fileStat: testStat(1000),
       },
       logger,
     )
     const result = index.listTasks({ sortBy: "created" }, logger)
-    expect(result.tasks.map((entry) => entry.description)).toEqual(["Created late", "Created early"])
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Created late",
+      "Created early",
+    ])
   })
 
   it("limits results to the top of the sort order while total reports the full match count", () => {
@@ -787,7 +829,11 @@ describe("listTasks sorting and paging", () => {
     // Due-dated tasks sort first (ASC — due's default).
     // Created-only tasks sort second, but DESC (created's default) — newest first.
     const result = index.listTasks({}, logger)
-    expect(result.tasks.map((entry) => entry.description)).toEqual(["Has due", "New created only", "Old created only"])
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Has due",
+      "New created only",
+      "Old created only",
+    ])
   })
 
   it("explicit sort_direction overrides cascade to a uniform direction", () => {
@@ -806,7 +852,11 @@ describe("listTasks sorting and paging", () => {
     )
     // Explicit ASC overrides all cascade steps — created-only tasks sort ASC (oldest first).
     const result = index.listTasks({ sortDirection: "asc" }, logger)
-    expect(result.tasks.map((entry) => entry.description)).toEqual(["Has due", "Old created only", "New created only"])
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Has due",
+      "Old created only",
+      "New created only",
+    ])
   })
 
   it("cascade direction applies to start fallback (DESC default) within a due cascade", () => {
@@ -825,7 +875,11 @@ describe("listTasks sorting and paging", () => {
     )
     // Due-dated first (ASC), then start-only tasks sort DESC (start's default) — newest first.
     const result = index.listTasks({}, logger)
-    expect(result.tasks.map((entry) => entry.description)).toEqual(["Has due", "New start", "Old start"])
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Has due",
+      "New start",
+      "Old start",
+    ])
   })
 
   it("start cascade uses per-field defaults (both start and created default DESC)", () => {
@@ -873,7 +927,11 @@ describe("listTasks sorting and paging", () => {
       logger,
     )
     const result = index.listTasks({ path: "board.md", status: "all", sortBy: "position" }, logger)
-    expect(result.tasks.map((entry) => entry.description)).toEqual(["First card", "Second card", "Third card"])
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "First card",
+      "Second card",
+      "Third card",
+    ])
   })
 
   it("position sort groups by file path across multiple notes", () => {
@@ -911,7 +969,10 @@ describe("listTasks sorting and paging", () => {
       },
       logger,
     )
-    const result = index.listTasks({ path: "board.md", sortBy: "position", sortDirection: "desc" }, logger)
+    const result = index.listTasks(
+      { path: "board.md", sortBy: "position", sortDirection: "desc" },
+      logger,
+    )
     expect(result.tasks.map((entry) => entry.description)).toEqual(["Second line", "First line"])
   })
 
@@ -994,7 +1055,10 @@ kanban-plugin: board
 
   it("returns tasks from multiple headings, excluding unselected lanes", () => {
     const index = indexWithMultiLaneBoard()
-    const result = index.listTasks({ status: "all", heading: ["Active", "Up Next", "Waiting On"] }, logger)
+    const result = index.listTasks(
+      { status: "all", heading: ["Active", "Up Next", "Waiting On"] },
+      logger,
+    )
     // Default sort is due ASC; all dateless, so cascade falls through to
     // created DESC (newest first): 07-03 → 07-02 → 07-01.
     expect(result.tasks.map((entry) => entry.description)).toEqual([
@@ -1010,7 +1074,10 @@ kanban-plugin: board
     const result = index.listTasks({ status: "all", heading: ["Active", "Up Next"] }, logger)
     // Exact match proves inclusion of Active + Up Next AND exclusion of
     // Someday + Waiting On — a vacuous empty result cannot satisfy this.
-    expect(result.tasks.map((entry) => entry.description)).toEqual(["Write docs", "Implement feature"])
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Write docs",
+      "Implement feature",
+    ])
   })
 
   // ── status array ──
@@ -1033,7 +1100,11 @@ kanban-plugin: board
     const result = index.listTasks({ status: ["not_done", "done"] }, logger)
     // Exact ordered match: due ASC puts Fix login bug first (due 2026-07-01),
     // then dateless tasks cascade through related dates.
-    expect(result.tasks.map((entry) => entry.description)).toEqual(["Fix login bug", "Write tests", "Ship release"])
+    expect(result.tasks.map((entry) => entry.description)).toEqual([
+      "Fix login bug",
+      "Write tests",
+      "Ship release",
+    ])
   })
 
   it("deduplicates when not_done overlaps with an explicit status", () => {
@@ -1091,7 +1162,10 @@ describe("comment block exclusion", () => {
       logger,
     )
 
-    const result = index.listTasks({ status: "all", sortBy: "created", sortDirection: "asc" }, logger)
+    const result = index.listTasks(
+      { status: "all", sortBy: "created", sortDirection: "asc" },
+      logger,
+    )
     expect(result.total).toBe(2)
     expect(result.tasks.map((task) => task.description)).toEqual(["Visible task", "Also visible"])
   })
@@ -1103,9 +1177,11 @@ describe("comment block exclusion", () => {
     index.upsertNote(
       {
         filePath: "tasks.md",
-        rawContent: ["- [ ] Parent task ^parent", "  - [ ] Child task ^child", "    - [ ] Grandchild ^grandchild"].join(
-          "\n",
-        ),
+        rawContent: [
+          "- [ ] Parent task ^parent",
+          "  - [ ] Child task ^child",
+          "    - [ ] Grandchild ^grandchild",
+        ].join("\n"),
         fileStat: testStat(1000),
       },
       logger,
@@ -1190,7 +1266,11 @@ describe("comment block exclusion", () => {
     index.upsertNote(
       {
         filePath: "tasks.md",
-        rawContent: ["- [ ] Top-level A ^top-a", "  - [ ] Sub of A ^sub-a", "- [ ] Top-level B ^top-b"].join("\n"),
+        rawContent: [
+          "- [ ] Top-level A ^top-a",
+          "  - [ ] Sub of A ^sub-a",
+          "- [ ] Top-level B ^top-b",
+        ].join("\n"),
         fileStat: testStat(1000),
       },
       logger,
@@ -1312,6 +1392,9 @@ describe("listTasks subtask_progress", () => {
         block_id: entry.block_id,
         subtask_progress: entry.subtask_progress,
       })),
-    ).toEqual([{ block_id: "ship-feature", subtask_progress: { done: 2, total: 4 } }, { block_id: "leaf-card" }])
+    ).toEqual([
+      { block_id: "ship-feature", subtask_progress: { done: 2, total: 4 } },
+      { block_id: "leaf-card" },
+    ])
   })
 })

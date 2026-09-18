@@ -26,7 +26,10 @@ export type PromptResult = {
   messages: Array<{ role: string; content: { type: string; text: string } }>
 }
 export type PromptExtra = { requestId?: string }
-type PromptHandler = (argsOrExtra?: Record<string, unknown> | PromptExtra, extra?: PromptExtra) => Promise<PromptResult>
+type PromptHandler = (
+  argsOrExtra?: Record<string, unknown> | PromptExtra,
+  extra?: PromptExtra,
+) => Promise<PromptResult>
 export type RegisterPromptCall = [name: string, config: PromptConfig, handler: PromptHandler]
 
 export const fakeExtra: PromptExtra = { requestId: "1" }
@@ -42,10 +45,14 @@ export type LogCall = {
 }
 export const recordingLogger = (sink: LogCall[]): Logger => {
   const make = (props: Record<string, unknown>): Logger => ({
-    debug: (message, data = {}) => sink.push({ level: "debug", message, data: { ...props, ...data } }),
-    info: (message, data = {}) => sink.push({ level: "info", message, data: { ...props, ...data } }),
-    warn: (message, data = {}) => sink.push({ level: "warn", message, data: { ...props, ...data } }),
-    error: (message, data = {}) => sink.push({ level: "error", message, data: { ...props, ...data } }),
+    debug: (message, data = {}) =>
+      sink.push({ level: "debug", message, data: { ...props, ...data } }),
+    info: (message, data = {}) =>
+      sink.push({ level: "info", message, data: { ...props, ...data } }),
+    warn: (message, data = {}) =>
+      sink.push({ level: "warn", message, data: { ...props, ...data } }),
+    error: (message, data = {}) =>
+      sink.push({ level: "error", message, data: { ...props, ...data } }),
     child: (childProps) => make({ ...props, ...childProps }),
   })
   return make({})

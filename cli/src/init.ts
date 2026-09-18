@@ -11,9 +11,18 @@ import {
   startCommand,
   type StartStatus,
 } from "./messages.js"
-import { healthPollTimeoutMs, healthTimeoutMessage, pollHealth, type DockerRunner } from "./docker.js"
+import {
+  healthPollTimeoutMs,
+  healthTimeoutMessage,
+  pollHealth,
+  type DockerRunner,
+} from "./docker.js"
 import { reportPublicUrlProbe } from "./lifecycle.js"
-import { applyOptionalSettings, askOptionalSettings, derivePublicUrlOverride } from "./optional-settings.js"
+import {
+  applyOptionalSettings,
+  askOptionalSettings,
+  derivePublicUrlOverride,
+} from "./optional-settings.js"
 import {
   buildFilesToWrite,
   readEnvObsidianToken,
@@ -71,7 +80,10 @@ const askMode = async (prompts: Prompts): Promise<Mode> => {
  * or the capture fails (the caller falls back to any token already in the
  * on-disk .env, or shows get-sync-token guidance).
  */
-const offerSyncTokenCapture = async (prompts: Prompts, fetchFn: typeof fetch): Promise<string | undefined> => {
+const offerSyncTokenCapture = async (
+  prompts: Prompts,
+  fetchFn: typeof fetch,
+): Promise<string | undefined> => {
   prompts.log(
     "Your server needs an Obsidian Sync token to access your vault.\n" +
       "You can sign in to your Obsidian account now to generate one.",
@@ -141,7 +153,8 @@ export const validatePublicUrl = (input: string): PublicUrlValidation => {
   if (!url) {
     return {
       kind: "error",
-      message: "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
+      message:
+        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
     }
   }
   if (url.username || url.password) {
@@ -223,7 +236,10 @@ const confirmOverwrite =
  * `configure`. Declining (the default) backs out with pointers; accepting
  * continues, still protected by the per-file overwrite confirms at write time.
  */
-const confirmReinitOverExistingEnv = async (targetDir: string, prompts: Prompts): Promise<boolean> => {
+const confirmReinitOverExistingEnv = async (
+  targetDir: string,
+  prompts: Prompts,
+): Promise<boolean> => {
   if (!existsSync(join(targetDir, ".env"))) return true
   prompts.log(`Found an existing deployment in ${targetDir}.`)
   const reinitAnyway = await prompts.confirm("Re-run setup for this directory anyway?", false)
@@ -231,11 +247,16 @@ const confirmReinitOverExistingEnv = async (targetDir: string, prompts: Prompts)
   if (reinitAnyway) return true
   // No outro here: declining still exits 0, and the runInit wrapper owns the
   // closing outro (mirroring configure's declined-restart path).
-  prompts.log(`Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`)
+  prompts.log(
+    `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`,
+  )
   return false
 }
 
-const reportWrites = (params: { targetDir: string; results: FileWriteResult[] }, prompts: Prompts): void => {
+const reportWrites = (
+  params: { targetDir: string; results: FileWriteResult[] },
+  prompts: Prompts,
+): void => {
   const { targetDir, results } = params
   for (const result of results) {
     const verb = {
@@ -313,7 +334,8 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   // Vault path comes from --vault-path when given and valid; interactive
   // runs fall back to prompting on a bad flag, while --yes must fail hard
   // because there is no prompt to fall back to.
-  const vaultPathResult = flags.vaultPath === undefined ? undefined : validateVaultPath(flags.vaultPath)
+  const vaultPathResult =
+    flags.vaultPath === undefined ? undefined : validateVaultPath(flags.vaultPath)
 
   if (flags.yes) {
     if (!vaultPathResult || vaultPathResult.kind === "error") {
@@ -330,7 +352,9 @@ const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> =
   // A warn-level flag path (no .obsidian/) is accepted without the confirm a
   // prompted path gets — passing the flag is already an explicit choice.
   const vaultPath =
-    vaultPathResult && vaultPathResult.kind !== "error" ? vaultPathResult.path : await askVaultPath(prompts)
+    vaultPathResult && vaultPathResult.kind !== "error"
+      ? vaultPathResult.path
+      : await askVaultPath(prompts)
 
   // expandTilde before resolve: resolve() treats a leading `~` as a literal
   // path segment, so a quoted "~/path" would create a directory named "~".
@@ -457,7 +481,9 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
   }
 
   const usesEncryption = await prompts.confirm("Does your vault use end-to-end encryption?", false)
-  const vaultPassword = usesEncryption ? await prompts.password("Vault encryption password:") : undefined
+  const vaultPassword = usesEncryption
+    ? await prompts.password("Vault encryption password:")
+    : undefined
 
   const token = generateToken()
 
@@ -473,7 +499,10 @@ const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> 
     vaultName,
     vaultPassword,
   })
-  const optionalOverrides = await askOptionalSettings({ mode: "remote", envContent: defaultEnvContent }, prompts)
+  const optionalOverrides = await askOptionalSettings(
+    { mode: "remote", envContent: defaultEnvContent },
+    prompts,
+  )
   const envContent = applyOptionalSettings(
     defaultEnvContent,
     derivePublicUrlOverride(defaultEnvContent, optionalOverrides),
@@ -547,7 +576,8 @@ export const runInit = async (flags: InitFlags, deps: InitDeps): Promise<number>
   const flagMode = flags.mode && isMode(flags.mode) ? flags.mode : undefined
   const mode: Mode = flagMode ?? (flags.yes ? "local" : await askMode(prompts))
 
-  const exitCode = mode === "local" ? await runLocalInit(flags, deps) : await runRemoteInit(flags, deps)
+  const exitCode =
+    mode === "local" ? await runLocalInit(flags, deps) : await runRemoteInit(flags, deps)
 
   if (exitCode === 0) prompts.outro("Done.")
   return exitCode

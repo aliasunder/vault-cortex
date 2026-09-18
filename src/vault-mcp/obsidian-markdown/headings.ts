@@ -93,7 +93,8 @@ export const findTrailingCommentBlockStart = (lines: readonly string[]): number 
   // An unclosed comment runs to EOF and is trailing by definition. A closed
   // block is trailing only when nothing but blank lines follow it.
   const hasTrailingClosedBlock =
-    lastClosedBlock && lines.slice(lastClosedBlock.endLine + 1).every((trailingLine) => trailingLine.trim() === "")
+    lastClosedBlock &&
+    lines.slice(lastClosedBlock.endLine + 1).every((trailingLine) => trailingLine.trim() === "")
   const closedTrailingBlock = hasTrailingClosedBlock ? lastClosedBlock : null
   const trailingBlock = commentOpen ? { startLine: commentOpenLine } : closedTrailingBlock
 
@@ -198,7 +199,9 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
     if (line.trim() === "") {
       setextCandidate = null
     } else {
-      setextCandidate = BLOCK_LEVEL_LINE_REGEX.test(line.trimStart()) ? null : { text: line, index: i }
+      setextCandidate = BLOCK_LEVEL_LINE_REGEX.test(line.trimStart())
+        ? null
+        : { text: line, index: i }
     }
   }
 
@@ -208,14 +211,17 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
   // Kanban board's `%% kanban:settings %%`) so replace/append don't clobber it.
   const trailingCommentBlockStart = findTrailingCommentBlockStart(lines)
   return collectedHeadings.map((heading, index) => {
-    const nextSameOrHigher = collectedHeadings.slice(index + 1).find((next) => next.level <= heading.level)
+    const nextSameOrHigher = collectedHeadings
+      .slice(index + 1)
+      .find((next) => next.level <= heading.level)
     return {
       text: heading.text,
       level: heading.level,
       startLine: heading.startLine,
       bodyStartLine: heading.bodyStartLine,
       // Math.max keeps bodyEndLine >= bodyStartLine for malformed input.
-      bodyEndLine: nextSameOrHigher?.startLine ?? Math.max(heading.bodyStartLine, trailingCommentBlockStart),
+      bodyEndLine:
+        nextSameOrHigher?.startLine ?? Math.max(heading.bodyStartLine, trailingCommentBlockStart),
     }
   })
 }
@@ -246,7 +252,11 @@ export const linesBeforeFirstHeading = (
 }
 
 /** Case-sensitive heading lookup. Errors on 0 or 2+ matches. */
-export const findHeading = (headings: readonly HeadingInfo[], text: string, level?: number): HeadingInfo => {
+export const findHeading = (
+  headings: readonly HeadingInfo[],
+  text: string,
+  level?: number,
+): HeadingInfo => {
   if (!text.trim()) {
     throw new Error("heading cannot be empty")
   }
@@ -257,16 +267,23 @@ export const findHeading = (headings: readonly HeadingInfo[], text: string, leve
   )
 
   if (matches.length === 0) {
-    const availableHeadings = headings.map((heading) => `${"#".repeat(heading.level)} ${heading.text}`).join(", ")
-    throw new Error(`heading not found: "${searchText}". Available headings: ${availableHeadings || "(none)"}`)
+    const availableHeadings = headings
+      .map((heading) => `${"#".repeat(heading.level)} ${heading.text}`)
+      .join(", ")
+    throw new Error(
+      `heading not found: "${searchText}". Available headings: ${availableHeadings || "(none)"}`,
+    )
   }
 
   if (matches.length > 1) {
     const matchedHeadings = matches
-      .map((heading) => `${"#".repeat(heading.level)} ${heading.text} (line ${heading.startLine + 1})`)
+      .map(
+        (heading) => `${"#".repeat(heading.level)} ${heading.text} (line ${heading.startLine + 1})`,
+      )
       .join(", ")
     const firstMatch = matches[0]
-    const allSameLevel = firstMatch !== undefined && matches.every((heading) => heading.level === firstMatch.level)
+    const allSameLevel =
+      firstMatch !== undefined && matches.every((heading) => heading.level === firstMatch.level)
     const hint = allSameLevel
       ? "Rename one heading to make it unique, or target by text content instead."
       : "Use heading_level to disambiguate."

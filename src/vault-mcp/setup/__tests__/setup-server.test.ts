@@ -137,7 +137,9 @@ const signInThroughBrowser = async (port: number): Promise<Response> =>
 describe("setup-server entry point", () => {
   it("writes the token under $HOME/.config when XDG_CONFIG_HOME is unset, then exits 0 for the restart", async () => {
     const api = await startFakeObsidianApi((request) =>
-      request.path === "/user/signin" ? { body: { token: "sync-tok" } } : { body: plainVaultListing },
+      request.path === "/user/signin"
+        ? { body: { token: "sync-tok" } }
+        : { body: plainVaultListing },
     )
     onTestFinished(api.close)
     const home = await mkdtemp(join(tmpdir(), "setup-server-home-"))
@@ -156,12 +158,16 @@ describe("setup-server entry point", () => {
 
     expect(html).toContain("<h1>Setup complete</h1>")
     expect(exitCode).toBe(0)
-    await expect(readFile(join(home, ".config", "obsidian-headless", "auth_token"), "utf8")).resolves.toBe("sync-tok")
+    await expect(
+      readFile(join(home, ".config", "obsidian-headless", "auth_token"), "utf8"),
+    ).resolves.toBe("sync-tok")
   })
 
   it("writes the token under XDG_CONFIG_HOME when it is set", async () => {
     const api = await startFakeObsidianApi((request) =>
-      request.path === "/user/signin" ? { body: { token: "sync-tok" } } : { body: plainVaultListing },
+      request.path === "/user/signin"
+        ? { body: { token: "sync-tok" } }
+        : { body: plainVaultListing },
     )
     onTestFinished(api.close)
     const home = await mkdtemp(join(tmpdir(), "setup-server-home-"))
@@ -179,8 +185,12 @@ describe("setup-server entry point", () => {
     await signInThroughBrowser(server.port)
     await server.exited
 
-    await expect(readFile(join(configHome, "obsidian-headless", "auth_token"), "utf8")).resolves.toBe("sync-tok")
-    await expect(readFile(join(home, ".config", "obsidian-headless", "auth_token"), "utf8")).rejects.toThrow("ENOENT")
+    await expect(
+      readFile(join(configHome, "obsidian-headless", "auth_token"), "utf8"),
+    ).resolves.toBe("sync-tok")
+    await expect(
+      readFile(join(home, ".config", "obsidian-headless", "auth_token"), "utf8"),
+    ).rejects.toThrow("ENOENT")
   })
 
   it("answers /healthz in setup mode and 503 elsewhere with the absolute setup URL from PUBLIC_URL", async () => {
@@ -300,7 +310,9 @@ describe("setup-server entry point", () => {
 
     const html = await (await fetch(`http://127.0.0.1:${server.port}/setup`)).text()
 
-    expect(html).toContain("Your saved Obsidian login stopped working. Sign in again to replace it.")
+    expect(html).toContain(
+      "Your saved Obsidian login stopped working. Sign in again to replace it.",
+    )
   })
 
   describe("hosting platform detection", () => {

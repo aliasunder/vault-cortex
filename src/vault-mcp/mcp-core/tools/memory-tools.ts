@@ -34,9 +34,14 @@ export const registerMemoryTools = ({
   // The tools a recall entry's file/section fields feed into. Rendered as a
   // trailing clause (semicolon included) so the surrounding sentence keeps its
   // punctuation when neither consumer is served.
-  const recallConsumerTools = formatEnabledToolList([TOOL_NAMES.VAULT_GET_MEMORY, TOOL_NAMES.VAULT_DELETE_MEMORY])
+  const recallConsumerTools = formatEnabledToolList([
+    TOOL_NAMES.VAULT_GET_MEMORY,
+    TOOL_NAMES.VAULT_DELETE_MEMORY,
+  ])
   const recallConsumerClause =
-    recallConsumerTools.length > 0 ? `; file and section feed directly into ${recallConsumerTools}` : ""
+    recallConsumerTools.length > 0
+      ? `; file and section feed directly into ${recallConsumerTools}`
+      : ""
 
   registerTool(
     TOOL_NAMES.VAULT_GET_MEMORY,
@@ -57,7 +62,11 @@ Errors:
 
 Returns: Raw markdown text.`,
       inputSchema: {
-        file: z.string().min(1).optional().describe('Memory file name without .md (e.g. "Principles", "Opinions")'),
+        file: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Memory file name without .md (e.g. "Principles", "Opinions")'),
         section: z
           .string()
           .min(1)

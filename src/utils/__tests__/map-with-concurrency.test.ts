@@ -90,7 +90,14 @@ describe("mapWithConcurrency", () => {
       },
     })
 
-    expect(events).toEqual(["start:slow", "start:fast", "end:fast", "end:slow", "start:next", "end:next"])
+    expect(events).toEqual([
+      "start:slow",
+      "start:fast",
+      "end:fast",
+      "end:slow",
+      "start:next",
+      "end:next",
+    ])
   })
 
   it("rejects and starts no further batch when a mapper rejects", async () => {

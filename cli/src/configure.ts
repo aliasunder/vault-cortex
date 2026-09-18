@@ -63,7 +63,9 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
   const currentPublicUrl = readOptionalValue(envContent, "PUBLIC_URL")
 
   if (pickedOverrides.PORT && !overrides.PUBLIC_URL && currentPublicUrl) {
-    prompts.warn(`PORT changed — make sure PUBLIC_URL (${currentPublicUrl}) still reaches the server.`)
+    prompts.warn(
+      `PORT changed — make sure PUBLIC_URL (${currentPublicUrl}) still reaches the server.`,
+    )
   }
 
   const restartHint = `Apply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`
@@ -82,7 +84,10 @@ export const runConfigure = async (flags: ConfigureFlags, deps: ConfigureDeps): 
     return 0
   }
 
-  const restartNow = await prompts.confirm("Restart the container now to apply the new settings?", true)
+  const restartNow = await prompts.confirm(
+    "Restart the container now to apply the new settings?",
+    true,
+  )
 
   if (!restartNow) {
     prompts.log(restartHint)

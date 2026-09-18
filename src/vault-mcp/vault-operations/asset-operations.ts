@@ -37,7 +37,17 @@ const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"])
 
 /** Extensions returned verbatim as text — plain-text formats an agent can
  *  read directly. .svg is XML source; .base is Obsidian Bases YAML. */
-const TEXT_PASSTHROUGH_EXTENSIONS = new Set([".svg", ".json", ".txt", ".csv", ".xml", ".log", ".yaml", ".yml", ".base"])
+const TEXT_PASSTHROUGH_EXTENSIONS = new Set([
+  ".svg",
+  ".json",
+  ".txt",
+  ".csv",
+  ".xml",
+  ".log",
+  ".yaml",
+  ".yml",
+  ".base",
+])
 
 /** Fixed cap on text output (passthrough files and canvas renditions) so a
  *  huge text asset can't blow a client's response limit. Deliberately not an
@@ -85,7 +95,8 @@ const assertTextWithinCap = (params: { text: string; path: string }): void => {
 
   if (textBytes <= MAX_TEXT_OUTPUT_BYTES) return
   throw new Error(
-    `text output too large: "${params.path}" renders to ${textBytes} bytes ` + `(cap ${MAX_TEXT_OUTPUT_BYTES} bytes)`,
+    `text output too large: "${params.path}" renders to ${textBytes} bytes ` +
+      `(cap ${MAX_TEXT_OUTPUT_BYTES} bytes)`,
   )
 }
 
@@ -137,7 +148,9 @@ const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(params.buffer)
   } catch (error) {
-    throw new Error(`not valid UTF-8: "${params.path}" cannot be returned as text`, { cause: error })
+    throw new Error(`not valid UTF-8: "${params.path}" cannot be returned as text`, {
+      cause: error,
+    })
   }
 }
 
@@ -217,17 +230,22 @@ const readAssetContent = async (
 ): Promise<AssetReadResult> => {
   const { path, raw, startLine, limit } = params
   const isPagedRead = startLine !== undefined || limit !== undefined
-  const asset = await vaultFs.readAsset({ vaultPath: params.vaultPath, path, maxBytes: params.maxFileBytes }, logger)
+  const asset = await vaultFs.readAsset(
+    { vaultPath: params.vaultPath, path, maxBytes: params.maxFileBytes },
+    logger,
+  )
   const isImage = IMAGE_EXTENSIONS.has(asset.extension)
 
   if (isImage && raw) {
     throw new Error(
-      `raw source is not available for images: "${path}" is ` + `binary — its image block is the delivered form`,
+      `raw source is not available for images: "${path}" is ` +
+        `binary — its image block is the delivered form`,
     )
   }
   if (isImage && isPagedRead) {
     throw new Error(
-      `line range is not available for images: "${path}" is ` + `binary — its image block is the delivered form`,
+      `line range is not available for images: "${path}" is ` +
+        `binary — its image block is the delivered form`,
     )
   }
   if (isImage) {
@@ -249,12 +267,17 @@ const readAssetContent = async (
   if (asset.extension === ".pdf") {
     if (raw && isPagedRead) {
       throw new Error(
-        `line range is not available for rendered PDF pages: ` + `"${path}" delivers page images, not text`,
+        `line range is not available for rendered PDF pages: ` +
+          `"${path}" delivers page images, not text`,
       )
     }
     // Buffer → Uint8Array view: Buffer.buffer may be Node's shared pool,
     // so byteOffset/byteLength carve out this buffer's portion.
-    const pdfData = new Uint8Array(asset.buffer.buffer, asset.buffer.byteOffset, asset.buffer.byteLength)
+    const pdfData = new Uint8Array(
+      asset.buffer.buffer,
+      asset.buffer.byteOffset,
+      asset.buffer.byteLength,
+    )
 
     if (raw) {
       const proxy = await createPdfDocumentProxy(pdfData)
@@ -265,7 +288,10 @@ const readAssetContent = async (
         const pagesToRender = Math.min(totalPages, params.maxPdfRenderPages)
 
         if (pagesToRender === 0) {
-          throw new Error(`PDF page rendering failed: "${path}" exists ` + `(${asset.bytes} bytes) but has 0 pages`)
+          throw new Error(
+            `PDF page rendering failed: "${path}" exists ` +
+              `(${asset.bytes} bytes) but has 0 pages`,
+          )
         }
         const perPageBudget = Math.floor(params.maxImageOutputBytes / pagesToRender)
         const pages = await renderPdfPages({ proxy, pagesToRender, perPageBudget }, logger)
@@ -319,7 +345,8 @@ const readAssetContent = async (
 
 /** Display extension for listings: lowercased with its dot, or "(none)" for
  *  extensionless files. */
-const extensionOf = (assetPath: string): string => links.getExtension(assetPath).toLowerCase() || "(none)"
+const extensionOf = (assetPath: string): string =>
+  links.getExtension(assetPath).toLowerCase() || "(none)"
 
 /** Normalizes a caller-supplied extension filter entry: lowercased, leading
  *  dot ensured — so "PNG", "png", and ".png" all match ".png". */
@@ -354,10 +381,17 @@ const buildAssetListing = async (
   },
   logger: Logger,
 ): Promise<AssetListing> => {
-  const assetPaths = await vaultFs.listAssets({ vaultPath: params.vaultPath, folder: params.folder }, logger)
-  const extensionFilter = params.extensions ? new Set(params.extensions.map(normalizeExtension)) : undefined
+  const assetPaths = await vaultFs.listAssets(
+    { vaultPath: params.vaultPath, folder: params.folder },
+    logger,
+  )
+  const extensionFilter = params.extensions
+    ? new Set(params.extensions.map(normalizeExtension))
+    : undefined
   const filteredPaths = extensionFilter
-    ? assetPaths.filter((assetPath) => extensionFilter.has(links.getExtension(assetPath).toLowerCase()))
+    ? assetPaths.filter((assetPath) =>
+        extensionFilter.has(links.getExtension(assetPath).toLowerCase()),
+      )
     : assetPaths
 
   const filteredExtensions = filteredPaths.map(extensionOf)
@@ -370,7 +404,10 @@ const buildAssetListing = async (
   )
 
   const returnedPaths = filteredPaths.slice(0, params.limit)
-  const stattedAssets = await vaultFs.statAssets({ vaultPath: params.vaultPath, paths: returnedPaths }, logger)
+  const stattedAssets = await vaultFs.statAssets(
+    { vaultPath: params.vaultPath, paths: returnedPaths },
+    logger,
+  )
   return {
     assets: stattedAssets.map((entry) => ({
       path: entry.path,

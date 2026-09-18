@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest"
 import { buildChunkMetadataPrefix, chunkNoteContent } from "../chunker.js"
 
 /** Generate a string of approximately N whitespace-separated tokens. */
-const generateTokens = (count: number): string => Array.from({ length: count }, (_, i) => `word${i}`).join(" ")
+const generateTokens = (count: number): string =>
+  Array.from({ length: count }, (_, i) => `word${i}`).join(" ")
 
 describe("chunkNoteContent", () => {
   describe("short notes (below threshold)", () => {
@@ -98,7 +99,10 @@ describe("chunkNoteContent", () => {
   describe("paragraph sub-splitting", () => {
     it("splits an oversized section at paragraph boundaries", () => {
       // Create a single section with ~900 tokens (well above 450 max)
-      const paragraphs = Array.from({ length: 6 }, (_, i) => `Paragraph ${i}: ${generateTokens(150)}`)
+      const paragraphs = Array.from(
+        { length: 6 },
+        (_, i) => `Paragraph ${i}: ${generateTokens(150)}`,
+      )
       const body = `## Big Section\n${paragraphs.join("\n\n")}`
 
       const chunks = chunkNoteContent("Note", body)
@@ -115,7 +119,10 @@ describe("chunkNoteContent", () => {
 
   describe("no-heading long notes", () => {
     it("splits at paragraph boundaries when no headings exist", () => {
-      const paragraphs = Array.from({ length: 8 }, (_, i) => `Paragraph ${i}: ${generateTokens(100)}`)
+      const paragraphs = Array.from(
+        { length: 8 },
+        (_, i) => `Paragraph ${i}: ${generateTokens(100)}`,
+      )
       const body = paragraphs.join("\n\n")
 
       const chunks = chunkNoteContent("Note", body)
@@ -224,7 +231,9 @@ describe("chunkNoteContent", () => {
     it("produces identical chunks with a null prefix as with no options", () => {
       const body = `## One\n\n${generateTokens(300)}\n\n## Two\n\n${generateTokens(300)}`
 
-      expect(chunkNoteContent("Note", body, { metadataPrefix: null })).toEqual(chunkNoteContent("Note", body))
+      expect(chunkNoteContent("Note", body, { metadataPrefix: null })).toEqual(
+        chunkNoteContent("Note", body),
+      )
     })
   })
 })

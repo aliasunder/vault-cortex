@@ -91,7 +91,8 @@ export const createSetupRoutes = ({
     inheritedExpiresAt?: DateTime
   }): string => {
     const requestId = randomUUID()
-    const expiresAt = inheritedExpiresAt ?? DateTime.now().plus({ minutes: PENDING_SIGN_IN_TTL_MINUTES })
+    const expiresAt =
+      inheritedExpiresAt ?? DateTime.now().plus({ minutes: PENDING_SIGN_IN_TTL_MINUTES })
     const remainingMs = expiresAt.diff(DateTime.now()).toMillis()
 
     // The inherited expiry already passed — don't store credentials at all.
@@ -119,7 +120,12 @@ export const createSetupRoutes = ({
     windowMs: 60 * 1000,
     limit: 5,
     keyGenerator: (req: Request) => extractClientIp(req, trustForwardedHops),
-    handler: (req: Request, res: Response, _next: NextFunction, options: { statusCode: number; message: unknown }) => {
+    handler: (
+      req: Request,
+      res: Response,
+      _next: NextFunction,
+      options: { statusCode: number; message: unknown },
+    ) => {
       routeLogger.warn("setup_rate_limited", {
         clientIp: extractClientIp(req, trustForwardedHops),
       })
@@ -157,7 +163,10 @@ export const createSetupRoutes = ({
 
   // The listing is advisory: if it cannot be fetched the token is still
   // valid, so sign-in proceeds and the boot chain reports any problem.
-  const listAccountVaults = async (token: string, requestLogger: Logger): Promise<RemoteVault[] | undefined> => {
+  const listAccountVaults = async (
+    token: string,
+    requestLogger: Logger,
+  ): Promise<RemoteVault[] | undefined> => {
     try {
       return await obsidianApi.listVaults({
         apiBaseUrl: obsidianApiBaseUrl,
@@ -235,7 +244,10 @@ export const createSetupRoutes = ({
   /** The deployment settings the next boot would fail on — checked before
    *  the token is written, so the user fixes them from this page instead
    *  of from a crash-looping container's logs. */
-  const runVaultPreflight = async (token: string, requestLogger: Logger): Promise<PreflightProblem | undefined> => {
+  const runVaultPreflight = async (
+    token: string,
+    requestLogger: Logger,
+  ): Promise<PreflightProblem | undefined> => {
     if (!vaultName) return { kind: "vault-name-unset" }
     const vaults = await listAccountVaults(token, requestLogger)
 
@@ -423,19 +435,24 @@ export const createSetupRoutes = ({
     sendSignInPage(req, res)
   })
 
-  router.post("/setup", limiter, express.urlencoded({ extended: false }), async (req: Request, res: Response) => {
-    const body: Record<string, unknown> = req.body
-    const requestLogger = routeLogger.child({
-      requestId: randomUUID(),
-      clientIp: extractClientIp(req, trustForwardedHops),
-    })
+  router.post(
+    "/setup",
+    limiter,
+    express.urlencoded({ extended: false }),
+    async (req: Request, res: Response) => {
+      const body: Record<string, unknown> = req.body
+      const requestLogger = routeLogger.child({
+        requestId: randomUUID(),
+        clientIp: extractClientIp(req, trustForwardedHops),
+      })
 
-    if (formField(body, "request_id")) {
-      await handleMfaForm({ req, res, body, requestLogger })
-      return
-    }
-    await handleSignInForm({ req, res, body, requestLogger })
-  })
+      if (formField(body, "request_id")) {
+        await handleMfaForm({ req, res, body, requestLogger })
+        return
+      }
+      await handleSignInForm({ req, res, body, requestLogger })
+    },
+  )
 
   return router
 }

@@ -76,7 +76,11 @@ const createCountingLogger = (): {
 } => {
   const problems: { level: string; message: string }[] = []
   const vectorSearchStats: { knnHits: number; uniqueNotes: number }[] = []
-  const printProblem = (level: "warn" | "error", message: string, data: Record<string, unknown> | undefined): void => {
+  const printProblem = (
+    level: "warn" | "error",
+    message: string,
+    data: Record<string, unknown> | undefined,
+  ): void => {
     problems.push({ level, message })
     if (data) {
       console.error(`[${level}] ${message}`, data)
@@ -87,7 +91,11 @@ const createCountingLogger = (): {
   const logger: Logger = {
     debug: () => {},
     info: (message, data) => {
-      if (message === "vector search" && typeof data?.knnHits === "number" && typeof data.uniqueNotes === "number") {
+      if (
+        message === "vector search" &&
+        typeof data?.knnHits === "number" &&
+        typeof data.uniqueNotes === "number"
+      ) {
         vectorSearchStats.push({
           knnHits: data.knnHits,
           uniqueNotes: data.uniqueNotes,
@@ -147,8 +155,16 @@ const main = async (): Promise<void> => {
   // Validation and the snapshot/index reuse decisions live in the plan
   // resolver (search-eval-plan.ts) so they are testable — this script's
   // top-level await makes it unimportable.
-  const { judgmentPath, limits, fileLegWeight, workDir, snapshotDir, indexDbPath, snapshotReused, indexReused } =
-    resolveEvalRunPlan(cliArgs)
+  const {
+    judgmentPath,
+    limits,
+    fileLegWeight,
+    workDir,
+    snapshotDir,
+    indexDbPath,
+    snapshotReused,
+    indexReused,
+  } = resolveEvalRunPlan(cliArgs)
 
   const judgmentRaw: unknown = JSON.parse(await readFile(judgmentPath, "utf8"))
   const judgment = judgmentFileSchema.parse(judgmentRaw)
@@ -210,7 +226,9 @@ const main = async (): Promise<void> => {
     })
 
     if (embedProblems.length > 0) {
-      throw new Error(`embedding pass logged ${embedProblems.length} problem(s) — fix before scoring`)
+      throw new Error(
+        `embedding pass logged ${embedProblems.length} problem(s) — fix before scoring`,
+      )
     }
     const rebuildSeconds = Math.round((performance.now() - rebuildStartMs) / 1000)
     console.log(`indexed ${count} notes in ${rebuildSeconds}s`)
@@ -263,7 +281,11 @@ const main = async (): Promise<void> => {
         limit,
         expectedRank: rankOfFirstExpected(searchResult.results, judgmentQuery),
         pollutionWindow,
-        filesInWindow: countUnexpectedFilesInWindow(searchResult.results, judgmentQuery, pollutionWindow),
+        filesInWindow: countUnexpectedFilesInWindow(
+          searchResult.results,
+          judgmentQuery,
+          pollutionWindow,
+        ),
         latencyMs,
         topPaths: searchResult.results.slice(0, 5).map((result) => result.path),
       })
@@ -279,7 +301,8 @@ const main = async (): Promise<void> => {
   for (const score of scores.filter((entry) => entry.limit === primaryLimit)) {
     const rankText = score.expectedRank === null ? "MISS" : `#${score.expectedRank}`
     const gate = score.expectedRank !== null && score.expectedRank <= 3 ? "pass" : "FAIL"
-    const pollutionText = score.class === "precision" ? ` files@${score.pollutionWindow}=${score.filesInWindow}` : ""
+    const pollutionText =
+      score.class === "precision" ? ` files@${score.pollutionWindow}=${score.filesInWindow}` : ""
     console.log(
       `  [${score.class}] ${score.id}: expected ${rankText} (top-3 ${gate})${pollutionText} ${score.latencyMs}ms`,
     )
@@ -290,7 +313,10 @@ const main = async (): Promise<void> => {
   // while unique notes fall, so a shrinking ratio is the warning sign.
   const scoringVectorSearchStats = vectorSearchStats.slice(vectorSearchStatsBeforeScoring)
   const totalKnnHits = scoringVectorSearchStats.reduce((sum, stats) => sum + stats.knnHits, 0)
-  const totalUniqueNotes = scoringVectorSearchStats.reduce((sum, stats) => sum + stats.uniqueNotes, 0)
+  const totalUniqueNotes = scoringVectorSearchStats.reduce(
+    (sum, stats) => sum + stats.uniqueNotes,
+    0,
+  )
 
   if (totalKnnHits > 0) {
     console.log(
@@ -300,7 +326,9 @@ const main = async (): Promise<void> => {
 
   const otherLimits = limits.slice(1)
   for (const limit of otherLimits) {
-    const missesAtLimit = scores.filter((entry) => entry.limit === limit && entry.expectedRank === null)
+    const missesAtLimit = scores.filter(
+      (entry) => entry.limit === limit && entry.expectedRank === null,
+    )
     console.log(
       `at limit ${limit}: ${missesAtLimit.length} queries lose their expected result${formatMissedIds(missesAtLimit)}`,
     )

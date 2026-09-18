@@ -79,7 +79,10 @@ const preBindingToken = (secret: string): string => {
       iss: "vault-cortex",
     }),
   ).toString("base64url")
-  const sig = createHmac("sha256", secret).update(`${header}.${body}`).digest().toString("base64url")
+  const sig = createHmac("sha256", secret)
+    .update(`${header}.${body}`)
+    .digest()
+    .toString("base64url")
   return `${header}.${body}.${sig}`
 }
 
@@ -128,7 +131,9 @@ describe("authorizer handler", () => {
   })
 
   it("denies a pre-binding JWT signed with another secret", async () => {
-    const result = await handler(protectedRequest(`Bearer ${preBindingToken("not-the-lambda-secret")}`))
+    const result = await handler(
+      protectedRequest(`Bearer ${preBindingToken("not-the-lambda-secret")}`),
+    )
     expect(result).toEqual({ isAuthorized: false })
   })
 

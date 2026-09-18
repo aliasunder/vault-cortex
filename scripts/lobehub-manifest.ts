@@ -105,7 +105,9 @@ const connectToRegisteredServer = async (): Promise<Client> => {
  */
 const assertSinglePage = (listName: string, nextCursor?: string): void => {
   if (nextCursor) {
-    throw new Error(`${listName} returned a paginated response; the manifest builder reads one page only`)
+    throw new Error(
+      `${listName} returned a paginated response; the manifest builder reads one page only`,
+    )
   }
 }
 
@@ -171,4 +173,5 @@ export const buildLobehubManifest = async (): Promise<LobehubManifest> => {
  *  format is pinned in one place rather than re-implemented by each caller.
  *  Prettier skips the file because it is gitignored (.gitignore is part of
  *  Prettier's default ignore path), so nothing reformats it after this. */
-export const serializeLobehubManifest = (manifest: LobehubManifest): string => `${JSON.stringify(manifest, null, 2)}\n`
+export const serializeLobehubManifest = (manifest: LobehubManifest): string =>
+  `${JSON.stringify(manifest, null, 2)}\n`

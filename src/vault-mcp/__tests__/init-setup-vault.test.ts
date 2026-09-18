@@ -98,7 +98,9 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
       ...(options.configDirName === undefined ? {} : { CONFIG_DIR_NAME: options.configDirName }),
       ...(options.deviceName === undefined ? {} : { DEVICE_NAME: options.deviceName }),
       ...(options.syncConfigs === undefined ? {} : { SYNC_CONFIGS: options.syncConfigs }),
-      ...(options.syncExcludedFolders === undefined ? {} : { SYNC_EXCLUDED_FOLDERS: options.syncExcludedFolders }),
+      ...(options.syncExcludedFolders === undefined
+        ? {}
+        : { SYNC_EXCLUDED_FOLDERS: options.syncExcludedFolders }),
       ...(options.syncFileTypes === undefined ? {} : { SYNC_FILE_TYPES: options.syncFileTypes }),
     },
   })
@@ -150,7 +152,9 @@ describe("init-setup-vault script", () => {
     const run = runSetupScript({ vaultName: "MyVault" })
 
     expect(run.status).toBe(0)
-    expect(run.stdout).toBe(`[obsidian-sync] Configuring sync for vault: 'MyVault' → ${run.vaultPath}\n`)
+    expect(run.stdout).toBe(
+      `[obsidian-sync] Configuring sync for vault: 'MyVault' → ${run.vaultPath}\n`,
+    )
     expect(run.stderr).toBe("")
     expect(run.obCalls).toEqual([
       "sync-setup --vault MyVault",

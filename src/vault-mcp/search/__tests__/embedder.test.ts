@@ -69,10 +69,14 @@ describe("createEmbedder", () => {
       const embedder = await loadEmbedder()
       await embedder.embedText("trigger load")
 
-      expect(mockedPipeline).toHaveBeenCalledWith("feature-extraction", "Xenova/bge-small-en-v1.5", {
-        dtype: "q8",
-        session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
-      })
+      expect(mockedPipeline).toHaveBeenCalledWith(
+        "feature-extraction",
+        "Xenova/bge-small-en-v1.5",
+        {
+          dtype: "q8",
+          session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
+        },
+      )
     })
 
     it("throws a descriptive error when pipeline returns non-Float32Array data", async () => {
@@ -89,7 +93,9 @@ describe("createEmbedder", () => {
       mockedPipeline.mockResolvedValueOnce(badPipeline)
 
       const embedder = await loadEmbedder()
-      await expect(embedder.embedText("test")).rejects.toThrow("expected Float32Array from embedding pipeline")
+      await expect(embedder.embedText("test")).rejects.toThrow(
+        "expected Float32Array from embedding pipeline",
+      )
     })
 
     it("retries after a pipeline load failure", async () => {

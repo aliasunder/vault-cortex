@@ -61,7 +61,9 @@ describe("assertNoControlCharacters", () => {
   })
 
   it("allows normal markdown content", () => {
-    expect(() => assertNoControlCharacters("## Heading\n\nBody with [[links]] and #tags", "body")).not.toThrow()
+    expect(() =>
+      assertNoControlCharacters("## Heading\n\nBody with [[links]] and #tags", "body"),
+    ).not.toThrow()
   })
 
   it("allows bare CR (U+000D)", () => {

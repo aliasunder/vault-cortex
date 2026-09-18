@@ -99,9 +99,13 @@ describe("createPdfDocumentProxy", () => {
     vi.resetModules()
     const freshUnpdf = await import("unpdf")
     const freshEngine = await import("../pdf-engine.js")
-    vi.mocked(freshUnpdf.definePDFJSModule).mockRejectedValueOnce(new Error("transient init failure"))
+    vi.mocked(freshUnpdf.definePDFJSModule).mockRejectedValueOnce(
+      new Error("transient init failure"),
+    )
 
-    await expect(freshEngine.createPdfDocumentProxy(fixtureBytes())).rejects.toThrow(/^transient init failure$/)
+    await expect(freshEngine.createPdfDocumentProxy(fixtureBytes())).rejects.toThrow(
+      /^transient init failure$/,
+    )
 
     // A cached rejection would surface the same error here instead.
     const proxy = await freshEngine.createPdfDocumentProxy(fixtureBytes())
@@ -115,7 +119,9 @@ describe("createPdfDocumentProxy", () => {
     // Grounds the asset roots in reality: pdfjs fetches individual files by
     // concatenation, so the directories the configuration test pins must
     // match pdfjs-dist's real layout — this fails if an upgrade moves them.
-    expect(existsSync(join(expectedPdfjsRoot, "standard_fonts/", "LiberationSans-Regular.ttf"))).toBe(true)
+    expect(
+      existsSync(join(expectedPdfjsRoot, "standard_fonts/", "LiberationSans-Regular.ttf")),
+    ).toBe(true)
     expect(existsSync(join(expectedPdfjsRoot, "cmaps/", "78-H.bcmap"))).toBe(true)
   })
 })

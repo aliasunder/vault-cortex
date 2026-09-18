@@ -23,7 +23,8 @@ const fetchApiError = (errorMessage: string): typeof fetch =>
     })) as typeof fetch
 
 /** Builds a mock fetch that returns an HTTP error status. */
-const fetchHttpError = (status: number): typeof fetch => (async () => new Response(null, { status })) as typeof fetch
+const fetchHttpError = (status: number): typeof fetch =>
+  (async () => new Response(null, { status })) as typeof fetch
 
 /** Builds a mock fetch that throws a network error. */
 const fetchNetworkError = (message: string): typeof fetch =>
@@ -203,7 +204,9 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toBe("Request timed out — check your internet connection and try again.")
+    expect(scripted.warnings[0]).toBe(
+      "Request timed out — check your internet connection and try again.",
+    )
   })
 
   it("omits 2FA hint when the MFA retry fails with a network error", async () => {
@@ -287,7 +290,9 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toBe("Request timed out — check your internet connection and try again.")
+    expect(scripted.warnings[0]).toBe(
+      "Request timed out — check your internet connection and try again.",
+    )
   })
 
   it("returns undefined on non-JSON response", async () => {
@@ -299,7 +304,9 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toMatch(/^Could not sign in: Unexpected response from Obsidian API \(/)
+    expect(scripted.warnings[0]).toMatch(
+      /^Could not sign in: Unexpected response from Obsidian API \(/,
+    )
   })
 
   it("returns undefined when the response is valid JSON but not an object", async () => {
@@ -311,7 +318,9 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toBe("Could not sign in: Unexpected response from Obsidian API (not a JSON object)")
+    expect(scripted.warnings[0]).toBe(
+      "Could not sign in: Unexpected response from Obsidian API (not a JSON object)",
+    )
   })
 
   it("returns undefined when the response is missing the token field", async () => {
@@ -323,7 +332,9 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toBe("Could not sign in: Unexpected response from Obsidian API (no token field)")
+    expect(scripted.warnings[0]).toBe(
+      "Could not sign in: Unexpected response from Obsidian API (no token field)",
+    )
   })
 })
 
@@ -361,7 +372,10 @@ describe("runGetSyncToken subcommand", () => {
 
   it("writes the token to .env when --dir is set", async () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sync-token-"))
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old-token\nVAULT_NAME=MyVault\n")
+    writeFileSync(
+      join(targetDir, ".env"),
+      "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old-token\nVAULT_NAME=MyVault\n",
+    )
     const scripted = createScriptedPrompts(["user@example.com", "password"])
 
     const exitCode = await runGetSyncToken(

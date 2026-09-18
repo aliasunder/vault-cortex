@@ -20,7 +20,11 @@ import type {
   SubmittedTaskFields,
   TaskRoundTripDivergence,
 } from "../obsidian-markdown/tasks.js"
-import { parseRecurrenceRule, nextOccurrenceDates, type NextOccurrenceDates } from "../obsidian-markdown/recurrence.js"
+import {
+  parseRecurrenceRule,
+  nextOccurrenceDates,
+  type NextOccurrenceDates,
+} from "../obsidian-markdown/recurrence.js"
 import { readTaskFormatConfig, type TaskFormatConfig } from "./task-format-config.js"
 import type { Logger } from "../../logger.js"
 
@@ -157,8 +161,12 @@ const parsedDescriptionClause = ({
   storedTextNoun: string
 }): string => {
   const parsedReading =
-    storedValue === null ? `${storedTextNoun} parses back empty` : `${storedTextNoun} parses back as "${storedValue}"`
-  const consumedNote = consumedTail ? ` — the trailing "${consumedTail}" was read as task metadata` : ""
+    storedValue === null
+      ? `${storedTextNoun} parses back empty`
+      : `${storedTextNoun} parses back as "${storedValue}"`
+  const consumedNote = consumedTail
+    ? ` — the trailing "${consumedTail}" was read as task metadata`
+    : ""
   return `${parsedReading}${consumedNote}`
 }
 
@@ -195,7 +203,9 @@ const roundTripAdvisories = ({
   priorTaskLine: string | null
   submitted: SubmittedTaskFields
 }): string[] => {
-  return tasks.diffTaskRoundTrip({ taskLine, priorTaskLine, submitted }).map(describeRoundTripDivergence)
+  return tasks
+    .diffTaskRoundTrip({ taskLine, priorTaskLine, submitted })
+    .map(describeRoundTripDivergence)
 }
 
 /** Advisory for one subtask whose description text was consumed as metadata. */
@@ -284,7 +294,13 @@ const resolveNotePath = ({ vaultPath, path }: { vaultPath: string; path: string 
 
 /** Reads the note's raw content; a missing note surfaces as "note not found"
  *  with the vault-relative path the caller passed. */
-const readNoteContent = async ({ fullPath, path }: { fullPath: string; path: string }): Promise<string> => {
+const readNoteContent = async ({
+  fullPath,
+  path,
+}: {
+  fullPath: string
+  path: string
+}): Promise<string> => {
   try {
     return await readFile(fullPath, "utf8")
   } catch (err) {
@@ -352,7 +368,9 @@ const subtaskIndentUnder = ({
   const firstChildIndex = parentLineIndex + 1
   const hasExistingChildren = firstChildIndex < blockEnd
   const firstChild = hasExistingChildren ? lines[firstChildIndex] : undefined
-  const firstChildPrefix = firstChild?.trim() ? LIST_ITEM_PREFIX_RE.exec(firstChild)?.[0] : undefined
+  const firstChildPrefix = firstChild?.trim()
+    ? LIST_ITEM_PREFIX_RE.exec(firstChild)?.[0]
+    : undefined
   return firstChildPrefix ?? `${parentPrefix}  `
 }
 
@@ -366,7 +384,9 @@ const taskInsertIndexUnderHeading = ({
   lines: readonly string[]
   heading: HeadingInfo
 }): number => {
-  const firstContentIndex = lines.findIndex((line, index) => index >= heading.bodyStartLine && line.trim() !== "")
+  const firstContentIndex = lines.findIndex(
+    (line, index) => index >= heading.bodyStartLine && line.trim() !== "",
+  )
 
   if (firstContentIndex === -1) return heading.bodyStartLine
   const firstContent = lines[firstContentIndex]?.trim()
@@ -459,7 +479,9 @@ const resolveNewTaskPlacement = ({
       bodyLines,
       bodyStartLine,
     })
-    const nearestHeading = headings.findLast((headingInfo) => headingInfo.startLine < parentLineIndex)
+    const nearestHeading = headings.findLast(
+      (headingInfo) => headingInfo.startLine < parentLineIndex,
+    )
     return {
       insertAt: findTaskBlockEnd(bodyLines, parentLineIndex),
       indent: subtaskIndentUnder({ lines: bodyLines, parentLineIndex }),
@@ -590,7 +612,9 @@ const moveTaskBlock = ({
   const linesWithoutBlock = lines.toSpliced(taskLineIndex, taskBlockEnd - taskLineIndex)
 
   // Heading positions shift once the block is gone — re-parse before placing
-  const headingAfterRemoval = parseHeadings(linesWithoutBlock).find((heading) => heading.text === targetLane)
+  const headingAfterRemoval = parseHeadings(linesWithoutBlock).find(
+    (heading) => heading.text === targetLane,
+  )
 
   if (!headingAfterRemoval) {
     throw new Error(`heading "${targetLane}" not found after line removal`)
@@ -687,7 +711,8 @@ const resolveRecurrenceSpawn = ({
 }): RecurrenceSpawn => {
   if (status !== "done") return { kind: "none" }
 
-  const wasAlreadyDone = taskBefore.status === "done" || config.doneStatusSymbols.includes(taskBefore.statusChar)
+  const wasAlreadyDone =
+    taskBefore.status === "done" || config.doneStatusSymbols.includes(taskBefore.statusChar)
 
   if (wasAlreadyDone) return { kind: "none" }
 
@@ -753,12 +778,15 @@ const spawnIndexAfterSplices = ({
   subtaskAppend?: { insertIndex: number; lineCount: number } | undefined
 }): number => {
   const indexAfterRemoval =
-    !doneLaneMove || spawnIndex < doneLaneMove.moveStart ? spawnIndex : spawnIndex - doneLaneMove.movedBlockLength
+    !doneLaneMove || spawnIndex < doneLaneMove.moveStart
+      ? spawnIndex
+      : spawnIndex - doneLaneMove.movedBlockLength
   const doneLaneInsertShift =
     doneLaneMove && doneLaneMove.insertAt <= indexAfterRemoval ? doneLaneMove.movedBlockLength : 0
   const indexAfterMove = indexAfterRemoval + doneLaneInsertShift
 
-  const subtaskAppendShift = subtaskAppend && subtaskAppend.insertIndex <= indexAfterMove ? subtaskAppend.lineCount : 0
+  const subtaskAppendShift =
+    subtaskAppend && subtaskAppend.insertIndex <= indexAfterMove ? subtaskAppend.lineCount : 0
   return indexAfterMove + subtaskAppendShift
 }
 
@@ -776,13 +804,18 @@ const buildNextOccurrencePosition = ({
   line: bodyStartLine + spawnIndex + 1,
   description: tasks.describeTaskLine(recurrenceSpawn.spawnedLine),
   ...(recurrenceSpawn.nextDates.dueDate ? { due: recurrenceSpawn.nextDates.dueDate } : {}),
-  ...(recurrenceSpawn.nextDates.scheduledDate ? { scheduled: recurrenceSpawn.nextDates.scheduledDate } : {}),
+  ...(recurrenceSpawn.nextDates.scheduledDate
+    ? { scheduled: recurrenceSpawn.nextDates.scheduledDate }
+    : {}),
   ...(recurrenceSpawn.nextDates.startDate ? { start: recurrenceSpawn.nextDates.startDate } : {}),
 })
 
 /** Detects the done lane for auto-completion: checks for **Complete**
  *  markers first, falls back to a heading named "Done". */
-const detectDoneLane = (bodyLines: readonly string[], headings: ReturnType<typeof parseHeadings>): string => {
+const detectDoneLane = (
+  bodyLines: readonly string[],
+  headings: ReturnType<typeof parseHeadings>,
+): string => {
   const doneLanes = tasks.extractDoneLanes(bodyLines, headings)
 
   if (doneLanes.length > 1) {
@@ -805,9 +838,15 @@ const detectDoneLane = (bodyLines: readonly string[], headings: ReturnType<typeo
 }
 
 /** Validates a block_id: grammar check + uniqueness within the note. */
-const validateBlockId = (blockId: string, bodyLines: readonly string[], excludeLineIndex?: number): void => {
+const validateBlockId = (
+  blockId: string,
+  bodyLines: readonly string[],
+  excludeLineIndex?: number,
+): void => {
   if (!BLOCK_ID_RE.test(blockId)) {
-    throw new Error(`blockId "${blockId}" contains invalid characters (allowed: letters, digits, hyphens)`)
+    throw new Error(
+      `blockId "${blockId}" contains invalid characters (allowed: letters, digits, hyphens)`,
+    )
   }
   // trimEnd: a hard break's trailing spaces must not hide an existing
   // block link — an invisible duplicate would win every later id lookup.
@@ -831,7 +870,9 @@ const assertTaskIdGrammar = ({
   dependsOn: readonly string[] | null | undefined
 }): void => {
   if (taskId && !tasks.isTaskId(taskId)) {
-    throw new Error(`taskId "${taskId}" contains invalid characters (allowed: letters, digits, hyphens, underscores)`)
+    throw new Error(
+      `taskId "${taskId}" contains invalid characters (allowed: letters, digits, hyphens, underscores)`,
+    )
   }
   const invalidDependency = dependsOn?.find((dependencyId) => !tasks.isTaskId(dependencyId))
 
@@ -1062,7 +1103,9 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
     ]
 
     const subtaskIndent = `${indent}  `
-    const subtaskLines = (subtasks ?? []).map((subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`)
+    const subtaskLines = (subtasks ?? []).map(
+      (subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`,
+    )
     const changes =
       subtaskLines.length > 0
         ? [
@@ -1251,7 +1294,9 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // A sub-task's placement is its parent's — an explicit heading has
     // nothing to move.
     if (targetHeadingParam && isSubtask) {
-      throw new Error("cannot move a sub-task to a heading — the parent's heading determines placement")
+      throw new Error(
+        "cannot move a sub-task to a heading — the parent's heading determines placement",
+      )
     }
     if (newBlockId) {
       validateBlockId(newBlockId, bodyLines, taskLineIndex)
@@ -1420,7 +1465,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       ...(newDescription !== undefined
         ? [
             {
-              apply: (taskLine: string) => tasks.replaceTaskLineDescription({ taskLine, newDescription }),
+              apply: (taskLine: string) =>
+                tasks.replaceTaskLineDescription({ taskLine, newDescription }),
               // The after-value previews the swap on the ORIGINAL line. The
               // field edits above never move the description/metadata
               // boundary (the old description is still in place while they
@@ -1492,11 +1538,14 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
         ? linesWithEdits.toSpliced(spawnInsertIndex, 0, recurrenceSpawn.spawnedLine)
         : linesWithEdits
     const completedIndexAfterSpawn =
-      recurrenceSpawn.kind === "spawn" && !formatConfig.recurrenceOnNextLine ? taskLineIndex + 1 : taskLineIndex
+      recurrenceSpawn.kind === "spawn" && !formatConfig.recurrenceOnNextLine
+        ? taskLineIndex + 1
+        : taskLineIndex
 
     // The spawn insert shifts every heading below it by one line — the lane
     // move must see re-parsed positions or it lands on a stale boundary.
-    const headingsAfterSpawn = recurrenceSpawn.kind === "spawn" ? parseHeadings(linesWithSpawn) : headings
+    const headingsAfterSpawn =
+      recurrenceSpawn.kind === "spawn" ? parseHeadings(linesWithSpawn) : headings
 
     const roundTripAndSubtaskAdvisories = [
       ...roundTripAdvisories({
@@ -1534,7 +1583,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // When onCompletion is submitted in the same call, the submitted
     // value takes precedence — setting "keep" while completing a "delete"
     // task must not delete the task.
-    const effectiveOnCompletion = onCompletion !== undefined ? onCompletion : taskBefore.onCompletion
+    const effectiveOnCompletion =
+      onCompletion !== undefined ? onCompletion : taskBefore.onCompletion
     const shouldDeleteOnCompletion =
       status === "done" &&
       taskBefore.status !== "done" &&
@@ -1586,7 +1636,9 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       const serialized = stringifyNote(resultLines.join("\n"), parsed.data)
       await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
 
-      const headingBefore = headingsAfterSpawn.findLast((heading) => heading.startLine < completedIndexAfterSpawn)
+      const headingBefore = headingsAfterSpawn.findLast(
+        (heading) => heading.startLine < completedIndexAfterSpawn,
+      )
 
       logger.info("task deleted on completion", {
         path,
@@ -1616,7 +1668,9 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // Heading move — an explicit heading, or the done lane when completing
     // a top-level card on a Kanban board.
     const autoDoneLane = !targetHeadingParam && status === "done" && isKanbanBoard && !isSubtask
-    const targetLane = autoDoneLane ? detectDoneLane(linesWithSpawn, headingsAfterSpawn) : targetHeadingParam
+    const targetLane = autoDoneLane
+      ? detectDoneLane(linesWithSpawn, headingsAfterSpawn)
+      : targetHeadingParam
     const moved = targetLane
       ? moveTaskBlock({
           lines: linesWithSpawn,
@@ -1705,7 +1759,9 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // Trimmed-end per BLOCK_LINK_RE's contract: a heading-only move splices
     // the raw line, and a trailing hard break would hide the anchored match.
     const finalBlockId = tasks.BLOCK_LINK_RE.exec(finalTaskLine.trimEnd())?.[1]
-    const finalHeading = parseHeadings(resultLines).findLast((heading) => heading.startLine < finalTaskIndex)
+    const finalHeading = parseHeadings(resultLines).findLast(
+      (heading) => heading.startLine < finalTaskIndex,
+    )
 
     logger.info("task updated", {
       path,

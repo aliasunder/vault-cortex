@@ -23,8 +23,10 @@ const textNode = (
   ...overrides,
 })
 
-const canvasJson = (nodes: Record<string, unknown>[], edges: Record<string, unknown>[] = []): string =>
-  JSON.stringify({ nodes, edges })
+const canvasJson = (
+  nodes: Record<string, unknown>[],
+  edges: Record<string, unknown>[] = [],
+): string => JSON.stringify({ nodes, edges })
 
 describe("linearizeCanvas", () => {
   it("renders ungrouped text, file, and link nodes with their content", () => {
@@ -66,7 +68,9 @@ describe("linearizeCanvas", () => {
       textNode({ id: "top-left", x: 0, y: 0, text: "first" }),
     ])
     expect(linearizeCanvas(json)).toBe(
-      ["# Canvas: 3 nodes, 0 edges", "[text]\nfirst", "[text]\nsecond", "[text]\nthird"].join("\n\n"),
+      ["# Canvas: 3 nodes, 0 edges", "[text]\nfirst", "[text]\nsecond", "[text]\nthird"].join(
+        "\n\n",
+      ),
     )
   })
 
@@ -93,7 +97,12 @@ describe("linearizeCanvas", () => {
       textNode({ id: "member", x: 20, y: 20, text: "in the inner group" }),
     ])
     expect(linearizeCanvas(json)).toBe(
-      ["# Canvas: 3 nodes, 0 edges", "## Group: Outer", "### Group: Inner", "[text]\nin the inner group"].join("\n\n"),
+      [
+        "# Canvas: 3 nodes, 0 edges",
+        "## Group: Outer",
+        "### Group: Inner",
+        "[text]\nin the inner group",
+      ].join("\n\n"),
     )
   })
 
@@ -111,7 +120,9 @@ describe("linearizeCanvas", () => {
       // Straddles the group's right edge — overlap without containment.
       textNode({ id: "straddler", x: 250, y: 10, width: 200, text: "outside" }),
     ])
-    expect(linearizeCanvas(json)).toBe(["# Canvas: 2 nodes, 0 edges", "[text]\noutside", "## Group: Box"].join("\n\n"))
+    expect(linearizeCanvas(json)).toBe(
+      ["# Canvas: 2 nodes, 0 edges", "[text]\noutside", "## Group: Box"].join("\n\n"),
+    )
   })
 
   it("resolves edge endpoints to display names with the edge label appended", () => {
@@ -141,9 +152,16 @@ describe("linearizeCanvas", () => {
   })
 
   it("marks a dangling edge endpoint instead of throwing", () => {
-    const json = canvasJson([textNode({ id: "a", text: "alone" })], [{ id: "e1", fromNode: "a", toNode: "ghost" }])
+    const json = canvasJson(
+      [textNode({ id: "a", text: "alone" })],
+      [{ id: "e1", fromNode: "a", toNode: "ghost" }],
+    )
     expect(linearizeCanvas(json)).toBe(
-      ["# Canvas: 1 node, 1 edge", "[text]\nalone", '## Connections\n\nalone → (missing node "ghost")'].join("\n\n"),
+      [
+        "# Canvas: 1 node, 1 edge",
+        "[text]\nalone",
+        '## Connections\n\nalone → (missing node "ghost")',
+      ].join("\n\n"),
     )
   })
 
@@ -160,7 +178,9 @@ describe("linearizeCanvas", () => {
         subpath: "#Goals",
       },
     ])
-    expect(linearizeCanvas(json)).toBe(["# Canvas: 1 node, 0 edges", "[file] → Notes/Plan.md#Goals"].join("\n\n"))
+    expect(linearizeCanvas(json)).toBe(
+      ["# Canvas: 1 node, 0 edges", "[file] → Notes/Plan.md#Goals"].join("\n\n"),
+    )
   })
 
   it("skips entries missing required fields and ignores unknown properties", () => {
@@ -207,7 +227,12 @@ describe("linearizeCanvas", () => {
       textNode({ id: "member", x: 10, y: 10, text: "inside both" }),
     ])
     expect(linearizeCanvas(json)).toBe(
-      ["# Canvas: 3 nodes, 0 edges", "## Group: Beta", "### Group: Alpha", "[text]\ninside both"].join("\n\n"),
+      [
+        "# Canvas: 3 nodes, 0 edges",
+        "## Group: Beta",
+        "### Group: Alpha",
+        "[text]\ninside both",
+      ].join("\n\n"),
     )
   })
 
@@ -236,7 +261,12 @@ describe("linearizeCanvas", () => {
       textNode({ id: "member", x: 10, y: 10, text: "inside both" }),
     ])
     expect(linearizeCanvas(json)).toBe(
-      ["# Canvas: 3 nodes, 0 edges", "## Group: Beta", "### Group: Alpha", "[text]\ninside both"].join("\n\n"),
+      [
+        "# Canvas: 3 nodes, 0 edges",
+        "## Group: Beta",
+        "### Group: Alpha",
+        "[text]\ninside both",
+      ].join("\n\n"),
     )
   })
 
@@ -244,7 +274,10 @@ describe("linearizeCanvas", () => {
     // Only ATX headings (hashes followed by whitespace) lose their hashes;
     // "#project" is a tag, not a heading.
     const json = canvasJson(
-      [textNode({ id: "a", text: "#project tracking" }), textNode({ id: "b", x: 300, text: "## Roadmap" })],
+      [
+        textNode({ id: "a", text: "#project tracking" }),
+        textNode({ id: "b", x: 300, text: "## Roadmap" }),
+      ],
       [{ id: "e1", fromNode: "a", toNode: "b" }],
     )
     expect(linearizeCanvas(json)).toBe(
@@ -333,7 +366,10 @@ describe("extractCanvasFileLinks", () => {
   })
 
   it("returns empty array for a text-only canvas", () => {
-    const json = canvasJson([textNode({ id: "t1", text: "just text" }), textNode({ id: "t2", text: "more text" })])
+    const json = canvasJson([
+      textNode({ id: "t1", text: "just text" }),
+      textNode({ id: "t2", text: "more text" }),
+    ])
 
     expect(extractCanvasFileLinks(json)).toEqual([])
   })

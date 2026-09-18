@@ -42,12 +42,17 @@ const parseJsonOrNull = (content: string): unknown => {
 /** True when the snapshot's marker records the same vault and exclusion
  *  lists — false for a marker from before provenance was recorded, or one
  *  written by hand. Order within the exclusion lists does not matter. */
-export const snapshotMatchesProvenance = (snapshotDir: string, expected: SnapshotProvenance): boolean => {
+export const snapshotMatchesProvenance = (
+  snapshotDir: string,
+  expected: SnapshotProvenance,
+): boolean => {
   const markerPath = join(snapshotDir, SNAPSHOT_MARKER)
 
   if (!existsSync(markerPath)) return false
 
-  const parsedMarker = snapshotProvenanceSchema.safeParse(parseJsonOrNull(readFileSync(markerPath, "utf8")))
+  const parsedMarker = snapshotProvenanceSchema.safeParse(
+    parseJsonOrNull(readFileSync(markerPath, "utf8")),
+  )
 
   if (!parsedMarker.success) return false
 
@@ -71,7 +76,9 @@ export const createVaultSnapshot = (params: {
   const vaultRoot = resolve(params.vaultPath)
   // Exclusion comparisons are case-folded so a hand-authored exclusion
   // still matches on a case-insensitive vault mount (macOS/Windows).
-  const excludedExactPaths = new Set(params.excludePaths.map((path) => caseFoldPath(resolve(vaultRoot, path))))
+  const excludedExactPaths = new Set(
+    params.excludePaths.map((path) => caseFoldPath(resolve(vaultRoot, path))),
+  )
   // resolve() strips trailing slashes, so append sep — without it,
   // prefix "sessions" also matches sibling "sessions-archive.md".
   const excludedPrefixes = params.excludePrefixes.map((prefix) => {
@@ -79,7 +86,8 @@ export const createVaultSnapshot = (params: {
     return resolved.endsWith(sep) ? resolved : resolved + sep
   })
 
-  const isForeignDirectory = existsSync(params.snapshotDir) && !isHarnessSnapshot(params.snapshotDir)
+  const isForeignDirectory =
+    existsSync(params.snapshotDir) && !isHarnessSnapshot(params.snapshotDir)
 
   if (isForeignDirectory) {
     throw new Error(

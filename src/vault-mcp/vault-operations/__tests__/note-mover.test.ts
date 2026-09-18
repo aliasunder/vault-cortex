@@ -296,7 +296,9 @@ describe("moveNote — link rewriting forms", () => {
     // folder; the relative asset link stays unchanged because no asset file
     // exists in this fixture — the link is unresolved, so moveNote leaves
     // it alone.
-    expect(await readNote("C/Deep/Draft.md")).toBe("![img](../assets/photo.png) and [sib](../../A/Sibling.md).\n")
+    expect(await readNote("C/Deep/Draft.md")).toBe(
+      "![img](../assets/photo.png) and [sib](../../A/Sibling.md).\n",
+    )
     expect(result.links_updated).toBe(1)
   })
 
@@ -318,7 +320,9 @@ describe("moveNote — link rewriting forms", () => {
   it("rewrites a wikilink with an escaped pipe in a table cell", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
-    const table = ["| Link | Topic |", "| --- | --- |", "| [[Foo\\|display]] | A topic |"].join("\n")
+    const table = ["| Link | Topic |", "| --- | --- |", "| [[Foo\\|display]] | A topic |"].join(
+      "\n",
+    )
     await writeFixture("Hub.md", `${table}\n`)
 
     const result = await moveNote({
@@ -327,7 +331,9 @@ describe("moveNote — link rewriting forms", () => {
       backlinkSources: ["Hub.md"],
     })
 
-    const expected = ["| Link | Topic |", "| --- | --- |", "| [[Bar\\|display]] | A topic |"].join("\n")
+    const expected = ["| Link | Topic |", "| --- | --- |", "| [[Bar\\|display]] | A topic |"].join(
+      "\n",
+    )
     expect(await readNote("Hub.md")).toBe(`${expected}\n`)
     expect(result.links_updated).toBe(1)
   })
@@ -377,7 +383,9 @@ describe("moveNote — link rewriting forms", () => {
   it("preserves a heading anchor adjacent to an escaped pipe during rewrite", async () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
-    const table = ["| Link | Topic |", "| --- | --- |", "| [[Foo#Setup\\|link]] | A topic |"].join("\n")
+    const table = ["| Link | Topic |", "| --- | --- |", "| [[Foo#Setup\\|link]] | A topic |"].join(
+      "\n",
+    )
     await writeFixture("Hub.md", `${table}\n`)
 
     const result = await moveNote({
@@ -386,7 +394,11 @@ describe("moveNote — link rewriting forms", () => {
       backlinkSources: ["Hub.md"],
     })
 
-    const expected = ["| Link | Topic |", "| --- | --- |", "| [[Bar#Setup\\|link]] | A topic |"].join("\n")
+    const expected = [
+      "| Link | Topic |",
+      "| --- | --- |",
+      "| [[Bar#Setup\\|link]] | A topic |",
+    ].join("\n")
     expect(await readNote("Hub.md")).toBe(`${expected}\n`)
     expect(result.links_updated).toBe(1)
   })
@@ -472,7 +484,9 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
       backlinkSources: ["Hub.md"],
     })
 
-    expect(await readNote("Hub.md")).toBe("Real link [[Bar]].\n\n```\nExample: [[Foo]] in code\n```\n")
+    expect(await readNote("Hub.md")).toBe(
+      "Real link [[Bar]].\n\n```\nExample: [[Foo]] in code\n```\n",
+    )
     expect(result.links_updated).toBe(1)
   })
 
@@ -522,7 +536,9 @@ describe("moveNote — selectivity (must-not-rewrite cases)", () => {
     const { writeFixture, moveNote, readNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
     await writeFixture("NotMoved.md", "other\n")
-    const table = ["| Link | Topic |", "| --- | --- |", "| [[NotMoved\\|alias]] | A topic |"].join("\n")
+    const table = ["| Link | Topic |", "| --- | --- |", "| [[NotMoved\\|alias]] | A topic |"].join(
+      "\n",
+    )
     const original = `${table}\n`
     await writeFixture("Hub.md", original)
 
@@ -750,7 +766,9 @@ describe("moveNote — asset link rewriting", () => {
       newPath: "Notes/Sub/Note.md",
     })
 
-    expect(await readNote("Notes/Sub/Note.md")).toBe('---\nbanner: "![[../../assets/photo.png]]"\n---\nBody\n')
+    expect(await readNote("Notes/Sub/Note.md")).toBe(
+      '---\nbanner: "![[../../assets/photo.png]]"\n---\nBody\n',
+    )
     expect(result.links_updated).toBe(1)
   })
 })
@@ -812,7 +830,9 @@ describe("moveNote — guards", () => {
     await writeFixture("Foo.md", "content\n")
     await writeFixture("Bar.md", "occupied\n")
 
-    await expect(moveNote({ oldPath: "Foo.md", newPath: "Bar.md" })).rejects.toThrow('destination exists: "Bar.md"')
+    await expect(moveNote({ oldPath: "Foo.md", newPath: "Bar.md" })).rejects.toThrow(
+      'destination exists: "Bar.md"',
+    )
     // The existing destination is left untouched.
     expect(await readNote("Bar.md")).toBe("occupied\n")
     expect(await readNote("Foo.md")).toBe("content\n")
@@ -820,7 +840,9 @@ describe("moveNote — guards", () => {
 
   it("throws when the source note does not exist", async () => {
     const { moveNote } = setupVault()
-    await expect(moveNote({ oldPath: "Missing.md", newPath: "Bar.md" })).rejects.toThrow('note not found: "Missing.md"')
+    await expect(moveNote({ oldPath: "Missing.md", newPath: "Bar.md" })).rejects.toThrow(
+      'note not found: "Missing.md"',
+    )
   })
 
   it("throws when the source is under a protected path", async () => {
@@ -848,9 +870,9 @@ describe("moveNote — guards", () => {
     await writeFixture("Foo.md", "content\n")
 
     // Normalizes to "Daily Notes/Foo.md", which must not slip past the guard.
-    await expect(moveNote({ oldPath: "Foo.md", newPath: "Inbox/../Daily Notes/Foo.md" })).rejects.toThrow(
-      'cannot move into protected path "Daily Notes/Foo.md"',
-    )
+    await expect(
+      moveNote({ oldPath: "Foo.md", newPath: "Inbox/../Daily Notes/Foo.md" }),
+    ).rejects.toThrow('cannot move into protected path "Daily Notes/Foo.md"')
     expect(await noteExists("Foo.md")).toBe(true)
     expect(await noteExists("Daily Notes/Foo.md")).toBe(false)
   })
@@ -861,9 +883,9 @@ describe("moveNote — guards", () => {
     const { vault, writeFixture, moveNote, noteExists } = setupVault()
     await writeFixture("About Me/Me.md", "memory\n")
 
-    await expect(moveNote({ oldPath: `${vault}/About Me/Me.md`, newPath: "Bar.md" })).rejects.toThrow(
-      `absolute path blocked: "${vault}/About Me/Me.md" must be vault-relative`,
-    )
+    await expect(
+      moveNote({ oldPath: `${vault}/About Me/Me.md`, newPath: "Bar.md" }),
+    ).rejects.toThrow(`absolute path blocked: "${vault}/About Me/Me.md" must be vault-relative`)
     expect(await noteExists("About Me/Me.md")).toBe(true)
     expect(await noteExists("Bar.md")).toBe(false)
   })
@@ -872,9 +894,9 @@ describe("moveNote — guards", () => {
     const { vault, writeFixture, moveNote, noteExists } = setupVault()
     await writeFixture("Foo.md", "content\n")
 
-    await expect(moveNote({ oldPath: "Foo.md", newPath: `${vault}/About Me/Foo.md` })).rejects.toThrow(
-      `absolute path blocked: "${vault}/About Me/Foo.md" must be vault-relative`,
-    )
+    await expect(
+      moveNote({ oldPath: "Foo.md", newPath: `${vault}/About Me/Foo.md` }),
+    ).rejects.toThrow(`absolute path blocked: "${vault}/About Me/Foo.md" must be vault-relative`)
     expect(await noteExists("Foo.md")).toBe(true)
     expect(await noteExists("About Me/Foo.md")).toBe(false)
   })
@@ -958,9 +980,9 @@ describe("moveNote — guards", () => {
     await writeFixture("Projects/todo.md", "content\n")
     if (await noteExists("projects/todo.md")) testContext.skip()
 
-    await expect(moveNote({ oldPath: "projects/todo.md", newPath: "Archive/done.md" })).rejects.toThrow(
-      'note not found: "projects/todo.md"',
-    )
+    await expect(
+      moveNote({ oldPath: "projects/todo.md", newPath: "Archive/done.md" }),
+    ).rejects.toThrow('note not found: "projects/todo.md"')
     expect(await noteExists("Projects/todo.md")).toBe(true)
   })
 
@@ -973,7 +995,8 @@ describe("moveNote — guards", () => {
     await writeFixture("Projects/todo.md", "content\n")
     await writeFixture("Hub.md", "Links [[todo]].\n")
 
-    const actualFs = await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+    const actualFs =
+      await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
     const aliasedFullPath = join(vault, "projects/todo.md")
     const realFullPath = join(vault, "Projects/todo.md")
     vi.mocked(statOrNull).mockImplementation((path) => {
@@ -1008,7 +1031,8 @@ describe("moveNote — guards", () => {
     await writeFixture("Projects/todo.md", "sibling content\n")
     await writeFixture("Hub.md", "Links [[todo]].\n")
 
-    const actualFs = await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+    const actualFs =
+      await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
     const aliasedFullPath = join(vault, "projects/todo.md")
     const distinctFilePath = join(vault, "Hub.md")
     vi.mocked(statOrNull).mockImplementation((path) => {
@@ -1024,9 +1048,9 @@ describe("moveNote — guards", () => {
       vi.mocked(fileExists).mockRestore()
     })
 
-    await expect(moveNote({ oldPath: "projects/todo.md", newPath: "Archive/done.md" })).rejects.toThrow(
-      'note not found: "projects/todo.md"',
-    )
+    await expect(
+      moveNote({ oldPath: "projects/todo.md", newPath: "Archive/done.md" }),
+    ).rejects.toThrow('note not found: "projects/todo.md"')
     expect(await readNote("Projects/todo.md")).toBe("sibling content\n")
     expect(await noteExists("Archive/done.md")).toBe(false)
   })
@@ -1037,7 +1061,8 @@ describe("moveNote — guards", () => {
     const lowercaseFullPath = join(vault, "foo.md")
     const realFullPath = join(vault, "Foo.md")
     vi.mocked(statOrNull).mockImplementation(async (path) => {
-      const actualFs = await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+      const actualFs =
+        await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
 
       if (path === lowercaseFullPath) return actualFs.statOrNull(realFullPath)
       return actualFs.statOrNull(path)
@@ -1097,7 +1122,8 @@ describe("moveNote — guards", () => {
       if (source === oldFullPath && destination === newFullPath) {
         throw new Error("EACCES: permission denied")
       }
-      const actualFsPromises = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+      const actualFsPromises =
+        await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
       return actualFsPromises.rename(source, destination)
     })
     onTestFinished(() => vi.mocked(rename).mockRestore())
@@ -1179,7 +1205,9 @@ describe("moveNote — guards", () => {
     const { writeFixture, moveNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
 
-    await expect(moveNote({ oldPath: "Foo.md", newPath: "../escape.md" })).rejects.toThrow("path traversal blocked")
+    await expect(moveNote({ oldPath: "Foo.md", newPath: "../escape.md" })).rejects.toThrow(
+      "path traversal blocked",
+    )
   })
 })
 
@@ -1198,7 +1226,9 @@ describe("moveNote — failure safety", () => {
         newPath: "Bar.md",
         backlinkSources: ["Hub.md", "Ghost.md"],
       }),
-    ).rejects.toThrow('move aborted: could not read backlink source "Ghost.md". Nothing was written.')
+    ).rejects.toThrow(
+      'move aborted: could not read backlink source "Ghost.md". Nothing was written.',
+    )
 
     expect(await noteExists("Foo.md")).toBe(true)
     expect(await noteExists("Bar.md")).toBe(false)
@@ -1219,7 +1249,9 @@ describe("moveNote — failure safety", () => {
         newPath: "Bar.md",
         backlinkSources: ["Hub.md", "../escape.md"],
       }),
-    ).rejects.toThrow('move aborted: could not resolve backlink source "../escape.md". Nothing was written.')
+    ).rejects.toThrow(
+      'move aborted: could not resolve backlink source "../escape.md". Nothing was written.',
+    )
 
     expect(await noteExists("Foo.md")).toBe(true)
     expect(await noteExists("Bar.md")).toBe(false)
@@ -1236,7 +1268,9 @@ describe("moveNote — failure safety", () => {
         newPath: "Bar.md",
         backlinkSources: ["../escape.md"],
       }),
-    ).rejects.toThrow('move aborted: could not resolve backlink source "../escape.md". Nothing was written.')
+    ).rejects.toThrow(
+      'move aborted: could not resolve backlink source "../escape.md". Nothing was written.',
+    )
 
     expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
       "note move aborted: could not resolve a backlink source path",
@@ -1259,7 +1293,9 @@ describe("moveNote — failure safety", () => {
         newPath: "Bar.md",
         backlinkSources: ["Hub.md", "Ghost.md"],
       }),
-    ).rejects.toThrow('move aborted: could not read backlink source "Ghost.md". Nothing was written.')
+    ).rejects.toThrow(
+      'move aborted: could not read backlink source "Ghost.md". Nothing was written.',
+    )
 
     expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
       "note move aborted: could not read/plan a backlink source",
@@ -1531,9 +1567,9 @@ describe("moveNote — concurrent write locking", () => {
       allNotePaths,
     })
 
-    await expect(vaultFs.writeNote({ vaultPath: vault, path: "Bar.md", body: "squatter" }, logger)).rejects.toThrow(
-      "concurrent write in progress",
-    )
+    await expect(
+      vaultFs.writeNote({ vaultPath: vault, path: "Bar.md", body: "squatter" }, logger),
+    ).rejects.toThrow("concurrent write in progress")
 
     await movePromise
     expect(await readNote("Bar.md")).toBe("content\n")
@@ -1643,7 +1679,10 @@ describe("moveNote — concurrent write locking", () => {
 
     // Every path the move locked (old path, destination, backlink source)
     // accepts writes again.
-    await vaultFs.writeNote({ vaultPath: vault, path: "Foo.md", body: "recreated after move" }, logger)
+    await vaultFs.writeNote(
+      { vaultPath: vault, path: "Foo.md", body: "recreated after move" },
+      logger,
+    )
     await vaultFs.writeNote(
       {
         vaultPath: vault,
@@ -1778,9 +1817,9 @@ describe("moveNote — hidden paths", () => {
   it("rejects a hidden new_path and leaves the source note in place", async () => {
     const { writeFixture, moveNote, noteExists, readNote } = setupVault()
     await writeFixture("Visible.md", "# Visible\n")
-    await expect(moveNote({ oldPath: "Visible.md", newPath: ".obsidian/hidden.md" })).rejects.toThrow(
-      'hidden path blocked: ".obsidian/hidden.md" targets a hidden file or folder',
-    )
+    await expect(
+      moveNote({ oldPath: "Visible.md", newPath: ".obsidian/hidden.md" }),
+    ).rejects.toThrow('hidden path blocked: ".obsidian/hidden.md" targets a hidden file or folder')
     expect(await noteExists("Visible.md")).toBe(true)
     expect(await readNote("Visible.md")).toBe("# Visible\n")
   })

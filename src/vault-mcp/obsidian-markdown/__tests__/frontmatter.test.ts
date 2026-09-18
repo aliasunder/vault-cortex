@@ -144,7 +144,9 @@ describe("stringifyNote", () => {
     // gray-matter's string form re-parses the body and consumes an
     // HR-leading body as an unclosed fence, erasing it — the object
     // form passed by stringifyNote must keep it verbatim
-    expect(stringifyNote("---\nrest of body\n", { title: "x" })).toBe("---\ntitle: x\n---\n---\nrest of body\n")
+    expect(stringifyNote("---\nrest of body\n", { title: "x" })).toBe(
+      "---\ntitle: x\n---\n---\nrest of body\n",
+    )
   })
 
   it("wraps an ordinary body", () => {
@@ -168,11 +170,16 @@ describe("stringifyNote", () => {
 
 describe("mergeFrontmatter", () => {
   it("adds new keys and overwrites matching ones", () => {
-    expect(mergeFrontmatter({ title: "old", type: "note" }, { title: "new" })).toEqual({ title: "new", type: "note" })
+    expect(mergeFrontmatter({ title: "old", type: "note" }, { title: "new" })).toEqual({
+      title: "new",
+      type: "note",
+    })
   })
 
   it("removes keys explicitly set to null in updates", () => {
-    expect(mergeFrontmatter({ title: "old", draft: true }, { draft: null })).toEqual({ title: "old" })
+    expect(mergeFrontmatter({ title: "old", draft: true }, { draft: null })).toEqual({
+      title: "old",
+    })
   })
 
   it("preserves nulls already present in existing frontmatter", () => {

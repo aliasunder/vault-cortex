@@ -351,7 +351,10 @@ describe("patchEnvObsidianToken", () => {
   it("replaces an existing token value", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
     const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old-token\nVAULT_NAME=MyVault\n")
+    writeFileSync(
+      envPath,
+      "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old-token\nVAULT_NAME=MyVault\n",
+    )
 
     const result = patchEnvObsidianToken(envPath, "new-token")
 
@@ -403,7 +406,8 @@ describe("patchEnvObsidianToken", () => {
   it("preserves surrounding content when patching", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
     const envPath = join(targetDir, ".env")
-    const original = "# Comment\nMCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old\nVAULT_NAME=Test\n# Footer\n"
+    const original =
+      "# Comment\nMCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old\nVAULT_NAME=Test\n# Footer\n"
     writeFileSync(envPath, original)
 
     patchEnvObsidianToken(envPath, "new")
@@ -491,7 +495,9 @@ describe("stripEnvQuotedValues", () => {
     writeFileSync(envPath, 'VAULT_NAME="My Vault"\nSYNC_EXCLUDED_FOLDERS="Folder A,Folder B"\n')
 
     expect(stripEnvQuotedValues(envPath)).toBe(true)
-    expect(readFileSync(envPath, "utf8")).toBe("VAULT_NAME=My Vault\nSYNC_EXCLUDED_FOLDERS=Folder A,Folder B\n")
+    expect(readFileSync(envPath, "utf8")).toBe(
+      "VAULT_NAME=My Vault\nSYNC_EXCLUDED_FOLDERS=Folder A,Folder B\n",
+    )
   })
 
   it("preserves comments and unquoted values", () => {

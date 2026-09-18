@@ -107,7 +107,8 @@ ${body}
 </body>
 </html>`
 
-const errorBox = (error: string | undefined): string => (error ? `<div class="error">${escapeHtml(error)}</div>` : "")
+const errorBox = (error: string | undefined): string =>
+  error ? `<div class="error">${escapeHtml(error)}</div>` : ""
 
 const tokenField = (settingsLocationPhrase: string): string => `<div class="field">
     <label class="label" for="token">MCP token</label>
@@ -214,7 +215,11 @@ const underivableKeyCopy = ({
   <p>${remedy}</p>`
 }
 
-const renderBlocked = ({ accountEmail, problem, hostingPlatform }: Extract<SetupView, { kind: "blocked" }>): string =>
+const renderBlocked = ({
+  accountEmail,
+  problem,
+  hostingPlatform,
+}: Extract<SetupView, { kind: "blocked" }>): string =>
   shell(
     "One more setting",
     `<h1>One more setting</h1>
@@ -227,7 +232,10 @@ const renderBlocked = ({ accountEmail, problem, hostingPlatform }: Extract<Setup
  *  in the body), tolerating the connection failures of the restart. */
 const COMPLETE_SCRIPT = `(function(){function ready(){document.getElementById('waiting').hidden=true;document.getElementById('ready').hidden=false}function poll(){fetch('/healthz',{cache:'no-store'}).then(function(r){return r.ok?r.json():null}).then(function(b){if(b&&b.mode!=='setup'){ready();return}setTimeout(poll,5000)}).catch(function(){setTimeout(poll,5000)})}setTimeout(poll,5000)})();`
 
-const renderComplete = ({ accountEmail, mcpUrl }: Extract<SetupView, { kind: "complete" }>): string =>
+const renderComplete = ({
+  accountEmail,
+  mcpUrl,
+}: Extract<SetupView, { kind: "complete" }>): string =>
   shell(
     "Setup complete",
     `<h1>Setup complete</h1>

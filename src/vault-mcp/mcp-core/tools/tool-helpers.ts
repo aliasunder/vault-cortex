@@ -62,9 +62,17 @@ export const formatNoteMetadata = (meta: {
  *  vault_list_tasks' task date filters and vault_search's created/modified. */
 export const dateFilterSchema = z
   .object({
-    before: z.string().min(1).optional().describe("Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates"),
+    before: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Exclusive upper bound (YYYY-MM-DD) — strictly earlier dates"),
     on: z.string().min(1).optional().describe("Exact date match (YYYY-MM-DD)"),
-    after: z.string().min(1).optional().describe("Exclusive lower bound (YYYY-MM-DD) — strictly later dates"),
+    after: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Exclusive lower bound (YYYY-MM-DD) — strictly later dates"),
   })
   .optional()
 

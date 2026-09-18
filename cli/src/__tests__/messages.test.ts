@@ -83,7 +83,9 @@ describe("buildLocalConnectMessage", () => {
 
     // Bound to the start line specifically — the update-guidance block also
     // prints an npx command, so a bare command match could pass on that.
-    expect(message).toContain(`Start the server:\n  npx vault-cortex@latest start --dir "${localDefaults.targetDir}"`)
+    expect(message).toContain(
+      `Start the server:\n  npx vault-cortex@latest start --dir "${localDefaults.targetDir}"`,
+    )
   })
 
   it("displays the token on its own line when tokenWritten is true", () => {
@@ -266,7 +268,9 @@ describe("buildRemoteConnectMessage", () => {
 
     // Bound to the start line specifically — the update-guidance block also
     // prints an npx command, so a bare command match could pass on that.
-    expect(message).toContain(`Start the server:\n  npx vault-cortex@latest start --dir "${remoteDefaults.targetDir}"`)
+    expect(message).toContain(
+      `Start the server:\n  npx vault-cortex@latest start --dir "${remoteDefaults.targetDir}"`,
+    )
   })
 
   it("shows https guidance when publicUrl is https", () => {
@@ -362,7 +366,8 @@ describe("buildRemoteConnectMessage", () => {
     // localhost on the VPS, while the public URL exercises ingress — a
     // genuinely different check, so only the first-time framing goes.
     expect(message).toContain(
-      "Health check — works from any device that can reach the URL:\n" + "  curl https://vault.example.com/healthz",
+      "Health check — works from any device that can reach the URL:\n" +
+        "  curl https://vault.example.com/healthz",
     )
     expect(message).not.toContain("Smoke test:")
   })

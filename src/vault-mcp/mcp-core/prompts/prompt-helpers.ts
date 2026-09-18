@@ -22,7 +22,8 @@ const POSITIVE_INT_REGEX = /^[1-9]\d*$/
 
 /** Shared description for the optional max_chars argument on content-embedding
  *  prompts. Omitted by default, which embeds the full content. */
-const MAX_CHARS_DESCRIPTION = "Optional cap on embedded content length (characters); omit for full content"
+const MAX_CHARS_DESCRIPTION =
+  "Optional cap on embedded content length (characters); omit for full content"
 
 /** Reusable Zod schema for the max_chars prompt argument — shared by
  *  memory-review and daily-review. */
@@ -45,7 +46,11 @@ export const textResult = (text: string): GetPromptResult => ({
  *  passes a max (the max_chars argument) and the content exceeds it, truncate
  *  and append a marker pointing at the tool for the full content. When omitted
  *  (the default), content is returned in full — preserving review fidelity. */
-export const capContent = (text: string, maxChars: number | undefined, toolName: string | undefined): string =>
+export const capContent = (
+  text: string,
+  maxChars: number | undefined,
+  toolName: string | undefined,
+): string =>
   maxChars !== undefined && text.length > maxChars
     ? `${text.slice(0, maxChars)}\n\n…(truncated at ${maxChars} characters${toolName ? ` — use ${toolName} for the full content` : ""})`
     : text

@@ -2,7 +2,11 @@ import { describe, it, expect, onTestFinished } from "vitest"
 import { readFile, writeFile, mkdir, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { randomUUID } from "node:crypto"
-import { withFileLock, withExclusiveFileLock, withExclusiveMultiFileLock } from "../file-write-lock.js"
+import {
+  withFileLock,
+  withExclusiveFileLock,
+  withExclusiveMultiFileLock,
+} from "../file-write-lock.js"
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -160,7 +164,9 @@ describe("withExclusiveFileLock", () => {
     })
 
     // The second call should throw synchronously — no waiting.
-    expect(() => withExclusiveFileLock(filePath, async () => "second")).toThrow("concurrent write in progress")
+    expect(() => withExclusiveFileLock(filePath, async () => "second")).toThrow(
+      "concurrent write in progress",
+    )
 
     // The first write should still complete successfully.
     const result = await firstWrite
@@ -226,7 +232,9 @@ describe("withExclusiveFileLock", () => {
     })
 
     // The redundant path resolves to the same file — should fail.
-    expect(() => withExclusiveFileLock(redundantPath, async () => "second")).toThrow("concurrent write in progress")
+    expect(() => withExclusiveFileLock(redundantPath, async () => "second")).toThrow(
+      "concurrent write in progress",
+    )
 
     await firstWrite
   })
@@ -244,8 +252,12 @@ describe("withExclusiveMultiFileLock", () => {
       return "multi"
     })
 
-    expect(() => withExclusiveFileLock(pathA, async () => "a")).toThrow("concurrent write in progress")
-    expect(() => withExclusiveFileLock(pathB, async () => "b")).toThrow("concurrent write in progress")
+    expect(() => withExclusiveFileLock(pathA, async () => "a")).toThrow(
+      "concurrent write in progress",
+    )
+    expect(() => withExclusiveFileLock(pathB, async () => "b")).toThrow(
+      "concurrent write in progress",
+    )
 
     expect(await multiWrite).toBe("multi")
   })
@@ -277,7 +289,9 @@ describe("withExclusiveMultiFileLock", () => {
     const multiWrite = withExclusiveMultiFileLock([pathA, pathB], async () => "first")
     // Prove the locks were actually acquired — otherwise "released after" would
     // pass vacuously if the lock never registered anything.
-    expect(() => withExclusiveFileLock(pathA, async () => "held")).toThrow("concurrent write in progress")
+    expect(() => withExclusiveFileLock(pathA, async () => "held")).toThrow(
+      "concurrent write in progress",
+    )
     expect(await multiWrite).toBe("first")
 
     expect(await withExclusiveFileLock(pathA, async () => "a")).toBe("a")
@@ -294,7 +308,9 @@ describe("withExclusiveMultiFileLock", () => {
     // Prove the locks were actually acquired before the operation rejected —
     // the operation is deferred to a microtask, so this synchronous check runs
     // while the locks are still held.
-    expect(() => withExclusiveFileLock(pathA, async () => "held")).toThrow("concurrent write in progress")
+    expect(() => withExclusiveFileLock(pathA, async () => "held")).toThrow(
+      "concurrent write in progress",
+    )
     await expect(multiWrite).rejects.toThrow("boom")
 
     expect(await withExclusiveFileLock(pathA, async () => "a")).toBe("a")
@@ -383,7 +399,9 @@ describe("withExclusiveMultiFileLock", () => {
     })
 
     // …and while held, the canonical form is locked.
-    expect(() => withExclusiveFileLock(canonicalPath, async () => "second")).toThrow("concurrent write in progress")
+    expect(() => withExclusiveFileLock(canonicalPath, async () => "second")).toThrow(
+      "concurrent write in progress",
+    )
 
     expect(await multiWrite).toBe("ran")
   })
@@ -409,7 +427,9 @@ describe("withExclusiveMultiFileLock", () => {
     // operation body has not run — if the operation started before its keys
     // registered, its synchronous prefix could re-enter another lock helper
     // on the same paths and observe them as unlocked.
-    expect(() => withExclusiveFileLock(filePath, async () => "x")).toThrow("concurrent write in progress")
+    expect(() => withExclusiveFileLock(filePath, async () => "x")).toThrow(
+      "concurrent write in progress",
+    )
     expect(operationEvents).toEqual([])
 
     expect(await multiWrite).toBe("done")
@@ -465,7 +485,9 @@ describe("case- and normalization-folded lock keys", () => {
       return "held"
     })
 
-    expect(() => withExclusiveFileLock(nfdPath, async () => "x")).toThrow("concurrent write in progress")
+    expect(() => withExclusiveFileLock(nfdPath, async () => "x")).toThrow(
+      "concurrent write in progress",
+    )
 
     expect(await heldWrite).toBe("held")
   })
@@ -483,7 +505,9 @@ describe("case- and normalization-folded lock keys", () => {
       return "held"
     })
 
-    expect(() => withExclusiveFileLock(finalSigmaPath, async () => "x")).toThrow("concurrent write in progress")
+    expect(() => withExclusiveFileLock(finalSigmaPath, async () => "x")).toThrow(
+      "concurrent write in progress",
+    )
 
     expect(await heldWrite).toBe("held")
   })
@@ -494,7 +518,10 @@ describe("case- and normalization-folded lock keys", () => {
       return "first"
     })
 
-    const differentNameResult = await withExclusiveFileLock(join(testDir, "Second.md"), async () => "second")
+    const differentNameResult = await withExclusiveFileLock(
+      join(testDir, "Second.md"),
+      async () => "second",
+    )
 
     expect(differentNameResult).toBe("second")
     expect(await heldWrite).toBe("first")
@@ -503,10 +530,13 @@ describe("case- and normalization-folded lock keys", () => {
   it("collapses two casings of one path in a multi-file lock to a single key", async () => {
     // Both casings in one lock set must dedupe to one key rather than
     // self-conflict, and while held, a third casing is locked out.
-    const multiWrite = withExclusiveMultiFileLock([join(testDir, "Moved.md"), join(testDir, "moved.md")], async () => {
-      await delay(50)
-      return "moved"
-    })
+    const multiWrite = withExclusiveMultiFileLock(
+      [join(testDir, "Moved.md"), join(testDir, "moved.md")],
+      async () => {
+        await delay(50)
+        return "moved"
+      },
+    )
 
     expect(() => withExclusiveFileLock(join(testDir, "MOVED.MD"), async () => "x")).toThrow(
       "concurrent write in progress",
@@ -528,7 +558,9 @@ describe("cross-mode interaction", () => {
     })
 
     // Exclusive call should see the serializing lock and reject.
-    expect(() => withExclusiveFileLock(filePath, async () => "exclusive")).toThrow("concurrent write in progress")
+    expect(() => withExclusiveFileLock(filePath, async () => "exclusive")).toThrow(
+      "concurrent write in progress",
+    )
 
     await serializingWrite
   })

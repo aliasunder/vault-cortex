@@ -172,10 +172,14 @@ export const loadConfig = (env: Record<string, string | undefined> = process.env
   const memoryDir = memoryDirRaw ? vaultFolderName.parse(memoryDirRaw) : "About Me"
 
   const dailyNotesFolderRaw = env.DAILY_NOTES_FOLDER?.trim()
-  const dailyNotesFolder = dailyNotesFolderRaw ? vaultFolderName.parse(dailyNotesFolderRaw) : undefined
+  const dailyNotesFolder = dailyNotesFolderRaw
+    ? vaultFolderName.parse(dailyNotesFolderRaw)
+    : undefined
 
   const dailyNotesFormatRaw = env.DAILY_NOTES_FORMAT?.trim()
-  const dailyNotesFormat = dailyNotesFormatRaw ? validateDailyNotesFormat(dailyNotesFormatRaw) : undefined
+  const dailyNotesFormat = dailyNotesFormatRaw
+    ? validateDailyNotesFormat(dailyNotesFormatRaw)
+    : undefined
 
   const protectedPathsRaw = env.PROTECTED_PATHS?.trim()
   const protectedPathsOverride = protectedPathsRaw ? parseVaultFolderList(protectedPathsRaw) : null
@@ -270,7 +274,11 @@ export const loadConfig = (env: Record<string, string | undefined> = process.env
   // header (e.g. AWS API Gateway), the header is client-supplied — trusting
   // it by default would let any client choose its own rate-limit bucket.
   // Mirrors TRUST_PROXY_HOPS, where 0 is also "no trusted proxy".
-  const trustForwardedHops = envVar.from(env).get("TRUST_FORWARDED_HOPS").default("0").asIntPositive()
+  const trustForwardedHops = envVar
+    .from(env)
+    .get("TRUST_FORWARDED_HOPS")
+    .default("0")
+    .asIntPositive()
 
   // TRUST_FORWARDED_HEADER was folded into TRUST_FORWARDED_HOPS. A deployment
   // still setting it gets the new default silently otherwise, so say so.

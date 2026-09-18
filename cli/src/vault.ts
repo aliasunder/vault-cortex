@@ -3,7 +3,9 @@ import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 
 export type VaultPathValidation =
-  { kind: "ok"; path: string } | { kind: "warn"; path: string; message: string } | { kind: "error"; message: string }
+  | { kind: "ok"; path: string }
+  | { kind: "warn"; path: string; message: string }
+  | { kind: "error"; message: string }
 
 /**
  * Expands a leading `~` or `~/` to the user's home directory. Everything

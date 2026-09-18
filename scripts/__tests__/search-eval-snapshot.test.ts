@@ -47,7 +47,11 @@ describe("createVaultSnapshot", () => {
       excludePrefixes: ["sessions"],
     })
 
-    expect(listSnapshotFiles(snapshotDir)).toEqual([SNAPSHOT_MARKER, join("notes", "keep.md"), "sessions-archive.md"])
+    expect(listSnapshotFiles(snapshotDir)).toEqual([
+      SNAPSHOT_MARKER,
+      join("notes", "keep.md"),
+      "sessions-archive.md",
+    ])
   })
 
   it("matches exclusions case-insensitively for case-insensitive vault mounts", () => {
@@ -228,7 +232,9 @@ describe("createVaultSnapshot", () => {
         excludePaths: [],
         excludePrefixes: [],
       })
-    }).toThrow(`${snapshotDir} exists but is not a harness snapshot — remove it or choose another --work-dir`)
+    }).toThrow(
+      `${snapshotDir} exists but is not a harness snapshot — remove it or choose another --work-dir`,
+    )
     expect(readFileSync(join(snapshotDir, "operator-data.md"), "utf8")).toBe("not ours to delete\n")
   })
 })

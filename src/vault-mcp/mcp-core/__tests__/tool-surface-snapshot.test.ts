@@ -8,14 +8,20 @@
 import { readdirSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
-import { SURFACE_COMBOS, captureToolSurface, serializeSurfaceCapture } from "./tool-surface-capture.js"
+import {
+  SURFACE_COMBOS,
+  captureToolSurface,
+  serializeSurfaceCapture,
+} from "./tool-surface-capture.js"
 
 describe("tool surface baseline", () => {
   it.each(SURFACE_COMBOS.map((combo) => [combo.name, combo] as const))(
     "combo %s matches the committed baseline",
     async (comboName, combo) => {
       const capture = await captureToolSurface(combo)
-      await expect(serializeSurfaceCapture(capture)).toMatchFileSnapshot(`__snapshots__/tool-surface/${comboName}.json`)
+      await expect(serializeSurfaceCapture(capture)).toMatchFileSnapshot(
+        `__snapshots__/tool-surface/${comboName}.json`,
+      )
     },
   )
 
@@ -23,7 +29,9 @@ describe("tool surface baseline", () => {
   // lingering after an axis change (nothing ever asserts it again), and a
   // locally auto-created file that never went through a deliberate regen.
   it("snapshot directory holds exactly one file per combo", () => {
-    const snapshotDirectory = fileURLToPath(new URL("./__snapshots__/tool-surface/", import.meta.url))
+    const snapshotDirectory = fileURLToPath(
+      new URL("./__snapshots__/tool-surface/", import.meta.url),
+    )
     const committedFiles = readdirSync(snapshotDirectory).toSorted()
     const expectedFiles = SURFACE_COMBOS.map((combo) => `${combo.name}.json`).toSorted()
     expect(committedFiles).toEqual(expectedFiles)

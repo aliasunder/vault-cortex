@@ -17,7 +17,8 @@ const LUXON_OVER_DATE_RESTRICTIONS = [
   },
   {
     selector: 'CallExpression[callee.object.name="Date"]',
-    message: "Use Luxon (DateTime.now(), .toUnixInteger()) over Date static methods (AGENTS.md → Code style)",
+    message:
+      "Use Luxon (DateTime.now(), .toUnixInteger()) over Date static methods (AGENTS.md → Code style)",
   },
 ]
 
@@ -43,7 +44,10 @@ export default defineConfig(
   eslintConfigPrettier,
   {
     rules: {
-      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
       "@typescript-eslint/consistent-type-assertions": ["error", { assertionStyle: "never" }],
       // AGENTS.md → Code style: arrow functions over `function` declarations.
       "func-style": ["error", "expression"],
@@ -57,7 +61,10 @@ export default defineConfig(
       // single-char identifiers. Exceptions: `i` (loop index), `a`/`b`
       // (sort comparators), `k` (the RRF constant's literature name),
       // `_` (unused-param convention).
-      "id-length": ["error", { min: 2, properties: "never", exceptions: ["i", "a", "b", "k", "_"] }],
+      "id-length": [
+        "error",
+        { min: 2, properties: "never", exceptions: ["i", "a", "b", "k", "_"] },
+      ],
     },
   },
   {
@@ -150,7 +157,13 @@ export default defineConfig(
                 "obsidian-markdown/ is a leaf layer — no runtime imports of other internal modules (AGENTS.md → Module layering)",
             },
             {
-              group: ["node:fs", "node:fs/**", "better-sqlite3", "sqlite-vec", "@modelcontextprotocol/**"],
+              group: [
+                "node:fs",
+                "node:fs/**",
+                "better-sqlite3",
+                "sqlite-vec",
+                "@modelcontextprotocol/**",
+              ],
               allowTypeImports: true,
               message:
                 "pure parsers do no I/O — no fs, SQLite, or MCP SDK in obsidian-markdown/ (AGENTS.md → Module layering)",

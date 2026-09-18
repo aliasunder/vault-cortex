@@ -46,7 +46,8 @@ const DEFAULTS: TaskFormatConfig = {
 
 // ── Status-registry parsing ─────────────────────────────────────
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null
 
 /** Checkbox symbols typed DONE in the plugin's status registry
  *  (`statusSettings.coreStatuses` + `.customStatuses`, entries shaped
@@ -58,7 +59,9 @@ const doneStatusSymbolsFrom = (parsed: Record<string, unknown>): string[] => {
 
   if (!isRecord(statusSettings)) return []
 
-  const statusLists = [statusSettings.coreStatuses, statusSettings.customStatuses].filter(Array.isArray)
+  const statusLists = [statusSettings.coreStatuses, statusSettings.customStatuses].filter(
+    Array.isArray,
+  )
 
   return statusLists.flatMap((statusList) => {
     return statusList.flatMap((status: unknown) => {
@@ -78,7 +81,11 @@ let cachedConfig: TaskFormatConfig | null = null
 /** The config keys that hold booleans — the settings file uses the same
  *  key names. */
 type BooleanSettingKey =
-  "setDoneDate" | "setCancelledDate" | "setCreatedDate" | "recurrenceOnNextLine" | "removeScheduledDateOnRecurrence"
+  | "setDoneDate"
+  | "setCancelledDate"
+  | "setCreatedDate"
+  | "recurrenceOnNextLine"
+  | "removeScheduledDateOnRecurrence"
 
 /** A boolean setting from the parsed config, or its default when absent or
  *  not a boolean. */

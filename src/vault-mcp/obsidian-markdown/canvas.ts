@@ -54,7 +54,8 @@ type CanvasEdge = Readonly<{
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
-const optionalString = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined)
+const optionalString = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined
 
 /** Narrows one raw array entry to a node, or null when its required JSON
  *  Canvas fields are missing/mistyped (the entry is then skipped, not thrown). */
@@ -63,7 +64,12 @@ const parseNode = (raw: unknown): CanvasNode | null => {
   const { id, type, x, y, width, height } = raw
 
   if (typeof id !== "string" || typeof type !== "string") return null
-  if (typeof x !== "number" || typeof y !== "number" || typeof width !== "number" || typeof height !== "number") {
+  if (
+    typeof x !== "number" ||
+    typeof y !== "number" ||
+    typeof width !== "number" ||
+    typeof height !== "number"
+  ) {
     return null
   }
   return {
@@ -99,7 +105,10 @@ const isContainedIn = (inner: CanvasNode, outer: CanvasNode): boolean =>
 
 /** The group that owns a node: the smallest-area group strictly containing
  *  it (groups nest, so the smallest container is the innermost). */
-const smallestContainingGroup = (node: CanvasNode, groups: readonly CanvasNode[]): CanvasNode | undefined => {
+const smallestContainingGroup = (
+  node: CanvasNode,
+  groups: readonly CanvasNode[],
+): CanvasNode | undefined => {
   const containing = groups.filter((group) => {
     if (group.id === node.id || !isContainedIn(node, group)) return false
     // Two groups with identical rectangles contain each other; without a
@@ -174,12 +183,17 @@ const renderGroup = (
   return [
     `${heading} Group: ${group.label ?? "(unlabeled)"}`,
     ...members.map(renderNode),
-    ...childGroups.map((child) => renderGroup(child, depth + 1, membersByGroupId, childGroupsByParentId)),
+    ...childGroups.map((child) =>
+      renderGroup(child, depth + 1, membersByGroupId, childGroupsByParentId),
+    ),
   ].join("\n\n")
 }
 
 /** Groups a list by a key function, preserving each bucket's insertion order. */
-const groupBy = <Key, Item>(items: readonly Item[], keyOf: (item: Item) => Key): Map<Key, Item[]> => {
+const groupBy = <Key, Item>(
+  items: readonly Item[],
+  keyOf: (item: Item) => Key,
+): Map<Key, Item[]> => {
   // Plain loop with bucket mutation: building a multi-bucket Map immutably
   // would re-spread every bucket per item for no readability gain.
   const buckets = new Map<Key, Item[]>()
@@ -225,8 +239,14 @@ export const linearizeCanvas = (canvasJson: string): string => {
 
   const groups = nodes.filter((node) => node.type === "group")
   const contentNodes = nodes.filter((node) => node.type !== "group")
-  const membersByGroupId = groupBy(contentNodes, (node) => smallestContainingGroup(node, groups)?.id)
-  const childGroupsByParentId = groupBy(groups, (group) => smallestContainingGroup(group, groups)?.id)
+  const membersByGroupId = groupBy(
+    contentNodes,
+    (node) => smallestContainingGroup(node, groups)?.id,
+  )
+  const childGroupsByParentId = groupBy(
+    groups,
+    (group) => smallestContainingGroup(group, groups)?.id,
+  )
 
   const nodeById = new Map(nodes.map((node) => [node.id, node]))
   const edgeEndpointName = (id: string): string => {
@@ -244,7 +264,9 @@ export const linearizeCanvas = (canvasJson: string): string => {
   const sections = [
     `# Canvas: ${nodes.length} ${nodes.length === 1 ? "node" : "nodes"}, ${edges.length} ${edges.length === 1 ? "edge" : "edges"}`,
     ...ungroupedNodes.map(renderNode),
-    ...topLevelGroups.map((group) => renderGroup(group, 0, membersByGroupId, childGroupsByParentId)),
+    ...topLevelGroups.map((group) =>
+      renderGroup(group, 0, membersByGroupId, childGroupsByParentId),
+    ),
     ...(edgeLines.length > 0 ? [["## Connections", ...edgeLines].join("\n\n")] : []),
   ]
   return sections.join("\n\n")

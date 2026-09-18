@@ -33,7 +33,9 @@ vi.mock("@modelcontextprotocol/sdk/server/streamableHttp.js", () => ({
 vi.mock("@modelcontextprotocol/sdk/server/mcp.js", () => ({
   McpServer: vi.fn(),
 }))
-vi.mock("@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js", () => ({ requireBearerAuth: vi.fn() }))
+vi.mock("@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js", () => ({
+  requireBearerAuth: vi.fn(),
+}))
 vi.mock("@modelcontextprotocol/sdk/types.js", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   isInitializeRequest: vi.fn(),
@@ -125,21 +127,23 @@ const setupHarness = async (
   const transportInstances: TransportMock[] = []
   const serverInstances: ServerMock[] = []
 
-  vi.mocked(StreamableHTTPServerTransport).mockImplementation(function MockStreamableHTTPServerTransport() {
-    const transport: TransportMock = {
-      // Mimics the real SDK: the session id doesn't exist at construction —
-      // the transport generates it while handling the initialize request.
-      sessionId: undefined,
-      handleRequest: vi.fn(async (_req: express.Request, res: express.Response) => {
-        transport.sessionId ??= randomUUID()
-        res.status(202).json({ ok: true, handled: "transport-mock" })
-      }),
-      close: vi.fn(async () => {}),
-      onclose: undefined,
-    }
-    transportInstances.push(transport)
-    return transport
-  } as unknown as typeof StreamableHTTPServerTransport)
+  vi.mocked(StreamableHTTPServerTransport).mockImplementation(
+    function MockStreamableHTTPServerTransport() {
+      const transport: TransportMock = {
+        // Mimics the real SDK: the session id doesn't exist at construction —
+        // the transport generates it while handling the initialize request.
+        sessionId: undefined,
+        handleRequest: vi.fn(async (_req: express.Request, res: express.Response) => {
+          transport.sessionId ??= randomUUID()
+          res.status(202).json({ ok: true, handled: "transport-mock" })
+        }),
+        close: vi.fn(async () => {}),
+        onclose: undefined,
+      }
+      transportInstances.push(transport)
+      return transport
+    } as unknown as typeof StreamableHTTPServerTransport,
+  )
 
   vi.mocked(McpServer).mockImplementation(function MockMcpServer() {
     const server: ServerMock = { connect: vi.fn(async () => {}) }
@@ -198,7 +202,9 @@ const setupHarness = async (
   }
 }
 
-const createSession = async (harness: Harness): Promise<{ sessionId: string; transport: TransportMock }> => {
+const createSession = async (
+  harness: Harness,
+): Promise<{ sessionId: string; transport: TransportMock }> => {
   const response = await fetch(harness.url(), {
     method: "POST",
     headers: baseHeaders,
@@ -402,7 +408,9 @@ Vault content is Obsidian Flavored Markdown. No tools that modify the vault are 
     // operator who names every mutating tool in DISABLED_TOOLS has built the
     // same read-only server by another route, and must be described as one.
     it("advertises read-only access when DISABLED_TOOLS removes every write tool", async () => {
-      const everyWriteTool = TOOL_REGISTRY.filter((entry) => !entry.annotations.readOnlyHint).map((entry) => entry.name)
+      const everyWriteTool = TOOL_REGISTRY.filter((entry) => !entry.annotations.readOnlyHint).map(
+        (entry) => entry.name,
+      )
       const harness = await setupHarness({
         config: loadConfig({ DISABLED_TOOLS: everyWriteTool.join(",") }),
       })
@@ -671,18 +679,20 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
     // Shadows the harness transport for the next construction only: mimics the
     // SDK rejecting the initialize request (e.g. missing Accept header → 406)
     // before it generates a session id.
-    vi.mocked(StreamableHTTPServerTransport).mockImplementationOnce(function MockRejectingTransport() {
-      const transport: TransportMock = {
-        sessionId: undefined,
-        handleRequest: vi.fn(async (_req: express.Request, res: express.Response) => {
-          res.status(406).json({ error: "not acceptable" })
-        }),
-        close: vi.fn(async () => {}),
-        onclose: undefined,
-      }
-      harness.transportInstances.push(transport)
-      return transport
-    } as unknown as typeof StreamableHTTPServerTransport)
+    vi.mocked(StreamableHTTPServerTransport).mockImplementationOnce(
+      function MockRejectingTransport() {
+        const transport: TransportMock = {
+          sessionId: undefined,
+          handleRequest: vi.fn(async (_req: express.Request, res: express.Response) => {
+            res.status(406).json({ error: "not acceptable" })
+          }),
+          close: vi.fn(async () => {}),
+          onclose: undefined,
+        }
+        harness.transportInstances.push(transport)
+        return transport
+      } as unknown as typeof StreamableHTTPServerTransport,
+    )
 
     const response = await fetch(harness.url(), {
       method: "POST",

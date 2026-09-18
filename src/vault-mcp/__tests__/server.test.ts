@@ -3,7 +3,11 @@ import type { Request, Response, NextFunction } from "express"
 import { mkdtemp, readdir, rm } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { bootstrapMemoryIfEnabled, createErrorMiddleware, createShutdownHandler } from "../server.js"
+import {
+  bootstrapMemoryIfEnabled,
+  createErrorMiddleware,
+  createShutdownHandler,
+} from "../server.js"
 import { loadConfig } from "../config.js"
 import { logger } from "../../logger.js"
 
@@ -236,7 +240,13 @@ describe("bootstrapMemoryIfEnabled", () => {
     await bootstrapMemoryIfEnabled(loadConfig({}), vault)
 
     const memoryFiles = await readdir(join(vault, "About Me"))
-    expect(memoryFiles.sort()).toEqual(["Agents.md", "Me.md", "Opinions.md", "Principles.md", "Routines.md"])
+    expect(memoryFiles.sort()).toEqual([
+      "Agents.md",
+      "Me.md",
+      "Opinions.md",
+      "Principles.md",
+      "Routines.md",
+    ])
   })
 
   it("creates nothing in read-only mode — the vault stays untouched", async () => {

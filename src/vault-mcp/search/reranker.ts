@@ -18,8 +18,12 @@ export type Reranker = ReturnType<typeof createReranker>
  *  the `text_pair` tokenizer input needed for cross-encoder scoring. */
 export const createReranker = (logger: Logger) => {
   type TransformersModule = typeof import("@huggingface/transformers")
-  type TokenizerInstance = Awaited<ReturnType<TransformersModule["AutoTokenizer"]["from_pretrained"]>>
-  type ModelInstance = Awaited<ReturnType<TransformersModule["AutoModelForSequenceClassification"]["from_pretrained"]>>
+  type TokenizerInstance = Awaited<
+    ReturnType<TransformersModule["AutoTokenizer"]["from_pretrained"]>
+  >
+  type ModelInstance = Awaited<
+    ReturnType<TransformersModule["AutoModelForSequenceClassification"]["from_pretrained"]>
+  >
 
   let tokenizer: TokenizerInstance | null = null
   let model: ModelInstance | null = null
@@ -40,7 +44,8 @@ export const createReranker = (logger: Logger) => {
     modelLoading = (async () => {
       try {
         const startMs = performance.now()
-        const { AutoTokenizer, AutoModelForSequenceClassification } = await import("@huggingface/transformers")
+        const { AutoTokenizer, AutoModelForSequenceClassification } =
+          await import("@huggingface/transformers")
         const [loadedTokenizer, loadedModel] = await Promise.all([
           AutoTokenizer.from_pretrained(RERANKER_MODEL),
           // INT8 quantization — halves model size (~20MB vs ~80MB) with

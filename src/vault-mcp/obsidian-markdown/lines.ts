@@ -55,7 +55,8 @@ export const pageTextByLines = (params: {
   const splitLines = splitIntoLines(text)
   // wc -l semantics: a rendition ending in "\n" splits into a trailing ""
   // that isn't a line of content — drop exactly that one element.
-  const hasTrailingNewlineArtifact = splitLines.length > 0 && splitLines[splitLines.length - 1] === ""
+  const hasTrailingNewlineArtifact =
+    splitLines.length > 0 && splitLines[splitLines.length - 1] === ""
   const contentLines = hasTrailingNewlineArtifact ? splitLines.slice(0, -1) : splitLines
   const totalLines = contentLines.length
 
@@ -76,7 +77,10 @@ export const pageTextByLines = (params: {
     throw new Error(`start line past the end: "${path}" renders to ${totalLines} lines`)
   }
 
-  const windowLines = contentLines.slice(firstLine - 1, limit === undefined ? undefined : firstLine - 1 + limit)
+  const windowLines = contentLines.slice(
+    firstLine - 1,
+    limit === undefined ? undefined : firstLine - 1 + limit,
+  )
   const windowText = windowLines.join("\n")
   const endLine = firstLine - 1 + windowLines.length
 

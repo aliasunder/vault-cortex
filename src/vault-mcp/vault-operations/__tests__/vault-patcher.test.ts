@@ -5,8 +5,14 @@ import { tmpdir } from "node:os"
 import { vaultPatcher } from "../vault-patcher.js"
 import { logger } from "../../../logger.js"
 
-const { patchNote, replaceInNote, deleteSpan, replaceSpan, insertAtAnchor, findTrailingCommentBlockStart } =
-  vaultPatcher
+const {
+  patchNote,
+  replaceInNote,
+  deleteSpan,
+  replaceSpan,
+  insertAtAnchor,
+  findTrailingCommentBlockStart,
+} = vaultPatcher
 
 let vault: string
 
@@ -178,14 +184,17 @@ describe("markdown path requirement", () => {
 
   it("replaceInNote rejects a path without the .md extension", async () => {
     await expect(
-      replaceInNote({ vaultPath: vault, path: "Projects/Plan", oldText: "a", newText: "b" }, logger),
+      replaceInNote(
+        { vaultPath: vault, path: "Projects/Plan", oldText: "a", newText: "b" },
+        logger,
+      ),
     ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
   })
 
   it("deleteSpan rejects a path without the .md extension", async () => {
-    await expect(deleteSpan({ vaultPath: vault, path: "Projects/Plan", startAnchor: "x" }, logger)).rejects.toThrow(
-      'path must end in ".md" (received "Projects/Plan")',
-    )
+    await expect(
+      deleteSpan({ vaultPath: vault, path: "Projects/Plan", startAnchor: "x" }, logger),
+    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
   })
 })
 
@@ -200,7 +209,16 @@ describe("findTrailingCommentBlockStart", () => {
   })
 
   it("finds a multi-line trailing comment block", () => {
-    const lines = ["## Done", "- [x] Task", "", "%% kanban:settings", "```", '{"key":"val"}', "```", "%%"]
+    const lines = [
+      "## Done",
+      "- [x] Task",
+      "",
+      "%% kanban:settings",
+      "```",
+      '{"key":"val"}',
+      "```",
+      "%%",
+    ]
     expect(findTrailingCommentBlockStart(lines)).toBe(2)
   })
 
@@ -255,7 +273,15 @@ describe("findTrailingCommentBlockStart", () => {
     // `%% kanban:settings` opener as a *closer* to the stray comment opened
     // on line 0, shifting the detected block to the trailing `%%` on line 6
     // — yielding 6 instead of 1.
-    const lines = ["- [x] Card with 100%% off", "", "%% kanban:settings", "```", '{"key":"val"}', "```", "%%"]
+    const lines = [
+      "- [x] Card with 100%% off",
+      "",
+      "%% kanban:settings",
+      "```",
+      '{"key":"val"}',
+      "```",
+      "%%",
+    ]
     expect(findTrailingCommentBlockStart(lines)).toBe(1)
   })
 
@@ -282,7 +308,15 @@ describe("findTrailingCommentBlockStart", () => {
     // `100%%done` has no whitespace around the `%%`, so it is not a
     // delimiter. Same regression scenario as the single-mid-line case: a
     // per-substring count would shift the block to line 6.
-    const lines = ["- [x] Score: 100%%done bonus", "", "%% kanban:settings", "```", '{"key":"val"}', "```", "%%"]
+    const lines = [
+      "- [x] Score: 100%%done bonus",
+      "",
+      "%% kanban:settings",
+      "```",
+      '{"key":"val"}',
+      "```",
+      "%%",
+    ]
     expect(findTrailingCommentBlockStart(lines)).toBe(1)
   })
 })
@@ -751,7 +785,9 @@ describe("patchNote — leading-content advisory", () => {
     })
     // The write is what was asked for — assert it happened, and that the intro
     // really did end up inside the new section.
-    expect(await readTestNote("intro.md")).toBe("## New Section\n- entry\nIntro prose.\n\n## Section\n\nbody\n")
+    expect(await readTestNote("intro.md")).toBe(
+      "## New Section\n- entry\nIntro prose.\n\n## Section\n\nbody\n",
+    )
   })
 
   it("names the note's first heading rather than a later one", async () => {
@@ -857,7 +893,9 @@ describe("patchNote — leading-content advisory", () => {
       message: "Applied prepend to titled.md → file body",
       displacedLeadingContent: null,
     })
-    expect(await readTestNote("titled.md")).toBe("## New Section\n# Title\n\nIntro.\n\n## Section\n")
+    expect(await readTestNote("titled.md")).toBe(
+      "## New Section\n# Title\n\nIntro.\n\n## Section\n",
+    )
   })
 
   it("reports nothing when the region above the first heading is blank", async () => {
@@ -897,7 +935,9 @@ describe("patchNote — leading-content advisory", () => {
       message: "Applied prepend to board.md → file body",
       displacedLeadingContent: null,
     })
-    expect(await readTestNote("board.md")).toBe("## Backlog\n\n%% kanban:settings\n```json\n{}\n```\n%%\n")
+    expect(await readTestNote("board.md")).toBe(
+      "## Backlog\n\n%% kanban:settings\n```json\n{}\n```\n%%\n",
+    )
   })
 
   it("reports nothing for an append operation", async () => {
@@ -917,7 +957,9 @@ describe("patchNote — leading-content advisory", () => {
       message: "Applied append to intro.md → file body",
       displacedLeadingContent: null,
     })
-    expect(await readTestNote("intro.md")).toBe("Intro prose.\n\n## Section\n\nbody\n\n## New Section\n")
+    expect(await readTestNote("intro.md")).toBe(
+      "Intro prose.\n\n## Section\n\nbody\n\n## New Section\n",
+    )
   })
 
   it("reports nothing when a heading target is given", async () => {
@@ -992,7 +1034,10 @@ describe("patchNote — leading-content advisory", () => {
   ])("reports nothing when the content starts with %s", async (_label, content) => {
     await writeTestNote("intro.md", NOTE_WITH_INTRO)
 
-    const result = await patchNote({ vaultPath: vault, path: "intro.md", operation: "prepend", content }, logger)
+    const result = await patchNote(
+      { vaultPath: vault, path: "intro.md", operation: "prepend", content },
+      logger,
+    )
 
     expect(result.displacedLeadingContent).toBeNull()
     expect(await readTestNote("intro.md")).toBe(`${content}\nIntro prose.\n\n## Section\n\nbody\n`)
@@ -1159,7 +1204,9 @@ describe("patchNote — child-section guard", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('section "# Main Title" has 4 child headings (Active, Subtasks, Up Next, Done)')
+    ).rejects.toThrow(
+      'section "# Main Title" has 4 child headings (Active, Subtasks, Up Next, Done)',
+    )
     expect(await readTestNote("note.md")).toBe(content)
   })
 
@@ -1534,7 +1581,9 @@ ${doneItems.join("\n")}
     )
     const updated = await readTestNote("big-board.md")
     const lines = updated.split("\n")
-    const appendedIdx = lines.findIndex((line) => line === "- [x] Newly completed task ➕ 2026-05-19 ✅ 2026-05-19")
+    const appendedIdx = lines.findIndex(
+      (line) => line === "- [x] Newly completed task ➕ 2026-05-19 ✅ 2026-05-19",
+    )
     const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
     expect(appendedIdx).toBeGreaterThan(-1)
     expect(settingsIdx).toBeGreaterThan(-1)
@@ -1624,7 +1673,9 @@ kanban-plugin: board
     )
     const updated = await readTestNote("inline-comment.md")
     const lines = updated.split("\n")
-    const appendedIdx = lines.findIndex((line) => line === "- [x] New task after inline comment card")
+    const appendedIdx = lines.findIndex(
+      (line) => line === "- [x] New task after inline comment card",
+    )
     const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
     expect(appendedIdx).toBeGreaterThan(-1)
     expect(settingsIdx).toBeGreaterThan(-1)
@@ -1665,7 +1716,9 @@ kanban-plugin: board
     )
     const updated = await readTestNote("odd-pct.md")
     const lines = updated.split("\n")
-    const appendedIdx = lines.findIndex((line) => line === "- [x] Task appended after triple stray %%")
+    const appendedIdx = lines.findIndex(
+      (line) => line === "- [x] Task appended after triple stray %%",
+    )
     const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
     expect(appendedIdx).toBeGreaterThan(-1)
     expect(settingsIdx).toBeGreaterThan(-1)
@@ -1879,9 +1932,11 @@ Body text.
       logger,
     )
     const updated = await readTestNote("stamped.md")
-    expect(updated.startsWith("---\ntitle: Stamped\ndate: 2026-05-13\ncreated: 2026-05-13T20:00:00-04:00\n---\n")).toBe(
-      true,
-    )
+    expect(
+      updated.startsWith(
+        "---\ntitle: Stamped\ndate: 2026-05-13\ncreated: 2026-05-13T20:00:00-04:00\n---\n",
+      ),
+    ).toBe(true)
     expect(updated).toContain("Appended.")
   })
 
@@ -2511,11 +2566,17 @@ title: Sessions
 
   it("deletes a single long row by a short start anchor with no end anchor", async () => {
     await writeTestNote("sessions.md", SESSIONS_TABLE)
-    const result = await deleteSpan({ vaultPath: vault, path: "sessions.md", startAnchor: "| 2026-05-02 |" }, logger)
+    const result = await deleteSpan(
+      { vaultPath: vault, path: "sessions.md", startAnchor: "| 2026-05-02 |" },
+      logger,
+    )
     const updated = await readTestNote("sessions.md")
     const expectedPreview =
-      ("| 2026-05-02 | " + "[[sessions/b|Second]] ".repeat(40) + "see https://example.com/x?y=1&z=2 |").slice(0, 80) +
-      "…"
+      (
+        "| 2026-05-02 | " +
+        "[[sessions/b|Second]] ".repeat(40) +
+        "see https://example.com/x?y=1&z=2 |"
+      ).slice(0, 80) + "…"
     expect(result).toBe(`Deleted 1 line from sessions.md: "${expectedPreview}"`)
     // Whole-file assertion: the long middle row is gone and both neighbours
     // survive verbatim, with no stray blank line or duplication left behind.
@@ -2815,7 +2876,10 @@ ${longLine}
 keep me
 `
     await writeTestNote("long.md", content)
-    const result = await deleteSpan({ vaultPath: vault, path: "long.md", startAnchor: longLine }, logger)
+    const result = await deleteSpan(
+      { vaultPath: vault, path: "long.md", startAnchor: longLine },
+      logger,
+    )
     // Deterministic message: 80-char truncation + ellipsis of the removed line.
     expect(result).toBe(`Deleted 1 line from long.md: "${"z".repeat(80)}…"`)
   })
@@ -2923,9 +2987,9 @@ title: WholeBody
 
   it("errors on empty start_anchor", async () => {
     await writeTestNote("note.md", NOTE_WITH_SECTIONS)
-    await expect(deleteSpan({ vaultPath: vault, path: "note.md", startAnchor: "" }, logger)).rejects.toThrow(
-      "startAnchor cannot be empty",
-    )
+    await expect(
+      deleteSpan({ vaultPath: vault, path: "note.md", startAnchor: "" }, logger),
+    ).rejects.toThrow("startAnchor cannot be empty")
   })
 
   it("errors on empty end_anchor", async () => {
@@ -2984,9 +3048,9 @@ title: Ambig
 - [ ] dup
 `
     await writeTestNote("ambig.md", content)
-    await expect(deleteSpan({ vaultPath: vault, path: "ambig.md", startAnchor: "- [ ] dup" }, logger)).rejects.toThrow(
-      'ambiguous start anchor in "ambig.md": "- [ ] dup" matches 2 lines',
-    )
+    await expect(
+      deleteSpan({ vaultPath: vault, path: "ambig.md", startAnchor: "- [ ] dup" }, logger),
+    ).rejects.toThrow('ambiguous start anchor in "ambig.md": "- [ ] dup" matches 2 lines')
     expect(await readTestNote("ambig.md")).toBe(content)
   })
 
@@ -3017,15 +3081,15 @@ START unique
   })
 
   it("errors on file not found", async () => {
-    await expect(deleteSpan({ vaultPath: vault, path: "missing.md", startAnchor: "x" }, logger)).rejects.toThrow(
-      'note not found: "missing.md"',
-    )
+    await expect(
+      deleteSpan({ vaultPath: vault, path: "missing.md", startAnchor: "x" }, logger),
+    ).rejects.toThrow('note not found: "missing.md"')
   })
 
   it("errors on path traversal", async () => {
-    await expect(deleteSpan({ vaultPath: vault, path: "../escape.md", startAnchor: "x" }, logger)).rejects.toThrow(
-      "path traversal blocked",
-    )
+    await expect(
+      deleteSpan({ vaultPath: vault, path: "../escape.md", startAnchor: "x" }, logger),
+    ).rejects.toThrow("path traversal blocked")
   })
 })
 
@@ -3072,7 +3136,10 @@ describe("concurrent writes (exclusive lock)", () => {
   })
 
   it("rejects the second write when replaceInNote and patchNote target the same note", async () => {
-    await writeTestNote("note.md", "---\ntitle: Note\n---\n\n## Section\n\nOriginal text.\n\n- Item one\n")
+    await writeTestNote(
+      "note.md",
+      "---\ntitle: Note\n---\n\n## Section\n\nOriginal text.\n\n- Item one\n",
+    )
 
     const [first, second] = await Promise.allSettled([
       replaceInNote(
@@ -3421,7 +3488,9 @@ body line
         },
         logger,
       ),
-    ).rejects.toThrow('end anchor not found in "tracker.md" at or after the start anchor: "| 2026-05-01 |"')
+    ).rejects.toThrow(
+      'end anchor not found in "tracker.md" at or after the start anchor: "| 2026-05-01 |"',
+    )
   })
 
   it("throws on ambiguous start anchor", async () => {

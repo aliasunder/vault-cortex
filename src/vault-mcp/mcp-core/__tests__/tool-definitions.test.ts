@@ -18,9 +18,13 @@ const ALL_TOOL_NAMES = Object.values(TOOL_NAMES)
 // Expected sets derive from the registry so a new tool joins them
 // automatically; the literal spot-checks in tool-registry.test.ts anchor the
 // classification itself, so a registry typo cannot self-certify here.
-const READ_ONLY_TOOLS = TOOL_REGISTRY.filter((entry) => entry.annotations.readOnlyHint).map((entry) => entry.name)
+const READ_ONLY_TOOLS = TOOL_REGISTRY.filter((entry) => entry.annotations.readOnlyHint).map(
+  (entry) => entry.name,
+)
 
-const DESTRUCTIVE_TOOLS = TOOL_REGISTRY.filter((entry) => entry.annotations.destructiveHint).map((entry) => entry.name)
+const DESTRUCTIVE_TOOLS = TOOL_REGISTRY.filter((entry) => entry.annotations.destructiveHint).map(
+  (entry) => entry.name,
+)
 
 // Writers that only add to the vault — never overwrite or delete existing
 // content — so destructiveHint must be false even though readOnlyHint is too.
@@ -67,7 +71,8 @@ beforeEach(() => {
   calls = mockServer.registerTool.mock.calls as RegisterToolCall[]
 })
 
-const findCall = (name: string): RegisterToolCall | undefined => calls.find(([toolName]) => toolName === name)
+const findCall = (name: string): RegisterToolCall | undefined =>
+  calls.find(([toolName]) => toolName === name)
 
 /** findCall for tests that assume the tool is registered — throws instead of
  *  returning undefined so call sites need no non-null assertion. */
@@ -161,7 +166,10 @@ describe("registerTools", () => {
     // there would prompt a needless retry or abort.
     const [, config] = requireCall(TOOL_NAMES.VAULT_PATCH_NOTE)
     const description = config.description ?? ""
-    const errorsSection = description.slice(description.indexOf("Errors:"), description.indexOf("Obsidian syntax:"))
+    const errorsSection = description.slice(
+      description.indexOf("Errors:"),
+      description.indexOf("Obsidian syntax:"),
+    )
     expect(errorsSection).not.toContain("becomes the new section's body")
     expect(description).toContain("becomes the new section's body")
   })
@@ -392,11 +400,14 @@ describe("config interpolation in descriptions", () => {
     { name: "vault_read_note", toolName: TOOL_NAMES.VAULT_READ_NOTE },
   ] as const
 
-  it.each(memoryDirTools)("$name description references the configured memory dir", ({ toolName }) => {
-    const [, config] = requireCustomCall(toolName)
-    expect(config.description).toContain(`${CUSTOM_MEMORY_DIR}/`)
-    expect(config.description).not.toContain(DEFAULT_MEMORY_REF)
-  })
+  it.each(memoryDirTools)(
+    "$name description references the configured memory dir",
+    ({ toolName }) => {
+      const [, config] = requireCustomCall(toolName)
+      expect(config.description).toContain(`${CUSTOM_MEMORY_DIR}/`)
+      expect(config.description).not.toContain(DEFAULT_MEMORY_REF)
+    },
+  )
 
   it("vault_delete_note description lists configured protected paths", () => {
     const [, config] = requireCustomCall(TOOL_NAMES.VAULT_DELETE_NOTE)
@@ -440,7 +451,10 @@ describe("error handling", () => {
 
   it("vault_get_memory rejects section without file", async () => {
     const [, , handler] = requireCall(TOOL_NAMES.VAULT_GET_MEMORY)
-    const result = (await handler({ file: undefined, section: "Decision heuristics" }, mockExtra)) as {
+    const result = (await handler(
+      { file: undefined, section: "Decision heuristics" },
+      mockExtra,
+    )) as {
       content: Array<{ text: string }>
       isError?: boolean
     }
@@ -455,7 +469,9 @@ describe("error handling", () => {
       isError?: boolean
     }
     expect(result.isError).toBe(true)
-    expect(result.content[0]?.text).toBe('[Error]: memory file not found: "About Me/Nonexistent.md"')
+    expect(result.content[0]?.text).toBe(
+      '[Error]: memory file not found: "About Me/Nonexistent.md"',
+    )
   })
 
   it.each([
@@ -497,7 +513,11 @@ describe("vault_read_note line paging", () => {
   const createPagedNoteFixture = async () => {
     const tempVault = await mkdtemp(join(tmpdir(), "tool-defs-note-paging-"))
     onTestFinished(() => rm(tempVault, { recursive: true, force: true }))
-    await writeFile(join(tempVault, "paged.md"), "---\ntitle: Paged\n---\nline1\nline2\nline3\nline4\n", "utf8")
+    await writeFile(
+      join(tempVault, "paged.md"),
+      "---\ntitle: Paged\n---\nline1\nline2\nline3\nline4\n",
+      "utf8",
+    )
     const server = { registerTool: vi.fn() }
     registerTools({
       server: server as unknown as McpServer,
@@ -547,7 +567,10 @@ describe("vault_read_note line paging", () => {
       "---\ntitle: Sectioned\n---\n## Active\nalpha\nbeta\ngamma\ndelta\n## Done\nfin\n",
       "utf8",
     )
-    const result = (await handler({ path: "sectioned.md", heading: "Active", start_line: 1, limit: 2 }, mockExtra)) as {
+    const result = (await handler(
+      { path: "sectioned.md", heading: "Active", start_line: 1, limit: 2 },
+      mockExtra,
+    )) as {
       content: Array<{ type: string; text: string }>
     }
 
@@ -593,7 +616,10 @@ describe("vault_read_note line paging", () => {
 
   it("rejects paging with outline mode", async () => {
     const [, , handler] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
-    const result = (await handler({ path: "note.md", outline: true, start_line: 1 }, mockExtra)) as {
+    const result = (await handler(
+      { path: "note.md", outline: true, start_line: 1 },
+      mockExtra,
+    )) as {
       content: Array<{ text: string }>
       isError?: boolean
     }
@@ -604,7 +630,10 @@ describe("vault_read_note line paging", () => {
 
   it("rejects paging with properties_only mode", async () => {
     const [, , handler] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
-    const result = (await handler({ path: "note.md", properties_only: true, limit: 5 }, mockExtra)) as {
+    const result = (await handler(
+      { path: "note.md", properties_only: true, limit: 5 },
+      mockExtra,
+    )) as {
       content: Array<{ text: string }>
       isError?: boolean
     }
@@ -686,7 +715,9 @@ describe("vault_update_memory handler", () => {
       config: loadConfig({}),
     })
     const registeredCalls = server.registerTool.mock.calls as RegisterToolCall[]
-    const updateMemoryCall = registeredCalls.find(([toolName]) => toolName === TOOL_NAMES.VAULT_UPDATE_MEMORY)
+    const updateMemoryCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_UPDATE_MEMORY,
+    )
 
     if (!updateMemoryCall) throw new Error("vault_update_memory not registered")
     const [, , handler] = updateMemoryCall
@@ -755,7 +786,10 @@ describe("vault_patch_note handler", () => {
   }
 
   it("appends an advisory naming the first heading and still writes the note", async () => {
-    const { handler, readNote } = await setupPatchHandler("intro.md", "Intro prose.\n\n## Section\n\nbody\n")
+    const { handler, readNote } = await setupPatchHandler(
+      "intro.md",
+      "Intro prose.\n\n## Section\n\nbody\n",
+    )
 
     const result = await handler(
       {
@@ -783,7 +817,10 @@ describe("vault_patch_note handler", () => {
   it("recommends append when the note had no heading to insert before", async () => {
     const { handler, readNote } = await setupPatchHandler("flat.md", "Just prose.\n")
 
-    const result = await handler({ path: "flat.md", operation: "prepend", content: "## New Section" }, mockExtra)
+    const result = await handler(
+      { path: "flat.md", operation: "prepend", content: "## New Section" },
+      mockExtra,
+    )
 
     expect(result).toEqual({
       content: [
@@ -798,9 +835,15 @@ describe("vault_patch_note handler", () => {
 
   it("returns the plain confirmation when nothing is displaced", async () => {
     // Without this, a handler that always appends the advisory would pass.
-    const { handler, readNote } = await setupPatchHandler("titled.md", "# Title\n\nIntro.\n\n## Section\n")
+    const { handler, readNote } = await setupPatchHandler(
+      "titled.md",
+      "# Title\n\nIntro.\n\n## Section\n",
+    )
 
-    const result = await handler({ path: "titled.md", operation: "prepend", content: "## New Section" }, mockExtra)
+    const result = await handler(
+      { path: "titled.md", operation: "prepend", content: "## New Section" },
+      mockExtra,
+    )
 
     expect(result).toEqual({
       content: [{ type: "text", text: "Applied prepend to titled.md → file body" }],
@@ -815,7 +858,8 @@ describe("vault_read_note outline mode", () => {
   it("serializes file metadata, leading content, and headings in that order", async () => {
     const tempVault = await mkdtemp(join(tmpdir(), "tool-definitions-outline-"))
     onTestFinished(() => rm(tempVault, { recursive: true, force: true }))
-    const content = "> [!info] Scope\n> the callout body\n\nProse after the callout.\n\n## Section\n"
+    const content =
+      "> [!info] Scope\n> the callout body\n\nProse after the callout.\n\n## Section\n"
     const modifiedAt = DateTime.fromISO("2026-09-17T14:30:00.000Z")
 
     if (!modifiedAt.isValid) throw new Error("invalid test timestamp")
@@ -1036,7 +1080,9 @@ describe("FILE_TOOLS_ENABLED=false", () => {
 })
 
 describe("READONLY_MODE=true", () => {
-  const MUTATING_TOOLS = TOOL_REGISTRY.filter((entry) => !entry.annotations.readOnlyHint).map((entry) => entry.name)
+  const MUTATING_TOOLS = TOOL_REGISTRY.filter((entry) => !entry.annotations.readOnlyHint).map(
+    (entry) => entry.name,
+  )
 
   const registerReadOnly = (extraEnv: Record<string, string> = {}): RegisterToolCall[] => {
     const server = { registerTool: vi.fn() }
@@ -1188,11 +1234,23 @@ describe("vault_search handler", () => {
   const registerWithSearchIndex = (): RegisterToolCall => {
     const searchIndex = createSearchIndex(":memory:")
     for (const [filePath, rawContent] of [
-      ["Projects/alpha.md", "---\ntitle: Alpha\ntags: [project]\n---\n# Alpha\n\nFirst project notes."],
-      ["Projects/beta.md", "---\ntitle: Beta\ntags: [project]\n---\n# Beta\n\nSecond project notes."],
-      ["Projects/gamma.md", "---\ntitle: Gamma\ntags: [project]\n---\n# Gamma\n\nThird project notes."],
+      [
+        "Projects/alpha.md",
+        "---\ntitle: Alpha\ntags: [project]\n---\n# Alpha\n\nFirst project notes.",
+      ],
+      [
+        "Projects/beta.md",
+        "---\ntitle: Beta\ntags: [project]\n---\n# Beta\n\nSecond project notes.",
+      ],
+      [
+        "Projects/gamma.md",
+        "---\ntitle: Gamma\ntags: [project]\n---\n# Gamma\n\nThird project notes.",
+      ],
     ] as const) {
-      searchIndex.upsertNote({ filePath, rawContent, fileStat: { mtimeMs: 1000, size: 100 } }, logger)
+      searchIndex.upsertNote(
+        { filePath, rawContent, fileStat: { mtimeMs: 1000, size: 100 } },
+        logger,
+      )
     }
     const searchMockServer = { registerTool: vi.fn() }
     registerTools({
@@ -1229,7 +1287,9 @@ describe("vault_search handler", () => {
     expect(payload.results).toHaveLength(1)
 
     // Guard against vacuous pass: without limit, all three appear.
-    const unlimitedResult = (await handler({ query: "project" }, mockExtra)) as { content: Array<{ text: string }> }
+    const unlimitedResult = (await handler({ query: "project" }, mockExtra)) as {
+      content: Array<{ text: string }>
+    }
     const unlimitedText = unlimitedResult.content[0]?.text
 
     if (!unlimitedText) throw new Error("expected text content from unlimited vault_search")
@@ -1245,9 +1305,12 @@ describe("vault_list_tasks handler", () => {
    *  task-bearing board (or caller-provided note content), so handler tests
    *  exercise the actual query path. */
   const registerWithTaskIndex = (
-    rawContent = ["## Active", "", "- [ ] Open card ➕ 2026-06-20 📅 2026-07-01", "- [x] Done card ✅ 2026-06-28"].join(
-      "\n",
-    ),
+    rawContent = [
+      "## Active",
+      "",
+      "- [ ] Open card ➕ 2026-06-20 📅 2026-07-01",
+      "- [x] Done card ✅ 2026-06-28",
+    ].join("\n"),
     filePath = "Projects/board.md",
   ): RegisterToolCall => {
     const searchIndex = createSearchIndex(":memory:")
@@ -1355,7 +1418,10 @@ describe("vault_list_tasks handler", () => {
 
   it("maps sort_by and sort_direction through to the query", async () => {
     const [, , handler] = registerWithTaskIndex()
-    const result = (await handler({ status: "all", sort_by: "done", sort_direction: "desc" }, mockExtra)) as {
+    const result = (await handler(
+      { status: "all", sort_by: "done", sort_direction: "desc" },
+      mockExtra,
+    )) as {
       content: Array<{ text: string }>
     }
     const payload = JSON.parse(result.content[0]?.text ?? "") as {
@@ -1458,7 +1524,9 @@ describe("file tool handlers", () => {
     )
     const result = await readAsset({ path: "Board.canvas" })
     expect(result.isError).toBeUndefined()
-    expect(result.content).toEqual([{ type: "text", text: "# Canvas: 1 node, 0 edges\n\n[text]\nhello" }])
+    expect(result.content).toEqual([
+      { type: "text", text: "# Canvas: 1 node, 0 edges\n\n[text]\nhello" },
+    ])
   })
 
   it.each([
@@ -1746,18 +1814,21 @@ describe("file tool handlers", () => {
     })
   })
 
-  it.each(["PNG", ".PNG"])("filters by extension case-insensitively for %s", async (extensionSpelling) => {
-    const { vault, listAssets } = await setupAssetHarness()
-    await writeFile(join(vault, "a.png"), "12345", "utf8")
-    await writeFile(join(vault, "b.jpg"), "12", "utf8")
-    const result = await listAssets({ extensions: [extensionSpelling] })
-    expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
-      files: [{ path: "a.png", extension: ".png", bytes: 5 }],
-      extension_counts: { ".png": 1 },
-      total: 1,
-      truncated: false,
-    })
-  })
+  it.each(["PNG", ".PNG"])(
+    "filters by extension case-insensitively for %s",
+    async (extensionSpelling) => {
+      const { vault, listAssets } = await setupAssetHarness()
+      await writeFile(join(vault, "a.png"), "12345", "utf8")
+      await writeFile(join(vault, "b.jpg"), "12", "utf8")
+      const result = await listAssets({ extensions: [extensionSpelling] })
+      expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
+        files: [{ path: "a.png", extension: ".png", bytes: 5 }],
+        extension_counts: { ".png": 1 },
+        total: 1,
+        truncated: false,
+      })
+    },
+  )
 
   it("pages with limit while counts and total cover the full filtered set", async () => {
     const { vault, listAssets } = await setupAssetHarness()
@@ -1793,7 +1864,8 @@ describe("DISABLED_TOOLS", () => {
     })
     const registeredNames = registeredCalls.map(([toolName]) => toolName)
     const expectedNames = ALL_TOOL_NAMES.filter(
-      (toolName) => toolName !== TOOL_NAMES.VAULT_WRITE_NOTE && toolName !== TOOL_NAMES.VAULT_FIND_ORPHANS,
+      (toolName) =>
+        toolName !== TOOL_NAMES.VAULT_WRITE_NOTE && toolName !== TOOL_NAMES.VAULT_FIND_ORPHANS,
     )
     expect(new Set(registeredNames)).toEqual(new Set(expectedNames))
     expect(registeredNames).toHaveLength(expectedNames.length)
@@ -1839,12 +1911,16 @@ describe("DISABLED_TOOLS", () => {
     const registeredCalls = registerWithConfig({
       DISABLED_TOOLS: "vault_patch_note",
     })
-    const readNoteCall = registeredCalls.find(([toolName]) => toolName === TOOL_NAMES.VAULT_READ_NOTE)
+    const readNoteCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_READ_NOTE,
+    )
     expect(readNoteCall?.[1].description).not.toContain(TOOL_NAMES.VAULT_PATCH_NOTE)
     // Guard against a vacuous pass: with nothing disabled, the reference IS
     // present.
     const enabledCalls = registerWithConfig({})
-    const enabledReadNoteCall = enabledCalls.find(([toolName]) => toolName === TOOL_NAMES.VAULT_READ_NOTE)
+    const enabledReadNoteCall = enabledCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_READ_NOTE,
+    )
     expect(enabledReadNoteCall?.[1].description).toContain(TOOL_NAMES.VAULT_PATCH_NOTE)
   })
 
@@ -1852,7 +1928,9 @@ describe("DISABLED_TOOLS", () => {
     const registeredCalls = registerWithConfig({
       DISABLED_TOOLS: "vault_update_memory,vault_delete_memory",
     })
-    const listFilesCall = registeredCalls.find(([toolName]) => toolName === TOOL_NAMES.VAULT_LIST_MEMORY_FILES)
+    const listFilesCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
+    )
     const description = listFilesCall?.[1].description
     expect(description).toContain("BEFORE calling vault_get_memory.")
     expect(description).not.toContain("vault_update_memory")
@@ -1866,7 +1944,9 @@ describe("DISABLED_TOOLS", () => {
     const registeredCalls = registerWithConfig({
       DISABLED_TOOLS: "vault_get_memory,vault_update_memory,vault_delete_memory",
     })
-    const listFilesCall = registeredCalls.find(([toolName]) => toolName === TOOL_NAMES.VAULT_LIST_MEMORY_FILES)
+    const listFilesCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
+    )
     const description = listFilesCall?.[1].description
 
     expect(description).toContain(
@@ -1879,7 +1959,9 @@ describe("DISABLED_TOOLS", () => {
     const registeredCalls = registerWithConfig({
       DISABLED_TOOLS: "vault_get_memory,vault_delete_memory",
     })
-    const recallCall = registeredCalls.find(([toolName]) => toolName === TOOL_NAMES.VAULT_MEMORY_RECALL)
+    const recallCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_MEMORY_RECALL,
+    )
     const description = recallCall?.[1].description
 
     expect(description).toContain(
@@ -1892,9 +1974,13 @@ describe("DISABLED_TOOLS", () => {
     const registeredCalls = registerWithConfig({
       DISABLED_TOOLS: "vault_get_memory",
     })
-    const recallCall = registeredCalls.find(([toolName]) => toolName === TOOL_NAMES.VAULT_MEMORY_RECALL)
+    const recallCall = registeredCalls.find(
+      ([toolName]) => toolName === TOOL_NAMES.VAULT_MEMORY_RECALL,
+    )
 
-    expect(recallCall?.[1].description).toContain("file and section feed directly into vault_delete_memory.")
+    expect(recallCall?.[1].description).toContain(
+      "file and section feed directly into vault_delete_memory.",
+    )
   })
 })
 
@@ -1918,19 +2004,22 @@ describe("flag-combination matrix", () => {
     { MEMORY_ENABLED: "false", DISABLED_TOOLS: "vault_write_note" },
   ]
 
-  it.each([...flagCombos, ...disabledToolsCombos])("registration matches computeEnabledToolNames for %o", (env) => {
-    const server = { registerTool: vi.fn() }
-    const config = loadConfig(env)
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config,
-    })
-    const registeredCalls = server.registerTool.mock.calls as RegisterToolCall[]
-    const registeredNames = registeredCalls.map(([toolName]) => toolName)
-    expect(new Set(registeredNames)).toEqual(computeEnabledToolNames(config))
-    expect(registeredNames).toHaveLength(computeEnabledToolNames(config).size)
-  })
+  it.each([...flagCombos, ...disabledToolsCombos])(
+    "registration matches computeEnabledToolNames for %o",
+    (env) => {
+      const server = { registerTool: vi.fn() }
+      const config = loadConfig(env)
+      registerTools({
+        server: server as unknown as McpServer,
+        vaultPath: "/test-vault",
+        search: {} as SearchIndex,
+        logger,
+        config,
+      })
+      const registeredCalls = server.registerTool.mock.calls as RegisterToolCall[]
+      const registeredNames = registeredCalls.map(([toolName]) => toolName)
+      expect(new Set(registeredNames)).toEqual(computeEnabledToolNames(config))
+      expect(registeredNames).toHaveLength(computeEnabledToolNames(config).size)
+    },
+  )
 })

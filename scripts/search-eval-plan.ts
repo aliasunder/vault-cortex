@@ -51,7 +51,10 @@ const matchesExpectedPath = (judgmentQuery: JudgmentQuery, path: string): boolea
   return path.startsWith(folderPrefix)
 }
 
-export const rankOfFirstExpected = (results: readonly SearchResult[], judgmentQuery: JudgmentQuery): number | null => {
+export const rankOfFirstExpected = (
+  results: readonly SearchResult[],
+  judgmentQuery: JudgmentQuery,
+): number | null => {
   const index = results.findIndex((result) => {
     return matchesExpectedPath(judgmentQuery, result.path)
   })
@@ -115,7 +118,8 @@ export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
   const fileLegWeight = rawFileLegWeight === undefined ? undefined : Number(rawFileLegWeight)
   // Strict undefined check — 0 is a valid weight (removes the file legs).
   // Negated >= catches NaN (which fails every comparison).
-  const fileLegWeightInvalid = rawFileLegWeight === "" || (fileLegWeight !== undefined && !(fileLegWeight >= 0))
+  const fileLegWeightInvalid =
+    rawFileLegWeight === "" || (fileLegWeight !== undefined && !(fileLegWeight >= 0))
 
   if (fileLegWeightInvalid) {
     throw new Error("--file-leg-weight must be a number >= 0")
@@ -131,7 +135,10 @@ export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
   const snapshotDir = join(workDir, "vault-snapshot")
   // Enrichment changes every note chunk's text, so it gets its own index
   // file — the plain index stays reusable for weight sweeps.
-  const indexDbPath = join(workDir, cliArgs["enrich-metadata"] ? "search-eval-enriched.db" : "search-eval.db")
+  const indexDbPath = join(
+    workDir,
+    cliArgs["enrich-metadata"] ? "search-eval-enriched.db" : "search-eval.db",
+  )
 
   // Only a directory the harness created may be adopted — an operator's own
   // vault-snapshot folder must not silently become the scored corpus.

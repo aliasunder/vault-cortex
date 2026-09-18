@@ -19,7 +19,11 @@ const createTestVault = async (): Promise<string> => {
 
 /** Records an entry stamped `daysAgo` in the past — the sweeper reads real
  *  time, so back-dating the record is how a test makes an entry expired. */
-const recordEntryDaysAgo = (index: ReturnType<typeof createSearchIndex>, trashPath: string, daysAgo: number): void => {
+const recordEntryDaysAgo = (
+  index: ReturnType<typeof createSearchIndex>,
+  trashPath: string,
+  daysAgo: number,
+): void => {
   vi.useFakeTimers()
   vi.setSystemTime(DateTime.now().minus({ days: daysAgo }).toMillis())
   index.recordTrashEntry(trashPath)
@@ -37,7 +41,10 @@ describe("sweepExpiredTrashEntries", () => {
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries({ vaultPath: vault, retentionDays: 30, trashEntryStore: index }, logger)
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
 
     await expect(stat(join(vault, ".trash", "old.md"))).rejects.toThrow(/ENOENT/)
     expect(index.getTrashEntry(".trash/old.md")).toBeNull()
@@ -57,7 +64,10 @@ describe("sweepExpiredTrashEntries", () => {
     const index = createSearchIndex(":memory:")
     recordEntryDaysAgo(index, ".trash/emptied.md", 31)
 
-    await trashSweeper.sweepExpiredTrashEntries({ vaultPath: vault, retentionDays: 30, trashEntryStore: index }, logger)
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
 
     expect(index.getTrashEntry(".trash/emptied.md")).toBeNull()
   })
@@ -68,7 +78,10 @@ describe("sweepExpiredTrashEntries", () => {
     // The recorded subfolder never exists — realpath on the parent ENOENTs.
     recordEntryDaysAgo(index, ".trash/vanished-folder/x.md", 31)
 
-    await trashSweeper.sweepExpiredTrashEntries({ vaultPath: vault, retentionDays: 30, trashEntryStore: index }, logger)
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
 
     expect(index.getTrashEntry(".trash/vanished-folder/x.md")).toBeNull()
   })
@@ -115,7 +128,10 @@ describe("sweepExpiredTrashEntries", () => {
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries({ vaultPath: vault, retentionDays: 30, trashEntryStore: index }, logger)
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
 
     const escapeContent = await readFile(join(base, "escape.md"), "utf8")
     expect(escapeContent).toBe("outside the vault")
@@ -136,7 +152,10 @@ describe("sweepExpiredTrashEntries", () => {
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries({ vaultPath: vault, retentionDays: 30, trashEntryStore: index }, logger)
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
 
     const liveContent = await readFile(join(vault, "Live", "x.md"), "utf8")
     expect(liveContent).toBe("live note")
@@ -157,7 +176,10 @@ describe("sweepExpiredTrashEntries", () => {
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries({ vaultPath: vault, retentionDays: 30, trashEntryStore: index }, logger)
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
 
     const liveContent = await readFile(join(vault, "RealNotes", "live.md"), "utf8")
     expect(liveContent).toBe("live note")
@@ -179,9 +201,14 @@ describe("sweepExpiredTrashEntries", () => {
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries({ vaultPath: vault, retentionDays: 30, trashEntryStore: index }, logger)
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
 
-    expect(index.getTrashEntry(".trash/noaccess/stuck.md")?.trashPath).toBe(".trash/noaccess/stuck.md")
+    expect(index.getTrashEntry(".trash/noaccess/stuck.md")?.trashPath).toBe(
+      ".trash/noaccess/stuck.md",
+    )
     expect(warnSpy).toHaveBeenCalledWith("failed to resolve trash entry path", {
       trashPath: ".trash/noaccess/stuck.md",
       error: expect.stringMatching(/EACCES/),
@@ -203,7 +230,10 @@ describe("sweepExpiredTrashEntries", () => {
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
 
-    await trashSweeper.sweepExpiredTrashEntries({ vaultPath: vault, retentionDays: 30, trashEntryStore: index }, logger)
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
 
     expect(index.getTrashEntry(".trash/locked/stuck.md")?.trashPath).toBe(".trash/locked/stuck.md")
     const content = await readFile(join(lockedDir, "stuck.md"), "utf8")
@@ -236,7 +266,10 @@ describe("sweepExpiredTrashEntries", () => {
     )
     expect(deleteResult.trashLocation).toBe(".trash/reused.md")
 
-    await trashSweeper.sweepExpiredTrashEntries({ vaultPath: vault, retentionDays: 30, trashEntryStore: index }, logger)
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
 
     const keptContent = await readFile(join(vault, ".trash", "reused.md"), "utf8")
     expect(keptContent).toBe("keep forever")
@@ -250,7 +283,10 @@ describe("sweepExpiredTrashEntries", () => {
     await writeFile(join(vault, ".trash", "sub", "deep", "old.md"), "expired", "utf8")
     recordEntryDaysAgo(index, ".trash/sub/deep/old.md", 31)
 
-    await trashSweeper.sweepExpiredTrashEntries({ vaultPath: vault, retentionDays: 30, trashEntryStore: index }, logger)
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
 
     await expect(stat(join(vault, ".trash", "sub", "deep", "old.md"))).rejects.toThrow(/ENOENT/)
     await expect(stat(join(vault, ".trash", "sub"))).rejects.toThrow(/ENOENT/)
@@ -266,7 +302,10 @@ describe("sweepExpiredTrashEntries", () => {
     await writeFile(join(vault, ".trash", "shared", "kept.md"), "stays", "utf8")
     recordEntryDaysAgo(index, ".trash/shared/old.md", 31)
 
-    await trashSweeper.sweepExpiredTrashEntries({ vaultPath: vault, retentionDays: 30, trashEntryStore: index }, logger)
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
 
     await expect(stat(join(vault, ".trash", "shared", "old.md"))).rejects.toThrow(/ENOENT/)
     const keptContent = await readFile(join(vault, ".trash", "shared", "kept.md"), "utf8")
@@ -282,7 +321,10 @@ describe("sweepExpiredTrashEntries", () => {
     await writeFile(join(vault, ".trash", "recorded.md"), "ours", "utf8")
     recordEntryDaysAgo(index, ".trash/recorded.md", 31)
 
-    await trashSweeper.sweepExpiredTrashEntries({ vaultPath: vault, retentionDays: 30, trashEntryStore: index }, logger)
+    await trashSweeper.sweepExpiredTrashEntries(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
 
     await expect(stat(join(vault, ".trash", "recorded.md"))).rejects.toThrow(/ENOENT/)
     const obsidianOwnContent = await readFile(join(vault, ".trash", "obsidian-own.md"), "utf8")
@@ -297,7 +339,10 @@ describe("startTrashSweepSchedule", () => {
     await writeFile(join(vault, ".trash", "startup.md"), "expired", "utf8")
     recordEntryDaysAgo(index, ".trash/startup.md", 31)
 
-    trashSweeper.startTrashSweepSchedule({ vaultPath: vault, retentionDays: 30, trashEntryStore: index }, logger)
+    trashSweeper.startTrashSweepSchedule(
+      { vaultPath: vault, retentionDays: 30, trashEntryStore: index },
+      logger,
+    )
 
     await vi.waitFor(() => {
       expect(index.getTrashEntry(".trash/startup.md")).toBeNull()
@@ -353,7 +398,10 @@ describe("purgeOrphanedTrashEntries", () => {
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
 
-    await trashSweeper.purgeOrphanedTrashEntries({ vaultPath: vault, trashEntryStore: index }, logger)
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
 
     expect(index.getTrashEntry(".trash/gone.md")).toBeNull()
     expect(index.getTrashEntry(".trash/present.md")?.trashPath).toBe(".trash/present.md")
@@ -371,9 +419,14 @@ describe("purgeOrphanedTrashEntries", () => {
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
 
-    await trashSweeper.purgeOrphanedTrashEntries({ vaultPath: vault, trashEntryStore: index }, logger)
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
 
-    const purgeCalls = infoSpy.mock.calls.filter(([message]) => message === "orphaned trash entries purged")
+    const purgeCalls = infoSpy.mock.calls.filter(
+      ([message]) => message === "orphaned trash entries purged",
+    )
     expect(purgeCalls).toEqual([])
   })
 
@@ -387,9 +440,14 @@ describe("purgeOrphanedTrashEntries", () => {
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
 
-    await trashSweeper.purgeOrphanedTrashEntries({ vaultPath: vault, trashEntryStore: index }, logger)
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
 
-    const purgeCalls = infoSpy.mock.calls.filter(([message]) => message === "orphaned trash entries purged")
+    const purgeCalls = infoSpy.mock.calls.filter(
+      ([message]) => message === "orphaned trash entries purged",
+    )
     expect(purgeCalls).toEqual([])
     expect(index.getTrashEntry(".trash/a.md")?.trashPath).toBe(".trash/a.md")
     expect(index.getTrashEntry(".trash/b.md")?.trashPath).toBe(".trash/b.md")
@@ -416,7 +474,10 @@ describe("purgeOrphanedTrashEntries", () => {
       deleteTrashEntry: index.deleteTrashEntry,
     }
 
-    await trashSweeper.purgeOrphanedTrashEntries({ vaultPath: vault, trashEntryStore: racingStore }, logger)
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: racingStore },
+      logger,
+    )
 
     expect(index.getTrashEntry(".trash/raced.md")?.trashPath).toBe(".trash/raced.md")
     expect(index.getTrashEntry(".trash/control-orphan.md")).toBeNull()
@@ -443,7 +504,10 @@ describe("purgeOrphanedTrashEntries", () => {
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
 
-    await trashSweeper.purgeOrphanedTrashEntries({ vaultPath: vault, trashEntryStore: racingStore }, logger)
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: racingStore },
+      logger,
+    )
 
     // The deleted-mid-flight row was skipped; the control orphan was purged.
     expect(infoSpy).toHaveBeenCalledWith("orphaned trash entries purged", {
@@ -458,7 +522,10 @@ describe("purgeOrphanedTrashEntries", () => {
     const index = createSearchIndex(":memory:")
     index.recordTrashEntry(".trash/vanished-folder/x.md")
 
-    await trashSweeper.purgeOrphanedTrashEntries({ vaultPath: vault, trashEntryStore: index }, logger)
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
 
     expect(index.getTrashEntry(".trash/vanished-folder/x.md")).toBeNull()
   })
@@ -472,7 +539,10 @@ describe("purgeOrphanedTrashEntries", () => {
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
 
-    await trashSweeper.purgeOrphanedTrashEntries({ vaultPath: vault, trashEntryStore: index }, logger)
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
 
     expect(infoSpy).toHaveBeenCalledWith("orphaned trash entries purged", {
       checked: 3,
@@ -493,7 +563,10 @@ describe("purgeOrphanedTrashEntries", () => {
     const warnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => warnSpy.mockRestore())
 
-    await trashSweeper.purgeOrphanedTrashEntries({ vaultPath: vault, trashEntryStore: index }, logger)
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
 
     expect(index.getTrashEntry(".trash/locked/stuck.md")?.trashPath).toBe(".trash/locked/stuck.md")
     expect(warnSpy).toHaveBeenCalledWith("failed to stat trash entry", {
@@ -514,7 +587,10 @@ describe("purgeOrphanedTrashEntries", () => {
     // Control orphan: proves the purge ran.
     index.recordTrashEntry(".trash/control-orphan.md")
 
-    await trashSweeper.purgeOrphanedTrashEntries({ vaultPath: vault, trashEntryStore: index }, logger)
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
 
     expect(index.getTrashEntry(".trash/../Live/note.md")?.trashPath).toBe(".trash/../Live/note.md")
     const liveContent = await readFile(join(vault, "Live", "note.md"), "utf8")
@@ -530,7 +606,10 @@ describe("purgeOrphanedTrashEntries", () => {
     // Control orphan: proves the purge ran.
     index.recordTrashEntry(".trash/control-orphan.md")
 
-    await trashSweeper.purgeOrphanedTrashEntries({ vaultPath: vault, trashEntryStore: index }, logger)
+    await trashSweeper.purgeOrphanedTrashEntries(
+      { vaultPath: vault, trashEntryStore: index },
+      logger,
+    )
 
     expect(index.getTrashEntry(".trash/dangling.md")?.trashPath).toBe(".trash/dangling.md")
     expect(index.getTrashEntry(".trash/control-orphan.md")).toBeNull()

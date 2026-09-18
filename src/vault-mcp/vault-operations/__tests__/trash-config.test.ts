@@ -10,7 +10,10 @@ const createVault = async (): Promise<string> => {
   return vaultPath
 }
 
-const writeAppConfig = async (vaultPath: string, config: Record<string, unknown>): Promise<void> => {
+const writeAppConfig = async (
+  vaultPath: string,
+  config: Record<string, unknown>,
+): Promise<void> => {
   const obsidianDir = join(vaultPath, ".obsidian")
   await mkdir(obsidianDir, { recursive: true })
   await writeFile(join(obsidianDir, "app.json"), JSON.stringify(config), "utf8")
@@ -83,7 +86,9 @@ describe("readTrashConfig", () => {
     await mkdir(obsidianDir, { recursive: true })
     await writeFile(join(obsidianDir, "app.json"), "not valid json{{{", "utf8")
 
-    await expect(readTrashConfig(vault)).rejects.toThrow("cannot read trash config from .obsidian/app.json")
+    await expect(readTrashConfig(vault)).rejects.toThrow(
+      "cannot read trash config from .obsidian/app.json",
+    )
   })
 
   it("retries after ENOENT — a config appearing later is picked up without a restart", async () => {

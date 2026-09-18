@@ -227,7 +227,9 @@ describe("init-first-sync gate script", () => {
 
     expect(run.status).toBe(1)
     expect(run.syncCalls).toBe(3)
-    expect(run.stderr).toContain("ERROR: First sync failed and the memory folder ('About Me') has not synced yet.")
+    expect(run.stderr).toContain(
+      "ERROR: First sync failed and the memory folder ('About Me') has not synced yet.",
+    )
     expect(run.stderr).toContain("Refusing to start")
   })
 

@@ -47,7 +47,9 @@ export const resolvePublicUrl = ({
   const gatewayUrl = queryGatewayUrl()
 
   if (!gatewayUrl || gatewayUrl === "None") {
-    throw new Error("could not resolve the public URL from PUBLIC_URL, CUSTOM_DOMAIN, or the API Gateway")
+    throw new Error(
+      "could not resolve the public URL from PUBLIC_URL, CUSTOM_DOMAIN, or the API Gateway",
+    )
   }
   return { url: gatewayUrl, source: "API Gateway" }
 }

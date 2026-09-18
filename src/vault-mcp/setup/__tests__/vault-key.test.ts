@@ -84,6 +84,12 @@ describe("isSupportedEncryptionVersion", () => {
   })
 
   it("rejects other numbers, strings, and absent values", () => {
-    expect([1, 4, "3", undefined, null].map(isSupportedEncryptionVersion)).toEqual([false, false, false, false, false])
+    expect([1, 4, "3", undefined, null].map(isSupportedEncryptionVersion)).toEqual([
+      false,
+      false,
+      false,
+      false,
+      false,
+    ])
   })
 })

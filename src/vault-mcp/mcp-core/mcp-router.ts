@@ -83,9 +83,13 @@ export const buildServerMetadata = (
     sentences.push(`Use ${fileToolsFragment}.`)
   }
   if (isToolEnabled("vault_get_memory")) {
-    sentences.push(`Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files.`)
+    sentences.push(
+      `Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files.`,
+    )
   }
-  const namedWriteTools = (["vault_write_note", "vault_update_memory"] as const).filter(isToolEnabled)
+  const namedWriteTools = (["vault_write_note", "vault_update_memory"] as const).filter(
+    isToolEnabled,
+  )
 
   if (namedWriteTools.length > 0) {
     sentences.push(`Use ${namedWriteTools.join(" and ")} for writes.`)
@@ -100,7 +104,13 @@ ${markdownClause}`
   return { instructions, description }
 }
 
-export const createMcpRouter = ({ vaultPath, search, provider, config, serverUrl }: McpRouterOptions): Router => {
+export const createMcpRouter = ({
+  vaultPath,
+  search,
+  provider,
+  config,
+  serverUrl,
+}: McpRouterOptions): Router => {
   const router = Router()
   // MCP spec: a 401 MUST carry WWW-Authenticate with a resource_metadata
   // parameter so clients can start discovery straight from the rejection —
@@ -144,7 +154,10 @@ export const createMcpRouter = ({ vaultPath, search, provider, config, serverUrl
             })
           }
         }
-        const { instructions, description } = buildServerMetadata(config, computeEnabledToolNames(config))
+        const { instructions, description } = buildServerMetadata(
+          config,
+          computeEnabledToolNames(config),
+        )
         const server = new McpServer(
           {
             name: "vault-cortex",

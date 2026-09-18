@@ -28,10 +28,14 @@ type LogCall = { level: string; message: string; data: Record<string, unknown> }
 
 const recordingLogger = (sink: LogCall[]): Logger => {
   const make = (props: Record<string, unknown>): Logger => ({
-    debug: (message, data = {}) => sink.push({ level: "debug", message, data: { ...props, ...data } }),
-    info: (message, data = {}) => sink.push({ level: "info", message, data: { ...props, ...data } }),
-    warn: (message, data = {}) => sink.push({ level: "warn", message, data: { ...props, ...data } }),
-    error: (message, data = {}) => sink.push({ level: "error", message, data: { ...props, ...data } }),
+    debug: (message, data = {}) =>
+      sink.push({ level: "debug", message, data: { ...props, ...data } }),
+    info: (message, data = {}) =>
+      sink.push({ level: "info", message, data: { ...props, ...data } }),
+    warn: (message, data = {}) =>
+      sink.push({ level: "warn", message, data: { ...props, ...data } }),
+    error: (message, data = {}) =>
+      sink.push({ level: "error", message, data: { ...props, ...data } }),
     child: (childProps) => make({ ...props, ...childProps }),
   })
   return make({})
@@ -67,7 +71,9 @@ const encryptedVault = (name: string) => ({
 
 /** Obsidian's answer to `/vault/access`: accepts the fixture's hash only. */
 const vaultAccessCheck = (request: FakeApiRequest): FakeApiResponse =>
-  request.body.keyhash === VAULT_KEY_HASH ? { body: {} } : { body: { error: "Wrong vault key, please try again." } }
+  request.body.keyhash === VAULT_KEY_HASH
+    ? { body: {} }
+    : { body: { error: "Wrong vault key, please try again." } }
 
 type Harness = {
   baseUrl: string
@@ -214,11 +220,15 @@ describe("GET /setup", () => {
     // fetch() drops a caller-set Host header; node:http sends it as given.
     const pageForHost = (host: string): Promise<string> =>
       new Promise((resolve, reject) => {
-        const request = httpRequest(`${harness.baseUrl}/setup`, { headers: { host } }, (response) => {
-          const chunks: Buffer[] = []
-          response.on("data", (chunk: Buffer) => chunks.push(chunk))
-          response.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")))
-        })
+        const request = httpRequest(
+          `${harness.baseUrl}/setup`,
+          { headers: { host } },
+          (response) => {
+            const chunks: Buffer[] = []
+            response.on("data", (chunk: Buffer) => chunks.push(chunk))
+            response.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")))
+          },
+        )
         request.on("error", reject)
         request.end()
       })
@@ -253,7 +263,9 @@ describe("POST /setup — MCP token gate", () => {
     )
     expect(harness.apiRequests).toEqual([])
     expect(existsSync(harness.tokenFilePath)).toBe(false)
-    expect(harness.logs.map((call) => [call.level, call.message])).toEqual([["warn", "setup_bad_token"]])
+    expect(harness.logs.map((call) => [call.level, call.message])).toEqual([
+      ["warn", "setup_bad_token"],
+    ])
   })
 
   it("names the platform's settings tab in the wrong-token error when the platform is known", async () => {
@@ -331,7 +343,10 @@ describe("POST /setup — sign-in outcomes", () => {
     expect(await readFile(harness.tokenFilePath, "utf8")).toBe("sync-tok")
     expect((await stat(harness.tokenFilePath)).mode & 0o777).toBe(0o600)
     await vi.waitFor(() => expect(harness.onSetupComplete).toHaveBeenCalledTimes(1))
-    expect(harness.apiRequests.map((request) => request.path)).toEqual(["/user/signin", "/vault/list"])
+    expect(harness.apiRequests.map((request) => request.path)).toEqual([
+      "/user/signin",
+      "/vault/list",
+    ])
     expect(harness.apiRequests[0]?.body).toEqual({
       email: "user@example.com",
       password: "pw",
@@ -352,13 +367,17 @@ describe("POST /setup — sign-in outcomes", () => {
     let clientRequest: ReturnType<typeof httpRequest> | undefined
     // Hold the token write until the browser's connection is gone, so the
     // completion page can only ever be sent to a closed connection.
-    const writeSpy = vi.spyOn(syncTokenStore, "writeSyncToken").mockImplementation(async (params, logger) => {
-      clientRequest?.destroy()
-      // Socket teardown and the completion chain take milliseconds locally
-      // but can exceed vi.waitFor's default 1s budget on slow containers.
-      await vi.waitFor(async () => expect(await harness.openConnections()).toBe(0), { timeout: 10_000 })
-      return writeSyncToken(params, logger)
-    })
+    const writeSpy = vi
+      .spyOn(syncTokenStore, "writeSyncToken")
+      .mockImplementation(async (params, logger) => {
+        clientRequest?.destroy()
+        // Socket teardown and the completion chain take milliseconds locally
+        // but can exceed vi.waitFor's default 1s budget on slow containers.
+        await vi.waitFor(async () => expect(await harness.openConnections()).toBe(0), {
+          timeout: 10_000,
+        })
+        return writeSyncToken(params, logger)
+      })
     onTestFinished(() => writeSpy.mockRestore())
 
     const body = new URLSearchParams(CREDENTIALS).toString()
@@ -380,7 +399,9 @@ describe("POST /setup — sign-in outcomes", () => {
       }),
     ).rejects.toThrow("socket hang up")
 
-    await vi.waitFor(() => expect(harness.onSetupComplete).toHaveBeenCalledTimes(1), { timeout: 10_000 })
+    await vi.waitFor(() => expect(harness.onSetupComplete).toHaveBeenCalledTimes(1), {
+      timeout: 10_000,
+    })
     expect(await readFile(harness.tokenFilePath, "utf8")).toBe("sync-tok")
   })
 
@@ -466,7 +487,9 @@ describe("POST /setup — two-factor round trip", () => {
     expect(completeHtml).toContain("<h1>Setup complete</h1>")
     expect(await readFile(harness.tokenFilePath, "utf8")).toBe("sync-tok")
     expect(
-      harness.apiRequests.filter((request) => request.path === "/user/signin").map((request) => request.body.mfa),
+      harness.apiRequests
+        .filter((request) => request.path === "/user/signin")
+        .map((request) => request.body.mfa),
     ).toEqual(["", "123456"])
   })
 
@@ -509,7 +532,9 @@ describe("POST /setup — two-factor round trip", () => {
     // but within 5 minutes of the retry. Without the fix, the retry would
     // have refreshed the expiry and the code would still work.
     vi.setSystemTime(DateTime.now().plus({ minutes: 2 }).toJSDate())
-    const expiredHtml = await (await harness.postForm({ request_id: secondId, mfa: "123456" })).text()
+    const expiredHtml = await (
+      await harness.postForm({ request_id: secondId, mfa: "123456" })
+    ).text()
 
     expect(expiredHtml).toContain('<div class="error">That sign-in expired — start again.</div>')
     expect(harness.apiRequests.filter((request) => request.path === "/user/signin")).toHaveLength(2)
@@ -521,7 +546,9 @@ describe("POST /setup — two-factor round trip", () => {
       vi.useRealTimers()
     })
     const harness = await startHarness({ api: mfaApi() })
-    const requestId = REQUEST_ID_PATTERN.exec(await (await harness.postForm(CREDENTIALS)).text())?.[1]
+    const requestId = REQUEST_ID_PATTERN.exec(
+      await (await harness.postForm(CREDENTIALS)).text(),
+    )?.[1]
 
     if (!requestId) throw new Error("no request_id in the MFA page")
 
@@ -591,7 +618,11 @@ describe("POST /setup — vault pre-flight", () => {
 
     expect(html).toContain("<h1>Setup complete</h1>")
     expect(await readFile(harness.tokenFilePath, "utf8")).toBe("sync-tok")
-    expect(harness.apiRequests.map((request) => request.path)).toEqual(["/user/signin", "/vault/list", "/vault/access"])
+    expect(harness.apiRequests.map((request) => request.path)).toEqual([
+      "/user/signin",
+      "/vault/list",
+      "/vault/access",
+    ])
     expect(harness.apiRequests[2]?.body).toEqual({
       token: "sync-tok",
       vault_uid: "Notes-id",
@@ -650,18 +681,20 @@ describe("POST /setup — vault pre-flight", () => {
 
     expect(html).toContain("<h1>Setup complete</h1>")
     expect(await readFile(harness.tokenFilePath, "utf8")).toBe("sync-tok")
-    expect(harness.logs.filter((call) => call.message === "setup_vault_key_check_skipped")).toEqual([
-      {
-        level: "warn",
-        message: "setup_vault_key_check_skipped",
-        data: {
-          component: "setup-routes",
-          requestId: expect.any(String),
-          clientIp: "127.0.0.1",
-          reason: "Could not reach Obsidian's servers (Obsidian API answered HTTP 503).",
+    expect(harness.logs.filter((call) => call.message === "setup_vault_key_check_skipped")).toEqual(
+      [
+        {
+          level: "warn",
+          message: "setup_vault_key_check_skipped",
+          data: {
+            component: "setup-routes",
+            requestId: expect.any(String),
+            clientIp: "127.0.0.1",
+            reason: "Could not reach Obsidian's servers (Obsidian API answered HTTP 503).",
+          },
         },
-      },
-    ])
+      ],
+    )
   })
 
   it("blocks an encrypted vault whose encryption version is newer than the Sync client supports", async () => {
@@ -684,7 +717,10 @@ describe("POST /setup — vault pre-flight", () => {
       "The vault <code>Notes</code> uses encryption version 4, which the Obsidian Sync client this server ships does not support",
     )
     expect(existsSync(harness.tokenFilePath)).toBe(false)
-    expect(harness.apiRequests.map((request) => request.path)).toEqual(["/user/signin", "/vault/list"])
+    expect(harness.apiRequests.map((request) => request.path)).toEqual([
+      "/user/signin",
+      "/vault/list",
+    ])
     expect(harness.logs.at(-1)).toEqual({
       level: "warn",
       message: "setup_blocked",
@@ -714,7 +750,10 @@ describe("POST /setup — vault pre-flight", () => {
       "Obsidian's vault listing did not include what this server needs to check the password for <code>Notes</code>",
     )
     expect(existsSync(harness.tokenFilePath)).toBe(false)
-    expect(harness.apiRequests.map((request) => request.path)).toEqual(["/user/signin", "/vault/list"])
+    expect(harness.apiRequests.map((request) => request.path)).toEqual([
+      "/user/signin",
+      "/vault/list",
+    ])
   })
 
   it("blocks when two vaults share VAULT_NAME", async () => {

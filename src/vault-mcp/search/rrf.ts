@@ -32,7 +32,10 @@ export const computeRrfScores = (params: {
 
   const scoresByIdentifier = new Map<string, number>()
 
-  const accumulateScores = (rankedItems: readonly { identifier: string }[], listWeight: number): void => {
+  const accumulateScores = (
+    rankedItems: readonly { identifier: string }[],
+    listWeight: number,
+  ): void => {
     for (const [index, item] of rankedItems.entries()) {
       const rank = index + 1
       const rrfScore = 1 / (dampingConstant + rank)

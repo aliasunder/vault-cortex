@@ -112,7 +112,9 @@ const BLOCK_LINK_RE = / \^([a-zA-Z0-9-]+)$/u
 /** The parts around a task body's trailing block link. `body` is trimmed of
  *  trailing whitespace; `blockLink` keeps its leading space, "" when the
  *  line has none. */
-const splitTrailingBlockLink = (taskBody: string): { body: string; blockId: string | null; blockLink: string } => {
+const splitTrailingBlockLink = (
+  taskBody: string,
+): { body: string; blockId: string | null; blockLink: string } => {
   const trimmedBody = taskBody.trimEnd()
   const blockLinkMatch = BLOCK_LINK_RE.exec(trimmedBody)
 
@@ -476,7 +478,10 @@ type IndentEntry = {
  *  at a shallower indent. Entries at the same or deeper indent are siblings or
  *  cousins of the item, so they are dropped. Stack indents strictly increase,
  *  so the ancestors are always a prefix of the stack. */
-const ancestorsOf = (indentStack: readonly IndentEntry[], itemIndent: number): readonly IndentEntry[] => {
+const ancestorsOf = (
+  indentStack: readonly IndentEntry[],
+  itemIndent: number,
+): readonly IndentEntry[] => {
   return indentStack.filter((entry) => entry.indent < itemIndent)
 }
 
@@ -600,22 +605,28 @@ const emojiForPriority = (priority: TaskPriority): string => EMOJI_FOR_PRIORITY[
 
 /** Matches a done date in either format: `✅ YYYY-MM-DD` (emoji) or
  *  `[completion:: YYYY-MM-DD]` / `(completion:: YYYY-MM-DD)` (Dataview). */
-const DONE_DATE_INLINE_RE = /✅️? *\d{4}-\d{2}-\d{2}|[[(] *completion:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
+const DONE_DATE_INLINE_RE =
+  /✅️? *\d{4}-\d{2}-\d{2}|[[(] *completion:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
 
 /** Matches a cancelled date in either format. */
-const CANCELLED_DATE_INLINE_RE = /❌️? *\d{4}-\d{2}-\d{2}|[[(] *cancelled:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
+const CANCELLED_DATE_INLINE_RE =
+  /❌️? *\d{4}-\d{2}-\d{2}|[[(] *cancelled:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
 
 /** Matches a due date in either format (📅, 📆, 🗓 variants). */
-const DUE_DATE_INLINE_RE = /(?:📅|📆|🗓)️? *\d{4}-\d{2}-\d{2}|[[(] *due:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
+const DUE_DATE_INLINE_RE =
+  /(?:📅|📆|🗓)️? *\d{4}-\d{2}-\d{2}|[[(] *due:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
 
 /** Matches a scheduled date in either format (⏳, ⌛ variants). */
-const SCHEDULED_DATE_INLINE_RE = /(?:⏳|⌛)️? *\d{4}-\d{2}-\d{2}|[[(] *scheduled:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
+const SCHEDULED_DATE_INLINE_RE =
+  /(?:⏳|⌛)️? *\d{4}-\d{2}-\d{2}|[[(] *scheduled:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
 
 /** Matches a start date in either format. */
-const START_DATE_INLINE_RE = /🛫️? *\d{4}-\d{2}-\d{2}|[[(] *start:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
+const START_DATE_INLINE_RE =
+  /🛫️? *\d{4}-\d{2}-\d{2}|[[(] *start:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
 
 /** Matches a created date in either format. */
-const CREATED_DATE_INLINE_RE = /➕️? *\d{4}-\d{2}-\d{2}|[[(] *created:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
+const CREATED_DATE_INLINE_RE =
+  /➕️? *\d{4}-\d{2}-\d{2}|[[(] *created:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
 
 /** Matches a task ID in either format. */
 const TASK_ID_INLINE_RE = /🆔️? *[a-zA-Z0-9_-]+|[[(] *id:: *[a-zA-Z0-9_-]+ *[\])](?: *,)?/u
@@ -636,7 +647,8 @@ const ON_COMPLETION_INLINE_RE = /🏁️? *[a-zA-Z]+|[[(] *onCompletion:: *[a-zA
 
 /** Matches any priority signifier in either format: emoji (🔺⏫🔼🔽⏬)
  *  or Dataview (`[priority:: level]` / `(priority:: level)`). */
-const PRIORITY_INLINE_RE = /[🔺⏫🔼🔽⏬]️?|[[(] *priority:: *(?:highest|high|medium|low|lowest) *[\])](?: *,)?/u
+const PRIORITY_INLINE_RE =
+  /[🔺⏫🔼🔽⏬]️?|[[(] *priority:: *(?:highest|high|medium|low|lowest) *[\])](?: *,)?/u
 
 /** Matches the first metadata signifier — the boundary between the
  *  human-written description and the machine-managed fields. Covers
@@ -651,8 +663,13 @@ const isTaskLine = (line: string): boolean => TASK_LINE_RE.test(line)
 
 /** Replaces the checkbox character in a task line, e.g. `[/]` → `[x]`.
  *  Returns the line unchanged if it's not a task line. */
-const replaceCheckboxChar = ({ taskLine, newChar }: { taskLine: string; newChar: string }): string =>
-  taskLine.replace(/\[.\]/, `[${newChar}]`)
+const replaceCheckboxChar = ({
+  taskLine,
+  newChar,
+}: {
+  taskLine: string
+  newChar: string
+}): string => taskLine.replace(/\[.\]/, `[${newChar}]`)
 
 /** Removes the LAST occurrence of a field regex from a metadata tail.
  *  Description text ending in a parseable signifier lands at the front of
@@ -1002,7 +1019,13 @@ const splitTaskLine = (taskLine: string): TaskLineParts | null => {
   }
 }
 
-const joinTaskLine = ({ prefix, description, metadata, blockLink, trailingWhitespace }: TaskLineParts): string => {
+const joinTaskLine = ({
+  prefix,
+  description,
+  metadata,
+  blockLink,
+  trailingWhitespace,
+}: TaskLineParts): string => {
   const body = [description.trim(), metadata.trim()].filter(Boolean).join(" ")
   return `${prefix}${body}${blockLink}${trailingWhitespace}`
 }
@@ -1019,8 +1042,13 @@ const transformMetadata = (taskLine: string, transform: (metadata: string) => st
 }
 
 /** Appends a field to the end of a metadata tail. */
-const appendMetadataField = ({ metadata, fieldText }: { metadata: string; fieldText: string }): string =>
-  [metadata, fieldText].filter(Boolean).join(" ")
+const appendMetadataField = ({
+  metadata,
+  fieldText,
+}: {
+  metadata: string
+  fieldText: string
+}): string => [metadata, fieldText].filter(Boolean).join(" ")
 
 /** Inserts a field at its correct position in the task-line metadata by
  *  placing it before the first field in `laterFieldRegexes` that already
@@ -1258,7 +1286,8 @@ const descriptionDivergences = ({
     // tags and would flag every edit on a tagged line), but the advisory
     // quotes storedDescription — what vault_list_tasks actually returns.
     if (afterReading.descriptionSlot === submittedDescription) return []
-    const storedDescription = afterReading.metadata.description === "" ? null : afterReading.metadata.description
+    const storedDescription =
+      afterReading.metadata.description === "" ? null : afterReading.metadata.description
 
     if (storedDescription === submittedDescription) return []
     const consumedTail = consumedDescriptionTail({
@@ -1276,9 +1305,12 @@ const descriptionDivergences = ({
     ]
   }
 
-  const storedDescription = afterReading.metadata.description === "" ? null : afterReading.metadata.description
+  const storedDescription =
+    afterReading.metadata.description === "" ? null : afterReading.metadata.description
   const priorDescription =
-    priorReading && priorReading.metadata.description !== "" ? priorReading.metadata.description : null
+    priorReading && priorReading.metadata.description !== ""
+      ? priorReading.metadata.description
+      : null
 
   if (storedDescription === priorDescription) return []
   return [
@@ -1372,7 +1404,9 @@ const extractTrailingTags = (text: string): readonly string[] => {
  *  description — the round-trip duplication that occurs when an agent writes
  *  back the parser's re-appended view of interleaved tags. Returns the
  *  cleaned line and the tags that were removed. */
-const deduplicateDescriptionTags = (taskLine: string): { taskLine: string; deduplicatedTags: readonly string[] } => {
+const deduplicateDescriptionTags = (
+  taskLine: string,
+): { taskLine: string; deduplicatedTags: readonly string[] } => {
   const parts = splitTaskLine(taskLine)
 
   if (!parts || !parts.metadata) {
@@ -1553,7 +1587,10 @@ const updateTaskLineStatus = (params: {
   }
 
   // todo / in_progress — strip both completion dates
-  return stripMetadataField(stripMetadataField(withNewCheckbox, DONE_DATE_INLINE_RE), CANCELLED_DATE_INLINE_RE)
+  return stripMetadataField(
+    stripMetadataField(withNewCheckbox, DONE_DATE_INLINE_RE),
+    CANCELLED_DATE_INLINE_RE,
+  )
 }
 
 /** The next-occurrence line for a completed recurring task — the plugin's
@@ -1680,7 +1717,10 @@ const COMPLETE_MARKER = "**Complete**"
  *
  *  @param bodyLines Note body lines (frontmatter stripped)
  *  @param headings  Pre-parsed headings from `parseHeadings(bodyLines)` */
-const extractDoneLanes = (bodyLines: readonly string[], headings: readonly HeadingInfo[]): string[] => {
+const extractDoneLanes = (
+  bodyLines: readonly string[],
+  headings: readonly HeadingInfo[],
+): string[] => {
   // The marker must be the very first content paragraph after the heading —
   // blank lines are skipped, anything else means the lane has no marker.
   const startsWithCompleteMarker = (heading: HeadingInfo): boolean => {
@@ -1703,8 +1743,12 @@ const BACKTICK_FENCE_RE = /^`{3,}/
 /** Extracts `new-card-insertion-method` from the `%% kanban:settings %%`
  *  comment block. Returns `undefined` when the block is absent, the JSON
  *  is malformed, or the value is not a recognized insertion method. */
-const parseKanbanCardInsertionMethod = (bodyLines: readonly string[]): KanbanCardInsertionMethod | undefined => {
-  const settingsLineIndex = bodyLines.findIndex((line) => line.trimStart().startsWith("%% kanban:settings"))
+const parseKanbanCardInsertionMethod = (
+  bodyLines: readonly string[],
+): KanbanCardInsertionMethod | undefined => {
+  const settingsLineIndex = bodyLines.findIndex((line) =>
+    line.trimStart().startsWith("%% kanban:settings"),
+  )
 
   if (settingsLineIndex === -1) return undefined
 

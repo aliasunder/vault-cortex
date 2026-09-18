@@ -50,7 +50,11 @@ describe("daily-review handler", () => {
 
     const { vault, calls } = await setupVault()
     await mkdir(join(vault, "Daily Notes"), { recursive: true })
-    await writeFile(join(vault, "Daily Notes", "2026-06-16.md"), "# Today\n\nToday's log.\n", "utf8")
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# Today\n\nToday's log.\n",
+      "utf8",
+    )
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({}, fakeExtra))
 
@@ -85,7 +89,9 @@ describe("daily-review handler", () => {
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2026-06-16", max_chars: "30" }, fakeExtra))
 
-    expect(text).toContain('<vault-content source="Daily Notes/2026-06-16.md" type="daily-note" date="2026-06-16">')
+    expect(text).toContain(
+      '<vault-content source="Daily Notes/2026-06-16.md" type="daily-note" date="2026-06-16">',
+    )
     expect(text).toContain("</vault-content>")
     expect(text).toContain("truncated at 30 characters")
   })
@@ -128,7 +134,11 @@ describe("daily-review handler", () => {
   it("instruction text outside the data-marker wrapper contains no raw closing tag", async () => {
     const { vault, calls } = await setupVault()
     await mkdir(join(vault, "Daily Notes"), { recursive: true })
-    await writeFile(join(vault, "Daily Notes", "2026-06-16.md"), "# 2026-06-16\n\nNormal journal entry.\n", "utf8")
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nNormal journal entry.\n",
+      "utf8",
+    )
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
 
@@ -180,7 +190,11 @@ describe("daily-review handler", () => {
     })
     await mkdir(join(vault, "Daily Notes"), { recursive: true })
     await mkdir(join(vault, "About Me"), { recursive: true })
-    await writeFile(join(vault, "Daily Notes", "2026-06-16.md"), "# 2026-06-16\n\nSee [[missing-note]].\n", "utf8")
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nSee [[missing-note]].\n",
+      "utf8",
+    )
     const search = createSearchIndex(":memory:")
     search.upsertNote(
       {
@@ -205,7 +219,11 @@ describe("daily-review handler", () => {
     })
     await mkdir(join(vault, "Daily Notes"), { recursive: true })
     await mkdir(join(vault, "About Me"), { recursive: true })
-    await writeFile(join(vault, "Daily Notes", "2026-06-16.md"), "# 2026-06-16\n\nJournal.\n", "utf8")
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nJournal.\n",
+      "utf8",
+    )
     const search = createSearchIndex(":memory:")
     search.upsertNote(
       {
@@ -266,7 +284,11 @@ describe("daily-review handler", () => {
     })
     await mkdir(join(vault, "Daily Notes"), { recursive: true })
     await mkdir(join(vault, "About Me"), { recursive: true })
-    await writeFile(join(vault, "Daily Notes", "2026-06-16.md"), "# 2026-06-16\n\nJournal.\n", "utf8")
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nJournal.\n",
+      "utf8",
+    )
     const search = createSearchIndex(":memory:")
     // Note modified on 2026-06-16
     search.upsertNote(
@@ -298,7 +320,11 @@ describe("daily-review handler", () => {
   it("includes task extraction and pattern recognition in review steps", async () => {
     const { vault, calls } = await setupVault()
     await mkdir(join(vault, "Daily Notes"), { recursive: true })
-    await writeFile(join(vault, "Daily Notes", "2026-06-16.md"), "# 2026-06-16\n\nJournal.\n", "utf8")
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nJournal.\n",
+      "utf8",
+    )
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
 
@@ -311,7 +337,11 @@ describe("daily-review handler", () => {
     const disabledConfig = loadConfig({ MEMORY_ENABLED: "false" })
     const { vault, calls } = await setupVault({ config: disabledConfig })
     await mkdir(join(vault, "Daily Notes"), { recursive: true })
-    await writeFile(join(vault, "Daily Notes", "2026-06-16.md"), "# 2026-06-16\n\nJournal.\n", "utf8")
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nJournal.\n",
+      "utf8",
+    )
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
 
@@ -397,7 +427,10 @@ describe("daily-review handler", () => {
   })
 
   it("shows overflow hint when tasks exceed the display limit", async () => {
-    const taskLines = Array.from({ length: 25 }, (_, index) => `- [ ] Task ${index + 1} 📅 2026-06-16`).join("\n")
+    const taskLines = Array.from(
+      { length: 25 },
+      (_, index) => `- [ ] Task ${index + 1} 📅 2026-06-16`,
+    ).join("\n")
     const { calls } = await setupDailyReviewVault({
       date: "2026-06-16",
       extraNotes: [
@@ -467,7 +500,11 @@ describe("daily-review full prompt output", () => {
       await rm(vault, { recursive: true, force: true })
     })
     await mkdir(join(vault, "Daily Notes"), { recursive: true })
-    await writeFile(join(vault, "Daily Notes", "2026-06-16.md"), "# 2026-06-16\n\nShipped the prompts.\n", "utf8")
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# 2026-06-16\n\nShipped the prompts.\n",
+      "utf8",
+    )
     const search = createSearchIndex(":memory:")
     // Index the daily note so link analysis works
     search.upsertNote(
@@ -574,7 +611,11 @@ describe("daily-review with READONLY_MODE=true", () => {
   it("review steps keep their reflection content but direct no write tools", async () => {
     const { vault, calls } = await setupVault({ config: readOnlyConfig })
     await mkdir(join(vault, "Daily Notes"), { recursive: true })
-    await writeFile(join(vault, "Daily Notes", "2026-06-16.md"), "# Today\n\nToday's log.\n", "utf8")
+    await writeFile(
+      join(vault, "Daily Notes", "2026-06-16.md"),
+      "# Today\n\nToday's log.\n",
+      "utf8",
+    )
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
 
@@ -583,7 +624,9 @@ describe("daily-review with READONLY_MODE=true", () => {
     expect(text).toContain(
       "**Surface durable facts** — any preference, decision, or fact worth remembering long-term — and tell me so I can record them.",
     )
-    expect(text).toContain("**Capture follow-ups** as concrete next actions and list them for me to record.")
+    expect(text).toContain(
+      "**Capture follow-ups** as concrete next actions and list them for me to record.",
+    )
     for (const writeToolReference of WRITE_TOOL_REFERENCES) {
       expect(text).not.toContain(writeToolReference)
     }
@@ -693,7 +736,9 @@ describe("daily-review with DISABLED_TOOLS", () => {
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
 
-    expect(text).toContain("**Capture follow-ups** as concrete next actions and list them for me to record.")
+    expect(text).toContain(
+      "**Capture follow-ups** as concrete next actions and list them for me to record.",
+    )
   })
 
   it("falls back to flagging when every task update tool is disabled", async () => {

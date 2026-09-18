@@ -8,11 +8,16 @@ import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { describeTextWindow, safeHandler, safeHandlerContent } from "./tool-helpers.js"
 
-type ContentBlock = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string }
+type ContentBlock =
+  { type: "text"; text: string } | { type: "image"; data: string; mimeType: string }
 
 /** One-line, model-facing summary accompanying an image block: what file it
  *  is, what was delivered, and whether/how it was shrunk to fit. */
-const describeDeliveredImage = (result: { fitted: FittedImage; originalBytes: number; path: string }): string => {
+const describeDeliveredImage = (result: {
+  fitted: FittedImage
+  originalBytes: number
+  path: string
+}): string => {
   const { fitted, originalBytes, path } = result
   const delivered = `${path} — ${fitted.mimeType}, ${fitted.width}×${fitted.height}, ${fitted.data.length} bytes`
 
@@ -227,12 +232,22 @@ Returns: JSON with files (array of { path, extension, bytes }, sorted by path), 
           .string()
           .min(1)
           .optional()
-          .describe('Folder path to search recursively (e.g. "attachments"). Omit to list the whole vault.'),
+          .describe(
+            'Folder path to search recursively (e.g. "attachments"). Omit to list the whole vault.',
+          ),
         extensions: z
           .array(z.string().min(1))
           .optional()
-          .describe('Only include these extensions, case-insensitive, leading dot optional (e.g. [".png", "jpg"]).'),
-        limit: z.number().int().min(1).optional().default(50).describe("Max entries returned (default 50)."),
+          .describe(
+            'Only include these extensions, case-insensitive, leading dot optional (e.g. [".png", "jpg"]).',
+          ),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .default(50)
+          .describe("Max entries returned (default 50)."),
       },
     },
     async ({ folder, extensions, limit }, extra) => {
@@ -244,7 +259,10 @@ Returns: JSON with files (array of { path, extension, bytes }, sorted by path), 
       return safeHandler(
         reqLogger,
         async () => {
-          const listing = await assetOperations.buildAssetListing({ vaultPath, folder, extensions, limit }, reqLogger)
+          const listing = await assetOperations.buildAssetListing(
+            { vaultPath, folder, extensions, limit },
+            reqLogger,
+          )
           return {
             files: listing.assets,
             extension_counts: listing.extensionCounts,
