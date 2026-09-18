@@ -736,7 +736,10 @@ const positionOfTaskInLane = (
   heading: HeadingInfo,
   taskLineIndex: number,
 ): number => {
-  const sectionStart = taskInsertIndexUnderHeading({ lines, heading })
+  // Scan from the heading's body start, not the insert slot — the insert
+  // slot skips past a **Complete** marker, but cards above the marker are
+  // still lane members for position-counting purposes.
+  const sectionStart = heading.bodyStartLine
   const sectionEnd = heading.bodyEndLine
 
   // Each card's sub-items are skipped via findTaskBlockEnd, so the

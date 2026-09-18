@@ -3094,7 +3094,7 @@ kanban-plugin: board
         expect(result.changes).toEqual([
           "status: todo → done",
           "position: 1 → 3",
-          expect.stringMatching(/^next_occurrence: \(none\) → line \d+$/),
+          "next_occurrence: (none) → line 7",
         ])
       })
 
