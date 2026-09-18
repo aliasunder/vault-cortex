@@ -1,5 +1,18 @@
 import { describe, it, expect } from "vitest"
-import { tasks, type ParsedTask, type TaskFormatConfig } from "../tasks.js"
+import {
+  tasks,
+  type ParsedTask,
+  type StatusClassification,
+  type TaskFormatConfig,
+} from "../tasks.js"
+
+const DEFAULT_STATUS_REGISTRY: ReadonlyMap<string, StatusClassification> = new Map([
+  [" ", "todo"],
+  ["x", "done"],
+  ["X", "done"],
+  ["/", "in_progress"],
+  ["-", "cancelled"],
+])
 
 /** The recurrence-behavior settings at their plugin defaults, shared by
  *  every config literal in this file. */
@@ -7,7 +20,7 @@ const DEFAULT_RECURRENCE_SETTINGS = {
   setCreatedDate: false,
   recurrenceOnNextLine: false,
   removeScheduledDateOnRecurrence: false,
-  doneStatusSymbols: [],
+  statusRegistry: DEFAULT_STATUS_REGISTRY,
 } as const
 
 /** Default emoji format config for mutation tests. */
@@ -107,6 +120,95 @@ describe("tasks.extractTasks", () => {
     it.each(statusScenarios)("maps status char “$char” to $status", ({ char, status }) => {
       const extracted = tasks.extractTasks(`- [${char}] Task`)
       expect(extracted).toEqual([task({ statusChar: char, status, description: "Task" })])
+    })
+  })
+
+  describe("status registry classification", () => {
+    const customRegistry: ReadonlyMap<string, StatusClassification> = new Map([
+      [" ", "todo"],
+      ["x", "done"],
+      ["/", "in_progress"],
+      ["-", "cancelled"],
+      ["D", "done"],
+      ["?", "in_progress"],
+      [">", "non_task"],
+    ])
+
+    it("classifies a custom DONE char as done", () => {
+      const extracted = tasks.extractTasks("- [D] Deployed task", customRegistry)
+      expect(extracted).toEqual([
+        task({ statusChar: "D", status: "done", description: "Deployed task" }),
+      ])
+    })
+
+    it("classifies a custom IN_PROGRESS char as in_progress", () => {
+      const extracted = tasks.extractTasks("- [?] Question task", customRegistry)
+      expect(extracted).toEqual([
+        task({ statusChar: "?", status: "in_progress", description: "Question task" }),
+      ])
+    })
+
+    it("excludes NON_TASK lines from extraction", () => {
+      const extracted = tasks.extractTasks(
+        "- [>] Forwarded reference\n- [ ] Real task",
+        customRegistry,
+      )
+      expect(extracted).toEqual([task({ line: 2, description: "Real task" })])
+    })
+
+    it("makes children of a NON_TASK line top-level", () => {
+      const content = [
+        "- [>] Forwarded parent",
+        "  - [ ] Nested under non-task",
+        "- [ ] Sibling task",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content, customRegistry)
+
+      expect(extracted).toEqual([
+        task({ line: 2, description: "Nested under non-task", depth: 0 }),
+        task({ line: 3, description: "Sibling task", depth: 0 }),
+      ])
+    })
+
+    it("falls back to todo for chars not in the registry", () => {
+      const extracted = tasks.extractTasks("- [!] Unknown char", customRegistry)
+      expect(extracted).toEqual([
+        task({ statusChar: "!", status: "todo", description: "Unknown char" }),
+      ])
+    })
+
+    it("uses hardcoded defaults without a registry", () => {
+      const extracted = tasks.extractTasks("- [D] Custom char without registry")
+      expect(extracted).toEqual([
+        task({ statusChar: "D", status: "todo", description: "Custom char without registry" }),
+      ])
+    })
+  })
+
+  describe("statusForChar", () => {
+    const registry: ReadonlyMap<string, StatusClassification> = new Map([
+      [" ", "todo"],
+      ["x", "done"],
+      ["D", "done"],
+      [">", "non_task"],
+    ])
+
+    it("returns the registry classification when present", () => {
+      expect(tasks.statusForChar("D", registry)).toBe("done")
+      expect(tasks.statusForChar(">", registry)).toBe("non_task")
+    })
+
+    it("falls back to todo for chars not in a provided registry", () => {
+      expect(tasks.statusForChar("?", registry)).toBe("todo")
+    })
+
+    it("uses hardcoded defaults without a registry", () => {
+      expect(tasks.statusForChar("x")).toBe("done")
+      expect(tasks.statusForChar("X")).toBe("done")
+      expect(tasks.statusForChar("-")).toBe("cancelled")
+      expect(tasks.statusForChar("/")).toBe("in_progress")
+      expect(tasks.statusForChar(" ")).toBe("todo")
+      expect(tasks.statusForChar("?")).toBe("todo")
     })
   })
 

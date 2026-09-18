@@ -24,7 +24,10 @@
 import { DateTime } from "luxon"
 import { advanceComment, advanceFence, type OpenFence, splitIntoLines } from "./lines.js"
 import { parseHeadings, type HeadingInfo } from "./headings.js"
-import type { TaskFormatConfig } from "../vault-operations/task-format-config.js"
+import type {
+  StatusClassification,
+  TaskFormatConfig,
+} from "../vault-operations/task-format-config.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -266,10 +269,18 @@ const PRIORITY_BY_WORD: Readonly<Record<string, TaskPriority>> = {
 
 // ── Status mapping ──────────────────────────────────────────────
 
-/** Maps a checkbox character to the plugin's core status types: `x`/`X` done,
- *  `-` cancelled, `/` in progress, everything else (including custom
- *  characters) todo — the plugin's unknown-symbol behavior. */
-const statusForChar = (statusChar: string): TaskStatus => {
+/** Maps a checkbox character to a status classification. With a registry
+ *  (from the Tasks plugin config), the registry lookup wins and unknown
+ *  chars fall back to "todo". Without a registry, the four built-in chars
+ *  are hardcoded — backward compat for callers that don't have a config. */
+const statusForChar = (
+  statusChar: string,
+  statusRegistry?: ReadonlyMap<string, StatusClassification>,
+): StatusClassification => {
+  if (statusRegistry) {
+    return statusRegistry.get(statusChar) ?? "todo"
+  }
+
   if (statusChar === "x" || statusChar === "X") return "done"
   if (statusChar === "-") return "cancelled"
   if (statusChar === "/") return "in_progress"
@@ -485,7 +496,10 @@ const ancestorsOf = (
   return indentStack.filter((entry) => entry.indent < itemIndent)
 }
 
-const extractTasks = (rawContent: string): ParsedTask[] => {
+const extractTasks = (
+  rawContent: string,
+  statusRegistry?: ReadonlyMap<string, StatusClassification>,
+): ParsedTask[] => {
   const allLines = splitIntoLines(rawContent)
   const bodyStartLine = findBodyStartLine(allLines)
   const bodyLines = allLines.slice(bodyStartLine)
@@ -544,6 +558,12 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
     }
 
     const statusChar = capturedGroup(taskLineMatch, 1)
+    const resolvedStatus = statusForChar(statusChar, statusRegistry)
+
+    // NON_TASK lines are invisible to the task system — skip them without
+    // updating the indent stack, so any tasks nested below become top-level.
+    if (resolvedStatus === "non_task") continue
+
     // The block link sits at the end of the line — strip it before metadata
     // parsing, exactly as the plugin does.
     const bodyWithBlockLink = capturedGroup(taskLineMatch, 2)
@@ -563,7 +583,7 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
     extractedTasks.push({
       line: fileLine,
       statusChar,
-      status: statusForChar(statusChar),
+      status: resolvedStatus,
       blockId,
       heading: nearestHeading?.text ?? null,
       depth,
@@ -697,9 +717,9 @@ const removeAllMetadataMatches = (metadata: string, regex: RegExp): string => {
   return stripped === metadata ? metadata : removeAllMetadataMatches(stripped, regex)
 }
 
-// Re-export TaskFormatConfig so consumers of tasks.ts don't need a
+// Re-export config types so consumers of tasks.ts don't need a
 // separate import from the vault-operations layer.
-export type { TaskFormatConfig }
+export type { StatusClassification, TaskFormatConfig }
 
 /** Formats a done date in the configured format. */
 const formatDoneDate = (today: string, format: "emoji" | "dataview"): string =>

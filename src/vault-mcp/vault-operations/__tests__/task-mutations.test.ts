@@ -5753,14 +5753,14 @@ title: Tasks
       )
 
       // The plugin treats "D" as already done via the status registry —
-      // the doneStatusSymbols guard prevents deletion.
+      // the statusRegistry guard prevents deletion.
       expect(result).toEqual({
         path: "tasks.md",
         line: 7,
         description: "Deploy and clean up",
         block_id: "deploy-cleanup",
         heading: "Active",
-        changes: ["status: todo → done"],
+        changes: ["status: done → done"],
       })
 
       const content = await readTestNote(vault, "tasks.md")

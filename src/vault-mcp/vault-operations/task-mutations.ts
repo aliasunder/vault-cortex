@@ -892,13 +892,13 @@ const resolveRecurrenceSpawn = ({
   if (status !== "done") return { kind: "none" }
 
   const wasAlreadyDone =
-    taskBefore.status === "done" || config.doneStatusSymbols.includes(taskBefore.statusChar)
+    taskBefore.status === "done" || config.statusRegistry.get(taskBefore.statusChar) === "done"
 
   if (wasAlreadyDone) return { kind: "none" }
 
   // The note-level parser handles a bare task line: no frontmatter means a
   // body offset of zero and the one line parses to a one-element array.
-  const editedTask = tasks.extractTasks(editedTaskLine).at(0)
+  const editedTask = tasks.extractTasks(editedTaskLine, config.statusRegistry).at(0)
 
   if (!editedTask?.recurrence) return { kind: "none" }
   const recurrenceText = editedTask.recurrence
@@ -1470,12 +1470,23 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       throw new Error(`task line index ${taskLineIndex} out of bounds`)
     }
     const isKanbanBoard = Boolean(parsed.data["kanban-plugin"])
+
+    // Resolve format config early — the status registry is needed for
+    // extractTasks so taskBefore.status reflects custom classifications.
+    const pluginConfig = await readTaskFormatConfig(vaultPath)
+    const formatConfig = {
+      ...pluginConfig,
+      taskFormat: format ?? pluginConfig.taskFormat,
+    }
+
     // Prior field values, so every `changes` entry can state before → after.
     // Parsed from the whole note so `depth` counts task ancestors the way
     // the index does — raw indentation would call a checklist item under a
     // plain bullet a sub-task while the index lists it as top-level.
     const taskFileLine = bodyStartLine + taskLineIndex + 1
-    const taskBefore = tasks.extractTasks(fileContent).find((task) => task.line === taskFileLine)
+    const taskBefore = tasks
+      .extractTasks(fileContent, formatConfig.statusRegistry)
+      .find((task) => task.line === taskFileLine)
 
     if (!taskBefore) {
       throw new Error(`task line index ${taskLineIndex} does not parse as a task`)
@@ -1494,13 +1505,6 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     }
     if (newBlockId) {
       validateBlockId(newBlockId, bodyLines, taskLineIndex)
-    }
-
-    // The explicit param wins, then the plugin config, then the emoji default
-    const pluginConfig = await readTaskFormatConfig(vaultPath)
-    const formatConfig = {
-      ...pluginConfig,
-      taskFormat: format ?? pluginConfig.taskFormat,
     }
 
     const today = todayIsoDate()
@@ -1784,7 +1788,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     const shouldDeleteOnCompletion =
       status === "done" &&
       taskBefore.status !== "done" &&
-      !formatConfig.doneStatusSymbols.includes(taskBefore.statusChar) &&
+      formatConfig.statusRegistry.get(taskBefore.statusChar) !== "done" &&
       effectiveOnCompletion?.toLowerCase() === "delete"
 
     if (shouldDeleteOnCompletion) {
