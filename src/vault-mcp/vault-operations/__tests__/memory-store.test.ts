@@ -641,6 +641,56 @@ created: 2026-01-01T00:00:00-05:00
 
   // A multiline entry would write a block the line-based duplicate guard
   // (and deleteMemory's exact line match) can never detect — it must be
+  it("ignores a dated-bullet-looking line inside a %% comment when computing insertion offsets", async () => {
+    const commentFixture = `---
+title: Commented
+type: profile
+created: 2026-01-01T00:00:00-05:00
+---
+
+# Commented
+
+## Notes (newest first)
+- **2026-06-15**: Real entry
+%%
+- **2026-01-01**: This is inside an Obsidian comment
+%%
+- **2026-06-14**: Another real entry
+`
+    await writeFile(
+      join(vault, "About Me/Commented.md"),
+      commentFixture,
+      "utf8",
+    )
+
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Commented",
+        section: "Notes",
+        entry: "New entry at top",
+        date: "2026-06-16",
+      },
+      logger,
+    )
+
+    const section = await getMemory(
+      { vaultPath: vault, file: "Commented", section: "Notes" },
+      logger,
+    )
+
+    expect(section).toBe(
+      [
+        "- **2026-06-16**: New entry at top",
+        "- **2026-06-15**: Real entry",
+        "%%",
+        "- **2026-01-01**: This is inside an Obsidian comment",
+        "%%",
+        "- **2026-06-14**: Another real entry",
+      ].join("\n"),
+    )
+  })
+
   // rejected before anything is written.
   it.each([
     { lineBreakKind: "a line feed", entry: "line one\nline two" },
