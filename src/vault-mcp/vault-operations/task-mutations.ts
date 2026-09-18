@@ -426,12 +426,15 @@ const headingInsertIndexAtPosition = ({
   heading: HeadingInfo
   position: number
 }): number => {
-  const sectionStart = taskInsertIndexUnderHeading({ lines, heading })
+  // Start from bodyStartLine (not taskInsertIndexUnderHeading) so the
+  // integer walk and positionOfTaskInLane count from the same window.
+  // The **Complete** marker skip only matters for the "bottom" append.
+  const sectionStart = heading.bodyStartLine
   const sectionEnd = heading.bodyEndLine
 
   // Cards under child headings belong to those headings, not this lane.
   const firstChildStart = parseHeadings(lines).find((childHeading) => {
-    return childHeading.startLine >= heading.bodyStartLine && childHeading.startLine < sectionEnd
+    return childHeading.startLine >= sectionStart && childHeading.startLine < sectionEnd
   })?.startLine
   const walkEnd = firstChildStart ?? sectionEnd
 
@@ -1876,7 +1879,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
             targetLane,
             headings: headingsAfterSpawn,
             ...(position && { position }),
-            ...(beforePositionInLane && { beforePosition: beforePositionInLane }),
+            ...(beforePositionInLane !== undefined && { beforePosition: beforePositionInLane }),
           })
         : {
             lines: linesWithSpawn,

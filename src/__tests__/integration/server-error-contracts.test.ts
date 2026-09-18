@@ -982,7 +982,7 @@ describe("task errors", () => {
   })
 
   it("vault_update_task — cannot reposition a sub-task", async () => {
-    await callTool({
+    const createResult = await callTool({
       client,
       name: "vault_create_task",
       args: {
@@ -992,6 +992,7 @@ describe("task errors", () => {
         parent_block_id: "board-active-1",
       },
     })
+    expect(createResult.isError).not.toBe(true)
     const result = await callTool({
       client,
       name: "vault_update_task",
@@ -1014,7 +1015,6 @@ describe("task errors", () => {
         properties: { title: "Above heading test" },
       },
     })
-    expect(setupResult.isError).not.toBe(true)
     onTestFinished(async () => {
       await callTool({
         client,
@@ -1022,6 +1022,7 @@ describe("task errors", () => {
         args: { path: "error-test-above-heading.md" },
       })
     })
+    expect(setupResult.isError).not.toBe(true)
 
     const result = await callTool({
       client,
@@ -1045,7 +1046,6 @@ describe("task errors", () => {
         properties: { title: "Dup heading test" },
       },
     })
-    expect(setupResult.isError).not.toBe(true)
     onTestFinished(async () => {
       await callTool({
         client,
@@ -1053,6 +1053,7 @@ describe("task errors", () => {
         args: { path: "error-test-dup-heading.md" },
       })
     })
+    expect(setupResult.isError).not.toBe(true)
 
     const result = await callTool({
       client,
