@@ -147,8 +147,8 @@ type ParsedSection = Readonly<{
 /** Walks section body lines with fence/comment awareness and returns the
  *  0-based offsets of genuine entry bullets (lines matching ENTRY_PATTERN that
  *  are not inside a code fence or %% comment). Used by updateMemory's insertion
- *  scan and deleteMemory's bullet match — both must agree on what counts as a
- *  real entry. */
+ *  scan, deleteMemory's bullet match, and parseSections' entry count — all three
+ *  must agree on what counts as a real entry. */
 const scanGenuineEntryOffsets = (bodyLines: readonly string[]): number[] => {
   const offsets: number[] = []
   // Loop-carried parser state — each iteration reads the previous
@@ -184,19 +184,6 @@ const scanGenuineEntryOffsets = (bodyLines: readonly string[]): number[] => {
   return offsets
 }
 
-/** Counts dated bullet entries within a section's body span [start, end). A plain
- *  loop — a sequential count with no slice/filter allocations over what can be a
- *  large memory file. */
-const countDatedEntries = (lines: readonly string[], start: number, end: number): number => {
-  let count = 0
-  for (let lineIndex = start; lineIndex < end; lineIndex++) {
-    const entryLine = lines[lineIndex]
-
-    if (entryLine !== undefined && ENTRY_PATTERN.test(entryLine)) count += 1
-  }
-  return count
-}
-
 /**
  * Parses a memory file's H1/H2 sections, with a dated-bullet count per H2.
  *
@@ -220,7 +207,9 @@ const parseSections = (lines: readonly string[]): ParsedSection[] => {
       bodyEndLine: heading.bodyEndLine,
       entryCount:
         heading.level === 2
-          ? countDatedEntries(lines, heading.bodyStartLine, heading.bodyEndLine)
+          ? scanGenuineEntryOffsets(
+              lines.slice(heading.bodyStartLine, heading.bodyEndLine),
+            ).length
           : 0,
     })
   }
