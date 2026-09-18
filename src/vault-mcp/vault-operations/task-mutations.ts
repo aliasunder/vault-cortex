@@ -732,6 +732,7 @@ const isInsideFenceOrComment = (bodyLines: readonly string[], lineIndex: number)
       openFence = fenceResult.openFence
 
       if (index === lineIndex) return fenceResult.lineIsCode
+      if (fenceResult.lineIsCode) continue
     }
 
     const commentResult = advanceComment(lineText, commentOpen)
