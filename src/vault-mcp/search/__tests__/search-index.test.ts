@@ -544,6 +544,146 @@ describe("equal-score tie-breaking in retrieval legs", () => {
       "docs/zzz.txt",
     ])
   })
+
+  it("keeps path order for note ties straddling the KNN window boundary", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder())
+    // Eight tied notes against a window of six (limit 2 → candidateLimit 6):
+    // without over-fetch, vec0's tie order chooses which six enter, and
+    // aaa.md is inserted first so reverse-insertion emission drops it at the
+    // boundary. With over-fetch all eight are path-ordered before the window
+    // truncates, so aaa and bbb must top the results.
+    for (const notePath of [
+      "aaa.md",
+      "bbb.md",
+      "ccc.md",
+      "ddd.md",
+      "eee.md",
+      "fff.md",
+      "ggg.md",
+      "hhh.md",
+    ]) {
+      tieIndex.upsertNote(
+        {
+          filePath: notePath,
+          rawContent: IDENTICAL_NOTE,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch({ query: "orca", limit: 2 }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "bbb.md"])
+  })
+
+  it("keeps path order for file ties straddling the KNN window boundary", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder(), undefined, {
+      fileToolsEnabled: true,
+    })
+    const identicalFileContent = "walrus habitat survey notes"
+    // Same eight-versus-six construction as the note test above.
+    for (const filePath of [
+      "aaa.txt",
+      "bbb.txt",
+      "ccc.txt",
+      "ddd.txt",
+      "eee.txt",
+      "fff.txt",
+      "ggg.txt",
+      "hhh.txt",
+    ]) {
+      tieIndex.upsertNonMdFile(filePath, 100)
+      tieIndex.upsertFileContent(
+        {
+          filePath,
+          rawContent: identicalFileContent,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await tieIndex.embedFileContent({ filePath }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch({ query: "orca", limit: 2 }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.txt", "bbb.txt"])
+  })
+
+  it("keeps path order for note ties straddling the folder-scoped KNN window boundary", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder())
+    // Eight tied in-folder notes against a window of six (limit 2 →
+    // candidateLimit 6): docs/aaa and docs/bbb are inserted first, so if the
+    // folder statement's over-fetch reverts, reverse-insertion emission drops
+    // both at the boundary. The equally-tied note outside the folder is
+    // excluded by the folder filter.
+    for (const notePath of [
+      "docs/aaa.md",
+      "docs/bbb.md",
+      "docs/ccc.md",
+      "other/out.md",
+      "docs/ddd.md",
+      "docs/eee.md",
+      "docs/fff.md",
+      "docs/ggg.md",
+      "docs/hhh.md",
+    ]) {
+      tieIndex.upsertNote(
+        {
+          filePath: notePath,
+          rawContent: IDENTICAL_NOTE,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch(
+      { query: "orca", filters: { folder: "docs" }, limit: 2 },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["docs/aaa.md", "docs/bbb.md"])
+  })
+
+  it("keeps path order for file ties straddling the folder-scoped KNN window boundary", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder(), undefined, {
+      fileToolsEnabled: true,
+    })
+    const identicalFileContent = "walrus habitat survey notes"
+    // Same eight-versus-six construction as the folder-scoped note test
+    // above. File legs scope to the folder in SQL alone, and assets/out.txt
+    // sorts before every docs/ path — with folder scoping intact the window
+    // never contains it, while the plain KNN statement would rank it first
+    // and fail the assertion.
+    for (const filePath of [
+      "docs/aaa.txt",
+      "docs/bbb.txt",
+      "docs/ccc.txt",
+      "assets/out.txt",
+      "docs/ddd.txt",
+      "docs/eee.txt",
+      "docs/fff.txt",
+      "docs/ggg.txt",
+      "docs/hhh.txt",
+    ]) {
+      tieIndex.upsertNonMdFile(filePath, 100)
+      tieIndex.upsertFileContent(
+        {
+          filePath,
+          rawContent: identicalFileContent,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await tieIndex.embedFileContent({ filePath }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch(
+      { query: "orca", filters: { folder: "docs" }, limit: 2 },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["docs/aaa.txt", "docs/bbb.txt"])
+  })
 })
 
 describe("leading callout", () => {
@@ -1977,13 +2117,13 @@ describe("searchByProperty", () => {
 describe("markdown path requirement", () => {
   it("getBacklinks rejects a path without .md or .canvas extension", () => {
     expect(() => index.getBacklinks({ path: "Projects/Plan" }, logger)).toThrow(
-      'path must end in ".md" or ".canvas" (received "Projects/Plan")',
+      /^path must end in "\.md" or "\.canvas" \(received "Projects\/Plan"\)$/,
     )
   })
 
   it("getOutgoingLinks rejects a path without .md or .canvas extension", () => {
     expect(() => index.getOutgoingLinks({ path: "Projects/Plan" }, logger)).toThrow(
-      'path must end in ".md" or ".canvas" (received "Projects/Plan")',
+      /^path must end in "\.md" or "\.canvas" \(received "Projects\/Plan"\)$/,
     )
   })
 })
@@ -4206,7 +4346,7 @@ Shared datefilter content for boundary tests.
         { query: "datefilter", filters: { created: { on: "March 10" } } },
         logger,
       ),
-    ).toThrow('invalid created.on date: "March 10". Use YYYY-MM-DD (e.g. 2026-07-03).')
+    ).toThrow(/^invalid created\.on date: "March 10"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/)
   })
 
   it("rejects a calendar-invalid created date", () => {
@@ -4219,7 +4359,9 @@ Shared datefilter content for boundary tests.
         },
         logger,
       ),
-    ).toThrow('invalid created.before date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).')
+    ).toThrow(
+      /^invalid created\.before date: "2026-02-31"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
+    )
   })
 })
 
@@ -4309,7 +4451,9 @@ Shared datefilter content for mtime boundary tests.
         { query: "datefilter", filters: { modified: { after: "yesterday" } } },
         logger,
       ),
-    ).toThrow('invalid modified.after date: "yesterday". Use YYYY-MM-DD (e.g. 2026-07-03).')
+    ).toThrow(
+      /^invalid modified\.after date: "yesterday"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
+    )
   })
 
   it("rejects a calendar-invalid modified date", () => {
@@ -4322,7 +4466,9 @@ Shared datefilter content for mtime boundary tests.
         },
         logger,
       ),
-    ).toThrow('invalid modified.before date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).')
+    ).toThrow(
+      /^invalid modified\.before date: "2026-02-31"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
+    )
   })
 
   it("date filters AND-combine with other filters and the text query", () => {

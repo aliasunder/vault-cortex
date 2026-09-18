@@ -404,6 +404,34 @@ describe("memoryRecall", () => {
     expect(result.entries.map((entry) => entry.file)).toEqual(["Aaa"])
   })
 
+  it("fills a boundary-straddling vector tie window in entry order", async () => {
+    // 101 identically-embedded entries against the 100-entry KNN window: the
+    // window still holds 100, but over-fetch orders the tie by
+    // (file, entry_index) before truncating, so entry 0 survives and the
+    // LAST entry drops. Without over-fetch, vec0's tie order chooses — under
+    // reverse-insertion emission the first-inserted entry 0 is the one that
+    // drops, and the chronological output then starts at a later entry.
+    const numberedEntries = Array.from(
+      { length: 101 },
+      (_, entryNumber) => `- **2026-07-02**: Pacing beats crunch entry ${String(entryNumber)}.`,
+    ).join("\n")
+    const index = await createRecallIndex({
+      files: {
+        Ledger: `# Ledger\n\n## Working style (newest first)\n\n${numberedEntries}\n`,
+      },
+    })
+
+    // limit 101 lifts the output cap past the KNN window, so the returned
+    // entries expose which side of the 100-entry window the tie drop took.
+    const result = await index.memoryRecall({ query: "recovery rhythm", limit: 101 }, logger)
+    expect(result.total).toBe(100)
+    const survivingEntryTexts = Array.from(
+      { length: 100 },
+      (_, entryNumber) => `- **2026-07-02**: Pacing beats crunch entry ${String(entryNumber)}.`,
+    )
+    expect(result.entries.map((entry) => entry.text)).toEqual(survivingEntryTexts)
+  })
+
   it("orders same-date evidence entries by code units, not locale collation", async () => {
     const identicalEntry = "- **2026-07-02**: Pacing beats crunch every time."
     // "Zeta" and "alpha" disagree between code-unit order (Z 0x5A before
@@ -521,7 +549,7 @@ describe("memoryRecall", () => {
   it("rejects with a remediation message when no memory dir is configured", async () => {
     const index = createSearchIndex(":memory:")
     await expect(index.memoryRecall({ query: "anything" }, logger)).rejects.toThrow(
-      "memory recall is not available: the memory layer is disabled (MEMORY_ENABLED=false)",
+      /^memory recall is not available: the memory layer is disabled \(MEMORY_ENABLED=false\)$/,
     )
   })
 
