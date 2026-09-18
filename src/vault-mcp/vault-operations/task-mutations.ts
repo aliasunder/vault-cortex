@@ -891,6 +891,9 @@ const resolveRecurrenceSpawn = ({
 }): RecurrenceSpawn => {
   if (status !== "done") return { kind: "none" }
 
+  // taskBefore.status already reflects the registry (extractTasks receives
+  // it), so the registry lookup is belt-and-suspenders — guards against a
+  // caller that extracted tasks without the registry.
   const wasAlreadyDone =
     taskBefore.status === "done" || config.statusRegistry.get(taskBefore.statusChar) === "done"
 
@@ -1785,6 +1788,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // task must not delete the task.
     const effectiveOnCompletion =
       onCompletion !== undefined ? onCompletion : taskBefore.onCompletion
+    // Registry lookup mirrors resolveRecurrenceSpawn's belt-and-suspenders
+    // guard — taskBefore.status already reflects the registry.
     const shouldDeleteOnCompletion =
       status === "done" &&
       taskBefore.status !== "done" &&

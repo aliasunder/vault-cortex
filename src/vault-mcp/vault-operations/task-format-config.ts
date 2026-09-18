@@ -94,9 +94,12 @@ const statusRegistryFrom = (
 
   if (!isRecord(statusSettings)) return DEFAULT_STATUS_REGISTRY
 
-  const statusLists = [statusSettings.coreStatuses, statusSettings.customStatuses].filter(
-    Array.isArray,
-  )
+  // Array.isArray narrows each element from unknown to any[] — keep only
+  // the lists that are actually present and shaped as arrays.
+  const statusLists: unknown[][] = [
+    statusSettings.coreStatuses,
+    statusSettings.customStatuses,
+  ].filter(Array.isArray)
 
   if (statusLists.length === 0) return DEFAULT_STATUS_REGISTRY
 

@@ -562,6 +562,8 @@ const extractTasks = (
 
     // NON_TASK lines are invisible to the task system — skip them without
     // updating the indent stack, so any tasks nested below become top-level.
+    // After this guard, resolvedStatus is narrowed to TaskStatus (the four
+    // values ParsedTask.status accepts).
     if (resolvedStatus === "non_task") continue
 
     // The block link sits at the end of the line — strip it before metadata
