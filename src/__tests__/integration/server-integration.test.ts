@@ -332,6 +332,36 @@ describe("default config", () => {
       expect(textContent(result)).toContain("Vim keybindings")
     })
 
+    it("vault_get_memory — on_or_after returns structured entries", async () => {
+      const result = await callTool({
+        client,
+        name: "vault_get_memory",
+        args: {
+          file: "Preferences",
+          section: "Editor settings",
+          on_or_after: "2026-01-08",
+        },
+      })
+      expect(result.isError).not.toBe(true)
+      const parsed = JSON.parse(textContent(result))
+      expect(parsed.on_or_after).toBe("2026-01-08")
+      expect(parsed.total).toBe(2)
+      expect(parsed.entries).toEqual([
+        {
+          file: "Preferences",
+          section: "Editor settings (newest first)",
+          date: "2026-01-12",
+          text: "- **2026-01-12**: Prefers dark mode in all editors",
+        },
+        {
+          file: "Preferences",
+          section: "Editor settings (newest first)",
+          date: "2026-01-08",
+          text: "- **2026-01-08**: Uses Vim keybindings in VS Code",
+        },
+      ])
+    })
+
     it("vault_memory_recall", async () => {
       const result = await callTool({
         client,
