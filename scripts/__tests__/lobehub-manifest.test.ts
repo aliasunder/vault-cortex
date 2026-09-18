@@ -24,9 +24,7 @@ const stubListTools = (result: ListToolsResult): void => {
 
 /** Prompt-side counterpart to stubListTools. */
 const stubListPrompts = (result: ListPromptsResult): void => {
-  const spy = vi
-    .spyOn(Client.prototype, "listPrompts")
-    .mockResolvedValue(result)
+  const spy = vi.spyOn(Client.prototype, "listPrompts").mockResolvedValue(result)
   onTestFinished(() => spy.mockRestore())
 }
 

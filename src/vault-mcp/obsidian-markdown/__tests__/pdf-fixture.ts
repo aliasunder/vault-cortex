@@ -1,21 +1,17 @@
 /** Non-ASCII characters the fixture supports, mapped to their WinAnsi byte as
  *  an octal escape — the buffer is ASCII-encoded, so these are the only way
  *  to express them in a content stream (fonts declare /WinAnsiEncoding). */
-const WINANSI_OCTAL_ESCAPES: ReadonlyMap<string, string> = new Map([
-  ["•", "\\225"],
-])
+const WINANSI_OCTAL_ESCAPES: ReadonlyMap<string, string> = new Map([["•", "\\225"]])
 
 /** Escapes the three characters with special meaning inside a PDF literal
  *  string — backslash first so the escapes it introduces aren't re-escaped —
  *  then swaps supported non-ASCII characters for their WinAnsi octal form. */
 const escapePdfString = (text: string): string => {
-  const escaped = text
-    .replace(/\\/g, "\\\\")
-    .replace(/\(/g, "\\(")
-    .replace(/\)/g, "\\)")
+  const escaped = text.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)")
   return [...escaped]
     .map((character) => {
       const winAnsiEscape = WINANSI_OCTAL_ESCAPES.get(character)
+
       if (winAnsiEscape) return winAnsiEscape
       // The buffer is ASCII-encoded, which truncates code points to their low
       // byte — reject unsupported characters instead of silently corrupting.
@@ -64,9 +60,7 @@ const assemblePdf = (objects: readonly string[]): Buffer => {
   const xrefOffset = Buffer.byteLength(body, "ascii")
   const xrefEntries = [
     "0000000000 65535 f ",
-    ...objectOffsets.map(
-      (offset) => `${String(offset).padStart(10, "0")} 00000 n `,
-    ),
+    ...objectOffsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n `),
   ]
 
   const trailer = [
@@ -106,14 +100,7 @@ export const buildPdf = (textOps: readonly PdfTextOp[]): Buffer => {
       "   /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>",
       "endobj",
     ].join("\n"),
-    [
-      "4 0 obj",
-      `<< /Length ${streamBytes} >>`,
-      "stream",
-      stream,
-      "endstream",
-      "endobj",
-    ].join("\n"),
+    ["4 0 obj", `<< /Length ${streamBytes} >>`, "stream", stream, "endstream", "endobj"].join("\n"),
     "5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>\nendobj",
     "6 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>\nendobj",
   ])
@@ -144,9 +131,5 @@ export const buildEmptyStreamPdf = (): Buffer => {
 /** Wraps a fixture buffer as the Uint8Array view extractPdfText expects —
  *  shared so each test doesn't repeat the three-arg view construction. */
 export const toPdfData = (pdfBuffer: Buffer): Uint8Array => {
-  return new Uint8Array(
-    pdfBuffer.buffer,
-    pdfBuffer.byteOffset,
-    pdfBuffer.byteLength,
-  )
+  return new Uint8Array(pdfBuffer.buffer, pdfBuffer.byteOffset, pdfBuffer.byteLength)
 }

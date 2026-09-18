@@ -16,11 +16,7 @@ import {
   isMfaRequiredError,
   obsidianApi,
 } from "./obsidian-api.js"
-import type {
-  RemoteVault,
-  SignInResult,
-  VaultKeyStatus,
-} from "./obsidian-api.js"
+import type { RemoteVault, SignInResult, VaultKeyStatus } from "./obsidian-api.js"
 import { deriveVaultKeyHash } from "./vault-key.js"
 import { renderSetupPage, settingsLocation } from "./setup-page.js"
 import type { HostingPlatform, PreflightProblem } from "./setup-page.js"
@@ -96,9 +92,9 @@ export const createSetupRoutes = ({
   }): string => {
     const requestId = randomUUID()
     const expiresAt =
-      inheritedExpiresAt ??
-      DateTime.now().plus({ minutes: PENDING_SIGN_IN_TTL_MINUTES })
+      inheritedExpiresAt ?? DateTime.now().plus({ minutes: PENDING_SIGN_IN_TTL_MINUTES })
     const remainingMs = expiresAt.diff(DateTime.now()).toMillis()
+
     // The inherited expiry already passed — don't store credentials at all.
     if (remainingMs <= 0) return requestId
     pendingSignIns.set(requestId, { email, password, expiresAt })
@@ -110,9 +106,7 @@ export const createSetupRoutes = ({
   }
 
   /** Consumes the pending sign-in for this request — single use, returns undefined when expired or absent. */
-  const consumePendingSignIn = (
-    requestId: string,
-  ): PendingSignIn | undefined => {
+  const consumePendingSignIn = (requestId: string): PendingSignIn | undefined => {
     const pending = pendingSignIns.get(requestId)
     pendingSignIns.delete(requestId)
     if (!pending || pending.expiresAt <= DateTime.now()) return undefined
@@ -256,8 +250,10 @@ export const createSetupRoutes = ({
   ): Promise<PreflightProblem | undefined> => {
     if (!vaultName) return { kind: "vault-name-unset" }
     const vaults = await listAccountVaults(token, requestLogger)
+
     if (!vaults) return undefined
     const matches = vaults.filter((vault) => vault.name === vaultName)
+
     if (matches.length === 0) {
       return {
         kind: "vault-not-found",
@@ -267,6 +263,7 @@ export const createSetupRoutes = ({
     }
     if (matches.length > 1) return { kind: "vault-name-ambiguous", vaultName }
     const [vault] = matches
+
     if (!vault?.encrypted) return undefined
     if (!vaultPassword) return { kind: "password-missing", vaultName }
     return checkVaultKey(
@@ -286,6 +283,7 @@ export const createSetupRoutes = ({
     requestLogger: Logger,
   ): Promise<void> => {
     const problem = await runVaultPreflight(token, requestLogger)
+
     if (problem) {
       requestLogger.warn("setup_blocked", { problem: problem.kind })
       res.type("html").send(
@@ -332,6 +330,7 @@ export const createSetupRoutes = ({
     // Whitespace-tolerant like the consent page: a token copied from a
     // dashboard or terminal can pick up a wrapped newline.
     const submittedToken = formField(body, "token").replace(/\s+/g, "")
+
     if (!submittedToken || !safeEqual(submittedToken, authToken)) {
       requestLogger.warn("setup_bad_token")
       sendSignInPage(req, res, {
@@ -342,6 +341,7 @@ export const createSetupRoutes = ({
     }
     const email = formField(body, "email").trim()
     const password = formField(body, "password")
+
     if (!email || !password) {
       sendSignInPage(req, res, {
         status: 400,
@@ -386,6 +386,7 @@ export const createSetupRoutes = ({
     requestLogger: Logger
   }): Promise<void> => {
     const pending = consumePendingSignIn(formField(body, "request_id"))
+
     if (!pending) {
       sendSignInPage(req, res, {
         error: "That sign-in expired — start again.",
@@ -444,6 +445,7 @@ export const createSetupRoutes = ({
         requestId: randomUUID(),
         clientIp: extractClientIp(req, trustForwardedHops),
       })
+
       if (formField(body, "request_id")) {
         await handleMfaForm({ req, res, body, requestLogger })
         return

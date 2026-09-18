@@ -168,9 +168,7 @@ describe("buildDockerRunArgs", () => {
     })
     expect(remoteArgs).toContain("vault-cortex_vault_data:/vault")
     expect(remoteArgs).toContain("vault-cortex_mcp_data:/data")
-    expect(remoteArgs).toContain(
-      "vault-cortex_obsidian_config:/home/obsidian/.config",
-    )
+    expect(remoteArgs).toContain("vault-cortex_obsidian_config:/home/obsidian/.config")
   })
 
   it("includes remote-specific log rotation and longer healthcheck timings", () => {
@@ -236,8 +234,8 @@ describe("pollHealth", () => {
     ]
     const fetchStub: typeof fetch = () => {
       const nextResponse = responses.shift()
-      if (nextResponse === undefined)
-        throw new Error("fetch called after success")
+
+      if (nextResponse === undefined) throw new Error("fetch called after success")
       return nextResponse()
     }
 
@@ -270,18 +268,11 @@ describe("pollHealth", () => {
 
 describe("buildDockerLogsArgs", () => {
   it("targets the container with no flags by default", () => {
-    expect(buildDockerLogsArgs({ follow: false })).toEqual([
-      "logs",
-      CONTAINER_NAME,
-    ])
+    expect(buildDockerLogsArgs({ follow: false })).toEqual(["logs", CONTAINER_NAME])
   })
 
   it("adds --follow when requested", () => {
-    expect(buildDockerLogsArgs({ follow: true })).toEqual([
-      "logs",
-      "--follow",
-      CONTAINER_NAME,
-    ])
+    expect(buildDockerLogsArgs({ follow: true })).toEqual(["logs", "--follow", CONTAINER_NAME])
   })
 
   it("adds --since with its value when provided", () => {
@@ -318,9 +309,7 @@ describe("classifyDaemonStatus", () => {
       code: "ENOENT",
     })
 
-    expect(classifyDaemonStatus({ status: null, error: spawnError })).toBe(
-      "not-installed",
-    )
+    expect(classifyDaemonStatus({ status: null, error: spawnError })).toBe("not-installed")
   })
 
   it("classifies a spawn timeout as not-running, not not-installed", () => {
@@ -330,9 +319,7 @@ describe("classifyDaemonStatus", () => {
       code: "ETIMEDOUT",
     })
 
-    expect(classifyDaemonStatus({ status: null, error: spawnError })).toBe(
-      "not-running",
-    )
+    expect(classifyDaemonStatus({ status: null, error: spawnError })).toBe("not-running")
   })
 })
 
@@ -360,10 +347,7 @@ describe("probeHealth", () => {
       throw new Error("ECONNREFUSED")
     }
 
-    const probeResult = await probeHealth(
-      { url: "http://example.test/healthz" },
-      failingFetch,
-    )
+    const probeResult = await probeHealth({ url: "http://example.test/healthz" }, failingFetch)
 
     expect(probeResult).toBe(false)
   })

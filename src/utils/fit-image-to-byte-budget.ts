@@ -98,14 +98,15 @@ export const fitImageToByteBudget = async (params: {
 }): Promise<FittedImage> => {
   const metadata = await sharp(params.buffer, { failOn: "none" }).metadata()
   const { width, height, format } = metadata
+
   if (!width || !height || !format) {
     throw new Error("could not decode image (no dimensions or format)")
   }
 
   const longEdge = Math.max(width, height)
   const passthroughMime = MODEL_SUPPORTED_FORMATS.get(format)
-  const fitsAsIs =
-    params.buffer.length <= params.budgetBytes && longEdge <= MAX_LONG_EDGE_PX
+  const fitsAsIs = params.buffer.length <= params.budgetBytes && longEdge <= MAX_LONG_EDGE_PX
+
   if (fitsAsIs && passthroughMime) {
     return {
       data: params.buffer,
@@ -133,6 +134,7 @@ export const fitImageToByteBudget = async (params: {
       qualityLadderIndex < QUALITY_LADDER.length
         ? QUALITY_LADDER[qualityLadderIndex]
         : MID_LADDER_QUALITY
+
     if (!attemptQuality) break
     const { data, info } = await encodeAttempt({
       buffer: params.buffer,
@@ -168,6 +170,7 @@ export const fitImageToByteBudget = async (params: {
       MIN_LONG_EDGE_PX,
       Math.floor(longEdgePx * Math.min(areaScale, 0.7)),
     )
+
     if (nextLongEdgePx >= longEdgePx) break
     longEdgePx = nextLongEdgePx
   }

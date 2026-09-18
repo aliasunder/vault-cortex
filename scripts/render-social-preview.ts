@@ -14,8 +14,7 @@ import puppeteer from "puppeteer"
 
 const repoRoot = new URL("..", import.meta.url)
 
-const resolvePath = (repoRelative: string): string =>
-  fileURLToPath(new URL(repoRelative, repoRoot))
+const resolvePath = (repoRelative: string): string => fileURLToPath(new URL(repoRelative, repoRoot))
 
 const WIDTH = 1280
 const HEIGHT = 640

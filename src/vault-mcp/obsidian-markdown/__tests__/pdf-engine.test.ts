@@ -16,27 +16,19 @@ vi.mock("unpdf", { spy: true })
  *  the same resolution mechanism production uses, so the configuration test
  *  asserts exact paths without reading them back out of the mock call log,
  *  and catches production ever resolving somewhere else. */
-const expectedPdfjsRoot = dirname(
-  createRequire(import.meta.url).resolve("pdfjs-dist/package.json"),
-)
+const expectedPdfjsRoot = dirname(createRequire(import.meta.url).resolve("pdfjs-dist/package.json"))
 
 /** The fixture as the Uint8Array shape production hands to the engine. */
 const fixtureBytes = (): Uint8Array => {
   const pdfBuffer = buildMinimalPdf()
-  return new Uint8Array(
-    pdfBuffer.buffer,
-    pdfBuffer.byteOffset,
-    pdfBuffer.byteLength,
-  )
+  return new Uint8Array(pdfBuffer.buffer, pdfBuffer.byteOffset, pdfBuffer.byteLength)
 }
 
 /** Counts near-black opaque pixels in a rendered page — glyph coverage.
  *  Rendered text produces thousands of dark pixels; a page whose glyphs
  *  were dropped produces zero, so a floor assertion separates the two
  *  states cleanly despite platform-dependent antialiasing. */
-const countDarkPixels = async (
-  pngArrayBuffer: ArrayBuffer,
-): Promise<number> => {
+const countDarkPixels = async (pngArrayBuffer: ArrayBuffer): Promise<number> => {
   const { data, info } = await sharp(Buffer.from(pngArrayBuffer))
     .flatten({ background: "#ffffff" })
     .raw()
@@ -49,6 +41,7 @@ const countDarkPixels = async (
     const red = pixelValues[offset] ?? 255
     const green = pixelValues[offset + 1] ?? 255
     const blue = pixelValues[offset + 2] ?? 255
+
     if (red < 128 && green < 128 && blue < 128) darkPixels += 1
   }
   return darkPixels
@@ -110,9 +103,9 @@ describe("createPdfDocumentProxy", () => {
       new Error("transient init failure"),
     )
 
-    await expect(
-      freshEngine.createPdfDocumentProxy(fixtureBytes()),
-    ).rejects.toThrow(/^transient init failure$/)
+    await expect(freshEngine.createPdfDocumentProxy(fixtureBytes())).rejects.toThrow(
+      /^transient init failure$/,
+    )
 
     // A cached rejection would surface the same error here instead.
     const proxy = await freshEngine.createPdfDocumentProxy(fixtureBytes())
@@ -127,16 +120,8 @@ describe("createPdfDocumentProxy", () => {
     // concatenation, so the directories the configuration test pins must
     // match pdfjs-dist's real layout — this fails if an upgrade moves them.
     expect(
-      existsSync(
-        join(
-          expectedPdfjsRoot,
-          "standard_fonts/",
-          "LiberationSans-Regular.ttf",
-        ),
-      ),
+      existsSync(join(expectedPdfjsRoot, "standard_fonts/", "LiberationSans-Regular.ttf")),
     ).toBe(true)
-    expect(existsSync(join(expectedPdfjsRoot, "cmaps/", "78-H.bcmap"))).toBe(
-      true,
-    )
+    expect(existsSync(join(expectedPdfjsRoot, "cmaps/", "78-H.bcmap"))).toBe(true)
   })
 })

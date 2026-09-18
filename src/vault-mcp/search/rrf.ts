@@ -43,10 +43,7 @@ export const computeRrfScores = (params: {
       const nearTopBonus = rank <= 3 ? 0.02 : 0
       const bonus = rank === 1 ? 0.05 : nearTopBonus
       const previousScore = scoresByIdentifier.get(item.identifier) ?? 0
-      scoresByIdentifier.set(
-        item.identifier,
-        previousScore + (rrfScore + bonus) * listWeight,
-      )
+      scoresByIdentifier.set(item.identifier, previousScore + (rrfScore + bonus) * listWeight)
     }
   }
 

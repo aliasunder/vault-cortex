@@ -21,17 +21,17 @@ const writeTestNote = async (
   content: string,
 ): Promise<void> => {
   const dir = join(vaultPath, ...notePath.split("/").slice(0, -1))
+
   if (dir !== vaultPath) await mkdir(dir, { recursive: true })
   await writeFile(join(vaultPath, notePath), content, "utf8")
 }
 
-const readTestNote = async (
-  vaultPath: string,
-  notePath: string,
-): Promise<string> => readFile(join(vaultPath, notePath), "utf8")
+const readTestNote = async (vaultPath: string, notePath: string): Promise<string> =>
+  readFile(join(vaultPath, notePath), "utf8")
 
 const today = (): string => {
   const date = DateTime.now().toISODate()
+
   if (date === null) throw new Error("failed to get today's date")
   return date
 }
@@ -478,9 +478,7 @@ describe("task-mutations", () => {
       })
       const content = await readTestNote(vault, "board.md")
       // The raw line moves untouched — trailing hard break included.
-      expect(content).toBe(
-        "## Active\n\n\n## Done\n- [ ] Walk the dog ➕ 2026-07-01 ^walk  \n",
-      )
+      expect(content).toBe("## Active\n\n\n## Done\n- [ ] Walk the dog ➕ 2026-07-01 ^walk  \n")
     })
 
     it("moves a task with sub-items", async () => {
@@ -567,10 +565,7 @@ describe("task-mutations", () => {
       expect(doneSection).toBe(
         `\n- [x] In-progress task ➕ 2026-07-01 ✅ ${today()} ^active-task\n\n- [x] Completed ➕ 2026-06-01 ✅ 2026-06-15\n\n`,
       )
-      expect(result.changes).toEqual([
-        "status: in_progress → done",
-        "heading: Active → Done",
-      ])
+      expect(result.changes).toEqual(["status: in_progress → done", "heading: Active → Done"])
     })
 
     it("moves a task between headings in a non-Kanban note", async () => {
@@ -730,10 +725,7 @@ title: Tasks
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
       await expect(
-        taskMutations.updateTask(
-          { vaultPath: vault, path: "tasks.md", line: 5 },
-          logger,
-        ),
+        taskMutations.updateTask({ vaultPath: vault, path: "tasks.md", line: 5 }, logger),
       ).rejects.toThrow("at least one mutation")
     })
 
@@ -794,10 +786,7 @@ title: Tasks
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
       await expect(
-        taskMutations.updateTask(
-          { vaultPath: vault, path: "tasks.md", status: "done" },
-          logger,
-        ),
+        taskMutations.updateTask({ vaultPath: vault, path: "tasks.md", status: "done" }, logger),
       ).rejects.toThrow("exactly one of blockId or line is required")
     })
 
@@ -886,9 +875,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow(
-        'hidden path blocked: ".trash/tasks.md" targets a hidden file or folder',
-      )
+      ).rejects.toThrow('hidden path blocked: ".trash/tasks.md" targets a hidden file or folder')
       expect(await readTestNote(vault, ".trash/tasks.md")).toBe(SIMPLE_NOTE)
     })
   })
@@ -1511,9 +1498,7 @@ kanban-plugin: board
         changes: ["due: 2026-09-01 → (none)"],
       })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toBe(
-        "---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ^my-task\n",
-      )
+      expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ^my-task\n")
     })
 
     it("sets created with a corrected date", async () => {
@@ -1542,9 +1527,7 @@ kanban-plugin: board
         changes: ["created: 2026-07-01 → 2026-06-15"],
       })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toBe(
-        "---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-06-15 ^my-task\n",
-      )
+      expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-06-15 ^my-task\n")
     })
 
     it("clears created with null", async () => {
@@ -1967,9 +1950,7 @@ kanban-plugin: board
         ),
       ).rejects.toThrow('blockId "dup" already exists in this note')
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toBe(
-        "- [ ] Task A ➕ 2026-01-01 ^dup  \n- [ ] Task B ➕ 2026-01-02 ^other\n",
-      )
+      expect(content).toBe("- [ ] Task A ➕ 2026-01-01 ^dup  \n- [ ] Task B ➕ 2026-01-02 ^other\n")
     })
 
     it("replaces an existing block_id", async () => {
@@ -2029,9 +2010,7 @@ kanban-plugin: board
       const content = await readTestNote(vault, "board.md")
       // Sub-task completed in place under Active, not moved to Done
       const activeSection = content.split("## Active")[1]?.split("## ")[0] ?? ""
-      expect(activeSection).toContain(
-        `[x] Sub-stage ➕ ${today()} ✅ ${today()} ^sub-stage`,
-      )
+      expect(activeSection).toContain(`[x] Sub-stage ➕ ${today()} ✅ ${today()} ^sub-stage`)
       const doneSection = content.split("## Done")[1] ?? ""
       expect(doneSection).not.toContain("Sub-stage")
     })
@@ -2836,12 +2815,7 @@ const writeTasksPluginConfig = async (
 ): Promise<void> => {
   resetTaskFormatConfigCache()
   onTestFinished(resetTaskFormatConfigCache)
-  const pluginDir = join(
-    vaultPath,
-    ".obsidian",
-    "plugins",
-    "obsidian-tasks-plugin",
-  )
+  const pluginDir = join(vaultPath, ".obsidian", "plugins", "obsidian-tasks-plugin")
   await mkdir(pluginDir, { recursive: true })
   await writeFile(join(pluginDir, "data.json"), JSON.stringify(config), "utf8")
 }
@@ -2916,10 +2890,7 @@ title: Tasks
         description: "Water plants",
         due: "2026-01-12",
       },
-      changes: [
-        "status: in_progress → done",
-        "next_occurrence: (none) → line 5",
-      ],
+      changes: ["status: in_progress → done", "next_occurrence: (none) → line 5"],
     })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
@@ -3557,10 +3528,7 @@ title: Tasks
       logger,
     )
 
-    expect(result.changes).toEqual([
-      "due: (none) → 2026-05-01",
-      "description: Old text → Ship it",
-    ])
+    expect(result.changes).toEqual(["due: (none) → 2026-05-01", "description: Old text → Ship it"])
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       "---\ntitle: Tasks\n---\n\n- [ ] Ship it ✅ 2026-01-01 ➕ 2026-01-01 📅 2026-05-01 ^prose\n",
@@ -4122,9 +4090,7 @@ describe("round-trip advisories", () => {
         changes: ["due: 2026-09-01 → (none)"],
       })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toBe(
-        "---\ntitle: Tasks\n---\n\n- [ ] Deploy #project ^deploy\n",
-      )
+      expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Deploy #project ^deploy\n")
     })
 
     it("replaces the real dependency field, not a description signifier the parser read as metadata", async () => {
@@ -4208,9 +4174,7 @@ describe("round-trip advisories", () => {
         'tag: "#urgent" appeared in both the description and the metadata tail — deduplicated to one copy',
       ])
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toBe(
-        "---\ntitle: Tasks\n---\n\n- [ ] Fix bug #urgent 📅 2026-01-01 ^x\n",
-      )
+      expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Fix bug #urgent 📅 2026-01-01 ^x\n")
     })
 
     it("deduplicates multiple trailing tags that all match the metadata tail", async () => {
@@ -4288,9 +4252,7 @@ describe("round-trip advisories", () => {
 
       expect(result.advisories).toBeUndefined()
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toBe(
-        "---\ntitle: Tasks\n---\n\n- [ ] Fix crash 📅 2026-01-01 #urgent ^x\n",
-      )
+      expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Fix crash 📅 2026-01-01 #urgent ^x\n")
     })
 
     it("preserves a description date signifier through a combined status change and reports both divergences", async () => {
@@ -4398,9 +4360,7 @@ describe("round-trip advisories", () => {
 
       expect(result.advisories).toBeUndefined()
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toBe(
-        "---\ntitle: Tasks\n---\n\n- [ ] Water plants ➕ 2026-01-01 ^water\n",
-      )
+      expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Water plants ➕ 2026-01-01 ^water\n")
     })
 
     it("names a truncating add_subtasks item in the advisories", async () => {
@@ -4708,10 +4668,7 @@ title: Tasks
         description: "Delete on done",
         block_id: "delete-task",
         heading: "Active",
-        changes: [
-          "status: todo → done",
-          "on_completion: task removed (🏁 delete)",
-        ],
+        changes: ["status: todo → done", "on_completion: task removed (🏁 delete)"],
         on_completion_applied: "delete",
       })
 
@@ -4919,10 +4876,7 @@ title: Tasks
         description: "Parent with children",
         block_id: "parent-delete",
         heading: "Active",
-        changes: [
-          "status: todo → done",
-          "on_completion: task and 3 children removed (🏁 delete)",
-        ],
+        changes: ["status: todo → done", "on_completion: task and 3 children removed (🏁 delete)"],
         on_completion_applied: "delete",
       })
 
@@ -4957,10 +4911,7 @@ title: Tasks
         description: "Sub-task with delete",
         block_id: "sub-delete",
         heading: "Active",
-        changes: [
-          "status: todo → done",
-          "on_completion: task removed (🏁 delete)",
-        ],
+        changes: ["status: todo → done", "on_completion: task removed (🏁 delete)"],
         on_completion_applied: "delete",
       })
 
@@ -5047,10 +4998,7 @@ title: Tasks
         description: "Parent one child",
         block_id: "one-child",
         heading: "Active",
-        changes: [
-          "status: todo → done",
-          "on_completion: task and 1 child removed (🏁 delete)",
-        ],
+        changes: ["status: todo → done", "on_completion: task and 1 child removed (🏁 delete)"],
         on_completion_applied: "delete",
       })
 
@@ -5244,11 +5192,7 @@ title: Tasks
 `
       const vault = await createVault()
       await writeTasksPluginConfig(vault, { recurrenceOnNextLine: true })
-      await writeTestNote(
-        vault,
-        "tasks.md",
-        RECURRING_DELETE_NEXT_LINE_CHILDREN,
-      )
+      await writeTestNote(vault, "tasks.md", RECURRING_DELETE_NEXT_LINE_CHILDREN)
 
       const result = await taskMutations.updateTask(
         {
@@ -5378,10 +5322,7 @@ title: Tasks
         description: "Fuzzy habit",
         block_id: "fuzzy",
         heading: "Active",
-        changes: [
-          "status: todo → done",
-          "on_completion: task removed (🏁 delete)",
-        ],
+        changes: ["status: todo → done", "on_completion: task removed (🏁 delete)"],
         advisories: [
           'The task was completed, but its recurrence rule "whenever" is not a rule the Tasks plugin recognizes, so no next occurrence was created.',
         ],

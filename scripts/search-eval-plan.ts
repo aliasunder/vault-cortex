@@ -41,17 +41,13 @@ export type JudgmentQuery = z.infer<typeof judgmentQuerySchema>
  *  by exact `expected_any` match or by `expected_prefix`. A prefix without
  *  a trailing slash matches at a path-segment boundary, mirroring the
  *  snapshot exclusions — "docs" must not swallow "docs2/noise.txt". */
-const matchesExpectedPath = (
-  judgmentQuery: JudgmentQuery,
-  path: string,
-): boolean => {
+const matchesExpectedPath = (judgmentQuery: JudgmentQuery, path: string): boolean => {
   if (judgmentQuery.expected_any?.includes(path)) return true
 
   const expectedPrefix = judgmentQuery.expected_prefix
+
   if (!expectedPrefix) return false
-  const folderPrefix = expectedPrefix.endsWith("/")
-    ? expectedPrefix
-    : `${expectedPrefix}/`
+  const folderPrefix = expectedPrefix.endsWith("/") ? expectedPrefix : `${expectedPrefix}/`
   return path.startsWith(folderPrefix)
 }
 
@@ -73,9 +69,7 @@ export const countUnexpectedFilesInWindow = (
   windowSize: number,
 ): number => {
   return results.slice(0, windowSize).filter((result) => {
-    return (
-      result.kind === "file" && !matchesExpectedPath(judgmentQuery, result.path)
-    )
+    return result.kind === "file" && !matchesExpectedPath(judgmentQuery, result.path)
   }).length
 }
 
@@ -106,17 +100,14 @@ type EvalRunPlan = {
  *  check would always report true. Throws on any invalid combination. */
 export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
   if (!cliArgs.judgment) {
-    throw new Error(
-      "--judgment <path> is required (a local judgment JSON — see the file header)",
-    )
+    throw new Error("--judgment <path> is required (a local judgment JSON — see the file header)")
   }
 
   const limits = cliArgs.limits.split(",").map((limitText) => {
     const limit = Number(limitText.trim())
+
     if (!Number.isInteger(limit) || limit < 1) {
-      throw new Error(
-        `--limits entries must be positive integers: ${limitText}`,
-      )
+      throw new Error(`--limits entries must be positive integers: ${limitText}`)
     }
     return limit
   })
@@ -124,13 +115,12 @@ export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
   // An empty string (--file-leg-weight= with an unset shell variable) must
   // reject like any other non-number, not silently fall back to the default.
   const rawFileLegWeight = cliArgs["file-leg-weight"]
-  const fileLegWeight =
-    rawFileLegWeight === undefined ? undefined : Number(rawFileLegWeight)
+  const fileLegWeight = rawFileLegWeight === undefined ? undefined : Number(rawFileLegWeight)
   // Strict undefined check — 0 is a valid weight (removes the file legs).
   // Negated >= catches NaN (which fails every comparison).
   const fileLegWeightInvalid =
-    rawFileLegWeight === "" ||
-    (fileLegWeight !== undefined && !(fileLegWeight >= 0))
+    rawFileLegWeight === "" || (fileLegWeight !== undefined && !(fileLegWeight >= 0))
+
   if (fileLegWeightInvalid) {
     throw new Error("--file-leg-weight must be a number >= 0")
   }
@@ -141,8 +131,7 @@ export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
     throw new Error("--reuse-index requires --reuse-snapshot")
   }
 
-  const workDir =
-    cliArgs["work-dir"] ?? join(tmpdir(), "vault-cortex-search-eval")
+  const workDir = cliArgs["work-dir"] ?? join(tmpdir(), "vault-cortex-search-eval")
   const snapshotDir = join(workDir, "vault-snapshot")
   // Enrichment changes every note chunk's text, so it gets its own index
   // file — the plain index stays reusable for weight sweeps.
@@ -153,8 +142,7 @@ export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
 
   // Only a directory the harness created may be adopted — an operator's own
   // vault-snapshot folder must not silently become the scored corpus.
-  const snapshotReused =
-    cliArgs["reuse-snapshot"] && isHarnessSnapshot(snapshotDir)
+  const snapshotReused = cliArgs["reuse-snapshot"] && isHarnessSnapshot(snapshotDir)
 
   // An index can only be reused over the snapshot it was built from — when
   // the snapshot is absent (or not harness-created) it gets rebuilt this

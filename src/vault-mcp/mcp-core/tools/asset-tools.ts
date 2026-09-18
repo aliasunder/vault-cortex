@@ -6,15 +6,10 @@ import type { AssetReadResult } from "../../vault-operations/asset-operations.js
 import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import {
-  describeTextWindow,
-  safeHandler,
-  safeHandlerContent,
-} from "./tool-helpers.js"
+import { describeTextWindow, safeHandler, safeHandlerContent } from "./tool-helpers.js"
 
 type ContentBlock =
-  | { type: "text"; text: string }
-  | { type: "image"; data: string; mimeType: string }
+  { type: "text"; text: string } | { type: "image"; data: string; mimeType: string }
 
 /** One-line, model-facing summary accompanying an image block: what file it
  *  is, what was delivered, and whether/how it was shrunk to fit. */
@@ -25,8 +20,8 @@ const describeDeliveredImage = (result: {
 }): string => {
   const { fitted, originalBytes, path } = result
   const delivered = `${path} — ${fitted.mimeType}, ${fitted.width}×${fitted.height}, ${fitted.data.length} bytes`
-  if (!fitted.recompressed)
-    return `${delivered} (original file, not recompressed)`
+
+  if (!fitted.recompressed) return `${delivered} (original file, not recompressed)`
   return `${delivered} (recompressed from ${fitted.originalWidth}×${fitted.originalHeight}, ${originalBytes} bytes)`
 }
 

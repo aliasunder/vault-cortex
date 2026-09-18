@@ -2,11 +2,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
-import {
-  minimumNodeVersion,
-  nodeVersionRefusalMessage,
-  satisfiesMinimum,
-} from "../node-version.js"
+import { minimumNodeVersion, nodeVersionRefusalMessage, satisfiesMinimum } from "../node-version.js"
 
 describe("minimumNodeVersion", () => {
   it("extracts the floor from a >= range", () => {
@@ -23,10 +19,7 @@ describe("minimumNodeVersion", () => {
 
   it("parses the actual engines range in cli/package.json", () => {
     const manifest = JSON.parse(
-      readFileSync(
-        fileURLToPath(new URL("../../package.json", import.meta.url)),
-        "utf8",
-      ),
+      readFileSync(fileURLToPath(new URL("../../package.json", import.meta.url)), "utf8"),
     ) as { engines: { node: string } }
 
     const minimum = minimumNodeVersion(manifest.engines.node)
@@ -35,9 +28,7 @@ describe("minimumNodeVersion", () => {
   })
 
   it("throws on a range with no version in it", () => {
-    expect(() => minimumNodeVersion("latest")).toThrow(
-      "Cannot parse engines range: latest",
-    )
+    expect(() => minimumNodeVersion("latest")).toThrow("Cannot parse engines range: latest")
   })
 })
 

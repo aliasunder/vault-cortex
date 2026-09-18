@@ -28,12 +28,12 @@ afterEach(async () => {
 
 const writeTestNote = async (name: string, content: string): Promise<void> => {
   const dir = join(vault, ...name.split("/").slice(0, -1))
+
   if (dir !== vault) await mkdir(dir, { recursive: true })
   await writeFile(join(vault, name), content, "utf8")
 }
 
-const readTestNote = async (name: string): Promise<string> =>
-  readFile(join(vault, name), "utf8")
+const readTestNote = async (name: string): Promise<string> => readFile(join(vault, name), "utf8")
 
 const NOTE_WITH_SECTIONS = `---
 title: Test Note
@@ -193,10 +193,7 @@ describe("markdown path requirement", () => {
 
   it("deleteSpan rejects a path without the .md extension", async () => {
     await expect(
-      deleteSpan(
-        { vaultPath: vault, path: "Projects/Plan", startAnchor: "x" },
-        logger,
-      ),
+      deleteSpan({ vaultPath: vault, path: "Projects/Plan", startAnchor: "x" }, logger),
     ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
   })
 })
@@ -366,12 +363,8 @@ Content under H6.
     )
     const updated = await readTestNote(`level-${level}.md`)
     const lines = updated.split("\n")
-    const existingIdx = lines.findIndex(
-      (line) => line === `Content under ${heading}.`,
-    )
-    const appendedIdx = lines.findIndex(
-      (line) => line === `Appended to ${heading}.`,
-    )
+    const existingIdx = lines.findIndex((line) => line === `Content under ${heading}.`)
+    const appendedIdx = lines.findIndex((line) => line === `Appended to ${heading}.`)
     expect(existingIdx).toBeGreaterThan(-1)
     expect(appendedIdx).toBeGreaterThan(existingIdx)
   })
@@ -409,9 +402,7 @@ Content under H6.
     const lines = updated.split("\n")
     const someTextIdx = lines.findIndex((line) => line === "Some text.")
     const appendedIdx = lines.findIndex((line) => line === "appended text")
-    const anotherIdx = lines.findIndex(
-      (line) => line === "## Another Real Heading",
-    )
+    const anotherIdx = lines.findIndex((line) => line === "## Another Real Heading")
     expect(someTextIdx).toBeGreaterThan(-1)
     expect(appendedIdx).toBeGreaterThan(someTextIdx)
     expect(anotherIdx).toBeGreaterThan(appendedIdx)
@@ -653,13 +644,9 @@ Sub-level content.
     const updated = await readTestNote("levels.md")
     const lines = updated.split("\n")
     const h1Idx = lines.findIndex((line) => line === "# Overview")
-    const topContentIdx = lines.findIndex(
-      (line) => line === "Top-level content.",
-    )
+    const topContentIdx = lines.findIndex((line) => line === "Top-level content.")
     const h2Idx = lines.findIndex((line) => line === "## Overview")
-    const subContentIdx = lines.findIndex(
-      (line) => line === "Sub-level content.",
-    )
+    const subContentIdx = lines.findIndex((line) => line === "Sub-level content.")
     const addedIdx = lines.findIndex((line) => line === "added to H2")
     // added to H2 must be in the H2 section (after Sub-level content), not H1
     expect(addedIdx).toBeGreaterThan(subContentIdx)
@@ -928,16 +915,11 @@ describe("patchNote — leading-content advisory", () => {
       message: "Applied prepend to blank.md → file body",
       displacedLeadingContent: null,
     })
-    expect(await readTestNote("blank.md")).toBe(
-      "## New Section\n\n\n## Section\n\nbody\n",
-    )
+    expect(await readTestNote("blank.md")).toBe("## New Section\n\n\n## Section\n\nbody\n")
   })
 
   it("reports nothing when the only content above the first lane is a settings block", async () => {
-    await writeTestNote(
-      "board.md",
-      "\n%% kanban:settings\n```json\n{}\n```\n%%\n",
-    )
+    await writeTestNote("board.md", "\n%% kanban:settings\n```json\n{}\n```\n%%\n")
 
     const result = await patchNote(
       {
@@ -998,9 +980,7 @@ describe("patchNote — leading-content advisory", () => {
       message: "Applied prepend to intro.md → ## Section",
       displacedLeadingContent: null,
     })
-    expect(await readTestNote("intro.md")).toBe(
-      "Intro prose.\n\n## Section\n## New Sub\n\nbody\n",
-    )
+    expect(await readTestNote("intro.md")).toBe("Intro prose.\n\n## Section\n## New Sub\n\nbody\n")
   })
 
   it("detects a CRLF-authored heading in the prepended content", async () => {
@@ -1041,9 +1021,7 @@ describe("patchNote — leading-content advisory", () => {
       bytes: Buffer.byteLength("Intro prose.", "utf8"),
       firstHeading: { text: "Section", level: 2 },
     })
-    expect(await readTestNote("intro.md")).toBe(
-      "#####\nIntro prose.\n\n## Section\n\nbody\n",
-    )
+    expect(await readTestNote("intro.md")).toBe("#####\nIntro prose.\n\n## Section\n\nbody\n")
   })
 
   it.each([
@@ -1053,22 +1031,17 @@ describe("patchNote — leading-content advisory", () => {
     ["a fenced heading", "```md\n## Example\n```"],
     ["a callout", "> [!note] Hi"],
     ["plain prose", "Just a line."],
-  ])(
-    "reports nothing when the content starts with %s",
-    async (_label, content) => {
-      await writeTestNote("intro.md", NOTE_WITH_INTRO)
+  ])("reports nothing when the content starts with %s", async (_label, content) => {
+    await writeTestNote("intro.md", NOTE_WITH_INTRO)
 
-      const result = await patchNote(
-        { vaultPath: vault, path: "intro.md", operation: "prepend", content },
-        logger,
-      )
+    const result = await patchNote(
+      { vaultPath: vault, path: "intro.md", operation: "prepend", content },
+      logger,
+    )
 
-      expect(result.displacedLeadingContent).toBeNull()
-      expect(await readTestNote("intro.md")).toBe(
-        `${content}\nIntro prose.\n\n## Section\n\nbody\n`,
-      )
-    },
-  )
+    expect(result.displacedLeadingContent).toBeNull()
+    expect(await readTestNote("intro.md")).toBe(`${content}\nIntro prose.\n\n## Section\n\nbody\n`)
+  })
 })
 
 describe("patchNote — section-level append", () => {
@@ -1110,9 +1083,7 @@ describe("patchNote — section-level append", () => {
       logger,
     )
     const updated = await readTestNote("note.md")
-    expect(updated).toMatch(
-      /Sub-task 1\n+- \[ \] New task after subtasks\n+## Up Next/,
-    )
+    expect(updated).toMatch(/Sub-task 1\n+- \[ \] New task after subtasks\n+## Up Next/)
   })
 
   it("appends to last section in file", async () => {
@@ -1136,9 +1107,7 @@ describe("patchNote — section-level append", () => {
     expect(taskDIdx).toBeGreaterThan(doneIdx)
     expect(taskEIdx).toBeGreaterThan(taskDIdx)
     // No heading after Task E (it's the last section)
-    const headingsAfter = lines
-      .slice(taskEIdx + 1)
-      .filter((line) => /^#{1,6} /.test(line))
+    const headingsAfter = lines.slice(taskEIdx + 1).filter((line) => /^#{1,6} /.test(line))
     expect(headingsAfter).toHaveLength(0)
   })
 })
@@ -1613,8 +1582,7 @@ ${doneItems.join("\n")}
     const updated = await readTestNote("big-board.md")
     const lines = updated.split("\n")
     const appendedIdx = lines.findIndex(
-      (line) =>
-        line === "- [x] Newly completed task ➕ 2026-05-19 ✅ 2026-05-19",
+      (line) => line === "- [x] Newly completed task ➕ 2026-05-19 ✅ 2026-05-19",
     )
     const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
     expect(appendedIdx).toBeGreaterThan(-1)
@@ -1623,9 +1591,7 @@ ${doneItems.join("\n")}
     expect(appendedIdx).toBeLessThan(settingsIdx)
     // Verify the settings block is still intact
     expect(updated).toContain("%% kanban:settings")
-    expect(updated).toContain(
-      '{"kanban-plugin":"board","hide-tags-in-title":true}',
-    )
+    expect(updated).toContain('{"kanban-plugin":"board","hide-tags-in-title":true}')
     expect(updated).toMatch(/%%\n*$/)
   })
 
@@ -1667,9 +1633,7 @@ kanban-plugin: board
     )
     const updated = await readTestNote("stray-pct.md")
     const lines = updated.split("\n")
-    const appendedIdx = lines.findIndex(
-      (line) => line === "- [x] Appended after stray %% card",
-    )
+    const appendedIdx = lines.findIndex((line) => line === "- [x] Appended after stray %% card")
     const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
     expect(appendedIdx).toBeGreaterThan(-1)
     expect(settingsIdx).toBeGreaterThan(-1)
@@ -1817,9 +1781,7 @@ kanban-plugin: board
     )
     const updated = await readTestNote("board.md")
     const lines = updated.split("\n")
-    const appendedIdx = lines.findIndex(
-      (line) => line === "- [x] Appended task",
-    )
+    const appendedIdx = lines.findIndex((line) => line === "- [x] Appended task")
     const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
     expect(appendedIdx).toBeGreaterThan(-1)
     expect(settingsIdx).toBeGreaterThan(appendedIdx)
@@ -1857,9 +1819,7 @@ describe("patchNote — insert_before", () => {
       logger,
     )
     const updated = await readTestNote("note.md")
-    expect(updated).toMatch(
-      /Task C\n+## Context\nSome context here\.\n+## Done/,
-    )
+    expect(updated).toMatch(/Task C\n+## Context\nSome context here\.\n+## Done/)
   })
 
   it("inserts before the first heading", async () => {
@@ -1900,32 +1860,29 @@ describe("frontmatter preservation", () => {
       heading: op === "append" || op === "prepend" ? undefined : "Active",
       includeChildren: op === "replace" ? true : undefined,
     })),
-  )(
-    "$name preserves frontmatter and modifies body",
-    async ({ op, heading, includeChildren }) => {
-      await writeTestNote("note.md", NOTE_WITH_SECTIONS)
-      await patchNote(
-        {
-          vaultPath: vault,
-          path: "note.md",
-          operation: op,
-          content: `marker-${op}`,
-          heading,
-          includeChildren,
-        },
-        logger,
-      )
-      const updated = await readTestNote("note.md")
-      // Frontmatter preserved
-      expect(updated).toContain("title: Test Note")
-      expect(updated).toContain("tags:")
-      expect(updated).toContain("- test")
-      // Body was actually modified
-      expect(updated).toContain(`marker-${op}`)
-      // Frontmatter is still at the top (starts with ---)
-      expect(updated.startsWith("---\n")).toBe(true)
-    },
-  )
+  )("$name preserves frontmatter and modifies body", async ({ op, heading, includeChildren }) => {
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    await patchNote(
+      {
+        vaultPath: vault,
+        path: "note.md",
+        operation: op,
+        content: `marker-${op}`,
+        heading,
+        includeChildren,
+      },
+      logger,
+    )
+    const updated = await readTestNote("note.md")
+    // Frontmatter preserved
+    expect(updated).toContain("title: Test Note")
+    expect(updated).toContain("tags:")
+    expect(updated).toContain("- test")
+    // Body was actually modified
+    expect(updated).toContain(`marker-${op}`)
+    // Frontmatter is still at the top (starts with ---)
+    expect(updated.startsWith("---\n")).toBe(true)
+  })
 
   it("handles file with no frontmatter", async () => {
     await writeTestNote("no-fm.md", NOTE_NO_FRONTMATTER)
@@ -2003,9 +1960,7 @@ old text
       logger,
     )
     const updated = await readTestNote("stamped-replace.md")
-    expect(updated).toBe(
-      "---\ncreated: 2026-05-13T20:00:00-04:00\n---\n\nnew text\n",
-    )
+    expect(updated).toBe("---\ncreated: 2026-05-13T20:00:00-04:00\n---\n\nnew text\n")
   })
 
   it("preserves complex frontmatter (nested objects, arrays)", async () => {
@@ -2281,9 +2236,7 @@ Some text.
     // Added content is after the trailing heading
     expect(addedIdx).toBeGreaterThan(headingIdx)
     // No heading after the added content
-    const headingsAfter = lines
-      .slice(addedIdx + 1)
-      .filter((line) => /^#{1,6} /.test(line))
+    const headingsAfter = lines.slice(addedIdx + 1).filter((line) => /^#{1,6} /.test(line))
     expect(headingsAfter).toHaveLength(0)
   })
 
@@ -2757,10 +2710,7 @@ LINE TO DELETE
 B
 `
     await writeTestNote("spaced.md", content)
-    await deleteSpan(
-      { vaultPath: vault, path: "spaced.md", startAnchor: "LINE TO DELETE" },
-      logger,
-    )
+    await deleteSpan({ vaultPath: vault, path: "spaced.md", startAnchor: "LINE TO DELETE" }, logger)
     const updated = await readTestNote("spaced.md")
     expect(updated).toBe(`---
 title: Spaced
@@ -2775,13 +2725,9 @@ B
   it("collapses blank-line runs in a CRLF-authored note and writes LF-only output", async () => {
     // CRLF body: split("\n") leaves a trailing "\r" on each line, which would
     // defeat the LF-only blank-run collapse unless the reader strips it.
-    const content =
-      "---\ntitle: Crlf\n---\n\r\nA\r\n\r\nLINE TO DELETE\r\n\r\nB\r\n"
+    const content = "---\ntitle: Crlf\n---\n\r\nA\r\n\r\nLINE TO DELETE\r\n\r\nB\r\n"
     await writeTestNote("crlf.md", content)
-    await deleteSpan(
-      { vaultPath: vault, path: "crlf.md", startAnchor: "LINE TO DELETE" },
-      logger,
-    )
+    await deleteSpan({ vaultPath: vault, path: "crlf.md", startAnchor: "LINE TO DELETE" }, logger)
     const updated = await readTestNote("crlf.md")
     expect(updated).not.toContain("\r")
     expect(updated).toBe(`---
@@ -2804,10 +2750,7 @@ type: note
 - [ ] Task B
 `
     await writeTestNote("note.md", content)
-    await deleteSpan(
-      { vaultPath: vault, path: "note.md", startAnchor: "- [ ] Task A" },
-      logger,
-    )
+    await deleteSpan({ vaultPath: vault, path: "note.md", startAnchor: "- [ ] Task A" }, logger)
     const updated = await readTestNote("note.md")
     // Whole-file assertion: both frontmatter keys survive untouched and only
     // the targeted body line is removed.
@@ -2829,19 +2772,13 @@ title: "- [ ] Task A"
 `
     await writeTestNote("note.md", content)
     await expect(
-      deleteSpan(
-        { vaultPath: vault, path: "note.md", startAnchor: "- [ ] Task A" },
-        logger,
-      ),
+      deleteSpan({ vaultPath: vault, path: "note.md", startAnchor: "- [ ] Task A" }, logger),
     ).rejects.toThrow('start anchor not found in "note.md": "- [ ] Task A"')
   })
 
   it("does not disturb a trailing kanban:settings block", async () => {
     await writeTestNote("board.md", NOTE_KANBAN)
-    await deleteSpan(
-      { vaultPath: vault, path: "board.md", startAnchor: "- [ ] Task A" },
-      logger,
-    )
+    await deleteSpan({ vaultPath: vault, path: "board.md", startAnchor: "- [ ] Task A" }, logger)
     const updated = await readTestNote("board.md")
     // Whole-file assertion: the Active card is gone, but the fenced
     // kanban:settings block at EOF survives byte-for-byte.
@@ -2871,10 +2808,7 @@ title: Tail
 first line
 last line`
     await writeTestNote("tail.md", content)
-    await deleteSpan(
-      { vaultPath: vault, path: "tail.md", startAnchor: "last line" },
-      logger,
-    )
+    await deleteSpan({ vaultPath: vault, path: "tail.md", startAnchor: "last line" }, logger)
     const updated = await readTestNote("tail.md")
     expect(updated).toBe(`---
 title: Tail
@@ -2929,9 +2863,7 @@ other line
       },
       logger,
     )
-    expect(result).toBe(
-      'Deleted 1 line from preview.md: "unique line to remove"',
-    )
+    expect(result).toBe('Deleted 1 line from preview.md: "unique line to remove"')
   })
 
   it("truncates a long removed line in the confirmation preview", async () => {
@@ -3056,10 +2988,7 @@ title: WholeBody
   it("errors on empty start_anchor", async () => {
     await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await expect(
-      deleteSpan(
-        { vaultPath: vault, path: "note.md", startAnchor: "" },
-        logger,
-      ),
+      deleteSpan({ vaultPath: vault, path: "note.md", startAnchor: "" }, logger),
     ).rejects.toThrow("startAnchor cannot be empty")
   })
 
@@ -3081,10 +3010,7 @@ title: WholeBody
   it("errors when the start anchor is not found, leaving the file unchanged", async () => {
     await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await expect(
-      deleteSpan(
-        { vaultPath: vault, path: "note.md", startAnchor: "no such line" },
-        logger,
-      ),
+      deleteSpan({ vaultPath: vault, path: "note.md", startAnchor: "no such line" }, logger),
     ).rejects.toThrow('start anchor not found in "note.md"')
     expect(await readTestNote("note.md")).toBe(NOTE_WITH_SECTIONS)
   })
@@ -3109,9 +3035,7 @@ later content
         },
         logger,
       ),
-    ).rejects.toThrow(
-      'end anchor not found in "endbefore.md" at or after the start anchor',
-    )
+    ).rejects.toThrow('end anchor not found in "endbefore.md" at or after the start anchor')
     expect(await readTestNote("endbefore.md")).toBe(content)
   })
 
@@ -3125,13 +3049,8 @@ title: Ambig
 `
     await writeTestNote("ambig.md", content)
     await expect(
-      deleteSpan(
-        { vaultPath: vault, path: "ambig.md", startAnchor: "- [ ] dup" },
-        logger,
-      ),
-    ).rejects.toThrow(
-      'ambiguous start anchor in "ambig.md": "- [ ] dup" matches 2 lines',
-    )
+      deleteSpan({ vaultPath: vault, path: "ambig.md", startAnchor: "- [ ] dup" }, logger),
+    ).rejects.toThrow('ambiguous start anchor in "ambig.md": "- [ ] dup" matches 2 lines')
     expect(await readTestNote("ambig.md")).toBe(content)
   })
 
@@ -3163,19 +3082,13 @@ START unique
 
   it("errors on file not found", async () => {
     await expect(
-      deleteSpan(
-        { vaultPath: vault, path: "missing.md", startAnchor: "x" },
-        logger,
-      ),
+      deleteSpan({ vaultPath: vault, path: "missing.md", startAnchor: "x" }, logger),
     ).rejects.toThrow('note not found: "missing.md"')
   })
 
   it("errors on path traversal", async () => {
     await expect(
-      deleteSpan(
-        { vaultPath: vault, path: "../escape.md", startAnchor: "x" },
-        logger,
-      ),
+      deleteSpan({ vaultPath: vault, path: "../escape.md", startAnchor: "x" }, logger),
     ).rejects.toThrow("path traversal blocked")
   })
 })
@@ -3184,10 +3097,7 @@ START unique
 
 describe("concurrent writes (exclusive lock)", () => {
   it("rejects the second write when two patchNote calls target the same note", async () => {
-    await writeTestNote(
-      "board.md",
-      "---\ntitle: Board\n---\n\n## Active\n\n- [ ] Existing task\n",
-    )
+    await writeTestNote("board.md", "---\ntitle: Board\n---\n\n## Active\n\n- [ ] Existing task\n")
 
     // Promise.allSettled preserves input order; withExclusiveFileLock throws
     // synchronously, so the first call acquires the lock and the second rejects.
@@ -3603,9 +3513,7 @@ duplicate line
         },
         logger,
       ),
-    ).rejects.toThrow(
-      'ambiguous start anchor in "ambiguous.md": "duplicate line" matches 2 lines',
-    )
+    ).rejects.toThrow('ambiguous start anchor in "ambiguous.md": "duplicate line" matches 2 lines')
   })
 
   it("uses first match when first_match is set on ambiguous anchor", async () => {
@@ -4173,9 +4081,7 @@ duplicate
         },
         logger,
       ),
-    ).rejects.toThrow(
-      'ambiguous anchor in "dupes.md": "duplicate" matches 2 lines',
-    )
+    ).rejects.toThrow('ambiguous anchor in "dupes.md": "duplicate" matches 2 lines')
   })
 
   it("uses first match when first_match is set", async () => {
@@ -4328,9 +4234,7 @@ describe("hidden paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(
-      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
-    )
+    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
     expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
   })
 
@@ -4346,22 +4250,15 @@ describe("hidden paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(
-      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
-    )
+    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
     expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
   })
 
   it("deleteSpan rejects a note inside a hidden folder and leaves it unchanged", async () => {
     await writeTestNote(HIDDEN_NOTE, HIDDEN_CONTENT)
     await expect(
-      deleteSpan(
-        { vaultPath: vault, path: HIDDEN_NOTE, startAnchor: "Body line." },
-        logger,
-      ),
-    ).rejects.toThrow(
-      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
-    )
+      deleteSpan({ vaultPath: vault, path: HIDDEN_NOTE, startAnchor: "Body line." }, logger),
+    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
     expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
   })
 
@@ -4377,9 +4274,7 @@ describe("hidden paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(
-      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
-    )
+    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
     expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
   })
 
@@ -4396,9 +4291,7 @@ describe("hidden paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(
-      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
-    )
+    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
     expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
   })
 })

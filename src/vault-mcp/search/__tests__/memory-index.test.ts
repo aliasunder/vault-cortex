@@ -29,16 +29,14 @@ const createMockEmbedder = () => ({
 })
 
 /** Builds a fileStat object for upsertNote. Defaults to size 100. */
-const testStat = (
-  mtimeMs: number,
-  size = 100,
-): { mtimeMs: number; size: number } => ({ mtimeMs, size })
+const testStat = (mtimeMs: number, size = 100): { mtimeMs: number; size: number } => ({
+  mtimeMs,
+  size,
+})
 
 /** Total entry texts sent to the embedder across all embedBatch calls —
  *  the observable that proves how many entries were actually (re-)embedded. */
-const totalTextsEmbedded = (
-  embedder: ReturnType<typeof createMockEmbedder>,
-): number =>
+const totalTextsEmbedded = (embedder: ReturnType<typeof createMockEmbedder>): number =>
   embedder.embedBatch.mock.calls.reduce(
     (sum: number, call: unknown[]) => sum + (call[0] as string[]).length,
     0,
@@ -47,14 +45,11 @@ const totalTextsEmbedded = (
 /** File-backed index plus a second read-only connection for asserting raw
  *  table state — :memory: databases can't be inspected from outside the
  *  factory closure (same approach as the warm-DB migration tests). */
-const createInspectableMemoryIndex = async (options?: {
-  withEmbedder?: boolean
-}) => {
+const createInspectableMemoryIndex = async (options?: { withEmbedder?: boolean }) => {
   const dir = await mkdtemp(join(tmpdir(), "memory-index-"))
   onTestFinished(() => rm(dir, { recursive: true, force: true }))
   const dbPath = join(dir, "index.db")
-  const embedder =
-    (options?.withEmbedder ?? true) ? createMockEmbedder() : undefined
+  const embedder = (options?.withEmbedder ?? true) ? createMockEmbedder() : undefined
   const index = createSearchIndex(dbPath, embedder, undefined, {
     memoryDir: "About Me",
   })
@@ -83,10 +78,9 @@ const selectEntryRows = (inspect: Database.Database): EntryRow[] =>
 
 const countVectors = (inspect: Database.Database): number => {
   const row = inspect
-    .prepare<[], { n: number }>(
-      `SELECT COUNT(*) AS n FROM memory_entry_vectors`,
-    )
+    .prepare<[], { n: number }>(`SELECT COUNT(*) AS n FROM memory_entry_vectors`)
     .get()
+
   if (row === undefined) throw new Error("count query returned no row")
   return row.n
 }
@@ -155,13 +149,8 @@ describe("memory entry indexing", () => {
     )
     // The note itself was indexed (the trigger ran) — only the entry
     // extraction is memory-dir-scoped.
-    const noteResults = index.fullTextSearch(
-      { query: "immutable", filters: {} },
-      logger,
-    )
-    expect(noteResults.map((result) => result.path)).toEqual([
-      "Projects/journal.md",
-    ])
+    const noteResults = index.fullTextSearch({ query: "immutable", filters: {} }, logger)
+    expect(noteResults.map((result) => result.path)).toEqual(["Projects/journal.md"])
     expect(selectEntryRows(inspect)).toEqual([])
   })
 
@@ -180,6 +169,7 @@ describe("memory entry indexing", () => {
 
   it("embeds each entry once with the file-and-section-prefixed text", async () => {
     const { index, embedder } = await createInspectableMemoryIndex()
+
     if (embedder === undefined) throw new Error("embedder required")
     index.upsertNote(
       {
@@ -189,10 +179,7 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote(
-      { notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 },
-      logger,
-    )
+    await index.embedNote({ notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 }, logger)
     const embeddedEntryTexts = embedder.embedBatch.mock.calls.flatMap(
       (call: unknown[]) => call[0] as string[],
     )
@@ -205,6 +192,7 @@ describe("memory entry indexing", () => {
 
   it("re-embeds exactly one entry when a new entry is appended at the top of a section", async () => {
     const { index, embedder, inspect } = await createInspectableMemoryIndex()
+
     if (embedder === undefined) throw new Error("embedder required")
     index.upsertNote(
       {
@@ -214,10 +202,7 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote(
-      { notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 },
-      logger,
-    )
+    await index.embedNote({ notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 }, logger)
     embedder.embedBatch.mockClear()
 
     // Top-insert (the memory append default) shifts every later entry's
@@ -234,28 +219,22 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote(
-      { notePath: "About Me/Opinions.md", rawContent: withTopAppend },
-      logger,
-    )
+    await index.embedNote({ notePath: "About Me/Opinions.md", rawContent: withTopAppend }, logger)
 
     expect(totalTextsEmbedded(embedder)).toBe(1)
     expect(
-      embedder.embedBatch.mock.calls.flatMap(
-        (call: unknown[]) => call[0] as string[],
-      ),
+      embedder.embedBatch.mock.calls.flatMap((call: unknown[]) => call[0] as string[]),
     ).toEqual([
       "Opinions > Code patterns (newest first)\n- **2026-07-11**: Newest opinion lands on top.",
     ])
     // The shifted entries kept their rows; indices were refreshed in place.
-    expect(selectEntryRows(inspect).map((row) => row.entry_index)).toEqual([
-      0, 1, 2, 3,
-    ])
+    expect(selectEntryRows(inspect).map((row) => row.entry_index)).toEqual([0, 1, 2, 3])
     expect(countVectors(inspect)).toBe(4)
   })
 
   it("re-embeds only an edited entry and replaces its vector", async () => {
     const { index, embedder, inspect } = await createInspectableMemoryIndex()
+
     if (embedder === undefined) throw new Error("embedder required")
     index.upsertNote(
       {
@@ -265,10 +244,7 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote(
-      { notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 },
-      logger,
-    )
+    await index.embedNote({ notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 }, logger)
     embedder.embedBatch.mockClear()
 
     const withEdit = OPINIONS_V1.replace(
@@ -283,28 +259,22 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote(
-      { notePath: "About Me/Opinions.md", rawContent: withEdit },
-      logger,
-    )
+    await index.embedNote({ notePath: "About Me/Opinions.md", rawContent: withEdit }, logger)
 
     expect(totalTextsEmbedded(embedder)).toBe(1)
     // Still 3 rows and 3 vectors — the old row and its vector are gone, not
     // orphaned beside the new ones.
     expect(selectEntryRows(inspect)).toHaveLength(3)
     expect(countVectors(inspect)).toBe(3)
-    const editedRow = selectEntryRows(inspect).find(
-      (row) => row.entry_date === "2026-05-07",
-    )
-    expect(editedRow?.entry_text).toBe(
-      "- **2026-05-07**: Immutable over mutable, always.",
-    )
+    const editedRow = selectEntryRows(inspect).find((row) => row.entry_date === "2026-05-07")
+    expect(editedRow?.entry_text).toBe("- **2026-05-07**: Immutable over mutable, always.")
   })
 
   it("deletes the row and vector of a pruned entry so recall storage no longer holds it", async () => {
     // The living-file case from the entry-policy convention: an entry pruned
     // from a current-state memory file must vanish from the entry index.
     const { index, embedder, inspect } = await createInspectableMemoryIndex()
+
     if (embedder === undefined) throw new Error("embedder required")
     index.upsertNote(
       {
@@ -314,20 +284,12 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote(
-      { notePath: "About Me/Routines.md", rawContent: OPINIONS_V1 },
-      logger,
-    )
+    await index.embedNote({ notePath: "About Me/Routines.md", rawContent: OPINIONS_V1 }, logger)
     // The prune target was present before (the trigger state is real).
-    expect(
-      selectEntryRows(inspect).some((row) => row.entry_date === "2026-05-07"),
-    ).toBe(true)
+    expect(selectEntryRows(inspect).some((row) => row.entry_date === "2026-05-07")).toBe(true)
     expect(countVectors(inspect)).toBe(3)
 
-    const withPrune = OPINIONS_V1.replace(
-      "- **2026-05-07**: Immutable over mutable.\n",
-      "",
-    )
+    const withPrune = OPINIONS_V1.replace("- **2026-05-07**: Immutable over mutable.\n", "")
     index.upsertNote(
       {
         filePath: "About Me/Routines.md",
@@ -338,9 +300,7 @@ describe("memory entry indexing", () => {
     )
     const remainingRows = selectEntryRows(inspect)
     expect(remainingRows).toHaveLength(2)
-    expect(remainingRows.some((row) => row.entry_date === "2026-05-07")).toBe(
-      false,
-    )
+    expect(remainingRows.some((row) => row.entry_date === "2026-05-07")).toBe(false)
     expect(countVectors(inspect)).toBe(2)
   })
 
@@ -354,25 +314,21 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote(
-      { notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 },
-      logger,
-    )
+    await index.embedNote({ notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 }, logger)
     expect(selectEntryRows(inspect)).toHaveLength(3)
 
     index.removeNote("About Me/Opinions.md")
     expect(selectEntryRows(inspect)).toEqual([])
     expect(countVectors(inspect)).toBe(0)
     const ftsCount = inspect
-      .prepare<[], { n: number }>(
-        `SELECT COUNT(*) AS n FROM memory_entries_fts`,
-      )
+      .prepare<[], { n: number }>(`SELECT COUNT(*) AS n FROM memory_entries_fts`)
       .get()
     expect(ftsCount?.n).toBe(0)
   })
 
   it("treats a rename as delete plus create, re-embedding under the new file name", async () => {
     const { index, embedder, inspect } = await createInspectableMemoryIndex()
+
     if (embedder === undefined) throw new Error("embedder required")
     index.upsertNote(
       {
@@ -382,10 +338,7 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote(
-      { notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 },
-      logger,
-    )
+    await index.embedNote({ notePath: "About Me/Opinions.md", rawContent: OPINIONS_V1 }, logger)
     embedder.embedBatch.mockClear()
 
     // The watcher delivers a rename as unlink + add.
@@ -398,10 +351,7 @@ describe("memory entry indexing", () => {
       },
       logger,
     )
-    await index.embedNote(
-      { notePath: "About Me/Beliefs.md", rawContent: OPINIONS_V1 },
-      logger,
-    )
+    await index.embedNote({ notePath: "About Me/Beliefs.md", rawContent: OPINIONS_V1 }, logger)
 
     const rows = selectEntryRows(inspect)
     expect(rows).toHaveLength(3)
@@ -491,10 +441,7 @@ title: Agents
 
   it("indexes and embeds entries from every memory file during rebuild", async () => {
     const { dir, index, inspect } = await createRebuiltVault()
-    const { embedding } = await index.rebuildFromVault(
-      { vaultPath: dir },
-      logger,
-    )
+    const { embedding } = await index.rebuildFromVault({ vaultPath: dir }, logger)
     await embedding
     const rows = selectEntryRows(inspect)
     expect(rows.map((row) => [row.file, row.entry_date])).toEqual([
@@ -512,9 +459,7 @@ title: Agents
     await firstBuild.embedding
     // The deleted file's entries were present after the first rebuild —
     // the cleanup below has something real to remove.
-    expect(selectEntryRows(inspect).some((row) => row.file === "Agents")).toBe(
-      true,
-    )
+    expect(selectEntryRows(inspect).some((row) => row.file === "Agents")).toBe(true)
 
     await unlink(join(memoryDirPath, "Agents.md"))
     const secondBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
@@ -535,10 +480,7 @@ title: Agents
 
     const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
     onTestFinished(() => warnSpy.mockRestore())
-    await writeFile(
-      join(memoryDirPath, "Opinions.md"),
-      "---\ntitle: [unclosed\n---\n# Opinions\n",
-    )
+    await writeFile(join(memoryDirPath, "Opinions.md"), "---\ntitle: [unclosed\n---\n# Opinions\n")
     const secondBuild = await index.rebuildFromVault({ vaultPath: dir }, logger)
     await secondBuild.embedding
 

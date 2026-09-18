@@ -110,9 +110,9 @@ describe("fitImageToByteBudget", () => {
 
   it("throws when no attempt can fit the budget", async () => {
     const original = await noiseImage({ width: 3000, height: 3000 })
-    await expect(
-      fitImageToByteBudget({ buffer: original, budgetBytes: 10 }),
-    ).rejects.toThrow(/^image cannot be fitted into 10 bytes/)
+    await expect(fitImageToByteBudget({ buffer: original, budgetBytes: 10 })).rejects.toThrow(
+      /^image cannot be fitted into 10 bytes/,
+    )
   })
 
   it("throws a decode error for a non-image buffer", async () => {

@@ -49,6 +49,7 @@ const sweepOneEntry = async (
   // same path re-trashed) before this row's turn — its file is then fresh,
   // and unlinking it would destroy the copy retention exists to keep.
   const currentEntry = trashEntryStore.getTrashEntry(trashPath)
+
   if (!currentEntry || currentEntry.trashedAt >= params.cutoffEpochSeconds) {
     return "skipped"
   }
@@ -60,6 +61,7 @@ const sweepOneEntry = async (
   // the file is left alone and the row kept as evidence.
   const trashRoot = join(resolve(vaultPath), ".trash")
   const resolvedPath = resolve(vaultPath, trashPath)
+
   // + sep prevents ".trash-backup/" from matching ".trash" as a prefix
   if (!resolvedPath.startsWith(trashRoot + sep)) {
     logger.warn("trash entry resolves outside .trash — skipped", {
@@ -128,10 +130,7 @@ const sweepOneEntry = async (
   // removed) keeps the folder's growth bounded along with its files.
   // pruneEmptyParents walks up from `path` and stops at `vaultPath` — here
   // the pruning root is .trash/, not the vault itself.
-  await pruneEmptyParents(
-    { vaultPath: trashRoot, path: relative(trashRoot, resolvedPath) },
-    logger,
-  )
+  await pruneEmptyParents({ vaultPath: trashRoot, path: relative(trashRoot, resolvedPath) }, logger)
   return "purged"
 }
 
@@ -139,34 +138,25 @@ const sweepOneEntry = async (
  *  rows whose files are already gone. Each row is processed under the shared
  *  trash-domain lock (per row, so a long sweep never starves deletes), with
  *  an in-lock re-read deciding whether the row is still expired. */
-const sweepExpiredTrashEntries = async (
-  params: SweepParams,
-  logger: Logger,
-): Promise<void> => {
-  const cutoffEpochSeconds = DateTime.now()
-    .minus({ days: params.retentionDays })
-    .toUnixInteger()
-  const expiredEntries =
-    params.trashEntryStore.listExpiredTrashEntries(cutoffEpochSeconds)
+const sweepExpiredTrashEntries = async (params: SweepParams, logger: Logger): Promise<void> => {
+  const cutoffEpochSeconds = DateTime.now().minus({ days: params.retentionDays }).toUnixInteger()
+  const expiredEntries = params.trashEntryStore.listExpiredTrashEntries(cutoffEpochSeconds)
 
   const rowOutcomes: SweepRowOutcome[] = []
   for (const expiredEntry of expiredEntries) {
     // withFileLock is the serializing mode — each row queues behind any
     // in-flight trash move on the shared key, and vice versa.
-    const rowOutcome = await withFileLock(
-      trashDomainLockKey(params.vaultPath),
-      () => {
-        return sweepOneEntry(
-          {
-            vaultPath: params.vaultPath,
-            trashPath: expiredEntry.trashPath,
-            cutoffEpochSeconds,
-            trashEntryStore: params.trashEntryStore,
-          },
-          logger,
-        )
-      },
-    )
+    const rowOutcome = await withFileLock(trashDomainLockKey(params.vaultPath), () => {
+      return sweepOneEntry(
+        {
+          vaultPath: params.vaultPath,
+          trashPath: expiredEntry.trashPath,
+          cutoffEpochSeconds,
+          trashEntryStore: params.trashEntryStore,
+        },
+        logger,
+      )
+    })
     rowOutcomes.push(rowOutcome)
   }
 
@@ -210,45 +200,40 @@ const purgeOrphanedTrashEntries = async (
   logger: Logger,
 ): Promise<void> => {
   const allEntries = params.trashEntryStore.listAllTrashEntries()
+
   if (allEntries.length === 0) return
 
   // Sequential async loop — each iteration awaits the lock.
   let purgedCount = 0
   for (const entry of allEntries) {
-    const wasPurged = await withFileLock(
-      trashDomainLockKey(params.vaultPath),
-      async () => {
-        // Re-read under the lock: a concurrent trash move can replace the
-        // row (INSERT OR REPLACE refreshes trashedAt), meaning a new file
-        // now lives at this path — dropping the row would orphan it.
-        const currentEntry = params.trashEntryStore.getTrashEntry(
-          entry.trashPath,
-        )
-        const rowWasRefreshed =
-          !currentEntry || currentEntry.trashedAt !== entry.trashedAt
+    const wasPurged = await withFileLock(trashDomainLockKey(params.vaultPath), async () => {
+      // Re-read under the lock: a concurrent trash move can replace the
+      // row (INSERT OR REPLACE refreshes trashedAt), meaning a new file
+      // now lives at this path — dropping the row would orphan it.
+      const currentEntry = params.trashEntryStore.getTrashEntry(entry.trashPath)
+      const rowWasRefreshed = !currentEntry || currentEntry.trashedAt !== entry.trashedAt
 
-        if (rowWasRefreshed) return false
+      if (rowWasRefreshed) return false
 
-        // lstat (not stat) so a dangling symlink in .trash/ is still
-        // recognized as present — stat would follow it, get ENOENT, and
-        // drop the row, stranding an unlinkable symlink with no record.
-        try {
-          const entryExists = await lstatOrNull(
-            resolve(params.vaultPath, entry.trashPath),
-          )
-          if (entryExists) return false
-        } catch (error) {
-          logger.warn("failed to stat trash entry", {
-            trashPath: entry.trashPath,
-            error: describeError(error),
-          })
-          return false
-        }
+      // lstat (not stat) so a dangling symlink in .trash/ is still
+      // recognized as present — stat would follow it, get ENOENT, and
+      // drop the row, stranding an unlinkable symlink with no record.
+      try {
+        const entryExists = await lstatOrNull(resolve(params.vaultPath, entry.trashPath))
 
-        params.trashEntryStore.deleteTrashEntry(entry.trashPath)
-        return true
-      },
-    )
+        if (entryExists) return false
+      } catch (error) {
+        logger.warn("failed to stat trash entry", {
+          trashPath: entry.trashPath,
+          error: describeError(error),
+        })
+        return false
+      }
+
+      params.trashEntryStore.deleteTrashEntry(entry.trashPath)
+      return true
+    })
+
     if (wasPurged) purgedCount++
   }
 

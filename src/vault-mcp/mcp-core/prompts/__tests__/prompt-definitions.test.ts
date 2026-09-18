@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest"
-import {
-  captureRegistration,
-  findCall,
-  PROMPT_NAMES,
-  loadConfig,
-} from "./prompt-test-harness.js"
+import { captureRegistration, findCall, PROMPT_NAMES, loadConfig } from "./prompt-test-harness.js"
 
 const ALL_PROMPT_NAMES = Object.values(PROMPT_NAMES)
 
@@ -123,9 +118,7 @@ describe("READONLY_MODE=true", () => {
 describe("DISABLED_TOOLS", () => {
   it("hides memory-review when vault_update_memory is disabled", () => {
     // memory-review proposes memory writes, so it follows its write tool.
-    const calls = captureRegistration(
-      loadConfig({ DISABLED_TOOLS: "vault_update_memory" }),
-    )
+    const calls = captureRegistration(loadConfig({ DISABLED_TOOLS: "vault_update_memory" }))
     const registeredNames = calls.map((call) => call[0])
     expect(new Set(registeredNames)).toEqual(
       new Set([PROMPT_NAMES.VAULT_ORIENTATION, PROMPT_NAMES.DAILY_REVIEW]),
@@ -134,9 +127,7 @@ describe("DISABLED_TOOLS", () => {
   })
 
   it("keeps memory-review when an unrelated tool is disabled", () => {
-    const calls = captureRegistration(
-      loadConfig({ DISABLED_TOOLS: "vault_write_note" }),
-    )
+    const calls = captureRegistration(loadConfig({ DISABLED_TOOLS: "vault_write_note" }))
     const registeredNames = calls.map((call) => call[0])
     expect(registeredNames).toContain(PROMPT_NAMES.MEMORY_REVIEW)
     expect(registeredNames).toHaveLength(3)

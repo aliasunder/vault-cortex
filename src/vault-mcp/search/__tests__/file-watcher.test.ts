@@ -1,22 +1,5 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-  onTestFinished,
-} from "vitest"
-import {
-  mkdtemp,
-  rm,
-  writeFile,
-  mkdir,
-  rename,
-  unlink,
-  symlink,
-  utimes,
-} from "node:fs/promises"
+import { describe, it, expect, beforeEach, afterEach, vi, onTestFinished } from "vitest"
+import { mkdtemp, rm, writeFile, mkdir, rename, unlink, symlink, utimes } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { tmpdir } from "node:os"
 import { watch } from "chokidar"
@@ -40,11 +23,7 @@ let vault: string
 let index: SearchIndex
 
 /** Poll until a condition is met, with timeout. */
-const waitFor = async (
-  check: () => boolean,
-  timeoutMs = 8000,
-  intervalMs = 100,
-): Promise<void> => {
+const waitFor = async (check: () => boolean, timeoutMs = 8000, intervalMs = 100): Promise<void> => {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (check()) return
@@ -81,15 +60,9 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
       pollInterval: 50,
     })
 
-    await writeFile(
-      join(vault, "test.md"),
-      "---\ntitle: Test\n---\n\nHello watcher\n",
-      "utf8",
-    )
+    await writeFile(join(vault, "test.md"), "---\ntitle: Test\n---\n\nHello watcher\n", "utf8")
 
-    await waitFor(
-      () => index.fullTextSearch({ query: "watcher" }, logger).length > 0,
-    )
+    await waitFor(() => index.fullTextSearch({ query: "watcher" }, logger).length > 0)
     const results = index.fullTextSearch({ query: "watcher" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe("test.md")
@@ -102,14 +75,10 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
     })
 
     await writeFile(join(vault, "modify.md"), "original content\n", "utf8")
-    await waitFor(
-      () => index.fullTextSearch({ query: "original" }, logger).length > 0,
-    )
+    await waitFor(() => index.fullTextSearch({ query: "original" }, logger).length > 0)
 
     await writeFile(join(vault, "modify.md"), "updated content\n", "utf8")
-    await waitFor(
-      () => index.fullTextSearch({ query: "updated" }, logger).length > 0,
-    )
+    await waitFor(() => index.fullTextSearch({ query: "updated" }, logger).length > 0)
 
     const results = index.fullTextSearch({ query: "updated" }, logger)
     expect(results).toHaveLength(1)
@@ -122,14 +91,10 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
     })
 
     await writeFile(join(vault, "delete-me.md"), "ephemeral\n", "utf8")
-    await waitFor(
-      () => index.fullTextSearch({ query: "ephemeral" }, logger).length > 0,
-    )
+    await waitFor(() => index.fullTextSearch({ query: "ephemeral" }, logger).length > 0)
 
     await unlink(join(vault, "delete-me.md"))
-    await waitFor(
-      () => index.fullTextSearch({ query: "ephemeral" }, logger).length === 0,
-    )
+    await waitFor(() => index.fullTextSearch({ query: "ephemeral" }, logger).length === 0)
 
     const results = index.fullTextSearch({ query: "ephemeral" }, logger)
     expect(results).toHaveLength(0)
@@ -144,59 +109,46 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
     await writeFile(join(vault, "data.json"), '{"key": "value"}', "utf8")
     await writeFile(join(vault, "check.md"), "check file\n", "utf8")
 
-    await waitFor(
-      () => index.fullTextSearch({ query: "check" }, logger).length > 0,
-    )
+    await waitFor(() => index.fullTextSearch({ query: "check" }, logger).length > 0)
 
     const jsonResults = index.fullTextSearch({ query: "value" }, logger)
     expect(jsonResults).toHaveLength(0)
   })
 
-  it(
-    "skips a non-md file that vanishes before its stat",
-    { timeout: 15000 },
-    async () => {
-      const upsertNonMdFileSpy = vi.spyOn(index, "upsertNonMdFile")
-      // Force the stat miss by path — a deterministic stand-in for the file
-      // being deleted between the watcher event and the handler's stat.
-      const actualFsUtils = await vi.importActual<
-        typeof import("../../../utils/fs.js")
-      >("../../../utils/fs.js")
-      vi.mocked(statOrNull).mockImplementation(async (statPath) =>
-        statPath.endsWith("vanished.png")
-          ? null
-          : actualFsUtils.statOrNull(statPath),
-      )
-      onTestFinished(() => {
-        vi.mocked(statOrNull).mockRestore()
-      })
+  it("skips a non-md file that vanishes before its stat", { timeout: 15000 }, async () => {
+    const upsertNonMdFileSpy = vi.spyOn(index, "upsertNonMdFile")
+    // Force the stat miss by path — a deterministic stand-in for the file
+    // being deleted between the watcher event and the handler's stat.
+    const actualFsUtils =
+      await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js")
+    vi.mocked(statOrNull).mockImplementation(async (statPath) =>
+      statPath.endsWith("vanished.png") ? null : actualFsUtils.statOrNull(statPath),
+    )
+    onTestFinished(() => {
+      vi.mocked(statOrNull).mockRestore()
+    })
 
-      await startFileWatcher(vault, index, {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      })
+    await startFileWatcher(vault, index, {
+      stabilityThreshold: 200,
+      pollInterval: 50,
+    })
 
-      await writeFile(join(vault, "vanished.png"), "gone", "utf8")
-      await writeFile(join(vault, "kept.png"), "here", "utf8")
+    await writeFile(join(vault, "vanished.png"), "gone", "utf8")
+    await writeFile(join(vault, "kept.png"), "here", "utf8")
 
-      // Both non-md events have been processed once each file's stat ran.
-      await waitFor(() =>
-        ["vanished.png", "kept.png"].every((fileName) =>
-          vi
-            .mocked(statOrNull)
-            .mock.calls.some(([statPath]) => statPath.endsWith(fileName)),
-        ),
-      )
+    // Both non-md events have been processed once each file's stat ran.
+    await waitFor(() =>
+      ["vanished.png", "kept.png"].every((fileName) =>
+        vi.mocked(statOrNull).mock.calls.some(([statPath]) => statPath.endsWith(fileName)),
+      ),
+    )
 
-      // Only the surviving file is indexed — the vanished one's early return
-      // must not upsert (without the guard, reading .size off null would throw
-      // inside the watcher callback).
-      await waitFor(() => upsertNonMdFileSpy.mock.calls.length > 0)
-      expect(upsertNonMdFileSpy.mock.calls.map(([path]) => path)).toEqual([
-        "kept.png",
-      ])
-    },
-  )
+    // Only the surviving file is indexed — the vanished one's early return
+    // must not upsert (without the guard, reading .size off null would throw
+    // inside the watcher callback).
+    await waitFor(() => upsertNonMdFileSpy.mock.calls.length > 0)
+    expect(upsertNonMdFileSpy.mock.calls.map(([path]) => path)).toEqual(["kept.png"])
+  })
 
   it("ignores hidden directories", { timeout: 15000 }, async () => {
     await mkdir(join(vault, ".obsidian"), { recursive: true })
@@ -206,16 +158,10 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
       pollInterval: 50,
     })
 
-    await writeFile(
-      join(vault, ".obsidian/workspace.md"),
-      "hidden content\n",
-      "utf8",
-    )
+    await writeFile(join(vault, ".obsidian/workspace.md"), "hidden content\n", "utf8")
     await writeFile(join(vault, "visible.md"), "visible content\n", "utf8")
 
-    await waitFor(
-      () => index.fullTextSearch({ query: "visible" }, logger).length > 0,
-    )
+    await waitFor(() => index.fullTextSearch({ query: "visible" }, logger).length > 0)
 
     const hiddenResults = index.fullTextSearch({ query: "hidden" }, logger)
     expect(hiddenResults).toHaveLength(0)
@@ -242,32 +188,28 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
     expect(paths).toContain("linked.md")
   })
 
-  it(
-    "calls embedNote when indexing a .md file",
-    { timeout: 15000 },
-    async () => {
-      const embedNoteSpy = vi.spyOn(index, "embedNote")
-      await startFileWatcher(vault, index, {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      })
+  it("calls embedNote when indexing a .md file", { timeout: 15000 }, async () => {
+    const embedNoteSpy = vi.spyOn(index, "embedNote")
+    await startFileWatcher(vault, index, {
+      stabilityThreshold: 200,
+      pollInterval: 50,
+    })
 
-      await writeFile(
-        join(vault, "embed-test.md"),
-        "---\ntitle: Embed\n---\n\nEmbed this content\n",
-        "utf8",
-      )
+    await writeFile(
+      join(vault, "embed-test.md"),
+      "---\ntitle: Embed\n---\n\nEmbed this content\n",
+      "utf8",
+    )
 
-      await waitFor(() => embedNoteSpy.mock.calls.length > 0)
-      expect(embedNoteSpy).toHaveBeenCalledWith(
-        {
-          notePath: "embed-test.md",
-          rawContent: "---\ntitle: Embed\n---\n\nEmbed this content\n",
-        },
-        expect.anything(), // logger — runtime child logger, not deterministic
-      )
-    },
-  )
+    await waitFor(() => embedNoteSpy.mock.calls.length > 0)
+    expect(embedNoteSpy).toHaveBeenCalledWith(
+      {
+        notePath: "embed-test.md",
+        rawContent: "---\ntitle: Embed\n---\n\nEmbed this content\n",
+      },
+      expect.anything(), // logger — runtime child logger, not deterministic
+    )
+  })
 
   it(
     "indexes a note atomically written into a brand-new directory",
@@ -287,9 +229,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
       await writeFile(`${notePath}.tmp`, "raced into a new folder\n", "utf8")
       await rename(`${notePath}.tmp`, notePath)
 
-      await waitFor(
-        () => index.fullTextSearch({ query: "raced" }, logger).length > 0,
-      )
+      await waitFor(() => index.fullTextSearch({ query: "raced" }, logger).length > 0)
       const results = index.fullTextSearch({ query: "raced" }, logger)
       expect(results).toHaveLength(1)
       expect(results[0]?.path).toBe("brand-new/nested/note.md")
@@ -308,9 +248,7 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
 
     await writeFile(join(vault, "polled.md"), "polled content\n", "utf8")
 
-    await waitFor(
-      () => index.fullTextSearch({ query: "polled" }, logger).length > 0,
-    )
+    await waitFor(() => index.fullTextSearch({ query: "polled" }, logger).length > 0)
     const results = index.fullTextSearch({ query: "polled" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe("polled.md")
@@ -318,37 +256,26 @@ describe("file-watcher", REAL_WATCHER_RETRY, () => {
 })
 
 describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
-  it(
-    "indexes a text file into file content FTS",
-    { timeout: 15000 },
-    async () => {
-      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
-        fileToolsEnabled: true,
-      })
-      const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
+  it("indexes a text file into file content FTS", { timeout: 15000 }, async () => {
+    const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+    const upsertSpy = vi.spyOn(fileIndex, "upsertFileContent")
 
-      await startFileWatcher(vault, fileIndex, {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      })
+    await startFileWatcher(vault, fileIndex, {
+      stabilityThreshold: 200,
+      pollInterval: 50,
+    })
 
-      await writeFile(
-        join(vault, "notes.txt"),
-        "deployment checklist for production release",
-        "utf8",
-      )
+    await writeFile(join(vault, "notes.txt"), "deployment checklist for production release", "utf8")
 
-      await waitFor(() => upsertSpy.mock.calls.length > 0)
+    await waitFor(() => upsertSpy.mock.calls.length > 0)
 
-      const { results } = await fileIndex.hybridSearch(
-        { query: "deployment checklist" },
-        logger,
-      )
-      const textResult = results.find((result) => result.path === "notes.txt")
-      expect(textResult?.kind).toBe("file")
-      expect(textResult?.extension).toBe(".txt")
-    },
-  )
+    const { results } = await fileIndex.hybridSearch({ query: "deployment checklist" }, logger)
+    const textResult = results.find((result) => result.path === "notes.txt")
+    expect(textResult?.kind).toBe("file")
+    expect(textResult?.extension).toBe(".txt")
+  })
 
   it("removes text file content on delete", { timeout: 15000 }, async () => {
     const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
@@ -362,26 +289,18 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
       pollInterval: 50,
     })
 
-    await writeFile(
-      join(vault, "temp.csv"),
-      "id,name\n1,ephemeral-data-row",
-      "utf8",
-    )
+    await writeFile(join(vault, "temp.csv"), "id,name\n1,ephemeral-data-row", "utf8")
     await waitFor(() => upsertSpy.mock.calls.length > 0)
 
     await unlink(join(vault, "temp.csv"))
     await waitFor(() => removeSpy.mock.calls.length > 0)
 
-    const { results } = await fileIndex.hybridSearch(
-      { query: "ephemeral-data-row" },
-      logger,
-    )
+    const { results } = await fileIndex.hybridSearch({ query: "ephemeral-data-row" }, logger)
     expect(results).toHaveLength(0)
   })
 
   it("indexes a PDF file via extractPdfText", { timeout: 15000 }, async () => {
-    const { buildMinimalPdf } =
-      await import("../../obsidian-markdown/__tests__/pdf-fixture.js")
+    const { buildMinimalPdf } = await import("../../obsidian-markdown/__tests__/pdf-fixture.js")
     const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
       fileToolsEnabled: true,
     })
@@ -395,42 +314,31 @@ describe("file-watcher — file content indexing", REAL_WATCHER_RETRY, () => {
     await writeFile(join(vault, "doc.pdf"), buildMinimalPdf())
     await waitFor(() => upsertSpy.mock.calls.length > 0)
 
-    const { results } = await fileIndex.hybridSearch(
-      { query: "Hello PDF" },
-      logger,
-    )
+    const { results } = await fileIndex.hybridSearch({ query: "Hello PDF" }, logger)
     const pdfResult = results.find((result) => result.path === "doc.pdf")
     expect(pdfResult?.kind).toBe("file")
     expect(pdfResult?.extension).toBe(".pdf")
   })
 
-  it(
-    "calls embedFileContent when indexing a non-md file",
-    { timeout: 15000 },
-    async () => {
-      const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
-        fileToolsEnabled: true,
-      })
-      const embedFileSpy = vi.spyOn(fileIndex, "embedFileContent")
+  it("calls embedFileContent when indexing a non-md file", { timeout: 15000 }, async () => {
+    const fileIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+    const embedFileSpy = vi.spyOn(fileIndex, "embedFileContent")
 
-      await startFileWatcher(vault, fileIndex, {
-        stabilityThreshold: 200,
-        pollInterval: 50,
-      })
+    await startFileWatcher(vault, fileIndex, {
+      stabilityThreshold: 200,
+      pollInterval: 50,
+    })
 
-      await writeFile(
-        join(vault, "data.csv"),
-        "id,name,value\n1,deploy,active\n",
-        "utf8",
-      )
+    await writeFile(join(vault, "data.csv"), "id,name,value\n1,deploy,active\n", "utf8")
 
-      await waitFor(() => embedFileSpy.mock.calls.length > 0)
-      expect(embedFileSpy).toHaveBeenCalledWith(
-        { filePath: "data.csv" },
-        expect.anything(), // logger — runtime child logger
-      )
-    },
-  )
+    await waitFor(() => embedFileSpy.mock.calls.length > 0)
+    expect(embedFileSpy).toHaveBeenCalledWith(
+      { filePath: "data.csv" },
+      expect.anything(), // logger — runtime child logger
+    )
+  })
 })
 
 describe("startFileWatcher — chokidar watch options", () => {
@@ -458,9 +366,7 @@ describe("startFileWatcher — chokidar watch options", () => {
   ): Promise<Record<string, unknown>> => {
     const watchMock = vi.mocked(watch)
     watchMock.mockReset()
-    watchMock.mockImplementation(
-      () => createFakeWatcher() as unknown as ReturnType<typeof watch>,
-    )
+    watchMock.mockImplementation(() => createFakeWatcher() as unknown as ReturnType<typeof watch>)
     onTestFinished(() => watchMock.mockRestore())
     await startFileWatcher("/vault", index, watcherOptions)
     expect(watchMock).toHaveBeenCalledTimes(1)
@@ -533,14 +439,13 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
     }
     const watchMock = vi.mocked(watch)
     watchMock.mockReset()
-    watchMock.mockImplementation(
-      () => fakeWatcher as unknown as ReturnType<typeof watch>,
-    )
+    watchMock.mockImplementation(() => fakeWatcher as unknown as ReturnType<typeof watch>)
     onTestFinished(() => watchMock.mockRestore())
     await startFileWatcher(vault, index, watcherOptions)
 
     const fireAddDir = (dirPath: string): void => {
       const addDirHandler = handlers.get("addDir")
+
       if (addDirHandler === undefined) {
         throw new Error("addDir handler was not registered")
       }
@@ -556,67 +461,50 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
     await utimes(filePath, backdated, backdated)
   }
 
-  it(
-    "indexes a file on disk that chokidar does not track",
-    { timeout: 15000 },
-    async () => {
-      const newDirectory = join(vault, "new-folder")
-      await mkdir(newDirectory)
-      const missedPath = join(newDirectory, "missed.md")
-      await writeFile(missedPath, "missed by the scan\n", "utf8")
-      await backdateMtime(missedPath)
+  it("indexes a file on disk that chokidar does not track", { timeout: 15000 }, async () => {
+    const newDirectory = join(vault, "new-folder")
+    await mkdir(newDirectory)
+    const missedPath = join(newDirectory, "missed.md")
+    await writeFile(missedPath, "missed by the scan\n", "utf8")
+    await backdateMtime(missedPath)
 
-      const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar(
-        {},
-        RESCAN_TEST_OPTIONS,
-      )
-      fireAddDir(newDirectory)
+    const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
+    fireAddDir(newDirectory)
 
-      await waitFor(
-        () => index.fullTextSearch({ query: "missed" }, logger).length > 0,
-      )
-      const results = index.fullTextSearch({ query: "missed" }, logger)
-      expect(results).toHaveLength(1)
-      expect(results[0]?.path).toBe("new-folder/missed.md")
-      // The file must also be registered with chokidar — indexed but
-      // untracked, its later deletion would emit no unlink (ghost entry).
-      expect(addedPaths).toEqual([missedPath])
-    },
-  )
+    await waitFor(() => index.fullTextSearch({ query: "missed" }, logger).length > 0)
+    const results = index.fullTextSearch({ query: "missed" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0]?.path).toBe("new-folder/missed.md")
+    // The file must also be registered with chokidar — indexed but
+    // untracked, its later deletion would emit no unlink (ghost entry).
+    expect(addedPaths).toEqual([missedPath])
+  })
 
-  it(
-    "does not re-index a file chokidar already tracks",
-    { timeout: 15000 },
-    async () => {
-      const newDirectory = join(vault, "new-folder")
-      await mkdir(newDirectory)
-      const trackedPath = join(newDirectory, "tracked.md")
-      const missedPath = join(newDirectory, "missed.md")
-      await writeFile(trackedPath, "already tracked note\n", "utf8")
-      await writeFile(missedPath, "missed sibling note\n", "utf8")
-      await backdateMtime(trackedPath)
-      await backdateMtime(missedPath)
+  it("does not re-index a file chokidar already tracks", { timeout: 15000 }, async () => {
+    const newDirectory = join(vault, "new-folder")
+    await mkdir(newDirectory)
+    const trackedPath = join(newDirectory, "tracked.md")
+    const missedPath = join(newDirectory, "missed.md")
+    await writeFile(trackedPath, "already tracked note\n", "utf8")
+    await writeFile(missedPath, "missed sibling note\n", "utf8")
+    await backdateMtime(trackedPath)
+    await backdateMtime(missedPath)
 
-      const upsertNoteSpy = vi.spyOn(index, "upsertNote")
-      const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar(
-        { [resolve(newDirectory)]: ["tracked.md"] },
-        RESCAN_TEST_OPTIONS,
-      )
-      fireAddDir(newDirectory)
+    const upsertNoteSpy = vi.spyOn(index, "upsertNote")
+    const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar(
+      { [resolve(newDirectory)]: ["tracked.md"] },
+      RESCAN_TEST_OPTIONS,
+    )
+    fireAddDir(newDirectory)
 
-      // The untracked sibling getting indexed proves the rescan ran — the
-      // tracked file being skipped can't be a silent no-op.
-      await waitFor(
-        () => index.fullTextSearch({ query: "sibling" }, logger).length > 0,
-      )
-      expect(upsertNoteSpy).toHaveBeenCalledTimes(1)
-      expect(upsertNoteSpy.mock.calls[0]?.[0]?.filePath).toBe(
-        "new-folder/missed.md",
-      )
-      // Only the missed file is registered — the tracked one is not re-added.
-      expect(addedPaths).toEqual([missedPath])
-    },
-  )
+    // The untracked sibling getting indexed proves the rescan ran — the
+    // tracked file being skipped can't be a silent no-op.
+    await waitFor(() => index.fullTextSearch({ query: "sibling" }, logger).length > 0)
+    expect(upsertNoteSpy).toHaveBeenCalledTimes(1)
+    expect(upsertNoteSpy.mock.calls[0]?.[0]?.filePath).toBe("new-folder/missed.md")
+    // Only the missed file is registered — the tracked one is not re-added.
+    expect(addedPaths).toEqual([missedPath])
+  })
 
   it(
     "skips an untracked file modified within the stability window",
@@ -640,9 +528,7 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
 
       // The settled sibling proves the rescan ran; the fresh file is skipped
       // at rescan time (its 60s retry timer never fires within this test).
-      await waitFor(
-        () => index.fullTextSearch({ query: "settled" }, logger).length > 0,
-      )
+      await waitFor(() => index.fullTextSearch({ query: "settled" }, logger).length > 0)
       const freshResults = index.fullTextSearch({ query: "fresh" }, logger)
       expect(freshResults).toHaveLength(0)
       // Skipping must not register the fresh file yet — only the settled file
@@ -651,102 +537,72 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
     },
   )
 
-  it(
-    "registers a missed subdirectory and indexes its contents",
-    { timeout: 15000 },
-    async () => {
-      const newDirectory = join(vault, "new-folder")
-      const missedSubdirectory = join(newDirectory, "missed-subdir")
-      await mkdir(missedSubdirectory, { recursive: true })
-      const nestedPath = join(missedSubdirectory, "nested.md")
-      await writeFile(nestedPath, "nested in a missed subdir\n", "utf8")
-      await backdateMtime(nestedPath)
+  it("registers a missed subdirectory and indexes its contents", { timeout: 15000 }, async () => {
+    const newDirectory = join(vault, "new-folder")
+    const missedSubdirectory = join(newDirectory, "missed-subdir")
+    await mkdir(missedSubdirectory, { recursive: true })
+    const nestedPath = join(missedSubdirectory, "nested.md")
+    await writeFile(nestedPath, "nested in a missed subdir\n", "utf8")
+    await backdateMtime(nestedPath)
 
-      const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar(
-        {},
-        RESCAN_TEST_OPTIONS,
-      )
-      fireAddDir(newDirectory)
+    const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
+    fireAddDir(newDirectory)
 
-      await waitFor(
-        () => index.fullTextSearch({ query: "nested" }, logger).length > 0,
-      )
-      const results = index.fullTextSearch({ query: "nested" }, logger)
-      expect(results).toHaveLength(1)
-      expect(results[0]?.path).toBe("new-folder/missed-subdir/nested.md")
-      // The subdirectory and the missed file are both handed back to chokidar
-      // so they gain watches and future events (unlink included) fire.
-      expect(addedPaths).toEqual([missedSubdirectory, nestedPath])
-    },
-  )
+    await waitFor(() => index.fullTextSearch({ query: "nested" }, logger).length > 0)
+    const results = index.fullTextSearch({ query: "nested" }, logger)
+    expect(results).toHaveLength(1)
+    expect(results[0]?.path).toBe("new-folder/missed-subdir/nested.md")
+    // The subdirectory and the missed file are both handed back to chokidar
+    // so they gain watches and future events (unlink included) fire.
+    expect(addedPaths).toEqual([missedSubdirectory, nestedPath])
+  })
 
-  it(
-    "ignores dot-directories during the rescan",
-    { timeout: 15000 },
-    async () => {
-      const newDirectory = join(vault, "new-folder")
-      const hiddenDirectory = join(newDirectory, ".trash")
-      await mkdir(hiddenDirectory, { recursive: true })
-      const hiddenPath = join(hiddenDirectory, "hidden.md")
-      const visiblePath = join(newDirectory, "visible.md")
-      await writeFile(hiddenPath, "hidden rescan note\n", "utf8")
-      await writeFile(visiblePath, "visible rescan note\n", "utf8")
-      await backdateMtime(hiddenPath)
-      await backdateMtime(visiblePath)
+  it("ignores dot-directories during the rescan", { timeout: 15000 }, async () => {
+    const newDirectory = join(vault, "new-folder")
+    const hiddenDirectory = join(newDirectory, ".trash")
+    await mkdir(hiddenDirectory, { recursive: true })
+    const hiddenPath = join(hiddenDirectory, "hidden.md")
+    const visiblePath = join(newDirectory, "visible.md")
+    await writeFile(hiddenPath, "hidden rescan note\n", "utf8")
+    await writeFile(visiblePath, "visible rescan note\n", "utf8")
+    await backdateMtime(hiddenPath)
+    await backdateMtime(visiblePath)
 
-      const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar(
-        {},
-        RESCAN_TEST_OPTIONS,
-      )
-      fireAddDir(newDirectory)
+    const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
+    fireAddDir(newDirectory)
 
-      await waitFor(
-        () => index.fullTextSearch({ query: "visible" }, logger).length > 0,
-      )
-      const hiddenResults = index.fullTextSearch({ query: "hidden" }, logger)
-      expect(hiddenResults).toHaveLength(0)
-      // The dot-directory must not be registered with chokidar — only the
-      // visible missed file is.
-      expect(addedPaths).toEqual([visiblePath])
-    },
-  )
+    await waitFor(() => index.fullTextSearch({ query: "visible" }, logger).length > 0)
+    const hiddenResults = index.fullTextSearch({ query: "hidden" }, logger)
+    expect(hiddenResults).toHaveLength(0)
+    // The dot-directory must not be registered with chokidar — only the
+    // visible missed file is.
+    expect(addedPaths).toEqual([visiblePath])
+  })
 
-  it(
-    "indexes settled files inside a missed symlinked directory",
-    { timeout: 15000 },
-    async () => {
-      // The recursive readdir doesn't traverse symlinks, so a symlinked
-      // directory's contents need their own reconciliation pass.
-      const targetDirectory = join(vault, "target-dir")
-      await mkdir(targetDirectory)
-      const insidePath = join(targetDirectory, "inside.md")
-      await writeFile(insidePath, "inside a symlinked folder\n", "utf8")
-      await backdateMtime(insidePath)
-      const newDirectory = join(vault, "new-folder")
-      await mkdir(newDirectory)
-      const linkedDirectory = join(newDirectory, "linked-dir")
-      await symlink(targetDirectory, linkedDirectory)
+  it("indexes settled files inside a missed symlinked directory", { timeout: 15000 }, async () => {
+    // The recursive readdir doesn't traverse symlinks, so a symlinked
+    // directory's contents need their own reconciliation pass.
+    const targetDirectory = join(vault, "target-dir")
+    await mkdir(targetDirectory)
+    const insidePath = join(targetDirectory, "inside.md")
+    await writeFile(insidePath, "inside a symlinked folder\n", "utf8")
+    await backdateMtime(insidePath)
+    const newDirectory = join(vault, "new-folder")
+    await mkdir(newDirectory)
+    const linkedDirectory = join(newDirectory, "linked-dir")
+    await symlink(targetDirectory, linkedDirectory)
 
-      const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar(
-        {},
-        RESCAN_TEST_OPTIONS,
-      )
-      fireAddDir(newDirectory)
+    const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
+    fireAddDir(newDirectory)
 
-      await waitFor(
-        () => index.fullTextSearch({ query: "symlinked" }, logger).length > 0,
-      )
-      const results = index.fullTextSearch({ query: "symlinked" }, logger)
-      expect(results).toHaveLength(1)
-      // Indexed under the link path, matching chokidar's followSymlinks view.
-      expect(results[0]?.path).toBe("new-folder/linked-dir/inside.md")
-      // The inner file registers during the recursion, then the link itself.
-      expect(addedPaths).toEqual([
-        join(linkedDirectory, "inside.md"),
-        linkedDirectory,
-      ])
-    },
-  )
+    await waitFor(() => index.fullTextSearch({ query: "symlinked" }, logger).length > 0)
+    const results = index.fullTextSearch({ query: "symlinked" }, logger)
+    expect(results).toHaveLength(1)
+    // Indexed under the link path, matching chokidar's followSymlinks view.
+    expect(results[0]?.path).toBe("new-folder/linked-dir/inside.md")
+    // The inner file registers during the recursion, then the link itself.
+    expect(addedPaths).toEqual([join(linkedDirectory, "inside.md"), linkedDirectory])
+  })
 
   it(
     "retries and indexes a still-being-written file inside a missed symlinked directory",
@@ -777,18 +633,13 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
       await utimes(insidePath, now, now)
       fireAddDir(newDirectory)
 
-      await waitFor(
-        () => index.fullTextSearch({ query: "symlinked" }, logger).length > 0,
-      )
+      await waitFor(() => index.fullTextSearch({ query: "symlinked" }, logger).length > 0)
       const results = index.fullTextSearch({ query: "symlinked" }, logger)
       expect(results).toHaveLength(1)
       expect(results[0]?.path).toBe("new-folder/linked-dir/inside.md")
       // Registration order proves the retry ran: the symlinked directory
       // registered during the rescan; the file only after its retry settled.
-      expect(addedPaths).toEqual([
-        linkedDirectory,
-        join(linkedDirectory, "inside.md"),
-      ])
+      expect(addedPaths).toEqual([linkedDirectory, join(linkedDirectory, "inside.md")])
     },
   )
 
@@ -808,10 +659,7 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
       await symlink(newDirectory, loopLink)
 
       const upsertNoteSpy = vi.spyOn(index, "upsertNote")
-      const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar(
-        {},
-        RESCAN_TEST_OPTIONS,
-      )
+      const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
       fireAddDir(newDirectory)
 
       await waitFor(() => upsertNoteSpy.mock.calls.length > 0)
@@ -819,102 +667,83 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
       // before asserting the exact count.
       await new Promise((finished) => setTimeout(finished, 300))
       expect(upsertNoteSpy).toHaveBeenCalledTimes(1)
-      expect(upsertNoteSpy.mock.calls[0]?.[0]?.filePath).toBe(
-        "new-folder/settled.md",
-      )
+      expect(upsertNoteSpy.mock.calls[0]?.[0]?.filePath).toBe("new-folder/settled.md")
       // readdir order isn't guaranteed, so compare sorted ("loop" < "settled.md").
       expect([...addedPaths].sort()).toEqual([loopLink, settledPath])
     },
   )
 
-  it(
-    "skips a broken symlink and still indexes its sibling",
-    { timeout: 15000 },
-    async () => {
-      const newDirectory = join(vault, "new-folder")
-      await mkdir(newDirectory)
-      const settledPath = join(newDirectory, "settled.md")
-      await writeFile(settledPath, "settled beside a broken link\n", "utf8")
-      await backdateMtime(settledPath)
-      // A dangling .md symlink: readdir lists it, stat() throws ENOENT — the
-      // rescan must swallow that and keep processing the rest of the listing.
-      const danglingLink = join(newDirectory, "dangling.md")
-      await symlink(join(newDirectory, "no-such-target.md"), danglingLink)
+  it("skips a broken symlink and still indexes its sibling", { timeout: 15000 }, async () => {
+    const newDirectory = join(vault, "new-folder")
+    await mkdir(newDirectory)
+    const settledPath = join(newDirectory, "settled.md")
+    await writeFile(settledPath, "settled beside a broken link\n", "utf8")
+    await backdateMtime(settledPath)
+    // A dangling .md symlink: readdir lists it, stat() throws ENOENT — the
+    // rescan must swallow that and keep processing the rest of the listing.
+    const danglingLink = join(newDirectory, "dangling.md")
+    await symlink(join(newDirectory, "no-such-target.md"), danglingLink)
 
-      const upsertNoteSpy = vi.spyOn(index, "upsertNote")
-      // logger is module-shared — restore so the spy doesn't leak across tests.
-      const debugSpy = vi.spyOn(logger, "debug")
-      onTestFinished(() => debugSpy.mockRestore())
-      const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar(
-        {},
-        RESCAN_TEST_OPTIONS,
-      )
-      fireAddDir(newDirectory)
+    const upsertNoteSpy = vi.spyOn(index, "upsertNote")
+    // logger is module-shared — restore so the spy doesn't leak across tests.
+    const debugSpy = vi.spyOn(logger, "debug")
+    onTestFinished(() => debugSpy.mockRestore())
+    const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
+    fireAddDir(newDirectory)
 
-      await waitFor(
-        () => index.fullTextSearch({ query: "settled" }, logger).length > 0,
-      )
-      // The skip log proves the broken link was actually encountered and
-      // swallowed — not merely absent from the listing.
-      expect(debugSpy).toHaveBeenCalledWith("rescan skipped unreadable entry", {
-        path: "new-folder/dangling.md",
-        error: expect.stringContaining("ENOENT"),
-      })
-      expect(upsertNoteSpy).toHaveBeenCalledTimes(1)
-      expect(upsertNoteSpy.mock.calls[0]?.[0]?.filePath).toBe(
-        "new-folder/settled.md",
-      )
-      expect(addedPaths).toEqual([settledPath])
-    },
-  )
+    await waitFor(() => index.fullTextSearch({ query: "settled" }, logger).length > 0)
+    // The skip log proves the broken link was actually encountered and
+    // swallowed — not merely absent from the listing.
+    expect(debugSpy).toHaveBeenCalledWith("rescan skipped unreadable entry", {
+      path: "new-folder/dangling.md",
+      error: expect.stringContaining("ENOENT"),
+    })
+    expect(upsertNoteSpy).toHaveBeenCalledTimes(1)
+    expect(upsertNoteSpy.mock.calls[0]?.[0]?.filePath).toBe("new-folder/settled.md")
+    expect(addedPaths).toEqual([settledPath])
+  })
 
-  it(
-    "defaults the rescan delay to twice the stability threshold",
-    { timeout: 15000 },
-    async () => {
-      const newDirectory = join(vault, "new-folder")
-      await mkdir(newDirectory)
-      const missedPath = join(newDirectory, "missed.md")
-      await writeFile(missedPath, "missed by the scan\n", "utf8")
-      await backdateMtime(missedPath)
+  it("defaults the rescan delay to twice the stability threshold", { timeout: 15000 }, async () => {
+    const newDirectory = join(vault, "new-folder")
+    await mkdir(newDirectory)
+    const missedPath = join(newDirectory, "missed.md")
+    await writeFile(missedPath, "missed by the scan\n", "utf8")
+    await backdateMtime(missedPath)
 
-      // Fake only setTimeout: queueMicrotask (the fake watcher's "ready") and
-      // Date (waitFor's deadline, the mtime guard) must stay real.
-      vi.useFakeTimers({ toFake: ["setTimeout"] })
-      onTestFinished(() => {
-        vi.useRealTimers()
-      })
-
-      // readdirOrNull is the rescan's synchronous first call — it registers
-      // the moment the timer fires, unlike upsertNote, which sits behind real
-      // filesystem I/O that fake-timer advancement doesn't wait for.
-      const readdirSpy = vi.mocked(readdirOrNull)
-      readdirSpy.mockClear()
-      const { fireAddDir } = await startWatcherWithFakeChokidar(
-        {},
-        // No newDirectoryRescanDelay — expected default: 2 × 200ms = 400ms.
-        { stabilityThreshold: 200, pollInterval: 50 },
-      )
-      fireAddDir(newDirectory)
-
-      // One tick short of 2 × stabilityThreshold the rescan must not have
-      // fired. The post-400ms half below proves the machinery is live, so
-      // this half can't pass vacuously.
-      await vi.advanceTimersByTimeAsync(399)
-      expect(readdirSpy).not.toHaveBeenCalled()
-
-      await vi.advanceTimersByTimeAsync(1)
-      expect(readdirSpy).toHaveBeenCalledWith(newDirectory)
-
-      // The timer has fired; hand the event loop back to real timers so the
-      // rescan's real-fs work (and waitFor's polling) can proceed, proving
-      // the delayed rescan carries through to indexing.
+    // Fake only setTimeout: queueMicrotask (the fake watcher's "ready") and
+    // Date (waitFor's deadline, the mtime guard) must stay real.
+    vi.useFakeTimers({ toFake: ["setTimeout"] })
+    onTestFinished(() => {
       vi.useRealTimers()
-      await waitFor(
-        () => index.fullTextSearch({ query: "missed" }, logger).length > 0,
-      )
-    },
-  )
+    })
+
+    // readdirOrNull is the rescan's synchronous first call — it registers
+    // the moment the timer fires, unlike upsertNote, which sits behind real
+    // filesystem I/O that fake-timer advancement doesn't wait for.
+    const readdirSpy = vi.mocked(readdirOrNull)
+    readdirSpy.mockClear()
+    const { fireAddDir } = await startWatcherWithFakeChokidar(
+      {},
+      // No newDirectoryRescanDelay — expected default: 2 × 200ms = 400ms.
+      { stabilityThreshold: 200, pollInterval: 50 },
+    )
+    fireAddDir(newDirectory)
+
+    // One tick short of 2 × stabilityThreshold the rescan must not have
+    // fired. The post-400ms half below proves the machinery is live, so
+    // this half can't pass vacuously.
+    await vi.advanceTimersByTimeAsync(399)
+    expect(readdirSpy).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(readdirSpy).toHaveBeenCalledWith(newDirectory)
+
+    // The timer has fired; hand the event loop back to real timers so the
+    // rescan's real-fs work (and waitFor's polling) can proceed, proving
+    // the delayed rescan carries through to indexing.
+    vi.useRealTimers()
+    await waitFor(() => index.fullTextSearch({ query: "missed" }, logger).length > 0)
+  })
 
   it(
     "skips the rescan when the directory was deleted before it fires",
@@ -928,29 +757,20 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
         debugSpy.mockRestore()
         errorSpy.mockRestore()
       })
-      const { fireAddDir } = await startWatcherWithFakeChokidar(
-        {},
-        RESCAN_TEST_OPTIONS,
-      )
+      const { fireAddDir } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
       fireAddDir(join(vault, "never-created"))
 
       // The vanished-dir debug log is the side effect unique to the graceful
       // early-return — "no upserts" alone would also pass if the timer never
       // fired, or if the rescan crashed into the error handler instead.
       await waitFor(() =>
-        debugSpy.mock.calls.some(
-          ([message]) => message === "rescan skipped, directory vanished",
-        ),
+        debugSpy.mock.calls.some(([message]) => message === "rescan skipped, directory vanished"),
       )
-      expect(debugSpy).toHaveBeenCalledWith(
-        "rescan skipped, directory vanished",
-        { path: "never-created" },
-      )
+      expect(debugSpy).toHaveBeenCalledWith("rescan skipped, directory vanished", {
+        path: "never-created",
+      })
       expect(upsertNoteSpy).not.toHaveBeenCalled()
-      expect(errorSpy).not.toHaveBeenCalledWith(
-        "failed to rescan new directory",
-        expect.anything(),
-      )
+      expect(errorSpy).not.toHaveBeenCalledWith("failed to rescan new directory", expect.anything())
     },
   )
 
@@ -970,27 +790,18 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
         debugSpy.mockRestore()
         errorSpy.mockRestore()
       })
-      const { fireAddDir } = await startWatcherWithFakeChokidar(
-        {},
-        RESCAN_TEST_OPTIONS,
-      )
+      const { fireAddDir } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
       fireAddDir(join(vault, "vanished-mid-rescan"))
 
       // The mocked listing skips the null branch, so this debug log can only
       // come from the realpath vanish handling.
       await waitFor(() =>
-        debugSpy.mock.calls.some(
-          ([message]) => message === "rescan skipped, directory vanished",
-        ),
+        debugSpy.mock.calls.some(([message]) => message === "rescan skipped, directory vanished"),
       )
-      expect(debugSpy).toHaveBeenCalledWith(
-        "rescan skipped, directory vanished",
-        { path: "vanished-mid-rescan" },
-      )
-      expect(errorSpy).not.toHaveBeenCalledWith(
-        "failed to rescan new directory",
-        expect.anything(),
-      )
+      expect(debugSpy).toHaveBeenCalledWith("rescan skipped, directory vanished", {
+        path: "vanished-mid-rescan",
+      })
+      expect(errorSpy).not.toHaveBeenCalledWith("failed to rescan new directory", expect.anything())
     },
   )
 
@@ -1008,15 +819,10 @@ describe("startFileWatcher — new-directory rescan", REAL_WATCHER_RETRY, () => 
       const futureDate = new Date(Date.now() + 3_600_000)
       await utimes(skewedPath, futureDate, futureDate)
 
-      const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar(
-        {},
-        RESCAN_TEST_OPTIONS,
-      )
+      const { fireAddDir, addedPaths } = await startWatcherWithFakeChokidar({}, RESCAN_TEST_OPTIONS)
       fireAddDir(newDirectory)
 
-      await waitFor(
-        () => index.fullTextSearch({ query: "skew" }, logger).length > 0,
-      )
+      await waitFor(() => index.fullTextSearch({ query: "skew" }, logger).length > 0)
       const results = index.fullTextSearch({ query: "skew" }, logger)
       expect(results).toHaveLength(1)
       expect(results[0]?.path).toBe("new-folder/skewed.md")

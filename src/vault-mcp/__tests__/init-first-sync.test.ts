@@ -1,11 +1,5 @@
 import { spawnSync } from "node:child_process"
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-  rmSync,
-} from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -23,10 +17,7 @@ import { loadConfig } from "../config.js"
  * `s6-setuidgid`, and `sleep` executables on PATH.
  */
 
-const SCRIPT_PATH = resolve(
-  __dirname,
-  "../../../rootfs/etc/s6-overlay/scripts/init-first-sync",
-)
+const SCRIPT_PATH = resolve(__dirname, "../../../rootfs/etc/s6-overlay/scripts/init-first-sync")
 
 /** Stub `ob`: logs each invocation, and for `ob sync` exits with the Nth
  *  line of the outcomes file (last line repeats when calls exceed lines). */
@@ -103,9 +94,7 @@ const writeSyncState = ({
   knownFolders?: number
 }): void => {
   const db = new DatabaseSync(stateDbPath)
-  db.exec(
-    "CREATE TABLE local_files (path TEXT PRIMARY KEY, data TEXT NOT NULL)",
-  )
+  db.exec("CREATE TABLE local_files (path TEXT PRIMARY KEY, data TEXT NOT NULL)")
   const insert = db.prepare("INSERT INTO local_files VALUES (?, ?)")
   for (let fileIndex = 0; fileIndex < knownFiles; fileIndex += 1) {
     insert.run(`note-${fileIndex}.md`, JSON.stringify({ folder: false }))
@@ -144,9 +133,7 @@ const runGateScript = (options: GateRunOptions): GateRun => {
     writeSyncState({
       stateDbPath: join(syncStateDir, "state.db"),
       knownFiles: options.knownSyncFiles,
-      ...(options.knownSyncFolders === undefined
-        ? {}
-        : { knownFolders: options.knownSyncFolders }),
+      ...(options.knownSyncFolders === undefined ? {} : { knownFolders: options.knownSyncFolders }),
     })
   }
   if (options.secondStoreSyncFiles !== undefined) {
@@ -185,23 +172,15 @@ const runGateScript = (options: GateRunOptions): GateRun => {
       OB_CALL_LOG: callLogPath,
       OB_SYNC_OUTCOMES: outcomesPath,
       ...(options.setupMode ? { SETUP_MODE: "1" } : {}),
-      ...(options.vaultName === undefined
-        ? {}
-        : { VAULT_NAME: options.vaultName }),
-      ...(options.memoryDir === undefined
-        ? {}
-        : { MEMORY_DIR: options.memoryDir }),
-      ...(options.memoryEnabled === undefined
-        ? {}
-        : { MEMORY_ENABLED: options.memoryEnabled }),
+      ...(options.vaultName === undefined ? {} : { VAULT_NAME: options.vaultName }),
+      ...(options.memoryDir === undefined ? {} : { MEMORY_DIR: options.memoryDir }),
+      ...(options.memoryEnabled === undefined ? {} : { MEMORY_ENABLED: options.memoryEnabled }),
       ...(options.xdgConfigHome ? { XDG_CONFIG_HOME: xdgConfigDir } : {}),
     },
   })
 
   const callLog = readFileSync(callLogPath, "utf8")
-  const syncCalls = callLog
-    .split("\n")
-    .filter((loggedCall) => loggedCall.startsWith("sync")).length
+  const syncCalls = callLog.split("\n").filter((loggedCall) => loggedCall.startsWith("sync")).length
   return {
     status: result.status,
     stdout: result.stdout,
@@ -223,9 +202,7 @@ describe("init-first-sync gate script", () => {
 
     expect(run.status).toBe(0)
     expect(run.syncCalls).toBe(0)
-    expect(run.stdout).toBe(
-      "[obsidian-sync] Setup mode — skipping the first sync.\n",
-    )
+    expect(run.stdout).toBe("[obsidian-sync] Setup mode — skipping the first sync.\n")
     expect(run.stderr).toBe("")
   })
 
@@ -290,9 +267,7 @@ describe("init-first-sync gate script", () => {
 
     expect(run.status).toBe(0)
     expect(run.syncCalls).toBe(3)
-    expect(run.stderr).toContain(
-      "WARNING: First sync did not complete — starting services anyway.",
-    )
+    expect(run.stderr).toContain("WARNING: First sync did not complete — starting services anyway.")
   })
 
   it("warns and continues when sync fails and the memory layer is disabled", () => {
@@ -303,9 +278,7 @@ describe("init-first-sync gate script", () => {
     })
 
     expect(run.status).toBe(0)
-    expect(run.stderr).toContain(
-      "WARNING: First sync did not complete — starting services anyway.",
-    )
+    expect(run.stderr).toContain("WARNING: First sync did not complete — starting services anyway.")
   })
 
   it("warns and continues when the memory layer is disabled via the 0 spelling", () => {
@@ -316,9 +289,7 @@ describe("init-first-sync gate script", () => {
     })
 
     expect(run.status).toBe(0)
-    expect(run.stderr).toContain(
-      "WARNING: First sync did not complete — starting services anyway.",
-    )
+    expect(run.stderr).toContain("WARNING: First sync did not complete — starting services anyway.")
   })
 
   it("treats MEMORY_ENABLED case-insensitively, matching config.ts asBool", () => {
@@ -329,9 +300,7 @@ describe("init-first-sync gate script", () => {
     })
 
     expect(run.status).toBe(0)
-    expect(run.stderr).toContain(
-      "WARNING: First sync did not complete — starting services anyway.",
-    )
+    expect(run.stderr).toContain("WARNING: First sync did not complete — starting services anyway.")
   })
 
   it("exits 1 without syncing when VAULT_PATH does not exist", () => {
@@ -343,9 +312,7 @@ describe("init-first-sync gate script", () => {
 
     expect(run.status).toBe(1)
     expect(run.syncCalls).toBe(0)
-    expect(run.stderr).toContain(
-      "ERROR: Failed to change directory to VAULT_PATH=",
-    )
+    expect(run.stderr).toContain("ERROR: Failed to change directory to VAULT_PATH=")
   })
 
   it("retries three times and refuses when VAULT_NAME is unset and the memory folder is absent", () => {
@@ -385,9 +352,7 @@ describe("init-first-sync gate script", () => {
     })
 
     expect(run.status).toBe(0)
-    expect(run.stderr).toContain(
-      "WARNING: First sync did not complete — starting services anyway.",
-    )
+    expect(run.stderr).toContain("WARNING: First sync did not complete — starting services anyway.")
   })
 
   it("trims MEMORY_DIR whitespace, matching config.ts normalization", () => {
@@ -402,9 +367,7 @@ describe("init-first-sync gate script", () => {
     })
 
     expect(run.status).toBe(0)
-    expect(run.stderr).toContain(
-      "WARNING: First sync did not complete — starting services anyway.",
-    )
+    expect(run.stderr).toContain("WARNING: First sync did not complete — starting services anyway.")
   })
 
   // -- Sync-state vault guard (recorded local files + vault without content) --
@@ -418,18 +381,12 @@ describe("init-first-sync gate script", () => {
 
     expect(run.status).toBe(1)
     expect(run.syncCalls).toBe(0)
-    expect(run.stderr).toContain(
-      "ERROR: The vault is empty but this device has previously synced.",
-    )
-    expect(run.stderr).toContain(
-      "If you emptied the vault on purpose, this stop is expected.",
-    )
+    expect(run.stderr).toContain("ERROR: The vault is empty but this device has previously synced.")
+    expect(run.stderr).toContain("If you emptied the vault on purpose, this stop is expected.")
     expect(run.stderr).toContain(
       "Re-register the device as below. A fresh device downloads the empty vault without deleting anything.",
     )
-    expect(run.stderr).toContain(
-      "To start fresh: remove the Obsidian config directory (",
-    )
+    expect(run.stderr).toContain("To start fresh: remove the Obsidian config directory (")
     expect(run.stderr).toContain(
       " — the obsidian_config volume under Compose, or the config directory under STORAGE_ROOT) to re-register the device.",
     )
@@ -445,9 +402,7 @@ describe("init-first-sync gate script", () => {
 
     expect(run.status).toBe(1)
     expect(run.syncCalls).toBe(0)
-    expect(run.stderr).toContain(
-      "ERROR: The vault is empty but this device has previously synced.",
-    )
+    expect(run.stderr).toContain("ERROR: The vault is empty but this device has previously synced.")
   })
 
   it("refuses when the vault has only a non-Obsidian dotfile and a prior sync completed", () => {
@@ -460,9 +415,7 @@ describe("init-first-sync gate script", () => {
 
     expect(run.status).toBe(1)
     expect(run.syncCalls).toBe(0)
-    expect(run.stderr).toContain(
-      "ERROR: The vault is empty but this device has previously synced.",
-    )
+    expect(run.stderr).toContain("ERROR: The vault is empty but this device has previously synced.")
   })
 
   it("allows sync when the vault holds only synced Obsidian config and a prior sync completed", () => {
@@ -518,9 +471,7 @@ describe("init-first-sync gate script", () => {
 
     expect(run.status).toBe(1)
     expect(run.syncCalls).toBe(0)
-    expect(run.stderr).toContain(
-      "ERROR: The vault is empty but this device has previously synced.",
-    )
+    expect(run.stderr).toContain("ERROR: The vault is empty but this device has previously synced.")
   })
 
   it("refuses when a dotfile inside a folder is the only file and a prior sync completed", () => {
@@ -536,9 +487,7 @@ describe("init-first-sync gate script", () => {
 
     expect(run.status).toBe(1)
     expect(run.syncCalls).toBe(0)
-    expect(run.stderr).toContain(
-      "ERROR: The vault is empty but this device has previously synced.",
-    )
+    expect(run.stderr).toContain("ERROR: The vault is empty but this device has previously synced.")
   })
 
   it("allows sync on a fresh device with an empty vault (no sync state)", () => {
@@ -574,9 +523,7 @@ describe("init-first-sync gate script", () => {
 
     expect(run.status).toBe(1)
     expect(run.syncCalls).toBe(0)
-    expect(run.stderr).toContain(
-      "ERROR: The vault is empty but this device has previously synced.",
-    )
+    expect(run.stderr).toContain("ERROR: The vault is empty but this device has previously synced.")
   })
 
   it("refuses to sync when only the first of two stores records files and the vault is empty", () => {
@@ -589,9 +536,7 @@ describe("init-first-sync gate script", () => {
 
     expect(run.status).toBe(1)
     expect(run.syncCalls).toBe(0)
-    expect(run.stderr).toContain(
-      "ERROR: The vault is empty but this device has previously synced.",
-    )
+    expect(run.stderr).toContain("ERROR: The vault is empty but this device has previously synced.")
   })
 
   it("allows sync when two stores both record zero files and the vault is empty", () => {
@@ -633,9 +578,7 @@ describe("init-first-sync gate script", () => {
 
     expect(run.status).toBe(1)
     expect(run.syncCalls).toBe(0)
-    expect(run.stderr).toContain(
-      "ERROR: The vault is empty but this device has previously synced.",
-    )
+    expect(run.stderr).toContain("ERROR: The vault is empty but this device has previously synced.")
   })
 
   it("refuses to sync when the sync state exists but cannot be read", () => {
@@ -664,12 +607,8 @@ describe("init-first-sync gate script", () => {
 
     expect(run.status).toBe(1)
     expect(run.syncCalls).toBe(0)
-    expect(run.stderr).toContain(
-      "ERROR: The vault is empty but this device has previously synced.",
-    )
-    expect(run.stderr).toContain(
-      `remove the Obsidian config directory (${run.configDir} —`,
-    )
+    expect(run.stderr).toContain("ERROR: The vault is empty but this device has previously synced.")
+    expect(run.stderr).toContain(`remove the Obsidian config directory (${run.configDir} —`)
   })
 
   it("fires the guard regardless of VAULT_NAME", () => {
@@ -677,9 +616,7 @@ describe("init-first-sync gate script", () => {
 
     expect(run.status).toBe(1)
     expect(run.syncCalls).toBe(0)
-    expect(run.stderr).toContain(
-      "ERROR: The vault is empty but this device has previously synced.",
-    )
+    expect(run.stderr).toContain("ERROR: The vault is empty but this device has previously synced.")
   })
 
   // -- Drift guard -----------------------------------------------------------

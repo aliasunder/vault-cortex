@@ -1,12 +1,5 @@
 import { describe, it, expect, onTestFinished } from "vitest"
-import {
-  mkdtemp,
-  realpath,
-  rm,
-  symlink,
-  writeFile,
-  mkdir,
-} from "node:fs/promises"
+import { mkdtemp, realpath, rm, symlink, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import {
@@ -114,9 +107,7 @@ describe("lstatOrNull", () => {
     const dir = await makeTempDir()
     const filePath = join(dir, "file.txt")
     await writeFile(filePath, "x", "utf8")
-    await expect(lstatOrNull(join(filePath, "child"))).rejects.toThrow(
-      /ENOTDIR/,
-    )
+    await expect(lstatOrNull(join(filePath, "child"))).rejects.toThrow(/ENOTDIR/)
   })
 })
 
@@ -141,9 +132,7 @@ describe("realpathOrNull", () => {
     const dir = await makeTempDir()
     const filePath = join(dir, "file.txt")
     await writeFile(filePath, "x", "utf8")
-    await expect(realpathOrNull(join(filePath, "child"))).rejects.toThrow(
-      /ENOTDIR/,
-    )
+    await expect(realpathOrNull(join(filePath, "child"))).rejects.toThrow(/ENOTDIR/)
   })
 })
 

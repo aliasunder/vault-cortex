@@ -102,9 +102,7 @@ describe("vault-orientation handler", () => {
     const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
     const text = textOf(await handler(fakeExtra))
 
-    expect(text).toContain(
-      "No orphans found — every note has at least one incoming link.",
-    )
+    expect(text).toContain("No orphans found — every note has at least one incoming link.")
   })
 
   it("shows property adoption rates with count/total format", async () => {
@@ -240,11 +238,7 @@ describe("vault-orientation logging", () => {
         throw new Error("index unavailable")
       },
     } as unknown as SearchIndex
-    const calls = registerWithSearch(
-      vault,
-      throwingSearch,
-      recordingLogger(logs),
-    )
+    const calls = registerWithSearch(vault, throwingSearch, recordingLogger(logs))
     const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
 
     await handler(fakeExtra)
@@ -354,9 +348,7 @@ describe("vault-orientation with MEMORY_ENABLED=false", () => {
     } as unknown as SearchIndex
     const calls: RegisterPromptCall[] = []
     const server = {
-      registerPrompt: vi.fn((...args: unknown[]) =>
-        calls.push(args as RegisterPromptCall),
-      ),
+      registerPrompt: vi.fn((...args: unknown[]) => calls.push(args as RegisterPromptCall)),
     }
     registerPrompts({
       server: server as unknown as McpServer,
@@ -403,9 +395,7 @@ describe("vault-orientation with READONLY_MODE=true", () => {
 
     // Guard against a silent no-op: the empty-memory sentinel is present,
     // only the write-tool suggestion is dropped.
-    expect(text).toContain(
-      `No memory files yet — the ${config.memoryDir}/ layer is empty.`,
-    )
+    expect(text).toContain(`No memory files yet — the ${config.memoryDir}/ layer is empty.`)
     expect(text).not.toContain("vault_update_memory")
   })
 })
@@ -440,9 +430,7 @@ describe("vault-orientation with DISABLED_TOOLS", () => {
     const [, , handler] = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)
     const text = textOf(await handler(fakeExtra))
 
-    expect(text).toContain(
-      `No memory files yet — the ${config.memoryDir}/ layer is empty.`,
-    )
+    expect(text).toContain(`No memory files yet — the ${config.memoryDir}/ layer is empty.`)
     expect(text).not.toContain("vault_update_memory")
   })
 

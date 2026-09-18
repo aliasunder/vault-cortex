@@ -25,6 +25,7 @@ export const filterValidSymlinks = async (params: {
         try {
           const targetPath = await realpath(entryPath)
           const targetStat = await stat(targetPath)
+
           if (!targetStat.isFile()) {
             logger.warn("symlink target is not a file, skipping", {
               path: relative(normalizedRoot, entryPath),

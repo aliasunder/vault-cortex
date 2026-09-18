@@ -17,9 +17,7 @@
  *  editing should use it, so heading/section/callout parsing and blank-run
  *  handling behave identically regardless of the file's line endings. */
 export const splitIntoLines = (content: string): string[] =>
-  content
-    .split("\n")
-    .map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
+  content.split("\n").map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
 
 // ── Line paging ────────────────────────────────────────────────
 
@@ -59,29 +57,24 @@ export const pageTextByLines = (params: {
   // that isn't a line of content — drop exactly that one element.
   const hasTrailingNewlineArtifact =
     splitLines.length > 0 && splitLines[splitLines.length - 1] === ""
-  const contentLines = hasTrailingNewlineArtifact
-    ? splitLines.slice(0, -1)
-    : splitLines
+  const contentLines = hasTrailingNewlineArtifact ? splitLines.slice(0, -1) : splitLines
   const totalLines = contentLines.length
 
   const firstLine = startLine ?? 1
   // The tool schema already enforces >= 1, but a negative slice start would
   // silently serve lines from the END of the rendition — guard here too so a
   // future direct caller gets a loud error, never the wrong window.
-  const hasInvalidLineRange =
-    firstLine < 1 || (limit !== undefined && limit < 1)
+  const hasInvalidLineRange = firstLine < 1 || (limit !== undefined && limit < 1)
+
   if (hasInvalidLineRange) {
-    throw new Error(
-      `invalid line range: "${path}" needs a start line and limit of at least 1`,
-    )
+    throw new Error(`invalid line range: "${path}" needs a start line and limit of at least 1`)
   }
   // An empty rendition has no lines to overshoot — any window of it is the
   // empty window; only a non-empty rendition can have a start past its end.
   const isStartPastEnd = totalLines > 0 && firstLine > totalLines
+
   if (isStartPastEnd) {
-    throw new Error(
-      `start line past the end: "${path}" renders to ${totalLines} lines`,
-    )
+    throw new Error(`start line past the end: "${path}" renders to ${totalLines} lines`)
   }
 
   const windowLines = contentLines.slice(
@@ -103,10 +96,9 @@ export const pageTextByLines = (params: {
  *  intact. A caller that turns a line region into reportable text — an outline's
  *  leading content, a byte count in a write confirmation — wants the region's
  *  real extent, not the blank padding that separates it from its neighbours. */
-export const trimBlankEdgeLines = (
-  lines: readonly string[],
-): readonly string[] => {
+export const trimBlankEdgeLines = (lines: readonly string[]): readonly string[] => {
   const firstContentIndex = lines.findIndex((line) => line.trim() !== "")
+
   if (firstContentIndex === -1) return []
   const lastContentIndex = lines.findLastIndex((line) => line.trim() !== "")
   return lines.slice(firstContentIndex, lastContentIndex + 1)
@@ -121,15 +113,14 @@ const BLOCKQUOTE_MARKER = /^ {0,3}>[ \t]?/
 /** Counts the blockquote nesting depth of a line and returns the content
  *  after all markers are stripped, so fence matching runs on the inner
  *  content — a `> \`\`\`` line has depth 1 and inner content `\`\`\``. */
-const stripBlockquotePrefix = (
-  line: string,
-): { depth: number; innerContent: string } => {
+const stripBlockquotePrefix = (line: string): { depth: number; innerContent: string } => {
   // Iterative prefix stripping — depth and remaining track the cursor across
   // successive `> ` markers.
   let depth = 0
   let remaining = line
   for (;;) {
     const match = BLOCKQUOTE_MARKER.exec(remaining)
+
     if (match === null) break
     depth++
     remaining = remaining.slice(match[0].length)
@@ -161,12 +152,10 @@ type FenceResult = {
 
 /** Attempts to match a fence delimiter in `innerContent` and, if matched,
  *  returns a new fence opened at `quoteDepth`. */
-const tryOpenFence = (
-  innerContent: string,
-  quoteDepth: number,
-): FenceResult | null => {
+const tryOpenFence = (innerContent: string, quoteDepth: number): FenceResult | null => {
   const fenceMatch = FENCE_OPEN.exec(innerContent)
   const fenceChars = fenceMatch?.[1]
+
   if (fenceChars === undefined) return null
   return {
     openFence: { delimiter: fenceChars, quoteDepth },
@@ -192,10 +181,7 @@ const tryOpenFence = (
  *  inside a blockquote) is out of scope: Obsidian's own renderer does not fully
  *  support it either, and real vaults almost always include the `> ` prefix on
  *  every line. */
-export const advanceFence = (
-  line: string,
-  openFence: OpenFence,
-): FenceResult => {
+export const advanceFence = (line: string, openFence: OpenFence): FenceResult => {
   const { depth: lineQuoteDepth, innerContent } = stripBlockquotePrefix(line)
 
   // Fence implicitly closed — this line's blockquote depth is below the fence's,
@@ -219,6 +205,7 @@ export const advanceFence = (
   // Same depth (or no fence open) — normal fence matching on inner content.
   const fenceMatch = FENCE_OPEN.exec(innerContent)
   const fenceChars = fenceMatch?.[1]
+
   if (fenceChars === undefined) {
     return {
       openFence,
@@ -266,6 +253,7 @@ export const COMMENT_DELIMITER = "%%"
  */
 const countCommentToggles = (line: string): number => {
   const trimmed = line.trim()
+
   if (trimmed === COMMENT_DELIMITER) return 1
   const startsWithDelimiter = trimmed.startsWith(COMMENT_DELIMITER)
   const endsWithDelimiter = trimmed.endsWith(COMMENT_DELIMITER)
@@ -289,10 +277,7 @@ export type CommentResult = {
  *  comments, and call advanceComment only outside fences. This matches
  *  Obsidian's parser — inside a comment, fence delimiters are just text;
  *  inside a fence, `%%` is just text. */
-export const advanceComment = (
-  line: string,
-  commentOpen: boolean,
-): CommentResult => {
+export const advanceComment = (line: string, commentOpen: boolean): CommentResult => {
   const toggleCount = countCommentToggles(line)
   // Each toggle flips the state; an even count nets no change.
   const currentlyOpen = toggleCount % 2 === 0 ? commentOpen : !commentOpen
@@ -315,9 +300,7 @@ type ClassifiedLine = { text: string; inCode: boolean }
  *  Splits on raw "\n", preserving each line verbatim (including any trailing CR),
  *  so a rewriter that rejoins with "\n" round-trips the content unchanged. A
  *  caller that wants CRLF normalized should splitIntoLines first. */
-export const classifyLines = function* (
-  content: string,
-): Generator<ClassifiedLine> {
+export const classifyLines = function* (content: string): Generator<ClassifiedLine> {
   // A fenced-code scan is inherently sequential, so this generator threads one
   // mutable open fence across the loop rather than folding line-state pairs.
   let openFence: OpenFence = null

@@ -56,17 +56,13 @@ const axisSubsets = SURFACE_AXES.reduce<readonly (readonly SurfaceAxis[])[]>(
   [[]],
 )
 
-const comboFromFlippedAxes = (
-  flippedAxes: readonly SurfaceAxis[],
-): SurfaceCombo => {
+const comboFromFlippedAxes = (flippedAxes: readonly SurfaceAxis[]): SurfaceCombo => {
   if (flippedAxes.length === 0) {
     return { name: "default", env: {} }
   }
   return {
     name: flippedAxes.map((axis) => axis.label).join("+"),
-    env: Object.fromEntries(
-      flippedAxes.map((axis) => [axis.envVar, axis.flippedValue]),
-    ),
+    env: Object.fromEntries(flippedAxes.map((axis) => [axis.envVar, axis.flippedValue])),
   }
 }
 
@@ -120,18 +116,10 @@ export type SurfaceCapture = {
  * copy. The search index is an empty in-memory database and the vault path is
  * never read: registration only declares metadata, and no tool handler runs.
  */
-export const captureToolSurface = async (
-  combo: SurfaceCombo,
-): Promise<SurfaceCapture> => {
+export const captureToolSurface = async (combo: SurfaceCombo): Promise<SurfaceCapture> => {
   const config = loadConfig(combo.env)
-  const { instructions, description } = buildServerMetadata(
-    config,
-    computeEnabledToolNames(config),
-  )
-  const server = new McpServer(
-    { name: "vault-cortex", version: "0.0.0" },
-    { instructions },
-  )
+  const { instructions, description } = buildServerMetadata(config, computeEnabledToolNames(config))
+  const server = new McpServer({ name: "vault-cortex", version: "0.0.0" }, { instructions })
   const registrationContext = {
     server,
     vaultPath: "/vault",
@@ -144,13 +132,9 @@ export const captureToolSurface = async (
   registerTools(registrationContext)
   registerPrompts(registrationContext)
 
-  const [clientTransport, serverTransport] =
-    InMemoryTransport.createLinkedPair()
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   const client = new Client({ name: "tool-surface-capture", version: "0.0.0" })
-  await Promise.all([
-    server.connect(serverTransport),
-    client.connect(clientTransport),
-  ])
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
 
   const toolsResult = await client.listTools()
   const promptsResult = await client.listPrompts()
@@ -160,9 +144,7 @@ export const captureToolSurface = async (
   assertSinglePage("tools/list", toolsResult.nextCursor)
   assertSinglePage("prompts/list", promptsResult.nextCursor)
   if (!capturedInstructions) {
-    throw new Error(
-      "server sent no instructions; buildServerMetadata always provides them",
-    )
+    throw new Error("server sent no instructions; buildServerMetadata always provides them")
   }
 
   return {

@@ -239,9 +239,7 @@ describe("configure", () => {
  * Starts a local HTTP server that returns a successful Obsidian signin
  * response. Used with the OBSIDIAN_SIGNIN_URL env var seam in get-sync-token.
  */
-const startSigninServer = (
-  token: string,
-): Promise<{ url: string; server: Server }> =>
+const startSigninServer = (token: string): Promise<{ url: string; server: Server }> =>
   new Promise((resolvePromise) => {
     const server = createServer((req, res) => {
       const chunks: Buffer[] = []
@@ -445,9 +443,7 @@ describe("input validation re-prompts", () => {
 
     expect(result.exitCode).toBe(0)
     expect(result.promptsAnswered).toBe(result.totalPrompts)
-    expect(result.transcript).toContain(
-      "Vault path must not contain glob characters",
-    )
+    expect(result.transcript).toContain("Vault path must not contain glob characters")
   })
 
   it("rejects credentials in PUBLIC_URL and re-prompts", async () => {
@@ -500,9 +496,7 @@ describe("input validation re-prompts", () => {
 
     expect(result.exitCode).toBe(0)
     expect(result.promptsAnswered).toBe(result.totalPrompts)
-    expect(result.transcript).toContain(
-      "PUBLIC_URL must not contain credentials",
-    )
+    expect(result.transcript).toContain("PUBLIC_URL must not contain credentials")
   })
 
   it("rejects a query string in PUBLIC_URL and re-prompts", async () => {

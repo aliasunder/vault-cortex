@@ -1,12 +1,5 @@
 import { spawnSync } from "node:child_process"
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { isAbsolute, join, resolve } from "node:path"
 
@@ -23,10 +16,7 @@ import { describe, expect, it, onTestFinished } from "vitest"
  * real paths.
  */
 
-const SCRIPT_PATH = resolve(
-  __dirname,
-  "../../../rootfs/etc/s6-overlay/scripts/init-setup-user",
-)
+const SCRIPT_PATH = resolve(__dirname, "../../../rootfs/etc/s6-overlay/scripts/init-setup-user")
 
 /** Stub `id`: reports the image-baked UID/GID (1000) for -u and -g. */
 const ID_STUB = `#!/bin/sh
@@ -79,9 +69,7 @@ const runSetupUser = (options: SetupUserRunOptions): SetupUserRun => {
       : join(tempDir, indexDbPathOption)
   const dataDir = resolve(indexDbPath, "..")
   const xdgConfigDir = join(tempDir, "persist", "config")
-  const configDir = options.xdgConfigHome
-    ? xdgConfigDir
-    : join(homeDir, ".config")
+  const configDir = options.xdgConfigHome ? xdgConfigDir : join(homeDir, ".config")
   mkdirSync(stubBinDir)
   mkdirSync(homeDir)
   if (options.appliedIds !== undefined) {
@@ -133,9 +121,7 @@ describe("init-setup-user ownership script", () => {
     expect(run.status).toBe(0)
     expect(existsSync(run.vaultPath)).toBe(true)
     expect(existsSync(run.dataDir)).toBe(true)
-    expect(readFileSync(join(legacyConfigDir, ".applied-ids"), "utf8")).toBe(
-      "1000:1000\n",
-    )
+    expect(readFileSync(join(legacyConfigDir, ".applied-ids"), "utf8")).toBe("1000:1000\n")
     expect(run.calls).toEqual([
       `chown -R 1000:1000 /home/obsidian ${run.vaultPath} ${run.dataDir} ${legacyConfigDir}`,
       `chown 1000:1000 ${join(legacyConfigDir, ".applied-ids")}`,
@@ -148,9 +134,7 @@ describe("init-setup-user ownership script", () => {
     const xdgConfigDir = resolve(run.homeDir, "..", "persist", "config")
 
     expect(run.status).toBe(0)
-    expect(readFileSync(join(xdgConfigDir, ".applied-ids"), "utf8")).toBe(
-      "1000:1000\n",
-    )
+    expect(readFileSync(join(xdgConfigDir, ".applied-ids"), "utf8")).toBe("1000:1000\n")
     expect(existsSync(join(run.homeDir, ".config", ".applied-ids"))).toBe(false)
     expect(run.calls).toEqual([
       `chown -R 1000:1000 /home/obsidian ${run.vaultPath} ${run.dataDir} ${xdgConfigDir}`,
@@ -205,9 +189,7 @@ describe("init-setup-user ownership script", () => {
       `chown -R 1000:1002 /home/obsidian ${run.vaultPath} ${run.dataDir} ${legacyConfigDir}`,
       `chown 1000:1002 ${join(legacyConfigDir, ".applied-ids")}`,
     ])
-    expect(readFileSync(join(legacyConfigDir, ".applied-ids"), "utf8")).toBe(
-      "1000:1002\n",
-    )
+    expect(readFileSync(join(legacyConfigDir, ".applied-ids"), "utf8")).toBe("1000:1002\n")
   })
 
   it("remaps the user and re-records the IDs after a PUID change", () => {
@@ -220,11 +202,7 @@ describe("init-setup-user ownership script", () => {
       `chown -R 1001:1000 /home/obsidian ${run.vaultPath} ${run.dataDir} ${legacyConfigDir}`,
       `chown 1001:1000 ${join(legacyConfigDir, ".applied-ids")}`,
     ])
-    expect(readFileSync(join(legacyConfigDir, ".applied-ids"), "utf8")).toBe(
-      "1001:1000\n",
-    )
-    expect(run.stdout).toContain(
-      "Ownership IDs changed (1000:1000 → 1001:1000)",
-    )
+    expect(readFileSync(join(legacyConfigDir, ".applied-ids"), "utf8")).toBe("1001:1000\n")
+    expect(run.stdout).toContain("Ownership IDs changed (1000:1000 → 1001:1000)")
   })
 })

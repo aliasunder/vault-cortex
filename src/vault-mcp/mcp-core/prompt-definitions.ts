@@ -44,6 +44,7 @@ export const registerPrompts = (params: {
   // its write tool: hidden whenever vault_update_memory is — memory layer
   // off, read-only mode, or the tool individually disabled.
   const memoryReviewEnabled = context.isToolEnabled("vault_update_memory")
+
   if (memoryReviewEnabled) {
     registerMemoryReviewPrompt(context)
   }

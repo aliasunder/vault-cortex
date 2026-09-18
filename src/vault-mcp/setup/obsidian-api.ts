@@ -6,10 +6,7 @@
  *  command (cli/src/get-sync-token.ts) carries its own copy of the sign-in
  *  call; the two packages share no code. */
 
-import {
-  NEWEST_SUPPORTED_ENCRYPTION_VERSION,
-  isSupportedEncryptionVersion,
-} from "./vault-key.js"
+import { NEWEST_SUPPORTED_ENCRYPTION_VERSION, isSupportedEncryptionVersion } from "./vault-key.js"
 import type { SupportedEncryptionVersion } from "./vault-key.js"
 
 const REQUEST_TIMEOUT_MS = 30_000
@@ -54,10 +51,12 @@ const postJson = async ({
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   })
+
   if (!response.ok) {
     throw new Error(`Obsidian API answered HTTP ${response.status}`)
   }
   const parsed: unknown = await response.json()
+
   if (!isJsonObject(parsed)) {
     throw new Error("Obsidian API response is not a JSON object")
   }
@@ -91,6 +90,7 @@ const signIn = async ({
     // The API rejects the sign-in without this origin.
     headers: { Origin: "https://obsidian.md" },
   })
+
   if (typeof body.token !== "string" || !body.token) {
     throw new Error("Obsidian API sign-in response carries no token")
   }
@@ -123,6 +123,7 @@ export type RemoteVault =
 
 const keyStatusOf = (entry: Record<string, unknown>): VaultKeyStatus => {
   const { id, salt, host, encryption_version } = entry
+
   if (typeof id !== "string" || typeof salt !== "string") {
     return { kind: "incomplete-listing" }
   }
@@ -130,8 +131,7 @@ const keyStatusOf = (entry: Record<string, unknown>): VaultKeyStatus => {
   if (!isSupportedEncryptionVersion(encryption_version)) {
     return {
       kind: "unsupported-version",
-      encryptionVersion:
-        typeof encryption_version === "number" ? encryption_version : undefined,
+      encryptionVersion: typeof encryption_version === "number" ? encryption_version : undefined,
     }
   }
   return {

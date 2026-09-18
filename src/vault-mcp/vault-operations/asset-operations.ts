@@ -6,10 +6,7 @@ import { pageTextByLines } from "../obsidian-markdown/lines.js"
 import type { LineWindow } from "../obsidian-markdown/lines.js"
 import { links } from "../obsidian-markdown/links.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
-import {
-  canvasImport,
-  createPdfDocumentProxy,
-} from "../obsidian-markdown/pdf-engine.js"
+import { canvasImport, createPdfDocumentProxy } from "../obsidian-markdown/pdf-engine.js"
 import { describeError } from "../../utils/describe-error.js"
 import { fitImageToByteBudget } from "../../utils/fit-image-to-byte-budget.js"
 import type { FittedImage } from "../../utils/fit-image-to-byte-budget.js"
@@ -95,6 +92,7 @@ export type AssetReadResult =
  *  truncation, and states the actual size so the caller knows what exists. */
 const assertTextWithinCap = (params: { text: string; path: string }): void => {
   const textBytes = Buffer.byteLength(params.text, "utf8")
+
   if (textBytes <= MAX_TEXT_OUTPUT_BYTES) return
   throw new Error(
     `text output too large: "${params.path}" renders to ${textBytes} bytes ` +
@@ -117,6 +115,7 @@ const buildPagedTextResult = (params: {
 }): AssetReadResult => {
   const { text, path, startLine, limit } = params
   const isPagedRead = startLine !== undefined || limit !== undefined
+
   if (!isPagedRead) {
     assertTextWithinCap({ text, path })
     return { kind: "text", text, path }
@@ -131,6 +130,7 @@ const buildPagedTextResult = (params: {
 
   const windowBytes = Buffer.byteLength(windowText, "utf8")
   const exceedsByteCap = windowBytes > MAX_TEXT_OUTPUT_BYTES
+
   if (exceedsByteCap) {
     throw new Error(
       `text output too large: "${path}" lines ${lineWindow.startLine}–${lineWindow.endLine} ` +
@@ -148,10 +148,9 @@ const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(params.buffer)
   } catch (error) {
-    throw new Error(
-      `not valid UTF-8: "${params.path}" cannot be returned as text`,
-      { cause: error },
-    )
+    throw new Error(`not valid UTF-8: "${params.path}" cannot be returned as text`, {
+      cause: error,
+    })
   }
 }
 
@@ -177,9 +176,7 @@ const renderPdfPages = async (
     perPageBudget: number
   },
   logger: Logger,
-): Promise<
-  Array<{ pageNumber: number; fitted: FittedImage; originalBytes: number }>
-> => {
+): Promise<Array<{ pageNumber: number; fitted: FittedImage; originalBytes: number }>> => {
   const results: Array<{
     pageNumber: number
     fitted: FittedImage
@@ -238,6 +235,7 @@ const readAssetContent = async (
     logger,
   )
   const isImage = IMAGE_EXTENSIONS.has(asset.extension)
+
   if (isImage && raw) {
     throw new Error(
       `raw source is not available for images: "${path}" is ` +
@@ -288,19 +286,16 @@ const readAssetContent = async (
         const pdfTitle = meta.info?.Title ?? undefined
         const totalPages = proxy.numPages
         const pagesToRender = Math.min(totalPages, params.maxPdfRenderPages)
+
         if (pagesToRender === 0) {
           throw new Error(
             `PDF page rendering failed: "${path}" exists ` +
               `(${asset.bytes} bytes) but has 0 pages`,
           )
         }
-        const perPageBudget = Math.floor(
-          params.maxImageOutputBytes / pagesToRender,
-        )
-        const pages = await renderPdfPages(
-          { proxy, pagesToRender, perPageBudget },
-          logger,
-        )
+        const perPageBudget = Math.floor(params.maxImageOutputBytes / pagesToRender)
+        const pages = await renderPdfPages({ proxy, pagesToRender, perPageBudget }, logger)
+
         if (pages.length === 0) {
           throw new Error(
             `PDF page rendering failed: "${path}" exists ` +
@@ -322,6 +317,7 @@ const readAssetContent = async (
     }
 
     const pdfResult = await extractPdfText(pdfData)
+
     if (!pdfResult.text) {
       throw new Error(
         `PDF has no extractable text: "${path}" exists ` +

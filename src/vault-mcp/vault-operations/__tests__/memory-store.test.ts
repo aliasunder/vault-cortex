@@ -1,33 +1,15 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-  onTestFinished,
-} from "vitest"
-import {
-  mkdtemp,
-  rm,
-  writeFile,
-  mkdir,
-  readFile,
-  readdir,
-} from "node:fs/promises"
+import { describe, it, expect, beforeEach, afterEach, vi, onTestFinished } from "vitest"
+import { mkdtemp, rm, writeFile, mkdir, readFile, readdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { parseNote } from "../../obsidian-markdown/frontmatter.js"
 import { createMemoryStore } from "../memory-store.js"
 import { logger } from "../../../logger.js"
 
-const {
-  getMemory,
-  updateMemory,
-  listMemoryFiles,
-  listMemoryFileNames,
-  deleteMemory,
-} = createMemoryStore({ memoryDir: "About Me" })
+const { getMemory, updateMemory, listMemoryFiles, listMemoryFileNames, deleteMemory } =
+  createMemoryStore({
+    memoryDir: "About Me",
+  })
 
 let vault: string
 
@@ -121,10 +103,7 @@ describe("getMemory", () => {
   })
 
   it("returns a single file without frontmatter", async () => {
-    const result = await getMemory(
-      { vaultPath: vault, file: "Principles" },
-      logger,
-    )
+    const result = await getMemory({ vaultPath: vault, file: "Principles" }, logger)
     expect(result).toContain("# Principles")
     expect(result).toContain("## Decision heuristics")
     expect(result).not.toContain("title:")
@@ -183,9 +162,9 @@ describe("getMemory", () => {
   })
 
   it("throws on non-existent file", async () => {
-    await expect(
-      getMemory({ vaultPath: vault, file: "Nonexistent" }, logger),
-    ).rejects.toThrow('memory file not found: "About Me/Nonexistent.md"')
+    await expect(getMemory({ vaultPath: vault, file: "Nonexistent" }, logger)).rejects.toThrow(
+      'memory file not found: "About Me/Nonexistent.md"',
+    )
   })
 
   it("throws on non-existent section", async () => {
@@ -216,9 +195,7 @@ describe("getMemory", () => {
     // A real note one level above About Me/ — the guard, not a missing
     // file, must be what rejects the read.
     await writeFile(join(vault, "Outside.md"), "# Outside\n", "utf8")
-    await expect(
-      getMemory({ vaultPath: vault, file: "../Outside" }, logger),
-    ).rejects.toThrow(
+    await expect(getMemory({ vaultPath: vault, file: "../Outside" }, logger)).rejects.toThrow(
       'memory file must be a bare name without path separators: "../Outside"',
     )
   })
@@ -230,9 +207,7 @@ describe("getMemory", () => {
     // A real hidden memory file on disk — the guard, not a missing file,
     // must be what rejects the read.
     await writeFile(join(vault, "About Me", ".secret.md"), "# Hidden\n", "utf8")
-    await expect(
-      getMemory({ vaultPath: vault, file: ".secret" }, logger),
-    ).rejects.toThrow(
+    await expect(getMemory({ vaultPath: vault, file: ".secret" }, logger)).rejects.toThrow(
       'memory file must not start with a dot: ".secret" would be a hidden file',
     )
   })
@@ -254,9 +229,7 @@ describe("updateMemory", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(
-      'memory file must not start with a dot: ".secret" would be a hidden file',
-    )
+    ).rejects.toThrow('memory file must not start with a dot: ".secret" would be a hidden file')
     const memoryDirEntries = await readdir(join(vault, "About Me"))
     expect(memoryDirEntries).not.toContain(".secret.md")
   })
@@ -456,19 +429,14 @@ describe("updateMemory", () => {
       },
       logger,
     )
-    const principlesContent = await readFile(
-      join(vault, "About Me/Principles.md"),
-      "utf8",
-    )
+    const principlesContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     // The entry lands in the existing section — no second "## Working style …"
     // heading is appended at EOF (the duplicate-section bug).
     expect(principlesContent.match(/^## Working style/gm)).toHaveLength(1)
     expect(principlesContent).toContain("- **2026-05-09**: short-name entry")
 
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    const principles = outlines.find(
-      (outline) => outline.file === "Principles",
-    )!
+    const principles = outlines.find((outline) => outline.file === "Principles")!
     const workingStyle = principles.headings.find(
       (heading) => heading.text === "Working style (newest first)",
     )
@@ -489,10 +457,7 @@ describe("updateMemory idempotency", () => {
       logger,
     )
     expect(firstOutcome).toBe("appended")
-    const contentAfterFirstCall = await readFile(
-      join(vault, "About Me/Principles.md"),
-      "utf8",
-    )
+    const contentAfterFirstCall = await readFile(join(vault, "About Me/Principles.md"), "utf8")
 
     const secondOutcome = await updateMemory(
       {
@@ -508,14 +473,10 @@ describe("updateMemory idempotency", () => {
 
     // The file is byte-identical to the state after the first call — the
     // retry neither duplicated the entry nor touched anything else.
-    const contentAfterSecondCall = await readFile(
-      join(vault, "About Me/Principles.md"),
-      "utf8",
-    )
+    const contentAfterSecondCall = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     expect(contentAfterSecondCall).toBe(contentAfterFirstCall)
     const bulletOccurrenceCount =
-      contentAfterSecondCall.split("- **2026-07-02**: retry-safe entry")
-        .length - 1
+      contentAfterSecondCall.split("- **2026-07-02**: retry-safe entry").length - 1
     expect(bulletOccurrenceCount).toBe(1)
   })
 
@@ -534,10 +495,7 @@ describe("updateMemory idempotency", () => {
     expect(outcome).toBe("unchanged")
     // The no-op left the file byte-identical to the fixture — the entry was
     // neither duplicated nor was anything else touched.
-    const fileContent = await readFile(
-      join(vault, "About Me/Principles.md"),
-      "utf8",
-    )
+    const fileContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     expect(fileContent).toBe(PRINCIPLES_MD)
   })
 
@@ -565,10 +523,7 @@ describe("updateMemory idempotency", () => {
         "entry must be a single line: memory entries are single dated bullets — collapse newlines or append multiple entries",
       )
       // Nothing was written — the file is byte-identical to the fixture.
-      const fileContent = await readFile(
-        join(vault, "About Me/Principles.md"),
-        "utf8",
-      )
+      const fileContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
       expect(fileContent).toBe(PRINCIPLES_MD)
     },
   )
@@ -594,14 +549,9 @@ describe("updateMemory idempotency", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(
-      "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)",
-    )
+    ).rejects.toThrow("date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)")
     // Nothing was written — the file is byte-identical to the fixture.
-    const fileContent = await readFile(
-      join(vault, "About Me/Principles.md"),
-      "utf8",
-    )
+    const fileContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     expect(fileContent).toBe(PRINCIPLES_MD)
   })
 
@@ -625,10 +575,7 @@ describe("updateMemory idempotency", () => {
       "section must be a single line: section names become H2 headings — remove line breaks",
     )
     // Nothing was written — the file is byte-identical to the fixture.
-    const fileContent = await readFile(
-      join(vault, "About Me/Principles.md"),
-      "utf8",
-    )
+    const fileContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     expect(fileContent).toBe(PRINCIPLES_MD)
   })
 
@@ -685,13 +632,11 @@ describe("updateMemory idempotency", () => {
           },
           logger,
         ),
-      ).rejects.toThrow(
-        `memory file must be a bare name without path separators: "${file}"`,
-      )
+      ).rejects.toThrow(`memory file must be a bare name without path separators: "${file}"`)
       // No file escaped the memory directory into the vault root.
-      await expect(
-        readFile(join(vault, "Escaped.md"), "utf8"),
-      ).rejects.toMatchObject({ code: "ENOENT" })
+      await expect(readFile(join(vault, "Escaped.md"), "utf8")).rejects.toMatchObject({
+        code: "ENOENT",
+      })
     },
   )
 
@@ -837,10 +782,7 @@ describe("updateMemory auto-creation", () => {
       },
       logger,
     )
-    const raw = await readFile(
-      join(emptyVault, "About Me/Working Preferences.md"),
-      "utf8",
-    )
+    const raw = await readFile(join(emptyVault, "About Me/Working Preferences.md"), "utf8")
     const parsed = parseNote(raw)
     expect(parsed.data.title).toBe("Working Preferences")
     expect(parsed.data.type).toBe("profile")
@@ -849,9 +791,7 @@ describe("updateMemory auto-creation", () => {
     // DateTime.now().toISO() stamps an offset-form ISO 8601 string; the
     // serializer must write it unquoted and verbatim — never re-encoded
     // to a Z-suffixed UTC form
-    expect(raw).toMatch(
-      /^created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$/m,
-    )
+    expect(raw).toMatch(/^created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$/m)
     await rm(emptyVault, { recursive: true })
   })
 
@@ -910,10 +850,7 @@ describe("updateMemory auto-creation", () => {
       },
       logger,
     )
-    const raw = await readFile(
-      join(emptyVault, "About Me/Preferences.md"),
-      "utf8",
-    )
+    const raw = await readFile(join(emptyVault, "About Me/Preferences.md"), "utf8")
     expect(raw).toContain("# Preferences")
     expect(raw).toContain("## Editor settings (newest first)")
     expect(raw).toContain("- **2026-05-15**: Dark mode")
@@ -975,18 +912,13 @@ describe("updateMemory auto-creation", () => {
     )
     const raw = await readFile(join(vault, "About Me/Opinions.md"), "utf8")
     expect(raw).toContain("## Design preferences (newest first)")
-    expect(raw).not.toContain(
-      "## Design preferences (newest first) (newest first)",
-    )
+    expect(raw).not.toContain("## Design preferences (newest first) (newest first)")
   })
 })
 
 describe("updateMemory near-duplicate section guard", () => {
   it("rejects an HTML-entity variant of an existing section instead of creating a duplicate", async () => {
-    const contentBefore = await readFile(
-      join(vault, "About Me/Opinions.md"),
-      "utf8",
-    )
+    const contentBefore = await readFile(join(vault, "About Me/Opinions.md"), "utf8")
     await expect(
       updateMemory(
         {
@@ -1001,10 +933,7 @@ describe("updateMemory near-duplicate section guard", () => {
     ).rejects.toThrow(
       'section not created: "AI tooling &amp; memory (newest first)" is nearly identical to existing section "AI tooling & memory (newest first)". Existing sections: AI tooling & memory (newest first), Code patterns (newest first)',
     )
-    const contentAfter = await readFile(
-      join(vault, "About Me/Opinions.md"),
-      "utf8",
-    )
+    const contentAfter = await readFile(join(vault, "About Me/Opinions.md"), "utf8")
     expect(contentAfter).toBe(contentBefore)
   })
 
@@ -1332,9 +1261,7 @@ describe("deleteMemory", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(
-      'memory file must not start with a dot: ".secret" would be a hidden file',
-    )
+    ).rejects.toThrow('memory file must not start with a dot: ".secret" would be a hidden file')
   })
 
   it("deletes an exact matching entry", async () => {
@@ -1413,13 +1340,8 @@ describe("deleteMemory", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(
-      "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)",
-    )
-    const fileContent = await readFile(
-      join(vault, "About Me/Principles.md"),
-      "utf8",
-    )
+    ).rejects.toThrow("date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)")
+    const fileContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     expect(fileContent).toBe(PRINCIPLES_MD)
   })
 
@@ -1528,10 +1450,7 @@ describe("listMemoryFiles", () => {
   it("excludes a pre-existing hidden memory file from the outlines", async () => {
     await writeFile(join(vault, "About Me", ".secret.md"), "# Hidden\n", "utf8")
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    expect(outlines.map((outline) => outline.file)).toEqual([
-      "Opinions",
-      "Principles",
-    ])
+    expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
   })
 
   it("returns outlines sorted by filename", async () => {
@@ -1557,9 +1476,7 @@ describe("listMemoryFiles", () => {
 
   it("surfaces each file's leading scope callout (null when absent)", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    const principles = outlines.find(
-      (outline) => outline.file === "Principles",
-    )!
+    const principles = outlines.find((outline) => outline.file === "Principles")!
     const opinions = outlines.find((outline) => outline.file === "Opinions")!
     expect(principles.leading_callout).toEqual({
       type: "info",
@@ -1615,15 +1532,9 @@ describe("listMemoryFiles", () => {
     // silently authorize destructive maintenance.
     await writeFile(
       join(vault, "About Me/Typo.md"),
-      [
-        "---",
-        "title: Typo",
-        "type: profile",
-        "entry-policy: sometimes",
-        "---",
-        "",
-        "# Typo",
-      ].join("\n"),
+      ["---", "title: Typo", "type: profile", "entry-policy: sometimes", "---", "", "# Typo"].join(
+        "\n",
+      ),
       "utf8",
     )
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
@@ -1664,9 +1575,7 @@ describe("listMemoryFiles", () => {
 
   it("includes correct entry counts per section", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    const principles = outlines.find(
-      (outline) => outline.file === "Principles",
-    )!
+    const principles = outlines.find((outline) => outline.file === "Principles")!
     const heuristics = principles.headings.find(
       (heading) => heading.text === "Decision heuristics (newest first)",
     )
@@ -1685,9 +1594,7 @@ describe("listMemoryFiles", () => {
 
   it("identifies H1 and H2 headings correctly", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    const principles = outlines.find(
-      (outline) => outline.file === "Principles",
-    )!
+    const principles = outlines.find((outline) => outline.file === "Principles")!
     const h1s = principles.headings.filter((heading) => heading.level === 1)
     const h2s = principles.headings.filter((heading) => heading.level === 2)
     expect(h1s).toHaveLength(1)
@@ -1697,9 +1604,7 @@ describe("listMemoryFiles", () => {
 
   it("does not count callout lines as entries", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    const principles = outlines.find(
-      (outline) => outline.file === "Principles",
-    )!
+    const principles = outlines.find((outline) => outline.file === "Principles")!
     const h1 = principles.headings.find((heading) => heading.level === 1)
     expect(h1?.entryCount).toBeUndefined()
   })
@@ -1752,11 +1657,7 @@ describe("custom memoryDir", () => {
   it("reads from the configured directory", async () => {
     const customVault = await mkdtemp(join(tmpdir(), "custom-mem-"))
     await mkdir(join(customVault, "Profile"), { recursive: true })
-    await writeFile(
-      join(customVault, "Profile/Principles.md"),
-      PRINCIPLES_MD,
-      "utf8",
-    )
+    await writeFile(join(customVault, "Profile/Principles.md"), PRINCIPLES_MD, "utf8")
     const result = await customStore.getMemory(
       { vaultPath: customVault, file: "Principles" },
       logger,
@@ -1768,20 +1669,14 @@ describe("custom memoryDir", () => {
   it("error messages reference the configured directory name", async () => {
     const customVault = await mkdtemp(join(tmpdir(), "custom-mem-"))
     await expect(
-      customStore.getMemory(
-        { vaultPath: customVault, file: "Nonexistent" },
-        logger,
-      ),
+      customStore.getMemory({ vaultPath: customVault, file: "Nonexistent" }, logger),
     ).rejects.toThrow('memory file not found: "Profile/Nonexistent.md"')
     await rm(customVault, { recursive: true })
   })
 
   it("returns empty string when configured directory does not exist", async () => {
     const customVault = await mkdtemp(join(tmpdir(), "custom-mem-"))
-    const result = await customStore.getMemory(
-      { vaultPath: customVault },
-      logger,
-    )
+    const result = await customStore.getMemory({ vaultPath: customVault }, logger)
     expect(result).toBe("")
     await rm(customVault, { recursive: true })
   })
@@ -1810,10 +1705,7 @@ describe("bootstrapMemoryDir", () => {
   it("template files have correct frontmatter", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "bootstrap-fm-"))
     await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
-    const raw = await readFile(
-      join(emptyVault, "About Me/Principles.md"),
-      "utf8",
-    )
+    const raw = await readFile(join(emptyVault, "About Me/Principles.md"), "utf8")
     const parsed = parseNote(raw)
     expect(parsed.data.title).toBe("Principles")
     expect(parsed.data.type).toBe("profile")
@@ -1868,9 +1760,7 @@ describe("bootstrapMemoryDir", () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "bootstrap-h2-"))
     await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
-    const principles = outlines.find(
-      (outline) => outline.file === "Principles",
-    )!
+    const principles = outlines.find((outline) => outline.file === "Principles")!
     const sectionNames = principles.headings
       .filter((heading) => heading.level === 2)
       .map((heading) => heading.text)
@@ -1900,15 +1790,9 @@ describe("bootstrapMemoryDir", () => {
   })
 
   it("is a no-op when memory directory already exists", async () => {
-    const contentBefore = await readFile(
-      join(vault, "About Me/Principles.md"),
-      "utf8",
-    )
+    const contentBefore = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     await bootstrapMemoryDir({ vaultPath: vault }, logger)
-    const contentAfter = await readFile(
-      join(vault, "About Me/Principles.md"),
-      "utf8",
-    )
+    const contentAfter = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     expect(contentAfter).toBe(contentBefore)
   })
 
@@ -1952,9 +1836,7 @@ title: Big
     ).rejects.toThrow("refusing memory write")
 
     // The guard fires before the write, so the file is left fully intact.
-    expect(await readFile(join(vault, "About Me/Big.md"), "utf8")).toBe(
-      fileContent,
-    )
+    expect(await readFile(join(vault, "About Me/Big.md"), "utf8")).toBe(fileContent)
   })
 
   it("allows a normal single-entry delete on a real-sized file", async () => {
@@ -1968,10 +1850,7 @@ title: Big
       },
       logger,
     )
-    const content = await readFile(
-      join(vault, "About Me/Principles.md"),
-      "utf8",
-    )
+    const content = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     expect(content).not.toContain("Least-privilege for AI agents")
     expect(content).toContain("Secrets invisible at every layer")
   })
@@ -2020,10 +1899,7 @@ describe("memory write size logging", () => {
       },
       logger,
     )
-    const written = await readFile(
-      join(vault, "About Me/Principles.md"),
-      "utf8",
-    )
+    const written = await readFile(join(vault, "About Me/Principles.md"), "utf8")
 
     expect(infoSpy).toHaveBeenCalledWith("updated memory", {
       file: "Principles",
@@ -2049,10 +1925,7 @@ describe("memory write size logging", () => {
       },
       logger,
     )
-    const written = await readFile(
-      join(vault, "About Me/Principles.md"),
-      "utf8",
-    )
+    const written = await readFile(join(vault, "About Me/Principles.md"), "utf8")
 
     expect(infoSpy).toHaveBeenCalledWith("deleted memory entry", {
       file: "Principles",
@@ -2095,9 +1968,7 @@ describe("concurrent memory writes", () => {
     )
     // All five new entries plus the original survive, newest-first in the order
     // they serialized (each appends at the top), with no losses or duplicates.
-    const bulletLines = section
-      .split("\n")
-      .filter((line) => line.startsWith("- **"))
+    const bulletLines = section.split("\n").filter((line) => line.startsWith("- **"))
     expect(bulletLines).toEqual([
       "- **2026-06-14**: echo",
       "- **2026-06-14**: delta",
@@ -2150,15 +2021,11 @@ describe("concurrent memory writes", () => {
       },
       logger,
     )
-    expect(
-      principles.split("\n").filter((line) => line.startsWith("- **")),
-    ).toEqual([
+    expect(principles.split("\n").filter((line) => line.startsWith("- **"))).toEqual([
       "- **2026-06-14**: principles entry",
       "- **2026-05-04**: Single-purpose files",
     ])
-    expect(
-      opinions.split("\n").filter((line) => line.startsWith("- **")),
-    ).toEqual([
+    expect(opinions.split("\n").filter((line) => line.startsWith("- **"))).toEqual([
       "- **2026-06-14**: opinions entry",
       "- **2026-05-07**: **.reduce() over filter/map chains.** Single reduce pass",
     ])
@@ -2201,9 +2068,7 @@ describe("concurrent memory writes", () => {
     )
     // The add applied then the delete: new entry on top, the targeted entry
     // gone, the untouched entry intact — exactly two bullets, no torn lines.
-    const bulletLines = section
-      .split("\n")
-      .filter((line) => line.startsWith("- **"))
+    const bulletLines = section.split("\n").filter((line) => line.startsWith("- **"))
     expect(bulletLines).toEqual([
       "- **2026-06-14**: freshly added",
       "- **2026-05-06**: Secrets invisible at every layer",

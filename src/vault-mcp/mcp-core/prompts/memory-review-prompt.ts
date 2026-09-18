@@ -10,10 +10,7 @@
 
 import { completable } from "@modelcontextprotocol/sdk/server/completable.js"
 import { z } from "zod"
-import {
-  createMemoryStore,
-  type MemoryFileOutline,
-} from "../../vault-operations/memory-store.js"
+import { createMemoryStore, type MemoryFileOutline } from "../../vault-operations/memory-store.js"
 import { describeError } from "../../../utils/describe-error.js"
 import {
   type PromptRegistrationContext,
@@ -39,8 +36,7 @@ const formatFileOutline = (outline: MemoryFileOutline): string => {
   const sectionLines = outline.headings
     .filter((heading) => heading.level === 2)
     .map((heading) => {
-      const entryCount =
-        heading.entryCount != null ? ` (${heading.entryCount} entries)` : ""
+      const entryCount = heading.entryCount != null ? ` (${heading.entryCount} entries)` : ""
       return `  - ${heading.text}${entryCount}`
     })
 
@@ -95,14 +91,9 @@ export const registerMemoryReviewPrompt = ({
           // logger; degrade to [] so completion never hard-fails.
           async (value) => {
             try {
-              const names = await memoryStore.listMemoryFileNames(
-                { vaultPath },
-                sessionLogger,
-              )
+              const names = await memoryStore.listMemoryFileNames({ vaultPath }, sessionLogger)
               const loweredValue = (value ?? "").toLowerCase()
-              return names.filter((name) =>
-                name.toLowerCase().startsWith(loweredValue),
-              )
+              return names.filter((name) => name.toLowerCase().startsWith(loweredValue))
             } catch (err) {
               // Recoverable and high-frequency (fires per keystroke), so warn
               // rather than error — but never swallow it silently.
@@ -129,10 +120,7 @@ export const registerMemoryReviewPrompt = ({
       const maxChars = args.max_chars ? Number(args.max_chars) : undefined
 
       try {
-        const outlines = await memoryStore.listMemoryFiles(
-          { vaultPath },
-          reqLogger,
-        )
+        const outlines = await memoryStore.listMemoryFiles({ vaultPath }, reqLogger)
 
         // Empty memory is not an error — explain how the layer gets started.
         if (outlines.length === 0) {
@@ -144,8 +132,8 @@ export const registerMemoryReviewPrompt = ({
 
         // A bad file name degrades to a friendly "valid names" message rather
         // than throwing through to the client. Bad client input → warn.
-        const isUnknownFile =
-          args.file && !outlines.some((outline) => outline.file === args.file)
+        const isUnknownFile = args.file && !outlines.some((outline) => outline.file === args.file)
+
         if (isUnknownFile) {
           reqLogger.warn("prompt_bad_argument", {
             argument: "file",
@@ -158,39 +146,27 @@ export const registerMemoryReviewPrompt = ({
           )
         }
 
-        const memory = await memoryStore.getMemory(
-          { vaultPath, file: args.file },
-          reqLogger,
-        )
+        const memory = await memoryStore.getMemory({ vaultPath, file: args.file }, reqLogger)
         const trimmedMemory = memory.trim()
-        const truncated =
-          maxChars !== undefined && trimmedMemory.length > maxChars
+        const truncated = maxChars !== undefined && trimmedMemory.length > maxChars
         const scope = args.file
           ? `the ${config.memoryDir}/${args.file} memory file`
           : `the ${config.memoryDir}/ memory layer`
 
         const structuralOverview = formatMemoryStructuralOverview(
-          args.file
-            ? outlines.filter((outline) => outline.file === args.file)
-            : outlines,
+          args.file ? outlines.filter((outline) => outline.file === args.file) : outlines,
           config.memoryDir,
         )
 
-        const memorySource = args.file
-          ? `${config.memoryDir}/${args.file}`
-          : config.memoryDir
+        const memorySource = args.file ? `${config.memoryDir}/${args.file}` : config.memoryDir
         const cappedMemoryContent = wrapWithDataMarkers({
           content: trimmedMemory,
           markerAttributes: { source: memorySource, type: "memory" },
           maxChars,
-          truncationToolName: isToolEnabled("vault_get_memory")
-            ? "vault_get_memory"
-            : undefined,
+          truncationToolName: isToolEnabled("vault_get_memory") ? "vault_get_memory" : undefined,
         })
         const memoryContentOrEmpty =
-          trimmedMemory.length > 0
-            ? cappedMemoryContent
-            : "_(the selected memory is empty)_"
+          trimmedMemory.length > 0 ? cappedMemoryContent : "_(the selected memory is empty)_"
 
         // vault_update_memory is guaranteed here — this prompt is only
         // registered when it is served. vault_delete_memory is not: it can be
@@ -248,16 +224,11 @@ export const registerMemoryReviewPrompt = ({
       } catch (err) {
         const message = describeError(err)
         reqLogger.error("prompt_error", { error: message })
-        const fallbackTools = formatEnabledToolList([
-          "vault_list_memory_files",
-          "vault_get_memory",
-        ])
+        const fallbackTools = formatEnabledToolList(["vault_list_memory_files", "vault_get_memory"])
         const fallbackHint = fallbackTools
           ? ` Try ${fallbackTools} to inspect the ${config.memoryDir}/ layer directly.`
           : ""
-        return textResult(
-          `Could not load memory for review (${message}).${fallbackHint}`,
-        )
+        return textResult(`Could not load memory for review (${message}).${fallbackHint}`)
       }
     },
   )

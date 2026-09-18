@@ -41,9 +41,7 @@ describe("resolveEvalRunPlan", () => {
   it("rejects a missing --judgment", () => {
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, judgment: undefined })
-    }).toThrow(
-      "--judgment <path> is required (a local judgment JSON — see the file header)",
-    )
+    }).toThrow("--judgment <path> is required (a local judgment JSON — see the file header)")
   })
 
   it("parses --limits and rejects a non-integer entry", () => {
@@ -161,9 +159,7 @@ describe("resolveEvalRunPlan", () => {
       "enrich-metadata": true,
     })
     expect(plainPlan.indexDbPath).toBe(join(workDir, "search-eval.db"))
-    expect(enrichedPlan.indexDbPath).toBe(
-      join(workDir, "search-eval-enriched.db"),
-    )
+    expect(enrichedPlan.indexDbPath).toBe(join(workDir, "search-eval-enriched.db"))
   })
 })
 
@@ -217,9 +213,7 @@ describe("judgmentFileSchema", () => {
   it("rejects an empty expected_any list", () => {
     const parsed = judgmentFileSchema.safeParse({
       ...baseJudgment,
-      queries: [
-        { id: "q1", class: "recall", query: "some text", expected_any: [] },
-      ],
+      queries: [{ id: "q1", class: "recall", query: "some text", expected_any: [] }],
     })
     expect(parsed.success).toBe(false)
   })

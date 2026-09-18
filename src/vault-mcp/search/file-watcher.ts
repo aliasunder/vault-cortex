@@ -63,6 +63,7 @@ export const startFileWatcher = (
 
     if (!filePath.endsWith(".md")) {
       const fileStat = await statOrNull(filePath)
+
       // Vanished between the watcher event and the stat — the unlink event
       // that follows will remove any existing row.
       if (!fileStat) return
@@ -73,18 +74,15 @@ export const startFileWatcher = (
       const extension = extname(filePath)
       const isCanvas = extension === ".canvas"
       const isIndexableNonCanvas =
-        search.fileContentIndexingEnabled &&
-        INDEXABLE_TEXT_EXTENSIONS.has(extension)
+        search.fileContentIndexingEnabled && INDEXABLE_TEXT_EXTENSIONS.has(extension)
+
       if (isCanvas || isIndexableNonCanvas) {
         try {
           let contentToIndex: string
+
           if (extension === ".pdf") {
             const buffer = await readFile(filePath)
-            const pdfData = new Uint8Array(
-              buffer.buffer,
-              buffer.byteOffset,
-              buffer.byteLength,
-            )
+            const pdfData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
             const pdfResult = await extractPdfText(pdfData)
             contentToIndex = pdfResult.text
           } else {
@@ -102,21 +100,15 @@ export const startFileWatcher = (
           // Embed file content vectors — serialized per path via the same
           // pendingEmbeds map (note paths end in .md, file paths don't).
           // Reads the processed content from the file_content table.
-          const previousEmbed =
-            pendingEmbeds.get(relativePath) ?? Promise.resolve()
+          const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
           const currentEmbed = previousEmbed
             .catch((previousError) => {
-              logger.debug(
-                "previous file embed failed, proceeding with current",
-                {
-                  path: relativePath,
-                  error: describeError(previousError),
-                },
-              )
+              logger.debug("previous file embed failed, proceeding with current", {
+                path: relativePath,
+                error: describeError(previousError),
+              })
             })
-            .then(() =>
-              search.embedFileContent({ filePath: relativePath }, logger),
-            )
+            .then(() => search.embedFileContent({ filePath: relativePath }, logger))
           pendingEmbeds.set(relativePath, currentEmbed)
           currentEmbed
             .catch((embedError) => {
@@ -143,10 +135,7 @@ export const startFileWatcher = (
     }
 
     try {
-      const [content, fileStat] = await Promise.all([
-        readFile(filePath, "utf8"),
-        stat(filePath),
-      ])
+      const [content, fileStat] = await Promise.all([readFile(filePath, "utf8"), stat(filePath)])
       search.upsertNote(
         {
           filePath: relativePath,
@@ -169,12 +158,7 @@ export const startFileWatcher = (
             error: describeError(previousError),
           })
         })
-        .then(() =>
-          search.embedNote(
-            { notePath: relativePath, rawContent: content },
-            logger,
-          ),
-        )
+        .then(() => search.embedNote({ notePath: relativePath, rawContent: content }, logger))
       pendingEmbeds.set(relativePath, currentEmbed)
       // Await the .finally()-derived promise, not currentEmbed itself —
       // .finally() returns a new promise that rejects with the same error,
@@ -203,8 +187,8 @@ export const startFileWatcher = (
       const deletedExtension = extname(filePath)
       const isDeletedCanvas = deletedExtension === ".canvas"
       const isDeletedIndexable =
-        search.fileContentIndexingEnabled &&
-        INDEXABLE_TEXT_EXTENSIONS.has(deletedExtension)
+        search.fileContentIndexingEnabled && INDEXABLE_TEXT_EXTENSIONS.has(deletedExtension)
+
       if (isDeletedCanvas || isDeletedIndexable) {
         search.removeFileContent({ filePath: relativePath }, logger)
       }
@@ -216,10 +200,8 @@ export const startFileWatcher = (
     logger.debug("removed from index", { path: relativePath })
   }
 
-  const stabilityThreshold =
-    options?.stabilityThreshold ?? DEFAULT_STABILITY_THRESHOLD_MS
-  const newDirectoryRescanDelay =
-    options?.newDirectoryRescanDelay ?? 2 * stabilityThreshold
+  const stabilityThreshold = options?.stabilityThreshold ?? DEFAULT_STABILITY_THRESHOLD_MS
+  const newDirectoryRescanDelay = options?.newDirectoryRescanDelay ?? 2 * stabilityThreshold
 
   /** True when the file's last write falls inside the stability window —
    *  plausibly still being written. A negative age (mtime in the future —
@@ -235,6 +217,7 @@ export const startFileWatcher = (
     // Skip dotfiles/directories (.obsidian/, .trash/) but allow the vault root itself
     ignored: (path: string) => {
       const relativePath = relative(vaultPath, path)
+
       if (!relativePath) return false
       return hasHiddenPathSegment(relativePath)
     },
@@ -268,6 +251,7 @@ export const startFileWatcher = (
     const retryTimer = setTimeout(() => {
       const indexIfSettled = async (): Promise<void> => {
         const fileStat = await stat(filePath)
+
         if (isWithinStabilityWindow(fileStat.mtimeMs)) {
           scheduleUnstableFileRetry(filePath)
           return
@@ -306,6 +290,7 @@ export const startFileWatcher = (
     visitedRealPaths: Set<string>,
   ): Promise<void> => {
     const entries = await readdirOrNull(dirPath)
+
     if (entries === null) {
       logger.debug("rescan skipped, directory vanished", {
         path: relative(vaultPath, dirPath),
@@ -319,6 +304,7 @@ export const startFileWatcher = (
     // A null realpath means the directory was deleted after the readdir above
     // — the same benign race as the vanished-listing branch, not an error.
     const realDirPath = await realpathOrNull(dirPath)
+
     if (realDirPath === null) {
       logger.debug("rescan skipped, directory vanished", {
         path: relative(vaultPath, dirPath),
@@ -335,10 +321,12 @@ export const startFileWatcher = (
     for (const entry of entries) {
       const fullPath = join(entry.parentPath, entry.name)
       const relativePath = relative(vaultPath, fullPath)
+
       if (hasHiddenPathSegment(relativePath)) continue
 
       // getWatched() keys are resolved paths (chokidar resolves internally).
       const trackedSiblings = watchedChildren[resolvePath(entry.parentPath)]
+
       if (trackedSiblings?.includes(entry.name)) continue
 
       if (entry.isDirectory()) {
@@ -356,6 +344,7 @@ export const startFileWatcher = (
         // stat follows symlinks, so a symlinked note is indexed like the add
         // path would; a broken symlink or vanished file throws and is skipped.
         const fileStat = await stat(fullPath)
+
         if (fileStat.isDirectory()) {
           // Symlink to a directory — its contents aren't in this recursive
           // listing (readdir doesn't traverse symlinks), so reconcile it
@@ -378,6 +367,7 @@ export const startFileWatcher = (
         // it settles instead.
         if (isWithinStabilityWindow(fileStat.mtimeMs)) {
           const parentWatchedBeforeRescan = trackedSiblings !== undefined
+
           if (parentWatchedBeforeRescan) continue
           scheduleUnstableFileRetry(fullPath)
           continue

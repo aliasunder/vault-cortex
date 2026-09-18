@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest"
-import {
-  parseHeadings,
-  findHeading,
-  linesBeforeFirstHeading,
-} from "../headings.js"
+import { parseHeadings, findHeading, linesBeforeFirstHeading } from "../headings.js"
 
 describe("parseHeadings", () => {
   it("parses H1–H6 with each section spanning to the next same-or-higher heading", () => {
@@ -39,9 +35,7 @@ describe("parseHeadings", () => {
 
   it("includes child headings in a parent section's span", () => {
     const lines = ["## Parent", "x", "### Child", "y", "## Sibling", "z"]
-    const parent = parseHeadings(lines).find(
-      (heading) => heading.text === "Parent",
-    )
+    const parent = parseHeadings(lines).find((heading) => heading.text === "Parent")
     // bodyEndLine stops at "## Sibling" (line 4), so "### Child" is included.
     expect(parent).toEqual({
       text: "Parent",
@@ -59,25 +53,12 @@ describe("parseHeadings", () => {
   })
 
   it("ignores ATX headings inside a blockquoted fenced code block", () => {
-    const lines = [
-      "# Real",
-      "> ```",
-      "> ## Not a heading",
-      "> ```",
-      "## Also real",
-    ]
-    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
-      "Real",
-      "Also real",
-    ])
+    const lines = ["# Real", "> ```", "> ## Not a heading", "> ```", "## Also real"]
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual(["Real", "Also real"])
   })
 
   it("recognizes a heading after a blockquoted fence implicitly closes", () => {
-    const lines = [
-      "> ```",
-      "> ## Hidden inside fence",
-      "## Visible after implicit close",
-    ]
+    const lines = ["> ```", "> ## Hidden inside fence", "## Visible after implicit close"]
     expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
       "Visible after implicit close",
     ])
@@ -87,17 +68,8 @@ describe("parseHeadings", () => {
     // The fence is indented 3 spaces — recognized via the shared lines.ts fence
     // grammar. The previous heading-local matcher required column 0, so it would
     // have mis-parsed "# Not a heading" here as a real heading.
-    const lines = [
-      "# Real",
-      "   ```",
-      "# Not a heading",
-      "   ```",
-      "## Also real",
-    ]
-    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
-      "Real",
-      "Also real",
-    ])
+    const lines = ["# Real", "   ```", "# Not a heading", "   ```", "## Also real"]
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual(["Real", "Also real"])
   })
 
   // ── CommonMark §4.2 parity ────────────────────────────────────
@@ -209,65 +181,32 @@ describe("parseHeadings", () => {
 
   it("ignores headings inside a %% %% comment block", () => {
     const lines = ["# Real", "%%", "## Hidden", "%%", "## Also real"]
-    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
-      "Real",
-      "Also real",
-    ])
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual(["Real", "Also real"])
   })
 
   it("recognizes a heading after a comment block closes", () => {
     const lines = ["%%", "## Hidden", "%%", "## Visible"]
-    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
-      "Visible",
-    ])
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual(["Visible"])
   })
 
   it("does not open a fence inside a comment block", () => {
-    const lines = [
-      "%%",
-      "```",
-      "## Hidden inside comment",
-      "```",
-      "%%",
-      "## Visible",
-    ]
-    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
-      "Visible",
-    ])
+    const lines = ["%%", "```", "## Hidden inside comment", "```", "%%", "## Visible"]
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual(["Visible"])
   })
 
   it("ignores a heading inside a single-line inline comment", () => {
     const lines = ["# Real", "%% ## Hidden %%", "## Also real"]
-    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
-      "Real",
-      "Also real",
-    ])
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual(["Real", "Also real"])
   })
 
   it("ignores headings inside an unclosed comment running to EOF", () => {
-    const lines = [
-      "# Real",
-      "%%",
-      "## Hidden by unclosed comment",
-      "## Also hidden",
-    ]
-    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
-      "Real",
-    ])
+    const lines = ["# Real", "%%", "## Hidden by unclosed comment", "## Also hidden"]
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual(["Real"])
   })
 
   it("does not toggle comment state inside a fenced code block", () => {
-    const lines = [
-      "```",
-      "%%",
-      "## Hidden inside fence",
-      "%%",
-      "```",
-      "## Real",
-    ]
-    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
-      "Real",
-    ])
+    const lines = ["```", "%%", "## Hidden inside fence", "%%", "```", "## Real"]
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual(["Real"])
   })
 
   // ── setext heading support (CommonMark §4.3) ─────────────────
@@ -300,9 +239,7 @@ describe("parseHeadings", () => {
 
   it("parses setext underlines with 0-3 leading spaces", () => {
     const headings = parseHeadings(["H1", " ===", "H2", "  ---"])
-    expect(
-      headings.map((heading) => ({ text: heading.text, level: heading.level })),
-    ).toEqual([
+    expect(headings.map((heading) => ({ text: heading.text, level: heading.level }))).toEqual([
       { text: "H1", level: 1 },
       { text: "H2", level: 2 },
     ])
@@ -359,16 +296,12 @@ describe("parseHeadings", () => {
 
   it("ignores setext underlines inside a fenced code block", () => {
     const lines = ["```", "Title", "===", "```", "## Real"]
-    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
-      "Real",
-    ])
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual(["Real"])
   })
 
   it("ignores setext underlines inside a comment block", () => {
     const lines = ["%%", "Title", "===", "%%", "## Real"]
-    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual([
-      "Real",
-    ])
+    expect(parseHeadings(lines).map((heading) => heading.text)).toEqual(["Real"])
   })
 
   it("parses adjacent setext headings", () => {
@@ -477,10 +410,7 @@ describe("linesBeforeFirstHeading", () => {
     linesBeforeFirstHeading(lines, parseHeadings(lines))
 
   it("returns the lines above the first heading", () => {
-    expect(regionOf(["Intro.", "", "## Section", "body"])).toEqual([
-      "Intro.",
-      "",
-    ])
+    expect(regionOf(["Intro.", "", "## Section", "body"])).toEqual(["Intro.", ""])
   })
 
   it("returns nothing when the first line is a heading", () => {
@@ -488,11 +418,7 @@ describe("linesBeforeFirstHeading", () => {
   })
 
   it("returns the whole body when the note has no headings", () => {
-    expect(regionOf(["Just prose.", "", "more"])).toEqual([
-      "Just prose.",
-      "",
-      "more",
-    ])
+    expect(regionOf(["Just prose.", "", "more"])).toEqual(["Just prose.", "", "more"])
   })
 
   it("stops at the first heading whatever its level", () => {
@@ -503,14 +429,7 @@ describe("linesBeforeFirstHeading", () => {
 
   it("keeps a heading inside a fenced code block in the region", () => {
     const lines = ["```md", "## Example", "```", "", "Prose", "", "## Real"]
-    expect(regionOf(lines)).toEqual([
-      "```md",
-      "## Example",
-      "```",
-      "",
-      "Prose",
-      "",
-    ])
+    expect(regionOf(lines)).toEqual(["```md", "## Example", "```", "", "Prose", ""])
   })
 
   it("keeps a heading inside a comment block in the region", () => {
@@ -569,12 +488,7 @@ describe("linesBeforeFirstHeading", () => {
 })
 
 describe("findHeading", () => {
-  const headings = parseHeadings([
-    "# Board",
-    "## Active",
-    "## Done",
-    "### Active",
-  ])
+  const headings = parseHeadings(["# Board", "## Active", "## Done", "### Active"])
 
   it("returns the single matching heading", () => {
     expect(findHeading(headings, "Board").level).toBe(1)
@@ -597,21 +511,14 @@ describe("findHeading", () => {
   })
 
   it("throws same-level ambiguous with the decoupled hint", () => {
-    const sameLevelHeadings = parseHeadings([
-      "# Board",
-      "## Active",
-      "## Done",
-      "## Active",
-    ])
+    const sameLevelHeadings = parseHeadings(["# Board", "## Active", "## Done", "## Active"])
     expect(() => findHeading(sameLevelHeadings, "Active")).toThrow(
       'ambiguous heading: "Active" matches 2 sections: ## Active (line 2), ## Active (line 4). Rename one heading to make it unique, or target by text content instead.',
     )
   })
 
   it("throws when the heading text is empty or whitespace", () => {
-    expect(() => findHeading(headings, "   ")).toThrow(
-      "heading cannot be empty",
-    )
+    expect(() => findHeading(headings, "   ")).toThrow("heading cannot be empty")
   })
 
   it("resolves a setext heading by text and level", () => {

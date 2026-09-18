@@ -57,10 +57,7 @@ import {
   resolveEvalRunPlan,
 } from "./search-eval-plan.js"
 import type { JudgmentQuery } from "./search-eval-plan.js"
-import {
-  createVaultSnapshot,
-  snapshotMatchesProvenance,
-} from "./search-eval-snapshot.js"
+import { createVaultSnapshot, snapshotMatchesProvenance } from "./search-eval-snapshot.js"
 import type { Logger } from "../src/logger.js"
 import { createEmbedder } from "../src/vault-mcp/search/embedder.js"
 import { createReranker } from "../src/vault-mcp/search/reranker.js"
@@ -185,14 +182,13 @@ const main = async (): Promise<void> => {
       excludePaths: judgment.exclude_paths,
       excludePrefixes: judgment.exclude_prefixes,
     })
+
     if (!provenanceMatches) {
       throw new Error(
         "--reuse-snapshot found a snapshot built from a different vault or exclusion lists — re-run without --reuse-snapshot to rebuild it",
       )
     }
-    console.log(
-      `reusing snapshot: ${snapshotDir} (vault ${judgment.vault_path})`,
-    )
+    console.log(`reusing snapshot: ${snapshotDir} (vault ${judgment.vault_path})`)
   } else {
     console.log(`snapshotting vault ${judgment.vault_path} → ${snapshotDir}`)
     createVaultSnapshot({
@@ -221,24 +217,20 @@ const main = async (): Promise<void> => {
   } else {
     console.log("rebuilding index (FTS + embedding — this takes minutes)…")
     const rebuildStartMs = performance.now()
-    const { count, embedding } = await search.rebuildFromVault(
-      { vaultPath: snapshotDir },
-      logger,
-    )
+    const { count, embedding } = await search.rebuildFromVault({ vaultPath: snapshotDir }, logger)
     // Scoring against a partially embedded index measures indexing order,
     // not ranking — wait for the background pass and fail on any error.
     await embedding
     const embedProblems = problems.filter((problem) => {
       return problem.message.includes("embed")
     })
+
     if (embedProblems.length > 0) {
       throw new Error(
         `embedding pass logged ${embedProblems.length} problem(s) — fix before scoring`,
       )
     }
-    const rebuildSeconds = Math.round(
-      (performance.now() - rebuildStartMs) / 1000,
-    )
+    const rebuildSeconds = Math.round((performance.now() - rebuildStartMs) / 1000)
     console.log(`indexed ${count} notes in ${rebuildSeconds}s`)
   }
 
@@ -272,6 +264,7 @@ const main = async (): Promise<void> => {
         logger,
       )
       const latencyMs = Math.round(performance.now() - queryStartMs)
+
       // The probe proves the pipeline once; a reranker failure mid-sweep
       // would otherwise degrade silently to RRF-only ordering while the
       // report attributes the numbers to the reranked pipeline.
@@ -306,14 +299,10 @@ const main = async (): Promise<void> => {
   )
   console.log(`per-query results at limit ${primaryLimit}:`)
   for (const score of scores.filter((entry) => entry.limit === primaryLimit)) {
-    const rankText =
-      score.expectedRank === null ? "MISS" : `#${score.expectedRank}`
-    const gate =
-      score.expectedRank !== null && score.expectedRank <= 3 ? "pass" : "FAIL"
+    const rankText = score.expectedRank === null ? "MISS" : `#${score.expectedRank}`
+    const gate = score.expectedRank !== null && score.expectedRank <= 3 ? "pass" : "FAIL"
     const pollutionText =
-      score.class === "precision"
-        ? ` files@${score.pollutionWindow}=${score.filesInWindow}`
-        : ""
+      score.class === "precision" ? ` files@${score.pollutionWindow}=${score.filesInWindow}` : ""
     console.log(
       `  [${score.class}] ${score.id}: expected ${rankText} (top-3 ${gate})${pollutionText} ${score.latencyMs}ms`,
     )
@@ -322,17 +311,13 @@ const main = async (): Promise<void> => {
   // The note-KNN diversity ratio covers the scoring runs. When a repeated
   // metadata prefix lets one note's chunks flood the window, hits rise
   // while unique notes fall, so a shrinking ratio is the warning sign.
-  const scoringVectorSearchStats = vectorSearchStats.slice(
-    vectorSearchStatsBeforeScoring,
-  )
-  const totalKnnHits = scoringVectorSearchStats.reduce(
-    (sum, stats) => sum + stats.knnHits,
-    0,
-  )
+  const scoringVectorSearchStats = vectorSearchStats.slice(vectorSearchStatsBeforeScoring)
+  const totalKnnHits = scoringVectorSearchStats.reduce((sum, stats) => sum + stats.knnHits, 0)
   const totalUniqueNotes = scoringVectorSearchStats.reduce(
     (sum, stats) => sum + stats.uniqueNotes,
     0,
   )
+
   if (totalKnnHits > 0) {
     console.log(
       `note-KNN diversity: ${totalUniqueNotes} unique notes from ${totalKnnHits} chunk hits (${((100 * totalUniqueNotes) / totalKnnHits).toFixed(1)}%)`,

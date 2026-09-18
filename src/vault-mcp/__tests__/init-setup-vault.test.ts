@@ -1,11 +1,5 @@
 import { spawnSync } from "node:child_process"
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-  rmSync,
-} from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -20,10 +14,7 @@ import { describe, expect, it, onTestFinished } from "vitest"
  * `s6-setuidgid` executables on PATH.
  */
 
-const SCRIPT_PATH = resolve(
-  __dirname,
-  "../../../rootfs/etc/s6-overlay/scripts/init-setup-vault",
-)
+const SCRIPT_PATH = resolve(__dirname, "../../../rootfs/etc/s6-overlay/scripts/init-setup-vault")
 
 /** Stub `ob`: logs each invocation; `sync-setup` exits with the code the
  *  test configures, `sync-config` fails when its flag matches
@@ -43,8 +34,7 @@ shift
 exec "$@"
 `
 
-const DEFAULT_SYNC_CONFIGS_CALL =
-  "sync-config --configs core-plugin-data,community-plugin-data"
+const DEFAULT_SYNC_CONFIGS_CALL = "sync-config --configs core-plugin-data,community-plugin-data"
 
 /** The folder and attachment filters are applied on every boot, empty meaning
  *  "clear" — the stub logs `"$*"`, so an empty argument shows as a trailing
@@ -103,27 +93,15 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
       OB_SYNC_SETUP_EXIT: String(options.syncSetupFails ? 1 : 0),
       OB_SYNC_CONFIG_FAIL_FLAG: options.syncConfigFailsFor ?? "",
       ...(options.setupMode ? { SETUP_MODE: "1" } : {}),
-      ...(options.vaultName === undefined
-        ? {}
-        : { VAULT_NAME: options.vaultName }),
-      ...(options.vaultPassword === undefined
-        ? {}
-        : { VAULT_PASSWORD: options.vaultPassword }),
-      ...(options.configDirName === undefined
-        ? {}
-        : { CONFIG_DIR_NAME: options.configDirName }),
-      ...(options.deviceName === undefined
-        ? {}
-        : { DEVICE_NAME: options.deviceName }),
-      ...(options.syncConfigs === undefined
-        ? {}
-        : { SYNC_CONFIGS: options.syncConfigs }),
+      ...(options.vaultName === undefined ? {} : { VAULT_NAME: options.vaultName }),
+      ...(options.vaultPassword === undefined ? {} : { VAULT_PASSWORD: options.vaultPassword }),
+      ...(options.configDirName === undefined ? {} : { CONFIG_DIR_NAME: options.configDirName }),
+      ...(options.deviceName === undefined ? {} : { DEVICE_NAME: options.deviceName }),
+      ...(options.syncConfigs === undefined ? {} : { SYNC_CONFIGS: options.syncConfigs }),
       ...(options.syncExcludedFolders === undefined
         ? {}
         : { SYNC_EXCLUDED_FOLDERS: options.syncExcludedFolders }),
-      ...(options.syncFileTypes === undefined
-        ? {}
-        : { SYNC_FILE_TYPES: options.syncFileTypes }),
+      ...(options.syncFileTypes === undefined ? {} : { SYNC_FILE_TYPES: options.syncFileTypes }),
     },
   })
 
@@ -146,9 +124,7 @@ describe("init-setup-vault script", () => {
     const run = runSetupScript({ setupMode: true })
 
     expect(run.status).toBe(0)
-    expect(run.stdout).toBe(
-      "[obsidian-sync] Setup mode — skipping vault setup.\n",
-    )
+    expect(run.stdout).toBe("[obsidian-sync] Setup mode — skipping vault setup.\n")
     expect(run.stderr).toBe("")
     expect(run.obCalls).toEqual([])
   })

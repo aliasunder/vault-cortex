@@ -157,13 +157,10 @@ describe("blendScores", () => {
     },
   ]
 
-  it.each(scenarios)(
-    "$name",
-    ({ rrfScores, rerankScores, rrfRanks, expected }) => {
-      const result = blendScores({ rrfScores, rerankScores, rrfRanks })
-      expect(result).toEqual(expected)
-    },
-  )
+  it.each(scenarios)("$name", ({ rrfScores, rerankScores, rrfRanks, expected }) => {
+    const result = blendScores({ rrfScores, rerankScores, rrfRanks })
+    expect(result).toEqual(expected)
+  })
 
   it("returns empty array for empty inputs", () => {
     const result = blendScores({
@@ -190,11 +187,7 @@ describe("createReranker", () => {
   describe("rerankPairs", () => {
     it("returns one score per document", async () => {
       const reranker = await loadReranker()
-      const scores = await reranker.rerankPairs("query", [
-        "doc1",
-        "doc2",
-        "doc3",
-      ])
+      const scores = await reranker.rerankPairs("query", ["doc1", "doc2", "doc3"])
 
       expect(scores).toHaveLength(3)
       scores.forEach((score) => expect(typeof score).toBe("number"))
@@ -239,9 +232,7 @@ describe("createReranker", () => {
 
     it("pins ONNX to single-threaded execution to prevent CPU saturation", async () => {
       const transformers = await import("@huggingface/transformers")
-      const mockedAutoModel = vi.mocked(
-        transformers.AutoModelForSequenceClassification,
-      )
+      const mockedAutoModel = vi.mocked(transformers.AutoModelForSequenceClassification)
 
       const reranker = await loadReranker()
       await reranker.rerankPairs("trigger load", ["doc"])
@@ -257,19 +248,13 @@ describe("createReranker", () => {
 
     it("retries after a model load failure", async () => {
       const transformers = await import("@huggingface/transformers")
-      const mockedAutoModel = vi.mocked(
-        transformers.AutoModelForSequenceClassification,
-      )
-      mockedAutoModel.from_pretrained.mockRejectedValueOnce(
-        new Error("download failed"),
-      )
+      const mockedAutoModel = vi.mocked(transformers.AutoModelForSequenceClassification)
+      mockedAutoModel.from_pretrained.mockRejectedValueOnce(new Error("download failed"))
 
       const warnSpy = vi.spyOn(logger, "warn")
       const reranker = await loadReranker()
 
-      await expect(reranker.rerankPairs("q", ["d"])).rejects.toThrow(
-        "download failed",
-      )
+      await expect(reranker.rerankPairs("q", ["d"])).rejects.toThrow("download failed")
       expect(warnSpy).toHaveBeenCalledWith(
         "reranker model failed to load",
         expect.objectContaining({ model: "Xenova/ms-marco-MiniLM-L-6-v2" }),

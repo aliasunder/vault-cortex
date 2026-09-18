@@ -41,11 +41,11 @@ export const resolvePublicUrl = ({
   queryGatewayUrl: () => string
 }): ResolvedPublicUrl => {
   if (publicUrl) return { url: publicUrl, source: "PUBLIC_URL" }
-  if (customDomain)
-    return { url: `https://${customDomain}`, source: "CUSTOM_DOMAIN" }
+  if (customDomain) return { url: `https://${customDomain}`, source: "CUSTOM_DOMAIN" }
 
   // `aws --output text` prints the literal "None" for an empty query result.
   const gatewayUrl = queryGatewayUrl()
+
   if (!gatewayUrl || gatewayUrl === "None") {
     throw new Error(
       "could not resolve the public URL from PUBLIC_URL, CUSTOM_DOMAIN, or the API Gateway",
@@ -59,10 +59,7 @@ export const resolvePublicUrl = ({
  * value — replaced in place when a line exists (including an empty
  * `PUBLIC_URL=`), appended otherwise. Commented lines are left alone.
  */
-export const envContentWithPublicUrl = (
-  envFileContent: string,
-  publicUrl: string,
-): string => {
+export const envContentWithPublicUrl = (envFileContent: string, publicUrl: string): string => {
   const publicUrlLine = `PUBLIC_URL=${publicUrl}`
   const lines = envFileContent.split("\n")
   const hasPublicUrlLine = lines.some((line) => line.startsWith("PUBLIC_URL="))
@@ -80,9 +77,6 @@ export const envContentWithPublicUrl = (
   // Match the file's line endings so an appended line doesn't mix LF into a
   // CRLF file — the replace branch preserves the matched line's \r the same way.
   const lineEnding = envFileContent.includes("\r\n") ? "\r\n" : "\n"
-  const separator =
-    envFileContent === "" || envFileContent.endsWith(lineEnding)
-      ? ""
-      : lineEnding
+  const separator = envFileContent === "" || envFileContent.endsWith(lineEnding) ? "" : lineEnding
   return `${envFileContent}${separator}${publicUrlLine}${lineEnding}`
 }

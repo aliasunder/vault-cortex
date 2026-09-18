@@ -23,10 +23,7 @@ describe("computeRrfScores", () => {
 
   it("combines scores when an identifier appears in both lists", () => {
     const result = computeRrfScores({
-      rankedLists: [
-        { items: [{ identifier: "a.md" }] },
-        { items: [{ identifier: "a.md" }] },
-      ],
+      rankedLists: [{ items: [{ identifier: "a.md" }] }, { items: [{ identifier: "a.md" }] }],
     })
 
     // rank 1 in both lists: score doubles
@@ -132,9 +129,7 @@ describe("computeRrfScores", () => {
     })
 
     // dampingConstant=10, rank=1: 1/(10+1) + top-rank bonus 0.05 = 0.1409
-    expect(result).toEqual([
-      { identifier: "a.md", score: Number((1 / 11 + 0.05).toPrecision(4)) },
-    ])
+    expect(result).toEqual([{ identifier: "a.md", score: Number((1 / 11 + 0.05).toPrecision(4)) }])
   })
 
   it("scores an identifier in all 3 lists higher than one in 2", () => {
@@ -152,9 +147,7 @@ describe("computeRrfScores", () => {
     // a.md: rank 1 in list 3 (1/61 + 0.05) + rank 2 in lists 1,2 (2 * (1/62 + 0.02))
     // b.md: rank 1 in lists 1,2 (2 * (1/61 + 0.05))
     // Compute from raw values to avoid toPrecision(4) drift on intermediates
-    const expectedScoreA = Number(
-      (1 / 61 + 0.05 + 2 * (1 / 62 + 0.02)).toPrecision(4),
-    )
+    const expectedScoreA = Number((1 / 61 + 0.05 + 2 * (1 / 62 + 0.02)).toPrecision(4))
     const expectedScoreB = Number((2 * (1 / 61 + 0.05)).toPrecision(4))
     expect(result).toEqual([
       { identifier: "a.md", score: expectedScoreA },
@@ -164,10 +157,7 @@ describe("computeRrfScores", () => {
 
   it("ignores empty lists among N without affecting scores", () => {
     const twoLists = computeRrfScores({
-      rankedLists: [
-        { items: [{ identifier: "a.md" }] },
-        { items: [{ identifier: "a.md" }] },
-      ],
+      rankedLists: [{ items: [{ identifier: "a.md" }] }, { items: [{ identifier: "a.md" }] }],
     })
 
     const twoListsWithEmpties = computeRrfScores({
@@ -277,10 +267,7 @@ describe("computeRrfScores", () => {
     // Insertion order is z-first — an implementation keeping Map order
     // would return z.md first, so this fails without the tie-breaker.
     const result = computeRrfScores({
-      rankedLists: [
-        { items: [{ identifier: "z.md" }] },
-        { items: [{ identifier: "a.md" }] },
-      ],
+      rankedLists: [{ items: [{ identifier: "z.md" }] }, { items: [{ identifier: "a.md" }] }],
     })
 
     expect(result.map((entry) => entry.identifier)).toEqual(["a.md", "z.md"])

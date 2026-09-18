@@ -32,9 +32,7 @@ let cachedOption: TrashOption | null = null
  *  to `"system"` when the file is missing (uncached — retried on next call),
  *  the key is absent, or the value is unrecognized. Throws on non-ENOENT
  *  read failures so a broken config never silently causes permanent delete. */
-export const readTrashConfig = async (
-  vaultPath: string,
-): Promise<TrashOption> => {
+export const readTrashConfig = async (vaultPath: string): Promise<TrashOption> => {
   if (cachedOption) return cachedOption
 
   try {
@@ -43,6 +41,7 @@ export const readTrashConfig = async (
     const parsed: Record<string, unknown> = JSON.parse(fileContent)
 
     const rawOption = parsed.trashOption
+
     if (isTrashOption(rawOption)) {
       cachedOption = rawOption
       logger.info("trash config loaded", { trashOption: rawOption })

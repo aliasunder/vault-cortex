@@ -44,9 +44,7 @@ const OPEN_PATH_PREFIXES = [
 ]
 
 const isOpenPath = (path: string): boolean =>
-  OPEN_PATH_PREFIXES.some(
-    (prefix) => path === prefix || path.startsWith(prefix),
-  )
+  OPEN_PATH_PREFIXES.some((prefix) => path === prefix || path.startsWith(prefix))
 
 export const handler = async (
   event: APIGatewayRequestAuthorizerEventV2,
@@ -61,12 +59,14 @@ export const handler = async (
   }
 
   const token = parseBearer(event.headers?.authorization)
+
   if (!token) {
     logger.warn("auth_failed: missing or malformed Authorization header")
     return { isAuthorized: false }
   }
 
   const secret = Resource.McpAuthToken.value
+
   if (!secret) {
     logger.error("auth_failed: McpAuthToken secret is empty")
     return { isAuthorized: false }
@@ -81,6 +81,7 @@ export const handler = async (
   // Express reads it from, so the binding derived here matches the one
   // Express mints into tokens.
   const publicUrl = env.get("PUBLIC_URL").asString()
+
   if (!publicUrl) {
     logger.error("auth_failed: PUBLIC_URL is empty")
     return { isAuthorized: false }
@@ -88,6 +89,7 @@ export const handler = async (
   // A value that is not a URL must deny, not throw: a throw here is a
   // gateway 500 with no auth_failed line to find.
   const serverUrl = URL.parse(publicUrl)
+
   if (!serverUrl) {
     logger.error("auth_failed: PUBLIC_URL is not a URL")
     return { isAuthorized: false }
@@ -108,6 +110,7 @@ export const handler = async (
     expectedIssuer: issuer,
     expectedAudience: audience,
   })
+
   if (verified) {
     logger.info("auth_success", { method: "jwt" })
     return { isAuthorized: true }
@@ -120,6 +123,7 @@ export const handler = async (
   // an upgrade can be unbound, so this path goes quiet within one
   // access-token TTL of upgrading.
   const unbound = verifyUnboundJwt({ token, secret })
+
   if (unbound) {
     logger.info("auth_success", { method: "jwt-unbound" })
     return { isAuthorized: true }

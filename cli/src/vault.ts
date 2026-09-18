@@ -11,10 +11,7 @@ export type VaultPathValidation =
  * Expands a leading `~` or `~/` to the user's home directory. Everything
  * else (including Windows backslash paths) is left untouched.
  */
-export const expandTilde = (
-  input: string,
-  home: string = homedir(),
-): string => {
+export const expandTilde = (input: string, home: string = homedir()): string => {
   if (input === "~") return home
   if (input.startsWith("~/")) return join(home, input.slice(2))
   return input
@@ -27,8 +24,8 @@ export const expandTilde = (
  */
 export const validateVaultPath = (input: string): VaultPathValidation => {
   const trimmed = input.trim()
-  if (trimmed === "")
-    return { kind: "error", message: "Vault path is required." }
+
+  if (trimmed === "") return { kind: "error", message: "Vault path is required." }
   if (/[*?[]/.test(trimmed))
     return {
       kind: "error",
@@ -36,6 +33,7 @@ export const validateVaultPath = (input: string): VaultPathValidation => {
     }
 
   const absolutePath = resolve(expandTilde(trimmed))
+
   if (!existsSync(absolutePath)) {
     return { kind: "error", message: `Path does not exist: ${absolutePath}` }
   }

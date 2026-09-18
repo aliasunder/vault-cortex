@@ -25,6 +25,7 @@ export const levenshteinDistance = (first: string, second: string): number => {
       const deletionBase = previousRow[columnIndex]
       const insertionBase = currentRow[columnIndex - 1]
       const substitutionBase = previousRow[columnIndex - 1]
+
       // Rows are constructed dense with length second.length + 1, so the three
       // reads can never miss — throw instead of silently degrading if that
       // invariant ever breaks.
@@ -35,20 +36,16 @@ export const levenshteinDistance = (first: string, second: string): number => {
       ) {
         throw new Error("levenshtein distance row access out of bounds")
       }
-      const substitutionCost =
-        first[rowIndex - 1] === second[columnIndex - 1] ? 0 : 1
+      const substitutionCost = first[rowIndex - 1] === second[columnIndex - 1] ? 0 : 1
       currentRow.push(
-        Math.min(
-          deletionBase + 1,
-          insertionBase + 1,
-          substitutionBase + substitutionCost,
-        ),
+        Math.min(deletionBase + 1, insertionBase + 1, substitutionBase + substitutionCost),
       )
     }
     previousRow = currentRow
   }
 
   const distance = previousRow[second.length]
+
   if (distance === undefined) {
     throw new Error("levenshtein distance final row access out of bounds")
   }

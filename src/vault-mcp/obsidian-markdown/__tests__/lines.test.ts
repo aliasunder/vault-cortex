@@ -13,10 +13,7 @@ import {
 
 describe("trimBlankEdgeLines", () => {
   it("drops blank lines from both ends", () => {
-    expect(trimBlankEdgeLines(["", "  ", "a", "b", "", "\t"])).toEqual([
-      "a",
-      "b",
-    ])
+    expect(trimBlankEdgeLines(["", "  ", "a", "b", "", "\t"])).toEqual(["a", "b"])
   })
 
   it("keeps interior blank lines", () => {
@@ -330,9 +327,7 @@ describe("advanceFence", () => {
 
 describe("classifyLines", () => {
   it("tags a plain line as not code", () => {
-    expect([...classifyLines("hello world")]).toEqual([
-      { text: "hello world", inCode: false },
-    ])
+    expect([...classifyLines("hello world")]).toEqual([{ text: "hello world", inCode: false }])
   })
 
   it("tags fence delimiters and interior lines as code, then resumes after the close", () => {
@@ -411,13 +406,7 @@ describe("classifyLines", () => {
   // ── blockquote-aware classification ──────────────────────────
 
   it("classifies lines inside a blockquoted fence as code", () => {
-    const content = [
-      "before",
-      "> ```",
-      "> inside fence",
-      "> ```",
-      "after",
-    ].join("\n")
+    const content = ["before", "> ```", "> inside fence", "> ```", "after"].join("\n")
     expect([...classifyLines(content)]).toEqual([
       { text: "before", inCode: false },
       { text: "> ```", inCode: true },
@@ -553,24 +542,20 @@ describe("pageTextByLines", () => {
   })
 
   it("rejects a startLine below 1", () => {
-    expect(() =>
-      pageTextByLines({ text: "a\nb", path: "note.md", startLine: 0 }),
-    ).toThrow(
+    expect(() => pageTextByLines({ text: "a\nb", path: "note.md", startLine: 0 })).toThrow(
       'invalid line range: "note.md" needs a start line and limit of at least 1',
     )
   })
 
   it("rejects a limit below 1", () => {
-    expect(() =>
-      pageTextByLines({ text: "a\nb", path: "note.md", limit: 0 }),
-    ).toThrow(
+    expect(() => pageTextByLines({ text: "a\nb", path: "note.md", limit: 0 })).toThrow(
       'invalid line range: "note.md" needs a start line and limit of at least 1',
     )
   })
 
   it("rejects a startLine past the end", () => {
-    expect(() =>
-      pageTextByLines({ text: "a\nb\nc", path: "note.md", startLine: 6 }),
-    ).toThrow('start line past the end: "note.md" renders to 3 lines')
+    expect(() => pageTextByLines({ text: "a\nb\nc", path: "note.md", startLine: 6 })).toThrow(
+      'start line past the end: "note.md" renders to 3 lines',
+    )
   })
 })

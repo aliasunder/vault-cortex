@@ -17,10 +17,9 @@ export const mapWithConcurrency = async <Item, Result>(params: {
   mapper: (item: Item) => Promise<Result>
 }): Promise<Result[]> => {
   const { items, concurrency, mapper } = params
+
   if (!Number.isInteger(concurrency) || concurrency < 1) {
-    throw new Error(
-      `concurrency must be a positive integer, got ${concurrency}`,
-    )
+    throw new Error(`concurrency must be a positive integer, got ${concurrency}`)
   }
 
   const batchStarts = Array.from(

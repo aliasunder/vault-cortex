@@ -104,15 +104,10 @@ describe("tasks.extractTasks", () => {
       { char: "!", status: "todo" },
     ] as const
 
-    it.each(statusScenarios)(
-      "maps status char “$char” to $status",
-      ({ char, status }) => {
-        const extracted = tasks.extractTasks(`- [${char}] Task`)
-        expect(extracted).toEqual([
-          task({ statusChar: char, status, description: "Task" }),
-        ])
-      },
-    )
+    it.each(statusScenarios)("maps status char “$char” to $status", ({ char, status }) => {
+      const extracted = tasks.extractTasks(`- [${char}] Task`)
+      expect(extracted).toEqual([task({ statusChar: char, status, description: "Task" })])
+    })
   })
 
   describe("emoji date fields", () => {
@@ -179,9 +174,7 @@ describe("tasks.extractTasks", () => {
 
     it("tolerates a variant selector (U+FE0F) after the emoji", () => {
       const extracted = tasks.extractTasks("- [ ] T 🗓️ 2026-07-04")
-      expect(extracted).toEqual([
-        task({ description: "T", dueDate: "2026-07-04" }),
-      ])
+      expect(extracted).toEqual([task({ description: "T", dueDate: "2026-07-04" })])
     })
 
     it("parses all six dates on one line regardless of order", () => {
@@ -220,9 +213,7 @@ describe("tasks.extractTasks", () => {
 
     it("keeps a leap-day date that is calendar-valid", () => {
       const extracted = tasks.extractTasks("- [ ] T 📅 2028-02-29")
-      expect(extracted).toEqual([
-        task({ description: "T", dueDate: "2028-02-29" }),
-      ])
+      expect(extracted).toEqual([task({ description: "T", dueDate: "2028-02-29" })])
     })
   })
 
@@ -304,15 +295,11 @@ describe("tasks.extractTasks", () => {
 
     it("parses the parenthesized field form (due:: ...)", () => {
       const extracted = tasks.extractTasks("- [ ] T (due:: 2026-07-04)")
-      expect(extracted).toEqual([
-        task({ description: "T", dueDate: "2026-07-04" }),
-      ])
+      expect(extracted).toEqual([task({ description: "T", dueDate: "2026-07-04" })])
     })
 
     it("tolerates a trailing comma after a bracketed field", () => {
-      const extracted = tasks.extractTasks(
-        "- [ ] T [due:: 2026-07-04] [priority:: high],",
-      )
+      const extracted = tasks.extractTasks("- [ ] T [due:: 2026-07-04] [priority:: high],")
       expect(extracted).toEqual([
         task({ description: "T", dueDate: "2026-07-04", priority: "high" }),
       ])
@@ -329,9 +316,7 @@ describe("tasks.extractTasks", () => {
     })
 
     it("mixes emoji and dataview fields on the same line", () => {
-      const extracted = tasks.extractTasks(
-        "- [ ] T [due:: 2026-07-04] ➕ 2026-07-01",
-      )
+      const extracted = tasks.extractTasks("- [ ] T [due:: 2026-07-04] ➕ 2026-07-01")
       expect(extracted).toEqual([
         task({
           description: "T",
@@ -351,13 +336,10 @@ describe("tasks.extractTasks", () => {
       { emoji: "⏬", priority: "lowest" },
     ] as const
 
-    it.each(priorityScenarios)(
-      "maps $emoji to $priority",
-      ({ emoji, priority }) => {
-        const extracted = tasks.extractTasks(`- [ ] T ${emoji}`)
-        expect(extracted).toEqual([task({ description: "T", priority })])
-      },
-    )
+    it.each(priorityScenarios)("maps $emoji to $priority", ({ emoji, priority }) => {
+      const extracted = tasks.extractTasks(`- [ ] T ${emoji}`)
+      expect(extracted).toEqual([task({ description: "T", priority })])
+    })
 
     it("leaves priority null when no signifier is present", () => {
       const extracted = tasks.extractTasks("- [ ] T")
@@ -365,9 +347,7 @@ describe("tasks.extractTasks", () => {
     })
 
     it("parses priority placed before dates (canonical write order)", () => {
-      const extracted = tasks.extractTasks(
-        "- [ ] T ⏫ ➕ 2026-07-01 📅 2026-07-10",
-      )
+      const extracted = tasks.extractTasks("- [ ] T ⏫ ➕ 2026-07-01 📅 2026-07-10")
       expect(extracted).toEqual([
         task({
           description: "T",
@@ -407,9 +387,7 @@ describe("tasks.extractTasks", () => {
     })
 
     it("parses 🆔 id and ⛔ dependsOn with spaces around commas", () => {
-      const extracted = tasks.extractTasks(
-        "- [ ] Build API ⛔ db-setup , cache-setup 🆔 api-build",
-      )
+      const extracted = tasks.extractTasks("- [ ] Build API ⛔ db-setup , cache-setup 🆔 api-build")
       expect(extracted).toEqual([
         task({
           description: "Build API",
@@ -423,9 +401,7 @@ describe("tasks.extractTasks", () => {
   describe("block IDs", () => {
     it("captures a block ID and strips it from the description", () => {
       const extracted = tasks.extractTasks("- [ ] Fix login ^fix-login")
-      expect(extracted).toEqual([
-        task({ description: "Fix login", blockId: "fix-login" }),
-      ])
+      expect(extracted).toEqual([task({ description: "Fix login", blockId: "fix-login" })])
     })
 
     it("parses a block ID placed after emoji metadata (canonical card format)", () => {
@@ -448,9 +424,7 @@ describe("tasks.extractTasks", () => {
     it("parses metadata behind a block ID hidden by a trailing hard break", () => {
       // Two trailing spaces form a markdown hard break that once hid the
       // block link — and with it every metadata field after the description.
-      const extracted = tasks.extractTasks(
-        "- [ ] Habit 🔁 every week 📅 2026-01-05 ^habit  ",
-      )
+      const extracted = tasks.extractTasks("- [ ] Habit 🔁 every week 📅 2026-01-05 ^habit  ")
       expect(extracted).toEqual([
         task({
           description: "Habit",
@@ -464,9 +438,7 @@ describe("tasks.extractTasks", () => {
 
   describe("inline tags", () => {
     it("keeps tags interleaved with signifiers in the description and extracts them bare", () => {
-      const extracted = tasks.extractTasks(
-        "- [ ] Do something #tag1 📅 2026-07-04 #tag2",
-      )
+      const extracted = tasks.extractTasks("- [ ] Do something #tag1 📅 2026-07-04 #tag2")
       expect(extracted).toEqual([
         task({
           description: "Do something #tag1 #tag2",
@@ -488,29 +460,19 @@ describe("tasks.extractTasks", () => {
 
     it("deduplicates repeated tags", () => {
       const extracted = tasks.extractTasks("- [ ] T #a mid #a")
-      expect(extracted).toEqual([
-        task({ description: "T #a mid #a", tags: ["a"] }),
-      ])
+      expect(extracted).toEqual([task({ description: "T #a mid #a", tags: ["a"] })])
     })
   })
 
   describe("backward-scan stop rule", () => {
     it("ignores metadata when unrecognized text follows it", () => {
-      const extracted = tasks.extractTasks(
-        "- [ ] Fix bug 📅 2026-02-01 some note",
-      )
-      expect(extracted).toEqual([
-        task({ description: "Fix bug 📅 2026-02-01 some note" }),
-      ])
+      const extracted = tasks.extractTasks("- [ ] Fix bug 📅 2026-02-01 some note")
+      expect(extracted).toEqual([task({ description: "Fix bug 📅 2026-02-01 some note" })])
     })
 
     it("leaves a mid-description dataview-looking field in the description", () => {
-      const extracted = tasks.extractTasks(
-        "- [ ] Try [due:: 2026-07-04] tomorrow",
-      )
-      expect(extracted).toEqual([
-        task({ description: "Try [due:: 2026-07-04] tomorrow" }),
-      ])
+      const extracted = tasks.extractTasks("- [ ] Try [due:: 2026-07-04] tomorrow")
+      expect(extracted).toEqual([task({ description: "Try [due:: 2026-07-04] tomorrow" })])
     })
   })
 
@@ -537,25 +499,15 @@ describe("tasks.extractTasks", () => {
     })
 
     it("skips frontmatter and reports file-relative 1-based line numbers", () => {
-      const content = [
-        "---",
-        "title: Board",
-        "tags: [kanban]",
-        "---",
-        "",
-        "- [ ] First task",
-      ].join("\n")
+      const content = ["---", "title: Board", "tags: [kanban]", "---", "", "- [ ] First task"].join(
+        "\n",
+      )
       const extracted = tasks.extractTasks(content)
       expect(extracted).toEqual([task({ line: 6, description: "First task" })])
     })
 
     it("does not extract checkbox-shaped lines inside frontmatter", () => {
-      const content = [
-        "---",
-        "note: '- [ ] not a task'",
-        "---",
-        "- [ ] Real task",
-      ].join("\n")
+      const content = ["---", "note: '- [ ] not a task'", "---", "- [ ] Real task"].join("\n")
       const extracted = tasks.extractTasks(content)
       expect(extracted).toEqual([task({ line: 4, description: "Real task" })])
     })
@@ -563,9 +515,7 @@ describe("tasks.extractTasks", () => {
     it("treats an unclosed leading --- as body, not frontmatter", () => {
       const content = ["---", "- [ ] Task under a horizontal rule"].join("\n")
       const extracted = tasks.extractTasks(content)
-      expect(extracted).toEqual([
-        task({ line: 2, description: "Task under a horizontal rule" }),
-      ])
+      expect(extracted).toEqual([task({ line: 2, description: "Task under a horizontal rule" })])
     })
 
     it("excludes task lines inside a fenced code block within a callout", () => {
@@ -577,17 +527,11 @@ describe("tasks.extractTasks", () => {
         "> - [ ] Real callout task",
       ].join("\n")
       const extracted = tasks.extractTasks(content)
-      expect(extracted).toEqual([
-        task({ line: 5, description: "Real callout task" }),
-      ])
+      expect(extracted).toEqual([task({ line: 5, description: "Real callout task" })])
     })
 
     it("still extracts real tasks inside callouts without fences", () => {
-      const content = [
-        "> [!todo] Board",
-        "> - [ ] Buy milk",
-        "> - [x] Walk dog",
-      ].join("\n")
+      const content = ["> [!todo] Board", "> - [ ] Buy milk", "> - [x] Walk dog"].join("\n")
       const extracted = tasks.extractTasks(content)
       expect(extracted).toEqual([
         task({ line: 2, description: "Buy milk" }),
@@ -607,9 +551,7 @@ describe("tasks.extractTasks", () => {
         "- [ ] visible after blockquote ends",
       ].join("\n")
       const extracted = tasks.extractTasks(content)
-      expect(extracted).toEqual([
-        task({ line: 3, description: "visible after blockquote ends" }),
-      ])
+      expect(extracted).toEqual([task({ line: 3, description: "visible after blockquote ends" })])
     })
 
     it("excludes task lines inside a tilde fenced code block within a callout", () => {
@@ -621,9 +563,7 @@ describe("tasks.extractTasks", () => {
         "> - [ ] Real tilde callout task",
       ].join("\n")
       const extracted = tasks.extractTasks(content)
-      expect(extracted).toEqual([
-        task({ line: 5, description: "Real tilde callout task" }),
-      ])
+      expect(extracted).toEqual([task({ line: 5, description: "Real tilde callout task" })])
     })
 
     it("excludes task lines inside a depth-2 fence that implicitly closes", () => {
@@ -635,9 +575,7 @@ describe("tasks.extractTasks", () => {
         "> - [ ] Task after nested fence",
       ].join("\n")
       const extracted = tasks.extractTasks(content)
-      expect(extracted).toEqual([
-        task({ line: 5, description: "Task after nested fence" }),
-      ])
+      expect(extracted).toEqual([task({ line: 5, description: "Task after nested fence" })])
     })
   })
 
@@ -658,14 +596,9 @@ describe("tasks.extractTasks", () => {
     })
 
     it("excludes a single-line inline comment containing a task", () => {
-      const content = [
-        "- [ ] Visible task",
-        "%% - [ ] Hidden inline task %%",
-      ].join("\n")
+      const content = ["- [ ] Visible task", "%% - [ ] Hidden inline task %%"].join("\n")
       const extracted = tasks.extractTasks(content)
-      expect(extracted).toEqual([
-        task({ line: 1, description: "Visible task" }),
-      ])
+      expect(extracted).toEqual([task({ line: 1, description: "Visible task" })])
     })
 
     it("skips all tasks after an unclosed comment running to EOF", () => {
@@ -676,9 +609,7 @@ describe("tasks.extractTasks", () => {
         "- [ ] Also hidden",
       ].join("\n")
       const extracted = tasks.extractTasks(content)
-      expect(extracted).toEqual([
-        task({ line: 1, description: "Visible task" }),
-      ])
+      expect(extracted).toEqual([task({ line: 1, description: "Visible task" })])
     })
 
     it("does not open a fence inside a comment block", () => {
@@ -691,9 +622,7 @@ describe("tasks.extractTasks", () => {
         "- [ ] Visible after comment closes",
       ].join("\n")
       const extracted = tasks.extractTasks(content)
-      expect(extracted).toEqual([
-        task({ line: 6, description: "Visible after comment closes" }),
-      ])
+      expect(extracted).toEqual([task({ line: 6, description: "Visible after comment closes" })])
     })
 
     it("does not toggle comment state inside a fenced code block", () => {
@@ -706,15 +635,11 @@ describe("tasks.extractTasks", () => {
         "- [ ] Visible after fence closes",
       ].join("\n")
       const extracted = tasks.extractTasks(content)
-      expect(extracted).toEqual([
-        task({ line: 6, description: "Visible after fence closes" }),
-      ])
+      expect(extracted).toEqual([task({ line: 6, description: "Visible after fence closes" })])
     })
 
     it("does not toggle on mid-line %% in card text", () => {
-      const content = ["- [ ] Card with 100%% off", "- [ ] Another card"].join(
-        "\n",
-      )
+      const content = ["- [ ] Card with 100%% off", "- [ ] Another card"].join("\n")
       const extracted = tasks.extractTasks(content)
       expect(extracted).toEqual([
         task({ line: 1, description: "Card with 100%% off" }),
@@ -771,9 +696,7 @@ describe("tasks.extractTasks", () => {
     it("uses the nearest heading regardless of level", () => {
       const content = ["## Lane", "### Sub-section", "- [ ] Task"].join("\n")
       const extracted = tasks.extractTasks(content)
-      expect(extracted).toEqual([
-        task({ line: 3, description: "Task", heading: "Sub-section" }),
-      ])
+      expect(extracted).toEqual([task({ line: 3, description: "Task", heading: "Sub-section" })])
     })
 
     it("accounts for frontmatter when matching headings to tasks", () => {
@@ -870,15 +793,12 @@ describe("task line mutations", () => {
   describe("updateTaskLineStatus", () => {
     it("un-completing strips only the real done date, never a date-like phrase in the description", () => {
       const result = tasks.updateTaskLineStatus({
-        taskLine:
-          "- [x] Shipped ✅ 2026-07-01 in the notes ➕ 2026-07-01 ✅ 2026-07-12",
+        taskLine: "- [x] Shipped ✅ 2026-07-01 in the notes ➕ 2026-07-01 ✅ 2026-07-12",
         newStatus: "todo",
         today: "2026-07-13",
         config: EMOJI_CONFIG,
       })
-      expect(result).toBe(
-        "- [ ] Shipped ✅ 2026-07-01 in the notes ➕ 2026-07-01",
-      )
+      expect(result).toBe("- [ ] Shipped ✅ 2026-07-01 in the notes ➕ 2026-07-01")
     })
 
     it("re-stamping done on a line with duplicated done dates strips all copies", () => {
@@ -968,9 +888,7 @@ describe("task line mutations", () => {
         today: "2026-07-12",
         config: EMOJI_CONFIG,
       })
-      expect(result).toBe(
-        "- [x] Task with ID ➕ 2026-07-01 ✅ 2026-07-12 ^my-task",
-      )
+      expect(result).toBe("- [x] Task with ID ➕ 2026-07-01 ✅ 2026-07-12 ^my-task")
     })
 
     it("preserves priority and created date when completing", () => {
@@ -980,9 +898,7 @@ describe("task line mutations", () => {
         today: "2026-07-12",
         config: EMOJI_CONFIG,
       })
-      expect(result).toBe(
-        "- [x] Prioritized ⏫ ➕ 2026-07-01 📅 2026-07-20 ✅ 2026-07-12",
-      )
+      expect(result).toBe("- [x] Prioritized ⏫ ➕ 2026-07-01 📅 2026-07-20 ✅ 2026-07-12")
     })
 
     it("handles a bare task with no metadata", () => {
@@ -1022,9 +938,7 @@ describe("task line mutations", () => {
         today: "2026-07-12",
         config: DATAVIEW_CONFIG,
       })
-      expect(result).toBe(
-        "- [x] Task [created:: 2026-07-01] [completion:: 2026-07-12]",
-      )
+      expect(result).toBe("- [x] Task [created:: 2026-07-01] [completion:: 2026-07-12]")
     })
 
     it("skips done date when setDoneDate is false", () => {
@@ -1066,9 +980,7 @@ describe("task line mutations", () => {
         today: "2026-07-12",
         config: DATAVIEW_CONFIG,
       })
-      expect(result).toBe(
-        "- [-] Task [created:: 2026-07-01] [cancelled:: 2026-07-12]",
-      )
+      expect(result).toBe("- [-] Task [created:: 2026-07-01] [cancelled:: 2026-07-12]")
     })
 
     it("preserves a hard break through a status change", () => {
@@ -1452,23 +1364,17 @@ describe("task line mutations", () => {
 
   describe("describeTaskLine", () => {
     it("returns the parser's description with a mid-line emoji intact", () => {
-      expect(
-        tasks.describeTaskLine(
-          "- [ ] Prefer 🔼 arrows in docs 📅 2026-09-15 ^x",
-        ),
-      ).toBe("Prefer 🔼 arrows in docs")
+      expect(tasks.describeTaskLine("- [ ] Prefer 🔼 arrows in docs 📅 2026-09-15 ^x")).toBe(
+        "Prefer 🔼 arrows in docs",
+      )
     })
 
     it("re-appends tags interleaved with metadata", () => {
-      expect(
-        tasks.describeTaskLine("- [ ] Fix bug 📅 2026-01-01 #urgent"),
-      ).toBe("Fix bug #urgent")
+      expect(tasks.describeTaskLine("- [ ] Fix bug 📅 2026-01-01 #urgent")).toBe("Fix bug #urgent")
     })
 
     it("strips a bare block link with no metadata", () => {
-      expect(tasks.describeTaskLine("- [ ] Walk the dog ^walk-dog")).toBe(
-        "Walk the dog",
-      )
+      expect(tasks.describeTaskLine("- [ ] Walk the dog ^walk-dog")).toBe("Walk the dog")
     })
   })
 
@@ -1656,17 +1562,14 @@ describe("task line mutations", () => {
     })
 
     it("clears only the real due date, never a date-like phrase in the description", () => {
-      const line =
-        "- [ ] Trip on 📅 2026-09-15, file taxes ➕ 2026-08-01 📅 2026-09-20 ^trip"
+      const line = "- [ ] Trip on 📅 2026-09-15, file taxes ➕ 2026-08-01 📅 2026-09-20 ^trip"
       const result = tasks.updateTaskLineDate({
         taskLine: line,
         field: "due",
         date: null,
         config: EMOJI_CONFIG,
       })
-      expect(result).toBe(
-        "- [ ] Trip on 📅 2026-09-15, file taxes ➕ 2026-08-01 ^trip",
-      )
+      expect(result).toBe("- [ ] Trip on 📅 2026-09-15, file taxes ➕ 2026-08-01 ^trip")
     })
 
     it("sets a due date on a task without one (emoji)", () => {
@@ -1710,9 +1613,7 @@ describe("task line mutations", () => {
         date: "2026-09-10",
         config: DATAVIEW_CONFIG,
       })
-      expect(result).toBe(
-        "- [ ] My task [created:: 2026-08-01] [scheduled:: 2026-09-10] ^my-task",
-      )
+      expect(result).toBe("- [ ] My task [created:: 2026-08-01] [scheduled:: 2026-09-10] ^my-task")
     })
 
     it("inserts a start date before scheduled when both exist", () => {
@@ -1723,9 +1624,7 @@ describe("task line mutations", () => {
         date: "2026-08-15",
         config: EMOJI_CONFIG,
       })
-      expect(result).toBe(
-        "- [ ] My task ➕ 2026-08-01 🛫 2026-08-15 ⏳ 2026-09-10 ^my-task",
-      )
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 🛫 2026-08-15 ⏳ 2026-09-10 ^my-task")
     })
 
     it("clears a created date", () => {
@@ -1770,14 +1669,11 @@ describe("task line mutations", () => {
         taskId: "abc123",
         config: EMOJI_CONFIG,
       })
-      expect(result).toBe(
-        "- [ ] My task ➕ 2026-08-01 🆔 abc123 ⛔ dep-a ^my-task",
-      )
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 🆔 abc123 ⛔ dep-a ^my-task")
     })
 
     it("leaves an id-like phrase in the description alone", () => {
-      const line =
-        "- [ ] Ticket 🆔 old-ref in the description ➕ 2026-08-01 ^my-task"
+      const line = "- [ ] Ticket 🆔 old-ref in the description ➕ 2026-08-01 ^my-task"
       const result = tasks.updateTaskLineTaskId({
         taskLine: line,
         taskId: "abc123",
@@ -1795,9 +1691,7 @@ describe("task line mutations", () => {
         taskId: "xyz789",
         config: DATAVIEW_CONFIG,
       })
-      expect(result).toBe(
-        "- [ ] My task [created:: 2026-08-01] [id:: xyz789] ^my-task",
-      )
+      expect(result).toBe("- [ ] My task [created:: 2026-08-01] [id:: xyz789] ^my-task")
     })
   })
 
@@ -1811,14 +1705,11 @@ describe("task line mutations", () => {
         recurrenceText: "every week",
         config: EMOJI_CONFIG,
       })
-      expect(result).toBe(
-        "- [ ] My task 🔁 every week ➕ 2026-08-01 📅 2026-09-01 ^my-task",
-      )
+      expect(result).toBe("- [ ] My task 🔁 every week ➕ 2026-08-01 📅 2026-09-01 ^my-task")
     })
 
     it("sets a recurrence rule (dataview format)", () => {
-      const line =
-        "- [ ] My task [created:: 2026-08-01] [due:: 2026-09-01] ^my-task"
+      const line = "- [ ] My task [created:: 2026-08-01] [due:: 2026-09-01] ^my-task"
       const result = tasks.updateTaskLineRecurrence({
         taskLine: line,
         recurrenceText: "every 2 weeks when done",
@@ -1830,8 +1721,7 @@ describe("task line mutations", () => {
     })
 
     it("clears a recurrence rule", () => {
-      const line =
-        "- [ ] My task 🔁 every week ➕ 2026-08-01 📅 2026-09-01 ^my-task"
+      const line = "- [ ] My task 🔁 every week ➕ 2026-08-01 📅 2026-09-01 ^my-task"
       const result = tasks.updateTaskLineRecurrence({
         taskLine: line,
         recurrenceText: null,
@@ -1841,8 +1731,7 @@ describe("task line mutations", () => {
     })
 
     it("replaces an existing recurrence rule", () => {
-      const line =
-        "- [ ] My task 🔁 every week ➕ 2026-08-01 📅 2026-09-01 ^my-task"
+      const line = "- [ ] My task 🔁 every week ➕ 2026-08-01 📅 2026-09-01 ^my-task"
       const result = tasks.updateTaskLineRecurrence({
         taskLine: line,
         recurrenceText: "every month when done",
@@ -1854,8 +1743,7 @@ describe("task line mutations", () => {
     })
 
     it("clearing a duplicated recurrence strips all copies", () => {
-      const line =
-        "- [ ] My task 🔁 every week 🔁 every day ➕ 2026-08-01 ^my-task"
+      const line = "- [ ] My task 🔁 every week 🔁 every day ➕ 2026-08-01 ^my-task"
       const result = tasks.updateTaskLineRecurrence({
         taskLine: line,
         recurrenceText: null,
@@ -1865,16 +1753,13 @@ describe("task line mutations", () => {
     })
 
     it("replacing a duplicated recurrence swaps the last and keeps the first", () => {
-      const line =
-        "- [ ] My task 🔁 every week 🔁 every day ➕ 2026-08-01 ^my-task"
+      const line = "- [ ] My task 🔁 every week 🔁 every day ➕ 2026-08-01 ^my-task"
       const result = tasks.updateTaskLineRecurrence({
         taskLine: line,
         recurrenceText: "every month",
         config: EMOJI_CONFIG,
       })
-      expect(result).toBe(
-        "- [ ] My task 🔁 every week 🔁 every month ➕ 2026-08-01 ^my-task",
-      )
+      expect(result).toBe("- [ ] My task 🔁 every week 🔁 every month ➕ 2026-08-01 ^my-task")
     })
   })
 
@@ -1888,14 +1773,11 @@ describe("task line mutations", () => {
         onCompletion: "delete",
         config: EMOJI_CONFIG,
       })
-      expect(result).toBe(
-        "- [ ] My task 🏁 delete ➕ 2026-08-01 📅 2026-09-01 ^my-task",
-      )
+      expect(result).toBe("- [ ] My task 🏁 delete ➕ 2026-08-01 📅 2026-09-01 ^my-task")
     })
 
     it("sets onCompletion (dataview format)", () => {
-      const line =
-        "- [ ] My task [created:: 2026-08-01] [due:: 2026-09-01] ^my-task"
+      const line = "- [ ] My task [created:: 2026-08-01] [due:: 2026-09-01] ^my-task"
       const result = tasks.updateTaskLineOnCompletion({
         taskLine: line,
         onCompletion: "delete",
@@ -1907,8 +1789,7 @@ describe("task line mutations", () => {
     })
 
     it("clears onCompletion", () => {
-      const line =
-        "- [ ] My task 🏁 delete ➕ 2026-08-01 📅 2026-09-01 ^my-task"
+      const line = "- [ ] My task 🏁 delete ➕ 2026-08-01 📅 2026-09-01 ^my-task"
       const result = tasks.updateTaskLineOnCompletion({
         taskLine: line,
         onCompletion: null,
@@ -1924,9 +1805,7 @@ describe("task line mutations", () => {
         onCompletion: "delete",
         config: EMOJI_CONFIG,
       })
-      expect(result).toBe(
-        "- [ ] My task 🏁 delete ➕ 2026-08-01 📅 2026-09-01 ^my-task",
-      )
+      expect(result).toBe("- [ ] My task 🏁 delete ➕ 2026-08-01 📅 2026-09-01 ^my-task")
     })
 
     it("clearing strips all copies of both formats", () => {
@@ -1950,8 +1829,7 @@ describe("task line mutations", () => {
     })
 
     it("clears a Dataview-format onCompletion field", () => {
-      const line =
-        "- [ ] My task [onCompletion:: delete] [created:: 2026-08-01] ^my-task"
+      const line = "- [ ] My task [onCompletion:: delete] [created:: 2026-08-01] ^my-task"
       const result = tasks.updateTaskLineOnCompletion({
         taskLine: line,
         onCompletion: null,
@@ -1974,8 +1852,7 @@ describe("task line mutations", () => {
 
   describe("updateTaskLineRecurrence ordering with onCompletion", () => {
     it("inserts recurrence before an existing onCompletion field", () => {
-      const line =
-        "- [ ] My task 🏁 delete ➕ 2026-08-01 📅 2026-09-01 ^my-task"
+      const line = "- [ ] My task 🏁 delete ➕ 2026-08-01 📅 2026-09-01 ^my-task"
       const result = tasks.updateTaskLineRecurrence({
         taskLine: line,
         recurrenceText: "every week",
@@ -1997,9 +1874,7 @@ describe("task line mutations", () => {
         dependsOn: ["abc123", "def456"],
         config: EMOJI_CONFIG,
       })
-      expect(result).toBe(
-        "- [ ] My task ➕ 2026-08-01 ⛔ abc123,def456 ^my-task",
-      )
+      expect(result).toBe("- [ ] My task ➕ 2026-08-01 ⛔ abc123,def456 ^my-task")
     })
 
     it("clears depends-on", () => {
@@ -2068,9 +1943,7 @@ describe("task line mutations", () => {
         },
         DATAVIEW_CONFIG,
       )
-      expect(line).toBe(
-        "- [ ] Dataview task [created:: 2026-08-25] [due:: 2026-09-01] ^dv-task",
-      )
+      expect(line).toBe("- [ ] Dataview task [created:: 2026-08-25] [due:: 2026-09-01] ^dv-task")
     })
 
     it("places onCompletion between recurrence and created", () => {
@@ -2146,9 +2019,7 @@ describe("task line mutations", () => {
         },
         dvConfig,
       )
-      const parsed = tasks.extractTasks(
-        `---\ntitle: Test\n---\n\n${builtLine}\n`,
-      )
+      const parsed = tasks.extractTasks(`---\ntitle: Test\n---\n\n${builtLine}\n`)
       expect(parsed).toEqual([
         task({
           line: 5,
@@ -2167,8 +2038,7 @@ describe("task line mutations", () => {
   describe("buildNextOccurrenceLine", () => {
     it("resets to todo and replaces dates with the next occurrence", () => {
       const result = tasks.buildNextOccurrenceLine({
-        taskLine:
-          "- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ 2026-01-05 ^water",
+        taskLine: "- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ 2026-01-05 ^water",
         nextDates: {
           startDate: null,
           scheduledDate: null,
@@ -2182,8 +2052,7 @@ describe("task line mutations", () => {
 
     it("keeps the priority and inline tag on the spawn", () => {
       const result = tasks.buildNextOccurrenceLine({
-        taskLine:
-          "- [x] Water plants ⏫ 🔁 every week 📅 2026-01-05 #chore ✅ 2026-01-05 ^water",
+        taskLine: "- [x] Water plants ⏫ 🔁 every week 📅 2026-01-05 #chore ✅ 2026-01-05 ^water",
         nextDates: {
           startDate: null,
           scheduledDate: null,
@@ -2192,15 +2061,12 @@ describe("task line mutations", () => {
         today: "2026-01-05",
         config: EMOJI_CONFIG,
       })
-      expect(result).toBe(
-        "- [ ] Water plants ⏫ 🔁 every week #chore 📅 2026-01-12",
-      )
+      expect(result).toBe("- [ ] Water plants ⏫ 🔁 every week #chore 📅 2026-01-12")
     })
 
     it("strips the block link, task id, and depends-on from the spawn", () => {
       const result = tasks.buildNextOccurrenceLine({
-        taskLine:
-          "- [x] Sync 🔁 every month 📅 2026-01-31 🆔 sync1 ⛔ prep1 ✅ 2026-01-31 ^sync",
+        taskLine: "- [x] Sync 🔁 every month 📅 2026-01-31 🆔 sync1 ⛔ prep1 ✅ 2026-01-31 ^sync",
         nextDates: {
           startDate: null,
           scheduledDate: null,
@@ -2218,8 +2084,7 @@ describe("task line mutations", () => {
         setCreatedDate: true,
       }
       const result = tasks.buildNextOccurrenceLine({
-        taskLine:
-          "- [x] Habit 🔁 every week ➕ 2026-01-01 📅 2026-01-05 ✅ 2026-01-05 ^habit",
+        taskLine: "- [x] Habit 🔁 every week ➕ 2026-01-01 📅 2026-01-05 ✅ 2026-01-05 ^habit",
         nextDates: {
           startDate: null,
           scheduledDate: null,
@@ -2228,15 +2093,12 @@ describe("task line mutations", () => {
         today: "2026-01-05",
         config: configWithCreated,
       })
-      expect(result).toBe(
-        "- [ ] Habit 🔁 every week ➕ 2026-01-05 📅 2026-01-12",
-      )
+      expect(result).toBe("- [ ] Habit 🔁 every week ➕ 2026-01-05 📅 2026-01-12")
     })
 
     it("strips the original created date when setCreatedDate is off", () => {
       const result = tasks.buildNextOccurrenceLine({
-        taskLine:
-          "- [x] Habit 🔁 every week ➕ 2026-01-01 📅 2026-01-05 ✅ 2026-01-05 ^habit",
+        taskLine: "- [x] Habit 🔁 every week ➕ 2026-01-01 📅 2026-01-05 ✅ 2026-01-05 ^habit",
         nextDates: {
           startDate: null,
           scheduledDate: null,
@@ -2260,9 +2122,7 @@ describe("task line mutations", () => {
         today: "2026-01-10",
         config: EMOJI_CONFIG,
       })
-      expect(result).toBe(
-        "- [ ] Report 🔁 every week 🛫 2026-01-10 ⏳ 2026-01-15 📅 2026-01-17",
-      )
+      expect(result).toBe("- [ ] Report 🔁 every week 🛫 2026-01-10 ⏳ 2026-01-15 📅 2026-01-17")
     })
 
     it("preserves the indentation of the completed line", () => {
@@ -2291,9 +2151,7 @@ describe("task line mutations", () => {
         today: "2026-01-05",
         config: DATAVIEW_CONFIG,
       })
-      expect(result).toBe(
-        "- [ ] DV task [repeat:: every week] [due:: 2026-01-12]",
-      )
+      expect(result).toBe("- [ ] DV task [repeat:: every week] [due:: 2026-01-12]")
     })
   })
 
@@ -2301,8 +2159,7 @@ describe("task line mutations", () => {
 
   describe("depth and parent tracking", () => {
     it("assigns depth 0 and null parent to top-level tasks", () => {
-      const content =
-        "---\ntitle: Test\n---\n\n- [ ] Task A ^a\n- [ ] Task B ^b\n"
+      const content = "---\ntitle: Test\n---\n\n- [ ] Task A ^a\n- [ ] Task B ^b\n"
       const parsed = tasks.extractTasks(content)
       expect(parsed).toEqual([
         task({
@@ -2358,11 +2215,8 @@ describe("task line mutations", () => {
 
     it("keeps a task's sub-tasks when a deeper plain bullet sits between them", () => {
       const content =
-        [
-          "- [ ] Parent ^parent",
-          "    - note under the parent",
-          "  - [ ] Child ^child",
-        ].join("\n") + "\n"
+        ["- [ ] Parent ^parent", "    - note under the parent", "  - [ ] Child ^child"].join("\n") +
+        "\n"
       const parsed = tasks.extractTasks(content)
       expect(parsed).toEqual([
         task({
@@ -2384,14 +2238,9 @@ describe("task line mutations", () => {
 
     it("assigns depth 1 and parent to indented sub-tasks", () => {
       const content =
-        [
-          "---",
-          "title: Test",
-          "---",
-          "",
-          "- [ ] Parent ^parent",
-          "  - [ ] Child ^child",
-        ].join("\n") + "\n"
+        ["---", "title: Test", "---", "", "- [ ] Parent ^parent", "  - [ ] Child ^child"].join(
+          "\n",
+        ) + "\n"
       const parsed = tasks.extractTasks(content)
       expect(parsed).toEqual([
         task({
@@ -2559,9 +2408,7 @@ describe("task line mutations", () => {
 
     it("handles blockquote-prefixed tasks at depth 0", () => {
       const content =
-        ["---", "title: Test", "---", "", "> - [ ] Blockquoted task ^bq"].join(
-          "\n",
-        ) + "\n"
+        ["---", "title: Test", "---", "", "> - [ ] Blockquoted task ^bq"].join("\n") + "\n"
       const parsed = tasks.extractTasks(content)
       expect(parsed).toEqual([
         task({
@@ -2634,13 +2481,7 @@ describe("task line mutations", () => {
     })
 
     it("returns undefined for malformed JSON", () => {
-      const bodyLines = [
-        "%% kanban:settings",
-        "```",
-        "{not valid json",
-        "```",
-        "%%",
-      ]
+      const bodyLines = ["%% kanban:settings", "```", "{not valid json", "```", "%%"]
       expect(tasks.parseKanbanCardInsertionMethod(bodyLines)).toBeUndefined()
     })
 
@@ -2656,11 +2497,7 @@ describe("task line mutations", () => {
     })
 
     it("returns undefined when the settings block has no code fence", () => {
-      const bodyLines = [
-        "%% kanban:settings",
-        '{"new-card-insertion-method":"append"}',
-        "%%",
-      ]
+      const bodyLines = ["%% kanban:settings", '{"new-card-insertion-method":"append"}', "%%"]
       expect(tasks.parseKanbanCardInsertionMethod(bodyLines)).toBeUndefined()
     })
   })
@@ -2708,8 +2545,7 @@ describe("tasks.diffTaskRoundTrip", () => {
 
   it("reports no divergence when a pre-existing recurrence survives an unrelated update", () => {
     const divergences = tasks.diffTaskRoundTrip({
-      taskLine:
-        "- [ ] Water plants 🔁 every day ➕ 2026-01-01 📅 2026-09-20 ^water",
+      taskLine: "- [ ] Water plants 🔁 every day ➕ 2026-01-01 📅 2026-09-20 ^water",
       priorTaskLine: "- [ ] Water plants 🔁 every day ➕ 2026-01-01 ^water",
       submitted: { dueDate: "2026-09-20" },
     })

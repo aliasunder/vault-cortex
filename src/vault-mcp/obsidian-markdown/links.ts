@@ -29,8 +29,7 @@ const WIKILINK_RE = /!?\[\[([^\]#|]+)(?:#[^\]|]*)?(?:\|[^\]]+)?\]\]/g
  *  Obsidian filenames so a scheme-like prefix is never a vault path), plus
  *  same-page #anchors. Captures the full target including any extension
  *  (group 1). Global — use only with matchAll. */
-const MD_LINK_RE =
-  /\[[^\]]*\]\((?![a-zA-Z][a-zA-Z0-9+.-]*:|#)([^)#\s]+)(?:#[^)\s]*)?\)/g
+const MD_LINK_RE = /\[[^\]]*\]\((?![a-zA-Z][a-zA-Z0-9+.-]*:|#)([^)#\s]+)(?:#[^)\s]*)?\)/g
 
 /** Matches inline code spans so links inside backticks (e.g. `[[Note]]`) can be
  *  ignored. Global — use only with matchAll/replaceAll. */
@@ -150,8 +149,10 @@ const inlineCodeSpans = (line: string): CodeSpan[] =>
  *  alias so reconstruction via concatenation preserves the escape. */
 const splitWikilink = (linkText: string): WikilinkParts | null => {
   const parts = WIKILINK_PARTS.exec(linkText)
+
   if (!parts) return null
   const [, embed, rawTarget, heading = "", rawAlias = ""] = parts
+
   if (embed === undefined || rawTarget === undefined) return null
   const hasEscapedPipe = rawTarget.endsWith("\\")
   const target = hasEscapedPipe ? rawTarget.slice(0, -1) : rawTarget
@@ -168,6 +169,7 @@ const splitWikilink = (linkText: string): WikilinkParts | null => {
  *  with how extraction and Obsidian read the same link. */
 const splitMarkdownLink = (linkText: string): MarkdownLinkParts | null => {
   const parts = MD_LINK_PARTS.exec(linkText)
+
   if (!parts) return null
   const prefix = parts[1]
   const encodedPath = parts[2]
@@ -175,13 +177,10 @@ const splitMarkdownLink = (linkText: string): MarkdownLinkParts | null => {
   const heading = parts[4] ?? ""
   const closeParen = parts[5]
   const hasRequiredGroups =
-    prefix !== undefined &&
-    encodedPath !== undefined &&
-    closeParen !== undefined
+    prefix !== undefined && encodedPath !== undefined && closeParen !== undefined
+
   if (!hasRequiredGroups) return null
-  const decodedTarget = safeDecodeURIComponent(
-    `${encodedPath}${encodedExtension}`,
-  )
+  const decodedTarget = safeDecodeURIComponent(`${encodedPath}${encodedExtension}`)
   const path = stripExtension(decodedTarget)
   return {
     prefix,
@@ -208,14 +207,18 @@ const extractFromBody = (content: string): string[] => {
 
     for (const match of linkExtractableLine.matchAll(WIKILINK_RE)) {
       const rawTarget = match[1]
+
       if (rawTarget === undefined) continue
       const target = stripEscapedPipe(rawTarget.trim())
+
       if (target.length > 0) targets.add(target)
     }
     for (const match of linkExtractableLine.matchAll(MD_LINK_RE)) {
       const rawTarget = match[1]
+
       if (rawTarget === undefined) continue
       const target = safeDecodeURIComponent(rawTarget.trim())
+
       if (target.length > 0) targets.add(target)
     }
   }
@@ -241,8 +244,10 @@ const extractFromFrontmatter = (data: Record<string, unknown>): string[] => {
     if (typeof frontmatterValue === "string") {
       for (const match of frontmatterValue.matchAll(WIKILINK_RE)) {
         const rawTarget = match[1]
+
         if (rawTarget === undefined) continue
         const target = stripEscapedPipe(rawTarget.trim())
+
         if (target.length > 0) targets.add(target)
       }
       return
@@ -288,21 +293,18 @@ const resolve = (params: {
   // land on the right note. posix.join collapses ".."/"."; a target that
   // escapes the vault keeps a leading ".." and simply won't be in allPaths.
   if (sourcePath) {
-    const targetRelativeToSource = posix.join(
-      posix.dirname(sourcePath),
-      targetWithExtension,
-    )
+    const targetRelativeToSource = posix.join(posix.dirname(sourcePath), targetWithExtension)
+
     if (allPaths.includes(targetRelativeToSource)) return targetRelativeToSource
   }
 
   // Basename match: find all paths that end with the target filename
   const basenameMatches = allPaths.filter(
     (candidatePath) =>
-      candidatePath === targetWithExtension ||
-      candidatePath.endsWith(`/${targetWithExtension}`),
+      candidatePath === targetWithExtension || candidatePath.endsWith(`/${targetWithExtension}`),
   )
-  const onlyMatch =
-    basenameMatches.length === 1 ? basenameMatches[0] : undefined
+  const onlyMatch = basenameMatches.length === 1 ? basenameMatches[0] : undefined
+
   if (onlyMatch) return onlyMatch
   // Multiple matches: prefer the shortest path (Obsidian's resolution heuristic)
   if (basenameMatches.length > 1) {
@@ -322,6 +324,7 @@ const resolve = (params: {
 const stripExtension = (filePath: string): string => {
   const fileName = posix.basename(filePath)
   const dotIndex = fileName.lastIndexOf(".")
+
   if (dotIndex <= 0) return filePath
   return filePath.slice(0, filePath.length - (fileName.length - dotIndex))
 }
@@ -333,6 +336,7 @@ const stripExtension = (filePath: string): string => {
 const getExtension = (filePath: string): string => {
   const fileName = posix.basename(filePath)
   const dotIndex = fileName.lastIndexOf(".")
+
   if (dotIndex <= 0) return ""
   return fileName.slice(dotIndex)
 }
@@ -373,9 +377,7 @@ const resolveAsset = (params: {
   sourcePath?: string
 }): string | null => {
   const { target, allAssetPaths, sourcePath } = params
-  const relativeTarget = sourcePath
-    ? posix.join(posix.dirname(sourcePath), target)
-    : null
+  const relativeTarget = sourcePath ? posix.join(posix.dirname(sourcePath), target) : null
 
   // ── Full-filename family: exact → relative → path suffix ──
 
@@ -388,6 +390,7 @@ const resolveAsset = (params: {
   const fullPathSuffixMatch = shortestOf(
     allAssetPaths.filter((assetPath) => assetPath.endsWith(`/${target}`)),
   )
+
   if (fullPathSuffixMatch) return fullPathSuffixMatch
 
   // ── Stem family: exact → relative → suffix/basename ──
@@ -395,14 +398,14 @@ const resolveAsset = (params: {
   const exactStemMatch = shortestOf(
     allAssetPaths.filter((assetPath) => stripExtension(assetPath) === target),
   )
+
   if (exactStemMatch) return exactStemMatch
 
   if (relativeTarget) {
     const relativeStemMatch = shortestOf(
-      allAssetPaths.filter(
-        (assetPath) => stripExtension(assetPath) === relativeTarget,
-      ),
+      allAssetPaths.filter((assetPath) => stripExtension(assetPath) === relativeTarget),
     )
+
     if (relativeStemMatch) return relativeStemMatch
   }
 
@@ -411,25 +414,18 @@ const resolveAsset = (params: {
   // the last tier: shortestOf returns null on no match — the unresolved case.
   if (target.includes("/")) {
     return shortestOf(
-      allAssetPaths.filter((assetPath) =>
-        stripExtension(assetPath).endsWith(`/${target}`),
-      ),
+      allAssetPaths.filter((assetPath) => stripExtension(assetPath).endsWith(`/${target}`)),
     )
   }
   return shortestOf(
-    allAssetPaths.filter(
-      (assetPath) => stripExtension(posix.basename(assetPath)) === target,
-    ),
+    allAssetPaths.filter((assetPath) => stripExtension(posix.basename(assetPath)) === target),
   )
 }
 
 /** A note's complete link set — body links unioned with frontmatter wikilinks,
  *  deduplicated. Single source of truth for "what does this note link to",
  *  shared by incremental upsert and full rebuild — must not diverge. */
-const extractAll = (
-  content: string,
-  data: Record<string, unknown>,
-): string[] => [
+const extractAll = (content: string, data: Record<string, unknown>): string[] => [
   ...new Set([...extractFromBody(content), ...extractFromFrontmatter(data)]),
 ]
 

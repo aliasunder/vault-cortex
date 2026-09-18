@@ -60,21 +60,18 @@ const BLOCK_LEVEL_LINE_REGEX = /^[-*+] |^\d+[.)] |^>/
  *
  * `index` and `skippedH1` are recursion accumulators; callers pass neither.
  */
-const firstBodyLineIndex = (
-  lines: readonly string[],
-  index = 0,
-  skippedH1 = false,
-): number => {
+const firstBodyLineIndex = (lines: readonly string[], index = 0, skippedH1 = false): number => {
   if (index >= lines.length) return index
   const line = lines[index]
+
   if (line === undefined) return index
   if (line.trim() === "") return firstBodyLineIndex(lines, index + 1, skippedH1)
-  if (!skippedH1 && H1_REGEX.test(line))
-    return firstBodyLineIndex(lines, index + 1, true)
+  if (!skippedH1 && H1_REGEX.test(line)) return firstBodyLineIndex(lines, index + 1, true)
   // Setext H1: current non-blank line is content, next line is a `===` underline.
   // Block-level lines are excluded — they can't be heading content.
   if (!skippedH1 && !BLOCK_LEVEL_LINE_REGEX.test(line.trimStart())) {
     const nextLine = index + 1 < lines.length ? lines[index + 1] : undefined
+
     if (nextLine !== undefined && SETEXT_H1_UNDERLINE_REGEX.test(nextLine))
       return firstBodyLineIndex(lines, index + 2, true)
   }
@@ -97,27 +94,24 @@ const firstBodyLineIndex = (
  * `body` string drops: those are still callout lines on disk and must not leak
  * into a caller's view of what sits beside the callout.
  */
-export const parseLeadingCalloutSpan = (
-  lines: readonly string[],
-): LeadingCalloutSpan | null => {
+export const parseLeadingCalloutSpan = (lines: readonly string[]): LeadingCalloutSpan | null => {
   // Callers split on "\n", so a CRLF (Windows-authored) file leaves a trailing
   // "\r" on each line. `.` never matches "\r" and a non-multiline `$` only
   // anchors at end-of-input, so a stray "\r" would defeat the regexes below
   // (and leak into the captured body) — strip it once, up front.
-  const normalizedLines = lines.map((line) =>
-    line.endsWith("\r") ? line.slice(0, -1) : line,
-  )
+  const normalizedLines = lines.map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
 
   // Find where the first real body content begins (past blank lines + one H1).
   const cursor = firstBodyLineIndex(normalizedLines)
 
   const openerLine = normalizedLines[cursor]
-  const openerMatch =
-    openerLine !== undefined ? CALLOUT_OPENER_REGEX.exec(openerLine) : null
+  const openerMatch = openerLine !== undefined ? CALLOUT_OPENER_REGEX.exec(openerLine) : null
+
   if (!openerMatch) return null
 
   const matchedType = openerMatch[1]
   const matchedTitle = openerMatch[3]
+
   if (matchedType === undefined || matchedTitle === undefined) return null
   const type = matchedType.toLowerCase()
   const title = matchedTitle.trim()
@@ -128,11 +122,8 @@ export const parseLeadingCalloutSpan = (
   const stopIndex = afterOpener.findIndex(
     (line) => CALLOUT_OPENER_REGEX.test(line) || !CALLOUT_BODY_REGEX.test(line),
   )
-  const bodyRange =
-    stopIndex === -1 ? afterOpener : afterOpener.slice(0, stopIndex)
-  const bodyLines = bodyRange.map(
-    (line) => CALLOUT_BODY_REGEX.exec(line)?.[1] ?? "",
-  )
+  const bodyRange = stopIndex === -1 ? afterOpener : afterOpener.slice(0, stopIndex)
+  const bodyLines = bodyRange.map((line) => CALLOUT_BODY_REGEX.exec(line)?.[1] ?? "")
 
   // Drop trailing blank body lines so the body ends cleanly.
   const lastContentIndex = bodyLines.findLastIndex((line) => line.trim() !== "")
@@ -151,6 +142,5 @@ export const parseLeadingCalloutSpan = (
  *  not a callout — the span-free view every wire consumer takes (outline,
  *  search results, memory-file listings). Delegates the walk to
  *  parseLeadingCalloutSpan so there is one implementation of it. */
-export const parseLeadingCallout = (
-  lines: readonly string[],
-): LeadingCallout | null => parseLeadingCalloutSpan(lines)?.callout ?? null
+export const parseLeadingCallout = (lines: readonly string[]): LeadingCallout | null =>
+  parseLeadingCalloutSpan(lines)?.callout ?? null

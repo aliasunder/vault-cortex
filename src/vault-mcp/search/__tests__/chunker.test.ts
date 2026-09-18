@@ -10,9 +10,7 @@ describe("chunkNoteContent", () => {
     it("returns a single chunk for a short note", () => {
       const chunks = chunkNoteContent("My Note", "Short body text here.")
 
-      expect(chunks).toEqual([
-        { index: 0, text: "My Note\n\nShort body text here." },
-      ])
+      expect(chunks).toEqual([{ index: 0, text: "My Note\n\nShort body text here." }])
     })
 
     it("prefixes the chunk with the note title", () => {
@@ -70,10 +68,7 @@ describe("chunkNoteContent", () => {
 
     it("preserves preamble content before the first heading", () => {
       // Use unique token names so preamble content is distinguishable from section content
-      const preamble = Array.from(
-        { length: 300 },
-        (_, i) => `preamble${i}`,
-      ).join(" ")
+      const preamble = Array.from({ length: 300 }, (_, i) => `preamble${i}`).join(" ")
       const section = generateTokens(300)
       const body = `${preamble}\n\n## Section\n${section}`
 
@@ -192,9 +187,7 @@ describe("chunkNoteContent", () => {
 
       expect(chunks.length).toBeGreaterThan(1)
       const prefixedChunks = chunks.filter((chunk) => {
-        return chunk.text.startsWith(
-          "Note\nType: session-log. Tags: project/vault-cortex.\n\n",
-        )
+        return chunk.text.startsWith("Note\nType: session-log. Tags: project/vault-cortex.\n\n")
       })
       expect(prefixedChunks).toHaveLength(chunks.length)
     })
@@ -207,12 +200,8 @@ describe("chunkNoteContent", () => {
       const bodyWords = body.split(" ")
       const longPrefix = `Tags: ${generateTokens(14)}.`
 
-      expect(chunkNoteContent("Note", body)).toEqual([
-        { index: 0, text: `Note\n\n${body}` },
-      ])
-      expect(
-        chunkNoteContent("Note", body, { metadataPrefix: longPrefix }),
-      ).toEqual([
+      expect(chunkNoteContent("Note", body)).toEqual([{ index: 0, text: `Note\n\n${body}` }])
+      expect(chunkNoteContent("Note", body, { metadataPrefix: longPrefix })).toEqual([
         {
           index: 0,
           text: `Note\n${longPrefix}\n\n${bodyWords.slice(0, 434).join(" ")}`,
@@ -260,15 +249,11 @@ describe("buildChunkMetadataPrefix", () => {
   })
 
   it("emits type alone when there are no tags", () => {
-    expect(buildChunkMetadataPrefix({ type: "reference", tags: [] })).toBe(
-      "Type: reference.",
-    )
+    expect(buildChunkMetadataPrefix({ type: "reference", tags: [] })).toBe("Type: reference.")
   })
 
   it("emits tags alone when type is null", () => {
-    expect(buildChunkMetadataPrefix({ type: null, tags: ["daily-note"] })).toBe(
-      "Tags: daily-note.",
-    )
+    expect(buildChunkMetadataPrefix({ type: null, tags: ["daily-note"] })).toBe("Tags: daily-note.")
   })
 
   it("returns null when the note has neither type nor tags", () => {

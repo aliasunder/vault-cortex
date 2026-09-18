@@ -73,17 +73,10 @@ describe("buildProgram init", () => {
     const { program, initCalls } = buildCapturingProgram()
 
     await program.parseAsync(
-      [
-        "init",
-        "--mode",
-        "remote",
-        "--vault-path",
-        "/vaults/Mine",
-        "--dir",
-        "./out",
-        "--yes",
-      ],
-      { from: "user" },
+      ["init", "--mode", "remote", "--vault-path", "/vaults/Mine", "--dir", "./out", "--yes"],
+      {
+        from: "user",
+      },
     )
 
     expect(initCalls).toEqual([
@@ -102,18 +95,16 @@ describe("buildProgram init", () => {
   it("rejects unknown options instead of passing them through", async () => {
     const { program, initCalls } = buildCapturingProgram()
 
-    await expect(
-      program.parseAsync(["init", "--bogus"], { from: "user" }),
-    ).rejects.toThrow("unknown option '--bogus'")
+    await expect(program.parseAsync(["init", "--bogus"], { from: "user" })).rejects.toThrow(
+      "unknown option '--bogus'",
+    )
     expect(initCalls).toEqual([])
   })
 
   it("reports the package version via --version", async () => {
     const { program } = buildCapturingProgram()
 
-    await expect(
-      program.parseAsync(["--version"], { from: "user" }),
-    ).rejects.toThrow("0.0.0-test")
+    await expect(program.parseAsync(["--version"], { from: "user" })).rejects.toThrow("0.0.0-test")
   })
 })
 
@@ -194,14 +185,11 @@ describe("buildProgram logs", () => {
   it("passes all logs flags through to runLogs", async () => {
     const { program, logsCalls } = buildCapturingProgram()
 
-    await program.parseAsync(
-      ["logs", "--dir", "/opt/vault-cortex", "--follow", "--since", "10m"],
-      { from: "user" },
-    )
+    await program.parseAsync(["logs", "--dir", "/opt/vault-cortex", "--follow", "--since", "10m"], {
+      from: "user",
+    })
 
-    expect(logsCalls).toEqual([
-      { dir: "/opt/vault-cortex", follow: true, since: "10m" },
-    ])
+    expect(logsCalls).toEqual([{ dir: "/opt/vault-cortex", follow: true, since: "10m" }])
   })
 
   it("invokes logs with no flags when none are given", async () => {

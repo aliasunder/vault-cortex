@@ -7,6 +7,7 @@ import type { Request } from "express"
 export const safeEqual = (a: string, b: string): boolean => {
   const aBuf = Buffer.from(a, "utf8")
   const bBuf = Buffer.from(b, "utf8")
+
   if (aBuf.length !== bBuf.length) {
     timingSafeEqual(aBuf, aBuf) // burn the same CPU time to prevent length-based timing leaks
     return false
@@ -15,9 +16,8 @@ export const safeEqual = (a: string, b: string): boolean => {
 }
 
 /** Coerces multi-value Express headers (string[]) to a single string. */
-export const headerAsString = (
-  value: string | string[] | undefined,
-): string | undefined => (Array.isArray(value) ? value[0] : value)
+export const headerAsString = (value: string | string[] | undefined): string | undefined =>
+  Array.isArray(value) ? value[0] : value
 
 /**
  * An RFC 8707 resource identifier in the canonical form the MCP spec
@@ -35,8 +35,7 @@ export const canonicalResourceUri = (resource: URL): string => {
 /** The MCP endpoint's URL, derived from a deployment's public URL. Resolved
  *  as an absolute path, so a path prefix on the public URL is not carried
  *  over. */
-export const mcpResourceUrl = (serverUrl: URL): URL =>
-  new URL("/mcp", serverUrl)
+export const mcpResourceUrl = (serverUrl: URL): URL => new URL("/mcp", serverUrl)
 
 export type TokenBinding = {
   /** The `iss` claim: the issuer URL as the metadata advertises it. */
@@ -83,6 +82,7 @@ const FORWARDED_NODE = /^(?:\[(?<ipv6>[^\]]+)\]|(?<ipv4>[^:]+))(?::[^:]*)?$/
  */
 const forwardedNodeAddress = (forValue: string): string => {
   const node = FORWARDED_NODE.exec(forValue)?.groups
+
   if (!node) return forValue
   // "[2001:db8::17]:4711" → "2001:db8::17"
   if (node.ipv6) return node.ipv6
@@ -151,14 +151,14 @@ export const extractClientIp = (
     // explicitly so the element count spans every line, never just the
     // first.
     const forwardedHeader = req.headers["forwarded"]
-    const forwarded = Array.isArray(forwardedHeader)
-      ? forwardedHeader.join(", ")
-      : forwardedHeader
+    const forwarded = Array.isArray(forwardedHeader) ? forwardedHeader.join(", ") : forwardedHeader
+
     if (forwarded) {
       const clientIp = forwardedClientIpBehindHops({
         forwarded,
         hops: trustForwardedHops,
       })
+
       if (clientIp) return clientIp
     }
   }

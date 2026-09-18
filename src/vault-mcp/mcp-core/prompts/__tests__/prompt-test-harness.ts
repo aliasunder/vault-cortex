@@ -8,10 +8,7 @@ import { join, dirname } from "node:path"
 import { tmpdir } from "node:os"
 import { registerPrompts } from "../../prompt-definitions.js"
 import { loadConfig } from "../../../config.js"
-import {
-  createSearchIndex,
-  type SearchIndex,
-} from "../../../search/search-index.js"
+import { createSearchIndex, type SearchIndex } from "../../../search/search-index.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { logger, type Logger } from "../../../../logger.js"
 
@@ -33,11 +30,7 @@ type PromptHandler = (
   argsOrExtra?: Record<string, unknown> | PromptExtra,
   extra?: PromptExtra,
 ) => Promise<PromptResult>
-export type RegisterPromptCall = [
-  name: string,
-  config: PromptConfig,
-  handler: PromptHandler,
-]
+export type RegisterPromptCall = [name: string, config: PromptConfig, handler: PromptHandler]
 
 export const fakeExtra: PromptExtra = { requestId: "1" }
 
@@ -69,9 +62,7 @@ export const recordingLogger = (sink: LogCall[]): Logger => {
 
 // Self-documenting epoch ms for daily-review tests — midday on 2026-06-16
 // in the system timezone, matching the modifiedOnDate TZ-aware behavior.
-export const JUNE_16_MIDDAY_MS = DateTime.fromISO(
-  "2026-06-16T12:00:00",
-).toMillis()
+export const JUNE_16_MIDDAY_MS = DateTime.fromISO("2026-06-16T12:00:00").toMillis()
 
 // Indexed notes in distinct folders so folder derivation, tags, property
 // keys, and recent-notes all have something to surface.
@@ -100,14 +91,10 @@ const OPINIONS_MD = `---\ntitle: Opinions\ntype: profile\ntags:\n  - memory\n  -
 
 /** Registers the prompts against a stub server, capturing the calls.
  *  No vault or index access happens at registration time, so dummies suffice. */
-export const captureRegistration = (
-  config = loadConfig({}),
-): RegisterPromptCall[] => {
+export const captureRegistration = (config = loadConfig({})): RegisterPromptCall[] => {
   const calls: RegisterPromptCall[] = []
   const server = {
-    registerPrompt: vi.fn((...args: unknown[]) =>
-      calls.push(args as RegisterPromptCall),
-    ),
+    registerPrompt: vi.fn((...args: unknown[]) => calls.push(args as RegisterPromptCall)),
   }
   registerPrompts({
     server: server as unknown as McpServer,
@@ -173,9 +160,7 @@ export const setupVault = async (
 
   const calls: RegisterPromptCall[] = []
   const server = {
-    registerPrompt: vi.fn((...args: unknown[]) =>
-      calls.push(args as RegisterPromptCall),
-    ),
+    registerPrompt: vi.fn((...args: unknown[]) => calls.push(args as RegisterPromptCall)),
   }
   registerPrompts({
     server: server as unknown as McpServer,
@@ -260,9 +245,7 @@ export const registerWithSearch = (
 ): RegisterPromptCall[] => {
   const calls: RegisterPromptCall[] = []
   const server = {
-    registerPrompt: vi.fn((...args: unknown[]) =>
-      calls.push(args as RegisterPromptCall),
-    ),
+    registerPrompt: vi.fn((...args: unknown[]) => calls.push(args as RegisterPromptCall)),
   }
   registerPrompts({
     server: server as unknown as McpServer,
@@ -274,10 +257,7 @@ export const registerWithSearch = (
   return calls
 }
 
-export const findCall = (
-  calls: RegisterPromptCall[],
-  name: string,
-): RegisterPromptCall =>
+export const findCall = (calls: RegisterPromptCall[], name: string): RegisterPromptCall =>
   calls.find((call) => call[0] === name) ??
   (() => {
     throw new Error(`prompt not registered: ${name}`)
@@ -285,6 +265,7 @@ export const findCall = (
 
 export const textOf = (result: PromptResult): string => {
   const first = result.messages[0]
+
   if (!first) throw new Error("prompt returned no messages")
   return first.content.text
 }
@@ -293,8 +274,5 @@ export const textOf = (result: PromptResult): string => {
 // their own import of these modules.
 export { PROMPT_NAMES } from "../../prompt-definitions.js"
 export { loadConfig } from "../../../config.js"
-export {
-  createSearchIndex,
-  type SearchIndex,
-} from "../../../search/search-index.js"
+export { createSearchIndex, type SearchIndex } from "../../../search/search-index.js"
 export { logger } from "../../../../logger.js"

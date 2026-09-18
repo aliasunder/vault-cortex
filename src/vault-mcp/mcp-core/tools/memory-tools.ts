@@ -66,9 +66,7 @@ Returns: Raw markdown text.`,
           .string()
           .min(1)
           .optional()
-          .describe(
-            'Memory file name without .md (e.g. "Principles", "Opinions")',
-          ),
+          .describe('Memory file name without .md (e.g. "Principles", "Opinions")'),
         section: z
           .string()
           .min(1)
@@ -257,10 +255,7 @@ Errors:
 
 Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
       inputSchema: {
-        file: z
-          .string()
-          .min(1)
-          .describe('Memory file name without .md (e.g. "Principles")'),
+        file: z.string().min(1).describe('Memory file name without .md (e.g. "Principles")'),
         section: z
           .string()
           .min(1)
@@ -275,11 +270,7 @@ Returns: Confirmation message (notes when an identical entry already existed and
           ),
         options: z
           .object({
-            date: z
-              .string()
-              .min(1)
-              .optional()
-              .describe("ISO YYYY-MM-DD date (defaults to today)"),
+            date: z.string().min(1).optional().describe("ISO YYYY-MM-DD date (defaults to today)"),
             position: z
               .enum(["top", "bottom"])
               .optional()
@@ -351,10 +342,7 @@ Errors:
 
 Returns: Confirmation message.`,
       inputSchema: {
-        file: z
-          .string()
-          .min(1)
-          .describe('Memory file name without .md (e.g. "Principles")'),
+        file: z.string().min(1).describe('Memory file name without .md (e.g. "Principles")'),
         section: z
           .string()
           .min(1)
@@ -382,11 +370,7 @@ Returns: Confirmation message.`,
       reqLogger.info("tool_call", { file, section, date })
       return safeHandler(
         reqLogger,
-        () =>
-          memoryStore.deleteMemory(
-            { vaultPath, file, section, date, entry },
-            reqLogger,
-          ),
+        () => memoryStore.deleteMemory({ vaultPath, file, section, date, entry }, reqLogger),
         () => {
           reqLogger.info("tool_result", { outcome: "entry_deleted" })
           return `Deleted entry from ${config.memoryDir}/${file}.md → ## ${section}`

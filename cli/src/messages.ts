@@ -17,25 +17,17 @@ type TextStyle = Parameters<typeof styleText>[0]
 // captured/redirected output stays plain — no stray escape codes in copied
 // commands or logs.
 const paint = (style: TextStyle, text: string): string =>
-  process.stdout.isTTY && !("NO_COLOR" in process.env)
-    ? styleText(style, text)
-    : text
+  process.stdout.isTTY && !("NO_COLOR" in process.env) ? styleText(style, text) : text
 
 const RULE_WIDTH = 56
 
 const topRule = (label: string): string =>
-  paint(
-    "dim",
-    `╭── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 6))}╮`,
-  )
+  paint("dim", `╭── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 6))}╮`)
 
 const bottomRule = (): string => paint("dim", `╰${"─".repeat(RULE_WIDTH - 2)}╯`)
 
 const sectionRule = (label: string): string =>
-  paint(
-    "dim",
-    `── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 4))}`,
-  )
+  paint("dim", `── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 4))}`)
 
 /**
  * Daemon-stopped guidance shared by every command that needs the container
@@ -102,6 +94,7 @@ const remoteStartLine = (params: {
   obsidianTokenMissing: boolean
 }): string => {
   const { targetDir, startStatus, obsidianTokenMissing } = params
+
   if (startStatus === "running") return "The server is running."
   if (startStatus === "starting") return startingInBackgroundLine()
   if (obsidianTokenMissing) {
@@ -169,10 +162,7 @@ const smokeTest = (healthUrl: string): string =>
  * as the works-from-any-device check. Not started: the plain smoke test to
  * run after starting.
  */
-const remoteHealthCheckBlock = (
-  healthUrl: string,
-  startStatus: StartStatus,
-): string => {
+const remoteHealthCheckBlock = (healthUrl: string, startStatus: StartStatus): string => {
   if (startStatus === "running" || startStatus === "starting") {
     return `Health check — works from any device that can reach the URL:
   curl ${healthUrl}`
@@ -201,11 +191,8 @@ export const buildLocalConnectMessage = (params: {
   const baseUrl = `http://localhost:${port}`
 
   const nonRunningLine =
-    startStatus === "starting"
-      ? startingInBackgroundLine()
-      : startServerLine(targetDir)
-  const startLine =
-    startStatus === "running" ? "The server is running." : nonRunningLine
+    startStatus === "starting" ? startingInBackgroundLine() : startServerLine(targetDir)
+  const startLine = startStatus === "running" ? "The server is running." : nonRunningLine
 
   const tokenLine = tokenBlock({ targetDir, token, tokenWritten })
 
@@ -281,14 +268,7 @@ export const buildRemoteConnectMessage = (params: {
   obsidianTokenMissing: boolean
   tokenWritten: boolean
 }): string => {
-  const {
-    targetDir,
-    token,
-    publicUrl,
-    startStatus,
-    obsidianTokenMissing,
-    tokenWritten,
-  } = params
+  const { targetDir, token, publicUrl, startStatus, obsidianTokenMissing, tokenWritten } = params
 
   const startLine = remoteStartLine({
     targetDir,
