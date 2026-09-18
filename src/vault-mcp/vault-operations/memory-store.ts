@@ -60,6 +60,7 @@ const MEMORY_ENTRY_LINE_BREAK_PATTERN = /[\r\n]/
  *  would accept) and calendar validity ("2026-02-30" parses as out of range). */
 const isValidMemoryEntryDate = (dateText: string | undefined): boolean => {
   if (dateText === undefined) return true
+
   return DateTime.fromFormat(dateText, "yyyy-MM-dd").isValid
 }
 
@@ -770,6 +771,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           // rejection over silent normalization: refuse and name both
           // headings so the caller can self-correct.
           const nearMiss = findNearMissSection(sections, params.section)
+
           if (nearMiss) {
             throw new Error(
               `section not created: "${params.section}" is nearly identical to existing section "${nearMiss.heading}". Existing sections: ${listSectionHeadings(sections)}`,
@@ -1061,12 +1063,20 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
     // Serialize with concurrent updates/deletes to the same file so the
     // read-modify-write can't be interleaved and lose a write.
-    return withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
-      const raw = await readMemoryFile(params.vaultPath, params.file)
-      const parsed = parseNote(raw)
-      const lines = splitIntoLines(parsed.content)
-      const sections = parseSections(lines)
-      const match = findSection(sections, params.section, 2)
+    return withFileLock(
+      memoryFilePath(params.vaultPath, params.file),
+      async () => {
+        const raw = await readMemoryFile(params.vaultPath, params.file)
+        const parsed = parseNote(raw)
+        const lines = splitIntoLines(parsed.content)
+        const sections = parseSections(lines)
+        const match = findSection(sections, params.section, 2)
+
+        if (!match) {
+          throw new Error(
+            `section not found: "${params.section}" in ${memoryDir}/${params.file}.md. Available sections: ${listSectionHeadings(sections)}`,
+          )
+        }
 
         // Find the target bullet among genuine (non-fenced) entry lines.
         const targetBullet = `- **${params.date}**: ${params.entry}`
@@ -1087,9 +1097,28 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           : [],
       )
 
-      if (matchingIndices.length === 0) {
-        throw new Error(
-          `no entry matching (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
+        // Remove the single matched line, preserving everything before and after it
+        const matchIndex = matchingIndices[0]
+
+        if (matchIndex === undefined) {
+          throw new Error("expected at least one matching index")
+        }
+        const updatedLines = [
+          ...lines.slice(0, matchIndex),
+          ...lines.slice(matchIndex + 1),
+        ]
+
+        const newContent = updatedLines.join("\n")
+        const serialized = stringifyNote(newContent, parsed.data)
+        const beforeBytes = Buffer.byteLength(raw, "utf8")
+        const afterBytes = Buffer.byteLength(serialized, "utf8")
+        guardAgainstShrink(beforeBytes, afterBytes, "deleting memory entry")
+        await atomicWriteFile(
+          {
+            filePath: memoryFilePath(params.vaultPath, params.file),
+            content: serialized,
+          },
+          logger,
         )
       }
       if (matchingIndices.length > 1) {
