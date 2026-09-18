@@ -1486,12 +1486,16 @@ export const createSearchIndex = (
       // Re-resolve links still stored as raw text now that this note exists.
       // Re-run resolveLink with each link's own source so every form upgrades
       // uniformly — basename, full path, and source-relative ("../") — covering
-      // Obsidian's "link first, create the note later" workflow.
+      // Obsidian's "link first, create the note later" workflow. Each standing
+      // unresolved link already failed against every other indexed path, so it
+      // can only newly resolve to this note — resolving against [note.path]
+      // alone gives the same answer without an O(unresolved × notes) sweep
+      // on every write.
       const unresolvedLinks = selectUnresolvedLinksStmt.all()
       for (const link of unresolvedLinks) {
         const resolved = links.resolve({
           target: link.target,
-          allPaths: pathList,
+          allPaths: [note.path],
           sourcePath: link.source,
         })
 
