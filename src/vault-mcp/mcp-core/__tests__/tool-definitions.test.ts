@@ -1085,10 +1085,12 @@ describe("MEMORY_ENABLED=false", () => {
       TOOL_NAMES.VAULT_UPDATE_MEMORY,
       TOOL_NAMES.VAULT_DELETE_MEMORY,
     ]
-    for (const [, config] of disabledCalls) {
-      const description = config.description!
+    for (const [name, config] of disabledCalls) {
+      if (!config.description) {
+        throw new Error(`tool ${name} registered without a description`)
+      }
       for (const memoryToolName of memoryToolReferences) {
-        expect(description).not.toContain(memoryToolName)
+        expect(config.description).not.toContain(memoryToolName)
       }
     }
   })

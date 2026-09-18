@@ -559,8 +559,10 @@ describe("equal-score tie-breaking in retrieval legs", () => {
   it("orders tied-distance note vector hits by path under a folder filter", async () => {
     const tieIndex = createSearchIndex(":memory:", createUniformEmbedder())
     // docs/aaa.md inserted first (vec0 returns ties in reverse insertion
-    // order), plus an equally-tied note outside the folder to prove the
-    // in-folder statement — not the unfiltered one — produced the ranking.
+    // order), plus an equally-tied note outside the folder. Hybrid-search
+    // re-filters note hits post-SQL, so the outside seed would be dropped
+    // under either KNN statement — this pins the in-folder statement's
+    // ordering keys, not which statement ran.
     for (const notePath of ["docs/aaa.md", "docs/zzz.md", "other/out.md"]) {
       tieIndex.upsertNote(
         {
