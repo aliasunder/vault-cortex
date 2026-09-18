@@ -3071,6 +3071,29 @@ kanban-plugin: board
         )
       })
 
+      it("integer position in a Complete-marked lane inserts after the marker", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Archive\n\n**Complete**\n- [x] Old task ^old\n- [x] Older task ^older\n\n## Active\n\n- [ ] New task ^new\n`
+        await writeTestNote(vault, "board.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Archived item",
+            blockId: "archived",
+            heading: "Archive",
+            position: 1,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Archive\n\n**Complete**\n- [ ] Archived item ➕ ${today()} ^archived\n- [x] Old task ^old\n- [x] Older task ^older\n\n## Active\n\n- [ ] New task ^new\n`,
+        )
+      })
+
       it("spawn + position reports pre-spawn before-position", async () => {
         const vault = await createVault()
         const note = `---\ntitle: Notes\n---\n\n## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-05 ^water\n- [ ] Read for 30 min ^read\n\n## Done\n`
@@ -3096,6 +3119,10 @@ kanban-plugin: board
           "position: 1 → 3",
           "next_occurrence: (none) → line 7",
         ])
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n- [ ] Read for 30 min ^read\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ ${today()} ^water\n\n## Done\n`,
+        )
       })
 
       it("status=done auto-move + position=bottom → bottom of done lane", async () => {

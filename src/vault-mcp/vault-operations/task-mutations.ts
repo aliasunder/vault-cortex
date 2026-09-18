@@ -1834,9 +1834,11 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     }
 
     // Pre-spawn position for accurate before/after reporting — the spawn
-    // may add a card to the same lane, inflating the count.
+    // may add a card to the lane, inflating the count. Applies to all three
+    // move paths (explicit heading, auto-done, same-lane) when an integer
+    // position is requested and the task has a heading to count against.
     const preSpawnHeading =
-      recurrenceSpawn.kind === "spawn" && currentHeadingForReorder
+      recurrenceSpawn.kind === "spawn" && typeof position === "number"
         ? headings.findLast((heading) => heading.startLine < taskLineIndex)
         : undefined
     const beforePositionInLane = preSpawnHeading
