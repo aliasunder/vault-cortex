@@ -2247,10 +2247,19 @@ describe("getMemoryEntries", () => {
       },
       logger,
     )
-    expect(entries).toHaveLength(2)
-    expect(entries.map((entry) => entry.date)).toEqual([
-      "2026-05-06",
-      "2026-05-05",
+    expect(entries).toEqual([
+      {
+        section: "Decision heuristics (newest first)",
+        date: "2026-05-06",
+        text: "- **2026-05-06**: Secrets invisible at every layer",
+        entryIndex: 0,
+      },
+      {
+        section: "Decision heuristics (newest first)",
+        date: "2026-05-05",
+        text: "- **2026-05-05**: Least-privilege for AI agents",
+        entryIndex: 1,
+      },
     ])
   })
 
@@ -2312,9 +2321,19 @@ created: 2026-01-01T00:00:00-05:00
       },
       logger,
     )
-    expect(entries.map((entry) => entry.date)).toEqual([
-      "2026-05-06",
-      "2026-05-05",
+    expect(entries).toEqual([
+      {
+        section: "Decision heuristics (newest first)",
+        date: "2026-05-06",
+        text: "- **2026-05-06**: Secrets invisible at every layer",
+        entryIndex: 0,
+      },
+      {
+        section: "Decision heuristics (newest first)",
+        date: "2026-05-05",
+        text: "- **2026-05-05**: Least-privilege for AI agents",
+        entryIndex: 1,
+      },
     ])
   })
 
@@ -2386,9 +2405,19 @@ created: 2026-01-01T00:00:00-05:00
       },
       logger,
     )
-    expect(entries.map((entry) => entry.date)).toEqual([
-      "2026-05-06",
-      "2026-05-05",
+    expect(entries).toEqual([
+      {
+        section: "Decision heuristics (newest first)",
+        date: "2026-05-06",
+        text: "- **2026-05-06**: Secrets invisible at every layer",
+        entryIndex: 0,
+      },
+      {
+        section: "Decision heuristics (newest first)",
+        date: "2026-05-05",
+        text: "- **2026-05-05**: Least-privilege for AI agents",
+        entryIndex: 1,
+      },
     ])
   })
 
