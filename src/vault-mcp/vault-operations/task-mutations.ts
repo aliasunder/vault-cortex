@@ -313,6 +313,9 @@ const readNoteContent = async ({
   }
 }
 
+/** ATX heading H1–H6: 0-3 leading spaces, 1-6 `#`, then space/tab or EOL. */
+const ATX_HEADING_RE = /^ {0,3}#{1,6}(?:[ \t]|$)/
+
 /** Collects contiguous sub-items below a task line — lines with deeper
  *  indentation than the task itself. Returns the exclusive end index
  *  (the first line that is NOT a sub-item). */
@@ -440,6 +443,10 @@ const headingInsertIndexAtPosition = ({
 
   while (walkIndex < sectionEnd) {
     const line = lines[walkIndex]
+
+    // A child heading starts a nested section whose cards belong to the
+    // child, not the parent lane — stop counting here.
+    if (line && ATX_HEADING_RE.test(line)) break
 
     if (!line?.trim() || !tasks.isTaskLine(line)) {
       walkIndex++
@@ -749,6 +756,8 @@ const positionOfTaskInLane = (
 
   while (walkIndex < sectionEnd) {
     const line = lines[walkIndex]
+
+    if (line && ATX_HEADING_RE.test(line)) break
 
     if (!line?.trim() || !tasks.isTaskLine(line)) {
       walkIndex++

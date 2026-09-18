@@ -738,12 +738,25 @@ describe("default config", () => {
     })
 
     it("vault_update_task — same-lane reorder via position", async () => {
+      const setupResult = await callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "Projects/board.md",
+          description: "Reorder test card",
+          block_id: "reorder-test",
+          heading: "Active",
+          position: 1,
+        },
+      })
+      expect(setupResult.isError).not.toBe(true)
+
       const reorderResult = await callTool({
         client,
         name: "vault_update_task",
         args: {
           path: "Projects/board.md",
-          block_id: "pos-test",
+          block_id: "reorder-test",
           position: 2,
         },
       })
@@ -758,9 +771,10 @@ describe("default config", () => {
       })
       const activeText = textContent(readback)
       const topLevelCards = activeText.split("\n").filter((cardLine) => /^- \[/.test(cardLine))
-      expect(topLevelCards.map((cardLine) => cardLine.includes("Position test card"))).toEqual([
+      expect(topLevelCards.map((cardLine) => cardLine.includes("Reorder test card"))).toEqual([
         false,
         true,
+        false,
       ])
     })
   })

@@ -221,7 +221,7 @@ Example: vault_create_task({ path: "TASKS.md", description: "Ship the feature", 
 Example: vault_create_task({ path: "TASKS.md", description: "Sub-bug", block_id: "sub-bug", parent_block_id: "fix-login", due: "2026-09-01" }) — full sub-task under a parent identified by block_id
 Example: vault_create_task({ path: "TASKS.md", description: "Quick fix", block_id: "quick-fix", parent_line: 42 }) — sub-task under a parent identified by line number
 Example: vault_create_task({ path: "TASKS.md", description: "Urgent fix", block_id: "urgent-fix", heading: "Active", position: "top" }) — insert at the top of a lane instead of the default bottom
-Example: vault_create_task({ path: "TASKS.md", description: "Mid-priority", block_id: "mid-priority", heading: "Active", position: 3 }) — insert as the 3rd card in the lane (1-based; past the card count lands at the bottom)
+Example: vault_create_task({ path: "TASKS.md", description: "Mid-priority", block_id: "mid-priority", heading: "Active", position: 3 }) — insert as the 3rd card in the lane (1-based; past the card count lands below the last card)
 
 When to use: Creating a new task card on a board or in a note. Guarantees correct field ordering (description → priority → 🔁 recurrence → 🏁 onCompletion → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id)${whenToolEnabledText("vault_list_tasks", " so the card round-trips through vault_list_tasks with all fields intact")}.${whenToolEnabledText("vault_update_task", " For lightweight checklist items under an existing card (no metadata), use vault_update_task's add_subtasks param instead.")}
 
@@ -231,7 +231,7 @@ Parameters:
 - block_id (required): the ^block-id for stable identification — letters, digits, and hyphens only. Must be unique within the note.
 - heading: target heading. Required on Kanban boards (notes with kanban-plugin frontmatter); optional on regular notes (omit to append at end of body).
 - parent_block_id / parent_line: the existing task to nest under as a sub-task, identified by its ^block-id or its 1-based line number — the same pair vault_update_task uses (block_id / line). Pass at most one. Either is mutually exclusive with heading — a sub-task lives wherever its parent lives.
-- position: "top", "bottom", or a 1-based integer — where within the heading section the task is placed. "top" or "bottom" for the extremes; an integer for an exact slot among the lane's top-level cards (position 1 is the first card; past the card count lands at the bottom). Defaults to "bottom" (append). Kanban boards with new-card-insertion-method set to "prepend" default to "top" instead. Ignored when no heading or when placing under a parent.
+- position: "top", "bottom", or a 1-based integer — where within the heading section the task is placed. "top" or "bottom" for the extremes; an integer for an exact slot among the lane's top-level cards (position 1 is the first card; past the card count lands below the last card). Defaults to "bottom" (append). Kanban boards with new-card-insertion-method set to "prepend" default to "top" instead. Ignored when no heading or when placing under a parent.
 - priority: "highest" | "high" | "medium" | "low" | "lowest". Omit for normal priority (the plugin ranks "no signifier" between medium and low).
 - recurrence: a Tasks plugin 🔁 rule in natural language ("every week", "every month on the 15th", "every 3 days when done" — "when done" bases the next occurrence on the completion day). Completing the task later spawns its next occurrence automatically.
 - on_completion: "delete" or "keep" — sets the Tasks plugin 🏁 action applied when the task is completed. "delete" removes the task line on completion; "keep" leaves it in place.
@@ -300,7 +300,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
           .union([z.enum(["top", "bottom"]), z.number().int().min(1)])
           .optional()
           .describe(
-            'Where within the heading section the task is placed. "top" or "bottom" for the extremes; an integer (1-based) for an exact position among the lane\'s top-level cards (sub-tasks move with their parent and are not counted). Position 1 is the first card. A position past the card count lands at the bottom (clamped silently). Defaults to bottom. Kanban boards with new-card-insertion-method set to prepend default to top instead. Ignored when no heading or when placing under a parent.',
+            'Where within the heading section the task is placed. "top" or "bottom" for the extremes; an integer (1-based) for an exact position among the lane\'s top-level cards (sub-tasks move with their parent and are not counted). Position 1 is the first card. A position past the card count lands directly below the last card (unlike "bottom", which appends after any trailing section content). Defaults to bottom. Kanban boards with new-card-insertion-method set to prepend default to top instead. Ignored when no heading or when placing under a parent.',
           ),
         priority: z
           .enum(["highest", "high", "medium", "low", "lowest"])
@@ -467,7 +467,7 @@ Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "in_
 Example: vault_update_task({ path: "TASKS.md", line: 42, assign_block_id: "my-task" }) — add a block_id to a task that lacks one
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", task_id: "abc123" }) — set a Tasks plugin 🆔 identifier
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", on_completion: "delete" }) — set the task to be removed on completion (null clears the field)
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Active", position: 3 }) — move to the 3rd position in a lane (1-based; past the card count lands at the bottom)
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Active", position: 3 }) — move to the 3rd position in a lane (1-based; past the card count lands below the last card)
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", position: 1 }) — same-lane reorder to the top without a heading move
 
 When to use: Any change to an existing task — completing, starting, re-prioritizing, editing text, setting or clearing dates, adding checklist items, assigning block_ids, moving between headings, or reordering within a lane.${whenToolEnabledText("vault_list_tasks", " Use vault_list_tasks first to get identification fields (path + block_id or line).")}${whenToolEnabledText("vault_create_task", " For creating a new task, use vault_create_task instead.")}
@@ -490,7 +490,7 @@ Parameters:
   - add_subtasks: non-empty string array — appends one indented [ ] checklist item per entry under the task; existing checklist items are kept.${whenToolEnabledText("vault_create_task", " For full sub-tasks with their own metadata, use vault_create_task with parent_block_id.")}
   - assign_block_id: adds or replaces the ^block-id on the task line. Letters, digits, and hyphens only; must be unique within the note.
   - heading: target heading to move the task to. On Kanban boards this is a lane move; works on any note with headings. Not valid on sub-tasks.
-  - position: "top", "bottom", or a 1-based integer — where within the target heading the task lands after a heading move or auto-done-lane move. Position 1 is the first card; past the card count lands at the bottom. Defaults to "top" on heading moves. Without a heading, triggers a same-lane reorder to the given position. Ignored when the task is deleted on completion. Not valid on sub-tasks.
+  - position: "top", "bottom", or a 1-based integer — where within the target heading the task lands after a heading move or auto-done-lane move. Position 1 is the first card; past the card count lands directly below the last card. Defaults to "top" on heading moves. Without a heading, triggers a same-lane reorder to the given position. Ignored when the task is deleted on completion. Not valid on sub-tasks.
   - Clearing is always explicit null — omitting a field leaves it untouched.
 - format: "emoji" or "dataview" — overrides the auto-detected Tasks plugin format.
 
@@ -635,7 +635,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .union([z.enum(["top", "bottom"]), z.number().int().min(1)])
           .optional()
           .describe(
-            'Where within the target heading the task lands after a heading move or auto-done-lane move. "top" or "bottom" for the extremes; an integer (1-based) for an exact position among the lane\'s top-level cards (sub-tasks move with their parent and are not counted). Position 1 is the first card. A position past the card count lands at the bottom (clamped silently). Defaults to "top" on heading moves. Without a heading, triggers a same-lane reorder to the given position. Ignored when the task is deleted on completion. Not valid on sub-tasks.',
+            'Where within the target heading the task lands after a heading move or auto-done-lane move. "top" or "bottom" for the extremes; an integer (1-based) for an exact position among the lane\'s top-level cards (sub-tasks move with their parent and are not counted). Position 1 is the first card. A position past the card count lands directly below the last card (unlike "bottom", which appends after any trailing section content). Defaults to "top" on heading moves. Without a heading, triggers a same-lane reorder to the given position. Ignored when the task is deleted on completion. Not valid on sub-tasks.',
           ),
         format: z
           .enum(["emoji", "dataview"])
