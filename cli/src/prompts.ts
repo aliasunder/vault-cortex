@@ -47,9 +47,7 @@ export type Prompts = {
   spinner: () => Spinner
 }
 
-// User pressed ctrl-C mid-prompt: 130 = 128 + SIGINT, the shell convention.
-// Since @clack/prompts 1.8.1, prompt functions return `T | typeof CANCEL_SYMBOL`
-// and `isCancel` narrows exactly that unique symbol — so the type guard works.
+// 130 = 128 + SIGINT, the shell convention for ctrl-C.
 const exitOnCancel = <T>(value: T | typeof clack.CANCEL_SYMBOL): T => {
   if (clack.isCancel(value)) {
     clack.cancel("Cancelled.")
