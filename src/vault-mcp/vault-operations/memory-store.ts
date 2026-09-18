@@ -1172,17 +1172,19 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     if (!created) {
       throw new Error("DateTime.now().toISO() returned null")
     }
-    const templates = MEMORY_TEMPLATE_SPECS.map((spec) => renderMemoryTemplate(spec, created))
+    const templates = MEMORY_TEMPLATE_SPECS.map((spec) => {
+      return renderMemoryTemplate(spec, created)
+    })
     await Promise.all(
-      templates.map((template) =>
-        atomicWriteFile(
+      templates.map((template) => {
+        return atomicWriteFile(
           {
             filePath: join(dirPath, `${template.fileName}.md`),
             content: template.content,
           },
           logger,
-        ),
-      ),
+        )
+      }),
     )
     logger.info("bootstrapped memory directory", {
       memoryDir,
