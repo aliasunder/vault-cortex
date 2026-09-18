@@ -544,6 +544,70 @@ describe("equal-score tie-breaking in retrieval legs", () => {
       "docs/zzz.txt",
     ])
   })
+
+  it("keeps path order for note ties straddling the KNN window boundary", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder())
+    // Eight tied notes against a window of six (limit 2 → candidateLimit 6):
+    // without over-fetch, vec0's tie order chooses which six enter, and
+    // aaa.md is inserted first so reverse-insertion emission drops it at the
+    // boundary. With over-fetch all eight are path-ordered before the window
+    // truncates, so aaa and bbb must top the results.
+    for (const notePath of [
+      "aaa.md",
+      "bbb.md",
+      "ccc.md",
+      "ddd.md",
+      "eee.md",
+      "fff.md",
+      "ggg.md",
+      "hhh.md",
+    ]) {
+      tieIndex.upsertNote(
+        {
+          filePath: notePath,
+          rawContent: IDENTICAL_NOTE,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch({ query: "orca", limit: 2 }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "bbb.md"])
+  })
+
+  it("keeps path order for file ties straddling the KNN window boundary", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder(), undefined, {
+      fileToolsEnabled: true,
+    })
+    const identicalFileContent = "walrus habitat survey notes"
+    // Same eight-versus-six construction as the note test above.
+    for (const filePath of [
+      "aaa.txt",
+      "bbb.txt",
+      "ccc.txt",
+      "ddd.txt",
+      "eee.txt",
+      "fff.txt",
+      "ggg.txt",
+      "hhh.txt",
+    ]) {
+      tieIndex.upsertNonMdFile(filePath, 100)
+      tieIndex.upsertFileContent(
+        {
+          filePath,
+          rawContent: identicalFileContent,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await tieIndex.embedFileContent({ filePath }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch({ query: "orca", limit: 2 }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.txt", "bbb.txt"])
+  })
 })
 
 describe("leading callout", () => {

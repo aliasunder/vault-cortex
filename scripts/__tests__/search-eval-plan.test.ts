@@ -41,7 +41,7 @@ describe("resolveEvalRunPlan", () => {
   it("rejects a missing --judgment", () => {
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, judgment: undefined })
-    }).toThrow("--judgment <path> is required (a local judgment JSON — see the file header)")
+    }).toThrow(/^--judgment <path> is required \(a local judgment JSON — see the file header\)$/)
   })
 
   it("parses --limits and rejects a non-integer entry", () => {
@@ -51,10 +51,10 @@ describe("resolveEvalRunPlan", () => {
 
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, limits: "20,two" })
-    }).toThrow("--limits entries must be positive integers: two")
+    }).toThrow(/^--limits entries must be positive integers: two$/)
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, limits: "0" })
-    }).toThrow("--limits entries must be positive integers: 0")
+    }).toThrow(/^--limits entries must be positive integers: 0$/)
   })
 
   it("accepts weight 0, parses a numeric weight, and rejects a non-number", () => {
@@ -75,15 +75,15 @@ describe("resolveEvalRunPlan", () => {
 
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": "abc" })
-    }).toThrow("--file-leg-weight must be a finite number >= 0")
+    }).toThrow(/^--file-leg-weight must be a finite number >= 0$/)
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": "-1" })
-    }).toThrow("--file-leg-weight must be a finite number >= 0")
+    }).toThrow(/^--file-leg-weight must be a finite number >= 0$/)
     // An unset shell variable interpolates to --file-leg-weight= — that
     // must reject, not silently run the shipped default.
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": "" })
-    }).toThrow("--file-leg-weight must be a finite number >= 0")
+    }).toThrow(/^--file-leg-weight must be a finite number >= 0$/)
   })
 
   it("rejects a non-finite weight", () => {
@@ -91,11 +91,11 @@ describe("resolveEvalRunPlan", () => {
     // contribution into Infinity in the report.
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": "Infinity" })
-    }).toThrow("--file-leg-weight must be a finite number >= 0")
+    }).toThrow(/^--file-leg-weight must be a finite number >= 0$/)
     // 1e400 overflows Number to Infinity the same way.
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": "1e400" })
-    }).toThrow("--file-leg-weight must be a finite number >= 0")
+    }).toThrow(/^--file-leg-weight must be a finite number >= 0$/)
   })
 
   it("rejects a whitespace-only weight", () => {
@@ -103,13 +103,13 @@ describe("resolveEvalRunPlan", () => {
     // file legs instead of rejecting like the empty string.
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, "file-leg-weight": " " })
-    }).toThrow("--file-leg-weight must be a finite number >= 0")
+    }).toThrow(/^--file-leg-weight must be a finite number >= 0$/)
   })
 
   it("rejects --reuse-index without --reuse-snapshot", () => {
     expect(() => {
       resolveEvalRunPlan({ ...baseCliArgs, "reuse-index": true })
-    }).toThrow("--reuse-index requires --reuse-snapshot")
+    }).toThrow(/^--reuse-index requires --reuse-snapshot$/)
   })
 
   it("rejects --reuse-index when no harness snapshot exists to pair with", () => {
@@ -122,7 +122,7 @@ describe("resolveEvalRunPlan", () => {
         "reuse-index": true,
       })
     }).toThrow(
-      "--reuse-index requires the snapshot it was built from, but the snapshot would be rebuilt this run — re-run without --reuse-index",
+      /^--reuse-index requires the snapshot it was built from, but the snapshot would be rebuilt this run — re-run without --reuse-index$/,
     )
   })
 

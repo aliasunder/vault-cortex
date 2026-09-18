@@ -378,10 +378,15 @@ const memoryVectorSearch = async (
   if (!memory.embedder || !memory.knnStmt) return []
   try {
     const queryEmbedding = await memory.embedder.embedText(query)
-    return memory.knnStmt.all(
+    // k over-fetches at twice the window, then the slice truncates after the
+    // statement's ORDER BY secondary keys apply — so entries tied at the
+    // window boundary resolve by (file, entry_index) instead of vec0's scan
+    // order. Ties spanning the doubled window remain engine-chosen.
+    const overFetchedRows = memory.knnStmt.all(
       Buffer.from(queryEmbedding.buffer, queryEmbedding.byteOffset, queryEmbedding.byteLength),
-      MEMORY_VECTOR_CANDIDATE_LIMIT,
+      MEMORY_VECTOR_CANDIDATE_LIMIT * 2,
     )
+    return overFetchedRows.slice(0, MEMORY_VECTOR_CANDIDATE_LIMIT)
   } catch (error) {
     logger.warn("memory vector search failed, falling back to lexical-only", {
       error: describeError(error),

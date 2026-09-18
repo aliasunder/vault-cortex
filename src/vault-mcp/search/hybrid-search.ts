@@ -93,13 +93,18 @@ const vectorSearch = (
   if (!knnSearchStmt || !knnSearchInFolderStmt) return []
 
   try {
-    const noteKnnRows = params.folderPathPattern
+    // k over-fetches at twice the window, then the slice truncates after the
+    // statement's ORDER BY secondary keys apply — so chunks tied at the
+    // window boundary resolve by path order instead of vec0's scan order.
+    // Ties spanning the doubled window remain engine-chosen.
+    const overFetchedNoteRows = params.folderPathPattern
       ? knnSearchInFolderStmt.all(
           params.queryEmbeddingBuffer,
-          params.limit,
+          params.limit * 2,
           params.folderPathPattern,
         )
-      : knnSearchStmt.all(params.queryEmbeddingBuffer, params.limit)
+      : knnSearchStmt.all(params.queryEmbeddingBuffer, params.limit * 2)
+    const noteKnnRows = overFetchedNoteRows.slice(0, params.limit)
 
     // Deduplicate to best chunk per note — rows are ordered by distance
     // ascending, so the first occurrence of each path is the closest match.
@@ -145,13 +150,16 @@ const fileContentVectorSearch = (
   const { knnSearchStmt, knnSearchInFolderStmt } = context.fileContentVector
 
   try {
-    const fileKnnRows = params.folderPathPattern
+    // The same over-fetch-then-truncate as vectorSearch, so boundary ties
+    // resolve by path order instead of vec0's scan order.
+    const overFetchedFileRows = params.folderPathPattern
       ? knnSearchInFolderStmt.all(
           params.queryEmbeddingBuffer,
-          params.limit,
+          params.limit * 2,
           params.folderPathPattern,
         )
-      : knnSearchStmt.all(params.queryEmbeddingBuffer, params.limit)
+      : knnSearchStmt.all(params.queryEmbeddingBuffer, params.limit * 2)
+    const fileKnnRows = overFetchedFileRows.slice(0, params.limit)
 
     const bestChunkPerFile = new Map<string, VectorHit>()
     for (const knnRow of fileKnnRows) {

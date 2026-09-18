@@ -404,6 +404,28 @@ describe("memoryRecall", () => {
     expect(result.entries.map((entry) => entry.file)).toEqual(["Aaa"])
   })
 
+  it("fills a boundary-straddling vector tie window in entry order", async () => {
+    // 101 identically-embedded entries against the 100-entry KNN window: the
+    // window still holds 100, but over-fetch orders the tie by
+    // (file, entry_index) before truncating, so entry 0 survives and the
+    // LAST entry drops. Without over-fetch, vec0's tie order chooses — under
+    // reverse-insertion emission the first-inserted entry 0 is the one that
+    // drops, and the chronological output then starts at a later entry.
+    const numberedEntries = Array.from(
+      { length: 101 },
+      (_, entryNumber) => `- **2026-07-02**: Pacing beats crunch entry ${String(entryNumber)}.`,
+    ).join("\n")
+    const index = await createRecallIndex({
+      files: {
+        Ledger: `# Ledger\n\n## Working style (newest first)\n\n${numberedEntries}\n`,
+      },
+    })
+
+    const result = await index.memoryRecall({ query: "recovery rhythm" }, logger)
+    expect(result.total).toBe(100)
+    expect(result.entries[0]?.text).toBe("- **2026-07-02**: Pacing beats crunch entry 0.")
+  })
+
   it("orders same-date evidence entries by code units, not locale collation", async () => {
     const identicalEntry = "- **2026-07-02**: Pacing beats crunch every time."
     // "Zeta" and "alpha" disagree between code-unit order (Z 0x5A before
