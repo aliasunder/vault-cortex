@@ -5947,5 +5947,34 @@ title: Tasks
         changes: ["status: todo → done"],
       })
     })
+
+    it("appendSubtasks excludes NON_TASK children from the count", async () => {
+      resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [ ] Card ^card\n  - [>] Forwarded child\n  - [ ] Real child ^real\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "card",
+          addSubtasks: ["New stage"],
+        },
+        logger,
+      )
+
+      expect(result.changes).toEqual(["subtasks: 1 → 2"])
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [ ] Card ^card\n  - [>] Forwarded child\n  - [ ] Real child ^real\n  - [ ] New stage\n`,
+      )
+    })
   })
 })
