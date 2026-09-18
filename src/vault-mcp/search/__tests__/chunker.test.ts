@@ -93,12 +93,12 @@ describe("chunkContent", () => {
 
       const chunks = chunkContent("Note", body)
 
-      // A singleton top-level heading gets no Section line (see the
-      // singleton-wrapper tests) — the preamble still emits standalone,
-      // first, so chunk 0 stays title + intro for the rerank fallback
+      // The preamble emits standalone, first, so chunk 0 stays title +
+      // intro for the rerank fallback — and its presence means the lone
+      // heading does not wrap the note, so it keeps its Section line
       expect(chunks).toEqual([
         { index: 0, text: `Note\n\n${preamble}` },
-        { index: 1, text: `Note\n\n${section}` },
+        { index: 1, text: `Note\nSection: Section\n\n${section}` },
         { index: 2, text: "Note\n\nSection" },
       ])
     })
@@ -109,13 +109,13 @@ describe("chunkContent", () => {
 
       const chunks = chunkContent("Note", body)
 
-      // Main is a singleton top-level heading (no Section line), so its
-      // budget is 449 (450 minus the title): 520 tokens split 449 + 71
-      // (over MIN, not merged)
+      // The preamble means Main does not wrap the note, so it keeps its
+      // Section line and a 447-token budget (450 minus the 3-token
+      // prefix): 520 tokens split 447 + 73 (over MIN, not merged)
       expect(chunks).toEqual([
         { index: 0, text: "Note\n\nintro line before headings" },
-        { index: 1, text: `Note\n\n${mainWords.slice(0, 449).join(" ")}` },
-        { index: 2, text: `Note\n\n${mainWords.slice(449).join(" ")}` },
+        { index: 1, text: `Note\nSection: Main\n\n${mainWords.slice(0, 447).join(" ")}` },
+        { index: 2, text: `Note\nSection: Main\n\n${mainWords.slice(447).join(" ")}` },
         { index: 3, text: "Note\n\nMain" },
       ])
     })
@@ -368,6 +368,24 @@ describe("chunkContent", () => {
         { index: 0, text: `Note\nSection: Quarterly review\n\n${reviewContent}` },
         { index: 1, text: `Note\nSection: Key decisions\n\n${decisionsContent}` },
         { index: 2, text: "Note\n\nQuarterly review\nKey decisions" },
+      ])
+    })
+
+    it("skips an oversized heading name so later short names still land in the TOC", () => {
+      const overviewContent = generateLabeledTokens(300, "overview")
+      const risksContent = generateLabeledTokens(300, "risks")
+      const oversizedHeading = generateLabeledTokens(450, "heading")
+      const body = `## Overview\n${overviewContent}\n\n## ${oversizedHeading}\n\n## Risks\n${risksContent}`
+
+      const chunks = chunkContent("Note", body)
+
+      // The 450-token name exceeds the 449-token budget and is dropped;
+      // Risks still lands. The oversized heading has no body, so it emits
+      // no section chunk either
+      expect(chunks).toEqual([
+        { index: 0, text: `Note\nSection: Overview\n\n${overviewContent}` },
+        { index: 1, text: `Note\nSection: Risks\n\n${risksContent}` },
+        { index: 2, text: "Note\n\nOverview\nRisks" },
       ])
     })
 

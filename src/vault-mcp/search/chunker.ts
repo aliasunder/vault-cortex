@@ -155,17 +155,23 @@ type SectionSpan = Readonly<{
  *  - A deeper heading owns only the lines above the next heading of any
  *    level, so the leaf view stays disjoint and path-attributed.
  *
- *  A singleton top-level heading that opens the note (the common `# Title`
- *  wrapper) spans the whole note, so its aggregate keeps the plain title
- *  prefix — an empty path here means no Section line. The heading's words
- *  stay findable in the TOC chunk and in descendants' Section lines. */
-const collectSectionSpans = (headings: readonly HeadingInfo[]): SectionSpan[] => {
+ *  A singleton top-level heading that opens the note — no preamble, no
+ *  earlier heading (the common `# Title` wrapper) — spans the whole note,
+ *  so its aggregate keeps the plain title prefix; an empty path here means
+ *  no Section line. The heading's words stay findable in the TOC chunk and
+ *  in descendants' Section lines. */
+const collectSectionSpans = (
+  headings: readonly HeadingInfo[],
+  preambleExists: boolean,
+): SectionSpan[] => {
   const topLevel = Math.min(...headings.map((heading) => heading.level))
   const topLevelHeadingCount = headings.filter((heading) => heading.level === topLevel).length
 
-  // A wrapper must OPEN the note — a lone top-level heading preceded by
-  // deeper headings does not span the note, so it keeps its Section line.
-  const hasSingletonWrapper = topLevelHeadingCount === 1 && headings[0]?.level === topLevel
+  // A wrapper must OPEN the note — preamble text or an earlier deeper
+  // heading means the lone top-level heading does not span the note, so
+  // it keeps its Section line.
+  const hasSingletonWrapper =
+    topLevelHeadingCount === 1 && headings[0]?.level === topLevel && !preambleExists
 
   const sectionSpans: SectionSpan[] = []
   const ancestorStack: { text: string; level: number }[] = []
@@ -232,7 +238,7 @@ const buildTableOfContentsText = (
   const titleLine = [...folderSegments, noteTitle].join(" > ")
 
   // A single short chunk is the point — splitting an oversized name list
-  // into more chunks would defeat it, so the list truncates at the budget.
+  // into more chunks would defeat it, so names are dropped at the budget.
   // Deliberately no MIN floor (unlike budgetAfterPrefix): padding a huge
   // title line with 50 name tokens would push the chunk past MAX and
   // defeat its short-chunk purpose — when the title line exhausts the
@@ -244,7 +250,9 @@ const buildTableOfContentsText = (
   for (const headingName of headingNames) {
     const headingNameTokenCount = approximateTokenCount(headingName)
 
-    if (tokensUsed + headingNameTokenCount > headingNameBudget) break
+    // An oversized name is skipped, not the end of the list — later short
+    // names still land in the TOC.
+    if (tokensUsed + headingNameTokenCount > headingNameBudget) continue
     budgetedHeadingNames.push(headingName)
     tokensUsed += headingNameTokenCount
   }
@@ -326,26 +334,30 @@ export const chunkContent = (
       )
     : []
 
-  const sectionFragments = collectSectionSpans(headings).flatMap((sectionSpan) => {
-    const sectionSpanText = stripMarkdownSyntax(
-      bodyLines.slice(sectionSpan.startLine, sectionSpan.endLine).join("\n"),
-    ).trim()
+  const sectionFragments = collectSectionSpans(headings, preambleText !== "").flatMap(
+    (sectionSpan) => {
+      const sectionSpanText = stripMarkdownSyntax(
+        bodyLines.slice(sectionSpan.startLine, sectionSpan.endLine).join("\n"),
+      ).trim()
 
-    // A heading whose span has no content emits nothing — a heading-only
-    // fragment is too small to embed meaningfully, and any descendant
-    // fragment already carries the heading's words in its Section line.
-    // A childless empty heading drops out of the vector index entirely;
-    // the FTS leg still indexes the full note text.
-    if (!sectionSpanText) return []
+      // A heading whose span has no content emits nothing — a heading-only
+      // fragment is too small to embed meaningfully, and any descendant
+      // fragment already carries the heading's words in its Section line.
+      // A childless empty heading drops out of the vector index entirely;
+      // the FTS leg still indexes the full note text.
+      if (!sectionSpanText) return []
 
-    const sectionLine =
-      sectionSpan.headingPath.length > 0 ? `Section: ${sectionSpan.headingPath.join(" > ")}` : null
-    const sectionPrefix = [noteTitle, sectionLine, metadataPrefix].filter(Boolean).join("\n")
+      const sectionLine =
+        sectionSpan.headingPath.length > 0
+          ? `Section: ${sectionSpan.headingPath.join(" > ")}`
+          : null
+      const sectionPrefix = [noteTitle, sectionLine, metadataPrefix].filter(Boolean).join("\n")
 
-    return splitWithTrailingMerge(sectionSpanText, budgetAfterPrefix(sectionPrefix)).map(
-      (fragment) => `${sectionPrefix}\n\n${fragment}`,
-    )
-  })
+      return splitWithTrailingMerge(sectionSpanText, budgetAfterPrefix(sectionPrefix)).map(
+        (fragment) => `${sectionPrefix}\n\n${fragment}`,
+      )
+    },
+  )
 
   // The TOC chunk takes no metadata prefix — on a chunk this small the prefix
   // would dominate the token average, and notes of one type (e.g. Kanban
