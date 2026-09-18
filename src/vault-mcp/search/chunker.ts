@@ -13,8 +13,8 @@
  *  4. A heading with no own-body content emits nothing — its words live
  *     in every descendant fragment's Section line
  *  5. Each split note with named headings also emits one table-of-contents
- *     chunk (title + heading names in document order) — the note's one
- *     deliberately short chunk
+ *     chunk (folder segments + title, then heading names in document
+ *     order) — the note's one deliberately short chunk
  *  6. Sections over their budget → sub-split at paragraph boundaries,
  *     with a sub-MIN trailing fragment merged backward into its
  *     predecessor
