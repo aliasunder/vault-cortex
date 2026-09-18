@@ -143,6 +143,46 @@ type ParsedSection = Readonly<{
 
 // ── Internal helpers ────────────────────────────────────────────
 
+/** Walks section body lines with fence/comment awareness and returns the
+ *  0-based offsets of genuine entry bullets (lines matching ENTRY_PATTERN that
+ *  are not inside a code fence or %% comment). Used by updateMemory's insertion
+ *  scan and deleteMemory's bullet match — both must agree on what counts as a
+ *  real entry. */
+const scanGenuineEntryOffsets = (bodyLines: readonly string[]): number[] => {
+  const offsets: number[] = []
+  // Loop-carried parser state — each iteration reads the previous
+  // iteration's fence/comment position (same pattern as parseMemoryEntries).
+  let scanFence: OpenFence = null
+  let scanCommentOpen = false
+
+  for (const [offsetIndex, bodyLine] of bodyLines.entries()) {
+    if (!bodyLine) continue
+
+    const fenceResult: ReturnType<typeof advanceFence> | null = scanCommentOpen
+      ? null
+      : advanceFence(bodyLine, scanFence)
+    scanFence = fenceResult ? fenceResult.openFence : scanFence
+
+    const commentResult: CommentResult | null = fenceResult?.lineIsCode
+      ? null
+      : advanceComment(bodyLine, scanCommentOpen)
+    scanCommentOpen = commentResult
+      ? commentResult.commentOpen
+      : scanCommentOpen
+
+    const insideCodeOrComment =
+      (fenceResult?.lineIsCode ?? false) ||
+      (commentResult?.lineIsComment ?? false)
+    if (insideCodeOrComment) continue
+
+    if (ENTRY_PATTERN.test(bodyLine)) {
+      offsets.push(offsetIndex)
+    }
+  }
+
+  return offsets
+}
+
 /** Counts dated bullet entries within a section's body span [start, end). A plain
  *  loop — a sequential count with no slice/filter allocations over what can be a
  *  large memory file. */
@@ -765,39 +805,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           match.bodyEndLine,
         )
 
-        // Walk the section body with fence/comment awareness so a dated-bullet-
-        // looking line inside a code block or %% comment is never treated as a
-        // real entry. parseHeadings ends the span at the next same-or-higher
-        // heading, so the section can never begin mid-fence.
-        const entryLineOffsets: number[] = []
-        // Loop-carried parser state — each iteration reads the previous
-        // iteration's fence/comment position (same pattern as parseMemoryEntries).
-        let scanFence: OpenFence = null
-        let scanCommentOpen = false
-
-        for (const [offsetIndex, bodyLine] of bodyLines.entries()) {
-          if (!bodyLine) continue
-
-          const fenceResult: ReturnType<typeof advanceFence> | null =
-            scanCommentOpen ? null : advanceFence(bodyLine, scanFence)
-          scanFence = fenceResult ? fenceResult.openFence : scanFence
-
-          const commentResult: CommentResult | null = fenceResult?.lineIsCode
-            ? null
-            : advanceComment(bodyLine, scanCommentOpen)
-          scanCommentOpen = commentResult
-            ? commentResult.commentOpen
-            : scanCommentOpen
-
-          const insideCodeOrComment =
-            (fenceResult?.lineIsCode ?? false) ||
-            (commentResult?.lineIsComment ?? false)
-          if (insideCodeOrComment) continue
-
-          if (ENTRY_PATTERN.test(bodyLine)) {
-            entryLineOffsets.push(offsetIndex)
-          }
-        }
+        const entryLineOffsets = scanGenuineEntryOffsets(bodyLines)
 
         // Duplicate check scoped to genuine entries (not fenced lines).
         // An exact duplicate means the entry already landed, typically from an
@@ -817,22 +825,18 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           return "unchanged"
         }
 
-        // -1 when the section has no genuine entries (the >= 0 guards below fall back to bodyEndLine)
+        // -1 when the section has no genuine entries (the >= 0 guard below falls back to bodyEndLine)
         const firstBulletOffset = entryLineOffsets.at(0) ?? -1
-        const lastBulletOffset = entryLineOffsets.at(-1) ?? -1
 
-        // Compute the absolute line index in the full content array for insertion.
         // "top" inserts before the first existing bullet (newest-first ordering).
-        // "bottom" inserts after the last existing bullet.
-        // Empty sections (no bullets) fall back to bodyEndLine — appends at section end.
+        // "bottom" inserts at the section end — the last entry's continuation
+        // lines extend to there, so lastBulletOffset + 1 would land inside them.
+        // Empty sections fall back to bodyEndLine for both positions.
         const topInsertIndex =
           firstBulletOffset >= 0
             ? match.bodyStartLine + firstBulletOffset
             : match.bodyEndLine
-        const bottomInsertIndex =
-          lastBulletOffset >= 0
-            ? match.bodyStartLine + lastBulletOffset + 1
-            : match.bodyEndLine
+        const bottomInsertIndex = match.bodyEndLine
         const insertIndex =
           position === "top" ? topInsertIndex : bottomInsertIndex
 
@@ -1064,46 +1068,16 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const sections = parseSections(lines)
       const match = findSection(sections, params.section, 2)
 
-        // Build the exact bullet string and find matching lines within the
-        // section, skipping lines inside fences or comments (same fence-aware
-        // walk as updateMemory's insertion scan).
+        // Find the target bullet among genuine (non-fenced) entry lines.
         const targetBullet = `- **${params.date}**: ${params.entry}`
         const sectionBodyLines = lines.slice(
           match.bodyStartLine,
           match.bodyEndLine,
         )
-        const matchingIndices: number[] = []
-        // Loop-carried parser state (same pattern as updateMemory's scan above).
-        let deleteScanFence: OpenFence = null
-        let deleteScanCommentOpen = false
-
-        for (const [offsetIndex, bodyLine] of sectionBodyLines.entries()) {
-          if (!bodyLine) continue
-
-          const fenceResult: ReturnType<typeof advanceFence> | null =
-            deleteScanCommentOpen
-              ? null
-              : advanceFence(bodyLine, deleteScanFence)
-          deleteScanFence = fenceResult
-            ? fenceResult.openFence
-            : deleteScanFence
-
-          const commentResult: CommentResult | null = fenceResult?.lineIsCode
-            ? null
-            : advanceComment(bodyLine, deleteScanCommentOpen)
-          deleteScanCommentOpen = commentResult
-            ? commentResult.commentOpen
-            : deleteScanCommentOpen
-
-          const insideCodeOrComment =
-            (fenceResult?.lineIsCode ?? false) ||
-            (commentResult?.lineIsComment ?? false)
-          if (insideCodeOrComment) continue
-
-          if (bodyLine === targetBullet) {
-            matchingIndices.push(match.bodyStartLine + offsetIndex)
-          }
-        }
+        const genuineEntryOffsets = scanGenuineEntryOffsets(sectionBodyLines)
+        const matchingIndices = genuineEntryOffsets
+          .filter((offset) => sectionBodyLines[offset] === targetBullet)
+          .map((offset) => match.bodyStartLine + offset)
 
       // Build the exact bullet string and find matching lines within the section
       const targetBullet = `- **${params.date}**: ${params.entry}`

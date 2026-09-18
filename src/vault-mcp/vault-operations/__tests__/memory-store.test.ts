@@ -286,6 +286,57 @@ describe("updateMemory", () => {
     expect(lines[lines.length - 1]).toBe("- **2026-04-01**: bottom entry")
   })
 
+  it("inserts bottom entry after the last entry's continuation lines", async () => {
+    const multiLineFixture = `---
+title: MultiBottom
+type: profile
+created: 2026-01-01T00:00:00-05:00
+---
+
+# MultiBottom
+
+## Notes (newest first)
+- **2026-06-15**: First entry
+  continuation line one
+  continuation line two
+`
+    await writeFile(
+      join(vault, "About Me/MultiBottom.md"),
+      multiLineFixture,
+      "utf8",
+    )
+
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "MultiBottom",
+        section: "Notes",
+        entry: "Bottom entry",
+        date: "2026-06-14",
+        position: "bottom",
+      },
+      logger,
+    )
+
+    const section = await getMemory(
+      { vaultPath: vault, file: "MultiBottom", section: "Notes" },
+      logger,
+    )
+
+    // The bottom entry must land after the continuation lines, not between
+    // the bullet and its continuations. A trailing blank line from the
+    // section body is expected (bodyEndLine includes it).
+    expect(section).toBe(
+      [
+        "- **2026-06-15**: First entry",
+        "  continuation line one",
+        "  continuation line two",
+        "",
+        "- **2026-06-14**: Bottom entry",
+      ].join("\n"),
+    )
+  })
+
   it("inserts entry into empty section", async () => {
     await updateMemory(
       {
