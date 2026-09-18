@@ -5339,3 +5339,88 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
     expect(trashIndex.getTrashEntry(".trash/survivor.md")?.trashPath).toBe(".trash/survivor.md")
   })
 })
+
+describe("TOC source-path forwarding at the embed call sites", () => {
+  /** The chunker unit tests pass sourcePath by hand, so they cannot see this
+   *  wiring — deleting the sourcePath argument at either embed call site must
+   *  fail here, or every split TOC chunk silently loses its folder line. */
+  it("gives note and file TOC chunks their folder segments end-to-end", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "toc-forwarding-"))
+    onTestFinished(() => rm(dir, { recursive: true, force: true }))
+    const dbPath = join(dir, "index.db")
+
+    const uniformEmbedder = {
+      embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+      embedBatch: vi.fn().mockImplementation((texts: string[]) => {
+        return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
+      }),
+    }
+    const forwardingIndex = createSearchIndex(dbPath, uniformEmbedder, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    const activeContent = Array.from({ length: 300 }, (_, wordIndex) => `active${wordIndex}`).join(
+      " ",
+    )
+    const doneContent = Array.from({ length: 300 }, (_, wordIndex) => `done${wordIndex}`).join(" ")
+    const noteContent = `## Active\n${activeContent}\n\n## Done\n${doneContent}`
+    forwardingIndex.upsertNote(
+      {
+        filePath: "Folder Alpha/Sub/TASKS.md",
+        rawContent: noteContent,
+        fileStat: { mtimeMs: 1000, size: 100 },
+      },
+      logger,
+    )
+    await forwardingIndex.embedNote(
+      { notePath: "Folder Alpha/Sub/TASKS.md", rawContent: noteContent },
+      logger,
+    )
+
+    const metricsContent = Array.from(
+      { length: 300 },
+      (_, wordIndex) => `metrics${wordIndex}`,
+    ).join(" ")
+    const notesContent = Array.from({ length: 300 }, (_, wordIndex) => `notes${wordIndex}`).join(
+      " ",
+    )
+    forwardingIndex.upsertNonMdFile("Folder Alpha/data.csv", 100)
+    forwardingIndex.upsertFileContent(
+      {
+        filePath: "Folder Alpha/data.csv",
+        rawContent: `## Metrics\n${metricsContent}\n\n## Notes\n${notesContent}`,
+        fileStat: { mtimeMs: 1000, size: 100 },
+      },
+      logger,
+    )
+    await forwardingIndex.embedFileContent({ filePath: "Folder Alpha/data.csv" }, logger)
+
+    const inspect = new Database(dbPath, { readonly: true })
+    onTestFinished(() => {
+      inspect.close()
+    })
+    const noteChunkTexts = inspect
+      .prepare<[string], { chunk_text: string }>(
+        `SELECT chunk_text FROM note_chunks WHERE note_path = ? ORDER BY chunk_index`,
+      )
+      .all("Folder Alpha/Sub/TASKS.md")
+      .map((chunkRow) => chunkRow.chunk_text)
+    const fileChunkTexts = inspect
+      .prepare<[string], { chunk_text: string }>(
+        `SELECT chunk_text FROM file_content_chunks WHERE file_path = ? ORDER BY chunk_index`,
+      )
+      .all("Folder Alpha/data.csv")
+      .map((chunkRow) => chunkRow.chunk_text)
+
+    expect(noteChunkTexts).toEqual([
+      `TASKS\nSection: Active\n\n${activeContent}`,
+      `TASKS\nSection: Done\n\n${doneContent}`,
+      "Folder Alpha > Sub > TASKS\n\nActive\nDone",
+    ])
+    expect(fileChunkTexts).toEqual([
+      `data\nSection: Metrics\n\n${metricsContent}`,
+      `data\nSection: Notes\n\n${notesContent}`,
+      "Folder Alpha > data.csv\n\nMetrics\nNotes",
+    ])
+  })
+})

@@ -201,6 +201,22 @@ describe("chunkContent", () => {
       ])
     })
 
+    it("keeps the Section line on a lone top-level heading that does not open the note", () => {
+      const setupContent = generateLabeledTokens(300, "setup")
+      const overviewContent = generateLabeledTokens(300, "overview")
+      const body = `### Setup\n${setupContent}\n\n## Overview\n${overviewContent}`
+
+      const chunks = chunkContent("Note", body)
+
+      // Setup precedes the only top-level heading, so Overview does not
+      // wrap the note and keeps its attribution
+      expect(chunks).toEqual([
+        { index: 0, text: `Note\nSection: Setup\n\n${setupContent}` },
+        { index: 1, text: `Note\nSection: Overview\n\n${overviewContent}` },
+        { index: 2, text: "Note\n\nSetup\nOverview" },
+      ])
+    })
+
     it("skips empty heading text in the Section path", () => {
       const contentWords = generateLabeledTokens(520, "content").split(" ")
       const body = `##\n${contentWords.join(" ")}`

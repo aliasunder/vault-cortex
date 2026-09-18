@@ -155,14 +155,17 @@ type SectionSpan = Readonly<{
  *  - A deeper heading owns only the lines above the next heading of any
  *    level, so the leaf view stays disjoint and path-attributed.
  *
- *  A singleton top-level heading (the common `# Title` wrapper) spans the
- *  whole note, so its aggregate keeps the plain title prefix — an empty
- *  path here means no Section line. The heading's words stay findable in
- *  the TOC chunk and in descendants' Section lines. */
+ *  A singleton top-level heading that opens the note (the common `# Title`
+ *  wrapper) spans the whole note, so its aggregate keeps the plain title
+ *  prefix — an empty path here means no Section line. The heading's words
+ *  stay findable in the TOC chunk and in descendants' Section lines. */
 const collectSectionSpans = (headings: readonly HeadingInfo[]): SectionSpan[] => {
   const topLevel = Math.min(...headings.map((heading) => heading.level))
   const topLevelHeadingCount = headings.filter((heading) => heading.level === topLevel).length
-  const hasSingletonWrapper = topLevelHeadingCount === 1
+
+  // A wrapper must OPEN the note — a lone top-level heading preceded by
+  // deeper headings does not span the note, so it keeps its Section line.
+  const hasSingletonWrapper = topLevelHeadingCount === 1 && headings[0]?.level === topLevel
 
   const sectionSpans: SectionSpan[] = []
   const ancestorStack: { text: string; level: number }[] = []
