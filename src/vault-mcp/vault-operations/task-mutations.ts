@@ -914,8 +914,20 @@ const appendSubtasks = ({
     parentLineIndex: taskLineIndex,
   })
   const subtaskLines = descriptions.map((subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`)
-  const existingSubtaskCount = lines.slice(taskLineIndex + 1, blockEnd).filter((blockLine) => {
+  const parentLine = lines[taskLineIndex]
+
+  if (!parentLine) {
+    throw new Error(`task line index ${taskLineIndex} out of bounds`)
+  }
+
+  const parentIndent = tasks.getTaskIndent(parentLine)
+  const childLines = lines.slice(taskLineIndex + 1, blockEnd)
+  const firstChildTask = childLines.find((childLine) => tasks.isTaskLine(childLine))
+  const directChildIndent = firstChildTask ? tasks.getTaskIndent(firstChildTask) : parentIndent + 1
+
+  const existingSubtaskCount = childLines.filter((blockLine) => {
     if (!tasks.isTaskLine(blockLine)) return false
+    if (tasks.getTaskIndent(blockLine) !== directChildIndent) return false
     const charMatch = CHECKBOX_CHAR_RE.exec(blockLine)
     const statusChar = charMatch?.[1]
     return !statusChar || tasks.statusForChar(statusChar, statusRegistry) !== "non_task"
