@@ -52,6 +52,17 @@ describe("chunkContent", () => {
       expect(chunks).toEqual([{ index: 0, text: "Title" }])
     })
 
+    it("ignores sourcePath below the split threshold — the hash-stability contract", () => {
+      // Short content must stay byte-identical with or without sourcePath,
+      // or every short note and file re-embeds on upgrade
+      expect(
+        chunkContent("Note", "Short body text here.", { sourcePath: "Folder Alpha/Sub/Note.md" }),
+      ).toEqual([{ index: 0, text: "Note\n\nShort body text here." }])
+      expect(
+        chunkContent("data", "one short csv preview row", { sourcePath: "Folder Alpha/data.csv" }),
+      ).toEqual([{ index: 0, text: "data\n\none short csv preview row" }])
+    })
+
     it("keeps a short note with headings on the single-chunk path with no Section line", () => {
       // Heading text stays inline in the stripped body — the hash-stability
       // contract: short notes are byte-identical to the historical output
