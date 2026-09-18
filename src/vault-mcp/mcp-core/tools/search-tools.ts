@@ -1,10 +1,10 @@
 /** Search tool registrations — hybrid (FTS + vector), tag, property, folder, and graph queries. */
 
-import { z } from "zod";
-import { TOOL_NAMES } from "../tool-registry.js";
-import type { ToolRegistrationContext } from "./tool-helpers.js";
-import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js";
-import { safeHandler, formatNoteMetadata, dateFilterSchema } from "./tool-helpers.js";
+import { z } from "zod"
+import { TOOL_NAMES } from "../tool-registry.js"
+import type { ToolRegistrationContext } from "./tool-helpers.js"
+import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
+import { safeHandler, formatNoteMetadata, dateFilterSchema } from "./tool-helpers.js"
 
 export const registerSearchTools = ({
   registerTool,
@@ -123,33 +123,33 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_SEARCH,
-      });
+      })
       reqLogger.info("tool_call", {
         query,
         filters,
         limit,
         snippet_tokens,
         include_leading_callout,
-      });
+      })
       return safeHandler(
         reqLogger,
         async () => {
-          return search.hybridSearch({ query, filters, limit, snippet_tokens, include_leading_callout }, reqLogger);
+          return search.hybridSearch({ query, filters, limit, snippet_tokens, include_leading_callout }, reqLogger)
         },
         (searchResult) => {
           reqLogger.info("tool_result", {
             resultCount: searchResult.results.length,
             searchMode: searchResult.search_mode,
             reranked: searchResult.reranked,
-          });
+          })
           return JSON.stringify({
             ...searchResult,
             total: searchResult.results.length,
-          });
+          })
         },
-      );
+      )
     },
-  );
+  )
 
   registerTool(
     TOOL_NAMES.VAULT_SEARCH_BY_TAG,
@@ -184,18 +184,18 @@ Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, fol
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_SEARCH_BY_TAG,
-      });
-      reqLogger.info("tool_call", { tag, exact });
+      })
+      reqLogger.info("tool_call", { tag, exact })
       return safeHandler(
         reqLogger,
         async () => search.searchByTag({ tag, exactMatch: exact }, reqLogger),
         (results) => {
-          reqLogger.info("tool_result", { resultCount: results.length });
-          return JSON.stringify(results.map(formatNoteMetadata));
+          reqLogger.info("tool_result", { resultCount: results.length })
+          return JSON.stringify(results.map(formatNoteMetadata))
         },
-      );
+      )
     },
-  );
+  )
 
   registerTool(
     TOOL_NAMES.VAULT_LIST_TAGS,
@@ -215,18 +215,18 @@ Returns: JSON array of { tag, count } sorted by count descending. tag omits the 
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_LIST_TAGS,
-      });
-      reqLogger.info("tool_call");
+      })
+      reqLogger.info("tool_call")
       return safeHandler(
         reqLogger,
         async () => search.listAllTags({}, reqLogger),
         (tags) => {
-          reqLogger.info("tool_result", { resultCount: tags.length });
-          return JSON.stringify(tags);
+          reqLogger.info("tool_result", { resultCount: tags.length })
+          return JSON.stringify(tags)
         },
-      );
+      )
     },
-  );
+  )
 
   registerTool(
     TOOL_NAMES.VAULT_RECENT_NOTES,
@@ -261,18 +261,18 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_RECENT_NOTES,
-      });
-      reqLogger.info("tool_call", { sort_by, limit });
+      })
+      reqLogger.info("tool_call", { sort_by, limit })
       return safeHandler(
         reqLogger,
         async () => search.recentNotes({ sort_by, limit }, reqLogger),
         (notes) => {
-          reqLogger.info("tool_result", { resultCount: notes.length });
-          return JSON.stringify(notes.map(formatNoteMetadata));
+          reqLogger.info("tool_result", { resultCount: notes.length })
+          return JSON.stringify(notes.map(formatNoteMetadata))
         },
-      );
+      )
     },
-  );
+  )
 
   registerTool(
     TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
@@ -307,18 +307,18 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
-      });
-      reqLogger.info("tool_call", { folder, recursive });
+      })
+      reqLogger.info("tool_call", { folder, recursive })
       return safeHandler(
         reqLogger,
         async () => search.searchByFolder({ folder, recursive, limit }, reqLogger),
         (results) => {
-          reqLogger.info("tool_result", { resultCount: results.length });
-          return JSON.stringify(results.map(formatNoteMetadata));
+          reqLogger.info("tool_result", { resultCount: results.length })
+          return JSON.stringify(results.map(formatNoteMetadata))
         },
-      );
+      )
     },
-  );
+  )
 
   registerTool(
     TOOL_NAMES.VAULT_LIST_PROPERTY_KEYS,
@@ -343,18 +343,18 @@ Returns: JSON array of { key, count, sample_values } sorted by count descending.
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_LIST_PROPERTY_KEYS,
-      });
-      reqLogger.info("tool_call", { folder });
+      })
+      reqLogger.info("tool_call", { folder })
       return safeHandler(
         reqLogger,
         async () => search.listPropertyKeys({ folder }, reqLogger),
         (keys) => {
-          reqLogger.info("tool_result", { resultCount: keys.length });
-          return JSON.stringify(keys);
+          reqLogger.info("tool_result", { resultCount: keys.length })
+          return JSON.stringify(keys)
         },
-      );
+      )
     },
-  );
+  )
 
   registerTool(
     TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
@@ -393,18 +393,18 @@ Returns: JSON array of { value, count } sorted by count descending.`,
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
-      });
-      reqLogger.info("tool_call", { key, folder });
+      })
+      reqLogger.info("tool_call", { key, folder })
       return safeHandler(
         reqLogger,
         async () => search.listPropertyValues({ key, folder, limit }, reqLogger),
         (values) => {
-          reqLogger.info("tool_result", { resultCount: values.length });
-          return JSON.stringify(values);
+          reqLogger.info("tool_result", { resultCount: values.length })
+          return JSON.stringify(values)
         },
-      );
+      )
     },
-  );
+  )
 
   registerTool(
     TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
@@ -451,18 +451,18 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
-      });
-      reqLogger.info("tool_call", { key, value, folder });
+      })
+      reqLogger.info("tool_call", { key, value, folder })
       return safeHandler(
         reqLogger,
         async () => search.searchByProperty({ key, value, folder, limit }, reqLogger),
         (results) => {
-          reqLogger.info("tool_result", { resultCount: results.length });
-          return JSON.stringify(results.map(formatNoteMetadata));
+          reqLogger.info("tool_result", { resultCount: results.length })
+          return JSON.stringify(results.map(formatNoteMetadata))
         },
-      );
+      )
     },
-  );
+  )
 
   registerTool(
     TOOL_NAMES.VAULT_GET_BACKLINKS,
@@ -495,24 +495,24 @@ Errors: Rejects paths that don't end in .md or .canvas. A non-indexed path retur
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_GET_BACKLINKS,
-      });
-      reqLogger.info("tool_call", { path });
+      })
+      reqLogger.info("tool_call", { path })
       return safeHandler(
         reqLogger,
         async () => search.getBacklinks({ path }, reqLogger),
         (backlinks) => {
-          reqLogger.info("tool_result", { resultCount: backlinks.length });
-          return JSON.stringify({ path, backlinks, count: backlinks.length });
+          reqLogger.info("tool_result", { resultCount: backlinks.length })
+          return JSON.stringify({ path, backlinks, count: backlinks.length })
         },
-      );
+      )
     },
-  );
+  )
 
-  const fileReadableClause = whenToolEnabledText("vault_read_file", " readable via vault_read_file");
+  const fileReadableClause = whenToolEnabledText("vault_read_file", " readable via vault_read_file")
   const fileBytesClause = whenToolEnabledText(
     "vault_read_file",
     " — not the delivery cost: vault_read_file downscales images to fit response limits, so a large image file is still cheap to read",
-  );
+  )
   registerTool(
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
     {
@@ -544,28 +544,28 @@ Errors: Rejects paths that don't end in .md or .canvas. A path not in the index 
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
-      });
-      reqLogger.info("tool_call", { path });
+      })
+      reqLogger.info("tool_call", { path })
       return safeHandler(
         reqLogger,
         async () => {
           const dailyNotesConfig = await readDailyNotesConfig(vaultPath, {
             folder: config.dailyNotesFolder,
             format: config.dailyNotesFormat,
-          });
-          return search.getOutgoingLinks({ path, dailyNotesFolder: dailyNotesConfig.folder }, reqLogger);
+          })
+          return search.getOutgoingLinks({ path, dailyNotesFolder: dailyNotesConfig.folder }, reqLogger)
         },
         (outgoingLinks) => {
-          reqLogger.info("tool_result", { resultCount: outgoingLinks.length });
+          reqLogger.info("tool_result", { resultCount: outgoingLinks.length })
           return JSON.stringify({
             path,
             outgoing_links: outgoingLinks,
             count: outgoingLinks.length,
-          });
+          })
         },
-      );
+      )
     },
-  );
+  )
 
   registerTool(
     TOOL_NAMES.VAULT_FIND_ORPHANS,
@@ -600,8 +600,8 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_FIND_ORPHANS,
-      });
-      reqLogger.info("tool_call", { exclude_folders, limit });
+      })
+      reqLogger.info("tool_call", { exclude_folders, limit })
       return safeHandler(
         reqLogger,
         async () =>
@@ -613,10 +613,10 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
             reqLogger,
           ),
         (results) => {
-          reqLogger.info("tool_result", { resultCount: results.length });
-          return JSON.stringify(results.map(formatNoteMetadata));
+          reqLogger.info("tool_result", { resultCount: results.length })
+          return JSON.stringify(results.map(formatNoteMetadata))
         },
-      );
+      )
     },
-  );
-};
+  )
+}

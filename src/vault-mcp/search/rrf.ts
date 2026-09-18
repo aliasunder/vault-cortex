@@ -23,40 +23,40 @@ export const computeRrfScores = (params: {
   /** Each list carries its own contribution multiplier — a missing weight
    *  means 1 (full contribution). */
   rankedLists: ReadonlyArray<{
-    items: readonly { identifier: string }[];
-    weight?: number | undefined;
-  }>;
-  dampingConstant?: number;
+    items: readonly { identifier: string }[]
+    weight?: number | undefined
+  }>
+  dampingConstant?: number
 }): { identifier: string; score: number }[] => {
-  const dampingConstant = params.dampingConstant ?? 60;
+  const dampingConstant = params.dampingConstant ?? 60
 
-  const scoresByIdentifier = new Map<string, number>();
+  const scoresByIdentifier = new Map<string, number>()
 
   const accumulateScores = (rankedItems: readonly { identifier: string }[], listWeight: number): void => {
     for (const [index, item] of rankedItems.entries()) {
-      const rank = index + 1;
-      const rrfScore = 1 / (dampingConstant + rank);
+      const rank = index + 1
+      const rrfScore = 1 / (dampingConstant + rank)
       // Rank 1: +0.05, ranks 2–3: +0.02, others: 0
-      const nearTopBonus = rank <= 3 ? 0.02 : 0;
-      const bonus = rank === 1 ? 0.05 : nearTopBonus;
-      const previousScore = scoresByIdentifier.get(item.identifier) ?? 0;
-      scoresByIdentifier.set(item.identifier, previousScore + (rrfScore + bonus) * listWeight);
+      const nearTopBonus = rank <= 3 ? 0.02 : 0
+      const bonus = rank === 1 ? 0.05 : nearTopBonus
+      const previousScore = scoresByIdentifier.get(item.identifier) ?? 0
+      scoresByIdentifier.set(item.identifier, previousScore + (rrfScore + bonus) * listWeight)
     }
-  };
+  }
 
   for (const rankedList of params.rankedLists) {
-    accumulateScores(rankedList.items, rankedList.weight ?? 1);
+    accumulateScores(rankedList.items, rankedList.weight ?? 1)
   }
 
   return [...scoresByIdentifier.entries()]
     .toSorted(([identifierA, scoreA], [identifierB, scoreB]) => {
-      if (scoreA !== scoreB) return scoreB - scoreA;
+      if (scoreA !== scoreB) return scoreB - scoreA
       // Code-unit comparison — localeCompare would order ties differently
       // across deployments depending on the runtime's locale.
-      return identifierA < identifierB ? -1 : Number(identifierA > identifierB);
+      return identifierA < identifierB ? -1 : Number(identifierA > identifierB)
     })
     .map(([identifier, score]) => ({
       identifier,
       score: Number(score.toPrecision(4)),
-    }));
-};
+    }))
+}

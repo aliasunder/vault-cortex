@@ -1,24 +1,24 @@
 /** Asset tool registration — reading and discovering non-markdown vault files. */
 
-import { z } from "zod";
-import { assetOperations } from "../../vault-operations/asset-operations.js";
-import type { AssetReadResult } from "../../vault-operations/asset-operations.js";
-import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js";
-import { TOOL_NAMES } from "../tool-registry.js";
-import type { ToolRegistrationContext } from "./tool-helpers.js";
-import { describeTextWindow, safeHandler, safeHandlerContent } from "./tool-helpers.js";
+import { z } from "zod"
+import { assetOperations } from "../../vault-operations/asset-operations.js"
+import type { AssetReadResult } from "../../vault-operations/asset-operations.js"
+import type { FittedImage } from "../../../utils/fit-image-to-byte-budget.js"
+import { TOOL_NAMES } from "../tool-registry.js"
+import type { ToolRegistrationContext } from "./tool-helpers.js"
+import { describeTextWindow, safeHandler, safeHandlerContent } from "./tool-helpers.js"
 
-type ContentBlock = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
+type ContentBlock = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string }
 
 /** One-line, model-facing summary accompanying an image block: what file it
  *  is, what was delivered, and whether/how it was shrunk to fit. */
 const describeDeliveredImage = (result: { fitted: FittedImage; originalBytes: number; path: string }): string => {
-  const { fitted, originalBytes, path } = result;
-  const delivered = `${path} — ${fitted.mimeType}, ${fitted.width}×${fitted.height}, ${fitted.data.length} bytes`;
+  const { fitted, originalBytes, path } = result
+  const delivered = `${path} — ${fitted.mimeType}, ${fitted.width}×${fitted.height}, ${fitted.data.length} bytes`
 
-  if (!fitted.recompressed) return `${delivered} (original file, not recompressed)`;
-  return `${delivered} (recompressed from ${fitted.originalWidth}×${fitted.originalHeight}, ${originalBytes} bytes)`;
-};
+  if (!fitted.recompressed) return `${delivered} (original file, not recompressed)`
+  return `${delivered} (recompressed from ${fitted.originalWidth}×${fitted.originalHeight}, ${originalBytes} bytes)`
+}
 
 /** Formats an asset read result into MCP content blocks — the image, pages,
  *  or text representation the model sees. */
@@ -31,15 +31,15 @@ const formatAssetReadResult = (result: AssetReadResult): ContentBlock[] => {
         mimeType: result.fitted.mimeType,
       },
       { type: "text", text: describeDeliveredImage(result) },
-    ];
+    ]
   }
   if (result.kind === "pages") {
-    const titleSegment = result.title ? `, "${result.title}"` : "";
+    const titleSegment = result.title ? `, "${result.title}"` : ""
     const metadataLine =
       `${result.path} — PDF, ${result.totalPages} pages` +
       titleSegment +
       ` — rendered ${result.pagesRendered} ` +
-      `page${result.pagesRendered === 1 ? "" : "s"} as images`;
+      `page${result.pagesRendered === 1 ? "" : "s"} as images`
     const pageBlocks = result.pages.flatMap((page) => [
       {
         type: "image" as const,
@@ -53,19 +53,19 @@ const formatAssetReadResult = (result: AssetReadResult): ContentBlock[] => {
           `${page.fitted.width}×${page.fitted.height}, ` +
           `${page.fitted.data.length} bytes`,
       },
-    ]);
-    return [{ type: "text", text: metadataLine }, ...pageBlocks];
+    ])
+    return [{ type: "text", text: metadataLine }, ...pageBlocks]
   }
   if (result.lineWindow) {
     const metadataBlock = {
       type: "text" as const,
       text: describeTextWindow(result.path, result.lineWindow),
-    };
-    const contentBlock = { type: "text" as const, text: result.text };
-    return [metadataBlock, contentBlock];
+    }
+    const contentBlock = { type: "text" as const, text: result.text }
+    return [metadataBlock, contentBlock]
   }
-  return [{ type: "text", text: result.text }];
-};
+  return [{ type: "text", text: result.text }]
+}
 
 export const registerAssetTools = ({
   registerTool,
@@ -149,8 +149,8 @@ Search coverage: vault_search indexes markdown notes plus canvas, PDF, and suppo
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_READ_FILE,
-      });
-      reqLogger.info("tool_call", { path, raw, startLine: start_line, limit });
+      })
+      reqLogger.info("tool_call", { path, raw, startLine: start_line, limit })
       return safeHandlerContent(
         reqLogger,
         () =>
@@ -179,25 +179,25 @@ Search coverage: vault_search indexes markdown notes plus canvas, PDF, and suppo
               originalWidth: result.fitted.originalWidth,
               originalHeight: result.fitted.originalHeight,
               recompressed: result.fitted.recompressed,
-            });
+            })
           } else if (result.kind === "pages") {
             reqLogger.info("tool_result", {
               path,
               totalPages: result.totalPages,
               pagesRendered: result.pagesRendered,
-            });
+            })
           } else {
             reqLogger.info("tool_result", {
               path,
               textBytes: Buffer.byteLength(result.text, "utf8"),
               ...(result.lineWindow ?? {}),
-            });
+            })
           }
-          return formatAssetReadResult(result);
+          return formatAssetReadResult(result)
         },
-      );
+      )
     },
-  );
+  )
 
   registerTool(
     TOOL_NAMES.VAULT_LIST_FILES,
@@ -239,27 +239,27 @@ Returns: JSON with files (array of { path, extension, bytes }, sorted by path), 
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_LIST_FILES,
-      });
-      reqLogger.info("tool_call", { folder, extensions, limit });
+      })
+      reqLogger.info("tool_call", { folder, extensions, limit })
       return safeHandler(
         reqLogger,
         async () => {
-          const listing = await assetOperations.buildAssetListing({ vaultPath, folder, extensions, limit }, reqLogger);
+          const listing = await assetOperations.buildAssetListing({ vaultPath, folder, extensions, limit }, reqLogger)
           return {
             files: listing.assets,
             extension_counts: listing.extensionCounts,
             total: listing.total,
             truncated: listing.truncated,
-          };
+          }
         },
         (result) => {
           reqLogger.info("tool_result", {
             total: result.total,
             returned: result.files.length,
-          });
-          return JSON.stringify(result);
+          })
+          return JSON.stringify(result)
         },
-      );
+      )
     },
-  );
-};
+  )
+}

@@ -1,11 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { describe, expect, it, onTestFinished } from "vitest"
 
-import type { DockerLogsParams, DockerRunner } from "../docker.js";
-import { runDown, runLogs, runRestart, runStart } from "../lifecycle.js";
-import { buildDockerNotInstalledMessage } from "../messages.js";
+import type { DockerLogsParams, DockerRunner } from "../docker.js"
+import { runDown, runLogs, runRestart, runStart } from "../lifecycle.js"
+import { buildDockerNotInstalledMessage } from "../messages.js"
 import {
   createScriptedPrompts,
   dockerDown,
@@ -13,412 +13,412 @@ import {
   dockerReady,
   fetchNever,
   fetchOk,
-} from "./command-stubs.js";
+} from "./command-stubs.js"
 
 // Creates a temp target dir and registers its removal at creation time, so
 // the suite self-cleans even when an assertion throws mid-test.
 const makeTempTargetDir = (prefix: string): string => {
-  const targetDir = mkdtempSync(join(tmpdir(), prefix));
+  const targetDir = mkdtempSync(join(tmpdir(), prefix))
   onTestFinished(() => {
-    rmSync(targetDir, { recursive: true, force: true });
-  });
-  return targetDir;
-};
+    rmSync(targetDir, { recursive: true, force: true })
+  })
+  return targetDir
+}
 
 const writeLocalEnv = (targetDir: string): void => {
   writeFileSync(
     join(targetDir, ".env"),
     "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\nPUBLIC_URL=http://localhost:8000\n",
-  );
-};
+  )
+}
 
 const writeRemoteEnv = (targetDir: string): void => {
   writeFileSync(
     join(targetDir, ".env"),
     "MCP_AUTH_TOKEN=abc123\nOBSIDIAN_AUTH_TOKEN=sync-token\nVAULT_NAME=MyVault\nPUBLIC_URL=https://vault.example.com\n",
-  );
-};
+  )
+}
 
 describe("runDown", () => {
   it("exits 1 when no .env exists in the target directory", async () => {
-    const targetDir = join(tmpdir(), "vault-cli-down-missing");
-    const scripted = createScriptedPrompts();
+    const targetDir = join(tmpdir(), "vault-cli-down-missing")
+    const scripted = createScriptedPrompts()
 
-    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerReady });
+    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerReady })
 
-    expect(exitCode).toBe(1);
-    expect(scripted.errors).toEqual([`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`]);
-  });
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`])
+  })
 
   it("exits 1 when Docker daemon is not running", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-down-");
-    writeLocalEnv(targetDir);
-    const scripted = createScriptedPrompts();
+    const targetDir = makeTempTargetDir("vault-cli-down-")
+    writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
 
-    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerDown });
+    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerDown })
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
       "Container runtime not running — start Docker Desktop, Colima,\n" +
         "OrbStack, or another Docker-compatible runtime.",
-    ]);
-  });
+    ])
+  })
 
   // Message content per platform is pinned test-owned in messages.test.ts —
   // this asserts the not-installed state routes to the install guidance.
   it("exits 1 with install guidance when no container runtime is installed", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-down-");
-    writeLocalEnv(targetDir);
-    const scripted = createScriptedPrompts();
+    const targetDir = makeTempTargetDir("vault-cli-down-")
+    writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
 
-    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerNotInstalled });
+    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerNotInstalled })
 
-    expect(exitCode).toBe(1);
-    expect(scripted.errors).toEqual([buildDockerNotInstalledMessage({ nextStep: "" })]);
-  });
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([buildDockerNotInstalledMessage({ nextStep: "" })])
+  })
 
   it("succeeds without removing anything when no container exists", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-down-");
-    writeLocalEnv(targetDir);
-    const removeCalls: string[] = [];
+    const targetDir = makeTempTargetDir("vault-cli-down-")
+    writeLocalEnv(targetDir)
+    const removeCalls: string[] = []
     const dockerNoContainer: DockerRunner = {
       ...dockerReady,
       containerExists: () => false,
       stopAndRemoveContainer: () => {
-        removeCalls.push("called");
-        return true;
+        removeCalls.push("called")
+        return true
       },
-    };
-    const scripted = createScriptedPrompts();
+    }
+    const scripted = createScriptedPrompts()
 
-    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerNoContainer });
+    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerNoContainer })
 
-    expect(exitCode).toBe(0);
-    expect(removeCalls).toEqual([]);
-    expect(scripted.logs).toEqual(["No vault-cortex container found — nothing to stop."]);
-  });
+    expect(exitCode).toBe(0)
+    expect(removeCalls).toEqual([])
+    expect(scripted.logs).toEqual(["No vault-cortex container found — nothing to stop."])
+  })
 
   it("tears down a local .env lacking PUBLIC_URL without rejecting it", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-down-");
+    const targetDir = makeTempTargetDir("vault-cli-down-")
     // A compose-era .env that upgrade/restart would reject — teardown
     // must still work on it.
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\n");
-    const removeCalls: string[] = [];
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\n")
+    const removeCalls: string[] = []
     const dockerWithRemoveSpy: DockerRunner = {
       ...dockerReady,
       stopAndRemoveContainer: () => {
-        removeCalls.push("called");
-        return true;
+        removeCalls.push("called")
+        return true
       },
-    };
-    const scripted = createScriptedPrompts();
+    }
+    const scripted = createScriptedPrompts()
 
-    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerWithRemoveSpy });
+    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerWithRemoveSpy })
 
-    expect(exitCode).toBe(0);
-    expect(scripted.errors).toEqual([]);
-    expect(removeCalls).toEqual(["called"]);
-  });
+    expect(exitCode).toBe(0)
+    expect(scripted.errors).toEqual([])
+    expect(removeCalls).toEqual(["called"])
+  })
 
   it("removes the container and reports data preservation", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-down-");
-    writeLocalEnv(targetDir);
-    const removeCalls: string[] = [];
+    const targetDir = makeTempTargetDir("vault-cli-down-")
+    writeLocalEnv(targetDir)
+    const removeCalls: string[] = []
     const dockerSpy: DockerRunner = {
       ...dockerReady,
       stopAndRemoveContainer: () => {
-        removeCalls.push("called");
-        return true;
+        removeCalls.push("called")
+        return true
       },
-    };
-    const scripted = createScriptedPrompts();
+    }
+    const scripted = createScriptedPrompts()
 
-    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerSpy });
+    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerSpy })
 
-    expect(exitCode).toBe(0);
-    expect(removeCalls).toEqual(["called"]);
+    expect(exitCode).toBe(0)
+    expect(removeCalls).toEqual(["called"])
     expect(scripted.logs).toEqual([
       "Container stopped and removed. Your vault data, search index, and settings are untouched.",
-    ]);
-    expect(scripted.outros).toEqual([`Start again with: npx vault-cortex@latest start --dir "${targetDir}"`]);
-  });
+    ])
+    expect(scripted.outros).toEqual([`Start again with: npx vault-cortex@latest start --dir "${targetDir}"`])
+  })
 
   it("exits 1 when the container removal fails", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-down-");
-    writeLocalEnv(targetDir);
+    const targetDir = makeTempTargetDir("vault-cli-down-")
+    writeLocalEnv(targetDir)
     const dockerRemoveFails: DockerRunner = {
       ...dockerReady,
       stopAndRemoveContainer: () => false,
-    };
-    const scripted = createScriptedPrompts();
+    }
+    const scripted = createScriptedPrompts()
 
-    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerRemoveFails });
+    const exitCode = await runDown({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerRemoveFails })
 
-    expect(exitCode).toBe(1);
-    expect(scripted.errors).toEqual(["Could not remove the container — check: docker rm -f vault-cortex"]);
-    expect(scripted.outros).toEqual([]);
-  });
-});
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual(["Could not remove the container — check: docker rm -f vault-cortex"])
+    expect(scripted.outros).toEqual([])
+  })
+})
 
 describe("runLogs", () => {
   it("exits 1 when no .env exists in the target directory", async () => {
-    const targetDir = join(tmpdir(), "vault-cli-logs-missing");
-    const scripted = createScriptedPrompts();
+    const targetDir = join(tmpdir(), "vault-cli-logs-missing")
+    const scripted = createScriptedPrompts()
 
-    const exitCode = await runLogs({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerReady });
+    const exitCode = await runLogs({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerReady })
 
-    expect(exitCode).toBe(1);
-    expect(scripted.errors).toEqual([`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`]);
-  });
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`])
+  })
 
   it("exits 1 when Docker daemon is not running", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-logs-");
-    writeLocalEnv(targetDir);
-    const scripted = createScriptedPrompts();
+    const targetDir = makeTempTargetDir("vault-cli-logs-")
+    writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
 
-    const exitCode = await runLogs({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerDown });
+    const exitCode = await runLogs({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerDown })
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
       "Container runtime not running — start Docker Desktop, Colima,\n" +
         "OrbStack, or another Docker-compatible runtime.",
-    ]);
-  });
+    ])
+  })
 
   it("exits 1 with a restart hint when no container exists", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-logs-");
-    writeLocalEnv(targetDir);
-    const streamCalls: DockerLogsParams[] = [];
+    const targetDir = makeTempTargetDir("vault-cli-logs-")
+    writeLocalEnv(targetDir)
+    const streamCalls: DockerLogsParams[] = []
     const dockerNoContainer: DockerRunner = {
       ...dockerReady,
       containerExists: () => false,
       streamLogs: async (params) => {
-        streamCalls.push(params);
-        return 0;
+        streamCalls.push(params)
+        return 0
       },
-    };
-    const scripted = createScriptedPrompts();
+    }
+    const scripted = createScriptedPrompts()
 
-    const exitCode = await runLogs({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerNoContainer });
+    const exitCode = await runLogs({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerNoContainer })
 
-    expect(exitCode).toBe(1);
-    expect(streamCalls).toEqual([]);
+    expect(exitCode).toBe(1)
+    expect(streamCalls).toEqual([])
     expect(scripted.errors).toEqual([
       `No vault-cortex container — start it with: npx vault-cortex@latest start --dir "${targetDir}"`,
-    ]);
-  });
+    ])
+  })
 
   it("passes --follow and --since through to the log stream", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-logs-");
-    writeLocalEnv(targetDir);
-    const streamCalls: DockerLogsParams[] = [];
+    const targetDir = makeTempTargetDir("vault-cli-logs-")
+    writeLocalEnv(targetDir)
+    const streamCalls: DockerLogsParams[] = []
     const dockerSpy: DockerRunner = {
       ...dockerReady,
       streamLogs: async (params) => {
-        streamCalls.push(params);
-        return 0;
+        streamCalls.push(params)
+        return 0
       },
-    };
-    const scripted = createScriptedPrompts();
+    }
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runLogs(
       { dir: targetDir, follow: true, since: "10m" },
       { prompts: scripted.prompts, docker: dockerSpy },
-    );
+    )
 
-    expect(exitCode).toBe(0);
-    expect(streamCalls).toEqual([{ follow: true, since: "10m" }]);
-  });
+    expect(exitCode).toBe(0)
+    expect(streamCalls).toEqual([{ follow: true, since: "10m" }])
+  })
 
   it("defaults to a non-following stream with no since bound", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-logs-");
-    writeLocalEnv(targetDir);
-    const streamCalls: DockerLogsParams[] = [];
+    const targetDir = makeTempTargetDir("vault-cli-logs-")
+    writeLocalEnv(targetDir)
+    const streamCalls: DockerLogsParams[] = []
     const dockerSpy: DockerRunner = {
       ...dockerReady,
       streamLogs: async (params) => {
-        streamCalls.push(params);
-        return 0;
+        streamCalls.push(params)
+        return 0
       },
-    };
-    const scripted = createScriptedPrompts();
+    }
+    const scripted = createScriptedPrompts()
 
-    const exitCode = await runLogs({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerSpy });
+    const exitCode = await runLogs({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerSpy })
 
-    expect(exitCode).toBe(0);
-    expect(streamCalls).toEqual([{ follow: false, since: undefined }]);
-  });
+    expect(exitCode).toBe(0)
+    expect(streamCalls).toEqual([{ follow: false, since: undefined }])
+  })
 
   it("passes the stream's exit code through as its own", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-logs-");
-    writeLocalEnv(targetDir);
+    const targetDir = makeTempTargetDir("vault-cli-logs-")
+    writeLocalEnv(targetDir)
     const dockerInterrupted: DockerRunner = {
       ...dockerReady,
       streamLogs: async () => 130,
-    };
-    const scripted = createScriptedPrompts();
+    }
+    const scripted = createScriptedPrompts()
 
-    const exitCode = await runLogs({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerInterrupted });
+    const exitCode = await runLogs({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerInterrupted })
 
-    expect(exitCode).toBe(130);
-  });
-});
+    expect(exitCode).toBe(130)
+  })
+})
 
 describe("runStart", () => {
   it("runs the full re-create cycle with start-phrased messaging", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-start-");
-    writeLocalEnv(targetDir);
-    const scripted = createScriptedPrompts();
+    const targetDir = makeTempTargetDir("vault-cli-start-")
+    writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runStart(
       { dir: targetDir },
       { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchOk },
-    );
+    )
 
-    expect(exitCode).toBe(0);
+    expect(exitCode).toBe(0)
     // The health-check spinner proves the cycle actually ran — the labels
     // alone could pass on an early return.
-    expect(scripted.spinnerMessages).toContain("stop: Server is up — health check passed.");
-    expect(scripted.logs).toEqual(["Starting container...", "Started with the settings from .env."]);
-    expect(scripted.outros).toEqual(["Start complete."]);
-  });
+    expect(scripted.spinnerMessages).toContain("stop: Server is up — health check passed.")
+    expect(scripted.logs).toEqual(["Starting container...", "Started with the settings from .env."])
+    expect(scripted.outros).toEqual(["Start complete."])
+  })
 
   it("exits 1 when Docker daemon is not running", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-start-");
-    writeLocalEnv(targetDir);
-    const scripted = createScriptedPrompts();
+    const targetDir = makeTempTargetDir("vault-cli-start-")
+    writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runStart(
       { dir: targetDir },
       { prompts: scripted.prompts, docker: dockerDown, fetchFn: fetchNever },
-    );
+    )
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
       "Container runtime not running — start Docker Desktop, Colima,\n" +
         "OrbStack, or another Docker-compatible runtime.",
-    ]);
-  });
+    ])
+  })
 
   it("exits 1 when no .env exists in the target directory", async () => {
-    const targetDir = join(tmpdir(), "vault-cli-start-missing");
-    const scripted = createScriptedPrompts();
+    const targetDir = join(tmpdir(), "vault-cli-start-missing")
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runStart(
       { dir: targetDir },
       { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchNever },
-    );
+    )
 
-    expect(exitCode).toBe(1);
-    expect(scripted.errors).toEqual([`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`]);
-  });
-});
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`])
+  })
+})
 
 describe("runRestart", () => {
   it("exits 1 when no .env exists in the target directory", async () => {
-    const targetDir = join(tmpdir(), "vault-cli-restart-missing");
-    const scripted = createScriptedPrompts();
+    const targetDir = join(tmpdir(), "vault-cli-restart-missing")
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runRestart(
       { dir: targetDir },
       { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchNever },
-    );
+    )
 
-    expect(exitCode).toBe(1);
-    expect(scripted.errors).toEqual([`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`]);
-  });
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual([`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`])
+  })
 
   it("exits 1 when local .env has no VAULT_PATH", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-restart-");
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc123\n");
-    const scripted = createScriptedPrompts();
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc123\n")
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runRestart(
       { dir: targetDir },
       { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchNever },
-    );
+    )
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
       `VAULT_PATH is empty or missing in ${targetDir}/.env — cannot start the container.`,
-    ]);
-  });
+    ])
+  })
 
   it("exits 1 when local .env has no PUBLIC_URL", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-restart-");
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\n");
-    const scripted = createScriptedPrompts();
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\n")
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runRestart(
       { dir: targetDir },
       { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchNever },
-    );
+    )
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
       `PUBLIC_URL not found in ${targetDir}/.env — the server requires it.\n` +
         "Add this line to your .env:\n  PUBLIC_URL=http://localhost:8000",
-    ]);
-  });
+    ])
+  })
 
   it("exits 1 when Docker daemon is not running", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-restart-");
-    writeLocalEnv(targetDir);
-    const scripted = createScriptedPrompts();
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeLocalEnv(targetDir)
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runRestart(
       { dir: targetDir },
       { prompts: scripted.prompts, docker: dockerDown, fetchFn: fetchNever },
-    );
+    )
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(1)
     expect(scripted.errors).toEqual([
       "Container runtime not running — start Docker Desktop, Colima,\n" +
         "OrbStack, or another Docker-compatible runtime.",
-    ]);
-  });
+    ])
+  })
 
   it("never pulls an image", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-restart-");
-    writeLocalEnv(targetDir);
-    const pullCalls: string[] = [];
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeLocalEnv(targetDir)
+    const pullCalls: string[] = []
     const dockerPullSpy: DockerRunner = {
       ...dockerReady,
       pullImage: (image) => {
-        pullCalls.push(image);
-        return true;
+        pullCalls.push(image)
+        return true
       },
-    };
-    const scripted = createScriptedPrompts();
+    }
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runRestart(
       { dir: targetDir },
       { prompts: scripted.prompts, docker: dockerPullSpy, fetchFn: fetchOk },
-    );
+    )
 
-    expect(exitCode).toBe(0);
-    expect(pullCalls).toEqual([]);
-  });
+    expect(exitCode).toBe(0)
+    expect(pullCalls).toEqual([])
+  })
 
   it("re-creates a local container with the vault path from .env", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-restart-");
-    writeLocalEnv(targetDir);
-    const dockerRunParams: Parameters<DockerRunner["dockerRun"]>[] = [];
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeLocalEnv(targetDir)
+    const dockerRunParams: Parameters<DockerRunner["dockerRun"]>[] = []
     const dockerSpy: DockerRunner = {
       ...dockerReady,
       dockerRun: (params) => {
-        dockerRunParams.push([params]);
-        return true;
+        dockerRunParams.push([params])
+        return true
       },
-    };
-    const scripted = createScriptedPrompts();
+    }
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runRestart(
       { dir: targetDir },
       { prompts: scripted.prompts, docker: dockerSpy, fetchFn: fetchOk },
-    );
+    )
 
-    expect(exitCode).toBe(0);
+    expect(exitCode).toBe(0)
     expect(dockerRunParams).toEqual([
       [
         {
@@ -428,46 +428,46 @@ describe("runRestart", () => {
           vaultPath: "/home/user/MyVault",
         },
       ],
-    ]);
-    expect(scripted.logs).toEqual(["Starting container...", "Applied the current .env settings."]);
-    expect(scripted.outros).toEqual(["Restart complete."]);
-  });
+    ])
+    expect(scripted.logs).toEqual(["Starting container...", "Applied the current .env settings."])
+    expect(scripted.outros).toEqual(["Restart complete."])
+  })
 
   it("strips quoted values from .env before docker run", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-restart-");
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeFileSync(
       join(targetDir, ".env"),
       'MCP_AUTH_TOKEN=abc123\nVAULT_PATH="/home/user/My Vault"\nPORT="9000"\nPUBLIC_URL=http://localhost:9000\n',
-    );
-    const scripted = createScriptedPrompts();
+    )
+    const scripted = createScriptedPrompts()
 
-    await runRestart({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchOk });
+    await runRestart({ dir: targetDir }, { prompts: scripted.prompts, docker: dockerReady, fetchFn: fetchOk })
 
-    const envAfter = readFileSync(join(targetDir, ".env"), "utf8");
-    expect(envAfter).toContain("VAULT_PATH=/home/user/My Vault\n");
-    expect(envAfter).toContain("PORT=9000\n");
-    expect(envAfter).not.toMatch(/^(VAULT_PATH|PORT)="/m);
-  });
+    const envAfter = readFileSync(join(targetDir, ".env"), "utf8")
+    expect(envAfter).toContain("VAULT_PATH=/home/user/My Vault\n")
+    expect(envAfter).toContain("PORT=9000\n")
+    expect(envAfter).not.toMatch(/^(VAULT_PATH|PORT)="/m)
+  })
 
   it("re-creates a remote container without a vault path", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-restart-");
-    writeRemoteEnv(targetDir);
-    const dockerRunParams: Parameters<DockerRunner["dockerRun"]>[] = [];
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeRemoteEnv(targetDir)
+    const dockerRunParams: Parameters<DockerRunner["dockerRun"]>[] = []
     const dockerSpy: DockerRunner = {
       ...dockerReady,
       dockerRun: (params) => {
-        dockerRunParams.push([params]);
-        return true;
+        dockerRunParams.push([params])
+        return true
       },
-    };
-    const scripted = createScriptedPrompts();
+    }
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runRestart(
       { dir: targetDir },
       { prompts: scripted.prompts, docker: dockerSpy, fetchFn: fetchOk },
-    );
+    )
 
-    expect(exitCode).toBe(0);
+    expect(exitCode).toBe(0)
     expect(dockerRunParams).toEqual([
       [
         {
@@ -477,18 +477,18 @@ describe("runRestart", () => {
           vaultPath: undefined,
         },
       ],
-    ]);
-  });
+    ])
+  })
 
   it("probes the public URL after a confirmed remote start", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-restart-");
-    writeRemoteEnv(targetDir);
-    const fetchedUrls: string[] = [];
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeRemoteEnv(targetDir)
+    const fetchedUrls: string[] = []
     const fetchRecorder: typeof fetch = async (input) => {
-      fetchedUrls.push(String(input));
-      return new Response(null, { status: 200 });
-    };
-    const scripted = createScriptedPrompts();
+      fetchedUrls.push(String(input))
+      return new Response(null, { status: 200 })
+    }
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runRestart(
       { dir: targetDir },
@@ -497,26 +497,26 @@ describe("runRestart", () => {
         docker: dockerReady,
         fetchFn: fetchRecorder,
       },
-    );
+    )
 
-    expect(exitCode).toBe(0);
+    expect(exitCode).toBe(0)
     // Order proves the probe ran after the container health poll.
-    expect(fetchedUrls).toEqual(["http://127.0.0.1:8000/healthz", "https://vault.example.com/healthz"]);
-  });
+    expect(fetchedUrls).toEqual(["http://127.0.0.1:8000/healthz", "https://vault.example.com/healthz"])
+  })
 
   it("keeps a successful remote restart at exit 0 when the public URL does not answer", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-restart-");
-    writeRemoteEnv(targetDir);
-    const fetchedUrls: string[] = [];
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeRemoteEnv(targetDir)
+    const fetchedUrls: string[] = []
     // Localhost (the container check) answers; the public URL is unreachable
     // — the state every remote deployment is in before HTTPS is set up.
     const fetchPublicUrlDown: typeof fetch = async (input) => {
-      const url = String(input);
-      fetchedUrls.push(url);
-      if (url.includes("127.0.0.1")) return new Response(null, { status: 200 });
-      throw new Error("ECONNREFUSED");
-    };
-    const scripted = createScriptedPrompts();
+      const url = String(input)
+      fetchedUrls.push(url)
+      if (url.includes("127.0.0.1")) return new Response(null, { status: 200 })
+      throw new Error("ECONNREFUSED")
+    }
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runRestart(
       { dir: targetDir },
@@ -525,34 +525,34 @@ describe("runRestart", () => {
         docker: dockerReady,
         fetchFn: fetchPublicUrlDown,
       },
-    );
+    )
 
     // Exit 0 with the probe provably fired — informational, never a gate.
-    expect(exitCode).toBe(0);
-    expect(fetchedUrls).toContain("https://vault.example.com/healthz");
+    expect(exitCode).toBe(0)
+    expect(fetchedUrls).toContain("https://vault.example.com/healthz")
     expect(scripted.spinnerMessages).toEqual([
       "start: Waiting for the server to come up",
       "stop: Server is up — health check passed.",
       "start: Checking the public URL (https://vault.example.com/healthz)",
       "stop: No answer from https://vault.example.com/healthz yet.",
-    ]);
+    ])
     expect(scripted.warnings).toEqual([
       "The server is up, but its public URL didn't answer from this machine.\n" +
         "That's expected until HTTPS (or direct port) access is set up — and\n" +
         "some networks keep a server from reaching its own public address even\n" +
         "when other devices can. Once access is set up, check from any device:\n" +
         "  curl https://vault.example.com/healthz",
-    ]);
-  });
+    ])
+  })
 
   it("exits 1 when docker run fails", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-restart-");
-    writeLocalEnv(targetDir);
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeLocalEnv(targetDir)
     const dockerRunFails: DockerRunner = {
       ...dockerReady,
       dockerRun: () => false,
-    };
-    const scripted = createScriptedPrompts();
+    }
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runRestart(
       { dir: targetDir },
@@ -561,25 +561,25 @@ describe("runRestart", () => {
         docker: dockerRunFails,
         fetchFn: fetchNever,
       },
-    );
+    )
 
-    expect(exitCode).toBe(1);
-    expect(scripted.errors).toEqual(["docker run failed — see output above."]);
-  });
+    expect(exitCode).toBe(1)
+    expect(scripted.errors).toEqual(["docker run failed — see output above."])
+  })
 
   it("exits 1 without starting when an existing container cannot be removed", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-restart-");
-    writeLocalEnv(targetDir);
-    const runCalls: string[] = [];
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeLocalEnv(targetDir)
+    const runCalls: string[] = []
     const dockerRemoveFails: DockerRunner = {
       ...dockerReady,
       stopAndRemoveContainer: () => false,
       dockerRun: () => {
-        runCalls.push("called");
-        return true;
+        runCalls.push("called")
+        return true
       },
-    };
-    const scripted = createScriptedPrompts();
+    }
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runRestart(
       { dir: targetDir },
@@ -588,46 +588,46 @@ describe("runRestart", () => {
         docker: dockerRemoveFails,
         fetchFn: fetchNever,
       },
-    );
+    )
 
-    expect(exitCode).toBe(1);
-    expect(runCalls).toEqual([]);
-    expect(scripted.errors).toEqual(["Could not remove the existing container — check: docker rm -f vault-cortex"]);
-  });
+    expect(exitCode).toBe(1)
+    expect(runCalls).toEqual([])
+    expect(scripted.errors).toEqual(["Could not remove the existing container — check: docker rm -f vault-cortex"])
+  })
 
   it("proceeds past a failed removal probe when no container exists", async () => {
     // Engines < 23 exit non-zero from `docker rm -f` on a missing container —
     // a first-start restart must not treat that as a removal failure.
-    const targetDir = makeTempTargetDir("vault-cli-restart-");
-    writeLocalEnv(targetDir);
-    const removeCalls: string[] = [];
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeLocalEnv(targetDir)
+    const removeCalls: string[] = []
     const dockerFirstStart: DockerRunner = {
       ...dockerReady,
       containerExists: () => false,
       stopAndRemoveContainer: () => {
-        removeCalls.push("called");
-        return false;
+        removeCalls.push("called")
+        return false
       },
-    };
-    const scripted = createScriptedPrompts();
+    }
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runRestart(
       { dir: targetDir },
       { prompts: scripted.prompts, docker: dockerFirstStart, fetchFn: fetchOk },
-    );
+    )
 
-    expect(exitCode).toBe(0);
-    expect(removeCalls).toEqual([]);
-    expect(scripted.errors).toEqual([]);
-  });
+    expect(exitCode).toBe(0)
+    expect(removeCalls).toEqual([])
+    expect(scripted.errors).toEqual([])
+  })
 
   it("reports failure when the health check times out", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-restart-");
-    writeLocalEnv(targetDir);
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
+    writeLocalEnv(targetDir)
     const fetchFail: typeof fetch = async () => {
-      throw new Error("ECONNREFUSED");
-    };
-    const scripted = createScriptedPrompts();
+      throw new Error("ECONNREFUSED")
+    }
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runRestart(
       { dir: targetDir },
@@ -637,27 +637,27 @@ describe("runRestart", () => {
         fetchFn: fetchFail,
         healthTimeoutMs: 0,
       },
-    );
+    )
 
-    expect(exitCode).toBe(1);
+    expect(exitCode).toBe(1)
     expect(scripted.spinnerMessages).toEqual([
       "start: Waiting for the server to come up",
       "stop: Server did not respond within 0 minutes — check: docker logs vault-cortex",
-    ]);
-  });
+    ])
+  })
 
   it("uses the PORT from .env for health polling", async () => {
-    const targetDir = makeTempTargetDir("vault-cli-restart-");
+    const targetDir = makeTempTargetDir("vault-cli-restart-")
     writeFileSync(
       join(targetDir, ".env"),
       "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/vault\nPORT=9000\nPUBLIC_URL=http://localhost:9000\n",
-    );
-    const fetchedUrls: string[] = [];
+    )
+    const fetchedUrls: string[] = []
     const fetchRecorder: typeof fetch = async (url) => {
-      fetchedUrls.push(String(url));
-      return new Response(null, { status: 200 });
-    };
-    const scripted = createScriptedPrompts();
+      fetchedUrls.push(String(url))
+      return new Response(null, { status: 200 })
+    }
+    const scripted = createScriptedPrompts()
 
     const exitCode = await runRestart(
       { dir: targetDir },
@@ -666,9 +666,9 @@ describe("runRestart", () => {
         docker: dockerReady,
         fetchFn: fetchRecorder,
       },
-    );
+    )
 
-    expect(exitCode).toBe(0);
-    expect(fetchedUrls).toEqual(["http://127.0.0.1:9000/healthz"]);
-  });
-});
+    expect(exitCode).toBe(0)
+    expect(fetchedUrls).toEqual(["http://127.0.0.1:9000/healthz"])
+  })
+})

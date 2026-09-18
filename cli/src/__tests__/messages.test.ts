@@ -1,24 +1,24 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest"
 
 import {
   buildDaemonNotRunningMessage,
   buildDockerNotInstalledMessage,
   buildLocalConnectMessage,
   buildRemoteConnectMessage,
-} from "../messages.js";
+} from "../messages.js"
 
 // ── Expected rules (mirrors the module-private helpers at RULE_WIDTH = 56) ────
 // Tests run in non-TTY, so paint() is a no-op — these are the raw strings.
 
-const RULE_WIDTH = 56;
+const RULE_WIDTH = 56
 
 const expectedTopRule = (label: string): string =>
-  `╭── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 6))}╮`;
+  `╭── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 6))}╮`
 
-const expectedBottomRule = (): string => `╰${"─".repeat(RULE_WIDTH - 2)}╯`;
+const expectedBottomRule = (): string => `╰${"─".repeat(RULE_WIDTH - 2)}╯`
 
 const expectedSectionRule = (label: string): string =>
-  `── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 4))}`;
+  `── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 4))}`
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ const localDefaults = {
   startStatus: "not-started" as const,
   port: 8000,
   tokenWritten: true,
-};
+}
 
 const remoteDefaults = {
   targetDir: "/home/user/vault-cortex",
@@ -37,345 +37,345 @@ const remoteDefaults = {
   startStatus: "not-started" as const,
   obsidianTokenMissing: false,
   tokenWritten: true,
-};
+}
 
 // ── buildLocalConnectMessage ───────────────────────────────────────────────────
 
 describe("buildLocalConnectMessage", () => {
   it("wraps the output in top and bottom box-drawing rules", () => {
-    const message = buildLocalConnectMessage(localDefaults);
+    const message = buildLocalConnectMessage(localDefaults)
 
-    const lines = message.split("\n");
-    expect(lines[0]).toBe(expectedTopRule("Connect"));
-    expect(lines[lines.length - 1]).toBe(expectedBottomRule());
-  });
+    const lines = message.split("\n")
+    expect(lines[0]).toBe(expectedTopRule("Connect"))
+    expect(lines[lines.length - 1]).toBe(expectedBottomRule())
+  })
 
   it("includes MCP client, Non-OAuth, and Settings section dividers", () => {
-    const lines = buildLocalConnectMessage(localDefaults).split("\n");
+    const lines = buildLocalConnectMessage(localDefaults).split("\n")
 
-    expect(lines).toContain(expectedSectionRule("MCP client"));
-    expect(lines).toContain(expectedSectionRule("Non-OAuth"));
-    expect(lines).toContain(expectedSectionRule("Settings"));
-  });
+    expect(lines).toContain(expectedSectionRule("MCP client"))
+    expect(lines).toContain(expectedSectionRule("Non-OAuth"))
+    expect(lines).toContain(expectedSectionRule("Settings"))
+  })
 
   it("builds URLs from the given port", () => {
-    const message = buildLocalConnectMessage({ ...localDefaults, port: 9999 });
+    const message = buildLocalConnectMessage({ ...localDefaults, port: 9999 })
 
-    expect(message).toContain("http://localhost:9999/mcp");
-    expect(message).toContain("http://localhost:9999/healthz");
-  });
+    expect(message).toContain("http://localhost:9999/mcp")
+    expect(message).toContain("http://localhost:9999/healthz")
+  })
 
   it("shows 'The server is running.' when startStatus is running", () => {
     const message = buildLocalConnectMessage({
       ...localDefaults,
       startStatus: "running",
-    });
+    })
 
-    expect(message).toContain("The server is running.");
-    expect(message).not.toContain("Start the server:");
-  });
+    expect(message).toContain("The server is running.")
+    expect(message).not.toContain("Start the server:")
+  })
 
   it("shows the start command when startStatus is not-started", () => {
     const message = buildLocalConnectMessage({
       ...localDefaults,
       startStatus: "not-started",
-    });
+    })
 
     // Bound to the start line specifically — the update-guidance block also
     // prints an npx command, so a bare command match could pass on that.
-    expect(message).toContain(`Start the server:\n  npx vault-cortex@latest start --dir "${localDefaults.targetDir}"`);
-  });
+    expect(message).toContain(`Start the server:\n  npx vault-cortex@latest start --dir "${localDefaults.targetDir}"`)
+  })
 
   it("displays the token on its own line when tokenWritten is true", () => {
     const message = buildLocalConnectMessage({
       ...localDefaults,
       tokenWritten: true,
-    });
+    })
 
-    expect(message).toContain("Auth token:");
-    expect(message).toContain(localDefaults.token);
-    expect(message).not.toContain("use the existing MCP_AUTH_TOKEN");
-  });
+    expect(message).toContain("Auth token:")
+    expect(message).toContain(localDefaults.token)
+    expect(message).not.toContain("use the existing MCP_AUTH_TOKEN")
+  })
 
   it("points at the existing .env token when tokenWritten is false", () => {
     const message = buildLocalConnectMessage({
       ...localDefaults,
       tokenWritten: false,
-    });
+    })
 
-    expect(message).toContain(`use the existing MCP_AUTH_TOKEN in ${localDefaults.targetDir}/.env`);
-  });
+    expect(message).toContain(`use the existing MCP_AUTH_TOKEN in ${localDefaults.targetDir}/.env`)
+  })
 
   it("includes the targetDir in the settings paragraph", () => {
-    const message = buildLocalConnectMessage(localDefaults);
+    const message = buildLocalConnectMessage(localDefaults)
 
-    expect(message).toContain(`${localDefaults.targetDir}/.env`);
-  });
+    expect(message).toContain(`${localDefaults.targetDir}/.env`)
+  })
 
   it("links Full docs to the repo front page, not a deep blob URL", () => {
-    const message = buildLocalConnectMessage(localDefaults);
+    const message = buildLocalConnectMessage(localDefaults)
 
-    expect(message).toContain("Full docs: https://github.com/aliasunder/vault-cortex\n");
-    expect(message).not.toContain("blob/main/deploy/local/README.md");
-  });
+    expect(message).toContain("Full docs: https://github.com/aliasunder/vault-cortex\n")
+    expect(message).not.toContain("blob/main/deploy/local/README.md")
+  })
 
   it("includes the image update command with the targetDir", () => {
-    const message = buildLocalConnectMessage(localDefaults);
+    const message = buildLocalConnectMessage(localDefaults)
 
-    expect(message).toContain("Update to the latest release:");
-    expect(message).toContain(`npx vault-cortex@latest upgrade --dir "${localDefaults.targetDir}"`);
-  });
+    expect(message).toContain("Update to the latest release:")
+    expect(message).toContain(`npx vault-cortex@latest upgrade --dir "${localDefaults.targetDir}"`)
+  })
 
   it("includes the OAuth connect walkthrough", () => {
-    const message = buildLocalConnectMessage(localDefaults);
+    const message = buildLocalConnectMessage(localDefaults)
 
-    expect(message).toContain("claude mcp add");
-    expect(message).toContain("approve the browser consent page");
-  });
+    expect(message).toContain("claude mcp add")
+    expect(message).toContain("approve the browser consent page")
+  })
 
   it("includes the curl guidance for non-OAuth clients", () => {
-    const message = buildLocalConnectMessage(localDefaults);
+    const message = buildLocalConnectMessage(localDefaults)
 
-    expect(message).toContain('curl -H "Authorization: Bearer <token>"');
-  });
+    expect(message).toContain('curl -H "Authorization: Bearer <token>"')
+  })
 
   it("includes the smoke test command", () => {
-    const message = buildLocalConnectMessage(localDefaults);
+    const message = buildLocalConnectMessage(localDefaults)
 
-    expect(message).toContain("Smoke test:");
-    expect(message).toContain("curl http://localhost:8000/healthz");
-  });
+    expect(message).toContain("Smoke test:")
+    expect(message).toContain("curl http://localhost:8000/healthz")
+  })
 
   it("shows 'starting in the background' when startStatus is starting", () => {
     const message = buildLocalConnectMessage({
       ...localDefaults,
       startStatus: "starting",
-    });
+    })
 
-    expect(message).toContain("starting in the background");
-    expect(message).toContain("docker logs vault-cortex");
-    expect(message).not.toContain("Start the server:");
-    expect(message).not.toContain("npx vault-cortex@latest start");
-  });
+    expect(message).toContain("starting in the background")
+    expect(message).toContain("docker logs vault-cortex")
+    expect(message).not.toContain("Start the server:")
+    expect(message).not.toContain("npx vault-cortex@latest start")
+  })
 
   it("shows the smoke test when startStatus is starting", () => {
     const message = buildLocalConnectMessage({
       ...localDefaults,
       startStatus: "starting",
-    });
+    })
 
-    expect(message).toContain("Smoke test:");
-  });
+    expect(message).toContain("Smoke test:")
+  })
 
   it("omits the smoke test once the server is running", () => {
     const message = buildLocalConnectMessage({
       ...localDefaults,
       startStatus: "running",
-    });
+    })
 
     // The CLI just health-checked this exact URL. The curl auth guidance must
     // survive (the omission removes one block, not the section), and the
     // triple-newline check catches a stray blank line from the assembly.
-    expect(message).not.toContain("Smoke test:");
-    expect(message).not.toContain("curl http://localhost:8000/healthz");
-    expect(message).toContain('curl -H "Authorization: Bearer <token>"');
-    expect(message).not.toMatch(/\n\n\n/);
-  });
-});
+    expect(message).not.toContain("Smoke test:")
+    expect(message).not.toContain("curl http://localhost:8000/healthz")
+    expect(message).toContain('curl -H "Authorization: Bearer <token>"')
+    expect(message).not.toMatch(/\n\n\n/)
+  })
+})
 
 // ── buildRemoteConnectMessage ──────────────────────────────────────────────────
 
 describe("buildRemoteConnectMessage", () => {
   it("wraps the output in top and bottom box-drawing rules", () => {
-    const message = buildRemoteConnectMessage(remoteDefaults);
+    const message = buildRemoteConnectMessage(remoteDefaults)
 
-    const lines = message.split("\n");
-    expect(lines[0]).toBe(expectedTopRule("Connect"));
-    expect(lines[lines.length - 1]).toBe(expectedBottomRule());
-  });
+    const lines = message.split("\n")
+    expect(lines[0]).toBe(expectedTopRule("Connect"))
+    expect(lines[lines.length - 1]).toBe(expectedBottomRule())
+  })
 
   it("includes MCP client, Non-OAuth, and Settings section dividers", () => {
-    const lines = buildRemoteConnectMessage(remoteDefaults).split("\n");
+    const lines = buildRemoteConnectMessage(remoteDefaults).split("\n")
 
-    expect(lines).toContain(expectedSectionRule("MCP client"));
-    expect(lines).toContain(expectedSectionRule("Non-OAuth"));
-    expect(lines).toContain(expectedSectionRule("Settings"));
-  });
+    expect(lines).toContain(expectedSectionRule("MCP client"))
+    expect(lines).toContain(expectedSectionRule("Non-OAuth"))
+    expect(lines).toContain(expectedSectionRule("Settings"))
+  })
 
   it("builds URLs from the given publicUrl", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
       publicUrl: "https://my-vault.example.com",
-    });
+    })
 
-    expect(message).toContain("https://my-vault.example.com/mcp");
-    expect(message).toContain("https://my-vault.example.com/healthz");
-  });
+    expect(message).toContain("https://my-vault.example.com/mcp")
+    expect(message).toContain("https://my-vault.example.com/healthz")
+  })
 
   it("shows 'The server is running.' when startStatus is running", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
       startStatus: "running",
-    });
+    })
 
-    expect(message).toContain("The server is running.");
-    expect(message).not.toContain("Start the server:");
-    expect(message).not.toContain("Fill in OBSIDIAN_AUTH_TOKEN");
-  });
+    expect(message).toContain("The server is running.")
+    expect(message).not.toContain("Start the server:")
+    expect(message).not.toContain("Fill in OBSIDIAN_AUTH_TOKEN")
+  })
 
   it("shows 'starting in the background' when startStatus is starting", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
       startStatus: "starting",
-    });
+    })
 
-    expect(message).toContain("starting in the background");
-    expect(message).toContain("docker logs vault-cortex");
-    expect(message).not.toContain("Start the server:");
-    expect(message).not.toContain("npx vault-cortex@latest start");
-  });
+    expect(message).toContain("starting in the background")
+    expect(message).toContain("docker logs vault-cortex")
+    expect(message).not.toContain("Start the server:")
+    expect(message).not.toContain("npx vault-cortex@latest start")
+  })
 
   it("shows the health check block when startStatus is starting", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
       startStatus: "starting",
-    });
+    })
 
-    expect(message).toContain("Health check — works from any device");
-    expect(message).not.toContain("Smoke test:");
-  });
+    expect(message).toContain("Health check — works from any device")
+    expect(message).not.toContain("Smoke test:")
+  })
 
   it("shows 'Fill in OBSIDIAN_AUTH_TOKEN' when obsidianTokenMissing and not started", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
       startStatus: "not-started",
       obsidianTokenMissing: true,
-    });
+    })
 
     expect(message).toContain(
       `Fill in OBSIDIAN_AUTH_TOKEN in ${remoteDefaults.targetDir}/.env, then start the server:\n  npx vault-cortex@latest start --dir "${remoteDefaults.targetDir}"`,
-    );
-  });
+    )
+  })
 
   it("shows the start command when not started and obsidian token present", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
       startStatus: "not-started",
       obsidianTokenMissing: false,
-    });
+    })
 
     // Bound to the start line specifically — the update-guidance block also
     // prints an npx command, so a bare command match could pass on that.
-    expect(message).toContain(`Start the server:\n  npx vault-cortex@latest start --dir "${remoteDefaults.targetDir}"`);
-  });
+    expect(message).toContain(`Start the server:\n  npx vault-cortex@latest start --dir "${remoteDefaults.targetDir}"`)
+  })
 
   it("shows https guidance when publicUrl is https", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
       publicUrl: "https://vault.example.com",
-    });
+    })
 
-    expect(message).toContain("Reachable over https from any MCP client");
-    expect(message).not.toContain("only accept https URLs");
-  });
+    expect(message).toContain("Reachable over https from any MCP client")
+    expect(message).not.toContain("only accept https URLs")
+  })
 
   it("shows http guidance when publicUrl is http", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
       publicUrl: "http://vault.example.com",
-    });
+    })
 
-    expect(message).toContain("only accept https URLs");
-    expect(message).not.toContain("Reachable over https from any MCP client");
-  });
+    expect(message).toContain("only accept https URLs")
+    expect(message).not.toContain("Reachable over https from any MCP client")
+  })
 
   it("handles case-insensitive HTTPS scheme", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
       publicUrl: "HTTPS://vault.example.com",
-    });
+    })
 
-    expect(message).toContain("Reachable over https from any MCP client");
-  });
+    expect(message).toContain("Reachable over https from any MCP client")
+  })
 
   it("displays the token on its own line when tokenWritten is true", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
       tokenWritten: true,
-    });
+    })
 
-    expect(message).toContain("Auth token:");
-    expect(message).toContain(remoteDefaults.token);
-    expect(message).not.toContain("use the existing MCP_AUTH_TOKEN");
-  });
+    expect(message).toContain("Auth token:")
+    expect(message).toContain(remoteDefaults.token)
+    expect(message).not.toContain("use the existing MCP_AUTH_TOKEN")
+  })
 
   it("points at the existing .env token when tokenWritten is false", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
       tokenWritten: false,
-    });
+    })
 
-    expect(message).toContain(`use the existing MCP_AUTH_TOKEN in ${remoteDefaults.targetDir}/.env`);
-  });
+    expect(message).toContain(`use the existing MCP_AUTH_TOKEN in ${remoteDefaults.targetDir}/.env`)
+  })
 
   it("includes the image update command with the targetDir", () => {
-    const message = buildRemoteConnectMessage(remoteDefaults);
+    const message = buildRemoteConnectMessage(remoteDefaults)
 
-    expect(message).toContain("Update to the latest release:");
-    expect(message).toContain(`npx vault-cortex@latest upgrade --dir "${remoteDefaults.targetDir}"`);
-  });
+    expect(message).toContain("Update to the latest release:")
+    expect(message).toContain(`npx vault-cortex@latest upgrade --dir "${remoteDefaults.targetDir}"`)
+  })
 
   it("includes the remote docs link", () => {
-    const message = buildRemoteConnectMessage(remoteDefaults);
+    const message = buildRemoteConnectMessage(remoteDefaults)
 
-    expect(message).toContain("deploy/remote/README.md#https-access");
-  });
+    expect(message).toContain("deploy/remote/README.md#https-access")
+  })
 
   it("includes the OAuth connect walkthrough", () => {
-    const message = buildRemoteConnectMessage(remoteDefaults);
+    const message = buildRemoteConnectMessage(remoteDefaults)
 
-    expect(message).toContain("claude mcp add");
-    expect(message).toContain("approve the browser consent page");
-  });
+    expect(message).toContain("claude mcp add")
+    expect(message).toContain("approve the browser consent page")
+  })
 
   it("includes the curl guidance for non-OAuth clients", () => {
-    const message = buildRemoteConnectMessage(remoteDefaults);
+    const message = buildRemoteConnectMessage(remoteDefaults)
 
-    expect(message).toContain('curl -H "Authorization: Bearer <token>"');
-  });
+    expect(message).toContain('curl -H "Authorization: Bearer <token>"')
+  })
 
   it("includes the smoke test command", () => {
-    const message = buildRemoteConnectMessage(remoteDefaults);
+    const message = buildRemoteConnectMessage(remoteDefaults)
 
-    expect(message).toContain("Smoke test:");
-    expect(message).toContain("curl https://vault.example.com/healthz");
-    expect(message).not.toContain("works from any device");
-  });
+    expect(message).toContain("Smoke test:")
+    expect(message).toContain("curl https://vault.example.com/healthz")
+    expect(message).not.toContain("works from any device")
+  })
 
   it("rewords the health check as the any-device check once running", () => {
     const message = buildRemoteConnectMessage({
       ...remoteDefaults,
       startStatus: "running",
-    });
+    })
 
     // Unlike local, the command survives a confirmed start: the CLI verified
     // localhost on the VPS, while the public URL exercises ingress — a
     // genuinely different check, so only the first-time framing goes.
     expect(message).toContain(
       "Health check — works from any device that can reach the URL:\n" + "  curl https://vault.example.com/healthz",
-    );
-    expect(message).not.toContain("Smoke test:");
-  });
-});
+    )
+    expect(message).not.toContain("Smoke test:")
+  })
+})
 
 describe("buildDaemonNotRunningMessage", () => {
   it("appends the caller's next step verbatim to the start guidance", () => {
     expect(buildDaemonNotRunningMessage(" and try again.")).toBe(
       "Container runtime not running — start Docker Desktop, Colima,\n" +
         "OrbStack, or another Docker-compatible runtime and try again.",
-    );
-  });
-});
+    )
+  })
+})
 
 describe("buildDockerNotInstalledMessage", () => {
   it("points macOS at the Docker Desktop docs", () => {
@@ -383,24 +383,24 @@ describe("buildDockerNotInstalledMessage", () => {
       "No container runtime found — the server runs in Docker, so you need\n" +
         "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
         "Install Docker Desktop: https://docs.docker.com/get-docker/",
-    );
-  });
+    )
+  })
 
   it("points Linux at the Docker Engine install docs", () => {
     expect(buildDockerNotInstalledMessage({ nextStep: "", platform: "linux" })).toBe(
       "No container runtime found — the server runs in Docker, so you need\n" +
         "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
         "Install Docker Engine: https://docs.docker.com/engine/install/",
-    );
-  });
+    )
+  })
 
   it("points Windows at the Docker Desktop docs", () => {
     expect(buildDockerNotInstalledMessage({ nextStep: "", platform: "win32" })).toBe(
       "No container runtime found — the server runs in Docker, so you need\n" +
         "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
         "Install Docker Desktop: https://docs.docker.com/get-docker/",
-    );
-  });
+    )
+  })
 
   it("appends the caller's next step verbatim after the install line", () => {
     expect(
@@ -413,6 +413,6 @@ describe("buildDockerNotInstalledMessage", () => {
         "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
         "Install Docker Engine: https://docs.docker.com/engine/install/\n" +
         "Then try again.",
-    );
-  });
-});
+    )
+  })
+})

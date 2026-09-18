@@ -1,16 +1,16 @@
-import { getMeta, renderPageAsImage } from "unpdf";
-import type { PDFDocumentProxy } from "unpdf/pdfjs";
-import { vaultFs } from "./vault-filesystem.js";
-import { linearizeCanvas } from "../obsidian-markdown/canvas.js";
-import { pageTextByLines } from "../obsidian-markdown/lines.js";
-import type { LineWindow } from "../obsidian-markdown/lines.js";
-import { links } from "../obsidian-markdown/links.js";
-import { extractPdfText } from "../obsidian-markdown/pdf.js";
-import { canvasImport, createPdfDocumentProxy } from "../obsidian-markdown/pdf-engine.js";
-import { describeError } from "../../utils/describe-error.js";
-import { fitImageToByteBudget } from "../../utils/fit-image-to-byte-budget.js";
-import type { FittedImage } from "../../utils/fit-image-to-byte-budget.js";
-import type { Logger } from "../../logger.js";
+import { getMeta, renderPageAsImage } from "unpdf"
+import type { PDFDocumentProxy } from "unpdf/pdfjs"
+import { vaultFs } from "./vault-filesystem.js"
+import { linearizeCanvas } from "../obsidian-markdown/canvas.js"
+import { pageTextByLines } from "../obsidian-markdown/lines.js"
+import type { LineWindow } from "../obsidian-markdown/lines.js"
+import { links } from "../obsidian-markdown/links.js"
+import { extractPdfText } from "../obsidian-markdown/pdf.js"
+import { canvasImport, createPdfDocumentProxy } from "../obsidian-markdown/pdf-engine.js"
+import { describeError } from "../../utils/describe-error.js"
+import { fitImageToByteBudget } from "../../utils/fit-image-to-byte-budget.js"
+import type { FittedImage } from "../../utils/fit-image-to-byte-budget.js"
+import type { Logger } from "../../logger.js"
 
 /**
  * Asset operations use-case — the grouped read/browse surface over the
@@ -33,27 +33,17 @@ import type { Logger } from "../../logger.js";
 // ── Reading ─────────────────────────────────────────────────────
 
 /** Extensions dispatched to the image pipeline (model-visible image blocks). */
-const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"])
 
 /** Extensions returned verbatim as text — plain-text formats an agent can
  *  read directly. .svg is XML source; .base is Obsidian Bases YAML. */
-const TEXT_PASSTHROUGH_EXTENSIONS = new Set([
-  ".svg",
-  ".json",
-  ".txt",
-  ".csv",
-  ".xml",
-  ".log",
-  ".yaml",
-  ".yml",
-  ".base",
-]);
+const TEXT_PASSTHROUGH_EXTENSIONS = new Set([".svg", ".json", ".txt", ".csv", ".xml", ".log", ".yaml", ".yml", ".base"])
 
 /** Fixed cap on text output (passthrough files and canvas renditions) so a
  *  huge text asset can't blow a client's response limit. Deliberately not an
  *  env var — the image budget is the tunable surface; text past this size
  *  is read in line windows, not raised into a bigger blob. */
-const MAX_TEXT_OUTPUT_BYTES = 102_400;
+const MAX_TEXT_OUTPUT_BYTES = 102_400
 
 /** The computed result of one asset read, before content-block formatting:
  *  an image (fitted to the byte budget), a text rendition (whole, or a line
@@ -61,43 +51,43 @@ const MAX_TEXT_OUTPUT_BYTES = 102_400;
  *  images (e.g. rendered PDF pages). */
 export type AssetReadResult =
   | Readonly<{
-      kind: "image";
-      fitted: FittedImage;
-      originalBytes: number;
-      path: string;
+      kind: "image"
+      fitted: FittedImage
+      originalBytes: number
+      path: string
     }>
   | Readonly<{
-      kind: "text";
-      text: string;
-      path: string;
-      lineWindow?: LineWindow;
+      kind: "text"
+      text: string
+      path: string
+      lineWindow?: LineWindow
     }>
   /** Multiple sequential page images — e.g. rendered PDF pages. */
   | Readonly<{
-      kind: "pages";
+      kind: "pages"
       pages: ReadonlyArray<
         Readonly<{
-          fitted: FittedImage;
-          pageNumber: number;
-          originalBytes: number;
+          fitted: FittedImage
+          pageNumber: number
+          originalBytes: number
         }>
-      >;
-      title: string | undefined;
-      totalPages: number;
-      pagesRendered: number;
-      path: string;
-    }>;
+      >
+      title: string | undefined
+      totalPages: number
+      pagesRendered: number
+      path: string
+    }>
 
 /** Rejects text output past the fixed cap — an explicit error beats silent
  *  truncation, and states the actual size so the caller knows what exists. */
 const assertTextWithinCap = (params: { text: string; path: string }): void => {
-  const textBytes = Buffer.byteLength(params.text, "utf8");
+  const textBytes = Buffer.byteLength(params.text, "utf8")
 
-  if (textBytes <= MAX_TEXT_OUTPUT_BYTES) return;
+  if (textBytes <= MAX_TEXT_OUTPUT_BYTES) return
   throw new Error(
     `text output too large: "${params.path}" renders to ${textBytes} bytes ` + `(cap ${MAX_TEXT_OUTPUT_BYTES} bytes)`,
-  );
-};
+  )
+}
 
 /**
  * Builds the text result for a rendition — whole or paged. Without paging
@@ -107,17 +97,17 @@ const assertTextWithinCap = (params: { text: string; path: string }): void => {
  * the resulting window.
  */
 const buildPagedTextResult = (params: {
-  text: string;
-  path: string;
-  startLine?: number | undefined;
-  limit?: number | undefined;
+  text: string
+  path: string
+  startLine?: number | undefined
+  limit?: number | undefined
 }): AssetReadResult => {
-  const { text, path, startLine, limit } = params;
-  const isPagedRead = startLine !== undefined || limit !== undefined;
+  const { text, path, startLine, limit } = params
+  const isPagedRead = startLine !== undefined || limit !== undefined
 
   if (!isPagedRead) {
-    assertTextWithinCap({ text, path });
-    return { kind: "text", text, path };
+    assertTextWithinCap({ text, path })
+    return { kind: "text", text, path }
   }
 
   const { text: windowText, lineWindow } = pageTextByLines({
@@ -125,38 +115,38 @@ const buildPagedTextResult = (params: {
     path,
     startLine,
     limit,
-  });
+  })
 
-  const windowBytes = Buffer.byteLength(windowText, "utf8");
-  const exceedsByteCap = windowBytes > MAX_TEXT_OUTPUT_BYTES;
+  const windowBytes = Buffer.byteLength(windowText, "utf8")
+  const exceedsByteCap = windowBytes > MAX_TEXT_OUTPUT_BYTES
 
   if (exceedsByteCap) {
     throw new Error(
       `text output too large: "${path}" lines ${lineWindow.startLine}–${lineWindow.endLine} ` +
         `render to ${windowBytes} bytes (cap ${MAX_TEXT_OUTPUT_BYTES} bytes)`,
-    );
+    )
   }
 
-  return { kind: "text", text: windowText, path, lineWindow };
-};
+  return { kind: "text", text: windowText, path, lineWindow }
+}
 
 /** Decodes an asset buffer as UTF-8, rejecting invalid byte sequences — text
  *  is promised verbatim, and the default decoder would silently substitute
  *  U+FFFD for every undecodable byte instead. */
 const decodeUtf8Strict = (params: { buffer: Buffer; path: string }): string => {
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(params.buffer);
+    return new TextDecoder("utf-8", { fatal: true }).decode(params.buffer)
   } catch (error) {
-    throw new Error(`not valid UTF-8: "${params.path}" cannot be returned as text`, { cause: error });
+    throw new Error(`not valid UTF-8: "${params.path}" cannot be returned as text`, { cause: error })
   }
-};
+}
 
 // ── PDF page rendering ────────────────────────────────────────
 
 /** Render scale for PDF page images — 2.0 produces 1224×1584px for US Letter
  *  (close to MAX_LONG_EDGE_PX 1568), giving sharp text after JPEG compression
  *  without wasting pixels that fitImageToByteBudget would discard anyway. */
-const PDF_RENDER_SCALE = 2.0;
+const PDF_RENDER_SCALE = 2.0
 
 /** Renders `pagesToRender` pages of a PDF as fitted images, sequentially.
  *  Individual page failures are logged and skipped — the caller checks whether
@@ -168,39 +158,39 @@ const PDF_RENDER_SCALE = 2.0;
  *  document for every page. */
 const renderPdfPages = async (
   params: {
-    proxy: PDFDocumentProxy;
-    pagesToRender: number;
-    perPageBudget: number;
+    proxy: PDFDocumentProxy
+    pagesToRender: number
+    perPageBudget: number
   },
   logger: Logger,
 ): Promise<Array<{ pageNumber: number; fitted: FittedImage; originalBytes: number }>> => {
   const results: Array<{
-    pageNumber: number;
-    fitted: FittedImage;
-    originalBytes: number;
-  }> = [];
+    pageNumber: number
+    fitted: FittedImage
+    originalBytes: number
+  }> = []
 
   for (let pageNumber = 1; pageNumber <= params.pagesToRender; pageNumber++) {
     try {
       const pngArrayBuffer = await renderPageAsImage(params.proxy, pageNumber, {
         canvasImport,
         scale: PDF_RENDER_SCALE,
-      });
-      const pngBuffer = Buffer.from(pngArrayBuffer);
+      })
+      const pngBuffer = Buffer.from(pngArrayBuffer)
       const fitted = await fitImageToByteBudget({
         buffer: pngBuffer,
         budgetBytes: params.perPageBudget,
-      });
-      results.push({ pageNumber, fitted, originalBytes: pngBuffer.length });
+      })
+      results.push({ pageNumber, fitted, originalBytes: pngBuffer.length })
     } catch (error) {
       logger.warn("pdf_page_render_failed", {
         page: pageNumber,
         error: describeError(error),
-      });
+      })
     }
   }
-  return results;
-};
+  return results
+}
 
 /**
  * Reads a non-markdown vault file and returns its most useful representation
@@ -214,78 +204,78 @@ const renderPdfPages = async (
  */
 const readAssetContent = async (
   params: {
-    vaultPath: string;
-    path: string;
-    raw?: boolean | undefined;
-    startLine?: number | undefined;
-    limit?: number | undefined;
-    maxFileBytes: number;
-    maxImageOutputBytes: number;
-    maxPdfRenderPages: number;
+    vaultPath: string
+    path: string
+    raw?: boolean | undefined
+    startLine?: number | undefined
+    limit?: number | undefined
+    maxFileBytes: number
+    maxImageOutputBytes: number
+    maxPdfRenderPages: number
   },
   logger: Logger,
 ): Promise<AssetReadResult> => {
-  const { path, raw, startLine, limit } = params;
-  const isPagedRead = startLine !== undefined || limit !== undefined;
-  const asset = await vaultFs.readAsset({ vaultPath: params.vaultPath, path, maxBytes: params.maxFileBytes }, logger);
-  const isImage = IMAGE_EXTENSIONS.has(asset.extension);
+  const { path, raw, startLine, limit } = params
+  const isPagedRead = startLine !== undefined || limit !== undefined
+  const asset = await vaultFs.readAsset({ vaultPath: params.vaultPath, path, maxBytes: params.maxFileBytes }, logger)
+  const isImage = IMAGE_EXTENSIONS.has(asset.extension)
 
   if (isImage && raw) {
     throw new Error(
       `raw source is not available for images: "${path}" is ` + `binary — its image block is the delivered form`,
-    );
+    )
   }
   if (isImage && isPagedRead) {
     throw new Error(
       `line range is not available for images: "${path}" is ` + `binary — its image block is the delivered form`,
-    );
+    )
   }
   if (isImage) {
     const fitted = await fitImageToByteBudget({
       buffer: asset.buffer,
       budgetBytes: params.maxImageOutputBytes,
-    });
-    return { kind: "image", fitted, originalBytes: asset.bytes, path };
+    })
+    return { kind: "image", fitted, originalBytes: asset.bytes, path }
   }
   if (asset.extension === ".canvas") {
-    const canvasSource = decodeUtf8Strict({ buffer: asset.buffer, path });
-    const text = raw ? canvasSource : linearizeCanvas(canvasSource);
-    return buildPagedTextResult({ text, path, startLine, limit });
+    const canvasSource = decodeUtf8Strict({ buffer: asset.buffer, path })
+    const text = raw ? canvasSource : linearizeCanvas(canvasSource)
+    return buildPagedTextResult({ text, path, startLine, limit })
   }
   if (TEXT_PASSTHROUGH_EXTENSIONS.has(asset.extension)) {
-    const text = decodeUtf8Strict({ buffer: asset.buffer, path });
-    return buildPagedTextResult({ text, path, startLine, limit });
+    const text = decodeUtf8Strict({ buffer: asset.buffer, path })
+    return buildPagedTextResult({ text, path, startLine, limit })
   }
   if (asset.extension === ".pdf") {
     if (raw && isPagedRead) {
       throw new Error(
         `line range is not available for rendered PDF pages: ` + `"${path}" delivers page images, not text`,
-      );
+      )
     }
     // Buffer → Uint8Array view: Buffer.buffer may be Node's shared pool,
     // so byteOffset/byteLength carve out this buffer's portion.
-    const pdfData = new Uint8Array(asset.buffer.buffer, asset.buffer.byteOffset, asset.buffer.byteLength);
+    const pdfData = new Uint8Array(asset.buffer.buffer, asset.buffer.byteOffset, asset.buffer.byteLength)
 
     if (raw) {
-      const proxy = await createPdfDocumentProxy(pdfData);
+      const proxy = await createPdfDocumentProxy(pdfData)
       try {
-        const meta = await getMeta(proxy);
-        const pdfTitle = meta.info?.Title ?? undefined;
-        const totalPages = proxy.numPages;
-        const pagesToRender = Math.min(totalPages, params.maxPdfRenderPages);
+        const meta = await getMeta(proxy)
+        const pdfTitle = meta.info?.Title ?? undefined
+        const totalPages = proxy.numPages
+        const pagesToRender = Math.min(totalPages, params.maxPdfRenderPages)
 
         if (pagesToRender === 0) {
-          throw new Error(`PDF page rendering failed: "${path}" exists ` + `(${asset.bytes} bytes) but has 0 pages`);
+          throw new Error(`PDF page rendering failed: "${path}" exists ` + `(${asset.bytes} bytes) but has 0 pages`)
         }
-        const perPageBudget = Math.floor(params.maxImageOutputBytes / pagesToRender);
-        const pages = await renderPdfPages({ proxy, pagesToRender, perPageBudget }, logger);
+        const perPageBudget = Math.floor(params.maxImageOutputBytes / pagesToRender)
+        const pages = await renderPdfPages({ proxy, pagesToRender, perPageBudget }, logger)
 
         if (pages.length === 0) {
           throw new Error(
             `PDF page rendering failed: "${path}" exists ` +
               `(${asset.bytes} bytes, ${totalPages} pages) but no ` +
               `pages could be rendered`,
-          );
+          )
         }
         return {
           kind: "pages",
@@ -294,13 +284,13 @@ const readAssetContent = async (
           totalPages,
           pagesRendered: pages.length,
           path,
-        };
+        }
       } finally {
-        await proxy.loadingTask.destroy();
+        await proxy.loadingTask.destroy()
       }
     }
 
-    const pdfResult = await extractPdfText(pdfData);
+    const pdfResult = await extractPdfText(pdfData)
 
     if (!pdfResult.text) {
       throw new Error(
@@ -308,46 +298,46 @@ const readAssetContent = async (
           `(${asset.bytes} bytes, ${pdfResult.totalPages} pages) but ` +
           `contains no text content — it may be a scanned document or ` +
           `image-only PDF`,
-      );
+      )
     }
     return buildPagedTextResult({
       text: pdfResult.text,
       path,
       startLine,
       limit,
-    });
+    })
   }
   throw new Error(
     `unsupported file type "${asset.extension}": "${path}" exists ` +
       `(${asset.bytes} bytes). Readable types: images ` +
       `(.png/.jpg/.jpeg/.gif/.webp), .canvas, .pdf, and text formats ` +
       `(.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base)`,
-  );
-};
+  )
+}
 
 // ── Browsing ────────────────────────────────────────────────────
 
 /** Display extension for listings: lowercased with its dot, or "(none)" for
  *  extensionless files. */
-const extensionOf = (assetPath: string): string => links.getExtension(assetPath).toLowerCase() || "(none)";
+const extensionOf = (assetPath: string): string => links.getExtension(assetPath).toLowerCase() || "(none)"
 
 /** Normalizes a caller-supplied extension filter entry: lowercased, leading
  *  dot ensured — so "PNG", "png", and ".png" all match ".png". */
 const normalizeExtension = (extension: string): string => {
-  const lowered = extension.toLowerCase();
-  return lowered.startsWith(".") ? lowered : `.${lowered}`;
-};
+  const lowered = extension.toLowerCase()
+  return lowered.startsWith(".") ? lowered : `.${lowered}`
+}
 
 type AssetListing = Readonly<{
   assets: readonly Readonly<{
-    path: string;
-    extension: string;
-    bytes: number;
-  }>[];
-  extensionCounts: Readonly<Record<string, number>>;
-  total: number;
-  truncated: boolean;
-}>;
+    path: string
+    extension: string
+    bytes: number
+  }>[]
+  extensionCounts: Readonly<Record<string, number>>
+  total: number
+  truncated: boolean
+}>
 
 /**
  * Lists a folder's (or the vault's) assets: extension-filtered, counted per
@@ -357,30 +347,30 @@ type AssetListing = Readonly<{
  */
 const buildAssetListing = async (
   params: {
-    vaultPath: string;
-    folder?: string | undefined;
-    extensions?: readonly string[] | undefined;
-    limit: number;
+    vaultPath: string
+    folder?: string | undefined
+    extensions?: readonly string[] | undefined
+    limit: number
   },
   logger: Logger,
 ): Promise<AssetListing> => {
-  const assetPaths = await vaultFs.listAssets({ vaultPath: params.vaultPath, folder: params.folder }, logger);
-  const extensionFilter = params.extensions ? new Set(params.extensions.map(normalizeExtension)) : undefined;
+  const assetPaths = await vaultFs.listAssets({ vaultPath: params.vaultPath, folder: params.folder }, logger)
+  const extensionFilter = params.extensions ? new Set(params.extensions.map(normalizeExtension)) : undefined
   const filteredPaths = extensionFilter
     ? assetPaths.filter((assetPath) => extensionFilter.has(links.getExtension(assetPath).toLowerCase()))
-    : assetPaths;
+    : assetPaths
 
-  const filteredExtensions = filteredPaths.map(extensionOf);
+  const filteredExtensions = filteredPaths.map(extensionOf)
   const extensionCounts = filteredExtensions.reduce<Record<string, number>>(
     (counts, extension) => ({
       ...counts,
       [extension]: (counts[extension] ?? 0) + 1,
     }),
     {},
-  );
+  )
 
-  const returnedPaths = filteredPaths.slice(0, params.limit);
-  const stattedAssets = await vaultFs.statAssets({ vaultPath: params.vaultPath, paths: returnedPaths }, logger);
+  const returnedPaths = filteredPaths.slice(0, params.limit)
+  const stattedAssets = await vaultFs.statAssets({ vaultPath: params.vaultPath, paths: returnedPaths }, logger)
   return {
     assets: stattedAssets.map((entry) => ({
       path: entry.path,
@@ -390,8 +380,8 @@ const buildAssetListing = async (
     extensionCounts,
     total: filteredPaths.length,
     truncated: filteredPaths.length > params.limit,
-  };
-};
+  }
+}
 
 /** The asset operations surface — one namespace for the grouped read/browse
  *  functionality, matching the folder's operation modules (noteMover,
@@ -399,4 +389,4 @@ const buildAssetListing = async (
 export const assetOperations = {
   readAssetContent,
   buildAssetListing,
-};
+}

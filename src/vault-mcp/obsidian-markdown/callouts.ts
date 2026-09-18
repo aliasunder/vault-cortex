@@ -13,45 +13,45 @@
 // ── Types ───────────────────────────────────────────────────────
 
 export type LeadingCallout = Readonly<{
-  type: string;
-  title: string;
-  body: string;
-}>;
+  type: string
+  title: string
+  body: string
+}>
 
 /** A leading callout plus the body-line span it occupies — `startLine` is its
  *  opener, `endLine` is one past its last `>` line. The span lets a caller
  *  describe the rest of the region the callout sits in (an outline's
  *  `leading_content`) without double-counting the callout's own lines. */
 export type LeadingCalloutSpan = Readonly<{
-  callout: LeadingCallout;
-  startLine: number;
-  endLine: number;
-}>;
+  callout: LeadingCallout
+  startLine: number
+  endLine: number
+}>
 
 // ── Internal regexes ────────────────────────────────────────────
 
 /** Matches a callout opener line `> [!type] Title`: captures the type, an
  *  optional fold marker (+/-), and the (possibly empty) title. */
-const CALLOUT_OPENER_REGEX = /^>\s*\[!([A-Za-z][\w-]*)\]([+-]?)\s*(.*)$/;
+const CALLOUT_OPENER_REGEX = /^>\s*\[!([A-Za-z][\w-]*)\]([+-]?)\s*(.*)$/
 
 /** Matches any blockquote/callout body line `> text` (one optional space). A
  *  blank line has no `>` and so does not match — it ends the callout body. */
-const CALLOUT_BODY_REGEX = /^>\s?(.*)$/;
+const CALLOUT_BODY_REGEX = /^>\s?(.*)$/
 
 /** Matches an ATX H1 heading line per CommonMark §4.2: 0-3 leading spaces,
  *  one `#`, then optionally a space/tab separator and text. Empty H1
  *  (`#` alone on a line) is valid. Only one leading H1 is skipped. */
-const H1_REGEX = /^ {0,3}#(?:[ \t].*)?$/;
+const H1_REGEX = /^ {0,3}#(?:[ \t].*)?$/
 
 /** Matches a setext H1 underline: 0-3 leading spaces, one or more `=`,
  *  optional trailing whitespace. Only `=` (H1), not `-` (H2) — the
  *  function skips exactly one H1 title, and only H1 is relevant here. */
-const SETEXT_H1_UNDERLINE_REGEX = /^ {0,3}=+[ \t]*$/;
+const SETEXT_H1_UNDERLINE_REGEX = /^ {0,3}=+[ \t]*$/
 
 /** Matches block-level line openers (list items, blockquotes) that can't be
  *  setext heading content per CommonMark §4.3. Used to prevent a callout
  *  opener or list item followed by `===` from being swallowed as a heading. */
-const BLOCK_LEVEL_LINE_REGEX = /^[-*+] |^\d+[.)] |^>/;
+const BLOCK_LEVEL_LINE_REGEX = /^[-*+] |^\d+[.)] |^>/
 
 /**
  * Returns the index of the first body line — the first line that is neither
@@ -61,22 +61,22 @@ const BLOCK_LEVEL_LINE_REGEX = /^[-*+] |^\d+[.)] |^>/;
  * `index` and `skippedH1` are recursion accumulators; callers pass neither.
  */
 const firstBodyLineIndex = (lines: readonly string[], index = 0, skippedH1 = false): number => {
-  if (index >= lines.length) return index;
-  const line = lines[index];
+  if (index >= lines.length) return index
+  const line = lines[index]
 
-  if (line === undefined) return index;
-  if (line.trim() === "") return firstBodyLineIndex(lines, index + 1, skippedH1);
-  if (!skippedH1 && H1_REGEX.test(line)) return firstBodyLineIndex(lines, index + 1, true);
+  if (line === undefined) return index
+  if (line.trim() === "") return firstBodyLineIndex(lines, index + 1, skippedH1)
+  if (!skippedH1 && H1_REGEX.test(line)) return firstBodyLineIndex(lines, index + 1, true)
   // Setext H1: current non-blank line is content, next line is a `===` underline.
   // Block-level lines are excluded — they can't be heading content.
   if (!skippedH1 && !BLOCK_LEVEL_LINE_REGEX.test(line.trimStart())) {
-    const nextLine = index + 1 < lines.length ? lines[index + 1] : undefined;
+    const nextLine = index + 1 < lines.length ? lines[index + 1] : undefined
 
     if (nextLine !== undefined && SETEXT_H1_UNDERLINE_REGEX.test(nextLine))
-      return firstBodyLineIndex(lines, index + 2, true);
+      return firstBodyLineIndex(lines, index + 2, true)
   }
-  return index;
-};
+  return index
+}
 
 // ── Exported parser ─────────────────────────────────────────────
 
@@ -99,33 +99,33 @@ export const parseLeadingCalloutSpan = (lines: readonly string[]): LeadingCallou
   // "\r" on each line. `.` never matches "\r" and a non-multiline `$` only
   // anchors at end-of-input, so a stray "\r" would defeat the regexes below
   // (and leak into the captured body) — strip it once, up front.
-  const normalizedLines = lines.map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line));
+  const normalizedLines = lines.map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
 
   // Find where the first real body content begins (past blank lines + one H1).
-  const cursor = firstBodyLineIndex(normalizedLines);
+  const cursor = firstBodyLineIndex(normalizedLines)
 
-  const openerLine = normalizedLines[cursor];
-  const openerMatch = openerLine !== undefined ? CALLOUT_OPENER_REGEX.exec(openerLine) : null;
+  const openerLine = normalizedLines[cursor]
+  const openerMatch = openerLine !== undefined ? CALLOUT_OPENER_REGEX.exec(openerLine) : null
 
-  if (!openerMatch) return null;
+  if (!openerMatch) return null
 
-  const matchedType = openerMatch[1];
-  const matchedTitle = openerMatch[3];
+  const matchedType = openerMatch[1]
+  const matchedTitle = openerMatch[3]
 
-  if (matchedType === undefined || matchedTitle === undefined) return null;
-  const type = matchedType.toLowerCase();
-  const title = matchedTitle.trim();
+  if (matchedType === undefined || matchedTitle === undefined) return null
+  const type = matchedType.toLowerCase()
+  const title = matchedTitle.trim()
 
   // Body = consecutive `>` lines after the opener, until the next callout
   // opener (stacked callout), a non-blockquote line (incl. a blank line), or EOF.
-  const afterOpener = normalizedLines.slice(cursor + 1);
-  const stopIndex = afterOpener.findIndex((line) => CALLOUT_OPENER_REGEX.test(line) || !CALLOUT_BODY_REGEX.test(line));
-  const bodyRange = stopIndex === -1 ? afterOpener : afterOpener.slice(0, stopIndex);
-  const bodyLines = bodyRange.map((line) => CALLOUT_BODY_REGEX.exec(line)?.[1] ?? "");
+  const afterOpener = normalizedLines.slice(cursor + 1)
+  const stopIndex = afterOpener.findIndex((line) => CALLOUT_OPENER_REGEX.test(line) || !CALLOUT_BODY_REGEX.test(line))
+  const bodyRange = stopIndex === -1 ? afterOpener : afterOpener.slice(0, stopIndex)
+  const bodyLines = bodyRange.map((line) => CALLOUT_BODY_REGEX.exec(line)?.[1] ?? "")
 
   // Drop trailing blank body lines so the body ends cleanly.
-  const lastContentIndex = bodyLines.findLastIndex((line) => line.trim() !== "");
-  const body = bodyLines.slice(0, lastContentIndex + 1).join("\n");
+  const lastContentIndex = bodyLines.findLastIndex((line) => line.trim() !== "")
+  const body = bodyLines.slice(0, lastContentIndex + 1).join("\n")
 
   return {
     callout: { type, title, body },
@@ -133,12 +133,12 @@ export const parseLeadingCalloutSpan = (lines: readonly string[]): LeadingCallou
     // bodyRange, not the blank-trimmed bodyLines — trailing blank `>` lines are
     // still callout lines, so the span must cover them (see docstring).
     endLine: cursor + 1 + bodyRange.length,
-  };
-};
+  }
+}
 
 /** Returns the note's leading callout, or null when the first body content is
  *  not a callout — the span-free view every wire consumer takes (outline,
  *  search results, memory-file listings). Delegates the walk to
  *  parseLeadingCalloutSpan so there is one implementation of it. */
 export const parseLeadingCallout = (lines: readonly string[]): LeadingCallout | null =>
-  parseLeadingCalloutSpan(lines)?.callout ?? null;
+  parseLeadingCalloutSpan(lines)?.callout ?? null

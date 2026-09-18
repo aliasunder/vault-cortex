@@ -25,85 +25,85 @@
  *   - `event.rawPath` gives the request path without query string.
  */
 
-import { Resource } from "sst";
-import env from "env-var";
-import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda";
-import { safeEqual, parseBearer, tokenBindingForServer } from "../auth.js";
-import { urlHasCredentials } from "../utils/url-has-credentials.js";
-import { verifyJwt, verifyUnboundJwt } from "../jwt.js";
-import { logger as rootLogger } from "../logger.js";
+import { Resource } from "sst"
+import env from "env-var"
+import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda"
+import { safeEqual, parseBearer, tokenBindingForServer } from "../auth.js"
+import { urlHasCredentials } from "../utils/url-has-credentials.js"
+import { verifyJwt, verifyUnboundJwt } from "../jwt.js"
+import { logger as rootLogger } from "../logger.js"
 
-const OPEN_PATH_PREFIXES = ["/.well-known/", "/authorize", "/token", "/register", "/revoke", "/oauth/", "/healthz"];
+const OPEN_PATH_PREFIXES = ["/.well-known/", "/authorize", "/token", "/register", "/revoke", "/oauth/", "/healthz"]
 
 const isOpenPath = (path: string): boolean =>
-  OPEN_PATH_PREFIXES.some((prefix) => path === prefix || path.startsWith(prefix));
+  OPEN_PATH_PREFIXES.some((prefix) => path === prefix || path.startsWith(prefix))
 
 export const handler = async (event: APIGatewayRequestAuthorizerEventV2): Promise<{ isAuthorized: boolean }> => {
-  const path = event.rawPath ?? "/";
-  const requestId = event.requestContext?.requestId;
-  const sourceIp = event.requestContext?.http?.sourceIp;
-  const logger = rootLogger.child({ requestId, sourceIp, path });
+  const path = event.rawPath ?? "/"
+  const requestId = event.requestContext?.requestId
+  const sourceIp = event.requestContext?.http?.sourceIp
+  const logger = rootLogger.child({ requestId, sourceIp, path })
 
   if (isOpenPath(path)) {
-    return { isAuthorized: true };
+    return { isAuthorized: true }
   }
 
-  const token = parseBearer(event.headers?.authorization);
+  const token = parseBearer(event.headers?.authorization)
 
   if (!token) {
-    logger.warn("auth_failed: missing or malformed Authorization header");
-    return { isAuthorized: false };
+    logger.warn("auth_failed: missing or malformed Authorization header")
+    return { isAuthorized: false }
   }
 
-  const secret = Resource.McpAuthToken.value;
+  const secret = Resource.McpAuthToken.value
 
   if (!secret) {
-    logger.error("auth_failed: McpAuthToken secret is empty");
-    return { isAuthorized: false };
+    logger.error("auth_failed: McpAuthToken secret is empty")
+    return { isAuthorized: false }
   }
 
   if (safeEqual(token, secret)) {
-    logger.info("auth_success", { method: "static" });
-    return { isAuthorized: true };
+    logger.info("auth_success", { method: "static" })
+    return { isAuthorized: true }
   }
 
   // sst.config.ts sets PUBLIC_URL on this function from the same inputs
   // Express reads it from, so the binding derived here matches the one
   // Express mints into tokens.
-  const publicUrl = env.get("PUBLIC_URL").asString();
+  const publicUrl = env.get("PUBLIC_URL").asString()
 
   if (!publicUrl) {
-    logger.error("auth_failed: PUBLIC_URL is empty");
-    return { isAuthorized: false };
+    logger.error("auth_failed: PUBLIC_URL is empty")
+    return { isAuthorized: false }
   }
   // A value that is not a URL must deny, not throw: a throw here is a
   // gateway 500 with no auth_failed line to find.
-  const serverUrl = URL.parse(publicUrl);
+  const serverUrl = URL.parse(publicUrl)
 
   if (!serverUrl) {
-    logger.error("auth_failed: PUBLIC_URL is not a URL");
-    return { isAuthorized: false };
+    logger.error("auth_failed: PUBLIC_URL is not a URL")
+    return { isAuthorized: false }
   }
   // Credentials in the URL would become part of the expected `iss`
   // claim; the deploy validation rejects them, so a value carrying them
   // here is misconfiguration — deny rather than compare against it.
   if (urlHasCredentials(serverUrl)) {
-    logger.error("auth_failed: PUBLIC_URL contains credentials");
-    return { isAuthorized: false };
+    logger.error("auth_failed: PUBLIC_URL contains credentials")
+    return { isAuthorized: false }
   }
   // Verifying against this deployment's own URL is what makes a JWT
   // minted for another deployment fail even when the two share a secret.
-  const { issuer, audience } = tokenBindingForServer(serverUrl);
+  const { issuer, audience } = tokenBindingForServer(serverUrl)
   const verified = verifyJwt({
     token,
     secret,
     expectedIssuer: issuer,
     expectedAudience: audience,
-  });
+  })
 
   if (verified) {
-    logger.info("auth_success", { method: "jwt" });
-    return { isAuthorized: true };
+    logger.info("auth_success", { method: "jwt" })
+    return { isAuthorized: true }
   }
 
   // A token minted by a release before access tokens carried `aud` is
@@ -112,13 +112,13 @@ export const handler = async (event: APIGatewayRequestAuthorizerEventV2): Promis
   // clients never recover from on their own. Only tokens minted before
   // an upgrade can be unbound, so this path goes quiet within one
   // access-token TTL of upgrading.
-  const unbound = verifyUnboundJwt({ token, secret });
+  const unbound = verifyUnboundJwt({ token, secret })
 
   if (unbound) {
-    logger.info("auth_success", { method: "jwt-unbound" });
-    return { isAuthorized: true };
+    logger.info("auth_success", { method: "jwt-unbound" })
+    return { isAuthorized: true }
   }
 
-  logger.warn("auth_failed: token invalid");
-  return { isAuthorized: false };
-};
+  logger.warn("auth_failed: token invalid")
+  return { isAuthorized: false }
+}

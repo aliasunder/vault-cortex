@@ -1,8 +1,8 @@
-import js from "@eslint/js";
-import stylistic from "@stylistic/eslint-plugin";
-import { defineConfig } from "eslint/config";
-import tseslint from "typescript-eslint";
-import eslintConfigPrettier from "eslint-config-prettier";
+import js from "@eslint/js"
+import stylistic from "@stylistic/eslint-plugin"
+import { defineConfig } from "eslint/config"
+import tseslint from "typescript-eslint"
+import eslintConfigPrettier from "eslint-config-prettier"
 
 // no-restricted-syntax options replace rather than merge across overlapping
 // config blocks, so any block that narrows the file set has to restate every
@@ -19,7 +19,7 @@ const LUXON_OVER_DATE_RESTRICTIONS = [
     selector: 'CallExpression[callee.object.name="Date"]',
     message: "Use Luxon (DateTime.now(), .toUnixInteger()) over Date static methods (AGENTS.md → Code style)",
   },
-];
+]
 
 /** Bans direct use of `config.readOnlyMode` in tool/prompt modules —
  *  branching on the flag misses DISABLED_TOOLS and any future gating axis,
@@ -35,7 +35,7 @@ const ENABLED_SET_OVER_READONLY_FLAG_RESTRICTIONS = [
     message:
       "Key tool references on the enabled set (isToolEnabled / whenToolEnabled), not on config.readOnlyMode — the flag misses DISABLED_TOOLS (AGENTS.md → Module layering)",
   },
-];
+]
 
 export default defineConfig(
   js.configs.recommended,
@@ -313,4 +313,4 @@ export default defineConfig(
   {
     ignores: ["dist/", "cli/dist/", ".sst/", "sst-env.d.ts"],
   },
-);
+)

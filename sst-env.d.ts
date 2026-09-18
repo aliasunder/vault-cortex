@@ -7,15 +7,15 @@
 declare module "sst" {
   export interface Resource {
     McpAuthToken: {
-      type: "sst.sst.Secret";
-      value: string;
-    };
+      type: "sst.sst.Secret"
+      value: string
+    }
     VaultCortexApi: {
-      type: "sst.aws.ApiGatewayV2";
-      url: string;
-    };
+      type: "sst.aws.ApiGatewayV2"
+      url: string
+    }
   }
 }
 
-import "sst";
-export {};
+import "sst"
+export {}

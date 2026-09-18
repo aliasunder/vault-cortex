@@ -6,7 +6,7 @@
 
 // Module-level so app() and run() share the same value.
 // env-var can't be used here (SST forbids imports outside run()).
-const awsRegion = process.env.AWS_REGION ?? "us-east-1";
+const awsRegion = process.env.AWS_REGION ?? "us-east-1"
 
 export default $config({
   app() {
@@ -15,33 +15,33 @@ export default $config({
       removal: "retain",
       home: "aws",
       providers: { aws: { region: awsRegion } },
-    };
+    }
   },
 
   async run() {
-    const { readFileSync, existsSync } = await import("node:fs");
-    const { homedir } = await import("node:os");
-    const env = (await import("env-var")).get;
-    const { urlHasCredentials } = await import("./src/utils/url-has-credentials.js");
+    const { readFileSync, existsSync } = await import("node:fs")
+    const { homedir } = await import("node:os")
+    const env = (await import("env-var")).get
+    const { urlHasCredentials } = await import("./src/utils/url-has-credentials.js")
 
     // ── Environment ──────────────────────────────────────────────
     // SSH key fallback chain: SSH_PUBKEY (CI) → SSH_PUBKEY_PATH → ~/.ssh/vault-cortex.pub
     // Neither is individually required — readSshPublicKey errors if all three miss.
-    const sshPubkey = env("SSH_PUBKEY").asString();
-    const sshPubkeyPath = env("SSH_PUBKEY_PATH").asString();
+    const sshPubkey = env("SSH_PUBKEY").asString()
+    const sshPubkeyPath = env("SSH_PUBKEY_PATH").asString()
 
     // SSH firewall CIDRs. Comma-separated. Default: open (backward-compat).
     // Set to "none" to block public SSH (Tailscale-only).
-    const sshCidrs = env("SSH_CIDRS").asString();
+    const sshCidrs = env("SSH_CIDRS").asString()
 
     // MCP port firewall CIDRs. Same format as SSH_CIDRS.
     // Set to "none" to block direct access to port 8000 (use with ORIGIN_URL).
-    const mcpPortCidrs = env("MCP_PORT_CIDRS").asString();
+    const mcpPortCidrs = env("MCP_PORT_CIDRS").asString()
 
     // When set, API Gateway routes through this URL instead of directly to
     // the Lightsail IP on port 8000. Use with a Cloudflare Tunnel, Caddy
     // reverse proxy, or any HTTPS frontend that proxies to localhost:8000.
-    const originUrl = env("ORIGIN_URL").asString();
+    const originUrl = env("ORIGIN_URL").asString()
 
     // ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true: API Gateway presents a Cloudflare
     // Access service token (the OriginAccessClientId / OriginAccessClientSecret
@@ -56,7 +56,7 @@ export default $config({
     // unset repo Variable as "", which env-var's default() does not cover
     // and asBool() rejects.
     const originAccessServiceTokenEnabled =
-      Boolean(originUrl) && env("ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED").asString()?.toLowerCase() === "true";
+      Boolean(originUrl) && env("ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED").asString()?.toLowerCase() === "true"
 
     // Optional custom domain on API Gateway (e.g. mcp.example.com), replacing
     // the auto-generated execute-api URL. DNS stays external (any provider):
@@ -65,54 +65,54 @@ export default $config({
     // gateway's target hostname (see DEPLOY.md § Custom Domain for the
     // aws CLI command). CUSTOM_DOMAIN_CERT_ARN must be an ISSUED
     // certificate in the API's region covering the name (wildcard or exact).
-    const customDomain = env("CUSTOM_DOMAIN").asString();
-    const customDomainCertArn = env("CUSTOM_DOMAIN_CERT_ARN").asString();
+    const customDomain = env("CUSTOM_DOMAIN").asString()
+    const customDomainCertArn = env("CUSTOM_DOMAIN_CERT_ARN").asString()
 
     // Must match PUBLIC_URL in the instance .env: the Lambda authorizer
     // verifies each JWT's issuer and audience against this value, and
     // Express mints them from that one. Unset, resolvePublicUrl() below
     // derives it, so a first deploy needs no value.
-    const publicUrlOverride = env("PUBLIC_URL").asString();
+    const publicUrlOverride = env("PUBLIC_URL").asString()
 
     // A bare hostname or a non-http(s) scheme (whose origin is "null")
     // can never match a minted token, so it would 403 every client at
     // runtime — fail the deploy instead.
-    const parsedPublicUrlOverride = publicUrlOverride ? URL.parse(publicUrlOverride) : undefined;
+    const parsedPublicUrlOverride = publicUrlOverride ? URL.parse(publicUrlOverride) : undefined
 
     const publicUrlIsHttp =
-      parsedPublicUrlOverride?.protocol === "https:" || parsedPublicUrlOverride?.protocol === "http:";
+      parsedPublicUrlOverride?.protocol === "https:" || parsedPublicUrlOverride?.protocol === "http:"
 
     if (publicUrlOverride && !publicUrlIsHttp) {
-      throw new Error("PUBLIC_URL must be an absolute http(s) URL, e.g. " + "https://mcp.example.com");
+      throw new Error("PUBLIC_URL must be an absolute http(s) URL, e.g. " + "https://mcp.example.com")
     }
 
     // Credentials in the URL would be minted into every token's `iss`
     // claim and served by the discovery documents — fail the deploy.
-    const publicUrlHasCredentials = parsedPublicUrlOverride ? urlHasCredentials(parsedPublicUrlOverride) : false;
+    const publicUrlHasCredentials = parsedPublicUrlOverride ? urlHasCredentials(parsedPublicUrlOverride) : false
 
     if (publicUrlHasCredentials) {
-      throw new Error("PUBLIC_URL must not contain credentials (user:password@)");
+      throw new Error("PUBLIC_URL must not contain credentials (user:password@)")
     }
 
     if (customDomain && !customDomainCertArn) {
       throw new Error(
         "CUSTOM_DOMAIN requires CUSTOM_DOMAIN_CERT_ARN — the ARN of an " +
           "ISSUED ACM certificate (in this API's region) covering that domain.",
-      );
+      )
     }
 
     // DISABLE_EXECUTE_API_ENDPOINT=true: the gateway stops answering on its
     // default execute-api hostname, so the custom domain is the only way in.
-    const disableExecuteApiEndpoint = env("DISABLE_EXECUTE_API_ENDPOINT").asString()?.toLowerCase() === "true";
+    const disableExecuteApiEndpoint = env("DISABLE_EXECUTE_API_ENDPOINT").asString()?.toLowerCase() === "true"
 
     if (disableExecuteApiEndpoint && !customDomain) {
       throw new Error(
         "DISABLE_EXECUTE_API_ENDPOINT requires CUSTOM_DOMAIN — without a " +
           "custom domain the API would have no hostname left.",
-      );
+      )
     }
 
-    const expandHome = (path: string): string => (path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path);
+    const expandHome = (path: string): string => (path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path)
 
     /**
      * Resolve the SSH public key to upload to Lightsail.
@@ -122,18 +122,18 @@ export default $config({
      *   3. ~/.ssh/vault-cortex.pub — dedicated deploy key (same key local + CI).
      */
     const readSshPublicKey = (): string => {
-      if (sshPubkey) return sshPubkey;
-      const candidates = sshPubkeyPath ? [expandHome(sshPubkeyPath)] : [expandHome("~/.ssh/vault-cortex.pub")];
+      if (sshPubkey) return sshPubkey
+      const candidates = sshPubkeyPath ? [expandHome(sshPubkeyPath)] : [expandHome("~/.ssh/vault-cortex.pub")]
       for (const path of candidates) {
-        if (existsSync(path)) return readFileSync(path, "utf8").trim();
+        if (existsSync(path)) return readFileSync(path, "utf8").trim()
       }
       throw new Error(
         `No SSH public key found. Tried env SSH_PUBKEY, then paths: ` +
           `${candidates.join(", ")}. Generate a dedicated deploy key:\n` +
           `  ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy\n` +
           `Or set SSH_PUBKEY_PATH / SSH_PUBKEY to override.`,
-      );
-    };
+      )
+    }
 
     // ── Secrets ────────────────────────────────────────────────────
     // Set once, then deploy:
@@ -145,11 +145,11 @@ export default $config({
     // flow to Docker containers via the .env file (local) or GitHub
     // secrets (CI). See deploy.yml and .env.example.
     // ──────────────────────────────────────────────────────────────
-    const mcpAuthToken = new sst.Secret("McpAuthToken");
-    const originAccessClientId = originAccessServiceTokenEnabled ? new sst.Secret("OriginAccessClientId") : undefined;
+    const mcpAuthToken = new sst.Secret("McpAuthToken")
+    const originAccessClientId = originAccessServiceTokenEnabled ? new sst.Secret("OriginAccessClientId") : undefined
     const originAccessClientSecret = originAccessServiceTokenEnabled
       ? new sst.Secret("OriginAccessClientSecret")
-      : undefined;
+      : undefined
 
     // ── SSH key pair ──────────────────────────────────────────────
     // Uses a dedicated deploy key (~/.ssh/vault-cortex.pub) shared
@@ -169,7 +169,7 @@ export default $config({
     const keyPair = new aws.lightsail.KeyPair("VaultCortexKey", {
       name: `vault-cortex-key-${$app.stage}`,
       publicKey: readSshPublicKey(),
-    });
+    })
 
     // ── Lightsail ─────────────────────────────────────────────────
     // medium_3_0 = 2 vCPU, 4 GB RAM, 80 GB SSD, 4 TB transfer, $24/mo —
@@ -237,20 +237,20 @@ export default $config({
         // match the config — ignore them so deploys stay clean.
         ignoreChanges: ["userData", "blueprintId"],
       },
-    );
+    )
 
     const staticIp = new aws.lightsail.StaticIp("VaultCortexIp", {
       name: `vault-cortex-ip-${$app.stage}`,
-    });
+    })
 
     new aws.lightsail.StaticIpAttachment("VaultCortexIpAttach", {
       staticIpName: staticIp.name,
       instanceName: instance.name,
-    });
+    })
 
     /** RFC 5737 TEST-NET — no real source IP matches this CIDR. */
-    const NON_ROUTABLE_CIDR = "192.0.2.1/32";
-    const OPEN_TO_ALL = ["0.0.0.0/0"];
+    const NON_ROUTABLE_CIDR = "192.0.2.1/32"
+    const OPEN_TO_ALL = ["0.0.0.0/0"]
 
     /**
      * Parse a CIDR env var into a firewall allowlist.
@@ -261,13 +261,13 @@ export default $config({
      * Host-level services (tunnels, VPNs) bypass the Lightsail firewall.
      */
     const parseCidrs = (raw: string | undefined): string[] => {
-      if (!raw) return OPEN_TO_ALL;
-      if (raw.toLowerCase() === "none") return [NON_ROUTABLE_CIDR];
-      return raw.split(",").map((cidr) => cidr.trim());
-    };
+      if (!raw) return OPEN_TO_ALL
+      if (raw.toLowerCase() === "none") return [NON_ROUTABLE_CIDR]
+      return raw.split(",").map((cidr) => cidr.trim())
+    }
 
-    const sshFirewallCidrs = parseCidrs(sshCidrs);
-    const mcpFirewallCidrs = parseCidrs(mcpPortCidrs);
+    const sshFirewallCidrs = parseCidrs(sshCidrs)
+    const mcpFirewallCidrs = parseCidrs(mcpPortCidrs)
 
     // GOTCHA: port_info is ForceNew in the Pulumi/Terraform provider.
     // Adding or removing entries triggers a REPLACEMENT, and the
@@ -302,7 +302,7 @@ export default $config({
       },
       // Prevents create-before-delete from wiping ports. See GOTCHA above.
       { deleteBeforeReplace: true },
-    );
+    )
 
     // Stage throttle: 20 req/sec, 40 burst. GOTCHA: throttlingRateLimit
     // and throttlingBurstLimit must BOTH be set — partial config is
@@ -333,13 +333,13 @@ export default $config({
           },
         },
       },
-    });
+    })
 
     const resolvePublicUrl = (): $util.Output<string> => {
-      if (publicUrlOverride) return $output(publicUrlOverride);
-      if (customDomain) return $output(`https://${customDomain}`);
-      return api.url;
-    };
+      if (publicUrlOverride) return $output(publicUrlOverride)
+      if (customDomain) return $output(`https://${customDomain}`)
+      return api.url
+    }
 
     // Bearer-token validation on protected routes only; the OAuth discovery
     // paths are separate unauthenticated routes below. Verification details:
@@ -365,13 +365,13 @@ export default $config({
         // SST fills this field with a default when omitted.
         identitySources: ["$request.header.Authorization"],
       },
-    });
+    })
 
     // ORIGIN_URL: when set, API GW routes through a tunnel/proxy (HTTPS)
     // instead of directly to the Lightsail IP (plaintext HTTP). Pair with
     // MCP_PORT_CIDRS=none to close port 8000 on the firewall.
     const target = (path: string) =>
-      originUrl ? `${originUrl}${path}` : $interpolate`http://${staticIp.ipAddress}:8000${path}`;
+      originUrl ? `${originUrl}${path}` : $interpolate`http://${staticIp.ipAddress}:8000${path}`
 
     // Service-token headers on every integration. `overwrite:` so a
     // client-supplied copy of either header is replaced, never joined.
@@ -385,7 +385,7 @@ export default $config({
               },
             },
           }
-        : undefined;
+        : undefined
 
     // ── Open routes — no authorizer ──────────────────────────────
     // OAuth discovery/flow endpoints must be reachable unauthenticated
@@ -396,14 +396,14 @@ export default $config({
     for (const path of ["/authorize", "/token", "/register", "/revoke", "/healthz"]) {
       api.routeUrl(`ANY ${path}`, target(path), {
         transform: originAccessHeaders,
-      });
+      })
     }
     api.routeUrl("ANY /.well-known/{proxy+}", target("/.well-known/{proxy}"), {
       transform: originAccessHeaders,
-    });
+    })
     api.routeUrl("ANY /oauth/{proxy+}", target("/oauth/{proxy}"), {
       transform: originAccessHeaders,
-    });
+    })
 
     // ── Protected routes — Lambda authorizer ─────────────────────
     // GOTCHA: {proxy+} matches one-or-more path segments but NOT
@@ -411,11 +411,11 @@ export default $config({
     api.routeUrl("ANY /{proxy+}", target("/{proxy}"), {
       auth: { lambda: authorizer.id },
       transform: originAccessHeaders,
-    });
+    })
     api.routeUrl("ANY /", target(""), {
       auth: { lambda: authorizer.id },
       transform: originAccessHeaders,
-    });
+    })
 
     // Deliberately NOT outputs: the Lightsail IP and the custom domain's
     // CNAME target. SST prints outputs at the end of every deploy — in CI
@@ -426,6 +426,6 @@ export default $config({
     //     --query 'DomainNameConfigurations[0].ApiGatewayDomainName' --output text
     return {
       apiUrl: api.url,
-    };
+    }
   },
-});
+})

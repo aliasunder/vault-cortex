@@ -1,13 +1,13 @@
 // ── Cross-encoder reranker + position-aware score blending ─────
 
-import type { Logger } from "../../logger.js";
-import { describeError } from "../../utils/describe-error.js";
+import type { Logger } from "../../logger.js"
+import { describeError } from "../../utils/describe-error.js"
 
-const RERANKER_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2";
+const RERANKER_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2"
 
 // ── Factory ───────────────────────────────────────────────────
 
-export type Reranker = ReturnType<typeof createReranker>;
+export type Reranker = ReturnType<typeof createReranker>
 
 /** Lazy-loading cross-encoder reranker for query-document relevance scoring.
  *
@@ -17,30 +17,30 @@ export type Reranker = ReturnType<typeof createReranker>;
  *  `pipeline()` API) because text-classification pipelines do not support
  *  the `text_pair` tokenizer input needed for cross-encoder scoring. */
 export const createReranker = (logger: Logger) => {
-  type TransformersModule = typeof import("@huggingface/transformers");
-  type TokenizerInstance = Awaited<ReturnType<TransformersModule["AutoTokenizer"]["from_pretrained"]>>;
-  type ModelInstance = Awaited<ReturnType<TransformersModule["AutoModelForSequenceClassification"]["from_pretrained"]>>;
+  type TransformersModule = typeof import("@huggingface/transformers")
+  type TokenizerInstance = Awaited<ReturnType<TransformersModule["AutoTokenizer"]["from_pretrained"]>>
+  type ModelInstance = Awaited<ReturnType<TransformersModule["AutoModelForSequenceClassification"]["from_pretrained"]>>
 
-  let tokenizer: TokenizerInstance | null = null;
-  let model: ModelInstance | null = null;
+  let tokenizer: TokenizerInstance | null = null
+  let model: ModelInstance | null = null
   // Guards against concurrent callers both triggering a model download —
   // the second caller awaits the first's promise instead of loading again.
   let modelLoading: Promise<{
-    tokenizer: TokenizerInstance;
-    model: ModelInstance;
-  }> | null = null;
+    tokenizer: TokenizerInstance
+    model: ModelInstance
+  }> | null = null
 
   const getModel = async (): Promise<{
-    tokenizer: TokenizerInstance;
-    model: ModelInstance;
+    tokenizer: TokenizerInstance
+    model: ModelInstance
   }> => {
-    if (tokenizer && model) return { tokenizer, model };
-    if (modelLoading) return modelLoading;
+    if (tokenizer && model) return { tokenizer, model }
+    if (modelLoading) return modelLoading
 
     modelLoading = (async () => {
       try {
-        const startMs = performance.now();
-        const { AutoTokenizer, AutoModelForSequenceClassification } = await import("@huggingface/transformers");
+        const startMs = performance.now()
+        const { AutoTokenizer, AutoModelForSequenceClassification } = await import("@huggingface/transformers")
         const [loadedTokenizer, loadedModel] = await Promise.all([
           AutoTokenizer.from_pretrained(RERANKER_MODEL),
           // INT8 quantization — halves model size (~20MB vs ~80MB) with
@@ -54,41 +54,41 @@ export const createReranker = (logger: Logger) => {
             // (the default 0 = all cores).
             session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
           }),
-        ]);
-        const elapsedMs = Math.round(performance.now() - startMs);
+        ])
+        const elapsedMs = Math.round(performance.now() - startMs)
         logger.info("reranker model loaded", {
           model: RERANKER_MODEL,
           elapsedMs,
-        });
-        tokenizer = loadedTokenizer;
-        model = loadedModel;
-        return { tokenizer: loadedTokenizer, model: loadedModel };
+        })
+        tokenizer = loadedTokenizer
+        model = loadedModel
+        return { tokenizer: loadedTokenizer, model: loadedModel }
       } catch (error) {
         logger.warn("reranker model failed to load", {
           model: RERANKER_MODEL,
           error: describeError(error),
-        });
+        })
         // Allow retry on next call (e.g. transient network failure during download)
-        modelLoading = null;
-        throw error;
+        modelLoading = null
+        throw error
       }
-    })();
+    })()
 
-    return modelLoading;
-  };
+    return modelLoading
+  }
 
   /** Score (query, document) pairs for relevance. Returns one raw logit
    *  score per document — higher means more relevant. Scores are
    *  unnormalized (typically in the range -10 to +10 for ms-marco models);
    *  call `normalizeScores` before blending with RRF scores. */
   const rerankPairs = async (query: string, documents: readonly string[]): Promise<number[]> => {
-    if (documents.length === 0) return [];
+    if (documents.length === 0) return []
 
-    const crossEncoder = await getModel();
+    const crossEncoder = await getModel()
 
     // Score each (query, document) pair sequentially — the ONNX runtime
     // runs on a single thread, so parallelizing wouldn't help.
-    const scores: number[] = [];
+    const scores: number[] = []
     for (const document of documents) {
       const inputs = crossEncoder.tokenizer(query, {
         // text_pair encodes both texts as a single [CLS] query [SEP] document [SEP]
@@ -100,24 +100,24 @@ export const createReranker = (logger: Logger) => {
         // can exceed this (chunks are up to 450 tokens), so truncation clips
         // the combined input to fit — the model scores what it sees.
         truncation: true,
-      });
-      const output = await crossEncoder.model(inputs);
+      })
+      const output = await crossEncoder.model(inputs)
       // output.logits is a Tensor [1, 1] — a single relevance score per pair.
       // Number() accepts `any`, so it would silently convert an undefined
       // indexed access to NaN — extract and guard explicitly.
-      const logitValue = output.logits.data[0];
+      const logitValue = output.logits.data[0]
 
       if (logitValue === undefined) {
-        throw new Error("reranker output tensor has no data");
+        throw new Error("reranker output tensor has no data")
       }
-      scores.push(Number(logitValue));
+      scores.push(Number(logitValue))
     }
 
-    return scores;
-  };
+    return scores
+  }
 
-  return { rerankPairs };
-};
+  return { rerankPairs }
+}
 
 // ── Pure scoring functions ────────────────────────────────────
 
@@ -125,7 +125,7 @@ export const createReranker = (logger: Logger) => {
  *  models were trained with a binary relevance objective, so sigmoid(logit)
  *  reads as a calibrated probability-of-relevance; memoryRecall's selection
  *  cut thresholds on it. */
-export const sigmoid = (logit: number): number => 1 / (1 + Math.exp(-logit));
+export const sigmoid = (logit: number): number => 1 / (1 + Math.exp(-logit))
 
 /** Min-max normalization to [0, 1].
  *
@@ -133,16 +133,16 @@ export const sigmoid = (logit: number): number => 1 / (1 + Math.exp(-logit));
  *  element to avoid division by zero — a uniform distribution conveys
  *  "no signal" rather than an arbitrary extreme. */
 export const normalizeScores = (scores: readonly number[]): number[] => {
-  if (scores.length === 0) return [];
+  if (scores.length === 0) return []
 
-  const min = Math.min(...scores);
-  const max = Math.max(...scores);
-  const range = max - min;
+  const min = Math.min(...scores)
+  const max = Math.max(...scores)
+  const range = max - min
 
-  if (range === 0) return scores.map(() => 0.5);
+  if (range === 0) return scores.map(() => 0.5)
 
-  return scores.map((score) => (score - min) / range);
-};
+  return scores.map((score) => (score - min) / range)
+}
 
 /** Position-aware score blending — combines RRF retrieval scores with
  *  cross-encoder reranker scores using rank-dependent weights.
@@ -157,25 +157,25 @@ export const normalizeScores = (scores: readonly number[]): number[] => {
  *  Both score arrays are min-max normalized internally before blending
  *  so the weight ratios are meaningful regardless of input scale. */
 export const blendScores = (params: {
-  rrfScores: readonly number[];
-  rerankScores: readonly number[];
-  rrfRanks: readonly number[];
+  rrfScores: readonly number[]
+  rerankScores: readonly number[]
+  rrfRanks: readonly number[]
 }): number[] => {
-  const normalizedRrf = normalizeScores(params.rrfScores);
-  const normalizedRerank = normalizeScores(params.rerankScores);
+  const normalizedRrf = normalizeScores(params.rrfScores)
+  const normalizedRerank = normalizeScores(params.rerankScores)
 
   return normalizedRrf.map((rrfNorm, index) => {
-    const rerankNorm = normalizedRerank[index];
-    const rank = params.rrfRanks[index];
+    const rerankNorm = normalizedRerank[index]
+    const rank = params.rrfRanks[index]
 
     if (rerankNorm === undefined || rank === undefined) {
-      throw new Error(`score array length mismatch at index ${index}`);
+      throw new Error(`score array length mismatch at index ${index}`)
     }
 
-    const midOrLowWeight = rank <= 10 ? 0.5 : 0.4;
-    const rrfWeight = rank <= 3 ? 0.75 : midOrLowWeight;
-    const rerankWeight = 1 - rrfWeight;
+    const midOrLowWeight = rank <= 10 ? 0.5 : 0.4
+    const rrfWeight = rank <= 3 ? 0.75 : midOrLowWeight
+    const rerankWeight = 1 - rrfWeight
 
-    return Number((rrfNorm * rrfWeight + rerankNorm * rerankWeight).toPrecision(4));
-  });
-};
+    return Number((rrfNorm * rrfWeight + rerankNorm * rerankWeight).toPrecision(4))
+  })
+}

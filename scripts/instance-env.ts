@@ -11,7 +11,7 @@
  * the parity tests pin all three copies of the chain to each other.
  */
 
-type PublicUrlSource = "PUBLIC_URL" | "CUSTOM_DOMAIN" | "API Gateway";
+type PublicUrlSource = "PUBLIC_URL" | "CUSTOM_DOMAIN" | "API Gateway"
 
 /**
  * JMESPath picking the newest API Gateway whose name carries the stage's
@@ -22,35 +22,35 @@ type PublicUrlSource = "PUBLIC_URL" | "CUSTOM_DOMAIN" | "API Gateway";
  * instance-env.test.ts fails when the two copies diverge.
  */
 export const gatewayApiEndpointQuery = (stage: string): string => {
-  return `sort_by(Items[?starts_with(Name, 'vault-cortex-${stage}-VaultCortexApi')], &CreatedDate)[-1].ApiEndpoint`;
-};
+  return `sort_by(Items[?starts_with(Name, 'vault-cortex-${stage}-VaultCortexApi')], &CreatedDate)[-1].ApiEndpoint`
+}
 
 export type ResolvedPublicUrl = {
-  url: string;
-  source: PublicUrlSource;
-};
+  url: string
+  source: PublicUrlSource
+}
 
 export const resolvePublicUrl = ({
   publicUrl,
   customDomain,
   queryGatewayUrl,
 }: {
-  publicUrl: string | undefined;
-  customDomain: string | undefined;
+  publicUrl: string | undefined
+  customDomain: string | undefined
   // A thunk so the aws CLI is only invoked when neither value is set.
-  queryGatewayUrl: () => string;
+  queryGatewayUrl: () => string
 }): ResolvedPublicUrl => {
-  if (publicUrl) return { url: publicUrl, source: "PUBLIC_URL" };
-  if (customDomain) return { url: `https://${customDomain}`, source: "CUSTOM_DOMAIN" };
+  if (publicUrl) return { url: publicUrl, source: "PUBLIC_URL" }
+  if (customDomain) return { url: `https://${customDomain}`, source: "CUSTOM_DOMAIN" }
 
   // `aws --output text` prints the literal "None" for an empty query result.
-  const gatewayUrl = queryGatewayUrl();
+  const gatewayUrl = queryGatewayUrl()
 
   if (!gatewayUrl || gatewayUrl === "None") {
-    throw new Error("could not resolve the public URL from PUBLIC_URL, CUSTOM_DOMAIN, or the API Gateway");
+    throw new Error("could not resolve the public URL from PUBLIC_URL, CUSTOM_DOMAIN, or the API Gateway")
   }
-  return { url: gatewayUrl, source: "API Gateway" };
-};
+  return { url: gatewayUrl, source: "API Gateway" }
+}
 
 /**
  * Returns the .env content with its PUBLIC_URL line set to the resolved
@@ -58,23 +58,23 @@ export const resolvePublicUrl = ({
  * `PUBLIC_URL=`), appended otherwise. Commented lines are left alone.
  */
 export const envContentWithPublicUrl = (envFileContent: string, publicUrl: string): string => {
-  const publicUrlLine = `PUBLIC_URL=${publicUrl}`;
-  const lines = envFileContent.split("\n");
-  const hasPublicUrlLine = lines.some((line) => line.startsWith("PUBLIC_URL="));
+  const publicUrlLine = `PUBLIC_URL=${publicUrl}`
+  const lines = envFileContent.split("\n")
+  const hasPublicUrlLine = lines.some((line) => line.startsWith("PUBLIC_URL="))
 
   if (hasPublicUrlLine) {
     return lines
       .map((line) => {
-        if (!line.startsWith("PUBLIC_URL=")) return line;
+        if (!line.startsWith("PUBLIC_URL=")) return line
         // Keep a CRLF file's trailing \r so the rewrite doesn't mix endings.
-        return line.endsWith("\r") ? `${publicUrlLine}\r` : publicUrlLine;
+        return line.endsWith("\r") ? `${publicUrlLine}\r` : publicUrlLine
       })
-      .join("\n");
+      .join("\n")
   }
 
   // Match the file's line endings so an appended line doesn't mix LF into a
   // CRLF file — the replace branch preserves the matched line's \r the same way.
-  const lineEnding = envFileContent.includes("\r\n") ? "\r\n" : "\n";
-  const separator = envFileContent === "" || envFileContent.endsWith(lineEnding) ? "" : lineEnding;
-  return `${envFileContent}${separator}${publicUrlLine}${lineEnding}`;
-};
+  const lineEnding = envFileContent.includes("\r\n") ? "\r\n" : "\n"
+  const separator = envFileContent === "" || envFileContent.endsWith(lineEnding) ? "" : lineEnding
+  return `${envFileContent}${separator}${publicUrlLine}${lineEnding}`
+}

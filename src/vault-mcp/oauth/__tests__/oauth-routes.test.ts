@@ -1,27 +1,27 @@
-import { describe, it, expect, beforeEach, afterEach, onTestFinished } from "vitest";
-import { createHash, randomBytes } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import type { Server } from "node:http";
-import type { Response } from "express";
-import express from "express";
-import type { AuthorizationParams } from "@modelcontextprotocol/sdk/server/auth/provider.js";
+import { describe, it, expect, beforeEach, afterEach, onTestFinished } from "vitest"
+import { createHash, randomBytes } from "node:crypto"
+import { mkdtemp, rm } from "node:fs/promises"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
+import type { Server } from "node:http"
+import type { Response } from "express"
+import express from "express"
+import type { AuthorizationParams } from "@modelcontextprotocol/sdk/server/auth/provider.js"
 import {
   OAuthProtectedResourceMetadataSchema,
   OAuthMetadataSchema,
   OAuthClientInformationFullSchema,
-} from "@modelcontextprotocol/sdk/shared/auth.js";
-import { createOAuthProvider } from "../oauth-provider.js";
-import type { OAuthProvider } from "../oauth-provider.js";
-import { createOAuthRoutes } from "../oauth-routes.js";
-import { logger, type Logger } from "../../../logger.js";
+} from "@modelcontextprotocol/sdk/shared/auth.js"
+import { createOAuthProvider } from "../oauth-provider.js"
+import type { OAuthProvider } from "../oauth-provider.js"
+import { createOAuthRoutes } from "../oauth-routes.js"
+import { logger, type Logger } from "../../../logger.js"
 
 type LogCall = {
-  level: "debug" | "info" | "warn" | "error";
-  message: string;
-  data: Record<string, unknown>;
-};
+  level: "debug" | "info" | "warn" | "error"
+  message: string
+  data: Record<string, unknown>
+}
 const recordingLogger = (sink: LogCall[]): Logger => {
   const make = (props: Record<string, unknown>): Logger => ({
     debug: (message, data = {}) => sink.push({ level: "debug", message, data: { ...props, ...data } }),
@@ -29,18 +29,18 @@ const recordingLogger = (sink: LogCall[]): Logger => {
     warn: (message, data = {}) => sink.push({ level: "warn", message, data: { ...props, ...data } }),
     error: (message, data = {}) => sink.push({ level: "error", message, data: { ...props, ...data } }),
     child: (childProps) => make({ ...props, ...childProps }),
-  });
-  return make({});
-};
+  })
+  return make({})
+}
 
 // The documented local-dev placeholder (.gitleaks.toml allowlist, also used in
 // README/CONTRIBUTING) — allowlisted by the secret scanner, never a real key.
-const AUTH_TOKEN = "local-dev-token";
-const TEST_URLS = { serverUrl: new URL("http://localhost:8000") };
-const REDIRECT_URI = "http://localhost:9999/callback";
+const AUTH_TOKEN = "local-dev-token"
+const TEST_URLS = { serverUrl: new URL("http://localhost:8000") }
+const REDIRECT_URI = "http://localhost:9999/callback"
 
 /** Pulls the hidden request_id out of the rendered consent HTML. */
-const REQUEST_ID_PATTERN = /name="request_id"\s+value="([^"]+)"/;
+const REQUEST_ID_PATTERN = /name="request_id"\s+value="([^"]+)"/
 
 /**
  * Resolves a listening server's TCP port. A bound HTTP server always
@@ -48,28 +48,28 @@ const REQUEST_ID_PATTERN = /name="request_id"\s+value="([^"]+)"/;
  * instead of a type assertion.
  */
 const getListeningPort = (server: Server): number => {
-  const serverAddress = server.address();
+  const serverAddress = server.address()
 
   if (!serverAddress || typeof serverAddress === "string") {
-    throw new Error("expected a TCP address from a listening server");
+    throw new Error("expected a TCP address from a listening server")
   }
-  return serverAddress.port;
-};
+  return serverAddress.port
+}
 
 describe("OAuth consent token submission", () => {
-  let dir: string;
-  let oauth: OAuthProvider;
-  let server: Server;
-  let baseUrl: string;
+  let dir: string
+  let oauth: OAuthProvider
+  let server: Server
+  let baseUrl: string
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "oauth-routes-test-"));
+    dir = await mkdtemp(join(tmpdir(), "oauth-routes-test-"))
     oauth = createOAuthProvider({
       ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath: join(dir, "oauth.db"),
       logger,
-    });
+    })
     const router = createOAuthRoutes({
       authToken: AUTH_TOKEN,
       serverUrl: new URL("http://localhost:8000"),
@@ -77,54 +77,54 @@ describe("OAuth consent token submission", () => {
       serviceDocumentationUrl: "https://example.com",
       trustForwardedHops: 0,
       logger,
-    });
-    const app = express();
-    app.use(router);
+    })
+    const app = express()
+    app.use(router)
     server = await new Promise<Server>((resolve) => {
-      const listening = app.listen(0, () => resolve(listening));
-    });
-    baseUrl = `http://localhost:${getListeningPort(server)}`;
-  });
+      const listening = app.listen(0, () => resolve(listening))
+    })
+    baseUrl = `http://localhost:${getListeningPort(server)}`
+  })
 
   afterEach(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await rm(dir, { recursive: true, force: true });
-  });
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    await rm(dir, { recursive: true, force: true })
+  })
 
   // Register a client and start an authorization request directly through
   // the provider (the HTTP /register and /authorize routes are rate-limited;
   // /oauth/decide, the route under test, is not).
   const startPendingRequest = async (): Promise<string> => {
-    const clientsStore = oauth.provider.clientsStore;
+    const clientsStore = oauth.provider.clientsStore
 
-    if (!clientsStore?.registerClient) throw new Error("clientsStore.registerClient not available");
+    if (!clientsStore?.registerClient) throw new Error("clientsStore.registerClient not available")
     const client = await clientsStore.registerClient({
       client_name: "Test Client",
       redirect_uris: [REDIRECT_URI],
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       token_endpoint_auth_method: "none",
-    });
+    })
     const params: AuthorizationParams = {
       codeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
       redirectUri: REDIRECT_URI,
       scopes: ["vault"],
       state: "test-state",
-    };
-    let capturedHtml = "";
+    }
+    let capturedHtml = ""
     const res = {
       type: () => res,
       send: (html: string) => {
-        capturedHtml = html;
-        return res;
+        capturedHtml = html
+        return res
       },
-    };
-    await oauth.provider.authorize(client, params, res as unknown as Response);
-    const requestId = REQUEST_ID_PATTERN.exec(capturedHtml)?.[1];
+    }
+    await oauth.provider.authorize(client, params, res as unknown as Response)
+    const requestId = REQUEST_ID_PATTERN.exec(capturedHtml)?.[1]
 
-    if (!requestId) throw new Error("no request_id in consent HTML");
-    return requestId;
-  };
+    if (!requestId) throw new Error("no request_id in consent HTML")
+    return requestId
+  }
 
   const submitToken = async (requestId: string, token: string) =>
     fetch(`${baseUrl}/oauth/decide`, {
@@ -136,10 +136,10 @@ describe("OAuth consent token submission", () => {
         action: "approve",
       }),
       redirect: "manual",
-    });
+    })
 
-  const midpoint = Math.floor(AUTH_TOKEN.length / 2);
-  const wrappedToken = `${AUTH_TOKEN.slice(0, midpoint)}\n${AUTH_TOKEN.slice(midpoint)}`;
+  const midpoint = Math.floor(AUTH_TOKEN.length / 2)
+  const wrappedToken = `${AUTH_TOKEN.slice(0, midpoint)}\n${AUTH_TOKEN.slice(midpoint)}`
 
   const approvalScenarios = [
     { name: "exact token", token: AUTH_TOKEN },
@@ -151,22 +151,22 @@ describe("OAuth consent token submission", () => {
       name: "token broken by an embedded newline (terminal wrap)",
       token: wrappedToken,
     },
-  ];
+  ]
 
   it.each(approvalScenarios)("approves $name", async ({ token }) => {
-    const requestId = await startPendingRequest();
-    const response = await submitToken(requestId, token);
-    expect(response.status).toBe(302);
-    const locationHeader = response.headers.get("location");
+    const requestId = await startPendingRequest()
+    const response = await submitToken(requestId, token)
+    expect(response.status).toBe(302)
+    const locationHeader = response.headers.get("location")
 
-    if (!locationHeader) throw new Error("expected Location header on 302");
-    const location = new URL(locationHeader);
-    const code = location.searchParams.get("code");
+    if (!locationHeader) throw new Error("expected Location header on 302")
+    const location = new URL(locationHeader)
+    const code = location.searchParams.get("code")
 
-    if (!code) throw new Error("expected code query param in redirect");
-    expect(code.length).toBeGreaterThan(0);
-    expect(location.searchParams.get("state")).toBe("test-state");
-  });
+    if (!code) throw new Error("expected code query param in redirect")
+    expect(code.length).toBeGreaterThan(0)
+    expect(location.searchParams.get("state")).toBe("test-state")
+  })
 
   const rejectionScenarios = [
     { name: "genuinely wrong token", token: "not-the-token" },
@@ -174,31 +174,31 @@ describe("OAuth consent token submission", () => {
       name: "all-whitespace token (must not normalize to an empty match)",
       token: "   \n  ",
     },
-  ];
+  ]
 
   it.each(rejectionScenarios)("rejects $name without redirecting or issuing a code", async ({ token }) => {
-    const requestId = await startPendingRequest();
-    const response = await submitToken(requestId, token);
-    expect(response.status).toBe(200);
-    expect(response.headers.get("location")).toBeNull();
-    const body = await response.text();
-    expect(body).toContain("Invalid token. Please try again.");
-  });
-});
+    const requestId = await startPendingRequest()
+    const response = await submitToken(requestId, token)
+    expect(response.status).toBe(200)
+    expect(response.headers.get("location")).toBeNull()
+    const body = await response.text()
+    expect(body).toContain("Invalid token. Please try again.")
+  })
+})
 
 describe("OAuth consent body validation", () => {
-  let dir: string;
-  let server: Server;
-  let baseUrl: string;
+  let dir: string
+  let server: Server
+  let baseUrl: string
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "oauth-body-val-"));
+    dir = await mkdtemp(join(tmpdir(), "oauth-body-val-"))
     const oauth = createOAuthProvider({
       ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath: join(dir, "oauth.db"),
       logger,
-    });
+    })
     const router = createOAuthRoutes({
       authToken: AUTH_TOKEN,
       serverUrl: new URL("http://localhost:8000"),
@@ -206,60 +206,60 @@ describe("OAuth consent body validation", () => {
       serviceDocumentationUrl: "https://example.com",
       trustForwardedHops: 0,
       logger,
-    });
-    const app = express();
-    app.use(router);
+    })
+    const app = express()
+    app.use(router)
     server = await new Promise<Server>((resolve) => {
-      const listening = app.listen(0, () => resolve(listening));
-    });
-    baseUrl = `http://localhost:${getListeningPort(server)}`;
-  });
+      const listening = app.listen(0, () => resolve(listening))
+    })
+    baseUrl = `http://localhost:${getListeningPort(server)}`
+  })
 
   afterEach(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await rm(dir, { recursive: true, force: true });
-  });
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    await rm(dir, { recursive: true, force: true })
+  })
 
   it("returns 400 for duplicate form fields that produce arrays", async () => {
     const response = await fetch(`${baseUrl}/oauth/decide`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: "request_id=a&request_id=b&token=t&action=approve",
-    });
-    expect(response.status).toBe(400);
-    const text = await response.text();
-    expect(text).toBe("Invalid form submission.");
-  });
+    })
+    expect(response.status).toBe(400)
+    const text = await response.text()
+    expect(text).toBe("Invalid form submission.")
+  })
 
   it("returns 400 when required fields are missing", async () => {
     const response = await fetch(`${baseUrl}/oauth/decide`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: "request_id=a",
-    });
-    expect(response.status).toBe(400);
-    const text = await response.text();
-    expect(text).toBe("Invalid form submission.");
-  });
-});
+    })
+    expect(response.status).toBe(400)
+    const text = await response.text()
+    expect(text).toBe("Invalid form submission.")
+  })
+})
 
 describe("OAuth consent audit logging", () => {
-  let dir: string;
-  let logs: LogCall[];
-  let oauth: OAuthProvider;
-  let server: Server;
-  let baseUrl: string;
+  let dir: string
+  let logs: LogCall[]
+  let oauth: OAuthProvider
+  let server: Server
+  let baseUrl: string
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "oauth-audit-routes-"));
-    logs = [];
-    const testLogger = recordingLogger(logs);
+    dir = await mkdtemp(join(tmpdir(), "oauth-audit-routes-"))
+    logs = []
+    const testLogger = recordingLogger(logs)
     oauth = createOAuthProvider({
       ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath: join(dir, "oauth.db"),
       logger: testLogger,
-    });
+    })
     const router = createOAuthRoutes({
       authToken: AUTH_TOKEN,
       serverUrl: new URL("http://localhost:8000"),
@@ -267,55 +267,55 @@ describe("OAuth consent audit logging", () => {
       serviceDocumentationUrl: "https://example.com",
       trustForwardedHops: 0,
       logger: testLogger,
-    });
-    const app = express();
-    app.use(router);
+    })
+    const app = express()
+    app.use(router)
     server = await new Promise<Server>((resolve) => {
-      const listening = app.listen(0, () => resolve(listening));
-    });
-    baseUrl = `http://localhost:${getListeningPort(server)}`;
-  });
+      const listening = app.listen(0, () => resolve(listening))
+    })
+    baseUrl = `http://localhost:${getListeningPort(server)}`
+  })
 
   afterEach(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await rm(dir, { recursive: true, force: true });
-  });
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    await rm(dir, { recursive: true, force: true })
+  })
 
   const startPendingRequest = async (): Promise<string> => {
-    const clientsStore = oauth.provider.clientsStore;
+    const clientsStore = oauth.provider.clientsStore
 
-    if (!clientsStore?.registerClient) throw new Error("clientsStore.registerClient not available");
+    if (!clientsStore?.registerClient) throw new Error("clientsStore.registerClient not available")
     const client = await clientsStore.registerClient({
       client_name: "Audit Client",
       redirect_uris: [REDIRECT_URI],
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
       token_endpoint_auth_method: "none",
-    });
+    })
     const params: AuthorizationParams = {
       codeChallenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
       redirectUri: REDIRECT_URI,
       scopes: ["vault"],
       state: "test-state",
-    };
-    let capturedHtml = "";
+    }
+    let capturedHtml = ""
     const res = {
       type: () => res,
       send: (html: string) => {
-        capturedHtml = html;
-        return res;
+        capturedHtml = html
+        return res
       },
-    };
-    await oauth.provider.authorize(client, params, res as unknown as Response);
-    const requestId = REQUEST_ID_PATTERN.exec(capturedHtml)?.[1];
+    }
+    await oauth.provider.authorize(client, params, res as unknown as Response)
+    const requestId = REQUEST_ID_PATTERN.exec(capturedHtml)?.[1]
 
-    if (!requestId) throw new Error("no request_id in consent HTML");
-    return requestId;
-  };
+    if (!requestId) throw new Error("no request_id in consent HTML")
+    return requestId
+  }
 
   it("logs oauth_consent_completed on approved consent", async () => {
-    const requestId = await startPendingRequest();
-    logs.length = 0;
+    const requestId = await startPendingRequest()
+    logs.length = 0
 
     await fetch(`${baseUrl}/oauth/decide`, {
       method: "POST",
@@ -326,9 +326,9 @@ describe("OAuth consent audit logging", () => {
         action: "approve",
       }),
       redirect: "manual",
-    });
+    })
 
-    const event = logs.find((log) => log.message === "oauth_consent_completed");
+    const event = logs.find((log) => log.message === "oauth_consent_completed")
     expect(event).toMatchObject({
       level: "info",
       message: "oauth_consent_completed",
@@ -336,12 +336,12 @@ describe("OAuth consent audit logging", () => {
         requestId,
         clientIp: expect.any(String),
       }),
-    });
-  });
+    })
+  })
 
   it("logs oauth_consent_bad_token on invalid token submission", async () => {
-    const requestId = await startPendingRequest();
-    logs.length = 0;
+    const requestId = await startPendingRequest()
+    logs.length = 0
 
     await fetch(`${baseUrl}/oauth/decide`, {
       method: "POST",
@@ -352,19 +352,19 @@ describe("OAuth consent audit logging", () => {
         action: "approve",
       }),
       redirect: "manual",
-    });
+    })
 
-    const event = logs.find((log) => log.message === "oauth_consent_bad_token");
+    const event = logs.find((log) => log.message === "oauth_consent_bad_token")
     expect(event).toMatchObject({
       level: "warn",
       message: "oauth_consent_bad_token",
       data: expect.objectContaining({ requestId }),
-    });
-  });
+    })
+  })
 
   it("logs oauth_consent_denied_by_user on deny action", async () => {
-    const requestId = await startPendingRequest();
-    logs.length = 0;
+    const requestId = await startPendingRequest()
+    logs.length = 0
 
     await fetch(`${baseUrl}/oauth/decide`, {
       method: "POST",
@@ -375,18 +375,18 @@ describe("OAuth consent audit logging", () => {
         action: "deny",
       }),
       redirect: "manual",
-    });
+    })
 
-    const event = logs.find((log) => log.message === "oauth_consent_denied_by_user");
+    const event = logs.find((log) => log.message === "oauth_consent_denied_by_user")
     expect(event).toMatchObject({
       level: "info",
       message: "oauth_consent_denied_by_user",
       data: expect.objectContaining({ requestId }),
-    });
-  });
+    })
+  })
 
   it("logs oauth_consent_expired on expired request", async () => {
-    logs.length = 0;
+    logs.length = 0
 
     await fetch(`${baseUrl}/oauth/decide`, {
       method: "POST",
@@ -397,35 +397,35 @@ describe("OAuth consent audit logging", () => {
         action: "approve",
       }),
       redirect: "manual",
-    });
+    })
 
-    const event = logs.find((log) => log.message === "oauth_consent_expired");
+    const event = logs.find((log) => log.message === "oauth_consent_expired")
     expect(event).toMatchObject({
       level: "warn",
       message: "oauth_consent_expired",
       data: expect.objectContaining({
         requestId: "nonexistent-id",
       }),
-    });
-  });
-});
+    })
+  })
+})
 
 describe("OAuth endpoint rate limiting", () => {
-  let dir: string;
-  let logs: LogCall[];
-  let server: Server;
-  let baseUrl: string;
+  let dir: string
+  let logs: LogCall[]
+  let server: Server
+  let baseUrl: string
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "oauth-rate-limit-"));
-    logs = [];
-    const testLogger = recordingLogger(logs);
+    dir = await mkdtemp(join(tmpdir(), "oauth-rate-limit-"))
+    logs = []
+    const testLogger = recordingLogger(logs)
     const oauth = createOAuthProvider({
       ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath: join(dir, "oauth.db"),
       logger: testLogger,
-    });
+    })
     const router = createOAuthRoutes({
       authToken: AUTH_TOKEN,
       serverUrl: new URL("http://localhost:8000"),
@@ -435,19 +435,19 @@ describe("OAuth endpoint rate limiting", () => {
       // which only works when the deployment trusts it.
       trustForwardedHops: 1,
       logger: testLogger,
-    });
-    const app = express();
-    app.use(router);
+    })
+    const app = express()
+    app.use(router)
     server = await new Promise<Server>((resolve) => {
-      const listening = app.listen(0, () => resolve(listening));
-    });
-    baseUrl = `http://localhost:${getListeningPort(server)}`;
-  });
+      const listening = app.listen(0, () => resolve(listening))
+    })
+    baseUrl = `http://localhost:${getListeningPort(server)}`
+  })
 
   afterEach(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await rm(dir, { recursive: true, force: true });
-  });
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    await rm(dir, { recursive: true, force: true })
+  })
 
   // Without forwardedClientIp all requests share the loopback peer; with it,
   // the RFC 7239 Forwarded header drives extractClientIp, so distinct values
@@ -466,25 +466,25 @@ describe("OAuth endpoint rate limiting", () => {
         response_types: ["code"],
         token_endpoint_auth_method: "none",
       }),
-    });
+    })
 
   it("serves 5 requests in a minute from one client IP, then returns 429", async () => {
     for (let i = 0; i < 5; i++) {
-      const response = await register();
-      expect(response.status).toBe(201);
+      const response = await register()
+      expect(response.status).toBe(201)
     }
-    const sixth = await register();
-    expect(sixth.status).toBe(429);
-  });
+    const sixth = await register()
+    expect(sixth.status).toBe(429)
+  })
 
   it("logs oauth_rate_limited with the offending client IP when the limit trips", async () => {
     for (let i = 0; i < 5; i++) {
-      await register("203.0.113.9");
+      await register("203.0.113.9")
     }
-    logs.length = 0;
-    const sixth = await register("203.0.113.9");
-    expect(sixth.status).toBe(429);
-    const event = logs.find((log) => log.message === "oauth_rate_limited");
+    logs.length = 0
+    const sixth = await register("203.0.113.9")
+    expect(sixth.status).toBe(429)
+    const event = logs.find((log) => log.message === "oauth_rate_limited")
     expect(event).toMatchObject({
       level: "warn",
       message: "oauth_rate_limited",
@@ -492,19 +492,19 @@ describe("OAuth endpoint rate limiting", () => {
         clientIp: "203.0.113.9",
         path: "/register",
       }),
-    });
-  });
+    })
+  })
 
   it("keys the limit by client IP, so exhausting one client leaves another unaffected", async () => {
     for (let i = 0; i < 5; i++) {
-      const response = await register("203.0.113.7");
-      expect(response.status).toBe(201);
+      const response = await register("203.0.113.7")
+      expect(response.status).toBe(201)
     }
-    const sixthFromSameClient = await register("203.0.113.7");
-    expect(sixthFromSameClient.status).toBe(429);
-    const firstFromOtherClient = await register("203.0.113.8");
-    expect(firstFromOtherClient.status).toBe(201);
-  });
+    const sixthFromSameClient = await register("203.0.113.7")
+    expect(sixthFromSameClient.status).toBe(429)
+    const firstFromOtherClient = await register("203.0.113.8")
+    expect(firstFromOtherClient.status).toBe(201)
+  })
 
   // Each flow endpoint mounts its own limiter with its own counter, so the
   // per-endpoint tests below exercise four independent limiters — register
@@ -514,12 +514,12 @@ describe("OAuth endpoint rate limiting", () => {
   // status is each endpoint's own validation error.
   it("rate-limits /authorize after 5 requests from one client IP", async () => {
     for (let i = 0; i < 5; i++) {
-      const response = await fetch(`${baseUrl}/authorize?client_id=unknown`);
-      expect(response.status).toBe(400);
+      const response = await fetch(`${baseUrl}/authorize?client_id=unknown`)
+      expect(response.status).toBe(400)
     }
-    const sixth = await fetch(`${baseUrl}/authorize?client_id=unknown`);
-    expect(sixth.status).toBe(429);
-  });
+    const sixth = await fetch(`${baseUrl}/authorize?client_id=unknown`)
+    expect(sixth.status).toBe(429)
+  })
 
   it("rate-limits /token after 5 requests from one client IP", async () => {
     const requestToken = () =>
@@ -527,14 +527,14 @@ describe("OAuth endpoint rate limiting", () => {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ grant_type: "authorization_code" }),
-      });
+      })
     for (let i = 0; i < 5; i++) {
-      const response = await requestToken();
-      expect(response.status).toBe(400);
+      const response = await requestToken()
+      expect(response.status).toBe(400)
     }
-    const sixth = await requestToken();
-    expect(sixth.status).toBe(429);
-  });
+    const sixth = await requestToken()
+    expect(sixth.status).toBe(429)
+  })
 
   it("rate-limits /revoke after 5 requests from one client IP", async () => {
     const revoke = () =>
@@ -542,39 +542,39 @@ describe("OAuth endpoint rate limiting", () => {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({ token: "nonexistent-token" }),
-      });
+      })
     for (let i = 0; i < 5; i++) {
-      const response = await revoke();
-      expect(response.status).toBe(400);
+      const response = await revoke()
+      expect(response.status).toBe(400)
     }
-    const sixth = await revoke();
-    expect(sixth.status).toBe(429);
-  });
+    const sixth = await revoke()
+    expect(sixth.status).toBe(429)
+  })
 
   it("leaves /.well-known discovery metadata unlimited past 5 requests", async () => {
     for (let i = 0; i < 6; i++) {
-      const response = await fetch(`${baseUrl}/.well-known/oauth-authorization-server`);
-      expect(response.status).toBe(200);
+      const response = await fetch(`${baseUrl}/.well-known/oauth-authorization-server`)
+      expect(response.status).toBe(200)
     }
-  });
-});
+  })
+})
 
 describe("OAuth rate limiting when the Forwarded header is not trusted (default)", () => {
-  let dir: string;
-  let logs: LogCall[];
-  let server: Server;
-  let baseUrl: string;
+  let dir: string
+  let logs: LogCall[]
+  let server: Server
+  let baseUrl: string
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "oauth-rate-limit-untrusted-"));
-    logs = [];
-    const testLogger = recordingLogger(logs);
+    dir = await mkdtemp(join(tmpdir(), "oauth-rate-limit-untrusted-"))
+    logs = []
+    const testLogger = recordingLogger(logs)
     const oauth = createOAuthProvider({
       ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath: join(dir, "oauth.db"),
       logger: testLogger,
-    });
+    })
     const router = createOAuthRoutes({
       authToken: AUTH_TOKEN,
       serverUrl: new URL("http://localhost:8000"),
@@ -582,19 +582,19 @@ describe("OAuth rate limiting when the Forwarded header is not trusted (default)
       serviceDocumentationUrl: "https://example.com",
       trustForwardedHops: 0,
       logger: testLogger,
-    });
-    const app = express();
-    app.use(router);
+    })
+    const app = express()
+    app.use(router)
     server = await new Promise<Server>((resolve) => {
-      const listening = app.listen(0, () => resolve(listening));
-    });
-    baseUrl = `http://localhost:${getListeningPort(server)}`;
-  });
+      const listening = app.listen(0, () => resolve(listening))
+    })
+    baseUrl = `http://localhost:${getListeningPort(server)}`
+  })
 
   afterEach(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await rm(dir, { recursive: true, force: true });
-  });
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    await rm(dir, { recursive: true, force: true })
+  })
 
   const registerWithSpoofedIp = (spoofedIp: string) =>
     fetch(`${baseUrl}/register`, {
@@ -610,53 +610,53 @@ describe("OAuth rate limiting when the Forwarded header is not trusted (default)
         response_types: ["code"],
         token_endpoint_auth_method: "none",
       }),
-    });
+    })
 
   // A distinct spoofed Forwarded value per request must NOT mint a fresh
   // rate-limit bucket — all six share the real peer's bucket, so the sixth
   // is 429.
   it("spoofed Forwarded headers do not bypass the /register rate limit", async () => {
     for (let i = 1; i <= 5; i++) {
-      const response = await registerWithSpoofedIp(`198.51.100.${i}`);
-      expect(response.status).toBe(201);
+      const response = await registerWithSpoofedIp(`198.51.100.${i}`)
+      expect(response.status).toBe(201)
     }
-    const sixth = await registerWithSpoofedIp("198.51.100.6");
-    expect(sixth.status).toBe(429);
-  });
+    const sixth = await registerWithSpoofedIp("198.51.100.6")
+    expect(sixth.status).toBe(429)
+  })
 
   it("logs the real peer IP — not the spoofed value — when the limit trips", async () => {
     for (let i = 1; i <= 5; i++) {
-      await registerWithSpoofedIp("198.51.100.9");
+      await registerWithSpoofedIp("198.51.100.9")
     }
-    logs.length = 0;
-    const sixth = await registerWithSpoofedIp("198.51.100.9");
-    expect(sixth.status).toBe(429);
-    const event = logs.find((log) => log.message === "oauth_rate_limited");
+    logs.length = 0
+    const sixth = await registerWithSpoofedIp("198.51.100.9")
+    expect(sixth.status).toBe(429)
+    const event = logs.find((log) => log.message === "oauth_rate_limited")
     expect(event).toMatchObject({
       level: "warn",
       message: "oauth_rate_limited",
       data: expect.objectContaining({ path: "/register" }),
-    });
+    })
     // The loopback form varies by platform (::1 / 127.0.0.1 / v4-mapped) —
     // the security property is that the logged IP is the real peer, never
     // the client-supplied header value.
-    expect(["127.0.0.1", "::1", "::ffff:127.0.0.1"]).toContain(event?.data.clientIp);
-  });
-});
+    expect(["127.0.0.1", "::1", "::ffff:127.0.0.1"]).toContain(event?.data.clientIp)
+  })
+})
 
 describe("OAuth protected resource metadata", () => {
-  let dir: string;
-  let server: Server;
-  let baseUrl: string;
+  let dir: string
+  let server: Server
+  let baseUrl: string
 
   beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "oauth-metadata-test-"));
+    dir = await mkdtemp(join(tmpdir(), "oauth-metadata-test-"))
     const oauth = createOAuthProvider({
       ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath: join(dir, "oauth.db"),
       logger,
-    });
+    })
     const router = createOAuthRoutes({
       authToken: AUTH_TOKEN,
       serverUrl: new URL("http://localhost:8000"),
@@ -664,19 +664,19 @@ describe("OAuth protected resource metadata", () => {
       serviceDocumentationUrl: "https://example.com",
       trustForwardedHops: 0,
       logger,
-    });
-    const app = express();
-    app.use(router);
+    })
+    const app = express()
+    app.use(router)
     server = await new Promise<Server>((resolve) => {
-      const listening = app.listen(0, () => resolve(listening));
-    });
-    baseUrl = `http://localhost:${getListeningPort(server)}`;
-  });
+      const listening = app.listen(0, () => resolve(listening))
+    })
+    baseUrl = `http://localhost:${getListeningPort(server)}`
+  })
 
   afterEach(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-    await rm(dir, { recursive: true, force: true });
-  });
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    await rm(dir, { recursive: true, force: true })
+  })
 
   // Test-owned expected document (drift-catching — not imported from
   // production): the values are the harness inputs above after URL
@@ -686,59 +686,59 @@ describe("OAuth protected resource metadata", () => {
     authorization_servers: ["http://localhost:8000/"],
     scopes_supported: ["vault"],
     resource_documentation: "https://example.com/",
-  };
-  const SUFFIXED_RESOURCE = "http://localhost:8000/mcp";
+  }
+  const SUFFIXED_RESOURCE = "http://localhost:8000/mcp"
 
   it("advertises only client_secret_post while retaining S256 PKCE", async () => {
-    const response = await fetch(`${baseUrl}/.well-known/oauth-authorization-server`);
-    expect(response.status).toBe(200);
-    const metadata = OAuthMetadataSchema.parse(await response.json());
-    expect(metadata.token_endpoint_auth_methods_supported).toEqual(["client_secret_post"]);
-    expect(metadata.revocation_endpoint_auth_methods_supported).toEqual(["client_secret_post"]);
-    expect(metadata.code_challenge_methods_supported).toEqual(["S256"]);
-  });
+    const response = await fetch(`${baseUrl}/.well-known/oauth-authorization-server`)
+    expect(response.status).toBe(200)
+    const metadata = OAuthMetadataSchema.parse(await response.json())
+    expect(metadata.token_endpoint_auth_methods_supported).toEqual(["client_secret_post"])
+    expect(metadata.revocation_endpoint_auth_methods_supported).toEqual(["client_secret_post"])
+    expect(metadata.code_challenge_methods_supported).toEqual(["S256"])
+  })
 
   // Also the guard against a future `resourceServerUrl` pass to
   // mcpAuthRouter: that would MOVE the SDK's metadata route to the suffixed
   // path and this root fetch would 404.
   it("serves the root discovery document unchanged", async () => {
-    const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource`);
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual(ROOT_DOCUMENT);
-  });
+    const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource`)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(ROOT_DOCUMENT)
+  })
 
   it("serves the RFC 9728 path-suffixed document with the /mcp resource identifier", async () => {
-    const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`);
-    expect(response.status).toBe(200);
+    const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`)
+    expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       ...ROOT_DOCUMENT,
       resource: SUFFIXED_RESOURCE,
-    });
-  });
+    })
+  })
 
   // Relational guard that survives SDK bumps: if a future SDK adds a field
   // to the root document, this fails until the suffixed document gains it.
   it("keeps the suffixed document identical to the live root document except for resource", async () => {
-    const rootResponse = await fetch(`${baseUrl}/.well-known/oauth-protected-resource`);
-    const suffixedResponse = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`);
-    const rootDocument = OAuthProtectedResourceMetadataSchema.parse(await rootResponse.json());
-    const suffixedDocument = OAuthProtectedResourceMetadataSchema.parse(await suffixedResponse.json());
+    const rootResponse = await fetch(`${baseUrl}/.well-known/oauth-protected-resource`)
+    const suffixedResponse = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`)
+    const rootDocument = OAuthProtectedResourceMetadataSchema.parse(await rootResponse.json())
+    const suffixedDocument = OAuthProtectedResourceMetadataSchema.parse(await suffixedResponse.json())
     expect(suffixedDocument).toEqual({
       ...rootDocument,
       resource: SUFFIXED_RESOURCE,
-    });
-  });
+    })
+  })
 
   it("serves the suffixed route with CORS enabled for browser-based clients", async () => {
-    const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`);
-    expect(response.headers.get("access-control-allow-origin")).toBe("*");
-  });
+    const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`)
+    expect(response.headers.get("access-control-allow-origin")).toBe("*")
+  })
 
   it("rejects non-GET methods on the suffixed route with 405 and an Allow header", async () => {
-    const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`, { method: "POST" });
-    expect(response.status).toBe(405);
-    expect(response.headers.get("allow")).toBe("GET, OPTIONS");
-  });
+    const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`, { method: "POST" })
+    expect(response.status).toBe(405)
+    expect(response.headers.get("allow")).toBe("GET, OPTIONS")
+  })
 
   it("answers a browser CORS preflight on the suffixed route", async () => {
     const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`, {
@@ -747,41 +747,41 @@ describe("OAuth protected resource metadata", () => {
         Origin: "https://claude.ai",
         "Access-Control-Request-Method": "GET",
       },
-    });
-    expect(response.status).toBe(204);
-    expect(response.headers.get("access-control-allow-origin")).toBe("*");
-    expect(response.headers.get("access-control-allow-methods")).toBe("GET,HEAD,PUT,PATCH,POST,DELETE");
-  });
+    })
+    expect(response.status).toBe(204)
+    expect(response.headers.get("access-control-allow-origin")).toBe("*")
+    expect(response.headers.get("access-control-allow-methods")).toBe("GET,HEAD,PUT,PATCH,POST,DELETE")
+  })
 
   it("leaves the suffixed discovery route unlimited past 5 requests", async () => {
     for (let i = 0; i < 6; i++) {
-      const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`);
-      expect(response.status).toBe(200);
+      const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`)
+      expect(response.status).toBe(200)
     }
-  });
-});
+  })
+})
 
 describe("OAuth refresh over HTTP", () => {
-  type RegisteredClient = { client_id: string; client_secret: string };
-  type IssuedTokens = { access_token: string; refresh_token: string };
+  type RegisteredClient = { client_id: string; client_secret: string }
+  type IssuedTokens = { access_token: string; refresh_token: string }
 
   const isRegisteredClient = (value: unknown): value is RegisteredClient =>
-    typeof value === "object" && value !== null && "client_id" in value && "client_secret" in value;
+    typeof value === "object" && value !== null && "client_id" in value && "client_secret" in value
 
   const isIssuedTokens = (value: unknown): value is IssuedTokens =>
-    typeof value === "object" && value !== null && "access_token" in value && "refresh_token" in value;
+    typeof value === "object" && value !== null && "access_token" in value && "refresh_token" in value
 
   const base64Url = (buffer: Buffer): string =>
-    buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 
   const createRefreshTest = async (): Promise<{ baseUrl: string }> => {
-    const dir = await mkdtemp(join(tmpdir(), "oauth-refresh-http-"));
+    const dir = await mkdtemp(join(tmpdir(), "oauth-refresh-http-"))
     const oauth = createOAuthProvider({
       ...TEST_URLS,
       authToken: AUTH_TOKEN,
       dbPath: join(dir, "oauth.db"),
       logger,
-    });
+    })
     const router = createOAuthRoutes({
       authToken: AUTH_TOKEN,
       serverUrl: new URL("http://localhost:8000"),
@@ -789,18 +789,18 @@ describe("OAuth refresh over HTTP", () => {
       serviceDocumentationUrl: "https://example.com",
       trustForwardedHops: 1,
       logger,
-    });
-    const app = express();
-    app.use(router);
+    })
+    const app = express()
+    app.use(router)
     const server = await new Promise<Server>((resolve) => {
-      const listening = app.listen(0, () => resolve(listening));
-    });
+      const listening = app.listen(0, () => resolve(listening))
+    })
     onTestFinished(async () => {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      await rm(dir, { recursive: true, force: true });
-    });
-    return { baseUrl: `http://localhost:${getListeningPort(server)}` };
-  };
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+      await rm(dir, { recursive: true, force: true })
+    })
+    return { baseUrl: `http://localhost:${getListeningPort(server)}` }
+  }
 
   // Each registration carries its own Forwarded address so two clients in one
   // test don't share a rate-limit bucket.
@@ -818,22 +818,22 @@ describe("OAuth refresh over HTTP", () => {
         response_types: ["code"],
         token_endpoint_auth_method: "none",
       }),
-    });
-    expect(response.status).toBe(201);
-    const registered: unknown = await response.json();
+    })
+    expect(response.status).toBe(201)
+    const registered: unknown = await response.json()
 
-    if (!isRegisteredClient(registered)) throw new Error("malformed client");
-    return registered;
-  };
+    if (!isRegisteredClient(registered)) throw new Error("malformed client")
+    return registered
+  }
 
   const issueCode = async (
     baseUrl: string,
     client: RegisteredClient,
     forwardedClientIp: string,
   ): Promise<{ code: string; verifier: string }> => {
-    const verifier = base64Url(randomBytes(32));
-    const challenge = base64Url(createHash("sha256").update(verifier).digest());
-    const authorizeUrl = new URL(`${baseUrl}/authorize`);
+    const verifier = base64Url(randomBytes(32))
+    const challenge = base64Url(createHash("sha256").update(verifier).digest())
+    const authorizeUrl = new URL(`${baseUrl}/authorize`)
     authorizeUrl.search = new URLSearchParams({
       response_type: "code",
       client_id: client.client_id,
@@ -841,15 +841,15 @@ describe("OAuth refresh over HTTP", () => {
       code_challenge: challenge,
       code_challenge_method: "S256",
       scope: "vault",
-    }).toString();
+    }).toString()
     const consentHtml = await (
       await fetch(authorizeUrl, {
         headers: { forwarded: `for=${forwardedClientIp}` },
       })
-    ).text();
-    const requestId = REQUEST_ID_PATTERN.exec(consentHtml)?.[1];
+    ).text()
+    const requestId = REQUEST_ID_PATTERN.exec(consentHtml)?.[1]
 
-    if (!requestId) throw new Error("consent page carried no request_id");
+    if (!requestId) throw new Error("consent page carried no request_id")
     const decision = await fetch(`${baseUrl}/oauth/decide`, {
       method: "POST",
       headers: {
@@ -862,13 +862,13 @@ describe("OAuth refresh over HTTP", () => {
         action: "approve",
       }),
       redirect: "manual",
-    });
-    const location = decision.headers.get("location");
-    const code = location ? new URL(location).searchParams.get("code") : null;
+    })
+    const location = decision.headers.get("location")
+    const code = location ? new URL(location).searchParams.get("code") : null
 
-    if (!code) throw new Error(`consent did not redirect with a code`);
-    return { code, verifier };
-  };
+    if (!code) throw new Error(`consent did not redirect with a code`)
+    return { code, verifier }
+  }
 
   /** Consent page → approve → PKCE code exchange, all over HTTP. */
   const issueTokens = async (
@@ -876,7 +876,7 @@ describe("OAuth refresh over HTTP", () => {
     client: RegisteredClient,
     forwardedClientIp: string,
   ): Promise<IssuedTokens> => {
-    const { code, verifier } = await issueCode(baseUrl, client, forwardedClientIp);
+    const { code, verifier } = await issueCode(baseUrl, client, forwardedClientIp)
     const tokenResponse = await fetch(`${baseUrl}/token`, {
       method: "POST",
       headers: {
@@ -891,13 +891,13 @@ describe("OAuth refresh over HTTP", () => {
         client_secret: client.client_secret,
         redirect_uri: REDIRECT_URI,
       }),
-    });
-    expect(tokenResponse.status).toBe(200);
-    const issued: unknown = await tokenResponse.json();
+    })
+    expect(tokenResponse.status).toBe(200)
+    const issued: unknown = await tokenResponse.json()
 
-    if (!isIssuedTokens(issued)) throw new Error("malformed token response");
-    return issued;
-  };
+    if (!isIssuedTokens(issued)) throw new Error("malformed token response")
+    return issued
+  }
 
   const refresh = ({
     baseUrl,
@@ -906,11 +906,11 @@ describe("OAuth refresh over HTTP", () => {
     scope,
     forwardedClientIp,
   }: {
-    baseUrl: string;
-    client: RegisteredClient;
-    refreshToken: string;
-    scope?: string;
-    forwardedClientIp: string;
+    baseUrl: string
+    client: RegisteredClient
+    refreshToken: string
+    scope?: string
+    forwardedClientIp: string
   }): Promise<globalThis.Response> =>
     fetch(`${baseUrl}/token`, {
       method: "POST",
@@ -925,12 +925,12 @@ describe("OAuth refresh over HTTP", () => {
         client_secret: client.client_secret,
         ...(scope === undefined ? {} : { scope }),
       }),
-    });
+    })
 
   it.each(["none", "client_secret_post", undefined])(
     "returns the effective registration method for requested %s",
     async (method) => {
-      const { baseUrl } = await createRefreshTest();
+      const { baseUrl } = await createRefreshTest()
       const response = await fetch(`${baseUrl}/register`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -938,28 +938,28 @@ describe("OAuth refresh over HTTP", () => {
           redirect_uris: [REDIRECT_URI],
           ...(method ? { token_endpoint_auth_method: method } : {}),
         }),
-      });
-      expect(response.status).toBe(201);
-      const client = OAuthClientInformationFullSchema.parse(await response.json());
-      expect(client.token_endpoint_auth_method).toBe("client_secret_post");
-      expect(client.client_secret).toMatch(/^[a-f0-9]{64}$/);
+      })
+      expect(response.status).toBe(201)
+      const client = OAuthClientInformationFullSchema.parse(await response.json())
+      expect(client.token_endpoint_auth_method).toBe("client_secret_post")
+      expect(client.client_secret).toMatch(/^[a-f0-9]{64}$/)
     },
-  );
+  )
 
   it.each(["authorization_code", "refresh_token"])(
     "rejects missing and wrong secrets without consuming the %s grant",
     async (grantType) => {
-      const { baseUrl } = await createRefreshTest();
-      const client = await registerClient(baseUrl, "203.0.113.10");
+      const { baseUrl } = await createRefreshTest()
+      const client = await registerClient(baseUrl, "203.0.113.10")
       const createGrant = async (): Promise<Record<string, string>> => {
         if (grantType === "authorization_code") {
-          const { code, verifier } = await issueCode(baseUrl, client, "203.0.113.10");
-          return { code, code_verifier: verifier, redirect_uri: REDIRECT_URI };
+          const { code, verifier } = await issueCode(baseUrl, client, "203.0.113.10")
+          return { code, code_verifier: verifier, redirect_uri: REDIRECT_URI }
         }
-        const { refresh_token } = await issueTokens(baseUrl, client, "203.0.113.10");
-        return { refresh_token };
-      };
-      const grant = await createGrant();
+        const { refresh_token } = await issueTokens(baseUrl, client, "203.0.113.10")
+        return { refresh_token }
+      }
+      const grant = await createGrant()
       const exchange = (secret?: string) =>
         fetch(`${baseUrl}/token`, {
           method: "POST",
@@ -970,23 +970,23 @@ describe("OAuth refresh over HTTP", () => {
             ...grant,
             ...(secret ? { client_secret: secret } : {}),
           }),
-        });
+        })
 
-      const missing = await exchange();
-      expect(missing.status).toBe(400);
+      const missing = await exchange()
+      expect(missing.status).toBe(400)
       expect(await missing.json()).toEqual({
         error: "invalid_client",
         error_description: "Client secret is required",
-      });
-      const wrong = await exchange("incorrect-secret");
-      expect(wrong.status).toBe(400);
+      })
+      const wrong = await exchange("incorrect-secret")
+      expect(wrong.status).toBe(400)
       expect(await wrong.json()).toEqual({
         error: "invalid_client",
         error_description: "Invalid client_secret",
-      });
-      const accepted = await exchange(client.client_secret);
-      expect(accepted.status).toBe(200);
-      const tokens: unknown = await accepted.json();
+      })
+      const accepted = await exchange(client.client_secret)
+      expect(accepted.status).toBe(200)
+      const tokens: unknown = await accepted.json()
       // access_token and refresh_token are random; assert the full key set
       // with expect.any(String) for the nondeterministic values.
       expect(tokens).toEqual({
@@ -995,14 +995,14 @@ describe("OAuth refresh over HTTP", () => {
         expires_in: 21600,
         access_token: expect.any(String),
         refresh_token: expect.any(String),
-      });
+      })
     },
-  );
+  )
 
   it("rejects an incorrect PKCE verifier even when the client secret is valid", async () => {
-    const { baseUrl } = await createRefreshTest();
-    const client = await registerClient(baseUrl, "203.0.113.11");
-    const { code } = await issueCode(baseUrl, client, "203.0.113.11");
+    const { baseUrl } = await createRefreshTest()
+    const client = await registerClient(baseUrl, "203.0.113.11")
+    const { code } = await issueCode(baseUrl, client, "203.0.113.11")
     const response = await fetch(`${baseUrl}/token`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -1014,45 +1014,45 @@ describe("OAuth refresh over HTTP", () => {
         code_verifier: "incorrect-verifier",
         redirect_uri: REDIRECT_URI,
       }),
-    });
-    expect(response.status).toBe(400);
+    })
+    expect(response.status).toBe(400)
     expect(await response.json()).toEqual({
       error: "invalid_grant",
       error_description: "code_verifier does not match the challenge",
-    });
-  });
+    })
+  })
 
   it("rejects a refresh token presented by a different client with invalid_grant", async () => {
-    const { baseUrl } = await createRefreshTest();
-    const owner = await registerClient(baseUrl, "203.0.113.1");
-    const other = await registerClient(baseUrl, "203.0.113.2");
-    const issued = await issueTokens(baseUrl, owner, "203.0.113.1");
+    const { baseUrl } = await createRefreshTest()
+    const owner = await registerClient(baseUrl, "203.0.113.1")
+    const other = await registerClient(baseUrl, "203.0.113.2")
+    const issued = await issueTokens(baseUrl, owner, "203.0.113.1")
 
     const response = await refresh({
       baseUrl,
       client: other,
       refreshToken: issued.refresh_token,
       forwardedClientIp: "203.0.113.2",
-    });
+    })
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(400)
     expect(await response.json()).toEqual({
       error: "invalid_grant",
       error_description: "Refresh token expired or invalid",
-    });
+    })
     const stillValid = await refresh({
       baseUrl,
       client: owner,
       refreshToken: issued.refresh_token,
       forwardedClientIp: "203.0.113.1",
-    });
-    expect(stillValid.status).toBe(200);
-  });
+    })
+    expect(stillValid.status).toBe(200)
+  })
 
   it("rejects a refresh that widens the scope with invalid_scope and consumes the token", async () => {
-    const { baseUrl } = await createRefreshTest();
-    const owner = await registerClient(baseUrl, "203.0.113.3");
-    const issued = await issueTokens(baseUrl, owner, "203.0.113.3");
+    const { baseUrl } = await createRefreshTest()
+    const owner = await registerClient(baseUrl, "203.0.113.3")
+    const issued = await issueTokens(baseUrl, owner, "203.0.113.3")
 
     const response = await refresh({
       baseUrl,
@@ -1060,24 +1060,24 @@ describe("OAuth refresh over HTTP", () => {
       refreshToken: issued.refresh_token,
       scope: "vault admin",
       forwardedClientIp: "203.0.113.3",
-    });
+    })
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(400)
     expect(await response.json()).toEqual({
       error: "invalid_scope",
       error_description: "Requested scope exceeds the granted scope",
-    });
+    })
     // Token is burned — retry is a plain miss, not a reuse revocation
     const consumed = await refresh({
       baseUrl,
       client: owner,
       refreshToken: issued.refresh_token,
       forwardedClientIp: "203.0.113.3",
-    });
-    expect(consumed.status).toBe(400);
+    })
+    expect(consumed.status).toBe(400)
     expect(await consumed.json()).toEqual({
       error: "invalid_grant",
       error_description: "Refresh token expired or invalid",
-    });
-  });
-});
+    })
+  })
+})

@@ -1,16 +1,16 @@
-import { describe, it, expect } from "vitest";
-import { linearizeCanvas, extractCanvasFileLinks } from "../canvas.js";
+import { describe, it, expect } from "vitest"
+import { linearizeCanvas, extractCanvasFileLinks } from "../canvas.js"
 
 /** Minimal node factories — geometry defaults keep tests focused on the
  *  fields under test. */
 const textNode = (
   overrides: Partial<{
-    id: string;
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-    text: string;
+    id: string
+    x: number
+    y: number
+    width: number
+    height: number
+    text: string
   }>,
 ): Record<string, unknown> => ({
   id: "text-1",
@@ -21,10 +21,10 @@ const textNode = (
   height: 100,
   text: "hello",
   ...overrides,
-});
+})
 
 const canvasJson = (nodes: Record<string, unknown>[], edges: Record<string, unknown>[] = []): string =>
-  JSON.stringify({ nodes, edges });
+  JSON.stringify({ nodes, edges })
 
 describe("linearizeCanvas", () => {
   it("renders ungrouped text, file, and link nodes with their content", () => {
@@ -48,7 +48,7 @@ describe("linearizeCanvas", () => {
         height: 100,
         url: "https://example.com",
       },
-    ]);
+    ])
     expect(linearizeCanvas(json)).toBe(
       [
         "# Canvas: 3 nodes, 0 edges",
@@ -56,19 +56,19 @@ describe("linearizeCanvas", () => {
         "[file] → Diagrams/arch.png",
         "[link] → https://example.com",
       ].join("\n\n"),
-    );
-  });
+    )
+  })
 
   it("orders nodes top-to-bottom then left-to-right, not by JSON order", () => {
     const json = canvasJson([
       textNode({ id: "bottom", y: 500, text: "third" }),
       textNode({ id: "top-right", x: 300, y: 0, text: "second" }),
       textNode({ id: "top-left", x: 0, y: 0, text: "first" }),
-    ]);
+    ])
     expect(linearizeCanvas(json)).toBe(
       ["# Canvas: 3 nodes, 0 edges", "[text]\nfirst", "[text]\nsecond", "[text]\nthird"].join("\n\n"),
-    );
-  });
+    )
+  })
 
   it("assigns a node to its smallest containing group and nests child groups", () => {
     const json = canvasJson([
@@ -91,11 +91,11 @@ describe("linearizeCanvas", () => {
         height: 500,
       },
       textNode({ id: "member", x: 20, y: 20, text: "in the inner group" }),
-    ]);
+    ])
     expect(linearizeCanvas(json)).toBe(
       ["# Canvas: 3 nodes, 0 edges", "## Group: Outer", "### Group: Inner", "[text]\nin the inner group"].join("\n\n"),
-    );
-  });
+    )
+  })
 
   it("renders a node overlapping but not contained by a group as ungrouped", () => {
     const json = canvasJson([
@@ -110,9 +110,9 @@ describe("linearizeCanvas", () => {
       },
       // Straddles the group's right edge — overlap without containment.
       textNode({ id: "straddler", x: 250, y: 10, width: 200, text: "outside" }),
-    ]);
-    expect(linearizeCanvas(json)).toBe(["# Canvas: 2 nodes, 0 edges", "[text]\noutside", "## Group: Box"].join("\n\n"));
-  });
+    ])
+    expect(linearizeCanvas(json)).toBe(["# Canvas: 2 nodes, 0 edges", "[text]\noutside", "## Group: Box"].join("\n\n"))
+  })
 
   it("resolves edge endpoints to display names with the edge label appended", () => {
     const json = canvasJson(
@@ -129,7 +129,7 @@ describe("linearizeCanvas", () => {
         },
       ],
       [{ id: "e1", fromNode: "a", toNode: "b", label: "references" }],
-    );
+    )
     expect(linearizeCanvas(json)).toBe(
       [
         "# Canvas: 2 nodes, 1 edge",
@@ -137,15 +137,15 @@ describe("linearizeCanvas", () => {
         "[file] → Diagrams/arch.png",
         "## Connections\n\nIdeas → arch.png (references)",
       ].join("\n\n"),
-    );
-  });
+    )
+  })
 
   it("marks a dangling edge endpoint instead of throwing", () => {
-    const json = canvasJson([textNode({ id: "a", text: "alone" })], [{ id: "e1", fromNode: "a", toNode: "ghost" }]);
+    const json = canvasJson([textNode({ id: "a", text: "alone" })], [{ id: "e1", fromNode: "a", toNode: "ghost" }])
     expect(linearizeCanvas(json)).toBe(
       ["# Canvas: 1 node, 1 edge", "[text]\nalone", '## Connections\n\nalone → (missing node "ghost")'].join("\n\n"),
-    );
-  });
+    )
+  })
 
   it("appends a file node's subpath to its path", () => {
     const json = canvasJson([
@@ -159,9 +159,9 @@ describe("linearizeCanvas", () => {
         file: "Notes/Plan.md",
         subpath: "#Goals",
       },
-    ]);
-    expect(linearizeCanvas(json)).toBe(["# Canvas: 1 node, 0 edges", "[file] → Notes/Plan.md#Goals"].join("\n\n"));
-  });
+    ])
+    expect(linearizeCanvas(json)).toBe(["# Canvas: 1 node, 0 edges", "[file] → Notes/Plan.md#Goals"].join("\n\n"))
+  })
 
   it("skips entries missing required fields and ignores unknown properties", () => {
     const json = canvasJson(
@@ -175,11 +175,11 @@ describe("linearizeCanvas", () => {
         },
       ],
       [{ id: "half-edge", fromNode: "kept" }],
-    );
+    )
     expect(linearizeCanvas(json)).toBe(
       ["# Canvas: 2 nodes, 0 edges", "[text]\nkept", "[text]\nwith extras"].join("\n\n"),
-    );
-  });
+    )
+  })
 
   it("renders both groups when two groups share an identical rectangle", () => {
     // Identical rects contain each other; without a deterministic tiebreak
@@ -205,11 +205,11 @@ describe("linearizeCanvas", () => {
         height: 400,
       },
       textNode({ id: "member", x: 10, y: 10, text: "inside both" }),
-    ]);
+    ])
     expect(linearizeCanvas(json)).toBe(
       ["# Canvas: 3 nodes, 0 edges", "## Group: Beta", "### Group: Alpha", "[text]\ninside both"].join("\n\n"),
-    );
-  });
+    )
+  })
 
   it("renders the same ownership when the identical-rect groups are declared in reverse order", () => {
     // Ownership must be a property of the canvas content (lower id wins
@@ -234,11 +234,11 @@ describe("linearizeCanvas", () => {
         height: 400,
       },
       textNode({ id: "member", x: 10, y: 10, text: "inside both" }),
-    ]);
+    ])
     expect(linearizeCanvas(json)).toBe(
       ["# Canvas: 3 nodes, 0 edges", "## Group: Beta", "### Group: Alpha", "[text]\ninside both"].join("\n\n"),
-    );
-  });
+    )
+  })
 
   it("keeps an Obsidian tag's hash in edge display names", () => {
     // Only ATX headings (hashes followed by whitespace) lose their hashes;
@@ -246,7 +246,7 @@ describe("linearizeCanvas", () => {
     const json = canvasJson(
       [textNode({ id: "a", text: "#project tracking" }), textNode({ id: "b", x: 300, text: "## Roadmap" })],
       [{ id: "e1", fromNode: "a", toNode: "b" }],
-    );
+    )
     expect(linearizeCanvas(json)).toBe(
       [
         "# Canvas: 2 nodes, 1 edge",
@@ -254,17 +254,17 @@ describe("linearizeCanvas", () => {
         "[text]\n## Roadmap",
         "## Connections\n\n#project tracking → Roadmap",
       ].join("\n\n"),
-    );
-  });
+    )
+  })
 
   it("renders an empty canvas as the overview line alone", () => {
-    expect(linearizeCanvas("{}")).toBe("# Canvas: 0 nodes, 0 edges");
-  });
+    expect(linearizeCanvas("{}")).toBe("# Canvas: 0 nodes, 0 edges")
+  })
 
   it("throws on unparseable JSON", () => {
-    expect(() => linearizeCanvas("{not json")).toThrow(/^invalid \.canvas JSON: /);
-  });
-});
+    expect(() => linearizeCanvas("{not json")).toThrow(/^invalid \.canvas JSON: /)
+  })
+})
 
 describe("extractCanvasFileLinks", () => {
   it("extracts file paths from file-type nodes", () => {
@@ -287,10 +287,10 @@ describe("extractCanvasFileLinks", () => {
         height: 300,
         file: "Diagrams/arch.png",
       },
-    ]);
+    ])
 
-    expect(extractCanvasFileLinks(json)).toEqual(["Notes/Plan.md", "Diagrams/arch.png"]);
-  });
+    expect(extractCanvasFileLinks(json)).toEqual(["Notes/Plan.md", "Diagrams/arch.png"])
+  })
 
   it("does NOT extract wikilinks from text-type nodes", () => {
     const json = canvasJson([
@@ -298,10 +298,10 @@ describe("extractCanvasFileLinks", () => {
         id: "t1",
         text: "See [[Projects/Plan]] and [[Ideas/Backlog]]",
       }),
-    ]);
+    ])
 
-    expect(extractCanvasFileLinks(json)).toEqual([]);
-  });
+    expect(extractCanvasFileLinks(json)).toEqual([])
+  })
 
   it("deduplicates file paths", () => {
     const json = canvasJson([
@@ -323,20 +323,20 @@ describe("extractCanvasFileLinks", () => {
         height: 300,
         file: "Notes/Plan.md",
       },
-    ]);
+    ])
 
-    expect(extractCanvasFileLinks(json)).toEqual(["Notes/Plan.md"]);
-  });
+    expect(extractCanvasFileLinks(json)).toEqual(["Notes/Plan.md"])
+  })
 
   it("returns empty array for an empty canvas", () => {
-    expect(extractCanvasFileLinks("{}")).toEqual([]);
-  });
+    expect(extractCanvasFileLinks("{}")).toEqual([])
+  })
 
   it("returns empty array for a text-only canvas", () => {
-    const json = canvasJson([textNode({ id: "t1", text: "just text" }), textNode({ id: "t2", text: "more text" })]);
+    const json = canvasJson([textNode({ id: "t1", text: "just text" }), textNode({ id: "t2", text: "more text" })])
 
-    expect(extractCanvasFileLinks(json)).toEqual([]);
-  });
+    expect(extractCanvasFileLinks(json)).toEqual([])
+  })
 
   it("skips file nodes with missing file field", () => {
     const json = canvasJson([
@@ -357,10 +357,10 @@ describe("extractCanvasFileLinks", () => {
         height: 300,
         file: "Diagrams/arch.png",
       },
-    ]);
+    ])
 
-    expect(extractCanvasFileLinks(json)).toEqual(["Diagrams/arch.png"]);
-  });
+    expect(extractCanvasFileLinks(json)).toEqual(["Diagrams/arch.png"])
+  })
 
   it("skips entries missing required geometry fields", () => {
     const json = canvasJson([
@@ -374,10 +374,10 @@ describe("extractCanvasFileLinks", () => {
         height: 300,
         file: "Notes/has-geom.md",
       },
-    ]);
+    ])
 
-    expect(extractCanvasFileLinks(json)).toEqual(["Notes/has-geom.md"]);
-  });
+    expect(extractCanvasFileLinks(json)).toEqual(["Notes/has-geom.md"])
+  })
 
   it("ignores link-type and group-type nodes", () => {
     const json = canvasJson([
@@ -408,12 +408,12 @@ describe("extractCanvasFileLinks", () => {
         height: 300,
         file: "Notes/real.md",
       },
-    ]);
+    ])
 
-    expect(extractCanvasFileLinks(json)).toEqual(["Notes/real.md"]);
-  });
+    expect(extractCanvasFileLinks(json)).toEqual(["Notes/real.md"])
+  })
 
   it("throws on unparseable JSON", () => {
-    expect(() => extractCanvasFileLinks("{not json")).toThrow(/^invalid \.canvas JSON: /);
-  });
-});
+    expect(() => extractCanvasFileLinks("{not json")).toThrow(/^invalid \.canvas JSON: /)
+  })
+})

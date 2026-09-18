@@ -1,7 +1,7 @@
-import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { spawnSync } from "node:child_process"
+import { resolve } from "node:path"
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest"
 
 /**
  * Behavioral spec for the remote image's boot-time env derivation
@@ -13,163 +13,163 @@ import { describe, expect, it } from "vitest";
  * case can't be contaminated by the developer's shell.
  */
 
-const SCRIPT_PATH = resolve(__dirname, "../../../rootfs/etc/s6-overlay/scripts/print-derived-env");
+const SCRIPT_PATH = resolve(__dirname, "../../../rootfs/etc/s6-overlay/scripts/print-derived-env")
 
 type PrinterRun = {
-  status: number | null;
-  stdout: string;
-  stderr: string;
-};
+  status: number | null
+  stdout: string
+  stderr: string
+}
 
 const runPrinter = (env: Record<string, string>): PrinterRun => {
   const result = spawnSync("sh", [SCRIPT_PATH], {
     encoding: "utf8",
     env: { PATH: process.env.PATH ?? "", ...env },
-  });
-  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
-};
+  })
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr }
+}
 
 describe("print-derived-env — storage layout", () => {
   it("emits the historical defaults when STORAGE_ROOT is unset", () => {
-    const run = runPrinter({});
+    const run = runPrinter({})
 
-    expect(run.status).toBe(0);
-    expect(run.stdout).toBe("VAULT_PATH=/vault\nINDEX_DB_PATH=/data/index.db\n");
-    expect(run.stderr).toBe("");
-  });
+    expect(run.status).toBe(0)
+    expect(run.stdout).toBe("VAULT_PATH=/vault\nINDEX_DB_PATH=/data/index.db\n")
+    expect(run.stderr).toBe("")
+  })
 
   it("emits nothing when STORAGE_ROOT is unset and both paths are already set", () => {
     const run = runPrinter({
       VAULT_PATH: "/custom/vault",
       INDEX_DB_PATH: "/custom/index.db",
-    });
+    })
 
-    expect(run.status).toBe(0);
-    expect(run.stdout).toBe("");
-  });
+    expect(run.status).toBe(0)
+    expect(run.stdout).toBe("")
+  })
 
   it("treats an empty path var like an unset one", () => {
-    const run = runPrinter({ VAULT_PATH: "", INDEX_DB_PATH: "" });
+    const run = runPrinter({ VAULT_PATH: "", INDEX_DB_PATH: "" })
 
-    expect(run.stdout).toBe("VAULT_PATH=/vault\nINDEX_DB_PATH=/data/index.db\n");
-  });
+    expect(run.stdout).toBe("VAULT_PATH=/vault\nINDEX_DB_PATH=/data/index.db\n")
+  })
 
   it("derives vault, index, log, and config paths under STORAGE_ROOT", () => {
-    const run = runPrinter({ STORAGE_ROOT: "/persist" });
+    const run = runPrinter({ STORAGE_ROOT: "/persist" })
 
-    expect(run.status).toBe(0);
+    expect(run.status).toBe(0)
     expect(run.stdout).toBe(
       "VAULT_PATH=/persist/vault\nINDEX_DB_PATH=/persist/data/index.db\nLOG_DIR=/persist/data/logs\nXDG_CONFIG_HOME=/persist/config\n",
-    );
-    expect(run.stderr).toBe("");
-  });
+    )
+    expect(run.stderr).toBe("")
+  })
 
   it("strips one trailing slash from STORAGE_ROOT", () => {
-    const run = runPrinter({ STORAGE_ROOT: "/persist/" });
+    const run = runPrinter({ STORAGE_ROOT: "/persist/" })
 
     expect(run.stdout).toBe(
       "VAULT_PATH=/persist/vault\nINDEX_DB_PATH=/persist/data/index.db\nLOG_DIR=/persist/data/logs\nXDG_CONFIG_HOME=/persist/config\n",
-    );
-  });
+    )
+  })
 
   it("collapses repeated slashes in STORAGE_ROOT", () => {
-    const run = runPrinter({ STORAGE_ROOT: "//persist//" });
+    const run = runPrinter({ STORAGE_ROOT: "//persist//" })
 
     expect(run.stdout).toBe(
       "VAULT_PATH=/persist/vault\nINDEX_DB_PATH=/persist/data/index.db\nLOG_DIR=/persist/data/logs\nXDG_CONFIG_HOME=/persist/config\n",
-    );
-  });
+    )
+  })
 
   it.each(["/", "//", "/.", "/..", "/persist/..", "/persist/./x", "persist", "./persist"])(
     "rejects STORAGE_ROOT=%s instead of deriving paths outside a mount",
     (storageRoot) => {
-      const run = runPrinter({ STORAGE_ROOT: storageRoot });
+      const run = runPrinter({ STORAGE_ROOT: storageRoot })
 
-      expect(run.status).toBe(1);
-      expect(run.stdout).toBe("");
+      expect(run.status).toBe(1)
+      expect(run.stdout).toBe("")
       expect(run.stderr).toBe(
         `[vault-cortex] ERROR: STORAGE_ROOT must be an absolute path to a directory inside a persistent mount (e.g. /persist), not '${storageRoot}'.\n`,
-      );
+      )
     },
-  );
+  )
 
   it.each(["/persist*", "/per?sist", "/persist[1]"])(
     "rejects STORAGE_ROOT=%s containing a glob character",
     (storageRoot) => {
-      const run = runPrinter({ STORAGE_ROOT: storageRoot });
+      const run = runPrinter({ STORAGE_ROOT: storageRoot })
 
-      expect(run.status).toBe(1);
-      expect(run.stdout).toBe("");
+      expect(run.status).toBe(1)
+      expect(run.stdout).toBe("")
       expect(run.stderr).toBe(
         `[vault-cortex] ERROR: STORAGE_ROOT must not contain glob characters (*, ?, [) — they break the container's find-path safety guards. Got '${storageRoot}'.\n`,
-      );
+      )
     },
-  );
+  )
 
   it.each(["/my*vault", "/vault?", "/vault[0]"])("rejects VAULT_PATH=%s containing a glob character", (vaultPath) => {
     const run = runPrinter({
       VAULT_PATH: vaultPath,
       INDEX_DB_PATH: "/data/index.db",
-    });
+    })
 
-    expect(run.status).toBe(1);
-    expect(run.stdout).toBe("");
+    expect(run.status).toBe(1)
+    expect(run.stdout).toBe("")
     expect(run.stderr).toBe(
       `[vault-cortex] ERROR: VAULT_PATH must not contain glob characters (*, ?, [) — they break the container's find-path safety guards. Got '${vaultPath}'.\n`,
-    );
-  });
+    )
+  })
 
   it("keeps an explicit VAULT_PATH when STORAGE_ROOT is set", () => {
     const run = runPrinter({
       STORAGE_ROOT: "/persist",
       VAULT_PATH: "/persist/custom-vault",
-    });
+    })
 
     expect(run.stdout).toBe(
       "INDEX_DB_PATH=/persist/data/index.db\nLOG_DIR=/persist/data/logs\nXDG_CONFIG_HOME=/persist/config\n",
-    );
-  });
+    )
+  })
 
   it("keeps an explicit INDEX_DB_PATH when STORAGE_ROOT is set", () => {
     const run = runPrinter({
       STORAGE_ROOT: "/persist",
       INDEX_DB_PATH: "/custom/index.db",
-    });
+    })
 
-    expect(run.stdout).toBe("VAULT_PATH=/persist/vault\nLOG_DIR=/persist/data/logs\nXDG_CONFIG_HOME=/persist/config\n");
-  });
+    expect(run.stdout).toBe("VAULT_PATH=/persist/vault\nLOG_DIR=/persist/data/logs\nXDG_CONFIG_HOME=/persist/config\n")
+  })
 
   it("keeps an explicit XDG_CONFIG_HOME when STORAGE_ROOT is set", () => {
     const run = runPrinter({
       STORAGE_ROOT: "/persist",
       XDG_CONFIG_HOME: "/custom/config",
-    });
+    })
 
     expect(run.stdout).toBe(
       "VAULT_PATH=/persist/vault\nINDEX_DB_PATH=/persist/data/index.db\nLOG_DIR=/persist/data/logs\n",
-    );
-  });
+    )
+  })
 
   it("treats an empty STORAGE_ROOT as unset", () => {
-    const run = runPrinter({ STORAGE_ROOT: "" });
+    const run = runPrinter({ STORAGE_ROOT: "" })
 
-    expect(run.stdout).toBe("VAULT_PATH=/vault\nINDEX_DB_PATH=/data/index.db\n");
-  });
+    expect(run.stdout).toBe("VAULT_PATH=/vault\nINDEX_DB_PATH=/data/index.db\n")
+  })
 
   it("keeps LOG_DIR=none under STORAGE_ROOT so file logging stays off", () => {
-    const run = runPrinter({ STORAGE_ROOT: "/persist", LOG_DIR: "none" });
+    const run = runPrinter({ STORAGE_ROOT: "/persist", LOG_DIR: "none" })
 
     expect(run.stdout).toBe(
       "VAULT_PATH=/persist/vault\nINDEX_DB_PATH=/persist/data/index.db\nXDG_CONFIG_HOME=/persist/config\n",
-    );
-  });
+    )
+  })
 
   it("does not derive LOG_DIR when STORAGE_ROOT is unset", () => {
-    const run = runPrinter({});
+    const run = runPrinter({})
 
-    expect(run.stdout).not.toContain("LOG_DIR=");
-  });
-});
+    expect(run.stdout).not.toContain("LOG_DIR=")
+  })
+})
 
 describe("print-derived-env — PUBLIC_URL", () => {
   it.each([
@@ -180,12 +180,12 @@ describe("print-derived-env — PUBLIC_URL", () => {
       VAULT_PATH: "/vault",
       INDEX_DB_PATH: "/data/index.db",
       [platformVar]: platformValue,
-    });
+    })
 
-    expect(run.status).toBe(0);
-    expect(run.stdout).toBe(`PUBLIC_URL=${expectedUrl}\n`);
-    expect(run.stderr).toBe(`[vault-cortex] PUBLIC_URL derived from ${platformVar}\n`);
-  });
+    expect(run.status).toBe(0)
+    expect(run.stdout).toBe(`PUBLIC_URL=${expectedUrl}\n`)
+    expect(run.stderr).toBe(`[vault-cortex] PUBLIC_URL derived from ${platformVar}\n`)
+  })
 
   it("prefers RENDER_EXTERNAL_URL over RAILWAY_PUBLIC_DOMAIN", () => {
     const run = runPrinter({
@@ -193,11 +193,11 @@ describe("print-derived-env — PUBLIC_URL", () => {
       INDEX_DB_PATH: "/data/index.db",
       RENDER_EXTERNAL_URL: "https://x.onrender.com",
       RAILWAY_PUBLIC_DOMAIN: "x.up.railway.app",
-    });
+    })
 
-    expect(run.stdout).toBe("PUBLIC_URL=https://x.onrender.com\n");
-    expect(run.stderr).toBe("[vault-cortex] PUBLIC_URL derived from RENDER_EXTERNAL_URL\n");
-  });
+    expect(run.stdout).toBe("PUBLIC_URL=https://x.onrender.com\n")
+    expect(run.stderr).toBe("[vault-cortex] PUBLIC_URL derived from RENDER_EXTERNAL_URL\n")
+  })
 
   it("never overrides an explicit PUBLIC_URL", () => {
     const run = runPrinter({
@@ -206,21 +206,21 @@ describe("print-derived-env — PUBLIC_URL", () => {
       PUBLIC_URL: "https://vault.example.com",
       RENDER_EXTERNAL_URL: "https://x.onrender.com",
       RAILWAY_PUBLIC_DOMAIN: "x.up.railway.app",
-    });
+    })
 
-    expect(run.stdout).toBe("");
-    expect(run.stderr).toBe("");
-  });
+    expect(run.stdout).toBe("")
+    expect(run.stderr).toBe("")
+  })
 
   it("leaves PUBLIC_URL unset when no platform variable is present", () => {
     const run = runPrinter({
       VAULT_PATH: "/vault",
       INDEX_DB_PATH: "/data/index.db",
-    });
+    })
 
-    expect(run.stdout).toBe("");
-    expect(run.stderr).toBe("");
-  });
+    expect(run.stdout).toBe("")
+    expect(run.stderr).toBe("")
+  })
 
   it("ignores an empty platform variable", () => {
     const run = runPrinter({
@@ -228,9 +228,9 @@ describe("print-derived-env — PUBLIC_URL", () => {
       INDEX_DB_PATH: "/data/index.db",
       RENDER_EXTERNAL_URL: "",
       RAILWAY_PUBLIC_DOMAIN: "x.up.railway.app",
-    });
+    })
 
-    expect(run.stdout).toBe("PUBLIC_URL=https://x.up.railway.app\n");
-    expect(run.stderr).toBe("[vault-cortex] PUBLIC_URL derived from RAILWAY_PUBLIC_DOMAIN\n");
-  });
-});
+    expect(run.stdout).toBe("PUBLIC_URL=https://x.up.railway.app\n")
+    expect(run.stderr).toBe("[vault-cortex] PUBLIC_URL derived from RAILWAY_PUBLIC_DOMAIN\n")
+  })
+})

@@ -1,14 +1,14 @@
 // ── Query methods bound by createSearchIndex ─────────────────
 
-import type Database from "better-sqlite3";
-import { DateTime } from "luxon";
-import type { Logger } from "../../logger.js";
-import { describeError } from "../../utils/describe-error.js";
-import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js";
-import { sanitizeFtsQuery, sanitizeFtsQueryAnyTerm } from "./fts-query.js";
-import { computeRrfScores } from "./rrf.js";
-import { sigmoid } from "./reranker.js";
-import type { Reranker } from "./reranker.js";
+import type Database from "better-sqlite3"
+import { DateTime } from "luxon"
+import type { Logger } from "../../logger.js"
+import { describeError } from "../../utils/describe-error.js"
+import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
+import { sanitizeFtsQuery, sanitizeFtsQueryAnyTerm } from "./fts-query.js"
+import { computeRrfScores } from "./rrf.js"
+import { sigmoid } from "./reranker.js"
+import type { Reranker } from "./reranker.js"
 import {
   rowToMetadata,
   rowToTaskEntry,
@@ -17,8 +17,8 @@ import {
   folderLikePattern,
   stripTrailingSlashes,
   dayToEpochMsRange,
-} from "./search-helpers.js";
-import type { FileContentFtsRow } from "./search-helpers.js";
+} from "./search-helpers.js"
+import type { FileContentFtsRow } from "./search-helpers.js"
 import type {
   SearchResult,
   MemoryRecallEntry,
@@ -38,45 +38,45 @@ import type {
   TaskPriorityFilter,
   TaskSortKey,
   ListTasksResult,
-} from "./search-index.js";
-import type { Embedder } from "./embedder.js";
+} from "./search-index.js"
+import type { Embedder } from "./embedder.js"
 
 // ── Context ────────────────────────────────────────────────────
 
-type VectorHitRow = { note_path: string; chunk_text: string; distance: number };
+type VectorHitRow = { note_path: string; chunk_text: string; distance: number }
 type FileContentVectorHitRow = {
-  file_path: string;
-  chunk_text: string;
-  distance: number;
-};
+  file_path: string
+  chunk_text: string
+  distance: number
+}
 
 /** One memory_entries row — hydrated whole so recall never needs a second
  *  lookup per entry. */
 export type MemoryEntryRow = {
-  id: number;
-  file: string;
-  section: string;
-  entry_date: string;
-  entry_text: string;
-  entry_index: number;
-};
+  id: number
+  file: string
+  section: string
+  entry_date: string
+  entry_text: string
+  entry_index: number
+}
 
 /** A memory-entry KNN hit: the full row plus its cosine distance. */
-export type MemoryEntryVectorHitRow = MemoryEntryRow & { distance: number };
+export type MemoryEntryVectorHitRow = MemoryEntryRow & { distance: number }
 
 /** Overrides for hybridSearch's ranking constants (file-leg RRF weight,
  *  reranker kind prefix) and the index-time chunk metadata enrichment.
  *  A missing field keeps that shipped default. */
 export type RankingTuning = {
-  readonly fileLegWeight?: number | undefined;
-  readonly rerankKindPrefix?: boolean | undefined;
+  readonly fileLegWeight?: number | undefined
+  readonly rerankKindPrefix?: boolean | undefined
   /** Index-time, unlike the other two: prefixes note chunk text with
    *  frontmatter type/tags before embedding, so flipping it re-embeds
    *  every note once. The prefix is stored in chunk_text, so vector-only
    *  snippets currently surface it as note content — separating embedded
    *  text from display text is part of the enrichment follow-up. */
-  readonly enrichChunkMetadata?: boolean | undefined;
-};
+  readonly enrichChunkMetadata?: boolean | undefined
+}
 
 /** Everything a read-side query needs from the search index, handed to it
  *  as its first argument: the open database, the prepared statements the
@@ -86,53 +86,53 @@ export type RankingTuning = {
  *  plain functions with no state of their own. Each optional group is
  *  `null` when its feature is off, and each query degrades accordingly. */
 export type SearchQueryContext = {
-  readonly db: Database.Database;
+  readonly db: Database.Database
   readonly vector: {
-    readonly embedder: Embedder | undefined;
-    readonly knnSearchStmt: Database.Statement<unknown[], VectorHitRow> | null;
+    readonly embedder: Embedder | undefined
+    readonly knnSearchStmt: Database.Statement<unknown[], VectorHitRow> | null
     /** Same KNN narrowed to chunks whose note path matches a folder LIKE
      *  pattern before the k-window — used whenever a folder filter is set. */
-    readonly knnSearchInFolderStmt: Database.Statement<unknown[], VectorHitRow> | null;
-    readonly selectNoteMetadataStmt: Database.Statement<[string], NoteRow>;
-  };
-  readonly reranker: Reranker | undefined;
+    readonly knnSearchInFolderStmt: Database.Statement<unknown[], VectorHitRow> | null
+    readonly selectNoteMetadataStmt: Database.Statement<[string], NoteRow>
+  }
+  readonly reranker: Reranker | undefined
   /** Ranking tuning for hybridSearch — undefined means the shipped
    *  defaults in hybrid-search.ts. Set by the search-eval harness to
    *  measure candidate values against the judgment set. */
-  readonly ranking?: RankingTuning | undefined;
-  readonly selectFirstChunkStmt: Database.Statement<[string], { chunk_text: string }> | null;
+  readonly ranking?: RankingTuning | undefined
+  readonly selectFirstChunkStmt: Database.Statement<[string], { chunk_text: string }> | null
   /** Null when no memory dir is configured. knnStmt is additionally null
    *  without an embedder — recall degrades to its lexical leg. */
   readonly memory: {
-    readonly embedder: Embedder | undefined;
-    readonly ftsSearchStmt: Database.Statement<[string], { entry_id: number }>;
-    readonly knnStmt: Database.Statement<unknown[], MemoryEntryVectorHitRow> | null;
-    readonly selectEntryByIdStmt: Database.Statement<[number], MemoryEntryRow>;
-  } | null;
+    readonly embedder: Embedder | undefined
+    readonly ftsSearchStmt: Database.Statement<[string], { entry_id: number }>
+    readonly knnStmt: Database.Statement<unknown[], MemoryEntryVectorHitRow> | null
+    readonly selectEntryByIdStmt: Database.Statement<[number], MemoryEntryRow>
+  } | null
   /** Null when FILE_TOOLS_ENABLED is off — hybridSearch skips the file
    *  content FTS leg. */
   readonly fileContentFts: {
-    readonly searchStmt: Database.Statement<[number, string, string, number], FileContentFtsRow>;
-  } | null;
+    readonly searchStmt: Database.Statement<[number, string, string, number], FileContentFtsRow>
+  } | null
   /** Null when FILE_TOOLS_ENABLED or embedder is off — hybridSearch skips
    *  the file content vector leg. */
   readonly fileContentVector: {
-    readonly knnSearchStmt: Database.Statement<unknown[], FileContentVectorHitRow>;
+    readonly knnSearchStmt: Database.Statement<unknown[], FileContentVectorHitRow>
     /** Folder-scoped variant — see vector.knnSearchInFolderStmt. */
-    readonly knnSearchInFolderStmt: Database.Statement<unknown[], FileContentVectorHitRow>;
-    readonly selectFirstFileChunkStmt: Database.Statement<[string], { chunk_text: string }> | null;
-  } | null;
+    readonly knnSearchInFolderStmt: Database.Statement<unknown[], FileContentVectorHitRow>
+    readonly selectFirstFileChunkStmt: Database.Statement<[string], { chunk_text: string }> | null
+  } | null
   /** Metadata lookup for files found only via vector search (no FTS hit). */
-  readonly selectFileContentMetadataStmt: Database.Statement<[string], FileContentMetadataRow> | null;
-};
+  readonly selectFileContentMetadataStmt: Database.Statement<[string], FileContentMetadataRow> | null
+}
 
 type FileContentMetadataRow = {
-  path: string;
-  title: string;
-  folder: string;
-  mtime: number;
-  bytes: number;
-};
+  path: string
+  title: string
+  folder: string
+  mtime: number
+  bytes: number
+}
 
 // ── Full-text search ───────────────────────────────────────────
 
@@ -142,56 +142,56 @@ type FileContentMetadataRow = {
  *  no shorthand) and calendar correctness (2026-02-31 fails) in one call. */
 const assertFilterDate = (value: string, filterName: string): void => {
   if (!DateTime.fromFormat(value, "yyyy-MM-dd").isValid) {
-    throw new Error(`invalid ${filterName} date: "${value}". Use YYYY-MM-DD (e.g. 2026-07-03).`);
+    throw new Error(`invalid ${filterName} date: "${value}". Use YYYY-MM-DD (e.g. 2026-07-03).`)
   }
-};
+}
 
 export const fullTextSearch = (
   context: SearchQueryContext,
   params: {
-    query: string;
-    filters?: SearchFilters | undefined;
-    limit?: number | undefined;
-    snippet_tokens?: number | undefined;
-    include_leading_callout?: boolean | undefined;
+    query: string
+    filters?: SearchFilters | undefined
+    limit?: number | undefined
+    snippet_tokens?: number | undefined
+    include_leading_callout?: boolean | undefined
   },
   logger: Logger,
 ): SearchResult[] => {
   // Build WHERE clause dynamically: each filter appends a condition + its bind params
-  const conditions: string[] = [];
-  const queryParams: unknown[] = [];
+  const conditions: string[] = []
+  const queryParams: unknown[] = []
 
-  conditions.push("notes_fts MATCH ?");
-  queryParams.push(sanitizeFtsQuery(params.query));
+  conditions.push("notes_fts MATCH ?")
+  queryParams.push(sanitizeFtsQuery(params.query))
 
   if (params.filters?.folder) {
-    conditions.push("n.path LIKE ? ESCAPE '\\'");
-    queryParams.push(folderLikePattern(params.filters.folder));
+    conditions.push("n.path LIKE ? ESCAPE '\\'")
+    queryParams.push(folderLikePattern(params.filters.folder))
   }
 
   if (params.filters?.tags) {
     for (const tag of params.filters.tags) {
-      conditions.push("EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)");
-      queryParams.push(tag);
+      conditions.push("EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)")
+      queryParams.push(tag)
     }
   }
 
   if (params.filters?.related) {
     for (const relatedNote of params.filters.related) {
-      conditions.push("EXISTS (SELECT 1 FROM json_each(n.related) WHERE value = ?)");
-      queryParams.push(relatedNote);
+      conditions.push("EXISTS (SELECT 1 FROM json_each(n.related) WHERE value = ?)")
+      queryParams.push(relatedNote)
     }
   }
 
   if (params.filters?.type) {
-    conditions.push("n.type = ?");
-    queryParams.push(params.filters.type);
+    conditions.push("n.type = ?")
+    queryParams.push(params.filters.type)
   }
 
   if (params.filters?.properties) {
     for (const [key, value] of Object.entries(params.filters.properties)) {
-      conditions.push(`json_extract(n.properties, '$.' || ?) = ?`);
-      queryParams.push(key, value);
+      conditions.push(`json_extract(n.properties, '$.' || ?) = ?`)
+      queryParams.push(key, value)
     }
   }
 
@@ -200,22 +200,22 @@ export const fullTextSearch = (
   // lexicographically against the YYYY-MM-DD bounds. Notes with NULL created
   // never match — SQL comparison with NULL is never true.
   if (params.filters?.created) {
-    const { on, before, after } = params.filters.created;
+    const { on, before, after } = params.filters.created
 
     if (on !== undefined) {
-      assertFilterDate(on, "created.on");
-      conditions.push("substr(n.created, 1, 10) = ?");
-      queryParams.push(on);
+      assertFilterDate(on, "created.on")
+      conditions.push("substr(n.created, 1, 10) = ?")
+      queryParams.push(on)
     }
     if (before !== undefined) {
-      assertFilterDate(before, "created.before");
-      conditions.push("substr(n.created, 1, 10) < ?");
-      queryParams.push(before);
+      assertFilterDate(before, "created.before")
+      conditions.push("substr(n.created, 1, 10) < ?")
+      queryParams.push(before)
     }
     if (after !== undefined) {
-      assertFilterDate(after, "created.after");
-      conditions.push("substr(n.created, 1, 10) > ?");
-      queryParams.push(after);
+      assertFilterDate(after, "created.after")
+      conditions.push("substr(n.created, 1, 10) > ?")
+      queryParams.push(after)
     }
   }
 
@@ -224,32 +224,32 @@ export const fullTextSearch = (
   // before D matches strictly earlier days (mtime < startOf(D)), after D
   // strictly later days (mtime >= startOf(D+1)), on D matches within the day.
   if (params.filters?.modified) {
-    const { on, before, after } = params.filters.modified;
+    const { on, before, after } = params.filters.modified
 
     if (on !== undefined) {
-      assertFilterDate(on, "modified.on");
-      const dayRange = dayToEpochMsRange(on);
-      conditions.push("n.mtime >= ? AND n.mtime < ?");
-      queryParams.push(dayRange.startMs, dayRange.endMs);
+      assertFilterDate(on, "modified.on")
+      const dayRange = dayToEpochMsRange(on)
+      conditions.push("n.mtime >= ? AND n.mtime < ?")
+      queryParams.push(dayRange.startMs, dayRange.endMs)
     }
     if (before !== undefined) {
-      assertFilterDate(before, "modified.before");
-      conditions.push("n.mtime < ?");
-      queryParams.push(dayToEpochMsRange(before).startMs);
+      assertFilterDate(before, "modified.before")
+      conditions.push("n.mtime < ?")
+      queryParams.push(dayToEpochMsRange(before).startMs)
     }
     if (after !== undefined) {
-      assertFilterDate(after, "modified.after");
-      conditions.push("n.mtime >= ?");
-      queryParams.push(dayToEpochMsRange(after).endMs);
+      assertFilterDate(after, "modified.after")
+      conditions.push("n.mtime >= ?")
+      queryParams.push(dayToEpochMsRange(after).endMs)
     }
   }
 
-  const limit = Math.max(0, Math.floor(params.limit ?? 20));
-  const snippetTokens = params.snippet_tokens ?? 30;
+  const limit = Math.max(0, Math.floor(params.limit ?? 20))
+  const snippetTokens = params.snippet_tokens ?? 30
   // Opt-in: the leading callout is omitted by default to keep this hot-path
   // result lean; callers triaging which note to open can request it.
-  const includeLeadingCallout = params.include_leading_callout ?? false;
-  queryParams.push(limit);
+  const includeLeadingCallout = params.include_leading_callout ?? false
+  queryParams.push(limit)
 
   // FTS5 rank is negative (lower = better), negated for human-friendly scoring
   const sql = `
@@ -262,19 +262,19 @@ export const fullTextSearch = (
     WHERE ${conditions.join(" AND ")}
     ORDER BY rank
     LIMIT ?
-  `;
+  `
 
   try {
     const rows = context.db
       .prepare<
         unknown[],
         Pick<NoteRow, "path" | "title" | "tags" | "folder" | "type" | "created" | "mtime" | "bytes"> & {
-          snippet: string;
-          score: number;
-          leading_callout?: string | null;
+          snippet: string
+          score: number
+          leading_callout?: string | null
         }
       >(sql)
-      .all(...queryParams);
+      .all(...queryParams)
 
     const results: SearchResult[] = rows.map((row) =>
       noteRowToSearchResult({
@@ -283,20 +283,20 @@ export const fullTextSearch = (
         score: Number(row.score.toPrecision(4)),
         includeLeadingCallout,
       }),
-    );
+    )
     logger.info("full text search", {
       query: params.query,
       resultCount: results.length,
-    });
-    return results;
+    })
+    return results
   } catch (error) {
     logger.warn("full text search failed", {
       query: params.query,
       error: describeError(error),
-    });
-    return [];
+    })
+    return []
   }
-};
+}
 
 // ── Memory recall ──────────────────────────────────────────────
 
@@ -304,53 +304,53 @@ export const fullTextSearch = (
  *  member outside its own topic's top 100 with zero lexical overlap is, for
  *  practical purposes, unrelated text, and the cross-encoder can't rescue
  *  what it never scores. sqlite-vec brute-forces this in ~1ms at this size. */
-const MEMORY_VECTOR_CANDIDATE_LIMIT = 100;
+const MEMORY_VECTOR_CANDIDATE_LIMIT = 100
 
 /** Latency safety valve on the cross-encoder pass (~10ms/pair, so ~1–2s at
  *  the cap). Lexical hits are never the ones cut — only the lowest-fused
  *  vector-only candidates fall off. */
-const MEMORY_RERANK_CANDIDATE_LIMIT = 120;
+const MEMORY_RERANK_CANDIDATE_LIMIT = 120
 
 /** Hard lower bound on the adaptive relevance floor — sigmoid(-6.9).
  *  Blocks genuinely irrelevant content even when a vague query produces
  *  universally low cross-encoder scores. Without it, a query whose best
  *  probability is 0.0003 would set the floor at 0.00003, letting noise
  *  through. */
-const MEMORY_RECALL_SANITY_FLOOR = 0.001;
+const MEMORY_RECALL_SANITY_FLOOR = 0.001
 
 /** Maximum value the adaptive floor can take — caps the floor so
  *  high-confidence queries (best probability near 1.0) don't push it above
  *  the absolute cut that already works for strong-signal queries. */
-const MEMORY_RECALL_MAX_FLOOR = 0.05;
+const MEMORY_RECALL_MAX_FLOOR = 0.05
 
 /** Relative margin: keep an entry scoring at least this fraction of the
  *  best non-ftsHit probability. 0.1 (10%) tracks the empirical cluster
  *  gap: on "how I like agents to communicate with me", genuine entries
  *  score 0.03–0.30 while irrelevant content scores < 0.001 — a 10:1
  *  ratio cleanly separates the two. */
-const MEMORY_RECALL_RELATIVE_RATIO = 0.1;
+const MEMORY_RECALL_RELATIVE_RATIO = 0.1
 
 /** Fallback cut when no reranker is available: keep vector hits within this
  *  cosine distance of the best hit. On-topic bge distances cluster within
  *  ~0.10–0.25 of the best match; known weaker on drifted-vocabulary origins
  *  (a bi-encoder can't distinguish paraphrase from different-topic), which
  *  is the documented cost of running without the reranker. */
-const MEMORY_RECALL_DISTANCE_MARGIN = 0.15;
+const MEMORY_RECALL_DISTANCE_MARGIN = 0.15
 
 /** Default limit — ≈15% of today's corpus (~2.5k tokens), comfortably
  *  holding any realistic evolution arc. */
-const DEFAULT_MEMORY_RECALL_LIMIT = 50;
+const DEFAULT_MEMORY_RECALL_LIMIT = 50
 
 /** One recall candidate: the hydrated row, how it was found, and its scores.
  *  ftsHit entries survive every cut — a lexical match on a short entry is
  *  near-proof of relevance (the cross-encoder can't know a distinctive term
  *  like a project name is what the query is about). */
 type MemoryRecallCandidate = {
-  row: MemoryEntryRow;
-  ftsHit: boolean;
-  fusedScore: number;
-  distance: number | undefined;
-};
+  row: MemoryEntryRow
+  ftsHit: boolean
+  fusedScore: number
+  distance: number | undefined
+}
 
 /** KNN over memory-entry vectors — mirrors vectorSearch's contract: any
  *  failure (model load, embed error) returns [] so recall degrades to its
@@ -360,20 +360,20 @@ const memoryVectorSearch = async (
   query: string,
   logger: Logger,
 ): Promise<MemoryEntryVectorHitRow[]> => {
-  if (!memory.embedder || !memory.knnStmt) return [];
+  if (!memory.embedder || !memory.knnStmt) return []
   try {
-    const queryEmbedding = await memory.embedder.embedText(query);
+    const queryEmbedding = await memory.embedder.embedText(query)
     return memory.knnStmt.all(
       Buffer.from(queryEmbedding.buffer, queryEmbedding.byteOffset, queryEmbedding.byteLength),
       MEMORY_VECTOR_CANDIDATE_LIMIT,
-    );
+    )
   } catch (error) {
     logger.warn("memory vector search failed, falling back to lexical-only", {
       error: describeError(error),
-    });
-    return [];
+    })
+    return []
   }
-};
+}
 
 /** Relaxed lexical leg for the zero-result exits: any-term (OR) FTS over the
  *  entry index, bm25-ordered best-first. Rescue rows carry ftsHit: false — an
@@ -395,7 +395,7 @@ const anyTermLexicalCandidates = (
       ftsHit: false,
       fusedScore: -ftsRank,
       distance: undefined,
-    }));
+    }))
 
 /** Attempts cross-encoder reranking of memory recall candidates. Returns the
  *  kept candidates and a relevance scorer, or null on failure — the caller
@@ -407,25 +407,25 @@ const tryRerankMemoryCandidates = async (
   candidates: readonly MemoryRecallCandidate[],
   logger: Logger,
 ): Promise<{
-  kept: MemoryRecallCandidate[];
-  relevance: (candidate: MemoryRecallCandidate) => number;
+  kept: MemoryRecallCandidate[]
+  relevance: (candidate: MemoryRecallCandidate) => number
 } | null> => {
   try {
     const rerankScores = await reranker.rerankPairs(
       query,
       candidates.map((candidate) => `${candidate.row.file} > ${candidate.row.section}\n${candidate.row.entry_text}`),
-    );
+    )
     // Convert raw reranker scores to probabilities (0–1) via sigmoid —
     // raw scores are unbounded (-10 to +10 typical); sigmoid maps them to
     // a 0–1 scale where the adaptive floor comparisons work.
     const probabilityByEntryId = new Map<number, number>(
       candidates.flatMap((candidate, candidateIndex) => {
-        const score = rerankScores[candidateIndex];
-        return score === undefined ? [] : [[candidate.row.id, sigmoid(score)] as const];
+        const score = rerankScores[candidateIndex]
+        return score === undefined ? [] : [[candidate.row.id, sigmoid(score)] as const]
       }),
-    );
+    )
 
-    const probabilityOf = (candidate: MemoryRecallCandidate): number => probabilityByEntryId.get(candidate.row.id) ?? 0;
+    const probabilityOf = (candidate: MemoryRecallCandidate): number => probabilityByEntryId.get(candidate.row.id) ?? 0
 
     // Adaptive floor: FTS hits always survive (lexical match = strong
     // evidence), so the floor only governs vector-only candidates. Find
@@ -433,42 +433,42 @@ const tryRerankMemoryCandidates = async (
     // 10% of the best are relevant enough to keep. Clamp the result
     // between 0.001 (block noise) and 0.05 (don't exceed what already
     // works for strong queries).
-    const vectorOnlyCandidates = candidates.filter((candidate) => !candidate.ftsHit);
+    const vectorOnlyCandidates = candidates.filter((candidate) => !candidate.ftsHit)
     const bestProbability =
-      vectorOnlyCandidates.length > 0 ? Math.max(...vectorOnlyCandidates.map(probabilityOf)) : MEMORY_RECALL_MAX_FLOOR;
-    const scaledFloor = bestProbability * MEMORY_RECALL_RELATIVE_RATIO;
-    const effectiveFloor = Math.min(MEMORY_RECALL_MAX_FLOOR, Math.max(MEMORY_RECALL_SANITY_FLOOR, scaledFloor));
+      vectorOnlyCandidates.length > 0 ? Math.max(...vectorOnlyCandidates.map(probabilityOf)) : MEMORY_RECALL_MAX_FLOOR
+    const scaledFloor = bestProbability * MEMORY_RECALL_RELATIVE_RATIO
+    const effectiveFloor = Math.min(MEMORY_RECALL_MAX_FLOOR, Math.max(MEMORY_RECALL_SANITY_FLOOR, scaledFloor))
 
-    const kept = candidates.filter((candidate) => candidate.ftsHit || probabilityOf(candidate) >= effectiveFloor);
+    const kept = candidates.filter((candidate) => candidate.ftsHit || probabilityOf(candidate) >= effectiveFloor)
 
-    logger.info("memory recall rerank", { bestProbability, effectiveFloor });
+    logger.info("memory recall rerank", { bestProbability, effectiveFloor })
 
     return {
       kept,
       // Missing probability (a scores/candidates length mismatch that cannot
       // normally happen) sorts as least relevant, not as an error.
       relevance: (candidate) => probabilityByEntryId.get(candidate.row.id) ?? 0,
-    };
+    }
   } catch (error) {
     logger.warn("memory recall rerank failed, using distance margin", {
       error: describeError(error),
-    });
-    return null;
+    })
+    return null
   }
-};
+}
 
 /** Ascending chronological order for the final evidence set: lexicographic
  *  ISO date (chronological for YYYY-MM-DD), then file and document position
  *  for same-date determinism — same-date entries have no knowable order. */
 const compareMemoryEntriesChronologically = (a: MemoryEntryRow, b: MemoryEntryRow): number =>
-  a.entry_date.localeCompare(b.entry_date) || a.file.localeCompare(b.file) || a.entry_index - b.entry_index;
+  a.entry_date.localeCompare(b.entry_date) || a.file.localeCompare(b.file) || a.entry_index - b.entry_index
 
 const memoryEntryRowToWireEntry = (row: MemoryEntryRow): MemoryRecallEntry => ({
   file: row.file,
   section: row.section,
   date: row.entry_date,
   text: row.entry_text,
-});
+})
 
 /** Orders kept candidates most-relevant-first, truncates to limit, and
  *  sorts the survivors chronologically. Selection is relevance-based but
@@ -482,20 +482,20 @@ const buildMemoryRecallResult = (
   searchMode: "hybrid" | "fts",
   reranked: boolean,
 ): MemoryRecallResult => {
-  const byRelevanceDescending = [...keptCandidates].sort((a, b) => relevance(b) - relevance(a));
-  const survivors = byRelevanceDescending.slice(0, limit);
+  const byRelevanceDescending = [...keptCandidates].sort((a, b) => relevance(b) - relevance(a))
+  const survivors = byRelevanceDescending.slice(0, limit)
   const entries = survivors
     .map((candidate) => candidate.row)
     .sort(compareMemoryEntriesChronologically)
-    .map(memoryEntryRowToWireEntry);
+    .map(memoryEntryRowToWireEntry)
   return {
     entries,
     total: keptCandidates.length,
     truncated: keptCandidates.length > entries.length,
     search_mode: searchMode,
     reranked,
-  };
-};
+  }
+}
 
 /**
  * Entry-granular hybrid recall over the memory layer — the evidence set
@@ -510,19 +510,19 @@ const buildMemoryRecallResult = (
 export const memoryRecall = async (
   context: SearchQueryContext,
   params: {
-    query: string;
-    file?: string | undefined;
-    limit?: number | undefined;
+    query: string
+    file?: string | undefined
+    limit?: number | undefined
   },
   logger: Logger,
 ): Promise<MemoryRecallResult> => {
-  const memory = context.memory;
+  const memory = context.memory
 
   if (memory === null) {
-    throw new Error("memory recall is not available: the memory layer is disabled (MEMORY_ENABLED=false)");
+    throw new Error("memory recall is not available: the memory layer is disabled (MEMORY_ENABLED=false)")
   }
-  const limit = Math.max(1, Math.floor(params.limit ?? DEFAULT_MEMORY_RECALL_LIMIT));
-  const matchesFileFilter = (row: MemoryEntryRow): boolean => params.file === undefined || row.file === params.file;
+  const limit = Math.max(1, Math.floor(params.limit ?? DEFAULT_MEMORY_RECALL_LIMIT))
+  const matchesFileFilter = (row: MemoryEntryRow): boolean => params.file === undefined || row.file === params.file
 
   // Lexical leg: ALL matches, no limit — implicit AND keeps multi-word
   // queries tight, and a lexical hit on a short entry is strong evidence.
@@ -530,11 +530,11 @@ export const memoryRecall = async (
     .all(sanitizeFtsQuery(params.query))
     .map((row) => memory.selectEntryByIdStmt.get(row.entry_id))
     .filter((row): row is MemoryEntryRow => row !== undefined)
-    .filter(matchesFileFilter);
+    .filter(matchesFileFilter)
 
   // Vector leg: generous KNN, file-filtered after the join (over-fetch is
   // safe at this corpus size; vec0 post-MATCH WHERE semantics are not).
-  const vectorRows = (await memoryVectorSearch(memory, params.query, logger)).filter(matchesFileFilter);
+  const vectorRows = (await memoryVectorSearch(memory, params.query, logger)).filter(matchesFileFilter)
 
   // No vectors available — keep every lexical match, FTS-rank ordered. When
   // the all-terms leg is empty, degrade to any-term matching before returning
@@ -546,13 +546,13 @@ export const memoryRecall = async (
       ftsHit: true,
       fusedScore: -ftsRank,
       distance: undefined,
-    }));
+    }))
     const lexicalCandidates =
       allTermsCandidates.length > 0
         ? allTermsCandidates
-        : anyTermLexicalCandidates(memory, params.query, matchesFileFilter);
-    const anyTermRescueUsed = allTermsCandidates.length === 0 && lexicalCandidates.length > 0;
-    const result = buildMemoryRecallResult(lexicalCandidates, (candidate) => candidate.fusedScore, limit, "fts", false);
+        : anyTermLexicalCandidates(memory, params.query, matchesFileFilter)
+    const anyTermRescueUsed = allTermsCandidates.length === 0 && lexicalCandidates.length > 0
+    const result = buildMemoryRecallResult(lexicalCandidates, (candidate) => candidate.fusedScore, limit, "fts", false)
     logger.info("memory recall", {
       query: params.query,
       searchMode: "fts",
@@ -562,8 +562,8 @@ export const memoryRecall = async (
       matched: result.total,
       returned: result.entries.length,
       ...(anyTermRescueUsed ? { anyTermRescue: true } : {}),
-    });
-    return result;
+    })
+    return result
   }
 
   // RRF fusion: dedupes by entry id, orders most-agreed-first.
@@ -572,30 +572,30 @@ export const memoryRecall = async (
       { items: ftsRows.map((row) => ({ identifier: String(row.id) })) },
       { items: vectorRows.map((row) => ({ identifier: String(row.id) })) },
     ],
-  });
+  })
   const rowsById = new Map<string, MemoryEntryRow>([
     ...ftsRows.map((row): [string, MemoryEntryRow] => [String(row.id), row]),
     ...vectorRows.map((row): [string, MemoryEntryRow] => [String(row.id), row]),
-  ]);
-  const distancesById = new Map(vectorRows.map((row) => [String(row.id), row.distance]));
-  const ftsIds = new Set(ftsRows.map((row) => String(row.id)));
+  ])
+  const distancesById = new Map(vectorRows.map((row) => [String(row.id), row.distance]))
+  const ftsIds = new Set(ftsRows.map((row) => String(row.id)))
 
   // Lexical hits always pass; only the lowest-fused vector-only candidates
   // fall off once the rerank window cap is reached.
-  const candidates: MemoryRecallCandidate[] = [];
+  const candidates: MemoryRecallCandidate[] = []
   for (const { identifier: entryId, score } of fusedScores) {
-    const row = rowsById.get(entryId);
+    const row = rowsById.get(entryId)
 
-    if (!row) continue;
-    const ftsHit = ftsIds.has(entryId);
+    if (!row) continue
+    const ftsHit = ftsIds.has(entryId)
 
-    if (!ftsHit && candidates.length >= MEMORY_RERANK_CANDIDATE_LIMIT) continue;
+    if (!ftsHit && candidates.length >= MEMORY_RERANK_CANDIDATE_LIMIT) continue
     candidates.push({
       row,
       ftsHit,
       fusedScore: score,
       distance: distancesById.get(entryId),
-    });
+    })
   }
 
   const logHybridResult = (result: MemoryRecallResult, anyTermRescue = false) => {
@@ -608,14 +608,14 @@ export const memoryRecall = async (
       matched: result.total,
       returned: result.entries.length,
       ...(anyTermRescue ? { anyTermRescue: true } : {}),
-    });
-  };
+    })
+  }
 
   // Primary cut: cross-encoder relevance floor (keeps drifted-vocabulary
   // arc origins that cosine distance would lose).
   const rerankOutcome = context.reranker
     ? await tryRerankMemoryCandidates(context.reranker, params.query, candidates, logger)
-    : null;
+    : null
 
   if (rerankOutcome) {
     // Zero-anchor hole: an empty keep-set implies the all-terms lexical leg
@@ -624,39 +624,33 @@ export const memoryRecall = async (
     // ("opinions on testing"). Degrade to any-term keyword matching rather
     // than returning nothing; an empty rescue keeps today's exact empty shape.
     const rescueCandidates =
-      rerankOutcome.kept.length === 0 ? anyTermLexicalCandidates(memory, params.query, matchesFileFilter) : [];
+      rerankOutcome.kept.length === 0 ? anyTermLexicalCandidates(memory, params.query, matchesFileFilter) : []
 
     if (rescueCandidates.length > 0) {
-      const result = buildMemoryRecallResult(
-        rescueCandidates,
-        (candidate) => candidate.fusedScore,
-        limit,
-        "fts",
-        false,
-      );
-      logHybridResult(result, true);
-      return result;
+      const result = buildMemoryRecallResult(rescueCandidates, (candidate) => candidate.fusedScore, limit, "fts", false)
+      logHybridResult(result, true)
+      return result
     }
-    const result = buildMemoryRecallResult(rerankOutcome.kept, rerankOutcome.relevance, limit, "hybrid", true);
-    logHybridResult(result);
-    return result;
+    const result = buildMemoryRecallResult(rerankOutcome.kept, rerankOutcome.relevance, limit, "hybrid", true)
+    logHybridResult(result)
+    return result
   }
 
   // Fallback: distance margin off the best vector hit.
-  const keepableDistance = Math.min(...distancesById.values()) + MEMORY_RECALL_DISTANCE_MARGIN;
+  const keepableDistance = Math.min(...distancesById.values()) + MEMORY_RECALL_DISTANCE_MARGIN
   const marginCutCandidates = candidates.filter(
     (candidate) => candidate.ftsHit || (candidate.distance !== undefined && candidate.distance <= keepableDistance),
-  );
+  )
   const result = buildMemoryRecallResult(
     marginCutCandidates,
     (candidate) => candidate.fusedScore,
     limit,
     "hybrid",
     false,
-  );
-  logHybridResult(result);
-  return result;
-};
+  )
+  logHybridResult(result)
+  return result
+}
 
 // ── Discovery queries ──────────────────────────────────────────
 
@@ -664,21 +658,21 @@ export const memoryRecall = async (
 export const searchByTag = (
   context: SearchQueryContext,
   params: {
-    tag: string;
-    exactMatch?: boolean | undefined;
-    limit?: number | undefined;
+    tag: string
+    exactMatch?: boolean | undefined
+    limit?: number | undefined
   },
   logger: Logger,
 ): NoteMetadata[] => {
-  const limit = Math.max(0, Math.floor(params.limit ?? 20));
+  const limit = Math.max(0, Math.floor(params.limit ?? 20))
 
   const condition = params.exactMatch
     ? "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)"
-    : "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ? OR value LIKE ? || '/%' ESCAPE '\\')";
+    : "EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ? OR value LIKE ? || '/%' ESCAPE '\\')"
 
   const queryParams: unknown[] = params.exactMatch
     ? [params.tag, limit]
-    : [params.tag, escapeLikeWildcards(params.tag), limit];
+    : [params.tag, escapeLikeWildcards(params.tag), limit]
 
   const sql = `
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
@@ -686,36 +680,36 @@ export const searchByTag = (
     WHERE ${condition}
     ORDER BY mtime DESC
     LIMIT ?
-  `;
+  `
 
-  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(...queryParams);
-  const results = rows.map(rowToMetadata);
+  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(...queryParams)
+  const results = rows.map(rowToMetadata)
   logger.info("search by tag", {
     tag: params.tag,
     resultCount: results.length,
-  });
-  return results;
-};
+  })
+  return results
+}
 
 /** Lists notes in a folder, optionally including subfolders. */
 export const searchByFolder = (
   context: SearchQueryContext,
   params: {
-    folder: string;
-    recursive?: boolean | undefined;
-    limit?: number | undefined;
+    folder: string
+    recursive?: boolean | undefined
+    limit?: number | undefined
   },
   logger: Logger,
 ): NoteMetadata[] => {
-  const recursive = params.recursive ?? true;
-  const limit = Math.max(0, Math.floor(params.limit ?? 20));
+  const recursive = params.recursive ?? true
+  const limit = Math.max(0, Math.floor(params.limit ?? 20))
 
-  const escapedFolder = escapeLikeWildcards(stripTrailingSlashes(params.folder));
+  const escapedFolder = escapeLikeWildcards(stripTrailingSlashes(params.folder))
   const condition = recursive
     ? "path LIKE ? || '/%' ESCAPE '\\'"
-    : "path LIKE ? || '/%' ESCAPE '\\' AND path NOT LIKE ? || '/%/%' ESCAPE '\\'";
+    : "path LIKE ? || '/%' ESCAPE '\\' AND path NOT LIKE ? || '/%/%' ESCAPE '\\'"
 
-  const queryParams: unknown[] = recursive ? [escapedFolder, limit] : [escapedFolder, escapedFolder, limit];
+  const queryParams: unknown[] = recursive ? [escapedFolder, limit] : [escapedFolder, escapedFolder, limit]
 
   const sql = `
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
@@ -723,16 +717,16 @@ export const searchByFolder = (
     WHERE ${condition}
     ORDER BY mtime DESC
     LIMIT ?
-  `;
+  `
 
-  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(...queryParams);
-  const results = rows.map(rowToMetadata);
+  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(...queryParams)
+  const results = rows.map(rowToMetadata)
   logger.info("search by folder", {
     folder: params.folder,
     resultCount: results.length,
-  });
-  return results;
-};
+  })
+  return results
+}
 
 // ── Task listing ───────────────────────────────────────────────
 
@@ -748,12 +742,12 @@ const DATE_CASCADE: Record<string, readonly string[]> = {
   scheduled: ["due", "start", "created"],
   start: ["due", "scheduled", "created"],
   created: ["due", "scheduled", "start"],
-};
+}
 
 const toSqlDirection = (direction: "asc" | "desc" | undefined): "ASC" | "DESC" | undefined => {
-  if (direction === undefined) return undefined;
-  return direction === "desc" ? "DESC" : "ASC";
-};
+  if (direction === undefined) return undefined
+  return direction === "desc" ? "DESC" : "ASC"
+}
 
 /** Builds a cascaded ORDER BY for a date sort key: primary date column, then
  *  each fallback date column (all with NULL-last), then note mtime descending
@@ -765,23 +759,23 @@ const toSqlDirection = (direction: "asc" | "desc" | undefined): "ASC" | "DESC" |
  *  DESC-defaulting fallbacks (or vice-versa). */
 const buildDateOrderBy = (column: string, explicitDirection: "ASC" | "DESC" | undefined): string => {
   const directionFor = (col: string): "ASC" | "DESC" =>
-    explicitDirection ?? (DESCENDING_BY_DEFAULT.has(col) ? "DESC" : "ASC");
+    explicitDirection ?? (DESCENDING_BY_DEFAULT.has(col) ? "DESC" : "ASC")
 
-  const cascade = DATE_CASCADE[column];
-  const primary = `t.${column} IS NULL, t.${column} ${directionFor(column)}`;
+  const cascade = DATE_CASCADE[column]
+  const primary = `t.${column} IS NULL, t.${column} ${directionFor(column)}`
 
   if (cascade === undefined) {
-    return `${primary}, n.mtime DESC`;
+    return `${primary}, n.mtime DESC`
   }
-  const fallbacks = cascade.map((col) => `t.${col} IS NULL, t.${col} ${directionFor(col)}`).join(", ");
-  return `${primary}, ${fallbacks}, n.mtime DESC`;
-};
+  const fallbacks = cascade.map((col) => `t.${col} IS NULL, t.${col} ${directionFor(col)}`).join(", ")
+  return `${primary}, ${fallbacks}, n.mtime DESC`
+}
 
 /** Sort keys that default to descending — "most recent first" is the natural
  *  view for "what did I start/create/finish lately?". The remaining keys
  *  ("due", "scheduled") default ascending — soonest deadline first (overdue
  *  triage). "priority" also defaults ascending (highest priority first). */
-const DESCENDING_BY_DEFAULT: ReadonlySet<string> = new Set(["start", "created", "done", "note_mtime"]);
+const DESCENDING_BY_DEFAULT: ReadonlySet<string> = new Set(["start", "created", "done", "note_mtime"])
 
 /** ORDER BY fragment per sort key. Values are trusted SQL assembled from the
  *  whitelisted TaskSortKey union — never raw user input. Date keys cascade
@@ -802,10 +796,10 @@ const TASK_ORDER_BY: Record<TaskSortKey, (explicitDirection: "ASC" | "DESC" | un
     `CASE t.priority WHEN 'highest' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 4 WHEN 'lowest' THEN 5 ELSE 3 END ${direction ?? "ASC"}`,
   note_mtime: (direction) => `n.mtime ${direction ?? "DESC"}`,
   position: (direction) => {
-    const sortDirection = direction ?? "ASC";
-    return `n.path ${sortDirection}, t.line ${sortDirection}`;
+    const sortDirection = direction ?? "ASC"
+    return `n.path ${sortDirection}, t.line ${sortDirection}`
   },
-};
+}
 
 /** Lists indexed tasks with structured filters and sorting. All filters
  *  AND-combine; the default view is actionable work (not_done = todo +
@@ -815,54 +809,54 @@ const TASK_ORDER_BY: Record<TaskSortKey, (explicitDirection: "ASC" | "DESC" | un
 export const listTasks = (
   context: SearchQueryContext,
   params: {
-    status?: TaskStatusFilter | TaskStatusFilter[] | undefined;
-    due?: DateFilter | undefined;
-    scheduled?: DateFilter | undefined;
-    start?: DateFilter | undefined;
-    done?: DateFilter | undefined;
-    created?: DateFilter | undefined;
-    cancelled?: DateFilter | undefined;
-    priority?: TaskPriorityFilter[] | undefined;
-    folder?: string | undefined;
-    tag?: string | undefined;
-    heading?: string | string[] | undefined;
-    path?: string | undefined;
-    topLevelOnly?: boolean | undefined;
-    limit?: number | undefined;
-    sortBy?: TaskSortKey | undefined;
-    sortDirection?: "asc" | "desc" | undefined;
+    status?: TaskStatusFilter | TaskStatusFilter[] | undefined
+    due?: DateFilter | undefined
+    scheduled?: DateFilter | undefined
+    start?: DateFilter | undefined
+    done?: DateFilter | undefined
+    created?: DateFilter | undefined
+    cancelled?: DateFilter | undefined
+    priority?: TaskPriorityFilter[] | undefined
+    folder?: string | undefined
+    tag?: string | undefined
+    heading?: string | string[] | undefined
+    path?: string | undefined
+    topLevelOnly?: boolean | undefined
+    limit?: number | undefined
+    sortBy?: TaskSortKey | undefined
+    sortDirection?: "asc" | "desc" | undefined
   },
   logger: Logger,
 ): ListTasksResult => {
-  const conditions: string[] = [];
-  const queryParams: unknown[] = [];
+  const conditions: string[] = []
+  const queryParams: unknown[] = []
 
   // Normalize status to concrete DB values (todo/in_progress/done/cancelled),
   // expanding virtual values: not_done → todo + in_progress, all → skip the filter.
-  const statusInput = params.status ?? "not_done";
-  const statusValues = Array.isArray(statusInput) ? statusInput : [statusInput];
-  const CONCRETE_STATUSES = ["todo", "in_progress", "done", "cancelled"] as const;
+  const statusInput = params.status ?? "not_done"
+  const statusValues = Array.isArray(statusInput) ? statusInput : [statusInput]
+  const CONCRETE_STATUSES = ["todo", "in_progress", "done", "cancelled"] as const
   // Expand virtual values to concrete DB statuses, then deduplicate so
   // ["not_done", "todo"] doesn't double-bind "todo" in the IN clause.
   const statusValuesWithExpansions = statusValues.flatMap((value) => {
-    if (value === "all") return [...CONCRETE_STATUSES];
-    if (value === "not_done") return ["todo", "in_progress"] as const;
-    return [value];
-  });
-  const expandedStatusValues = [...new Set(statusValuesWithExpansions)];
-  const coversAllStatuses = CONCRETE_STATUSES.every((status) => expandedStatusValues.includes(status));
-  const needsStatusFilter = expandedStatusValues.length > 0 && !coversAllStatuses;
+    if (value === "all") return [...CONCRETE_STATUSES]
+    if (value === "not_done") return ["todo", "in_progress"] as const
+    return [value]
+  })
+  const expandedStatusValues = [...new Set(statusValuesWithExpansions)]
+  const coversAllStatuses = CONCRETE_STATUSES.every((status) => expandedStatusValues.includes(status))
+  const needsStatusFilter = expandedStatusValues.length > 0 && !coversAllStatuses
 
   if (needsStatusFilter) {
-    conditions.push(`t.status IN (${expandedStatusValues.map(() => "?").join(", ")})`);
-    queryParams.push(...expandedStatusValues);
+    conditions.push(`t.status IN (${expandedStatusValues.map(() => "?").join(", ")})`)
+    queryParams.push(...expandedStatusValues)
   }
 
   // A date filter only ever matches tasks that HAVE that date — SQL comparison
   // with NULL is never true, so undated tasks drop out automatically.
   const dateFilters: ReadonlyArray<{
-    column: "due" | "scheduled" | "start" | "done" | "created" | "cancelled";
-    filter: DateFilter | undefined;
+    column: "due" | "scheduled" | "start" | "done" | "created" | "cancelled"
+    filter: DateFilter | undefined
   }> = [
     { column: "due", filter: params.due },
     { column: "scheduled", filter: params.scheduled },
@@ -870,89 +864,89 @@ export const listTasks = (
     { column: "done", filter: params.done },
     { column: "created", filter: params.created },
     { column: "cancelled", filter: params.cancelled },
-  ];
+  ]
   for (const { column, filter } of dateFilters) {
-    if (filter === undefined) continue;
+    if (filter === undefined) continue
     if (filter.on !== undefined) {
-      assertFilterDate(filter.on, `${column}.on`);
-      conditions.push(`t.${column} = ?`);
-      queryParams.push(filter.on);
+      assertFilterDate(filter.on, `${column}.on`)
+      conditions.push(`t.${column} = ?`)
+      queryParams.push(filter.on)
     }
     if (filter.before !== undefined) {
-      assertFilterDate(filter.before, `${column}.before`);
-      conditions.push(`t.${column} < ?`);
-      queryParams.push(filter.before);
+      assertFilterDate(filter.before, `${column}.before`)
+      conditions.push(`t.${column} < ?`)
+      queryParams.push(filter.before)
     }
     if (filter.after !== undefined) {
-      assertFilterDate(filter.after, `${column}.after`);
-      conditions.push(`t.${column} > ?`);
-      queryParams.push(filter.after);
+      assertFilterDate(filter.after, `${column}.after`)
+      conditions.push(`t.${column} > ?`)
+      queryParams.push(filter.after)
     }
   }
 
   if (params.priority !== undefined && params.priority.length > 0) {
     // Priority values OR-combine (a task has exactly one level); "none"
     // selects tasks with no priority signifier, stored as NULL.
-    const namedLevels = params.priority.filter((level) => level !== "none");
-    const priorityClauses: string[] = [];
+    const namedLevels = params.priority.filter((level) => level !== "none")
+    const priorityClauses: string[] = []
 
     if (namedLevels.length > 0) {
-      priorityClauses.push(`t.priority IN (${namedLevels.map(() => "?").join(", ")})`);
-      queryParams.push(...namedLevels);
+      priorityClauses.push(`t.priority IN (${namedLevels.map(() => "?").join(", ")})`)
+      queryParams.push(...namedLevels)
     }
     if (params.priority.includes("none")) {
-      priorityClauses.push("t.priority IS NULL");
+      priorityClauses.push("t.priority IS NULL")
     }
-    conditions.push(`(${priorityClauses.join(" OR ")})`);
+    conditions.push(`(${priorityClauses.join(" OR ")})`)
   }
 
   if (params.folder !== undefined) {
-    conditions.push("t.note_path LIKE ? ESCAPE '\\'");
-    queryParams.push(`${escapeLikeWildcards(stripTrailingSlashes(params.folder))}/%`);
+    conditions.push("t.note_path LIKE ? ESCAPE '\\'")
+    queryParams.push(`${escapeLikeWildcards(stripTrailingSlashes(params.folder))}/%`)
   }
 
   if (params.tag !== undefined) {
     // Same nested-tag semantics as searchByTag's prefix mode: "project"
     // matches both #project and #project/vault-cortex.
-    conditions.push("EXISTS (SELECT 1 FROM json_each(t.tags) WHERE value = ? OR value LIKE ? || '/%' ESCAPE '\\')");
-    queryParams.push(params.tag, escapeLikeWildcards(params.tag));
+    conditions.push("EXISTS (SELECT 1 FROM json_each(t.tags) WHERE value = ? OR value LIKE ? || '/%' ESCAPE '\\')")
+    queryParams.push(params.tag, escapeLikeWildcards(params.tag))
   }
 
   if (params.heading !== undefined) {
-    const headings = Array.isArray(params.heading) ? params.heading : [params.heading];
+    const headings = Array.isArray(params.heading) ? params.heading : [params.heading]
 
     if (headings.length > 0) {
-      conditions.push(`t.heading IN (${headings.map(() => "?").join(", ")})`);
-      queryParams.push(...headings);
+      conditions.push(`t.heading IN (${headings.map(() => "?").join(", ")})`)
+      queryParams.push(...headings)
     }
   }
 
   if (params.path !== undefined) {
-    assertPathHasExtension(params.path, ".md");
-    conditions.push("t.note_path = ?");
-    queryParams.push(params.path);
+    assertPathHasExtension(params.path, ".md")
+    conditions.push("t.note_path = ?")
+    queryParams.push(params.path)
   }
 
   if (params.topLevelOnly) {
-    conditions.push("t.depth = 0");
+    conditions.push("t.depth = 0")
   }
 
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""
 
-  const sortBy = params.sortBy ?? "due";
-  const explicitDirection = toSqlDirection(params.sortDirection);
-  const orderBy = TASK_ORDER_BY[sortBy](explicitDirection);
+  const sortBy = params.sortBy ?? "due"
+  const explicitDirection = toSqlDirection(params.sortDirection)
+  const orderBy = TASK_ORDER_BY[sortBy](explicitDirection)
 
   // Math.floor: SQLite rejects a non-integer LIMIT binding with a cryptic
   // "datatype mismatch" error, so a fractional limit is floored instead.
-  const limit = Math.max(0, Math.floor(params.limit ?? 50));
+  const limit = Math.max(0, Math.floor(params.limit ?? 50))
 
   const countRow = context.db
     .prepare<unknown[], { total: number }>(
       `SELECT COUNT(*) as total FROM tasks t JOIN notes n ON n.path = t.note_path ${whereClause}`,
     )
-    .get(...queryParams);
-  const total = countRow === undefined ? 0 : countRow.total;
+    .get(...queryParams)
+  const total = countRow === undefined ? 0 : countRow.total
 
   // Kanban detection: notes with kanban-plugin in frontmatter are Kanban boards,
   // so their tasks need lane moves (not checkbox toggles) to complete.
@@ -986,18 +980,18 @@ export const listTasks = (
     ${whereClause}
     ORDER BY ${orderBy}, t.note_path ASC, t.line ASC
     LIMIT ?
-  `;
-  const rows = context.db.prepare<unknown[], TaskRow>(sql).all(...queryParams, limit);
-  const taskEntries = rows.map(rowToTaskEntry);
+  `
+  const rows = context.db.prepare<unknown[], TaskRow>(sql).all(...queryParams, limit)
+  const taskEntries = rows.map(rowToTaskEntry)
 
   logger.info("list tasks", {
     status: statusInput,
     sortBy,
     resultCount: taskEntries.length,
     total,
-  });
-  return { total, tasks: taskEntries };
-};
+  })
+  return { total, tasks: taskEntries }
+}
 
 /** Returns all tags in the vault with their note counts. */
 export const listAllTags = (
@@ -1010,39 +1004,39 @@ export const listAllTags = (
     FROM notes, json_each(notes.tags)
     GROUP BY value
     ORDER BY count DESC
-  `;
-  const results = context.db.prepare<unknown[], TagCount>(sql).all();
-  logger.info("listed all tags", { count: results.length });
-  return results;
-};
+  `
+  const results = context.db.prepare<unknown[], TagCount>(sql).all()
+  logger.info("listed all tags", { count: results.length })
+  return results
+}
 
 /** Returns recently modified or created notes, sorted by chosen timestamp. */
 export const recentNotes = (
   context: SearchQueryContext,
   params: {
-    sort_by?: "created" | "modified" | undefined;
-    limit?: number | undefined;
+    sort_by?: "created" | "modified" | undefined
+    limit?: number | undefined
   },
   logger: Logger,
 ): NoteMetadata[] => {
-  const sortBy = params.sort_by ?? "modified";
-  const limit = Math.max(0, Math.floor(params.limit ?? 20));
+  const sortBy = params.sort_by ?? "modified"
+  const limit = Math.max(0, Math.floor(params.limit ?? 20))
 
   // "created IS NULL" sorts NULLs last in a DESC ordering (SQLite evaluates 0/1)
-  const orderClause = sortBy === "created" ? "ORDER BY created IS NULL, created DESC" : "ORDER BY mtime DESC"; // SQL column is still `mtime`
+  const orderClause = sortBy === "created" ? "ORDER BY created IS NULL, created DESC" : "ORDER BY mtime DESC" // SQL column is still `mtime`
 
   const sql = `
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
     FROM notes
     ${orderClause}
     LIMIT ?
-  `;
+  `
 
-  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(limit);
-  const results = rows.map(rowToMetadata);
-  logger.info("recent notes", { sortBy, resultCount: results.length });
-  return results;
-};
+  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(limit)
+  const results = rows.map(rowToMetadata)
+  logger.info("recent notes", { sortBy, resultCount: results.length })
+  return results
+}
 
 // ── Property queries ───────────────────────────────────────────
 
@@ -1052,8 +1046,8 @@ export const listPropertyKeys = (
   params: { folder?: string | undefined },
   logger: Logger,
 ): PropertyKeyInfo[] => {
-  const escapedFolder = params.folder ? escapeLikeWildcards(stripTrailingSlashes(params.folder)) : null;
-  const folderCondition = escapedFolder ? "WHERE n.path LIKE @folder || '/%' ESCAPE '\\'" : "";
+  const escapedFolder = params.folder ? escapeLikeWildcards(stripTrailingSlashes(params.folder)) : null
+  const folderCondition = escapedFolder ? "WHERE n.path LIKE @folder || '/%' ESCAPE '\\'" : ""
 
   const keySql = `
     SELECT property.key, COUNT(DISTINCT n.path) as count
@@ -1061,11 +1055,11 @@ export const listPropertyKeys = (
     ${folderCondition}
     GROUP BY property.key
     ORDER BY count DESC
-  `;
-  const keySqlParams: Record<string, string> = escapedFolder ? { folder: escapedFolder } : {};
-  const keyRows = context.db.prepare<Record<string, unknown>, { key: string; count: number }>(keySql).all(keySqlParams);
+  `
+  const keySqlParams: Record<string, string> = escapedFolder ? { folder: escapedFolder } : {}
+  const keyRows = context.db.prepare<Record<string, unknown>, { key: string; count: number }>(keySql).all(keySqlParams)
 
-  const sampleFolderCondition = escapedFolder ? "AND path LIKE @folder || '/%' ESCAPE '\\'" : "";
+  const sampleFolderCondition = escapedFolder ? "AND path LIKE @folder || '/%' ESCAPE '\\'" : ""
 
   // For each key, fetch the 3 most common values as samples.
   // json_array() wraps scalars so json_each works uniformly for
@@ -1086,38 +1080,38 @@ export const listPropertyKeys = (
     GROUP BY element.value
     ORDER BY count DESC
     LIMIT 3
-  `;
-  const sampleStmt = context.db.prepare<Record<string, unknown>, { value: string }>(sampleSql);
+  `
+  const sampleStmt = context.db.prepare<Record<string, unknown>, { value: string }>(sampleSql)
 
   const results: PropertyKeyInfo[] = keyRows.map((keyRow) => {
     const sqlParams: Record<string, string> = escapedFolder
       ? { key: keyRow.key, folder: escapedFolder }
-      : { key: keyRow.key };
-    const sampleRows = sampleStmt.all(sqlParams);
+      : { key: keyRow.key }
+    const sampleRows = sampleStmt.all(sqlParams)
     return {
       key: keyRow.key,
       count: keyRow.count,
       sample_values: sampleRows.map((sampleRow) => String(sampleRow.value)),
-    };
-  });
+    }
+  })
 
-  logger.info("listed property keys", { count: results.length });
-  return results;
-};
+  logger.info("listed property keys", { count: results.length })
+  return results
+}
 
 /** Returns distinct values for a given property key with note counts. */
 export const listPropertyValues = (
   context: SearchQueryContext,
   params: {
-    key: string;
-    folder?: string | undefined;
-    limit?: number | undefined;
+    key: string
+    folder?: string | undefined
+    limit?: number | undefined
   },
   logger: Logger,
 ): PropertyValueCount[] => {
-  const limit = Math.max(0, Math.floor(params.limit ?? 50));
-  const escapedFolder = params.folder ? escapeLikeWildcards(stripTrailingSlashes(params.folder)) : null;
-  const folderCondition = escapedFolder ? "AND path LIKE @folder || '/%' ESCAPE '\\'" : "";
+  const limit = Math.max(0, Math.floor(params.limit ?? 50))
+  const escapedFolder = params.folder ? escapeLikeWildcards(stripTrailingSlashes(params.folder)) : null
+  const folderCondition = escapedFolder ? "AND path LIKE @folder || '/%' ESCAPE '\\'" : ""
 
   // json_array() wraps scalars so json_each works uniformly for
   // both scalar ("active") and array (["a","b"]) property values.
@@ -1137,40 +1131,40 @@ export const listPropertyValues = (
     GROUP BY element.value
     ORDER BY count DESC
     LIMIT @limit
-  `;
+  `
 
-  const sqlParams: Record<string, unknown> = { key: params.key, limit };
+  const sqlParams: Record<string, unknown> = { key: params.key, limit }
 
-  if (escapedFolder) sqlParams.folder = escapedFolder;
+  if (escapedFolder) sqlParams.folder = escapedFolder
 
   const rows = context.db
     .prepare<Record<string, unknown>, { value: string | number; count: number }>(sql)
-    .all(sqlParams);
+    .all(sqlParams)
   const results = rows.map((row) => ({
     value: String(row.value),
     count: row.count,
-  }));
+  }))
   logger.info("listed property values", {
     key: params.key,
     count: results.length,
-  });
-  return results;
-};
+  })
+  return results
+}
 
 /** Finds notes where a frontmatter property matches a value (exact match). */
 export const searchByProperty = (
   context: SearchQueryContext,
   params: {
-    key: string;
-    value: string;
-    folder?: string | undefined;
-    limit?: number | undefined;
+    key: string
+    value: string
+    folder?: string | undefined
+    limit?: number | undefined
   },
   logger: Logger,
 ): NoteMetadata[] => {
-  const limit = Math.max(0, Math.floor(params.limit ?? 20));
-  const escapedFolder = params.folder ? escapeLikeWildcards(stripTrailingSlashes(params.folder)) : null;
-  const folderCondition = escapedFolder ? "AND n.path LIKE @folder || '/%' ESCAPE '\\'" : "";
+  const limit = Math.max(0, Math.floor(params.limit ?? 20))
+  const escapedFolder = params.folder ? escapeLikeWildcards(stripTrailingSlashes(params.folder)) : null
+  const folderCondition = escapedFolder ? "AND n.path LIKE @folder || '/%' ESCAPE '\\'" : ""
 
   // Two branches handle different property shapes:
   // - Array properties (tags: ["a","b"]): check if @value is IN the array
@@ -1193,25 +1187,25 @@ export const searchByProperty = (
     ${folderCondition}
     ORDER BY mtime DESC
     LIMIT @limit
-  `;
+  `
 
   const sqlParams: Record<string, unknown> = {
     key: params.key,
     value: params.value,
     limit,
-  };
+  }
 
-  if (escapedFolder) sqlParams.folder = escapedFolder;
+  if (escapedFolder) sqlParams.folder = escapedFolder
 
-  const rows = context.db.prepare<Record<string, unknown>, NoteRow>(sql).all(sqlParams);
-  const results = rows.map(rowToMetadata);
+  const rows = context.db.prepare<Record<string, unknown>, NoteRow>(sql).all(sqlParams)
+  const results = rows.map(rowToMetadata)
   logger.info("search by property", {
     key: params.key,
     value: params.value,
     resultCount: results.length,
-  });
-  return results;
-};
+  })
+  return results
+}
 
 // ── Link queries ───────────────────────────────────────────────
 
@@ -1223,7 +1217,7 @@ export const getBacklinks = (
   params: { path: string },
   logger: Logger,
 ): BacklinkEntry[] => {
-  assertPathHasExtension(params.path, [".md", ".canvas"]);
+  assertPathHasExtension(params.path, [".md", ".canvas"])
   const sql = `
     SELECT l.source as path,
            COALESCE(n.title, f.basename) as title,
@@ -1234,19 +1228,19 @@ export const getBacklinks = (
     WHERE l.target = ?
       AND (n.path IS NOT NULL OR f.path IS NOT NULL)
     ORDER BY COALESCE(n.title, f.basename)
-  `;
-  const rows = context.db.prepare<unknown[], { path: string; title: string; bytes: number }>(sql).all(params.path);
+  `
+  const rows = context.db.prepare<unknown[], { path: string; title: string; bytes: number }>(sql).all(params.path)
   const results: BacklinkEntry[] = rows.map((row) => ({
     path: row.path,
     title: row.title,
     bytes: row.bytes ?? 0,
-  }));
+  }))
   logger.info("get backlinks", {
     path: params.path,
     count: results.length,
-  });
-  return results;
-};
+  })
+  return results
+}
 
 /** Returns notes and files that the given path links TO (outgoing links).
  *  Each entry carries a `kind` discriminator: "note" for .md targets,
@@ -1261,7 +1255,7 @@ export const getOutgoingLinks = (
   params: { path: string; dailyNotesFolder?: string | null },
   logger: Logger,
 ): OutgoingLinkEntry[] => {
-  assertPathHasExtension(params.path, [".md", ".canvas"]);
+  assertPathHasExtension(params.path, [".md", ".canvas"])
   // Left-join against both notes and non_md_files to classify each link target:
   // notes → kind "note", non_md_files → kind "file", neither → broken (defaults to "note").
   const sql = `
@@ -1279,20 +1273,20 @@ export const getOutgoingLinks = (
     LEFT JOIN non_md_files f ON f.path = l.target
     WHERE l.source = ?
     ORDER BY l.target
-  `;
+  `
   const rows = context.db
     .prepare<
       unknown[],
       {
-        path: string;
-        title: string | null;
-        exists_flag: number;
-        kind: "note" | "file";
-        bytes: number | null;
+        path: string
+        title: string | null
+        exists_flag: number
+        kind: "note" | "file"
+        bytes: number | null
       }
     >(sql)
-    .all(params.path);
-  const dailyNotesFolderPrefix = params.dailyNotesFolder ? `${params.dailyNotesFolder}/` : null;
+    .all(params.path)
+  const dailyNotesFolderPrefix = params.dailyNotesFolder ? `${params.dailyNotesFolder}/` : null
   const results: OutgoingLinkEntry[] = rows.map((row) => ({
     path: row.path,
     title: row.title,
@@ -1301,13 +1295,13 @@ export const getOutgoingLinks = (
     bytes: row.bytes ?? null,
     daily_note_forward_ref:
       row.exists_flag === 0 && dailyNotesFolderPrefix !== null && row.path.startsWith(dailyNotesFolderPrefix),
-  }));
+  }))
   logger.info("get outgoing links", {
     path: params.path,
     count: results.length,
-  });
-  return results;
-};
+  })
+  return results
+}
 
 /** Finds notes with no incoming links (orphans). */
 export const findOrphans = (
@@ -1315,15 +1309,13 @@ export const findOrphans = (
   params: { excludeFolders?: string[] | undefined; limit?: number | undefined },
   logger: Logger,
 ): NoteMetadata[] => {
-  const excludeFolders = params.excludeFolders ?? [];
-  const limit = Math.max(0, Math.floor(params.limit ?? 50));
+  const excludeFolders = params.excludeFolders ?? []
+  const limit = Math.max(0, Math.floor(params.limit ?? 50))
 
   // One exclusion clause per folder, each bound to a positional parameter
-  const escapedExcludeFolders = excludeFolders.map((folder) => escapeLikeWildcards(stripTrailingSlashes(folder)));
-  const folderExclusions = Array(escapedExcludeFolders.length)
-    .fill("path NOT LIKE ? || '/%' ESCAPE '\\'")
-    .join(" AND ");
-  const whereClause = escapedExcludeFolders.length > 0 ? `AND ${folderExclusions}` : "";
+  const escapedExcludeFolders = excludeFolders.map((folder) => escapeLikeWildcards(stripTrailingSlashes(folder)))
+  const folderExclusions = Array(escapedExcludeFolders.length).fill("path NOT LIKE ? || '/%' ESCAPE '\\'").join(" AND ")
+  const whereClause = escapedExcludeFolders.length > 0 ? `AND ${folderExclusions}` : ""
 
   // Self-links (source = target) are excluded from the backlink subquery
   // so a note that only links to itself is still considered an orphan.
@@ -1334,21 +1326,21 @@ export const findOrphans = (
       ${whereClause}
     ORDER BY mtime DESC
     LIMIT ?
-  `;
+  `
 
-  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(...escapedExcludeFolders, limit);
-  const results = rows.map(rowToMetadata);
-  logger.info("find orphans", { count: results.length });
-  return results;
-};
+  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(...escapedExcludeFolders, limit)
+  const results = rows.map(rowToMetadata)
+  logger.info("find orphans", { count: results.length })
+  return results
+}
 
 // ── Aggregate queries ──────────────────────────────────────────
 
 type BrokenLinkResult = {
-  count: number;
-  excludedFolder: string | null;
-  excludedCount: number;
-};
+  count: number
+  excludedFolder: string | null
+  excludedCount: number
+}
 
 /** Counts unique broken link targets — links whose targets exist in
  *  neither the notes table nor the non_md_files table. When the caller
@@ -1362,7 +1354,7 @@ export const brokenLinkCount = (
   params: { dailyNotesFolder?: string | null },
   logger: Logger,
 ): BrokenLinkResult => {
-  const excludedFolder = params.dailyNotesFolder ?? null;
+  const excludedFolder = params.dailyNotesFolder ?? null
 
   if (excludedFolder === null) {
     const row = context.db
@@ -1372,15 +1364,15 @@ export const brokenLinkCount = (
          WHERE target NOT IN (SELECT path FROM notes)
            AND target NOT IN (SELECT path FROM non_md_files)`,
       )
-      .get();
+      .get()
 
-    if (!row) throw new Error("aggregate COUNT query returned no row");
-    const count = row.count;
-    logger.info("broken link count", { count });
-    return { count, excludedFolder: null, excludedCount: 0 };
+    if (!row) throw new Error("aggregate COUNT query returned no row")
+    const count = row.count
+    logger.info("broken link count", { count })
+    return { count, excludedFolder: null, excludedCount: 0 }
   }
 
-  const excludedFolderPrefix = `${excludedFolder}/`;
+  const excludedFolderPrefix = `${excludedFolder}/`
   const brokenTargets = context.db
     .prepare<unknown[], { target: string }>(
       `SELECT DISTINCT target
@@ -1388,18 +1380,18 @@ export const brokenLinkCount = (
        WHERE target NOT IN (SELECT path FROM notes)
          AND target NOT IN (SELECT path FROM non_md_files)`,
     )
-    .all();
+    .all()
 
-  const count = brokenTargets.filter((row) => !row.target.startsWith(excludedFolderPrefix)).length;
-  const excludedCount = brokenTargets.length - count;
+  const count = brokenTargets.filter((row) => !row.target.startsWith(excludedFolderPrefix)).length
+  const excludedCount = brokenTargets.length - count
 
   logger.info("broken link count", {
     count,
     dailyNotesFolder: excludedFolder,
     excludedForwardRefs: excludedCount,
-  });
-  return { count, excludedFolder, excludedCount };
-};
+  })
+  return { count, excludedFolder, excludedCount }
+}
 
 /** Returns notes whose filesystem mtime falls within a calendar date
  *  (server-local day boundaries, governed by the TZ env var). */
@@ -1408,8 +1400,8 @@ export const modifiedOnDate = (
   params: { date: string; limit?: number | undefined },
   logger: Logger,
 ): NoteMetadata[] => {
-  const limit = Math.max(0, Math.floor(params.limit ?? 50));
-  const dayBounds = dayToEpochMsRange(params.date);
+  const limit = Math.max(0, Math.floor(params.limit ?? 50))
+  const dayBounds = dayToEpochMsRange(params.date)
 
   const sql = `
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
@@ -1417,15 +1409,15 @@ export const modifiedOnDate = (
     WHERE mtime >= ? AND mtime < ?
     ORDER BY mtime DESC
     LIMIT ?
-  `;
-  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(dayBounds.startMs, dayBounds.endMs, limit);
-  const results = rows.map(rowToMetadata);
+  `
+  const rows = context.db.prepare<unknown[], NoteRow>(sql).all(dayBounds.startMs, dayBounds.endMs, limit)
+  const results = rows.map(rowToMetadata)
   logger.info("modified on date", {
     date: params.date,
     resultCount: results.length,
-  });
-  return results;
-};
+  })
+  return results
+}
 
 /** Lightweight aggregate counts — total notes, untagged notes, notes without
  *  frontmatter properties. Single SQL to avoid multiple round-trips. */
@@ -1438,13 +1430,13 @@ export const vaultStats = (context: SearchQueryContext, _params: Record<string, 
       COALESCE(SUM(CASE WHEN tags = '[]' THEN 1 ELSE 0 END), 0) as untaggedNotes,
       COALESCE(SUM(CASE WHEN properties = '{}' THEN 1 ELSE 0 END), 0) as noPropertiesNotes
     FROM notes
-  `;
-  const row = context.db.prepare<unknown[], VaultStats>(sql).get();
+  `
+  const row = context.db.prepare<unknown[], VaultStats>(sql).get()
 
   if (!row) {
-    logger.info("vault stats empty");
-    return { totalNotes: 0, untaggedNotes: 0, noPropertiesNotes: 0 };
+    logger.info("vault stats empty")
+    return { totalNotes: 0, untaggedNotes: 0, noPropertiesNotes: 0 }
   }
-  logger.info("vault stats", row);
-  return row;
-};
+  logger.info("vault stats", row)
+  return row
+}

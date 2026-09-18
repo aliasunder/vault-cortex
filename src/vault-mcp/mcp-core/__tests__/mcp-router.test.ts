@@ -1,25 +1,25 @@
-import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from "vitest";
-import express from "express";
-import { randomUUID } from "node:crypto";
-import type { Server } from "node:http";
-import type { AddressInfo } from "node:net";
-import { createMcpRouter } from "../mcp-router.js";
-import { loadConfig } from "../../config.js";
-import type { SearchIndex } from "../../search/search-index.js";
-import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
-import { registerTools } from "../tool-definitions.js";
-import { registerPrompts } from "../prompt-definitions.js";
-import { TOOL_REGISTRY } from "../tool-registry.js";
-import { logger } from "../../../logger.js";
+import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from "vitest"
+import express from "express"
+import { randomUUID } from "node:crypto"
+import type { Server } from "node:http"
+import type { AddressInfo } from "node:net"
+import { createMcpRouter } from "../mcp-router.js"
+import { loadConfig } from "../../config.js"
+import type { SearchIndex } from "../../search/search-index.js"
+import type { OAuthServerProvider } from "@modelcontextprotocol/sdk/server/auth/provider.js"
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
+import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js"
+import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js"
+import { registerTools } from "../tool-definitions.js"
+import { registerPrompts } from "../prompt-definitions.js"
+import { TOOL_REGISTRY } from "../tool-registry.js"
+import { logger } from "../../../logger.js"
 
 // `logger` is a real exported object; its methods become spies inside
 // beforeEach (vi.spyOn). vi.mocked is a type-only cast that gives us
 // typed access to the spy state — at runtime, mockedLogger === logger.
-const mockedLogger = vi.mocked(logger);
+const mockedLogger = vi.mocked(logger)
 
 // We stub the MCP SDK so tests focus on the router's own logic — the
 // session map, the route dispatch, and the onclose cleanup — rather than
@@ -29,33 +29,33 @@ const mockedLogger = vi.mocked(logger);
 // mock condition.
 vi.mock("@modelcontextprotocol/sdk/server/streamableHttp.js", () => ({
   StreamableHTTPServerTransport: vi.fn(),
-}));
+}))
 vi.mock("@modelcontextprotocol/sdk/server/mcp.js", () => ({
   McpServer: vi.fn(),
-}));
-vi.mock("@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js", () => ({ requireBearerAuth: vi.fn() }));
+}))
+vi.mock("@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js", () => ({ requireBearerAuth: vi.fn() }))
 vi.mock("@modelcontextprotocol/sdk/types.js", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   isInitializeRequest: vi.fn(),
-}));
+}))
 // registerTools is stubbed (session wiring is under test, not registration),
 // but the real computeEnabledToolNames stays — buildServerMetadata derives
 // the instructions/description cross-references from it.
 vi.mock("../tool-definitions.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../tool-definitions.js")>();
-  return { ...actual, registerTools: vi.fn() };
-});
-vi.mock("../prompt-definitions.js", () => ({ registerPrompts: vi.fn() }));
+  const actual = await importOriginal<typeof import("../tool-definitions.js")>()
+  return { ...actual, registerTools: vi.fn() }
+})
+vi.mock("../prompt-definitions.js", () => ({ registerPrompts: vi.fn() }))
 
-const FORWARDED_IP = "192.0.2.10";
-const VAULT_PATH = "/test-vault";
-const DEFAULT_CONFIG = loadConfig({});
+const FORWARDED_IP = "192.0.2.10"
+const VAULT_PATH = "/test-vault"
+const DEFAULT_CONFIG = loadConfig({})
 // One trusted proxy hop: Express derives req.ip from the X-Forwarded-For
 // header baseHeaders injects. Tests asserting an XFF-derived clientIp opt
 // into proxy trust with this config — the harness default mirrors
 // production's untrusted default (TRUST_PROXY_HOPS=0), where req.ip is the
 // socket peer.
-const TRUSTED_PROXY_CONFIG = loadConfig({ TRUST_PROXY_HOPS: "1" });
+const TRUSTED_PROXY_CONFIG = loadConfig({ TRUST_PROXY_HOPS: "1" })
 
 const SERVER_INFO = {
   name: "vault-cortex",
@@ -70,13 +70,13 @@ const SERVER_INFO = {
     },
   ],
   websiteUrl: "https://github.com/aliasunder/vault-cortex",
-};
+}
 
 const SERVER_OPTIONS = {
   instructions: `Read, write, and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
 
 Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`,
-};
+}
 
 const initializeBody = {
   jsonrpc: "2.0",
@@ -87,43 +87,43 @@ const initializeBody = {
     capabilities: {},
     clientInfo: { name: "test-client", version: "0.0.0" },
   },
-};
+}
 
 const baseHeaders = {
   "content-type": "application/json",
   "x-forwarded-for": FORWARDED_IP,
-};
+}
 
 type TransportMock = {
-  sessionId: string | undefined;
-  handleRequest: ReturnType<typeof vi.fn>;
-  close: ReturnType<typeof vi.fn>;
-  onclose: (() => void) | undefined;
-};
+  sessionId: string | undefined
+  handleRequest: ReturnType<typeof vi.fn>
+  close: ReturnType<typeof vi.fn>
+  onclose: (() => void) | undefined
+}
 
-type ServerMock = { connect: ReturnType<typeof vi.fn> };
+type ServerMock = { connect: ReturnType<typeof vi.fn> }
 
 type Harness = {
-  url: (path?: string) => string;
-  transportInstances: TransportMock[];
-  serverInstances: ServerMock[];
-  search: SearchIndex;
-  provider: OAuthServerProvider;
-};
+  url: (path?: string) => string
+  transportInstances: TransportMock[]
+  serverInstances: ServerMock[]
+  search: SearchIndex
+  provider: OAuthServerProvider
+}
 
-const allowAuth: express.RequestHandler = (_req, _res, next) => next();
+const allowAuth: express.RequestHandler = (_req, _res, next) => next()
 const denyAuth: express.RequestHandler = (_req, res) => {
-  res.status(401).json({ error: "unauthorized" });
-};
+  res.status(401).json({ error: "unauthorized" })
+}
 
 const setupHarness = async (
   opts: {
-    authMiddleware?: express.RequestHandler;
-    config?: ReturnType<typeof loadConfig>;
+    authMiddleware?: express.RequestHandler
+    config?: ReturnType<typeof loadConfig>
   } = {},
 ): Promise<Harness> => {
-  const transportInstances: TransportMock[] = [];
-  const serverInstances: ServerMock[] = [];
+  const transportInstances: TransportMock[] = []
+  const serverInstances: ServerMock[] = []
 
   vi.mocked(StreamableHTTPServerTransport).mockImplementation(function MockStreamableHTTPServerTransport() {
     const transport: TransportMock = {
@@ -131,36 +131,36 @@ const setupHarness = async (
       // the transport generates it while handling the initialize request.
       sessionId: undefined,
       handleRequest: vi.fn(async (_req: express.Request, res: express.Response) => {
-        transport.sessionId ??= randomUUID();
-        res.status(202).json({ ok: true, handled: "transport-mock" });
+        transport.sessionId ??= randomUUID()
+        res.status(202).json({ ok: true, handled: "transport-mock" })
       }),
       close: vi.fn(async () => {}),
       onclose: undefined,
-    };
-    transportInstances.push(transport);
-    return transport;
-  } as unknown as typeof StreamableHTTPServerTransport);
+    }
+    transportInstances.push(transport)
+    return transport
+  } as unknown as typeof StreamableHTTPServerTransport)
 
   vi.mocked(McpServer).mockImplementation(function MockMcpServer() {
-    const server: ServerMock = { connect: vi.fn(async () => {}) };
-    serverInstances.push(server);
-    return server;
-  } as unknown as typeof McpServer);
+    const server: ServerMock = { connect: vi.fn(async () => {}) }
+    serverInstances.push(server)
+    return server
+  } as unknown as typeof McpServer)
 
   vi.mocked(requireBearerAuth).mockReturnValue(
     (opts.authMiddleware ?? allowAuth) as unknown as ReturnType<typeof requireBearerAuth>,
-  );
+  )
 
-  const search = {} as SearchIndex;
-  const provider = {} as OAuthServerProvider;
-  const config = opts.config ?? DEFAULT_CONFIG;
+  const search = {} as SearchIndex
+  const provider = {} as OAuthServerProvider
+  const config = opts.config ?? DEFAULT_CONFIG
 
-  const app = express();
+  const app = express()
   // Mirrors server.ts — the harness derives proxy trust from the same config
   // the router receives, so tests exercise the deployment's actual trust
   // model instead of an ambient blanket trust.
-  app.set("trust proxy", config.trustProxyHops);
-  app.use(express.json());
+  app.set("trust proxy", config.trustProxyHops)
+  app.use(express.json())
   app.use(
     createMcpRouter({
       vaultPath: VAULT_PATH,
@@ -169,15 +169,15 @@ const setupHarness = async (
       config,
       serverUrl: new URL("http://localhost:8000"),
     }),
-  );
+  )
 
   // Pinned to IPv4 loopback so the untrusted socket peer is a deterministic
   // "127.0.0.1" — a host-less listen binds dual-stack and reports the peer
   // as the IPv4-mapped "::ffff:127.0.0.1".
   const httpServer = await new Promise<Server>((resolve) => {
-    const listener = app.listen(0, "127.0.0.1", () => resolve(listener));
-  });
-  const port = (httpServer.address() as AddressInfo).port;
+    const listener = app.listen(0, "127.0.0.1", () => resolve(listener))
+  })
+  const port = (httpServer.address() as AddressInfo).port
 
   // Close the listening socket when the test ends — vitest's onTestFinished
   // ties cleanup to the same test that called setupHarness, so we don't
@@ -185,9 +185,9 @@ const setupHarness = async (
   onTestFinished(
     () =>
       new Promise<void>((resolve, reject) => {
-        httpServer.close((err) => (err ? reject(err) : resolve()));
+        httpServer.close((err) => (err ? reject(err) : resolve()))
       }),
-  );
+  )
 
   return {
     url: (path = "/mcp") => `http://127.0.0.1:${port}${path}`,
@@ -195,23 +195,23 @@ const setupHarness = async (
     serverInstances,
     search,
     provider,
-  };
-};
+  }
+}
 
 const createSession = async (harness: Harness): Promise<{ sessionId: string; transport: TransportMock }> => {
   const response = await fetch(harness.url(), {
     method: "POST",
     headers: baseHeaders,
     body: JSON.stringify(initializeBody),
-  });
-  await response.arrayBuffer();
-  const transport = harness.transportInstances.at(-1);
+  })
+  await response.arrayBuffer()
+  const transport = harness.transportInstances.at(-1)
 
   if (!transport || !transport.sessionId) {
-    throw new Error("session was not created");
+    throw new Error("session was not created")
   }
-  return { sessionId: transport.sessionId, transport };
-};
+  return { sessionId: transport.sessionId, transport }
+}
 
 // Sets up a harness and immediately runs the initialize handshake so a
 // test can assert on the side-effects of session creation without
@@ -219,21 +219,21 @@ const createSession = async (harness: Harness): Promise<{ sessionId: string; tra
 const setupInitializedSession = async (
   opts: Parameters<typeof setupHarness>[0] = {},
 ): Promise<{
-  harness: Harness;
-  sessionId: string;
-  transport: TransportMock;
+  harness: Harness
+  sessionId: string
+  transport: TransportMock
 }> => {
-  const harness = await setupHarness(opts);
-  const session = await createSession(harness);
-  return { harness, ...session };
-};
+  const harness = await setupHarness(opts)
+  const session = await createSession(harness)
+  return { harness, ...session }
+}
 
 beforeEach(() => {
-  vi.mocked(isInitializeRequest).mockReturnValue(true);
-  vi.spyOn(logger, "info").mockImplementation(() => {});
-  vi.spyOn(logger, "warn").mockImplementation(() => {});
-  vi.spyOn(logger, "child");
-});
+  vi.mocked(isInitializeRequest).mockReturnValue(true)
+  vi.spyOn(logger, "info").mockImplementation(() => {})
+  vi.spyOn(logger, "warn").mockImplementation(() => {})
+  vi.spyOn(logger, "child")
+})
 
 // restoreAllMocks restores every vi.spyOn-created spy (logger.* go back to
 // real methods). clearAllMocks then clears call/instance history on the
@@ -241,13 +241,13 @@ beforeEach(() => {
 // touch those). Together they leave every mock fresh for the next test;
 // the next beforeEach + setupHarness reinstall implementations.
 afterEach(() => {
-  vi.restoreAllMocks();
-  vi.clearAllMocks();
-});
+  vi.restoreAllMocks()
+  vi.clearAllMocks()
+})
 
 describe("createMcpRouter — construction", () => {
   it("wires the OAuth provider and the path-suffixed metadata URL into requireBearerAuth", async () => {
-    const harness = await setupHarness();
+    const harness = await setupHarness()
 
     // The mocked requireBearerAuth swallows the real WWW-Authenticate
     // behavior, so the contract under test is the options the router hands
@@ -255,195 +255,193 @@ describe("createMcpRouter — construction", () => {
     // the SDK stamps on every 401 (RFC 9728 discovery from the rejection).
     // toHaveBeenCalledTimes(1) keeps the calledWith check single-call-strict
     // (calledWith alone passes if ANY call matches).
-    expect(requireBearerAuth).toHaveBeenCalledTimes(1);
+    expect(requireBearerAuth).toHaveBeenCalledTimes(1)
     expect(requireBearerAuth).toHaveBeenCalledWith({
       verifier: harness.provider,
       resourceMetadataUrl: "http://localhost:8000/.well-known/oauth-protected-resource/mcp",
-    });
-  });
-});
+    })
+  })
+})
 
 describe("createMcpRouter — POST /mcp", () => {
   describe("on a fresh initialize request", () => {
     it("constructs exactly one transport", async () => {
-      const { harness } = await setupInitializedSession();
-      expect(harness.transportInstances).toHaveLength(1);
-    });
+      const { harness } = await setupInitializedSession()
+      expect(harness.transportInstances).toHaveLength(1)
+    })
 
     it("constructs exactly one McpServer with the documented metadata", async () => {
-      await setupInitializedSession();
-      expect(McpServer).toHaveBeenCalledTimes(1);
-      const [info, options] = vi.mocked(McpServer).mock.calls[0]!;
-      expect(info).toEqual(SERVER_INFO);
-      expect(options).toEqual(SERVER_OPTIONS);
-    });
+      await setupInitializedSession()
+      expect(McpServer).toHaveBeenCalledTimes(1)
+      const [info, options] = vi.mocked(McpServer).mock.calls[0]!
+      expect(info).toEqual(SERVER_INFO)
+      expect(options).toEqual(SERVER_OPTIONS)
+    })
 
     it("McpServer description and instructions interpolate config.memoryDir", async () => {
-      const customConfig = loadConfig({ MEMORY_DIR: "Profile" });
-      const harness = await setupHarness({ config: customConfig });
-      vi.mocked(isInitializeRequest).mockReturnValue(true);
+      const customConfig = loadConfig({ MEMORY_DIR: "Profile" })
+      const harness = await setupHarness({ config: customConfig })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
       await fetch(harness.url(), {
         method: "POST",
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
-      });
-      const callArgs = vi.mocked(McpServer).mock.calls[0]!;
-      const info = callArgs[0] as { description?: string };
-      const options = callArgs[1] as { instructions?: string };
-      expect(info.description).toContain("Profile/");
-      expect(info.description).not.toContain("About Me/");
-      expect(options.instructions).toContain("Profile/");
-      expect(options.instructions).not.toContain("About Me/");
-    });
+      })
+      const callArgs = vi.mocked(McpServer).mock.calls[0]!
+      const info = callArgs[0] as { description?: string }
+      const options = callArgs[1] as { instructions?: string }
+      expect(info.description).toContain("Profile/")
+      expect(info.description).not.toContain("About Me/")
+      expect(options.instructions).toContain("Profile/")
+      expect(options.instructions).not.toContain("About Me/")
+    })
 
     it("instructions degrade the write sentence when DISABLED_TOOLS hides vault_update_memory", async () => {
       const disabledConfig = loadConfig({
         DISABLED_TOOLS: "vault_update_memory",
-      });
-      const harness = await setupHarness({ config: disabledConfig });
-      vi.mocked(isInitializeRequest).mockReturnValue(true);
+      })
+      const harness = await setupHarness({ config: disabledConfig })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
       await fetch(harness.url(), {
         method: "POST",
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
-      });
-      const constructorCalls = vi.mocked(McpServer).mock.calls;
-      expect(constructorCalls).toHaveLength(1);
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined;
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
       // The memory layer is still on (vault_get_memory serves reads), but
       // the write directive falls back to vault_write_note alone.
-      expect(options?.instructions).toContain("vault_get_memory");
-      expect(options?.instructions).toContain(" Use vault_write_note for writes.");
-      expect(options?.instructions).not.toContain("vault_update_memory");
-    });
+      expect(options?.instructions).toContain("vault_get_memory")
+      expect(options?.instructions).toContain(" Use vault_write_note for writes.")
+      expect(options?.instructions).not.toContain("vault_update_memory")
+    })
 
     it("instructions omit vault_read_file when FILE_TOOLS_ENABLED is false", async () => {
-      const disabledConfig = loadConfig({ FILE_TOOLS_ENABLED: "false" });
-      const harness = await setupHarness({ config: disabledConfig });
-      vi.mocked(isInitializeRequest).mockReturnValue(true);
+      const disabledConfig = loadConfig({ FILE_TOOLS_ENABLED: "false" })
+      const harness = await setupHarness({ config: disabledConfig })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
       await fetch(harness.url(), {
         method: "POST",
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
-      });
-      const constructorCalls = vi.mocked(McpServer).mock.calls;
-      expect(constructorCalls).toHaveLength(1);
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined;
-      expect(options?.instructions).not.toContain("vault_read_file");
-      expect(options?.instructions).toContain("vault_search");
-    });
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
+      expect(options?.instructions).not.toContain("vault_read_file")
+      expect(options?.instructions).toContain("vault_search")
+    })
 
     it("instructions omit both vault_read_file and vault_get_memory when both disabled", async () => {
       const bothDisabledConfig = loadConfig({
         MEMORY_ENABLED: "false",
         FILE_TOOLS_ENABLED: "false",
-      });
-      const harness = await setupHarness({ config: bothDisabledConfig });
-      vi.mocked(isInitializeRequest).mockReturnValue(true);
+      })
+      const harness = await setupHarness({ config: bothDisabledConfig })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
       await fetch(harness.url(), {
         method: "POST",
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
-      });
-      const constructorCalls = vi.mocked(McpServer).mock.calls;
-      expect(constructorCalls).toHaveLength(1);
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined;
-      expect(options?.instructions).not.toContain("vault_read_file");
-      expect(options?.instructions).not.toContain("vault_get_memory");
-      expect(options?.instructions).toContain("vault_write_note");
-    });
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
+      expect(options?.instructions).not.toContain("vault_read_file")
+      expect(options?.instructions).not.toContain("vault_get_memory")
+      expect(options?.instructions).toContain("vault_write_note")
+    })
 
     it("instructions and description omit write references when READONLY_MODE is true", async () => {
-      const readOnlyConfig = loadConfig({ READONLY_MODE: "true" });
-      const harness = await setupHarness({ config: readOnlyConfig });
-      vi.mocked(isInitializeRequest).mockReturnValue(true);
+      const readOnlyConfig = loadConfig({ READONLY_MODE: "true" })
+      const harness = await setupHarness({ config: readOnlyConfig })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
       await fetch(harness.url(), {
         method: "POST",
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
-      });
-      const constructorCalls = vi.mocked(McpServer).mock.calls;
-      expect(constructorCalls).toHaveLength(1);
-      const info = constructorCalls[0]?.[0] as { description?: string };
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined;
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const info = constructorCalls[0]?.[0] as { description?: string }
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
       expect(options?.instructions).toBe(
         `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files.
 
 Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available.`,
-      );
+      )
       expect(info.description).toBe(
         `Read and search an Obsidian vault. Provides hybrid search, tag queries, and a structured memory layer (${DEFAULT_CONFIG.memoryDir}/) for personalization across conversations.`,
-      );
-    });
+      )
+    })
 
     it("read-only instructions with MEMORY_ENABLED=false omit memory and write references", async () => {
       const readOnlyNoMemoryConfig = loadConfig({
         READONLY_MODE: "true",
         MEMORY_ENABLED: "false",
-      });
-      const harness = await setupHarness({ config: readOnlyNoMemoryConfig });
-      vi.mocked(isInitializeRequest).mockReturnValue(true);
+      })
+      const harness = await setupHarness({ config: readOnlyNoMemoryConfig })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
       await fetch(harness.url(), {
         method: "POST",
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
-      });
-      const constructorCalls = vi.mocked(McpServer).mock.calls;
-      expect(constructorCalls).toHaveLength(1);
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined;
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
       expect(options?.instructions).toBe(
         `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files.
 
 Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available.`,
-      );
-    });
+      )
+    })
 
     // Advertised capability tracks the enabled set, not READONLY_MODE: an
     // operator who names every mutating tool in DISABLED_TOOLS has built the
     // same read-only server by another route, and must be described as one.
     it("advertises read-only access when DISABLED_TOOLS removes every write tool", async () => {
-      const everyWriteTool = TOOL_REGISTRY.filter((entry) => !entry.annotations.readOnlyHint).map(
-        (entry) => entry.name,
-      );
+      const everyWriteTool = TOOL_REGISTRY.filter((entry) => !entry.annotations.readOnlyHint).map((entry) => entry.name)
       const harness = await setupHarness({
         config: loadConfig({ DISABLED_TOOLS: everyWriteTool.join(",") }),
-      });
-      vi.mocked(isInitializeRequest).mockReturnValue(true);
+      })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
       await fetch(harness.url(), {
         method: "POST",
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
-      });
-      const constructorCalls = vi.mocked(McpServer).mock.calls;
-      expect(constructorCalls).toHaveLength(1);
-      const info = constructorCalls[0]?.[0] as { description?: string };
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined;
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const info = constructorCalls[0]?.[0] as { description?: string }
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
       expect(options?.instructions).toBe(
         `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files.
 
 Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available.`,
-      );
+      )
       expect(info.description).toBe(
         `Read and search an Obsidian vault. Provides hybrid search, tag queries, and a structured memory layer (${DEFAULT_CONFIG.memoryDir}/) for personalization across conversations.`,
-      );
-    });
+      )
+    })
 
     it("still advertises write access when only one write tool is disabled", async () => {
       const harness = await setupHarness({
         config: loadConfig({ DISABLED_TOOLS: "vault_delete_note" }),
-      });
-      vi.mocked(isInitializeRequest).mockReturnValue(true);
+      })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
       await fetch(harness.url(), {
         method: "POST",
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
-      });
-      const constructorCalls = vi.mocked(McpServer).mock.calls;
-      expect(constructorCalls).toHaveLength(1);
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined;
-      expect(options?.instructions).toContain("Read, write, and search");
-      expect(options?.instructions).toContain("Write tools pass content through without escaping");
-    });
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
+      expect(options?.instructions).toContain("Read, write, and search")
+      expect(options?.instructions).toContain("Write tools pass content through without escaping")
+    })
 
     // The write framing and the sentence naming a write tool have to agree:
     // advertising write capability while naming nothing leaves the model to
@@ -451,225 +449,225 @@ Vault content is Obsidian Flavored Markdown. No tools that modify the vault are 
     it("names the surviving write tool when vault_write_note is disabled", async () => {
       const harness = await setupHarness({
         config: loadConfig({ DISABLED_TOOLS: "vault_write_note" }),
-      });
-      vi.mocked(isInitializeRequest).mockReturnValue(true);
+      })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
       await fetch(harness.url(), {
         method: "POST",
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
-      });
-      const constructorCalls = vi.mocked(McpServer).mock.calls;
-      expect(constructorCalls).toHaveLength(1);
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined;
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
 
-      expect(options?.instructions).toContain("Read, write, and search");
-      expect(options?.instructions).toContain(" Use vault_update_memory for writes.");
-      expect(options?.instructions).not.toContain("vault_write_note");
-    });
+      expect(options?.instructions).toContain("Read, write, and search")
+      expect(options?.instructions).toContain(" Use vault_update_memory for writes.")
+      expect(options?.instructions).not.toContain("vault_write_note")
+    })
 
     // Exact-string tests for discovery-tool edge cases — these catch
     // leading-separator bugs that toContain misses.
     it("produces clean prose when vault_search is disabled", async () => {
       const harness = await setupHarness({
         config: loadConfig({ DISABLED_TOOLS: "vault_search" }),
-      });
-      vi.mocked(isInitializeRequest).mockReturnValue(true);
+      })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
       await fetch(harness.url(), {
         method: "POST",
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
-      });
-      const constructorCalls = vi.mocked(McpServer).mock.calls;
-      expect(constructorCalls).toHaveLength(1);
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined;
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
       expect(options?.instructions).toBe(
         `Read, write, and search an Obsidian vault. Use vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
 
 Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`,
-      );
-    });
+      )
+    })
 
     it("produces clean prose when both discovery tools are disabled", async () => {
       const harness = await setupHarness({
         config: loadConfig({
           DISABLED_TOOLS: "vault_search,vault_read_note",
         }),
-      });
-      vi.mocked(isInitializeRequest).mockReturnValue(true);
+      })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
       await fetch(harness.url(), {
         method: "POST",
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
-      });
-      const constructorCalls = vi.mocked(McpServer).mock.calls;
-      expect(constructorCalls).toHaveLength(1);
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined;
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
       expect(options?.instructions).toBe(
         `Read, write, and search an Obsidian vault. Use vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
 
 Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`,
-      );
-    });
+      )
+    })
 
     it("produces clean prose when discovery tools and vault_read_file are all disabled", async () => {
       const harness = await setupHarness({
         config: loadConfig({
           DISABLED_TOOLS: "vault_search,vault_read_note,vault_read_file",
         }),
-      });
-      vi.mocked(isInitializeRequest).mockReturnValue(true);
+      })
+      vi.mocked(isInitializeRequest).mockReturnValue(true)
       await fetch(harness.url(), {
         method: "POST",
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
-      });
-      const constructorCalls = vi.mocked(McpServer).mock.calls;
-      expect(constructorCalls).toHaveLength(1);
-      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined;
+      })
+      const constructorCalls = vi.mocked(McpServer).mock.calls
+      expect(constructorCalls).toHaveLength(1)
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
       expect(options?.instructions).toBe(
         `Read, write, and search an Obsidian vault. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
 
 Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs.`,
-      );
-    });
+      )
+    })
 
     it("connects the new server to the new transport", async () => {
-      const { harness, transport } = await setupInitializedSession();
-      expect(harness.serverInstances[0]!.connect).toHaveBeenCalledWith(transport);
-    });
+      const { harness, transport } = await setupInitializedSession()
+      expect(harness.serverInstances[0]!.connect).toHaveBeenCalledWith(transport)
+    })
 
     it("forwards the request body to transport.handleRequest", async () => {
-      const { transport } = await setupInitializedSession();
-      expect(transport.handleRequest).toHaveBeenCalledTimes(1);
-      const requestBody = transport.handleRequest.mock.calls[0]![2];
-      expect(requestBody).toEqual(initializeBody);
-    });
+      const { transport } = await setupInitializedSession()
+      expect(transport.handleRequest).toHaveBeenCalledTimes(1)
+      const requestBody = transport.handleRequest.mock.calls[0]![2]
+      expect(requestBody).toEqual(initializeBody)
+    })
 
     it("registers tools on the new server with vault context and config", async () => {
-      const { harness } = await setupInitializedSession();
-      expect(registerTools).toHaveBeenCalledTimes(1);
-      const toolRegistration = vi.mocked(registerTools).mock.calls[0]![0];
-      expect(toolRegistration.server).toBe(harness.serverInstances[0]);
-      expect(toolRegistration.vaultPath).toBe(VAULT_PATH);
-      expect(toolRegistration.search).toBe(harness.search);
-      expect(toolRegistration.logger).toBe(mockedLogger.child.mock.results[0]!.value);
-      expect(toolRegistration.config).toBe(DEFAULT_CONFIG);
-    });
+      const { harness } = await setupInitializedSession()
+      expect(registerTools).toHaveBeenCalledTimes(1)
+      const toolRegistration = vi.mocked(registerTools).mock.calls[0]![0]
+      expect(toolRegistration.server).toBe(harness.serverInstances[0])
+      expect(toolRegistration.vaultPath).toBe(VAULT_PATH)
+      expect(toolRegistration.search).toBe(harness.search)
+      expect(toolRegistration.logger).toBe(mockedLogger.child.mock.results[0]!.value)
+      expect(toolRegistration.config).toBe(DEFAULT_CONFIG)
+    })
 
     it("registers prompts on the new server with the same vault context as the tools", async () => {
-      const { harness } = await setupInitializedSession();
-      expect(registerPrompts).toHaveBeenCalledTimes(1);
-      const promptRegistration = vi.mocked(registerPrompts).mock.calls[0]![0];
-      const toolRegistration = vi.mocked(registerTools).mock.calls[0]![0];
-      expect(promptRegistration.server).toBe(harness.serverInstances[0]);
-      expect(promptRegistration.vaultPath).toBe(VAULT_PATH);
-      expect(promptRegistration.search).toBe(harness.search);
-      expect(promptRegistration.config).toBe(DEFAULT_CONFIG);
+      const { harness } = await setupInitializedSession()
+      expect(registerPrompts).toHaveBeenCalledTimes(1)
+      const promptRegistration = vi.mocked(registerPrompts).mock.calls[0]![0]
+      const toolRegistration = vi.mocked(registerTools).mock.calls[0]![0]
+      expect(promptRegistration.server).toBe(harness.serverInstances[0])
+      expect(promptRegistration.vaultPath).toBe(VAULT_PATH)
+      expect(promptRegistration.search).toBe(harness.search)
+      expect(promptRegistration.config).toBe(DEFAULT_CONFIG)
       // Prompts and tools share the same session-scoped logger and context.
-      expect(promptRegistration.logger).toBe(toolRegistration.logger);
-    });
+      expect(promptRegistration.logger).toBe(toolRegistration.logger)
+    })
 
     it("scopes the logger for registerTools to a lazy sessionId and clientIp", async () => {
       const { sessionId } = await setupInitializedSession({
         config: TRUSTED_PROXY_CONFIG,
-      });
+      })
       expect(mockedLogger.child).toHaveBeenCalledWith({
         sessionId: expect.any(Function),
         clientIp: FORWARDED_IP,
-      });
+      })
       // The lazy prop must resolve to the id the transport generated during
       // the initialize request — after the child logger was created.
-      const sessionIdProp = mockedLogger.child.mock.calls[0]?.[0].sessionId;
+      const sessionIdProp = mockedLogger.child.mock.calls[0]?.[0].sessionId
 
       if (typeof sessionIdProp !== "function") {
-        throw new Error("sessionId child prop is not a function");
+        throw new Error("sessionId child prop is not a function")
       }
-      expect(sessionIdProp()).toBe(sessionId);
-    });
+      expect(sessionIdProp()).toBe(sessionId)
+    })
 
     it("session logger emits lines carrying the generated sessionId", async () => {
       const { sessionId } = await setupInitializedSession({
         config: TRUSTED_PROXY_CONFIG,
-      });
-      const sessionLoggerResult = mockedLogger.child.mock.results[0];
+      })
+      const sessionLoggerResult = mockedLogger.child.mock.results[0]
 
       if (sessionLoggerResult === undefined) {
-        throw new Error("logger.child was never called");
+        throw new Error("logger.child was never called")
       }
-      const sessionLogger = sessionLoggerResult.value;
+      const sessionLogger = sessionLoggerResult.value
 
-      const writtenChunks: string[] = [];
+      const writtenChunks: string[] = []
       const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
-        writtenChunks.push(String(chunk));
-        return true;
-      });
-      sessionLogger.info("tool_call");
-      stdoutSpy.mockRestore();
+        writtenChunks.push(String(chunk))
+        return true
+      })
+      sessionLogger.info("tool_call")
+      stdoutSpy.mockRestore()
 
-      const emittedLines = writtenChunks.map((chunk) => JSON.parse(chunk));
-      expect(emittedLines[0]?.sessionId).toBe(sessionId);
-      expect(emittedLines[0]?.clientIp).toBe(FORWARDED_IP);
-    });
+      const emittedLines = writtenChunks.map((chunk) => JSON.parse(chunk))
+      expect(emittedLines[0]?.sessionId).toBe(sessionId)
+      expect(emittedLines[0]?.clientIp).toBe(FORWARDED_IP)
+    })
 
     it("logs the 'session created' response", async () => {
       const { sessionId } = await setupInitializedSession({
         config: TRUSTED_PROXY_CONFIG,
-      });
+      })
       expect(mockedLogger.info).toHaveBeenCalledWith("mcp_response", {
         sessionId,
         clientIp: FORWARDED_IP,
         status: 200,
         outcome: "session created",
-      });
-    });
+      })
+    })
 
     it("logs an 'mcp_request' for the incoming POST", async () => {
-      await setupInitializedSession({ config: TRUSTED_PROXY_CONFIG });
+      await setupInitializedSession({ config: TRUSTED_PROXY_CONFIG })
       expect(mockedLogger.info).toHaveBeenCalledWith("mcp_request", {
         sessionId: undefined,
         clientIp: FORWARDED_IP,
         method: "POST",
-      });
-    });
+      })
+    })
 
     it("logs the RFC 7239 Forwarded client IP over x-forwarded-for when the header is trusted", async () => {
       const harness = await setupHarness({
         config: loadConfig({ TRUST_FORWARDED_HOPS: "1" }),
-      });
+      })
       const response = await fetch(harness.url(), {
         method: "POST",
         headers: { ...baseHeaders, forwarded: "for=198.51.100.9" },
         body: JSON.stringify(initializeBody),
-      });
-      await response.arrayBuffer();
+      })
+      await response.arrayBuffer()
       expect(mockedLogger.info).toHaveBeenCalledWith("mcp_request", {
         sessionId: undefined,
         clientIp: "198.51.100.9",
         method: "POST",
-      });
-    });
+      })
+    })
 
     // Under production defaults neither the Forwarded header nor
     // X-Forwarded-For is trusted — the socket peer is the only claim that
     // identifies the client.
     it("ignores a client-supplied Forwarded header when it is not trusted (default)", async () => {
-      const harness = await setupHarness();
+      const harness = await setupHarness()
       const response = await fetch(harness.url(), {
         method: "POST",
         headers: { ...baseHeaders, forwarded: "for=198.51.100.9" },
         body: JSON.stringify(initializeBody),
-      });
-      await response.arrayBuffer();
+      })
+      await response.arrayBuffer()
       expect(mockedLogger.info).toHaveBeenCalledWith("mcp_request", {
         sessionId: undefined,
         clientIp: "127.0.0.1",
         method: "POST",
-      });
-    });
-  });
+      })
+    })
+  })
 
   it("logs a warn with the real status when the transport rejects the initialize request without creating a session", async () => {
-    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG });
+    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
     // Shadows the harness transport for the next construction only: mimics the
     // SDK rejecting the initialize request (e.g. missing Accept header → 406)
     // before it generates a session id.
@@ -677,118 +675,118 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
       const transport: TransportMock = {
         sessionId: undefined,
         handleRequest: vi.fn(async (_req: express.Request, res: express.Response) => {
-          res.status(406).json({ error: "not acceptable" });
+          res.status(406).json({ error: "not acceptable" })
         }),
         close: vi.fn(async () => {}),
         onclose: undefined,
-      };
-      harness.transportInstances.push(transport);
-      return transport;
-    } as unknown as typeof StreamableHTTPServerTransport);
+      }
+      harness.transportInstances.push(transport)
+      return transport
+    } as unknown as typeof StreamableHTTPServerTransport)
 
     const response = await fetch(harness.url(), {
       method: "POST",
       headers: baseHeaders,
       body: JSON.stringify(initializeBody),
-    });
-    await response.arrayBuffer();
+    })
+    await response.arrayBuffer()
 
-    expect(response.status).toBe(406);
+    expect(response.status).toBe(406)
     // The rejecting transport was actually constructed and handled the request
-    expect(harness.transportInstances).toHaveLength(1);
-    expect(harness.transportInstances[0]?.handleRequest).toHaveBeenCalledTimes(1);
+    expect(harness.transportInstances).toHaveLength(1)
+    expect(harness.transportInstances[0]?.handleRequest).toHaveBeenCalledTimes(1)
     expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_response", {
       clientIp: FORWARDED_IP,
       status: 406,
       outcome: "initialize rejected, no session created",
-    });
+    })
     expect(mockedLogger.info).not.toHaveBeenCalledWith(
       "mcp_response",
       expect.objectContaining({ outcome: "session created" }),
-    );
-  });
+    )
+  })
 
   it("routes a follow-up POST to the existing transport when the session id matches", async () => {
-    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG });
-    const { sessionId, transport } = await createSession(harness);
-    transport.handleRequest.mockClear();
-    mockedLogger.info.mockClear();
-    vi.mocked(isInitializeRequest).mockReturnValue(false);
+    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
+    const { sessionId, transport } = await createSession(harness)
+    transport.handleRequest.mockClear()
+    mockedLogger.info.mockClear()
+    vi.mocked(isInitializeRequest).mockReturnValue(false)
 
-    const followUp = { jsonrpc: "2.0", id: 2, method: "tools/list" };
+    const followUp = { jsonrpc: "2.0", id: 2, method: "tools/list" }
     const response = await fetch(harness.url(), {
       method: "POST",
       headers: { ...baseHeaders, "mcp-session-id": sessionId },
       body: JSON.stringify(followUp),
-    });
-    await response.arrayBuffer();
+    })
+    await response.arrayBuffer()
 
-    expect(harness.transportInstances).toHaveLength(1);
-    expect(transport.handleRequest).toHaveBeenCalledTimes(1);
-    const forwardedBody = transport.handleRequest.mock.calls[0]![2];
-    expect(forwardedBody).toEqual(followUp);
+    expect(harness.transportInstances).toHaveLength(1)
+    expect(transport.handleRequest).toHaveBeenCalledTimes(1)
+    const forwardedBody = transport.handleRequest.mock.calls[0]![2]
+    expect(forwardedBody).toEqual(followUp)
     expect(mockedLogger.info).toHaveBeenCalledWith("mcp_response", {
       sessionId,
       clientIp: FORWARDED_IP,
       status: 200,
       outcome: "routed to existing session",
-    });
-  });
+    })
+  })
 
   it("returns 400 with 'no session' when there is no session and the body is not an initialize request", async () => {
-    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG });
-    vi.mocked(isInitializeRequest).mockReturnValue(false);
+    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
+    vi.mocked(isInitializeRequest).mockReturnValue(false)
 
     const response = await fetch(harness.url(), {
       method: "POST",
       headers: baseHeaders,
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-    });
+    })
 
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "no session" });
-    expect(harness.transportInstances).toHaveLength(0);
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "no session" })
+    expect(harness.transportInstances).toHaveLength(0)
     expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_response", {
       clientIp: FORWARDED_IP,
       status: 400,
       outcome: "no session, non-initialize request",
-    });
-  });
+    })
+  })
 
   it("returns 404 when the session id is unknown", async () => {
-    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG });
+    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
 
     const response = await fetch(harness.url(), {
       method: "POST",
       headers: { ...baseHeaders, "mcp-session-id": "ghost-session" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
-    });
+    })
 
-    expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: "session not found" });
-    expect(harness.transportInstances).toHaveLength(0);
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: "session not found" })
+    expect(harness.transportInstances).toHaveLength(0)
     expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_response", {
       sessionId: "ghost-session",
       clientIp: FORWARDED_IP,
       status: 404,
       outcome: "session not found",
-    });
-  });
+    })
+  })
 
   it("returns 401 and never enters the route handler when bearer auth rejects", async () => {
-    const harness = await setupHarness({ authMiddleware: denyAuth });
+    const harness = await setupHarness({ authMiddleware: denyAuth })
 
     const response = await fetch(harness.url(), {
       method: "POST",
       headers: baseHeaders,
       body: JSON.stringify(initializeBody),
-    });
+    })
 
-    expect(response.status).toBe(401);
-    expect(harness.transportInstances).toHaveLength(0);
-    expect(mockedLogger.info).not.toHaveBeenCalled();
-  });
-});
+    expect(response.status).toBe(401)
+    expect(harness.transportInstances).toHaveLength(0)
+    expect(mockedLogger.info).not.toHaveBeenCalled()
+  })
+})
 
 describe("createMcpRouter — GET /mcp", () => {
   // vault-cortex never sends server-initiated messages, so the router
@@ -796,75 +794,75 @@ describe("createMcpRouter — GET /mcp", () => {
   // HTTP spec) instead of holding a stream open until an upstream proxy
   // timeout kills it.
   it("returns 405 with an Allow header and logs the response", async () => {
-    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG });
+    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
 
     const response = await fetch(harness.url(), {
       method: "GET",
       headers: baseHeaders,
-    });
+    })
 
-    expect(response.status).toBe(405);
-    expect(response.headers.get("allow")).toBe("POST, DELETE");
+    expect(response.status).toBe(405)
+    expect(response.headers.get("allow")).toBe("POST, DELETE")
     expect(await response.json()).toEqual({
       error: "method not allowed: this server does not offer a standalone SSE stream",
-    });
+    })
     expect(mockedLogger.info).toHaveBeenCalledWith("mcp_response", {
       sessionId: undefined,
       clientIp: FORWARDED_IP,
       status: 405,
       outcome: "standalone SSE stream not offered",
-    });
-  });
+    })
+  })
 
   it("returns 405 for a live session without handing the request to its transport", async () => {
-    const harness = await setupHarness();
-    const { sessionId, transport } = await createSession(harness);
-    transport.handleRequest.mockClear();
+    const harness = await setupHarness()
+    const { sessionId, transport } = await createSession(harness)
+    transport.handleRequest.mockClear()
 
     const response = await fetch(harness.url(), {
       method: "GET",
       headers: { ...baseHeaders, "mcp-session-id": sessionId },
-    });
-    await response.arrayBuffer();
+    })
+    await response.arrayBuffer()
 
-    expect(response.status).toBe(405);
+    expect(response.status).toBe(405)
     // Guardrail: even with a valid session, the GET must not reach the
     // transport — reintroducing the held SSE stream is the regression
     // this route exists to prevent.
-    expect(transport.handleRequest).not.toHaveBeenCalled();
-  });
+    expect(transport.handleRequest).not.toHaveBeenCalled()
+  })
 
   it("returns 401 when bearer auth rejects", async () => {
-    const harness = await setupHarness({ authMiddleware: denyAuth });
+    const harness = await setupHarness({ authMiddleware: denyAuth })
 
     const response = await fetch(harness.url(), {
       method: "GET",
       headers: { ...baseHeaders, "mcp-session-id": "anything" },
-    });
+    })
 
-    expect(response.status).toBe(401);
-  });
-});
+    expect(response.status).toBe(401)
+  })
+})
 
 describe("createMcpRouter — DELETE /mcp", () => {
   it("closes the transport, removes the session, and returns 200", async () => {
-    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG });
-    const { sessionId, transport } = await createSession(harness);
+    const harness = await setupHarness({ config: TRUSTED_PROXY_CONFIG })
+    const { sessionId, transport } = await createSession(harness)
 
     const response = await fetch(harness.url(), {
       method: "DELETE",
       headers: { ...baseHeaders, "mcp-session-id": sessionId },
-    });
+    })
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true });
-    expect(transport.close).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ ok: true })
+    expect(transport.close).toHaveBeenCalledTimes(1)
     expect(mockedLogger.info).toHaveBeenCalledWith("mcp_response", {
       sessionId,
       clientIp: FORWARDED_IP,
       status: 200,
       outcome: "session deleted",
-    });
+    })
 
     // The session should be gone from the map — verified via a follow-up
     // POST to the deleted session that should now 404.
@@ -872,76 +870,76 @@ describe("createMcpRouter — DELETE /mcp", () => {
       method: "POST",
       headers: { ...baseHeaders, "mcp-session-id": sessionId },
       body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
-    });
-    await followUp.arrayBuffer();
-    expect(followUp.status).toBe(404);
-  });
+    })
+    await followUp.arrayBuffer()
+    expect(followUp.status).toBe(404)
+  })
 
   it("returns 404 when the mcp-session-id header is missing", async () => {
-    const harness = await setupHarness();
+    const harness = await setupHarness()
 
     const response = await fetch(harness.url(), {
       method: "DELETE",
       headers: baseHeaders,
-    });
+    })
 
-    expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: "session not found" });
-  });
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: "session not found" })
+  })
 
   it("returns 404 when the session id is unknown", async () => {
-    const harness = await setupHarness();
+    const harness = await setupHarness()
 
     const response = await fetch(harness.url(), {
       method: "DELETE",
       headers: { ...baseHeaders, "mcp-session-id": "ghost" },
-    });
+    })
 
-    expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: "session not found" });
-  });
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: "session not found" })
+  })
 
   it("returns 401 when bearer auth rejects", async () => {
-    const harness = await setupHarness({ authMiddleware: denyAuth });
+    const harness = await setupHarness({ authMiddleware: denyAuth })
 
     const response = await fetch(harness.url(), {
       method: "DELETE",
       headers: { ...baseHeaders, "mcp-session-id": "anything" },
-    });
+    })
 
-    expect(response.status).toBe(401);
-  });
-});
+    expect(response.status).toBe(401)
+  })
+})
 
 describe("createMcpRouter — transport.onclose", () => {
   it("removes the session from the map and logs 'session_closed'", async () => {
-    const harness = await setupHarness();
-    const { sessionId, transport } = await createSession(harness);
-    mockedLogger.info.mockClear();
+    const harness = await setupHarness()
+    const { sessionId, transport } = await createSession(harness)
+    mockedLogger.info.mockClear()
 
-    transport.onclose!();
+    transport.onclose!()
 
     expect(mockedLogger.info).toHaveBeenCalledWith("session_closed", {
       sessionId,
-    });
+    })
     // The session should be gone — confirm with a POST to the closed
     // session that should 404.
     const followUp = await fetch(harness.url(), {
       method: "POST",
       headers: { ...baseHeaders, "mcp-session-id": sessionId },
       body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
-    });
-    await followUp.arrayBuffer();
-    expect(followUp.status).toBe(404);
-  });
+    })
+    await followUp.arrayBuffer()
+    expect(followUp.status).toBe(404)
+  })
 
   it("is a no-op when the transport has no sessionId", async () => {
-    const harness = await setupHarness();
-    const { transport } = await createSession(harness);
-    transport.sessionId = undefined;
-    mockedLogger.info.mockClear();
+    const harness = await setupHarness()
+    const { transport } = await createSession(harness)
+    transport.sessionId = undefined
+    mockedLogger.info.mockClear()
 
-    expect(() => transport.onclose!()).not.toThrow();
-    expect(mockedLogger.info).not.toHaveBeenCalled();
-  });
-});
+    expect(() => transport.onclose!()).not.toThrow()
+    expect(mockedLogger.info).not.toHaveBeenCalled()
+  })
+})

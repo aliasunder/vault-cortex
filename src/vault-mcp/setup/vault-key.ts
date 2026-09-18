@@ -4,29 +4,29 @@
  *  info string, and the per-version branch on every bump (AGENTS.md →
  *  Upgrading obsidian-headless). */
 
-import { createHash, hkdf, scrypt } from "node:crypto";
+import { createHash, hkdf, scrypt } from "node:crypto"
 
 /** Encryption scheme versions the pinned Sync client can derive a key for. */
-export type SupportedEncryptionVersion = 0 | 2 | 3;
+export type SupportedEncryptionVersion = 0 | 2 | 3
 
 /** The newest version the pinned Sync client supports — also what the vault
  *  listing is asked for. A vault above it needs a newer client; a vault
  *  below it that is still unsupported (version 1) does not. */
-export const NEWEST_SUPPORTED_ENCRYPTION_VERSION = 3;
+export const NEWEST_SUPPORTED_ENCRYPTION_VERSION = 3
 
 export const isSupportedEncryptionVersion = (value: unknown): value is SupportedEncryptionVersion =>
-  value === 0 || value === 2 || value === 3;
+  value === 0 || value === 2 || value === 3
 
-const KEY_LENGTH_BYTES = 32;
-const SCRYPT_COST = 32_768;
-const SCRYPT_BLOCK_SIZE = 8;
-const SCRYPT_PARALLELIZATION = 1;
+const KEY_LENGTH_BYTES = 32
+const SCRYPT_COST = 32_768
+const SCRYPT_BLOCK_SIZE = 8
+const SCRYPT_PARALLELIZATION = 1
 /** scrypt needs 128 · N · r bytes; at these parameters that is exactly
  *  Node's default `maxmem`, so the limit must be raised or the call throws.
  *  ~32 MiB transient and ~100 ms on the thread pool per derivation. */
-const SCRYPT_MAX_MEMORY_BYTES = 128 * SCRYPT_COST * SCRYPT_BLOCK_SIZE * 2;
+const SCRYPT_MAX_MEMORY_BYTES = 128 * SCRYPT_COST * SCRYPT_BLOCK_SIZE * 2
 
-const HKDF_INFO = "ObsidianKeyHash";
+const HKDF_INFO = "ObsidianKeyHash"
 
 const deriveVaultKey = async (password: string, salt: string): Promise<Buffer> => {
   // The client normalizes both inputs, so a password typed with combining
@@ -43,12 +43,12 @@ const deriveVaultKey = async (password: string, salt: string): Promise<Buffer> =
         maxmem: SCRYPT_MAX_MEMORY_BYTES,
       },
       (error, derivedKey) => {
-        if (error) reject(error);
-        else resolve(derivedKey);
+        if (error) reject(error)
+        else resolve(derivedKey)
       },
-    );
-  });
-};
+    )
+  })
+}
 
 /** Lowercase hex, 64 characters. The hash is a verifier for the vault
  *  password (the salt is public in the vault listing), so callers never log
@@ -58,14 +58,14 @@ export const deriveVaultKeyHash = async ({
   salt,
   encryptionVersion,
 }: {
-  password: string;
-  salt: string;
-  encryptionVersion: SupportedEncryptionVersion;
+  password: string
+  salt: string
+  encryptionVersion: SupportedEncryptionVersion
 }): Promise<string> => {
-  const key = await deriveVaultKey(password, salt);
+  const key = await deriveVaultKey(password, salt)
 
   if (encryptionVersion === 0) {
-    return createHash("sha256").update(key).digest("hex");
+    return createHash("sha256").update(key).digest("hex")
   }
   const hash = await new Promise<ArrayBuffer>((resolve, reject) => {
     hkdf(
@@ -75,10 +75,10 @@ export const deriveVaultKeyHash = async ({
       HKDF_INFO,
       KEY_LENGTH_BYTES,
       (error, derivedKey) => {
-        if (error) reject(error);
-        else resolve(derivedKey);
+        if (error) reject(error)
+        else resolve(derivedKey)
       },
-    );
-  });
-  return Buffer.from(hash).toString("hex");
-};
+    )
+  })
+  return Buffer.from(hash).toString("hex")
+}

@@ -1,5 +1,5 @@
-import sharp from "sharp";
-import type { OutputInfo } from "sharp";
+import sharp from "sharp"
+import type { OutputInfo } from "sharp"
 
 /**
  * Fits an image into a byte budget by downscaling and recompressing —
@@ -26,26 +26,26 @@ import type { OutputInfo } from "sharp";
 
 /** Models downscale images beyond ~1568px on the long edge anyway, so pixels
  *  past this are bytes spent on detail the model never sees. */
-const MAX_LONG_EDGE_PX = 1568;
+const MAX_LONG_EDGE_PX = 1568
 
 /** Dimension floor for the descent — below this an image stops being legible,
  *  so the fit gives up (throws) rather than delivering unreadable thumbnails. */
-const MIN_LONG_EDGE_PX = 64;
+const MIN_LONG_EDGE_PX = 64
 
 /** Fixed quality descent, tried in order at full dimensions: 75 is near
  *  visually lossless, 30 the legibility floor. A fixed ladder (vs adaptive
  *  search) keeps output deterministic for identical inputs. */
-const QUALITY_LADDER = [75, 60, 45, 30];
+const QUALITY_LADDER = [75, 60, 45, 30]
 
 /** Quality used once dimension-shrinking takes over from the ladder — the
  *  ladder's midpoint, since dimensions are now doing the size work and the
  *  floor qualities would degrade legibility for little gain. */
-const MID_LADDER_QUALITY = 45;
+const MID_LADDER_QUALITY = 45
 
 /** Hard bound on total encodes so termination is provable: the full ladder
  *  plus a handful of dimension-shrink attempts, after which the image is
  *  reported unfittable. */
-const MAX_ENCODE_ATTEMPTS = 8;
+const MAX_ENCODE_ATTEMPTS = 8
 
 /** Formats the Claude API accepts as image input; anything else must be
  *  re-encoded even when it fits the budget. */
@@ -54,38 +54,38 @@ const MODEL_SUPPORTED_FORMATS = new Map<string, string>([
   ["png", "image/png"],
   ["gif", "image/gif"],
   ["webp", "image/webp"],
-]);
+])
 
 export type FittedImage = Readonly<{
-  data: Buffer;
-  mimeType: string;
-  width: number;
-  height: number;
-  originalWidth: number;
-  originalHeight: number;
+  data: Buffer
+  mimeType: string
+  width: number
+  height: number
+  originalWidth: number
+  originalHeight: number
   /** False when the original bytes passed through untouched. */
-  recompressed: boolean;
-}>;
+  recompressed: boolean
+}>
 
 /** One resize+encode pass; the encoder is WebP when alpha must survive
  *  (JPEG would flatten it), JPEG otherwise. */
 const encodeAttempt = async (params: {
-  buffer: Buffer;
-  longEdgePx: number;
-  quality: number;
-  keepAlpha: boolean;
+  buffer: Buffer
+  longEdgePx: number
+  quality: number
+  keepAlpha: boolean
 }): Promise<{ data: Buffer; info: OutputInfo }> => {
   const resized = sharp(params.buffer, { failOn: "none" }).autoOrient().resize({
     width: params.longEdgePx,
     height: params.longEdgePx,
     fit: "inside",
     withoutEnlargement: true,
-  });
+  })
   const encoded = params.keepAlpha
     ? resized.webp({ quality: params.quality })
-    : resized.jpeg({ quality: params.quality, mozjpeg: true });
-  return encoded.toBuffer({ resolveWithObject: true });
-};
+    : resized.jpeg({ quality: params.quality, mozjpeg: true })
+  return encoded.toBuffer({ resolveWithObject: true })
+}
 
 /**
  * Downscales/recompresses `buffer` until its encoded size is ≤ `budgetBytes`.
@@ -93,16 +93,16 @@ const encodeAttempt = async (params: {
  * when the image cannot be fitted within the attempt cap.
  */
 export const fitImageToByteBudget = async (params: { buffer: Buffer; budgetBytes: number }): Promise<FittedImage> => {
-  const metadata = await sharp(params.buffer, { failOn: "none" }).metadata();
-  const { width, height, format } = metadata;
+  const metadata = await sharp(params.buffer, { failOn: "none" }).metadata()
+  const { width, height, format } = metadata
 
   if (!width || !height || !format) {
-    throw new Error("could not decode image (no dimensions or format)");
+    throw new Error("could not decode image (no dimensions or format)")
   }
 
-  const longEdge = Math.max(width, height);
-  const passthroughMime = MODEL_SUPPORTED_FORMATS.get(format);
-  const fitsAsIs = params.buffer.length <= params.budgetBytes && longEdge <= MAX_LONG_EDGE_PX;
+  const longEdge = Math.max(width, height)
+  const passthroughMime = MODEL_SUPPORTED_FORMATS.get(format)
+  const fitsAsIs = params.buffer.length <= params.budgetBytes && longEdge <= MAX_LONG_EDGE_PX
 
   if (fitsAsIs && passthroughMime) {
     return {
@@ -113,32 +113,32 @@ export const fitImageToByteBudget = async (params: { buffer: Buffer; budgetBytes
       originalWidth: width,
       originalHeight: height,
       recompressed: false,
-    };
+    }
   }
 
-  const keepAlpha = Boolean(metadata.hasAlpha);
+  const keepAlpha = Boolean(metadata.hasAlpha)
   // Mutable descent state: each attempt either succeeds (returns) or tightens
   // quality/dimensions for the next — inherently sequential.
-  let longEdgePx = Math.min(longEdge, MAX_LONG_EDGE_PX);
-  let attemptCount = 0;
-  let qualityLadderIndex = 0;
-  let lastEncodedBytes = params.buffer.length;
+  let longEdgePx = Math.min(longEdge, MAX_LONG_EDGE_PX)
+  let attemptCount = 0
+  let qualityLadderIndex = 0
+  let lastEncodedBytes = params.buffer.length
 
   while (attemptCount < MAX_ENCODE_ATTEMPTS) {
     // The quality this attempt encodes at: the next ladder rung while the
     // ladder descends, mid-ladder once dimension-shrinking takes over.
     const attemptQuality =
-      qualityLadderIndex < QUALITY_LADDER.length ? QUALITY_LADDER[qualityLadderIndex] : MID_LADDER_QUALITY;
+      qualityLadderIndex < QUALITY_LADDER.length ? QUALITY_LADDER[qualityLadderIndex] : MID_LADDER_QUALITY
 
-    if (!attemptQuality) break;
+    if (!attemptQuality) break
     const { data, info } = await encodeAttempt({
       buffer: params.buffer,
       longEdgePx,
       quality: attemptQuality,
       keepAlpha,
-    });
-    attemptCount += 1;
-    lastEncodedBytes = info.size;
+    })
+    attemptCount += 1
+    lastEncodedBytes = info.size
     if (info.size <= params.budgetBytes) {
       return {
         data,
@@ -148,27 +148,27 @@ export const fitImageToByteBudget = async (params: { buffer: Buffer; budgetBytes
         originalWidth: width,
         originalHeight: height,
         recompressed: true,
-      };
+      }
     }
     if (qualityLadderIndex < QUALITY_LADDER.length - 1) {
-      qualityLadderIndex += 1;
-      continue;
+      qualityLadderIndex += 1
+      continue
     }
     // Ladder floor still over budget — shrink dimensions. sqrt because encoded
     // size scales roughly with pixel area; the 0.7 clamp guarantees each step
     // is a real reduction even when the overshoot is marginal. Descent clamps
     // to the 64px floor and encodes there before giving up — breaking only
     // when no further reduction is possible.
-    qualityLadderIndex = QUALITY_LADDER.length;
-    const areaScale = Math.sqrt(params.budgetBytes / lastEncodedBytes);
-    const nextLongEdgePx = Math.max(MIN_LONG_EDGE_PX, Math.floor(longEdgePx * Math.min(areaScale, 0.7)));
+    qualityLadderIndex = QUALITY_LADDER.length
+    const areaScale = Math.sqrt(params.budgetBytes / lastEncodedBytes)
+    const nextLongEdgePx = Math.max(MIN_LONG_EDGE_PX, Math.floor(longEdgePx * Math.min(areaScale, 0.7)))
 
-    if (nextLongEdgePx >= longEdgePx) break;
-    longEdgePx = nextLongEdgePx;
+    if (nextLongEdgePx >= longEdgePx) break
+    longEdgePx = nextLongEdgePx
   }
 
   throw new Error(
     `image cannot be fitted into ${params.budgetBytes} bytes ` +
       `(smallest attempt was ${lastEncodedBytes} bytes after ${attemptCount} attempts)`,
-  );
-};
+  )
+}

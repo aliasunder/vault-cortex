@@ -1,5 +1,5 @@
-import matter from "gray-matter";
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import matter from "gray-matter"
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml"
 
 /**
  * gray-matter engine override: js-yaml's default YAML 1.1 schema parses
@@ -19,18 +19,18 @@ const MATTER_OPTIONS = {
       parse: (input: string): Record<string, unknown> => {
         // YAML.parse returns null for empty/comment-only input; gray-matter
         // expects an object for `data`
-        const parsed: unknown = parseYaml(input);
-        const isPlainObject = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
+        const parsed: unknown = parseYaml(input)
+        const isPlainObject = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
 
-        if (!isPlainObject) return {};
+        if (!isPlainObject) return {}
         // parseYaml returns a plain object for valid YAML mappings;
         // round-trip through entries to satisfy Record<string, unknown>
-        return Object.fromEntries(Object.entries(parsed));
+        return Object.fromEntries(Object.entries(parsed))
       },
       stringify: (data: object): string => stringifyYaml(data, { lineWidth: 0, nullStr: "" }),
     },
   },
-};
+}
 
 /**
  * Frontmatter and body of a parsed note. This is `parseNote`'s whole
@@ -38,9 +38,9 @@ const MATTER_OPTIONS = {
  * (excerpt, language, orig) that no caller may rely on.
  */
 export type ParsedNote = {
-  data: Record<string, unknown>;
-  content: string;
-};
+  data: Record<string, unknown>
+  content: string
+}
 
 /**
  * Matches a frontmatter opener: `---` alone on the first line (optional
@@ -50,7 +50,7 @@ export type ParsedNote = {
  * unregistered names (Multi Column Markdown's
  * `--- start-multi-column: <name>` syntax, issue #485).
  */
-const FRONTMATTER_OPENER = /^\uFEFF?---[ \t]*(\r?\n|$)/;
+const FRONTMATTER_OPENER = /^\uFEFF?---[ \t]*(\r?\n|$)/
 
 /**
  * Matches a frontmatter closer after the opener line: any later line
@@ -59,7 +59,7 @@ const FRONTMATTER_OPENER = /^\uFEFF?---[ \t]*(\r?\n|$)/;
  * skips rendering such a block), and gray-matter closes on the same
  * prefix, so the two parsers agree.
  */
-const FRONTMATTER_CLOSER = /\n---/;
+const FRONTMATTER_CLOSER = /\n---/
 
 /**
  * Parses a note into frontmatter `data` + `content`, with the
@@ -79,18 +79,18 @@ const FRONTMATTER_CLOSER = /\n---/;
  * UTC-Z datetime bug.
  */
 export const parseNote = (content: string): ParsedNote => {
-  const hasFrontmatterFences = FRONTMATTER_OPENER.test(content) && FRONTMATTER_CLOSER.test(content);
+  const hasFrontmatterFences = FRONTMATTER_OPENER.test(content) && FRONTMATTER_CLOSER.test(content)
 
   if (hasFrontmatterFences) {
     // Rebuilt as a literal so the runtime value carries exactly the
     // declared fields — gray-matter's result has extra enumerable keys
     // (excerpt, isEmpty) that would otherwise leak through spreads
-    const parsed = matter(content, MATTER_OPTIONS);
-    return { data: parsed.data, content: parsed.content };
+    const parsed = matter(content, MATTER_OPTIONS)
+    return { data: parsed.data, content: parsed.content }
   }
-  const contentWithoutBom = content.startsWith("\uFEFF") ? content.slice(1) : content;
-  return { data: {}, content: contentWithoutBom };
-};
+  const contentWithoutBom = content.startsWith("\uFEFF") ? content.slice(1) : content
+  return { data: {}, content: contentWithoutBom }
+}
 
 /**
  * Serializes a body + frontmatter object back into a note string, with
@@ -108,7 +108,7 @@ export const parseNote = (content: string): ParsedNote => {
  * datetime bug.
  */
 export const stringifyNote = (body: string, data: object): string =>
-  matter.stringify({ content: body }, data, MATTER_OPTIONS);
+  matter.stringify({ content: body }, data, MATTER_OPTIONS)
 
 /**
  * Merges `updates` into `existing` frontmatter. A key explicitly set to
@@ -125,8 +125,8 @@ export const mergeFrontmatter = (
     Object.entries(updates)
       .filter(([, updateValue]) => updateValue === null)
       .map(([updateKey]) => updateKey),
-  );
+  )
   return Object.fromEntries(
     Object.entries({ ...existing, ...updates }).filter(([mergedKey]) => !deletedKeys.has(mergedKey)),
-  );
-};
+  )
+}

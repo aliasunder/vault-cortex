@@ -3,8 +3,8 @@
  *  the MCP token comes from, and what happens next. Same visual shell as the
  *  OAuth consent page. */
 
-import { escapeHtml } from "../../utils/escape-html.js";
-import { NEWEST_SUPPORTED_ENCRYPTION_VERSION } from "./vault-key.js";
+import { escapeHtml } from "../../utils/escape-html.js"
+import { NEWEST_SUPPORTED_ENCRYPTION_VERSION } from "./vault-key.js"
 
 /** Why sign-in cannot finish: the deployment's own settings would make the
  *  next boot fail, so the token is not written until they are fixed. */
@@ -20,50 +20,50 @@ export type PreflightProblem =
    *  version is newer than the Sync client the image ships, or the listing
    *  entry lacks a field the check needs (`encryptionVersion` undefined). */
   | {
-      kind: "vault-key-underivable";
-      vaultName: string;
-      encryptionVersion: number | undefined;
-    };
+      kind: "vault-key-underivable"
+      vaultName: string
+      encryptionVersion: number | undefined
+    }
 
 /** The container hosting platforms whose dashboards the page can name.
  *  Undefined means unknown, and the copy falls back to "your deployment's
  *  settings". */
-export type HostingPlatform = "render" | "railway";
+export type HostingPlatform = "render" | "railway"
 
 /** Where the reader finds the deployment's settings, as a noun phrase that
  *  slots after "from", "in", or "to". The platform phrases use each deploy
  *  guide's exact tab name so the page and the guide agree. */
 export const settingsLocation = (hostingPlatform: HostingPlatform | undefined): string => {
-  if (hostingPlatform === "render") return "the service's Environment tab on Render";
-  if (hostingPlatform === "railway") return "the service's Variables tab on Railway";
-  return "your deployment's settings";
-};
+  if (hostingPlatform === "render") return "the service's Environment tab on Render"
+  if (hostingPlatform === "railway") return "the service's Variables tab on Railway"
+  return "your deployment's settings"
+}
 
 export type SetupView =
   | {
-      kind: "sign-in";
-      error?: string | undefined;
+      kind: "sign-in"
+      error?: string | undefined
       /** The saved login was rejected at boot — say so above the form. */
-      savedLoginRejected: boolean;
+      savedLoginRejected: boolean
       /** The page arrived over plain HTTP from a non-local address. */
-      insecureTransport: boolean;
-      hostingPlatform?: HostingPlatform | undefined;
+      insecureTransport: boolean
+      hostingPlatform?: HostingPlatform | undefined
     }
   | { kind: "mfa"; requestId: string; error?: string | undefined }
   | {
-      kind: "blocked";
-      accountEmail: string;
-      problem: PreflightProblem;
-      hostingPlatform?: HostingPlatform | undefined;
+      kind: "blocked"
+      accountEmail: string
+      problem: PreflightProblem
+      hostingPlatform?: HostingPlatform | undefined
     }
   | {
-      kind: "complete";
-      accountEmail: string;
+      kind: "complete"
+      accountEmail: string
       /** Where the MCP client connects once the server is up; undefined when
        *  PUBLIC_URL is not set. */
-      mcpUrl: string | undefined;
+      mcpUrl: string | undefined
     }
-  | { kind: "configured" };
+  | { kind: "configured" }
 
 const STYLE = `
   *{box-sizing:border-box;margin:0;padding:0}
@@ -90,7 +90,7 @@ const STYLE = `
   .notice{background:#1e293b;border:1px solid #334155;color:#cbd5e1;padding:.5rem .75rem;border-radius:6px;font-size:.85rem;margin-bottom:1rem}
   .spinner{display:inline-block;width:.8rem;height:.8rem;border:2px solid #6366f1;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;vertical-align:-.1rem;margin-right:.4rem}
   @keyframes spin{to{transform:rotate(360deg)}}
-`;
+`
 
 const shell = (title: string, body: string): string => `<!DOCTYPE html>
 <html lang="en">
@@ -105,9 +105,9 @@ const shell = (title: string, body: string): string => `<!DOCTYPE html>
 ${body}
 </div>
 </body>
-</html>`;
+</html>`
 
-const errorBox = (error: string | undefined): string => (error ? `<div class="error">${escapeHtml(error)}</div>` : "");
+const errorBox = (error: string | undefined): string => (error ? `<div class="error">${escapeHtml(error)}</div>` : "")
 
 const tokenField = (settingsLocationPhrase: string): string => `<div class="field">
     <label class="label" for="token">MCP token</label>
@@ -116,7 +116,7 @@ const tokenField = (settingsLocationPhrase: string): string => `<div class="fiel
       <button type="button" class="reveal" aria-label="Show or hide token" onclick="var t=document.getElementById('token');var s=t.type==='password';t.type=s?'text':'password';this.textContent=s?'Hide':'Show'">Show</button>
     </div>
     <div class="hint">The <code>MCP_AUTH_TOKEN</code> value from ${settingsLocationPhrase} — it proves this is your server.</div>
-  </div>`;
+  </div>`
 
 const renderSignIn = ({
   error,
@@ -151,7 +151,7 @@ const renderSignIn = ({
   </div>
   <button type="submit" class="primary">Sign in</button>
   </form>`,
-  );
+  )
 
 const renderMfa = ({ requestId, error }: Extract<SetupView, { kind: "mfa" }>): string =>
   shell(
@@ -167,36 +167,36 @@ const renderMfa = ({ requestId, error }: Extract<SetupView, { kind: "mfa" }>): s
   </div>
   <button type="submit" class="primary">Verify</button>
   </form>`,
-  );
+  )
 
 const problemCopy = (problem: PreflightProblem, settingsLocationPhrase: string): string => {
   switch (problem.kind) {
     case "vault-name-unset":
       return `<p><code>VAULT_NAME</code> is not set, so the server does not know which vault to sync.</p>
-  <p>Add <code>VAULT_NAME</code> to ${settingsLocationPhrase} — your vault's name, the same as it is in Obsidian — then redeploy and sign in here again.</p>`;
+  <p>Add <code>VAULT_NAME</code> to ${settingsLocationPhrase} — your vault's name, the same as it is in Obsidian — then redeploy and sign in here again.</p>`
     case "vault-not-found": {
       const vaultList = problem.vaultNames.length
         ? `<p>Your account's vaults:</p><ul>${problem.vaultNames
             .map((vaultName) => `<li><code>${escapeHtml(vaultName)}</code></li>`)
             .join("")}</ul>`
-        : `<p>Your account has no vaults in Obsidian Sync yet.</p>`;
+        : `<p>Your account has no vaults in Obsidian Sync yet.</p>`
       return `<p>There is no vault named <code>${escapeHtml(problem.vaultName)}</code> in this Obsidian account (names are case-sensitive).</p>
   ${vaultList}
-  <p>Fix <code>VAULT_NAME</code> in ${settingsLocationPhrase}, redeploy, then sign in here again.</p>`;
+  <p>Fix <code>VAULT_NAME</code> in ${settingsLocationPhrase}, redeploy, then sign in here again.</p>`
     }
     case "vault-name-ambiguous":
       return `<p>This Obsidian account has more than one vault named <code>${escapeHtml(problem.vaultName)}</code>, so the server cannot tell which one to sync.</p>
-  <p>Rename one of them in Obsidian, then sign in here again.</p>`;
+  <p>Rename one of them in Obsidian, then sign in here again.</p>`
     case "password-missing":
       return `<p>The vault <code>${escapeHtml(problem.vaultName)}</code> is end-to-end encrypted, and <code>VAULT_PASSWORD</code> is not set.</p>
-  <p>Add <code>VAULT_PASSWORD</code> — the vault's encryption password — to ${settingsLocationPhrase}, redeploy, then sign in here again.</p>`;
+  <p>Add <code>VAULT_PASSWORD</code> — the vault's encryption password — to ${settingsLocationPhrase}, redeploy, then sign in here again.</p>`
     case "vault-access-rejected":
       return `<p>Obsidian did not accept <code>VAULT_PASSWORD</code> for the vault <code>${escapeHtml(problem.vaultName)}</code>: ${escapeHtml(problem.apiMessage)}</p>
-  <p>Fix <code>VAULT_PASSWORD</code> — the vault's encryption password — in ${settingsLocationPhrase}, redeploy, then sign in here again.</p>`;
+  <p>Fix <code>VAULT_PASSWORD</code> — the vault's encryption password — in ${settingsLocationPhrase}, redeploy, then sign in here again.</p>`
     case "vault-key-underivable":
-      return underivableKeyCopy(problem);
+      return underivableKeyCopy(problem)
   }
-};
+}
 
 const underivableKeyCopy = ({
   vaultName,
@@ -204,15 +204,15 @@ const underivableKeyCopy = ({
 }: Extract<PreflightProblem, { kind: "vault-key-underivable" }>): string => {
   if (encryptionVersion === undefined) {
     return `<p>Obsidian's vault listing did not include what this server needs to check the password for <code>${escapeHtml(vaultName)}</code>, so syncing it would fail on the next start.</p>
-  <p>Try again in a few minutes. If it keeps happening, report it with the vault's Obsidian Sync settings.</p>`;
+  <p>Try again in a few minutes. If it keeps happening, report it with the vault's Obsidian Sync settings.</p>`
   }
   const remedy =
     encryptionVersion > NEWEST_SUPPORTED_ENCRYPTION_VERSION
       ? "Update the server to a newer release, redeploy, then sign in here again."
-      : "Report it with the vault's Obsidian Sync settings.";
+      : "Report it with the vault's Obsidian Sync settings."
   return `<p>The vault <code>${escapeHtml(vaultName)}</code> uses encryption version ${escapeHtml(String(encryptionVersion))}, which the Obsidian Sync client this server ships does not support, so syncing it would fail on the next start.</p>
-  <p>${remedy}</p>`;
-};
+  <p>${remedy}</p>`
+}
 
 const renderBlocked = ({ accountEmail, problem, hostingPlatform }: Extract<SetupView, { kind: "blocked" }>): string =>
   shell(
@@ -221,11 +221,11 @@ const renderBlocked = ({ accountEmail, problem, hostingPlatform }: Extract<Setup
   <p>Signed in as <strong>${escapeHtml(accountEmail)}</strong>.</p>
   ${problemCopy(problem, settingsLocation(hostingPlatform))}
   <p class="muted">Nothing was saved this time; the sign-in only takes a moment to repeat.</p>`,
-  );
+  )
 
 /** Polls /healthz until the full server answers (no <code>mode: setup</code>
  *  in the body), tolerating the connection failures of the restart. */
-const COMPLETE_SCRIPT = `(function(){function ready(){document.getElementById('waiting').hidden=true;document.getElementById('ready').hidden=false}function poll(){fetch('/healthz',{cache:'no-store'}).then(function(r){return r.ok?r.json():null}).then(function(b){if(b&&b.mode!=='setup'){ready();return}setTimeout(poll,5000)}).catch(function(){setTimeout(poll,5000)})}setTimeout(poll,5000)})();`;
+const COMPLETE_SCRIPT = `(function(){function ready(){document.getElementById('waiting').hidden=true;document.getElementById('ready').hidden=false}function poll(){fetch('/healthz',{cache:'no-store'}).then(function(r){return r.ok?r.json():null}).then(function(b){if(b&&b.mode!=='setup'){ready();return}setTimeout(poll,5000)}).catch(function(){setTimeout(poll,5000)})}setTimeout(poll,5000)})();`
 
 const renderComplete = ({ accountEmail, mcpUrl }: Extract<SetupView, { kind: "complete" }>): string =>
   shell(
@@ -245,26 +245,26 @@ const renderComplete = ({ accountEmail, mcpUrl }: Extract<SetupView, { kind: "co
     }
   </div>
   <script>${COMPLETE_SCRIPT}</script>`,
-  );
+  )
 
 const renderConfigured = (): string =>
   shell(
     "Already set up",
     `<h1>Already set up</h1>
   <p>This server is set up and running — there is nothing to do on this page.</p>`,
-  );
+  )
 
 export const renderSetupPage = (view: SetupView): string => {
   switch (view.kind) {
     case "sign-in":
-      return renderSignIn(view);
+      return renderSignIn(view)
     case "mfa":
-      return renderMfa(view);
+      return renderMfa(view)
     case "blocked":
-      return renderBlocked(view);
+      return renderBlocked(view)
     case "complete":
-      return renderComplete(view);
+      return renderComplete(view)
     case "configured":
-      return renderConfigured();
+      return renderConfigured()
   }
-};
+}

@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { momentToLuxonFormat, findUnsupportedTokens } from "../moment-format.js";
+import { describe, it, expect } from "vitest"
+import { momentToLuxonFormat, findUnsupportedTokens } from "../moment-format.js"
 
 describe("momentToLuxonFormat", () => {
   const scenarios = [
@@ -99,68 +99,68 @@ describe("momentToLuxonFormat", () => {
       input: "DDMM",
       expected: "ddMM",
     },
-  ];
+  ]
 
   it.each(scenarios)("$name", ({ input, expected }) => {
-    expect(momentToLuxonFormat(input)).toBe(expected);
-  });
-});
+    expect(momentToLuxonFormat(input)).toBe(expected)
+  })
+})
 
 describe("findUnsupportedTokens", () => {
   it("returns Do when ordinal day is in the format", () => {
-    expect(findUnsupportedTokens("MMMM Do, YYYY")).toEqual(["Do"]);
-  });
+    expect(findUnsupportedTokens("MMMM Do, YYYY")).toEqual(["Do"])
+  })
 
   it("returns dd when 2-letter weekday is in the format", () => {
-    expect(findUnsupportedTokens("YYYY-MM-DD dd")).toEqual(["dd"]);
-  });
+    expect(findUnsupportedTokens("YYYY-MM-DD dd")).toEqual(["dd"])
+  })
 
   it("returns both when both appear", () => {
-    expect(findUnsupportedTokens("Do dd")).toEqual(["Do", "dd"]);
-  });
+    expect(findUnsupportedTokens("Do dd")).toEqual(["Do", "dd"])
+  })
 
   it("returns empty array for a standard format", () => {
-    expect(findUnsupportedTokens("YYYY-MM-DD")).toEqual([]);
-  });
+    expect(findUnsupportedTokens("YYYY-MM-DD")).toEqual([])
+  })
 
   it("ignores tokens inside [literal] escapes", () => {
-    expect(findUnsupportedTokens("[Do] DD")).toEqual([]);
-  });
+    expect(findUnsupportedTokens("[Do] DD")).toEqual([])
+  })
 
   it("detects tokens outside a literal even when a literal exists", () => {
-    expect(findUnsupportedTokens("[Note] Do")).toEqual(["Do"]);
-  });
+    expect(findUnsupportedTokens("[Note] Do")).toEqual(["Do"])
+  })
 
   it("does not false-positive on ddd or dddd (supported tokens)", () => {
-    expect(findUnsupportedTokens("YYYY-MM-DD-ddd")).toEqual([]);
-    expect(findUnsupportedTokens("YYYY-MM-DD-dddd")).toEqual([]);
-  });
+    expect(findUnsupportedTokens("YYYY-MM-DD-ddd")).toEqual([])
+    expect(findUnsupportedTokens("YYYY-MM-DD-dddd")).toEqual([])
+  })
 
   it("detects ordinal tokens (Mo, DDDo, wo)", () => {
-    expect(findUnsupportedTokens("Mo")).toEqual(["Mo"]);
-    expect(findUnsupportedTokens("DDDo")).toEqual(["DDDo"]);
-    expect(findUnsupportedTokens("wo")).toEqual(["wo"]);
-  });
+    expect(findUnsupportedTokens("Mo")).toEqual(["Mo"])
+    expect(findUnsupportedTokens("DDDo")).toEqual(["DDDo"])
+    expect(findUnsupportedTokens("wo")).toEqual(["wo"])
+  })
 
   it("detects weekday number d without false-positive on D or DD", () => {
-    expect(findUnsupportedTokens("YYYY-MM-DD d")).toContain("d");
-    expect(findUnsupportedTokens("YYYY-MM-DD")).not.toContain("d");
-    expect(findUnsupportedTokens("D")).not.toContain("d");
-  });
+    expect(findUnsupportedTokens("YYYY-MM-DD d")).toContain("d")
+    expect(findUnsupportedTokens("YYYY-MM-DD")).not.toContain("d")
+    expect(findUnsupportedTokens("D")).not.toContain("d")
+  })
 
   it("detects localized format tokens (L, LL, LLL, LLLL, LT, LTS)", () => {
-    expect(findUnsupportedTokens("L")).toEqual(["L"]);
-    expect(findUnsupportedTokens("LLLL")).toEqual(["LLLL"]);
-    expect(findUnsupportedTokens("LT")).toEqual(["LT"]);
-    expect(findUnsupportedTokens("LTS")).toEqual(["LTS"]);
-  });
+    expect(findUnsupportedTokens("L")).toEqual(["L"])
+    expect(findUnsupportedTokens("LLLL")).toEqual(["LLLL"])
+    expect(findUnsupportedTokens("LT")).toEqual(["LT"])
+    expect(findUnsupportedTokens("LTS")).toEqual(["LTS"])
+  })
 
   it("detects k/kk (1-24 hour)", () => {
-    expect(findUnsupportedTokens("kk:mm")).toEqual(["kk"]);
-    expect(findUnsupportedTokens("k:mm")).toEqual(["k"]);
-  });
+    expect(findUnsupportedTokens("kk:mm")).toEqual(["kk"])
+    expect(findUnsupportedTokens("k:mm")).toEqual(["k"])
+  })
 
   it("detects e (locale weekday number)", () => {
-    expect(findUnsupportedTokens("YYYY e")).toEqual(["e"]);
-  });
-});
+    expect(findUnsupportedTokens("YYYY e")).toEqual(["e"])
+  })
+})

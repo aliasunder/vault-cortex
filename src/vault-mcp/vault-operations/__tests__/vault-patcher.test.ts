@@ -1,33 +1,33 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { vaultPatcher } from "../vault-patcher.js";
-import { logger } from "../../../logger.js";
+import { describe, it, expect, beforeEach, afterEach } from "vitest"
+import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
+import { vaultPatcher } from "../vault-patcher.js"
+import { logger } from "../../../logger.js"
 
 const { patchNote, replaceInNote, deleteSpan, replaceSpan, insertAtAnchor, findTrailingCommentBlockStart } =
-  vaultPatcher;
+  vaultPatcher
 
-let vault: string;
+let vault: string
 
 beforeEach(async () => {
-  vault = await mkdtemp(join(tmpdir(), "vault-patcher-test-"));
-});
+  vault = await mkdtemp(join(tmpdir(), "vault-patcher-test-"))
+})
 
 afterEach(async () => {
-  await rm(vault, { recursive: true });
-});
+  await rm(vault, { recursive: true })
+})
 
 // ── Helpers ─────────────────────────────────────────────────────
 
 const writeTestNote = async (name: string, content: string): Promise<void> => {
-  const dir = join(vault, ...name.split("/").slice(0, -1));
+  const dir = join(vault, ...name.split("/").slice(0, -1))
 
-  if (dir !== vault) await mkdir(dir, { recursive: true });
-  await writeFile(join(vault, name), content, "utf8");
-};
+  if (dir !== vault) await mkdir(dir, { recursive: true })
+  await writeFile(join(vault, name), content, "utf8")
+}
 
-const readTestNote = async (name: string): Promise<string> => readFile(join(vault, name), "utf8");
+const readTestNote = async (name: string): Promise<string> => readFile(join(vault, name), "utf8")
 
 const NOTE_WITH_SECTIONS = `---
 title: Test Note
@@ -50,7 +50,7 @@ Intro paragraph.
 
 ## Done
 - [x] Task D
-`;
+`
 
 const NOTE_NO_FRONTMATTER = `# Title
 
@@ -59,7 +59,7 @@ Content one.
 
 ## Section Two
 Content two.
-`;
+`
 
 const NOTE_WITH_CODE_BLOCK = `---
 title: Code Example
@@ -77,7 +77,7 @@ This should be ignored.
 ## Another Real Heading
 
 More text.
-`;
+`
 
 const NOTE_KANBAN = `---
 kanban-plugin: board
@@ -96,7 +96,7 @@ kanban-plugin: board
 {"kanban-plugin":"board"}
 \`\`\`
 %%
-`;
+`
 
 const NOTE_TRAILING_SINGLE_LINE_COMMENT = `---
 title: Inline
@@ -107,7 +107,7 @@ title: Inline
 - [x] Done item
 
 %% private board note %%
-`;
+`
 
 // The inline comment is mid-body of the LAST section, with content after it —
 // so a false-positive "trailing block" detection would wrongly preserve it.
@@ -124,7 +124,7 @@ title: Midbody
 - [x] Task D
 %% reminder: refile these %%
 - [x] Task E
-`;
+`
 
 // The `%%` line sits inside a fenced code block at EOF. A non-fence-aware scan
 // would mistake it for a trailing comment opener and stop the section short.
@@ -138,7 +138,7 @@ title: Config example
 %% example: edit this
 key = value
 \`\`\`
-`;
+`
 
 const NOTE_NESTED_HEADING_KANBAN = `---
 kanban-plugin: board
@@ -157,7 +157,7 @@ kanban-plugin: board
 {"kanban-plugin":"board"}
 \`\`\`
 %%
-`;
+`
 
 // ── findTrailingCommentBlockStart (direct unit tests) ──────────
 
@@ -173,81 +173,81 @@ describe("markdown path requirement", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")');
-  });
+    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
+  })
 
   it("replaceInNote rejects a path without the .md extension", async () => {
     await expect(
       replaceInNote({ vaultPath: vault, path: "Projects/Plan", oldText: "a", newText: "b" }, logger),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")');
-  });
+    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
+  })
 
   it("deleteSpan rejects a path without the .md extension", async () => {
     await expect(deleteSpan({ vaultPath: vault, path: "Projects/Plan", startAnchor: "x" }, logger)).rejects.toThrow(
       'path must end in ".md" (received "Projects/Plan")',
-    );
-  });
-});
+    )
+  })
+})
 
 describe("findTrailingCommentBlockStart", () => {
   it("returns 0 for empty input", () => {
-    expect(findTrailingCommentBlockStart([])).toBe(0);
-  });
+    expect(findTrailingCommentBlockStart([])).toBe(0)
+  })
 
   it("returns lines.length when no comment delimiters exist", () => {
-    const lines = ["## Heading", "Some content", "More content"];
-    expect(findTrailingCommentBlockStart(lines)).toBe(3);
-  });
+    const lines = ["## Heading", "Some content", "More content"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(3)
+  })
 
   it("finds a multi-line trailing comment block", () => {
-    const lines = ["## Done", "- [x] Task", "", "%% kanban:settings", "```", '{"key":"val"}', "```", "%%"];
-    expect(findTrailingCommentBlockStart(lines)).toBe(2);
-  });
+    const lines = ["## Done", "- [x] Task", "", "%% kanban:settings", "```", '{"key":"val"}', "```", "%%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
 
   it("finds a single-line trailing comment", () => {
-    const lines = ["## Notes", "Content", "", "%% private note %%"];
-    expect(findTrailingCommentBlockStart(lines)).toBe(2);
-  });
+    const lines = ["## Notes", "Content", "", "%% private note %%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
 
   it("ignores a mid-body comment followed by more content", () => {
-    const lines = ["%% reminder %%", "- [ ] Task A", "## Done", "- [x] Task D"];
-    expect(findTrailingCommentBlockStart(lines)).toBe(4);
-  });
+    const lines = ["%% reminder %%", "- [ ] Task A", "## Done", "- [x] Task D"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(4)
+  })
 
   it("ignores %% inside a fenced code block", () => {
-    const lines = ["## Section", "```", "%% not a comment %%", "```"];
-    expect(findTrailingCommentBlockStart(lines)).toBe(4);
-  });
+    const lines = ["## Section", "```", "%% not a comment %%", "```"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(4)
+  })
 
   it("detects a trailing block when it starts on the first line", () => {
-    const lines = ["%% only comment %%"];
-    expect(findTrailingCommentBlockStart(lines)).toBe(0);
-  });
+    const lines = ["%% only comment %%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(0)
+  })
 
   it("detects the last trailing block when multiple comment blocks exist", () => {
-    const lines = ["%% first %%", "content", "%% second %%"];
-    expect(findTrailingCommentBlockStart(lines)).toBe(2);
-  });
+    const lines = ["%% first %%", "content", "%% second %%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
 
   it("handles an unclosed comment running to EOF", () => {
-    const lines = ["## Heading", "Content", "%% unclosed", "still in comment"];
-    expect(findTrailingCommentBlockStart(lines)).toBe(2);
-  });
+    const lines = ["## Heading", "Content", "%% unclosed", "still in comment"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
 
   it("returns lines.length when the last block has content after it", () => {
-    const lines = ["%% comment %%", "content after"];
-    expect(findTrailingCommentBlockStart(lines)).toBe(2);
-  });
+    const lines = ["%% comment %%", "content after"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
 
   it("absorbs blank lines preceding the trailing block", () => {
-    const lines = ["## Done", "Content", "", "", "%% settings %%"];
-    expect(findTrailingCommentBlockStart(lines)).toBe(2);
-  });
+    const lines = ["## Done", "Content", "", "", "%% settings %%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(2)
+  })
 
   it("allows trailing blank lines after the closing %%", () => {
-    const lines = ["%% block %%", ""];
-    expect(findTrailingCommentBlockStart(lines)).toBe(0);
-  });
+    const lines = ["%% block %%", ""]
+    expect(findTrailingCommentBlockStart(lines)).toBe(0)
+  })
 
   it("ignores a single mid-line %% before a multi-line trailing block", () => {
     // Stray `%%` in card text (e.g. `100%%`) is not at a line boundary, so it
@@ -255,9 +255,9 @@ describe("findTrailingCommentBlockStart", () => {
     // `%% kanban:settings` opener as a *closer* to the stray comment opened
     // on line 0, shifting the detected block to the trailing `%%` on line 6
     // — yielding 6 instead of 1.
-    const lines = ["- [x] Card with 100%% off", "", "%% kanban:settings", "```", '{"key":"val"}', "```", "%%"];
-    expect(findTrailingCommentBlockStart(lines)).toBe(1);
-  });
+    const lines = ["- [x] Card with 100%% off", "", "%% kanban:settings", "```", '{"key":"val"}', "```", "%%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(1)
+  })
 
   it("ignores an odd count of mid-line %% before a multi-line trailing block", () => {
     // Three mid-line `%%` leave a per-substring counter in "open" state
@@ -274,18 +274,18 @@ describe("findTrailingCommentBlockStart", () => {
       '{"key":"val"}',
       "```",
       "%%",
-    ];
-    expect(findTrailingCommentBlockStart(lines)).toBe(3);
-  });
+    ]
+    expect(findTrailingCommentBlockStart(lines)).toBe(3)
+  })
 
   it("ignores %% embedded mid-word with no surrounding whitespace", () => {
     // `100%%done` has no whitespace around the `%%`, so it is not a
     // delimiter. Same regression scenario as the single-mid-line case: a
     // per-substring count would shift the block to line 6.
-    const lines = ["- [x] Score: 100%%done bonus", "", "%% kanban:settings", "```", '{"key":"val"}', "```", "%%"];
-    expect(findTrailingCommentBlockStart(lines)).toBe(1);
-  });
-});
+    const lines = ["- [x] Score: 100%%done bonus", "", "%% kanban:settings", "```", '{"key":"val"}', "```", "%%"]
+    expect(findTrailingCommentBlockStart(lines)).toBe(1)
+  })
+})
 
 // ── parseHeadings (tested indirectly via patchNote) ─────────────
 
@@ -314,8 +314,8 @@ Content under H4.
 Content under H5.
 ###### H6
 Content under H6.
-`;
-    await writeTestNote(`level-${level}.md`, content);
+`
+    await writeTestNote(`level-${level}.md`, content)
     await patchNote(
       {
         vaultPath: vault,
@@ -326,17 +326,17 @@ Content under H6.
         headingLevel: level,
       },
       logger,
-    );
-    const updated = await readTestNote(`level-${level}.md`);
-    const lines = updated.split("\n");
-    const existingIdx = lines.findIndex((line) => line === `Content under ${heading}.`);
-    const appendedIdx = lines.findIndex((line) => line === `Appended to ${heading}.`);
-    expect(existingIdx).toBeGreaterThan(-1);
-    expect(appendedIdx).toBeGreaterThan(existingIdx);
-  });
+    )
+    const updated = await readTestNote(`level-${level}.md`)
+    const lines = updated.split("\n")
+    const existingIdx = lines.findIndex((line) => line === `Content under ${heading}.`)
+    const appendedIdx = lines.findIndex((line) => line === `Appended to ${heading}.`)
+    expect(existingIdx).toBeGreaterThan(-1)
+    expect(appendedIdx).toBeGreaterThan(existingIdx)
+  })
 
   it("ignores headings inside fenced code blocks", async () => {
-    await writeTestNote("code.md", NOTE_WITH_CODE_BLOCK);
+    await writeTestNote("code.md", NOTE_WITH_CODE_BLOCK)
     // "Fake Heading Inside Code" should not be found
     await expect(
       patchNote(
@@ -349,11 +349,11 @@ Content under H6.
         },
         logger,
       ),
-    ).rejects.toThrow("heading not found");
-  });
+    ).rejects.toThrow("heading not found")
+  })
 
   it("targets real headings around code blocks", async () => {
-    await writeTestNote("code.md", NOTE_WITH_CODE_BLOCK);
+    await writeTestNote("code.md", NOTE_WITH_CODE_BLOCK)
     await patchNote(
       {
         vaultPath: vault,
@@ -363,16 +363,16 @@ Content under H6.
         heading: "Real Heading",
       },
       logger,
-    );
-    const updated = await readTestNote("code.md");
-    const lines = updated.split("\n");
-    const someTextIdx = lines.findIndex((line) => line === "Some text.");
-    const appendedIdx = lines.findIndex((line) => line === "appended text");
-    const anotherIdx = lines.findIndex((line) => line === "## Another Real Heading");
-    expect(someTextIdx).toBeGreaterThan(-1);
-    expect(appendedIdx).toBeGreaterThan(someTextIdx);
-    expect(anotherIdx).toBeGreaterThan(appendedIdx);
-  });
+    )
+    const updated = await readTestNote("code.md")
+    const lines = updated.split("\n")
+    const someTextIdx = lines.findIndex((line) => line === "Some text.")
+    const appendedIdx = lines.findIndex((line) => line === "appended text")
+    const anotherIdx = lines.findIndex((line) => line === "## Another Real Heading")
+    expect(someTextIdx).toBeGreaterThan(-1)
+    expect(appendedIdx).toBeGreaterThan(someTextIdx)
+    expect(anotherIdx).toBeGreaterThan(appendedIdx)
+  })
 
   it("strips trailing hashes from headings", async () => {
     const content = `---
@@ -382,8 +382,8 @@ title: Hashes
 ## Title With Hashes ##
 
 Content here.
-`;
-    await writeTestNote("hashes.md", content);
+`
+    await writeTestNote("hashes.md", content)
     await patchNote(
       {
         vaultPath: vault,
@@ -393,14 +393,14 @@ Content here.
         heading: "Title With Hashes",
       },
       logger,
-    );
-    const updated = await readTestNote("hashes.md");
-    const lines = updated.split("\n");
-    const contentIdx = lines.findIndex((line) => line === "Content here.");
-    const newLineIdx = lines.findIndex((line) => line === "new line");
-    expect(contentIdx).toBeGreaterThan(-1);
-    expect(newLineIdx).toBeGreaterThan(contentIdx);
-  });
+    )
+    const updated = await readTestNote("hashes.md")
+    const lines = updated.split("\n")
+    const contentIdx = lines.findIndex((line) => line === "Content here.")
+    const newLineIdx = lines.findIndex((line) => line === "new line")
+    expect(contentIdx).toBeGreaterThan(-1)
+    expect(newLineIdx).toBeGreaterThan(contentIdx)
+  })
 
   it("ignores headings inside nested fenced code blocks", async () => {
     const content = `---
@@ -418,8 +418,8 @@ Real content.
 
 ## Another Real Heading
 More content.
-`;
-    await writeTestNote("nested-fence.md", content);
+`
+    await writeTestNote("nested-fence.md", content)
     await expect(
       patchNote(
         {
@@ -431,7 +431,7 @@ More content.
         },
         logger,
       ),
-    ).rejects.toThrow("heading not found");
+    ).rejects.toThrow("heading not found")
     // Real headings are still reachable
     await patchNote(
       {
@@ -442,13 +442,13 @@ More content.
         heading: "Another Real Heading",
       },
       logger,
-    );
-    const updated = await readTestNote("nested-fence.md");
-    const lines = updated.split("\n");
-    const moreIdx = lines.findIndex((line) => line === "More content.");
-    const appendIdx = lines.findIndex((line) => line === "appended to real");
-    expect(appendIdx).toBeGreaterThan(moreIdx);
-  });
+    )
+    const updated = await readTestNote("nested-fence.md")
+    const lines = updated.split("\n")
+    const moreIdx = lines.findIndex((line) => line === "More content.")
+    const appendIdx = lines.findIndex((line) => line === "appended to real")
+    expect(appendIdx).toBeGreaterThan(moreIdx)
+  })
 
   it("ignores headings inside tilde-fenced code blocks", async () => {
     const content = `---
@@ -464,8 +464,8 @@ Content before.
 
 ## After
 Content after.
-`;
-    await writeTestNote("tilde.md", content);
+`
+    await writeTestNote("tilde.md", content)
     await expect(
       patchNote(
         {
@@ -477,11 +477,11 @@ Content after.
         },
         logger,
       ),
-    ).rejects.toThrow("heading not found");
-  });
+    ).rejects.toThrow("heading not found")
+  })
 
   it("returns empty list for file with no headings", async () => {
-    await writeTestNote("flat.md", "---\ntitle: Flat\n---\n\nJust text.\n");
+    await writeTestNote("flat.md", "---\ntitle: Flat\n---\n\nJust text.\n")
     await expect(
       patchNote(
         {
@@ -493,15 +493,15 @@ Content after.
         },
         logger,
       ),
-    ).rejects.toThrow("heading not found");
-  });
-});
+    ).rejects.toThrow("heading not found")
+  })
+})
 
 // ── findHeading (tested indirectly via error messages) ──────────
 
 describe("heading lookup", () => {
   it("matches case-sensitively", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await expect(
       patchNote(
         {
@@ -513,11 +513,11 @@ describe("heading lookup", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("heading not found");
-  });
+    ).rejects.toThrow("heading not found")
+  })
 
   it("errors on heading not found with available list", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await expect(
       patchNote(
         {
@@ -529,8 +529,8 @@ describe("heading lookup", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(/Available headings:.*Active/);
-  });
+    ).rejects.toThrow(/Available headings:.*Active/)
+  })
 
   it("errors on ambiguous heading", async () => {
     const content = `---
@@ -542,8 +542,8 @@ First content.
 
 ## Section
 Second content.
-`;
-    await writeTestNote("ambig.md", content);
+`
+    await writeTestNote("ambig.md", content)
     await expect(
       patchNote(
         {
@@ -555,8 +555,8 @@ Second content.
         },
         logger,
       ),
-    ).rejects.toThrow(/ambiguous.*2 sections.*Rename one heading/);
-  });
+    ).rejects.toThrow(/ambiguous.*2 sections.*Rename one heading/)
+  })
 
   it("errors on cross-level ambiguity with heading_level hint", async () => {
     const content = `---
@@ -568,8 +568,8 @@ Top-level.
 
 ## Overview
 Sub-level.
-`;
-    await writeTestNote("cross-level.md", content);
+`
+    await writeTestNote("cross-level.md", content)
     await expect(
       patchNote(
         {
@@ -581,8 +581,8 @@ Sub-level.
         },
         logger,
       ),
-    ).rejects.toThrow(/ambiguous.*heading_level/);
-  });
+    ).rejects.toThrow(/ambiguous.*heading_level/)
+  })
 
   it("disambiguates with heading_level", async () => {
     const content = `---
@@ -594,8 +594,8 @@ Top-level content.
 
 ## Overview
 Sub-level content.
-`;
-    await writeTestNote("levels.md", content);
+`
+    await writeTestNote("levels.md", content)
     await patchNote(
       {
         vaultPath: vault,
@@ -606,24 +606,24 @@ Sub-level content.
         headingLevel: 2,
       },
       logger,
-    );
-    const updated = await readTestNote("levels.md");
-    const lines = updated.split("\n");
-    const h1Idx = lines.findIndex((line) => line === "# Overview");
-    const topContentIdx = lines.findIndex((line) => line === "Top-level content.");
-    const h2Idx = lines.findIndex((line) => line === "## Overview");
-    const subContentIdx = lines.findIndex((line) => line === "Sub-level content.");
-    const addedIdx = lines.findIndex((line) => line === "added to H2");
+    )
+    const updated = await readTestNote("levels.md")
+    const lines = updated.split("\n")
+    const h1Idx = lines.findIndex((line) => line === "# Overview")
+    const topContentIdx = lines.findIndex((line) => line === "Top-level content.")
+    const h2Idx = lines.findIndex((line) => line === "## Overview")
+    const subContentIdx = lines.findIndex((line) => line === "Sub-level content.")
+    const addedIdx = lines.findIndex((line) => line === "added to H2")
     // added to H2 must be in the H2 section (after Sub-level content), not H1
-    expect(addedIdx).toBeGreaterThan(subContentIdx);
-    expect(addedIdx).toBeGreaterThan(h2Idx);
+    expect(addedIdx).toBeGreaterThan(subContentIdx)
+    expect(addedIdx).toBeGreaterThan(h2Idx)
     // H1 section content must be unchanged (added text is NOT between H1 and H2)
-    expect(topContentIdx).toBeGreaterThan(h1Idx);
-    expect(h2Idx).toBeGreaterThan(topContentIdx);
-  });
+    expect(topContentIdx).toBeGreaterThan(h1Idx)
+    expect(h2Idx).toBeGreaterThan(topContentIdx)
+  })
 
   it("errors on empty heading", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await expect(
       patchNote(
         {
@@ -635,15 +635,15 @@ Sub-level content.
         },
         logger,
       ),
-    ).rejects.toThrow("heading cannot be empty");
-  });
-});
+    ).rejects.toThrow("heading cannot be empty")
+  })
+})
 
 // ── patchNote operations ────────────────────────────────────────
 
 describe("patchNote — file-level operations", () => {
   it("appends to end of file", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -652,13 +652,13 @@ describe("patchNote — file-level operations", () => {
         content: "## New Section\nNew content.",
       },
       logger,
-    );
-    const updated = await readTestNote("note.md");
-    expect(updated).toMatch(/Task D\n+## New Section\nNew content\./);
-  });
+    )
+    const updated = await readTestNote("note.md")
+    expect(updated).toMatch(/Task D\n+## New Section\nNew content\./)
+  })
 
   it("prepends after frontmatter", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -667,13 +667,13 @@ describe("patchNote — file-level operations", () => {
         content: "> [!note] Important\n> Read this first.",
       },
       logger,
-    );
-    const updated = await readTestNote("note.md");
-    expect(updated).toContain("tags:\n  - test\n---\n> [!note] Important");
-  });
+    )
+    const updated = await readTestNote("note.md")
+    expect(updated).toContain("tags:\n  - test\n---\n> [!note] Important")
+  })
 
   it("file-level append lands after a trailing comment block", async () => {
-    await writeTestNote("board.md", NOTE_KANBAN);
+    await writeTestNote("board.md", NOTE_KANBAN)
     await patchNote(
       {
         vaultPath: vault,
@@ -682,19 +682,19 @@ describe("patchNote — file-level operations", () => {
         content: "Appended at EOF.",
       },
       logger,
-    );
-    const updated = await readTestNote("board.md");
-    const lines = updated.split("\n");
-    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings");
-    const appendedIdx = lines.findIndex((line) => line === "Appended at EOF.");
+    )
+    const updated = await readTestNote("board.md")
+    const lines = updated.split("\n")
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    const appendedIdx = lines.findIndex((line) => line === "Appended at EOF.")
     // File-level append bypasses heading parsing, so content lands after
     // the trailing block — not before it. This is expected; section-level
     // append (with a heading target) should be used for Kanban boards.
-    expect(appendedIdx).toBeGreaterThan(settingsIdx);
-  });
+    expect(appendedIdx).toBeGreaterThan(settingsIdx)
+  })
 
   it("errors on replace without heading", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await expect(
       patchNote(
         {
@@ -705,11 +705,11 @@ describe("patchNote — file-level operations", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('operation "replace" requires a heading target');
-  });
+    ).rejects.toThrow('operation "replace" requires a heading target')
+  })
 
   it("errors on insert_before without heading", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await expect(
       patchNote(
         {
@@ -720,17 +720,17 @@ describe("patchNote — file-level operations", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('operation "insert_before" requires a heading target');
-  });
-});
+    ).rejects.toThrow('operation "insert_before" requires a heading target')
+  })
+})
 
 describe("patchNote — leading-content advisory", () => {
   // A note whose intro sits above its first heading — the shape a file-level
   // prepend can restructure.
-  const NOTE_WITH_INTRO = "Intro prose.\n\n## Section\n\nbody\n";
+  const NOTE_WITH_INTRO = "Intro prose.\n\n## Section\n\nbody\n"
 
   it("reports the displaced region and still writes when a heading is prepended above it", async () => {
-    await writeTestNote("intro.md", NOTE_WITH_INTRO);
+    await writeTestNote("intro.md", NOTE_WITH_INTRO)
 
     const result = await patchNote(
       {
@@ -740,7 +740,7 @@ describe("patchNote — leading-content advisory", () => {
         content: "## New Section\n- entry",
       },
       logger,
-    );
+    )
 
     expect(result).toEqual({
       message: "Applied prepend to intro.md → file body",
@@ -748,14 +748,14 @@ describe("patchNote — leading-content advisory", () => {
         bytes: Buffer.byteLength("Intro prose.", "utf8"),
         firstHeading: { text: "Section", level: 2 },
       },
-    });
+    })
     // The write is what was asked for — assert it happened, and that the intro
     // really did end up inside the new section.
-    expect(await readTestNote("intro.md")).toBe("## New Section\n- entry\nIntro prose.\n\n## Section\n\nbody\n");
-  });
+    expect(await readTestNote("intro.md")).toBe("## New Section\n- entry\nIntro prose.\n\n## Section\n\nbody\n")
+  })
 
   it("names the note's first heading rather than a later one", async () => {
-    await writeTestNote("two.md", "Intro.\n\n## First\n\n## Second\n");
+    await writeTestNote("two.md", "Intro.\n\n## First\n\n## Second\n")
 
     const result = await patchNote(
       {
@@ -765,16 +765,16 @@ describe("patchNote — leading-content advisory", () => {
         content: "## New",
       },
       logger,
-    );
+    )
 
     expect(result.displacedLeadingContent?.firstHeading).toEqual({
       text: "First",
       level: 2,
-    });
-  });
+    })
+  })
 
   it("reports a null first heading when the note has none of its own", async () => {
-    await writeTestNote("flat.md", "Just prose.\n");
+    await writeTestNote("flat.md", "Just prose.\n")
 
     const result = await patchNote(
       {
@@ -784,7 +784,7 @@ describe("patchNote — leading-content advisory", () => {
         content: "## New Section",
       },
       logger,
-    );
+    )
 
     expect(result).toEqual({
       message: "Applied prepend to flat.md → file body",
@@ -792,12 +792,12 @@ describe("patchNote — leading-content advisory", () => {
         bytes: Buffer.byteLength("Just prose.", "utf8"),
         firstHeading: null,
       },
-    });
-    expect(await readTestNote("flat.md")).toBe("## New Section\nJust prose.\n");
-  });
+    })
+    expect(await readTestNote("flat.md")).toBe("## New Section\nJust prose.\n")
+  })
 
   it("reports the region when blank lines precede the content's heading", async () => {
-    await writeTestNote("intro.md", NOTE_WITH_INTRO);
+    await writeTestNote("intro.md", NOTE_WITH_INTRO)
 
     const result = await patchNote(
       {
@@ -807,18 +807,18 @@ describe("patchNote — leading-content advisory", () => {
         content: "\n\n## New Section",
       },
       logger,
-    );
+    )
 
     expect(result.displacedLeadingContent).toEqual({
       bytes: Buffer.byteLength("Intro prose.", "utf8"),
       firstHeading: { text: "Section", level: 2 },
-    });
-  });
+    })
+  })
 
   it("reports nothing when a callout is prepended above the intro", async () => {
     // The documented leading-callout workflow — it adds a block, it doesn't
     // restructure sections, so it must stay advisory-free.
-    await writeTestNote("intro.md", NOTE_WITH_INTRO);
+    await writeTestNote("intro.md", NOTE_WITH_INTRO)
 
     const result = await patchNote(
       {
@@ -828,20 +828,20 @@ describe("patchNote — leading-content advisory", () => {
         content: "> [!note] Important\n> Read this first.",
       },
       logger,
-    );
+    )
 
     expect(result).toEqual({
       message: "Applied prepend to intro.md → file body",
       displacedLeadingContent: null,
-    });
+    })
     expect(await readTestNote("intro.md")).toBe(
       "> [!note] Important\n> Read this first.\nIntro prose.\n\n## Section\n\nbody\n",
-    );
-  });
+    )
+  })
 
   it("reports nothing when the note opens with a heading", async () => {
     // The new H2 terminates at the existing H1, so nothing is captured.
-    await writeTestNote("titled.md", "# Title\n\nIntro.\n\n## Section\n");
+    await writeTestNote("titled.md", "# Title\n\nIntro.\n\n## Section\n")
 
     const result = await patchNote(
       {
@@ -851,17 +851,17 @@ describe("patchNote — leading-content advisory", () => {
         content: "## New Section",
       },
       logger,
-    );
+    )
 
     expect(result).toEqual({
       message: "Applied prepend to titled.md → file body",
       displacedLeadingContent: null,
-    });
-    expect(await readTestNote("titled.md")).toBe("## New Section\n# Title\n\nIntro.\n\n## Section\n");
-  });
+    })
+    expect(await readTestNote("titled.md")).toBe("## New Section\n# Title\n\nIntro.\n\n## Section\n")
+  })
 
   it("reports nothing when the region above the first heading is blank", async () => {
-    await writeTestNote("blank.md", "\n\n## Section\n\nbody\n");
+    await writeTestNote("blank.md", "\n\n## Section\n\nbody\n")
 
     const result = await patchNote(
       {
@@ -871,17 +871,17 @@ describe("patchNote — leading-content advisory", () => {
         content: "## New Section",
       },
       logger,
-    );
+    )
 
     expect(result).toEqual({
       message: "Applied prepend to blank.md → file body",
       displacedLeadingContent: null,
-    });
-    expect(await readTestNote("blank.md")).toBe("## New Section\n\n\n## Section\n\nbody\n");
-  });
+    })
+    expect(await readTestNote("blank.md")).toBe("## New Section\n\n\n## Section\n\nbody\n")
+  })
 
   it("reports nothing when the only content above the first lane is a settings block", async () => {
-    await writeTestNote("board.md", "\n%% kanban:settings\n```json\n{}\n```\n%%\n");
+    await writeTestNote("board.md", "\n%% kanban:settings\n```json\n{}\n```\n%%\n")
 
     const result = await patchNote(
       {
@@ -891,17 +891,17 @@ describe("patchNote — leading-content advisory", () => {
         content: "## Backlog",
       },
       logger,
-    );
+    )
 
     expect(result).toEqual({
       message: "Applied prepend to board.md → file body",
       displacedLeadingContent: null,
-    });
-    expect(await readTestNote("board.md")).toBe("## Backlog\n\n%% kanban:settings\n```json\n{}\n```\n%%\n");
-  });
+    })
+    expect(await readTestNote("board.md")).toBe("## Backlog\n\n%% kanban:settings\n```json\n{}\n```\n%%\n")
+  })
 
   it("reports nothing for an append operation", async () => {
-    await writeTestNote("intro.md", NOTE_WITH_INTRO);
+    await writeTestNote("intro.md", NOTE_WITH_INTRO)
 
     const result = await patchNote(
       {
@@ -911,17 +911,17 @@ describe("patchNote — leading-content advisory", () => {
         content: "## New Section",
       },
       logger,
-    );
+    )
 
     expect(result).toEqual({
       message: "Applied append to intro.md → file body",
       displacedLeadingContent: null,
-    });
-    expect(await readTestNote("intro.md")).toBe("Intro prose.\n\n## Section\n\nbody\n\n## New Section\n");
-  });
+    })
+    expect(await readTestNote("intro.md")).toBe("Intro prose.\n\n## Section\n\nbody\n\n## New Section\n")
+  })
 
   it("reports nothing when a heading target is given", async () => {
-    await writeTestNote("intro.md", NOTE_WITH_INTRO);
+    await writeTestNote("intro.md", NOTE_WITH_INTRO)
 
     const result = await patchNote(
       {
@@ -932,19 +932,19 @@ describe("patchNote — leading-content advisory", () => {
         content: "## New Sub",
       },
       logger,
-    );
+    )
 
     expect(result).toEqual({
       message: "Applied prepend to intro.md → ## Section",
       displacedLeadingContent: null,
-    });
-    expect(await readTestNote("intro.md")).toBe("Intro prose.\n\n## Section\n## New Sub\n\nbody\n");
-  });
+    })
+    expect(await readTestNote("intro.md")).toBe("Intro prose.\n\n## Section\n## New Sub\n\nbody\n")
+  })
 
   it("detects a CRLF-authored heading in the prepended content", async () => {
     // HEADING_REGEX uses `(.*)` where `.` excludes CR, so without
     // normalization a CRLF-authored heading would read as ordinary text.
-    await writeTestNote("intro.md", NOTE_WITH_INTRO);
+    await writeTestNote("intro.md", NOTE_WITH_INTRO)
 
     const result = await patchNote(
       {
@@ -954,16 +954,16 @@ describe("patchNote — leading-content advisory", () => {
         content: "## New Section\r\n- entry",
       },
       logger,
-    );
+    )
 
     expect(result.displacedLeadingContent).toEqual({
       bytes: Buffer.byteLength("Intro prose.", "utf8"),
       firstHeading: { text: "Section", level: 2 },
-    });
-  });
+    })
+  })
 
   it("reports displacement when an empty heading is prepended above leading content", async () => {
-    await writeTestNote("intro.md", NOTE_WITH_INTRO);
+    await writeTestNote("intro.md", NOTE_WITH_INTRO)
 
     const result = await patchNote(
       {
@@ -973,14 +973,14 @@ describe("patchNote — leading-content advisory", () => {
         content: "#####",
       },
       logger,
-    );
+    )
 
     expect(result.displacedLeadingContent).toEqual({
       bytes: Buffer.byteLength("Intro prose.", "utf8"),
       firstHeading: { text: "Section", level: 2 },
-    });
-    expect(await readTestNote("intro.md")).toBe("#####\nIntro prose.\n\n## Section\n\nbody\n");
-  });
+    })
+    expect(await readTestNote("intro.md")).toBe("#####\nIntro prose.\n\n## Section\n\nbody\n")
+  })
 
   it.each([
     ["a tag line", "#project note"],
@@ -990,18 +990,18 @@ describe("patchNote — leading-content advisory", () => {
     ["a callout", "> [!note] Hi"],
     ["plain prose", "Just a line."],
   ])("reports nothing when the content starts with %s", async (_label, content) => {
-    await writeTestNote("intro.md", NOTE_WITH_INTRO);
+    await writeTestNote("intro.md", NOTE_WITH_INTRO)
 
-    const result = await patchNote({ vaultPath: vault, path: "intro.md", operation: "prepend", content }, logger);
+    const result = await patchNote({ vaultPath: vault, path: "intro.md", operation: "prepend", content }, logger)
 
-    expect(result.displacedLeadingContent).toBeNull();
-    expect(await readTestNote("intro.md")).toBe(`${content}\nIntro prose.\n\n## Section\n\nbody\n`);
-  });
-});
+    expect(result.displacedLeadingContent).toBeNull()
+    expect(await readTestNote("intro.md")).toBe(`${content}\nIntro prose.\n\n## Section\n\nbody\n`)
+  })
+})
 
 describe("patchNote — section-level append", () => {
   it("appends to end of section body", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -1011,22 +1011,22 @@ describe("patchNote — section-level append", () => {
         heading: "Up Next",
       },
       logger,
-    );
-    const updated = await readTestNote("note.md");
-    const lines = updated.split("\n");
-    const upNextIdx = lines.findIndex((line) => line === "## Up Next");
-    const taskCIdx = lines.findIndex((line) => line === "- [ ] Task C");
-    const taskEIdx = lines.findIndex((line) => line === "- [ ] Task E");
-    const doneIdx = lines.findIndex((line) => line === "## Done");
+    )
+    const updated = await readTestNote("note.md")
+    const lines = updated.split("\n")
+    const upNextIdx = lines.findIndex((line) => line === "## Up Next")
+    const taskCIdx = lines.findIndex((line) => line === "- [ ] Task C")
+    const taskEIdx = lines.findIndex((line) => line === "- [ ] Task E")
+    const doneIdx = lines.findIndex((line) => line === "## Done")
     // Task E must be after existing Up Next content, before ## Done
-    expect(upNextIdx).toBeGreaterThan(-1);
-    expect(taskCIdx).toBeGreaterThan(upNextIdx);
-    expect(taskEIdx).toBeGreaterThan(taskCIdx);
-    expect(doneIdx).toBeGreaterThan(taskEIdx);
-  });
+    expect(upNextIdx).toBeGreaterThan(-1)
+    expect(taskCIdx).toBeGreaterThan(upNextIdx)
+    expect(taskEIdx).toBeGreaterThan(taskCIdx)
+    expect(doneIdx).toBeGreaterThan(taskEIdx)
+  })
 
   it("appends to section with children (end of full section)", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -1036,13 +1036,13 @@ describe("patchNote — section-level append", () => {
         heading: "Active",
       },
       logger,
-    );
-    const updated = await readTestNote("note.md");
-    expect(updated).toMatch(/Sub-task 1\n+- \[ \] New task after subtasks\n+## Up Next/);
-  });
+    )
+    const updated = await readTestNote("note.md")
+    expect(updated).toMatch(/Sub-task 1\n+- \[ \] New task after subtasks\n+## Up Next/)
+  })
 
   it("appends to last section in file", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -1052,24 +1052,24 @@ describe("patchNote — section-level append", () => {
         heading: "Done",
       },
       logger,
-    );
-    const updated = await readTestNote("note.md");
-    const lines = updated.split("\n");
-    const doneIdx = lines.findIndex((line) => line === "## Done");
-    const taskDIdx = lines.findIndex((line) => line === "- [x] Task D");
-    const taskEIdx = lines.findIndex((line) => line === "- [x] Task E");
+    )
+    const updated = await readTestNote("note.md")
+    const lines = updated.split("\n")
+    const doneIdx = lines.findIndex((line) => line === "## Done")
+    const taskDIdx = lines.findIndex((line) => line === "- [x] Task D")
+    const taskEIdx = lines.findIndex((line) => line === "- [x] Task E")
     // Task E must be in the Done section, after existing Task D
-    expect(taskDIdx).toBeGreaterThan(doneIdx);
-    expect(taskEIdx).toBeGreaterThan(taskDIdx);
+    expect(taskDIdx).toBeGreaterThan(doneIdx)
+    expect(taskEIdx).toBeGreaterThan(taskDIdx)
     // No heading after Task E (it's the last section)
-    const headingsAfter = lines.slice(taskEIdx + 1).filter((line) => /^#{1,6} /.test(line));
-    expect(headingsAfter).toHaveLength(0);
-  });
-});
+    const headingsAfter = lines.slice(taskEIdx + 1).filter((line) => /^#{1,6} /.test(line))
+    expect(headingsAfter).toHaveLength(0)
+  })
+})
 
 describe("patchNote — section-level prepend", () => {
   it("prepends right after heading line", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -1079,15 +1079,15 @@ describe("patchNote — section-level prepend", () => {
         heading: "Active",
       },
       logger,
-    );
-    const updated = await readTestNote("note.md");
-    expect(updated).toMatch(/## Active\n- \[ \] Urgent task\n- \[ \] Task A/);
-  });
-});
+    )
+    const updated = await readTestNote("note.md")
+    expect(updated).toMatch(/## Active\n- \[ \] Urgent task\n- \[ \] Task A/)
+  })
+})
 
 describe("patchNote — section-level replace", () => {
   it("replaces section body, preserving heading", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -1097,15 +1097,15 @@ describe("patchNote — section-level replace", () => {
         heading: "Up Next",
       },
       logger,
-    );
-    const updated = await readTestNote("note.md");
-    expect(updated).toContain("## Up Next\nCompletely new content.\n");
-    expect(updated).not.toContain("Task C");
-    expect(updated).toContain("## Done");
-  });
+    )
+    const updated = await readTestNote("note.md")
+    expect(updated).toContain("## Up Next\nCompletely new content.\n")
+    expect(updated).not.toContain("Task C")
+    expect(updated).toContain("## Done")
+  })
 
   it("replaces section with children when include_children is set", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -1116,19 +1116,19 @@ describe("patchNote — section-level replace", () => {
         includeChildren: true,
       },
       logger,
-    );
-    const updated = await readTestNote("note.md");
-    expect(updated).toContain("## Active\nReplaced all active content.");
-    expect(updated).not.toContain("Subtasks");
-    expect(updated).not.toContain("Sub-task 1");
-    expect(updated).toContain("## Up Next");
-  });
-});
+    )
+    const updated = await readTestNote("note.md")
+    expect(updated).toContain("## Active\nReplaced all active content.")
+    expect(updated).not.toContain("Subtasks")
+    expect(updated).not.toContain("Sub-task 1")
+    expect(updated).toContain("## Up Next")
+  })
+})
 
 describe("patchNote — child-section guard", () => {
   it("blocks replace when the target has a child heading", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
-    const content = await readTestNote("note.md");
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    const content = await readTestNote("note.md")
     await expect(
       patchNote(
         {
@@ -1140,13 +1140,13 @@ describe("patchNote — child-section guard", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('section "## Active" has 1 child heading (Subtasks)');
-    expect(await readTestNote("note.md")).toBe(content);
-  });
+    ).rejects.toThrow('section "## Active" has 1 child heading (Subtasks)')
+    expect(await readTestNote("note.md")).toBe(content)
+  })
 
   it("blocks replace when H1 has multiple child headings", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
-    const content = await readTestNote("note.md");
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    const content = await readTestNote("note.md")
     await expect(
       patchNote(
         {
@@ -1159,12 +1159,12 @@ describe("patchNote — child-section guard", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('section "# Main Title" has 4 child headings (Active, Subtasks, Up Next, Done)');
-    expect(await readTestNote("note.md")).toBe(content);
-  });
+    ).rejects.toThrow('section "# Main Title" has 4 child headings (Active, Subtasks, Up Next, Done)')
+    expect(await readTestNote("note.md")).toBe(content)
+  })
 
   it("allows replace with include_children: true", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -1175,15 +1175,15 @@ describe("patchNote — child-section guard", () => {
         includeChildren: true,
       },
       logger,
-    );
-    const updated = await readTestNote("note.md");
-    expect(updated).toContain("## Active\nReplaced everything.\n");
-    expect(updated).not.toContain("Subtasks");
-    expect(updated).toContain("## Up Next");
-  });
+    )
+    const updated = await readTestNote("note.md")
+    expect(updated).toContain("## Active\nReplaced everything.\n")
+    expect(updated).not.toContain("Subtasks")
+    expect(updated).toContain("## Up Next")
+  })
 
   it("does not guard replace on a childless section", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -1193,11 +1193,11 @@ describe("patchNote — child-section guard", () => {
         heading: "Up Next",
       },
       logger,
-    );
-    const updated = await readTestNote("note.md");
-    expect(updated).toContain("## Up Next\nNew up-next content.\n");
-    expect(updated).not.toContain("Task C");
-  });
+    )
+    const updated = await readTestNote("note.md")
+    expect(updated).toContain("## Up Next\nNew up-next content.\n")
+    expect(updated).not.toContain("Task C")
+  })
 
   it("does not guard replace on an empty section (back-to-back headings)", async () => {
     const noteWithEmptySection = `---
@@ -1211,8 +1211,8 @@ Content here.
 
 ## Third
 More content.
-`;
-    await writeTestNote("empty.md", noteWithEmptySection);
+`
+    await writeTestNote("empty.md", noteWithEmptySection)
     await patchNote(
       {
         vaultPath: vault,
@@ -1222,14 +1222,14 @@ More content.
         heading: "Empty",
       },
       logger,
-    );
-    const updated = await readTestNote("empty.md");
-    expect(updated).toContain("## Empty\nNow has content.\n");
-    expect(updated).toContain("## Third");
-  });
+    )
+    const updated = await readTestNote("empty.md")
+    expect(updated).toContain("## Empty\nNow has content.\n")
+    expect(updated).toContain("## Third")
+  })
 
   it("does not guard append on sections with children", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -1239,14 +1239,14 @@ More content.
         heading: "Active",
       },
       logger,
-    );
-    const afterAppend = await readTestNote("note.md");
-    expect(afterAppend).toContain("Appended task");
-    expect(afterAppend).toContain("Subtasks");
-  });
+    )
+    const afterAppend = await readTestNote("note.md")
+    expect(afterAppend).toContain("Appended task")
+    expect(afterAppend).toContain("Subtasks")
+  })
 
   it("does not guard prepend on sections with children", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -1256,16 +1256,16 @@ More content.
         heading: "Active",
       },
       logger,
-    );
-    const afterPrepend = await readTestNote("note.md");
-    expect(afterPrepend).toContain("Prepended line.");
-    expect(afterPrepend).toContain("Subtasks");
-  });
-});
+    )
+    const afterPrepend = await readTestNote("note.md")
+    expect(afterPrepend).toContain("Prepended line.")
+    expect(afterPrepend).toContain("Subtasks")
+  })
+})
 
 describe("patchNote — trailing comment block preservation", () => {
   it("replace on the final heading preserves a trailing kanban:settings block", async () => {
-    await writeTestNote("board.md", NOTE_KANBAN);
+    await writeTestNote("board.md", NOTE_KANBAN)
     await patchNote(
       {
         vaultPath: vault,
@@ -1275,17 +1275,17 @@ describe("patchNote — trailing comment block preservation", () => {
         heading: "Done",
       },
       logger,
-    );
-    const updated = await readTestNote("board.md");
-    expect(updated).toContain("## Done\nBoard archived.");
-    expect(updated).not.toContain("Task D");
-    expect(updated).toContain("%% kanban:settings");
-    expect(updated).toContain('{"kanban-plugin":"board"}');
-    expect(updated).toMatch(/%%\n*$/);
-  });
+    )
+    const updated = await readTestNote("board.md")
+    expect(updated).toContain("## Done\nBoard archived.")
+    expect(updated).not.toContain("Task D")
+    expect(updated).toContain("%% kanban:settings")
+    expect(updated).toContain('{"kanban-plugin":"board"}')
+    expect(updated).toMatch(/%%\n*$/)
+  })
 
   it("append to the final heading inserts content before the trailing block", async () => {
-    await writeTestNote("board.md", NOTE_KANBAN);
+    await writeTestNote("board.md", NOTE_KANBAN)
     await patchNote(
       {
         vaultPath: vault,
@@ -1295,18 +1295,18 @@ describe("patchNote — trailing comment block preservation", () => {
         heading: "Done",
       },
       logger,
-    );
-    const updated = await readTestNote("board.md");
-    const lines = updated.split("\n");
-    const taskDIdx = lines.findIndex((line) => line === "- [x] Task D");
-    const taskEIdx = lines.findIndex((line) => line === "- [x] Task E");
-    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings");
-    expect(taskEIdx).toBeGreaterThan(taskDIdx);
-    expect(taskEIdx).toBeLessThan(settingsIdx);
-  });
+    )
+    const updated = await readTestNote("board.md")
+    const lines = updated.split("\n")
+    const taskDIdx = lines.findIndex((line) => line === "- [x] Task D")
+    const taskEIdx = lines.findIndex((line) => line === "- [x] Task E")
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    expect(taskEIdx).toBeGreaterThan(taskDIdx)
+    expect(taskEIdx).toBeLessThan(settingsIdx)
+  })
 
   it("prepend to the final heading preserves the trailing block", async () => {
-    await writeTestNote("board.md", NOTE_KANBAN);
+    await writeTestNote("board.md", NOTE_KANBAN)
     await patchNote(
       {
         vaultPath: vault,
@@ -1316,15 +1316,15 @@ describe("patchNote — trailing comment block preservation", () => {
         heading: "Done",
       },
       logger,
-    );
-    const updated = await readTestNote("board.md");
-    expect(updated).toMatch(/## Done\n- \[x\] Task E\n/);
-    expect(updated).toContain("%% kanban:settings");
-    expect(updated).toContain('{"kanban-plugin":"board"}');
-  });
+    )
+    const updated = await readTestNote("board.md")
+    expect(updated).toMatch(/## Done\n- \[x\] Task E\n/)
+    expect(updated).toContain("%% kanban:settings")
+    expect(updated).toContain('{"kanban-plugin":"board"}')
+  })
 
   it("insert_before on the final heading preserves the trailing block", async () => {
-    await writeTestNote("board.md", NOTE_KANBAN);
+    await writeTestNote("board.md", NOTE_KANBAN)
     await patchNote(
       {
         vaultPath: vault,
@@ -1334,15 +1334,15 @@ describe("patchNote — trailing comment block preservation", () => {
         heading: "Done",
       },
       logger,
-    );
-    const updated = await readTestNote("board.md");
-    expect(updated).toContain("## Archived");
-    expect(updated).toContain("%% kanban:settings");
-    expect(updated).toContain('{"kanban-plugin":"board"}');
-  });
+    )
+    const updated = await readTestNote("board.md")
+    expect(updated).toContain("## Archived")
+    expect(updated).toContain("%% kanban:settings")
+    expect(updated).toContain('{"kanban-plugin":"board"}')
+  })
 
   it("replace on the final heading preserves a single-line trailing comment", async () => {
-    await writeTestNote("notes.md", NOTE_TRAILING_SINGLE_LINE_COMMENT);
+    await writeTestNote("notes.md", NOTE_TRAILING_SINGLE_LINE_COMMENT)
     await patchNote(
       {
         vaultPath: vault,
@@ -1352,15 +1352,15 @@ describe("patchNote — trailing comment block preservation", () => {
         heading: "Notes",
       },
       logger,
-    );
-    const updated = await readTestNote("notes.md");
-    expect(updated).toContain("## Notes\nCleared.");
-    expect(updated).not.toContain("Done item");
-    expect(updated).toContain("%% private board note %%");
-  });
+    )
+    const updated = await readTestNote("notes.md")
+    expect(updated).toContain("## Notes\nCleared.")
+    expect(updated).not.toContain("Done item")
+    expect(updated).toContain("%% private board note %%")
+  })
 
   it("does not treat a mid-body inline comment as a trailing block", async () => {
-    await writeTestNote("tasks.md", NOTE_MIDBODY_COMMENT);
+    await writeTestNote("tasks.md", NOTE_MIDBODY_COMMENT)
     await patchNote(
       {
         vaultPath: vault,
@@ -1370,20 +1370,20 @@ describe("patchNote — trailing comment block preservation", () => {
         heading: "Done",
       },
       logger,
-    );
-    const updated = await readTestNote("tasks.md");
-    expect(updated).toContain("## Done\nDone section cleared.");
+    )
+    const updated = await readTestNote("tasks.md")
+    expect(updated).toContain("## Done\nDone section cleared.")
     // The inline comment is mid-body of Done (Task E follows it), not trailing —
     // so the whole Done body is replaced, comment and Task E included.
-    expect(updated).not.toContain("Task D");
-    expect(updated).not.toContain("%% reminder: refile these %%");
-    expect(updated).not.toContain("Task E");
+    expect(updated).not.toContain("Task D")
+    expect(updated).not.toContain("%% reminder: refile these %%")
+    expect(updated).not.toContain("Task E")
     // The Active section is untouched.
-    expect(updated).toContain("- [ ] Task A");
-  });
+    expect(updated).toContain("- [ ] Task A")
+  })
 
   it("does not treat %% inside a fenced code block as a trailing block", async () => {
-    await writeTestNote("docs.md", NOTE_PERCENT_LINE_IN_CODE_BLOCK);
+    await writeTestNote("docs.md", NOTE_PERCENT_LINE_IN_CODE_BLOCK)
     await patchNote(
       {
         vaultPath: vault,
@@ -1393,18 +1393,18 @@ describe("patchNote — trailing comment block preservation", () => {
         heading: "Config example",
       },
       logger,
-    );
-    const updated = await readTestNote("docs.md");
-    expect(updated).toContain("## Config example\nRewritten.");
+    )
+    const updated = await readTestNote("docs.md")
+    expect(updated).toContain("## Config example\nRewritten.")
     // The `%%` line is inside a fenced code block — section body, not a trailing
     // comment block — so the whole code block is replaced.
-    expect(updated).not.toContain("%% example: edit this");
-    expect(updated).not.toContain("key = value");
-    expect(updated).not.toContain("```");
-  });
+    expect(updated).not.toContain("%% example: edit this")
+    expect(updated).not.toContain("key = value")
+    expect(updated).not.toContain("```")
+  })
 
   it("replace on a heading above a nested EOF section preserves the trailing block", async () => {
-    await writeTestNote("board.md", NOTE_NESTED_HEADING_KANBAN);
+    await writeTestNote("board.md", NOTE_NESTED_HEADING_KANBAN)
     await patchNote(
       {
         vaultPath: vault,
@@ -1415,16 +1415,16 @@ describe("patchNote — trailing comment block preservation", () => {
         includeChildren: true,
       },
       logger,
-    );
-    const updated = await readTestNote("board.md");
-    expect(updated).toContain("## Done\nArchived.");
-    expect(updated).not.toContain("### Sub");
-    expect(updated).not.toContain("Sub item");
-    expect(updated).toContain("%% kanban:settings");
-  });
+    )
+    const updated = await readTestNote("board.md")
+    expect(updated).toContain("## Done\nArchived.")
+    expect(updated).not.toContain("### Sub")
+    expect(updated).not.toContain("Sub item")
+    expect(updated).toContain("%% kanban:settings")
+  })
 
   it("replace on a non-final heading leaves the trailing block untouched", async () => {
-    await writeTestNote("board.md", NOTE_KANBAN);
+    await writeTestNote("board.md", NOTE_KANBAN)
     await patchNote(
       {
         vaultPath: vault,
@@ -1434,13 +1434,13 @@ describe("patchNote — trailing comment block preservation", () => {
         heading: "Active",
       },
       logger,
-    );
-    const updated = await readTestNote("board.md");
-    expect(updated).toContain("## Active\n- [ ] Replaced active");
-    expect(updated).not.toContain("Task A");
-    expect(updated).toContain("## Done");
-    expect(updated).toContain("%% kanban:settings");
-  });
+    )
+    const updated = await readTestNote("board.md")
+    expect(updated).toContain("## Active\n- [ ] Replaced active")
+    expect(updated).not.toContain("Task A")
+    expect(updated).toContain("## Done")
+    expect(updated).toContain("%% kanban:settings")
+  })
 
   it("append to a large Done section with assorted Kanban patterns inserts before trailing block", async () => {
     // Exercises common TASKS.md patterns: escaped pipes in wikilinks, block IDs,
@@ -1491,7 +1491,7 @@ describe("patchNote — trailing comment block preservation", () => {
       "- [x] A very long task description that exceeds two hundred characters to test line-length handling in the parser — this kind of verbose description sometimes appears when tasks are auto-generated from detailed session logs or copied from PR descriptions with full context ➕ 2026-05-18 ✅ 2026-05-18",
       "- [x] Fix `#` rendering in card with code: `heading.match(/^#{1,6} /)` ➕ 2026-05-18 ✅ 2026-05-18",
       '- [x] Handle edge case where `config["key"]` has escaped quotes ➕ 2026-05-18 ✅ 2026-05-18',
-    ];
+    ]
     const content = `---
 kanban-plugin: board
 ---
@@ -1520,8 +1520,8 @@ ${doneItems.join("\n")}
 {"kanban-plugin":"board","hide-tags-in-title":true}
 \`\`\`
 %%
-`;
-    await writeTestNote("big-board.md", content);
+`
+    await writeTestNote("big-board.md", content)
     await patchNote(
       {
         vaultPath: vault,
@@ -1531,20 +1531,20 @@ ${doneItems.join("\n")}
         heading: "Done",
       },
       logger,
-    );
-    const updated = await readTestNote("big-board.md");
-    const lines = updated.split("\n");
-    const appendedIdx = lines.findIndex((line) => line === "- [x] Newly completed task ➕ 2026-05-19 ✅ 2026-05-19");
-    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings");
-    expect(appendedIdx).toBeGreaterThan(-1);
-    expect(settingsIdx).toBeGreaterThan(-1);
+    )
+    const updated = await readTestNote("big-board.md")
+    const lines = updated.split("\n")
+    const appendedIdx = lines.findIndex((line) => line === "- [x] Newly completed task ➕ 2026-05-19 ✅ 2026-05-19")
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    expect(appendedIdx).toBeGreaterThan(-1)
+    expect(settingsIdx).toBeGreaterThan(-1)
     // The appended task must land BEFORE the kanban:settings block
-    expect(appendedIdx).toBeLessThan(settingsIdx);
+    expect(appendedIdx).toBeLessThan(settingsIdx)
     // Verify the settings block is still intact
-    expect(updated).toContain("%% kanban:settings");
-    expect(updated).toContain('{"kanban-plugin":"board","hide-tags-in-title":true}');
-    expect(updated).toMatch(/%%\n*$/);
-  });
+    expect(updated).toContain("%% kanban:settings")
+    expect(updated).toContain('{"kanban-plugin":"board","hide-tags-in-title":true}')
+    expect(updated).toMatch(/%%\n*$/)
+  })
 
   it("append to Done survives a stray %% in card text that toggles comment state", async () => {
     // A card containing a stray `%%` in its text (e.g. `100%%`) used to flip
@@ -1570,8 +1570,8 @@ kanban-plugin: board
 {"kanban-plugin":"board"}
 \`\`\`
 %%
-`;
-    await writeTestNote("stray-pct.md", content);
+`
+    await writeTestNote("stray-pct.md", content)
     await patchNote(
       {
         vaultPath: vault,
@@ -1581,16 +1581,16 @@ kanban-plugin: board
         heading: "Done",
       },
       logger,
-    );
-    const updated = await readTestNote("stray-pct.md");
-    const lines = updated.split("\n");
-    const appendedIdx = lines.findIndex((line) => line === "- [x] Appended after stray %% card");
-    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings");
-    expect(appendedIdx).toBeGreaterThan(-1);
-    expect(settingsIdx).toBeGreaterThan(-1);
+    )
+    const updated = await readTestNote("stray-pct.md")
+    const lines = updated.split("\n")
+    const appendedIdx = lines.findIndex((line) => line === "- [x] Appended after stray %% card")
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    expect(appendedIdx).toBeGreaterThan(-1)
+    expect(settingsIdx).toBeGreaterThan(-1)
     // Appended content must be BEFORE the kanban:settings block
-    expect(appendedIdx).toBeLessThan(settingsIdx);
-  });
+    expect(appendedIdx).toBeLessThan(settingsIdx)
+  })
 
   it("append to Done when a card has an inline Obsidian comment with %%", async () => {
     // An inline comment like `%% note to self %%` has TWO `%%` on one line,
@@ -1610,8 +1610,8 @@ kanban-plugin: board
 {"kanban-plugin":"board"}
 \`\`\`
 %%
-`;
-    await writeTestNote("inline-comment.md", content);
+`
+    await writeTestNote("inline-comment.md", content)
     await patchNote(
       {
         vaultPath: vault,
@@ -1621,15 +1621,15 @@ kanban-plugin: board
         heading: "Done",
       },
       logger,
-    );
-    const updated = await readTestNote("inline-comment.md");
-    const lines = updated.split("\n");
-    const appendedIdx = lines.findIndex((line) => line === "- [x] New task after inline comment card");
-    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings");
-    expect(appendedIdx).toBeGreaterThan(-1);
-    expect(settingsIdx).toBeGreaterThan(-1);
-    expect(appendedIdx).toBeLessThan(settingsIdx);
-  });
+    )
+    const updated = await readTestNote("inline-comment.md")
+    const lines = updated.split("\n")
+    const appendedIdx = lines.findIndex((line) => line === "- [x] New task after inline comment card")
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    expect(appendedIdx).toBeGreaterThan(-1)
+    expect(settingsIdx).toBeGreaterThan(-1)
+    expect(appendedIdx).toBeLessThan(settingsIdx)
+  })
 
   it("append to Done when an odd number of stray %% lines appear in cards", async () => {
     // Three separate lines each containing a single mid-line `%%` — under the
@@ -1651,8 +1651,8 @@ kanban-plugin: board
 {"kanban-plugin":"board"}
 \`\`\`
 %%
-`;
-    await writeTestNote("odd-pct.md", content);
+`
+    await writeTestNote("odd-pct.md", content)
     await patchNote(
       {
         vaultPath: vault,
@@ -1662,15 +1662,15 @@ kanban-plugin: board
         heading: "Done",
       },
       logger,
-    );
-    const updated = await readTestNote("odd-pct.md");
-    const lines = updated.split("\n");
-    const appendedIdx = lines.findIndex((line) => line === "- [x] Task appended after triple stray %%");
-    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings");
-    expect(appendedIdx).toBeGreaterThan(-1);
-    expect(settingsIdx).toBeGreaterThan(-1);
-    expect(appendedIdx).toBeLessThan(settingsIdx);
-  });
+    )
+    const updated = await readTestNote("odd-pct.md")
+    const lines = updated.split("\n")
+    const appendedIdx = lines.findIndex((line) => line === "- [x] Task appended after triple stray %%")
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    expect(appendedIdx).toBeGreaterThan(-1)
+    expect(settingsIdx).toBeGreaterThan(-1)
+    expect(appendedIdx).toBeLessThan(settingsIdx)
+  })
 
   it("replace on a heading with only blank lines before the trailing block", async () => {
     const content = `---
@@ -1684,8 +1684,8 @@ kanban-plugin: board
 {"kanban-plugin":"board"}
 \`\`\`
 %%
-`;
-    await writeTestNote("board.md", content);
+`
+    await writeTestNote("board.md", content)
     await patchNote(
       {
         vaultPath: vault,
@@ -1695,12 +1695,12 @@ kanban-plugin: board
         heading: "Done",
       },
       logger,
-    );
-    const updated = await readTestNote("board.md");
-    expect(updated).toContain("## Done\n- [x] New task");
-    expect(updated).toContain("%% kanban:settings");
-    expect(updated).toContain('{"kanban-plugin":"board"}');
-  });
+    )
+    const updated = await readTestNote("board.md")
+    expect(updated).toContain("## Done\n- [x] New task")
+    expect(updated).toContain("%% kanban:settings")
+    expect(updated).toContain('{"kanban-plugin":"board"}')
+  })
 
   it("append to a heading with only blank lines before the trailing block", async () => {
     const content = `---
@@ -1714,8 +1714,8 @@ kanban-plugin: board
 {"kanban-plugin":"board"}
 \`\`\`
 %%
-`;
-    await writeTestNote("board.md", content);
+`
+    await writeTestNote("board.md", content)
     await patchNote(
       {
         vaultPath: vault,
@@ -1725,17 +1725,17 @@ kanban-plugin: board
         heading: "Done",
       },
       logger,
-    );
-    const updated = await readTestNote("board.md");
-    const lines = updated.split("\n");
-    const appendedIdx = lines.findIndex((line) => line === "- [x] Appended task");
-    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings");
-    expect(appendedIdx).toBeGreaterThan(-1);
-    expect(settingsIdx).toBeGreaterThan(appendedIdx);
-  });
+    )
+    const updated = await readTestNote("board.md")
+    const lines = updated.split("\n")
+    const appendedIdx = lines.findIndex((line) => line === "- [x] Appended task")
+    const settingsIdx = lines.findIndex((line) => line === "%% kanban:settings")
+    expect(appendedIdx).toBeGreaterThan(-1)
+    expect(settingsIdx).toBeGreaterThan(appendedIdx)
+  })
 
   it("replace on the last section is unaffected when there is no trailing block", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -1745,16 +1745,16 @@ kanban-plugin: board
         heading: "Done",
       },
       logger,
-    );
-    const updated = await readTestNote("note.md");
-    expect(updated).toContain("## Done\nNothing left.");
-    expect(updated).not.toContain("Task D");
-  });
-});
+    )
+    const updated = await readTestNote("note.md")
+    expect(updated).toContain("## Done\nNothing left.")
+    expect(updated).not.toContain("Task D")
+  })
+})
 
 describe("patchNote — insert_before", () => {
   it("inserts content above the heading line", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -1764,13 +1764,13 @@ describe("patchNote — insert_before", () => {
         heading: "Done",
       },
       logger,
-    );
-    const updated = await readTestNote("note.md");
-    expect(updated).toMatch(/Task C\n+## Context\nSome context here\.\n+## Done/);
-  });
+    )
+    const updated = await readTestNote("note.md")
+    expect(updated).toMatch(/Task C\n+## Context\nSome context here\.\n+## Done/)
+  })
 
   it("inserts before the first heading", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -1780,25 +1780,25 @@ describe("patchNote — insert_before", () => {
         heading: "Main Title",
       },
       logger,
-    );
-    const updated = await readTestNote("note.md");
-    const lines = updated.split("\n");
+    )
+    const updated = await readTestNote("note.md")
+    const lines = updated.split("\n")
     // Frontmatter closes with ---
-    const fmCloseIdx = lines.indexOf("---", 1);
-    const prefaceIdx = lines.findIndex((line) => line === "# Preface");
-    const mainIdx = lines.findIndex((line) => line === "# Main Title");
+    const fmCloseIdx = lines.indexOf("---", 1)
+    const prefaceIdx = lines.findIndex((line) => line === "# Preface")
+    const mainIdx = lines.findIndex((line) => line === "# Main Title")
     // Preface must be after frontmatter fence, before original heading
-    expect(prefaceIdx).toBeGreaterThan(fmCloseIdx);
-    expect(mainIdx).toBeGreaterThan(prefaceIdx);
+    expect(prefaceIdx).toBeGreaterThan(fmCloseIdx)
+    expect(mainIdx).toBeGreaterThan(prefaceIdx)
     // Original content still intact after Main Title
-    expect(updated).toContain("Intro paragraph.");
-  });
-});
+    expect(updated).toContain("Intro paragraph.")
+  })
+})
 
 // ── Frontmatter preservation ────────────────────────────────────
 
 describe("frontmatter preservation", () => {
-  const operations = ["append", "prepend", "replace", "insert_before"] as const;
+  const operations = ["append", "prepend", "replace", "insert_before"] as const
 
   it.each(
     operations.map((op) => ({
@@ -1808,7 +1808,7 @@ describe("frontmatter preservation", () => {
       includeChildren: op === "replace" ? true : undefined,
     })),
   )("$name preserves frontmatter and modifies body", async ({ op, heading, includeChildren }) => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -1819,20 +1819,20 @@ describe("frontmatter preservation", () => {
         includeChildren,
       },
       logger,
-    );
-    const updated = await readTestNote("note.md");
+    )
+    const updated = await readTestNote("note.md")
     // Frontmatter preserved
-    expect(updated).toContain("title: Test Note");
-    expect(updated).toContain("tags:");
-    expect(updated).toContain("- test");
+    expect(updated).toContain("title: Test Note")
+    expect(updated).toContain("tags:")
+    expect(updated).toContain("- test")
     // Body was actually modified
-    expect(updated).toContain(`marker-${op}`);
+    expect(updated).toContain(`marker-${op}`)
     // Frontmatter is still at the top (starts with ---)
-    expect(updated.startsWith("---\n")).toBe(true);
-  });
+    expect(updated.startsWith("---\n")).toBe(true)
+  })
 
   it("handles file with no frontmatter", async () => {
-    await writeTestNote("no-fm.md", NOTE_NO_FRONTMATTER);
+    await writeTestNote("no-fm.md", NOTE_NO_FRONTMATTER)
     await patchNote(
       {
         vaultPath: vault,
@@ -1842,20 +1842,20 @@ describe("frontmatter preservation", () => {
         heading: "Section One",
       },
       logger,
-    );
-    const updated = await readTestNote("no-fm.md");
-    const lines = updated.split("\n");
-    const sectionOneIdx = lines.findIndex((line) => line === "## Section One");
-    const contentIdx = lines.findIndex((line) => line === "Content one.");
-    const appendIdx = lines.findIndex((line) => line === "Appended text.");
-    const sectionTwoIdx = lines.findIndex((line) => line === "## Section Two");
+    )
+    const updated = await readTestNote("no-fm.md")
+    const lines = updated.split("\n")
+    const sectionOneIdx = lines.findIndex((line) => line === "## Section One")
+    const contentIdx = lines.findIndex((line) => line === "Content one.")
+    const appendIdx = lines.findIndex((line) => line === "Appended text.")
+    const sectionTwoIdx = lines.findIndex((line) => line === "## Section Two")
     // Appended text must be within Section One (after content, before Section Two)
-    expect(contentIdx).toBeGreaterThan(sectionOneIdx);
-    expect(appendIdx).toBeGreaterThan(contentIdx);
-    expect(sectionTwoIdx).toBeGreaterThan(appendIdx);
+    expect(contentIdx).toBeGreaterThan(sectionOneIdx)
+    expect(appendIdx).toBeGreaterThan(contentIdx)
+    expect(sectionTwoIdx).toBeGreaterThan(appendIdx)
     // Section Two content untouched
-    expect(updated).toContain("Content two.");
-  });
+    expect(updated).toContain("Content two.")
+  })
 
   it("keeps a local-offset created datetime byte-identical through patchNote", async () => {
     const stamped = `---
@@ -1866,8 +1866,8 @@ created: 2026-05-13T20:00:00-04:00
 
 ## Section
 Body text.
-`;
-    await writeTestNote("stamped.md", stamped);
+`
+    await writeTestNote("stamped.md", stamped)
     await patchNote(
       {
         vaultPath: vault,
@@ -1877,13 +1877,13 @@ Body text.
         heading: "Section",
       },
       logger,
-    );
-    const updated = await readTestNote("stamped.md");
+    )
+    const updated = await readTestNote("stamped.md")
     expect(updated.startsWith("---\ntitle: Stamped\ndate: 2026-05-13\ncreated: 2026-05-13T20:00:00-04:00\n---\n")).toBe(
       true,
-    );
-    expect(updated).toContain("Appended.");
-  });
+    )
+    expect(updated).toContain("Appended.")
+  })
 
   it("keeps a local-offset created datetime byte-identical through replaceInNote", async () => {
     await writeTestNote(
@@ -1894,7 +1894,7 @@ created: 2026-05-13T20:00:00-04:00
 
 old text
 `,
-    );
+    )
     await replaceInNote(
       {
         vaultPath: vault,
@@ -1903,10 +1903,10 @@ old text
         newText: "new text",
       },
       logger,
-    );
-    const updated = await readTestNote("stamped-replace.md");
-    expect(updated).toBe("---\ncreated: 2026-05-13T20:00:00-04:00\n---\n\nnew text\n");
-  });
+    )
+    const updated = await readTestNote("stamped-replace.md")
+    expect(updated).toBe("---\ncreated: 2026-05-13T20:00:00-04:00\n---\n\nnew text\n")
+  })
 
   it("preserves complex frontmatter (nested objects, arrays)", async () => {
     const content = `---
@@ -1922,8 +1922,8 @@ number: 42
 
 ## Section
 Body text.
-`;
-    await writeTestNote("complex.md", content);
+`
+    await writeTestNote("complex.md", content)
     await patchNote(
       {
         vaultPath: vault,
@@ -1933,22 +1933,22 @@ Body text.
         heading: "Section",
       },
       logger,
-    );
-    const updated = await readTestNote("complex.md");
-    expect(updated).toContain("title: Complex");
-    expect(updated).toContain("number: 42");
-    expect(updated).toContain("key: value");
+    )
+    const updated = await readTestNote("complex.md")
+    expect(updated).toContain("title: Complex")
+    expect(updated).toContain("number: 42")
+    expect(updated).toContain("key: value")
     // Verify list-type frontmatter values preserved
-    expect(updated).toContain("- a");
-    expect(updated).toContain("- b");
-    expect(updated).toContain("- c");
-    expect(updated).toContain("- one");
-    expect(updated).toContain("- two");
+    expect(updated).toContain("- a")
+    expect(updated).toContain("- b")
+    expect(updated).toContain("- c")
+    expect(updated).toContain("- one")
+    expect(updated).toContain("- two")
     // Verify body was replaced
-    expect(updated).toContain("New body.");
-    expect(updated).not.toContain("Body text.");
-  });
-});
+    expect(updated).toContain("New body.")
+    expect(updated).not.toContain("Body text.")
+  })
+})
 
 // ── Error cases ─────────────────────────────────────────────────
 
@@ -1964,8 +1964,8 @@ describe("patchNote errors", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('note not found: "missing.md"');
-  });
+    ).rejects.toThrow('note not found: "missing.md"')
+  })
 
   it("errors on path traversal", async () => {
     await expect(
@@ -1978,11 +1978,11 @@ describe("patchNote errors", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("path traversal blocked");
-  });
+    ).rejects.toThrow("path traversal blocked")
+  })
 
   it("rejects content containing a control character", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await expect(
       patchNote(
         {
@@ -1995,15 +1995,15 @@ describe("patchNote errors", () => {
       ),
     ).rejects.toThrow(
       "content contains a control character (U+0000 at position 3) — control characters other than tab, LF, and CR are not allowed",
-    );
-  });
-});
+    )
+  })
+})
 
 describe("patchNote — duplicate-heading guard", () => {
   it.each(["replace", "prepend", "append", "insert_before"] as const)(
     "rejects %s when content begins with the target heading, leaving the note untouched",
     async (operation) => {
-      await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+      await writeTestNote("note.md", NOTE_WITH_SECTIONS)
       await expect(
         patchNote(
           {
@@ -2015,14 +2015,14 @@ describe("patchNote — duplicate-heading guard", () => {
           },
           logger,
         ),
-      ).rejects.toThrow('content begins with the heading "## Up Next"');
+      ).rejects.toThrow('content begins with the heading "## Up Next"')
       // Rejected before any write — the file is byte-for-byte unchanged.
-      expect(await readTestNote("note.md")).toBe(NOTE_WITH_SECTIONS);
+      expect(await readTestNote("note.md")).toBe(NOTE_WITH_SECTIONS)
     },
-  );
+  )
 
   it("allows content whose leading heading differs from the target", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -2032,7 +2032,7 @@ describe("patchNote — duplicate-heading guard", () => {
         heading: "Up Next",
       },
       logger,
-    );
+    )
     // Exact whole-file result — frontmatter is normalized to block style on write.
     expect(await readTestNote("note.md")).toBe(`---
 title: Test Note
@@ -2057,11 +2057,11 @@ body
 
 ## Done
 - [x] Task D
-`);
-  });
+`)
+  })
 
   it("allows a same-text heading at a different level (not a duplicate)", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await patchNote(
       {
         vaultPath: vault,
@@ -2071,7 +2071,7 @@ body
         heading: "Up Next",
       },
       logger,
-    );
+    )
     // Exact whole-file result — frontmatter is normalized to block style on write.
     expect(await readTestNote("note.md")).toBe(`---
 title: Test Note
@@ -2096,9 +2096,9 @@ sub
 
 ## Done
 - [x] Task D
-`);
-  });
-});
+`)
+  })
+})
 
 // ── Edge cases ──────────────────────────────────────────────────
 
@@ -2112,8 +2112,8 @@ title: Empty
 
 ## Next Section
 Content.
-`;
-    await writeTestNote("empty.md", content);
+`
+    await writeTestNote("empty.md", content)
     await patchNote(
       {
         vaultPath: vault,
@@ -2123,13 +2123,13 @@ Content.
         heading: "Empty Section",
       },
       logger,
-    );
-    const updated = await readTestNote("empty.md");
-    expect(updated).toMatch(/## Empty Section\n+Now has content\.\n+## Next/);
-  });
+    )
+    const updated = await readTestNote("empty.md")
+    expect(updated).toMatch(/## Empty Section\n+Now has content\.\n+## Next/)
+  })
 
   it("handles note with only frontmatter", async () => {
-    await writeTestNote("only-fm.md", "---\ntitle: Empty\n---\n");
+    await writeTestNote("only-fm.md", "---\ntitle: Empty\n---\n")
     await patchNote(
       {
         vaultPath: vault,
@@ -2138,15 +2138,15 @@ Content.
         content: "## First Section\nContent.",
       },
       logger,
-    );
-    const updated = await readTestNote("only-fm.md");
+    )
+    const updated = await readTestNote("only-fm.md")
     // Frontmatter preserved
-    expect(updated).toContain("title: Empty");
-    expect(updated.startsWith("---\n")).toBe(true);
+    expect(updated).toContain("title: Empty")
+    expect(updated.startsWith("---\n")).toBe(true)
     // Content was appended
-    expect(updated).toContain("## First Section");
-    expect(updated).toContain("Content.");
-  });
+    expect(updated).toContain("## First Section")
+    expect(updated).toContain("Content.")
+  })
 
   it("handles heading at very end of file with no body", async () => {
     const content = `---
@@ -2157,8 +2157,8 @@ title: Trailing
 Some text.
 
 ## Trailing Heading
-`;
-    await writeTestNote("trailing.md", content);
+`
+    await writeTestNote("trailing.md", content)
     await patchNote(
       {
         vaultPath: vault,
@@ -2168,22 +2168,22 @@ Some text.
         heading: "Trailing Heading",
       },
       logger,
-    );
-    const updated = await readTestNote("trailing.md");
-    const lines = updated.split("\n");
-    const hasContentIdx = lines.findIndex((line) => line === "## Has Content");
-    const someTextIdx = lines.findIndex((line) => line === "Some text.");
-    const headingIdx = lines.findIndex((line) => line === "## Trailing Heading");
-    const addedIdx = lines.findIndex((line) => line === "Added to trailing.");
+    )
+    const updated = await readTestNote("trailing.md")
+    const lines = updated.split("\n")
+    const hasContentIdx = lines.findIndex((line) => line === "## Has Content")
+    const someTextIdx = lines.findIndex((line) => line === "Some text.")
+    const headingIdx = lines.findIndex((line) => line === "## Trailing Heading")
+    const addedIdx = lines.findIndex((line) => line === "Added to trailing.")
     // Previous section intact
-    expect(someTextIdx).toBeGreaterThan(hasContentIdx);
-    expect(headingIdx).toBeGreaterThan(someTextIdx);
+    expect(someTextIdx).toBeGreaterThan(hasContentIdx)
+    expect(headingIdx).toBeGreaterThan(someTextIdx)
     // Added content is after the trailing heading
-    expect(addedIdx).toBeGreaterThan(headingIdx);
+    expect(addedIdx).toBeGreaterThan(headingIdx)
     // No heading after the added content
-    const headingsAfter = lines.slice(addedIdx + 1).filter((line) => /^#{1,6} /.test(line));
-    expect(headingsAfter).toHaveLength(0);
-  });
+    const headingsAfter = lines.slice(addedIdx + 1).filter((line) => /^#{1,6} /.test(line))
+    expect(headingsAfter).toHaveLength(0)
+  })
 
   it("handles file in subdirectory", async () => {
     const content = `---
@@ -2192,8 +2192,8 @@ title: Nested
 
 ## Section
 Body.
-`;
-    await writeTestNote("sub/dir/nested.md", content);
+`
+    await writeTestNote("sub/dir/nested.md", content)
     await patchNote(
       {
         vaultPath: vault,
@@ -2203,16 +2203,16 @@ Body.
         heading: "Section",
       },
       logger,
-    );
-    const updated = await readTestNote("sub/dir/nested.md");
-    const lines = updated.split("\n");
-    const bodyIdx = lines.findIndex((line) => line === "Body.");
-    const moreIdx = lines.findIndex((line) => line === "More body.");
-    expect(bodyIdx).toBeGreaterThan(-1);
-    expect(moreIdx).toBeGreaterThan(bodyIdx);
-    expect(updated).toContain("title: Nested");
-  });
-});
+    )
+    const updated = await readTestNote("sub/dir/nested.md")
+    const lines = updated.split("\n")
+    const bodyIdx = lines.findIndex((line) => line === "Body.")
+    const moreIdx = lines.findIndex((line) => line === "More body.")
+    expect(bodyIdx).toBeGreaterThan(-1)
+    expect(moreIdx).toBeGreaterThan(bodyIdx)
+    expect(updated).toContain("title: Nested")
+  })
+})
 
 // ── replaceInNote ───────────────────────────────────────────────
 
@@ -2224,8 +2224,8 @@ title: Replace Test
 
 The word apple appears here.
 And apple appears here too.
-`;
-    await writeTestNote("replace.md", content);
+`
+    await writeTestNote("replace.md", content)
     const result = await replaceInNote(
       {
         vaultPath: vault,
@@ -2234,15 +2234,15 @@ And apple appears here too.
         newText: "orange",
       },
       logger,
-    );
+    )
     expect(result).toEqual({
       message: "Replaced 1 occurrence in replace.md",
       count: 1,
-    });
-    const updated = await readTestNote("replace.md");
-    expect(updated).toContain("The word orange appears here.");
-    expect(updated).toContain("And apple appears here too.");
-  });
+    })
+    const updated = await readTestNote("replace.md")
+    expect(updated).toContain("The word orange appears here.")
+    expect(updated).toContain("And apple appears here too.")
+  })
 
   it("replaces all occurrences when flag is set", async () => {
     const content = `---
@@ -2250,8 +2250,8 @@ title: Replace All
 ---
 
 apple and apple and apple.
-`;
-    await writeTestNote("replace-all.md", content);
+`
+    await writeTestNote("replace-all.md", content)
     const result = await replaceInNote(
       {
         vaultPath: vault,
@@ -2261,18 +2261,18 @@ apple and apple and apple.
         replaceAllOccurrences: true,
       },
       logger,
-    );
+    )
     expect(result).toEqual({
       message: "Replaced 3 occurrences in replace-all.md",
       count: 3,
-    });
-    const updated = await readTestNote("replace-all.md");
-    expect(updated).toContain("orange and orange and orange.");
-    expect(updated).not.toContain("apple");
-  });
+    })
+    const updated = await readTestNote("replace-all.md")
+    expect(updated).toContain("orange and orange and orange.")
+    expect(updated).not.toContain("apple")
+  })
 
   it("errors on empty old_text", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await expect(
       replaceInNote(
         {
@@ -2283,11 +2283,11 @@ apple and apple and apple.
         },
         logger,
       ),
-    ).rejects.toThrow("oldText cannot be empty");
-  });
+    ).rejects.toThrow("oldText cannot be empty")
+  })
 
   it("rejects new_text containing a control character", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await expect(
       replaceInNote(
         {
@@ -2300,11 +2300,11 @@ apple and apple and apple.
       ),
     ).rejects.toThrow(
       "new_text contains a control character (U+0000 at position 4) — control characters other than tab, LF, and CR are not allowed",
-    );
-  });
+    )
+  })
 
   it("errors when old_text not found", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await expect(
       replaceInNote(
         {
@@ -2315,8 +2315,8 @@ apple and apple and apple.
         },
         logger,
       ),
-    ).rejects.toThrow('text not found in "note.md"');
-  });
+    ).rejects.toThrow('text not found in "note.md"')
+  })
 
   it("handles multi-line old_text", async () => {
     const content = `---
@@ -2326,8 +2326,8 @@ title: Multiline
 Line one.
 Line two.
 Line three.
-`;
-    await writeTestNote("multi.md", content);
+`
+    await writeTestNote("multi.md", content)
     await replaceInNote(
       {
         vaultPath: vault,
@@ -2336,11 +2336,11 @@ Line three.
         newText: "Replaced block.",
       },
       logger,
-    );
-    const updated = await readTestNote("multi.md");
-    expect(updated).toContain("Replaced block.\nLine three.");
-    expect(updated).not.toContain("Line one.");
-  });
+    )
+    const updated = await readTestNote("multi.md")
+    expect(updated).toContain("Replaced block.\nLine three.")
+    expect(updated).not.toContain("Line one.")
+  })
 
   it("replaces with empty string (deletion)", async () => {
     const content = `---
@@ -2348,8 +2348,8 @@ title: Delete
 ---
 
 Keep this. Remove this. Keep this too.
-`;
-    await writeTestNote("delete.md", content);
+`
+    await writeTestNote("delete.md", content)
     await replaceInNote(
       {
         vaultPath: vault,
@@ -2358,13 +2358,13 @@ Keep this. Remove this. Keep this too.
         newText: "",
       },
       logger,
-    );
-    const updated = await readTestNote("delete.md");
-    expect(updated).toContain("Keep this. Keep this too.");
-  });
+    )
+    const updated = await readTestNote("delete.md")
+    expect(updated).toContain("Keep this. Keep this too.")
+  })
 
   it("preserves frontmatter during replacement", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await replaceInNote(
       {
         vaultPath: vault,
@@ -2373,12 +2373,12 @@ Keep this. Remove this. Keep this too.
         newText: "Task Alpha",
       },
       logger,
-    );
-    const updated = await readTestNote("note.md");
-    expect(updated).toContain("title: Test Note");
-    expect(updated).toContain("tags:");
-    expect(updated).toContain("Task Alpha");
-  });
+    )
+    const updated = await readTestNote("note.md")
+    expect(updated).toContain("title: Test Note")
+    expect(updated).toContain("tags:")
+    expect(updated).toContain("Task Alpha")
+  })
 
   it("is case-sensitive", async () => {
     const content = `---
@@ -2386,8 +2386,8 @@ title: Case
 ---
 
 Hello World.
-`;
-    await writeTestNote("case.md", content);
+`
+    await writeTestNote("case.md", content)
     await expect(
       replaceInNote(
         {
@@ -2398,8 +2398,8 @@ Hello World.
         },
         logger,
       ),
-    ).rejects.toThrow("text not found");
-  });
+    ).rejects.toThrow("text not found")
+  })
 
   it("errors on file not found", async () => {
     await expect(
@@ -2412,8 +2412,8 @@ Hello World.
         },
         logger,
       ),
-    ).rejects.toThrow('note not found: "missing.md"');
-  });
+    ).rejects.toThrow('note not found: "missing.md"')
+  })
 
   it("errors on path traversal", async () => {
     await expect(
@@ -2426,12 +2426,12 @@ Hello World.
         },
         logger,
       ),
-    ).rejects.toThrow("path traversal blocked");
-  });
+    ).rejects.toThrow("path traversal blocked")
+  })
 
   it("truncates long old_text in error message", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
-    const longText = "x".repeat(100);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
+    const longText = "x".repeat(100)
     await expect(
       replaceInNote(
         {
@@ -2442,8 +2442,8 @@ Hello World.
         },
         logger,
       ),
-    ).rejects.toThrow(/x{80}…/);
-  });
+    ).rejects.toThrow(/x{80}…/)
+  })
 
   it("collapses blank lines when deleting text with empty new_text", async () => {
     const content = `---
@@ -2454,8 +2454,8 @@ title: Board
 
 - [ ] Task A
 - [ ] Task B
-`;
-    await writeTestNote("board.md", content);
+`
+    await writeTestNote("board.md", content)
     await replaceInNote(
       {
         vaultPath: vault,
@@ -2464,11 +2464,11 @@ title: Board
         newText: "",
       },
       logger,
-    );
-    const updated = await readTestNote("board.md");
-    expect(updated).not.toMatch(/\n{3,}/);
-    expect(updated).toContain("## Active\n\n- [ ] Task B");
-  });
+    )
+    const updated = await readTestNote("board.md")
+    expect(updated).not.toMatch(/\n{3,}/)
+    expect(updated).toContain("## Active\n\n- [ ] Task B")
+  })
 
   it("does not collapse blank lines when new_text is non-empty", async () => {
     const content = `---
@@ -2479,8 +2479,8 @@ Line one
 
 
 Line two
-`;
-    await writeTestNote("spaced.md", content);
+`
+    await writeTestNote("spaced.md", content)
     await replaceInNote(
       {
         vaultPath: vault,
@@ -2489,11 +2489,11 @@ Line two
         newText: "Line replaced",
       },
       logger,
-    );
-    const updated = await readTestNote("spaced.md");
-    expect(updated).toContain("Line replaced\n\n\nLine two");
-  });
-});
+    )
+    const updated = await readTestNote("spaced.md")
+    expect(updated).toContain("Line replaced\n\n\nLine two")
+  })
+})
 
 describe("deleteSpan", () => {
   // A long, URL- and wikilink-bearing middle row — the kind of payload that a
@@ -2507,16 +2507,16 @@ title: Sessions
 | 2026-05-01 | [[sessions/a|First]] short row |
 | 2026-05-02 | ${"[[sessions/b|Second]] ".repeat(40)}see https://example.com/x?y=1&z=2 |
 | 2026-05-03 | [[sessions/c|Third]] short row |
-`;
+`
 
   it("deletes a single long row by a short start anchor with no end anchor", async () => {
-    await writeTestNote("sessions.md", SESSIONS_TABLE);
-    const result = await deleteSpan({ vaultPath: vault, path: "sessions.md", startAnchor: "| 2026-05-02 |" }, logger);
-    const updated = await readTestNote("sessions.md");
+    await writeTestNote("sessions.md", SESSIONS_TABLE)
+    const result = await deleteSpan({ vaultPath: vault, path: "sessions.md", startAnchor: "| 2026-05-02 |" }, logger)
+    const updated = await readTestNote("sessions.md")
     const expectedPreview =
       ("| 2026-05-02 | " + "[[sessions/b|Second]] ".repeat(40) + "see https://example.com/x?y=1&z=2 |").slice(0, 80) +
-      "…";
-    expect(result).toBe(`Deleted 1 line from sessions.md: "${expectedPreview}"`);
+      "…"
+    expect(result).toBe(`Deleted 1 line from sessions.md: "${expectedPreview}"`)
     // Whole-file assertion: the long middle row is gone and both neighbours
     // survive verbatim, with no stray blank line or duplication left behind.
     expect(updated).toBe(`---
@@ -2527,8 +2527,8 @@ title: Sessions
 
 | 2026-05-01 | [[sessions/a|First]] short row |
 | 2026-05-03 | [[sessions/c|Third]] short row |
-`);
-  });
+`)
+  })
 
   it("deletes a multi-line block from the start line through the end line, inclusive", async () => {
     const content = `---
@@ -2543,8 +2543,8 @@ Before paragraph.
 > remove after launch
 
 After paragraph.
-`;
-    await writeTestNote("plan.md", content);
+`
+    await writeTestNote("plan.md", content)
     const result = await deleteSpan(
       {
         vaultPath: vault,
@@ -2553,14 +2553,14 @@ After paragraph.
         endAnchor: "remove after launch",
       },
       logger,
-    );
-    const updated = await readTestNote("plan.md");
+    )
+    const updated = await readTestNote("plan.md")
     expect(result).toBe(
       `Deleted 4 lines from plan.md: "> [!warning] Stale
 > line two
 > line three
 > remove after launch"`,
-    );
+    )
     // All four callout lines gone (including the last — guards an exclusive-end
     // bug), surrounding paragraphs intact, blank run collapsed.
     expect(updated).toBe(`---
@@ -2570,8 +2570,8 @@ title: Plan
 Before paragraph.
 
 After paragraph.
-`);
-  });
+`)
+  })
 
   it("treats start and end anchors on the same line as a single-line span", async () => {
     const content = `---
@@ -2581,8 +2581,8 @@ title: Single
 keep before
 alpha middle omega
 keep after
-`;
-    await writeTestNote("single.md", content);
+`
+    await writeTestNote("single.md", content)
     const result = await deleteSpan(
       {
         vaultPath: vault,
@@ -2591,17 +2591,17 @@ keep after
         endAnchor: "omega",
       },
       logger,
-    );
-    const updated = await readTestNote("single.md");
-    expect(result).toBe('Deleted 1 line from single.md: "alpha middle omega"');
+    )
+    const updated = await readTestNote("single.md")
+    expect(result).toBe('Deleted 1 line from single.md: "alpha middle omega"')
     expect(updated).toBe(`---
 title: Single
 ---
 
 keep before
 keep after
-`);
-  });
+`)
+  })
 
   it("searches the end anchor only at or after the start line", async () => {
     const content = `---
@@ -2613,8 +2613,8 @@ START of block
 middle line
 MARK appears again.
 tail line
-`;
-    await writeTestNote("order.md", content);
+`
+    await writeTestNote("order.md", content)
     await deleteSpan(
       {
         vaultPath: vault,
@@ -2623,8 +2623,8 @@ tail line
         endAnchor: "MARK",
       },
       logger,
-    );
-    const updated = await readTestNote("order.md");
+    )
+    const updated = await readTestNote("order.md")
     // The earlier MARK line is left alone; the span runs from the start line to
     // the later MARK line (inclusive). Whole-file assertion guards a from-zero
     // end search that would have cut the wrong span.
@@ -2634,8 +2634,8 @@ title: Order
 
 MARK appears before.
 tail line
-`);
-  });
+`)
+  })
 
   it("collapses blank-line runs left behind by the deletion", async () => {
     const content = `---
@@ -2647,10 +2647,10 @@ A
 LINE TO DELETE
 
 B
-`;
-    await writeTestNote("spaced.md", content);
-    await deleteSpan({ vaultPath: vault, path: "spaced.md", startAnchor: "LINE TO DELETE" }, logger);
-    const updated = await readTestNote("spaced.md");
+`
+    await writeTestNote("spaced.md", content)
+    await deleteSpan({ vaultPath: vault, path: "spaced.md", startAnchor: "LINE TO DELETE" }, logger)
+    const updated = await readTestNote("spaced.md")
     expect(updated).toBe(`---
 title: Spaced
 ---
@@ -2658,17 +2658,17 @@ title: Spaced
 A
 
 B
-`);
-  });
+`)
+  })
 
   it("collapses blank-line runs in a CRLF-authored note and writes LF-only output", async () => {
     // CRLF body: split("\n") leaves a trailing "\r" on each line, which would
     // defeat the LF-only blank-run collapse unless the reader strips it.
-    const content = "---\ntitle: Crlf\n---\n\r\nA\r\n\r\nLINE TO DELETE\r\n\r\nB\r\n";
-    await writeTestNote("crlf.md", content);
-    await deleteSpan({ vaultPath: vault, path: "crlf.md", startAnchor: "LINE TO DELETE" }, logger);
-    const updated = await readTestNote("crlf.md");
-    expect(updated).not.toContain("\r");
+    const content = "---\ntitle: Crlf\n---\n\r\nA\r\n\r\nLINE TO DELETE\r\n\r\nB\r\n"
+    await writeTestNote("crlf.md", content)
+    await deleteSpan({ vaultPath: vault, path: "crlf.md", startAnchor: "LINE TO DELETE" }, logger)
+    const updated = await readTestNote("crlf.md")
+    expect(updated).not.toContain("\r")
     expect(updated).toBe(`---
 title: Crlf
 ---
@@ -2676,8 +2676,8 @@ title: Crlf
 A
 
 B
-`);
-  });
+`)
+  })
 
   it("preserves frontmatter when deleting a body line", async () => {
     const content = `---
@@ -2687,10 +2687,10 @@ type: note
 
 - [ ] Task A
 - [ ] Task B
-`;
-    await writeTestNote("note.md", content);
-    await deleteSpan({ vaultPath: vault, path: "note.md", startAnchor: "- [ ] Task A" }, logger);
-    const updated = await readTestNote("note.md");
+`
+    await writeTestNote("note.md", content)
+    await deleteSpan({ vaultPath: vault, path: "note.md", startAnchor: "- [ ] Task A" }, logger)
+    const updated = await readTestNote("note.md")
     // Whole-file assertion: both frontmatter keys survive untouched and only
     // the targeted body line is removed.
     expect(updated).toBe(`---
@@ -2699,8 +2699,8 @@ type: note
 ---
 
 - [ ] Task B
-`);
-  });
+`)
+  })
 
   it("does not match an anchor that appears only in frontmatter", async () => {
     const content = `---
@@ -2708,17 +2708,17 @@ title: "- [ ] Task A"
 ---
 
 - [ ] Task B
-`;
-    await writeTestNote("note.md", content);
+`
+    await writeTestNote("note.md", content)
     await expect(
       deleteSpan({ vaultPath: vault, path: "note.md", startAnchor: "- [ ] Task A" }, logger),
-    ).rejects.toThrow('start anchor not found in "note.md": "- [ ] Task A"');
-  });
+    ).rejects.toThrow('start anchor not found in "note.md": "- [ ] Task A"')
+  })
 
   it("does not disturb a trailing kanban:settings block", async () => {
-    await writeTestNote("board.md", NOTE_KANBAN);
-    await deleteSpan({ vaultPath: vault, path: "board.md", startAnchor: "- [ ] Task A" }, logger);
-    const updated = await readTestNote("board.md");
+    await writeTestNote("board.md", NOTE_KANBAN)
+    await deleteSpan({ vaultPath: vault, path: "board.md", startAnchor: "- [ ] Task A" }, logger)
+    const updated = await readTestNote("board.md")
     // Whole-file assertion: the Active card is gone, but the fenced
     // kanban:settings block at EOF survives byte-for-byte.
     expect(updated).toBe(`---
@@ -2736,8 +2736,8 @@ kanban-plugin: board
 {"kanban-plugin":"board"}
 \`\`\`
 %%
-`);
-  });
+`)
+  })
 
   it("deletes the last line of a file with no trailing newline without stranding a blank", async () => {
     const content = `---
@@ -2745,17 +2745,17 @@ title: Tail
 ---
 
 first line
-last line`;
-    await writeTestNote("tail.md", content);
-    await deleteSpan({ vaultPath: vault, path: "tail.md", startAnchor: "last line" }, logger);
-    const updated = await readTestNote("tail.md");
+last line`
+    await writeTestNote("tail.md", content)
+    await deleteSpan({ vaultPath: vault, path: "tail.md", startAnchor: "last line" }, logger)
+    const updated = await readTestNote("tail.md")
     expect(updated).toBe(`---
 title: Tail
 ---
 
 first line
-`);
-  });
+`)
+  })
 
   it("matches an anchor containing wikilink/pipe characters literally, not as regex", async () => {
     const content = `---
@@ -2764,8 +2764,8 @@ title: Links
 
 | 1 | [[Notes/Page|Alias]] keep |
 | 2 | [[Notes/Other|Alias]] drop |
-`;
-    await writeTestNote("links.md", content);
+`
+    await writeTestNote("links.md", content)
     await deleteSpan(
       {
         vaultPath: vault,
@@ -2773,8 +2773,8 @@ title: Links
         startAnchor: "[[Notes/Other|Alias]]",
       },
       logger,
-    );
-    const updated = await readTestNote("links.md");
+    )
+    const updated = await readTestNote("links.md")
     // The "drop" row is matched literally (the [[ and | are not regex) and
     // removed; the sibling row with the same alias survives.
     expect(updated).toBe(`---
@@ -2782,8 +2782,8 @@ title: Links
 ---
 
 | 1 | [[Notes/Page|Alias]] keep |
-`);
-  });
+`)
+  })
 
   it("reports the line count and a preview of the removed text", async () => {
     const content = `---
@@ -2792,8 +2792,8 @@ title: Preview
 
 unique line to remove
 other line
-`;
-    await writeTestNote("preview.md", content);
+`
+    await writeTestNote("preview.md", content)
     const result = await deleteSpan(
       {
         vaultPath: vault,
@@ -2801,24 +2801,24 @@ other line
         startAnchor: "unique line to remove",
       },
       logger,
-    );
-    expect(result).toBe('Deleted 1 line from preview.md: "unique line to remove"');
-  });
+    )
+    expect(result).toBe('Deleted 1 line from preview.md: "unique line to remove"')
+  })
 
   it("truncates a long removed line in the confirmation preview", async () => {
-    const longLine = "z".repeat(100);
+    const longLine = "z".repeat(100)
     const content = `---
 title: Long
 ---
 
 ${longLine}
 keep me
-`;
-    await writeTestNote("long.md", content);
-    const result = await deleteSpan({ vaultPath: vault, path: "long.md", startAnchor: longLine }, logger);
+`
+    await writeTestNote("long.md", content)
+    const result = await deleteSpan({ vaultPath: vault, path: "long.md", startAnchor: longLine }, logger)
     // Deterministic message: 80-char truncation + ellipsis of the removed line.
-    expect(result).toBe(`Deleted 1 line from long.md: "${"z".repeat(80)}…"`);
-  });
+    expect(result).toBe(`Deleted 1 line from long.md: "${"z".repeat(80)}…"`)
+  })
 
   it("deletes the first matching line when first_match is set on the start anchor", async () => {
     const content = `---
@@ -2830,8 +2830,8 @@ top line
 middle line
 - [ ] dup
 bottom line
-`;
-    await writeTestNote("dups.md", content);
+`
+    await writeTestNote("dups.md", content)
     await deleteSpan(
       {
         vaultPath: vault,
@@ -2840,8 +2840,8 @@ bottom line
         firstMatch: true,
       },
       logger,
-    );
-    const updated = await readTestNote("dups.md");
+    )
+    const updated = await readTestNote("dups.md")
     // Only the first duplicate is removed (top now sits above middle); the
     // second identical line survives.
     expect(updated).toBe(`---
@@ -2852,8 +2852,8 @@ top line
 middle line
 - [ ] dup
 bottom line
-`);
-  });
+`)
+  })
 
   it("resolves an ambiguous end anchor to its first match when first_match is set", async () => {
     const content = `---
@@ -2866,8 +2866,8 @@ inside one
 inside two
 - end candidate
 tail line
-`;
-    await writeTestNote("endfirst.md", content);
+`
+    await writeTestNote("endfirst.md", content)
     await deleteSpan(
       {
         vaultPath: vault,
@@ -2877,8 +2877,8 @@ tail line
         firstMatch: true,
       },
       logger,
-    );
-    const updated = await readTestNote("endfirst.md");
+    )
+    const updated = await readTestNote("endfirst.md")
     // Span ends at the FIRST end-candidate line; everything after it survives.
     expect(updated).toBe(`---
 title: EndFirst
@@ -2887,8 +2887,8 @@ title: EndFirst
 inside two
 - end candidate
 tail line
-`);
-  });
+`)
+  })
 
   it("empties the body when the span covers every body line", async () => {
     const content = `---
@@ -2897,8 +2897,8 @@ title: WholeBody
 
 only line one
 only line two
-`;
-    await writeTestNote("whole.md", content);
+`
+    await writeTestNote("whole.md", content)
     const result = await deleteSpan(
       {
         vaultPath: vault,
@@ -2907,29 +2907,29 @@ only line two
         endAnchor: "only line two",
       },
       logger,
-    );
-    const updated = await readTestNote("whole.md");
+    )
+    const updated = await readTestNote("whole.md")
     expect(result).toBe(
       `Deleted 2 lines from whole.md: "only line one
 only line two"`,
-    );
+    )
     // Frontmatter survives; the entire body collapses to a single blank line.
     expect(updated).toBe(`---
 title: WholeBody
 ---
 
-`);
-  });
+`)
+  })
 
   it("errors on empty start_anchor", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await expect(deleteSpan({ vaultPath: vault, path: "note.md", startAnchor: "" }, logger)).rejects.toThrow(
       "startAnchor cannot be empty",
-    );
-  });
+    )
+  })
 
   it("errors on empty end_anchor", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await expect(
       deleteSpan(
         {
@@ -2940,16 +2940,16 @@ title: WholeBody
         },
         logger,
       ),
-    ).rejects.toThrow("endAnchor cannot be empty");
-  });
+    ).rejects.toThrow("endAnchor cannot be empty")
+  })
 
   it("errors when the start anchor is not found, leaving the file unchanged", async () => {
-    await writeTestNote("note.md", NOTE_WITH_SECTIONS);
+    await writeTestNote("note.md", NOTE_WITH_SECTIONS)
     await expect(
       deleteSpan({ vaultPath: vault, path: "note.md", startAnchor: "no such line" }, logger),
-    ).rejects.toThrow('start anchor not found in "note.md"');
-    expect(await readTestNote("note.md")).toBe(NOTE_WITH_SECTIONS);
-  });
+    ).rejects.toThrow('start anchor not found in "note.md"')
+    expect(await readTestNote("note.md")).toBe(NOTE_WITH_SECTIONS)
+  })
 
   it("errors when the end anchor exists only before the start line", async () => {
     const content = `---
@@ -2959,8 +2959,8 @@ title: EndBefore
 EARLY marker
 START here
 later content
-`;
-    await writeTestNote("endbefore.md", content);
+`
+    await writeTestNote("endbefore.md", content)
     await expect(
       deleteSpan(
         {
@@ -2971,9 +2971,9 @@ later content
         },
         logger,
       ),
-    ).rejects.toThrow('end anchor not found in "endbefore.md" at or after the start anchor');
-    expect(await readTestNote("endbefore.md")).toBe(content);
-  });
+    ).rejects.toThrow('end anchor not found in "endbefore.md" at or after the start anchor')
+    expect(await readTestNote("endbefore.md")).toBe(content)
+  })
 
   it("errors on an ambiguous start anchor by default, leaving the file unchanged", async () => {
     const content = `---
@@ -2982,13 +2982,13 @@ title: Ambig
 
 - [ ] dup
 - [ ] dup
-`;
-    await writeTestNote("ambig.md", content);
+`
+    await writeTestNote("ambig.md", content)
     await expect(deleteSpan({ vaultPath: vault, path: "ambig.md", startAnchor: "- [ ] dup" }, logger)).rejects.toThrow(
       'ambiguous start anchor in "ambig.md": "- [ ] dup" matches 2 lines',
-    );
-    expect(await readTestNote("ambig.md")).toBe(content);
-  });
+    )
+    expect(await readTestNote("ambig.md")).toBe(content)
+  })
 
   it("errors on an ambiguous end anchor by default, leaving the file unchanged", async () => {
     const content = `---
@@ -2998,8 +2998,8 @@ title: AmbigEnd
 START unique
 - end candidate
 - end candidate
-`;
-    await writeTestNote("ambigend.md", content);
+`
+    await writeTestNote("ambigend.md", content)
     await expect(
       deleteSpan(
         {
@@ -3012,28 +3012,28 @@ START unique
       ),
     ).rejects.toThrow(
       'ambiguous end anchor in "ambigend.md": "- end candidate" matches 2 lines at or after the start anchor',
-    );
-    expect(await readTestNote("ambigend.md")).toBe(content);
-  });
+    )
+    expect(await readTestNote("ambigend.md")).toBe(content)
+  })
 
   it("errors on file not found", async () => {
     await expect(deleteSpan({ vaultPath: vault, path: "missing.md", startAnchor: "x" }, logger)).rejects.toThrow(
       'note not found: "missing.md"',
-    );
-  });
+    )
+  })
 
   it("errors on path traversal", async () => {
     await expect(deleteSpan({ vaultPath: vault, path: "../escape.md", startAnchor: "x" }, logger)).rejects.toThrow(
       "path traversal blocked",
-    );
-  });
-});
+    )
+  })
+})
 
 // ── Concurrent writes ─────────────────────────────────────────
 
 describe("concurrent writes (exclusive lock)", () => {
   it("rejects the second write when two patchNote calls target the same note", async () => {
-    await writeTestNote("board.md", "---\ntitle: Board\n---\n\n## Active\n\n- [ ] Existing task\n");
+    await writeTestNote("board.md", "---\ntitle: Board\n---\n\n## Active\n\n- [ ] Existing task\n")
 
     // Promise.allSettled preserves input order; withExclusiveFileLock throws
     // synchronously, so the first call acquires the lock and the second rejects.
@@ -3058,9 +3058,9 @@ describe("concurrent writes (exclusive lock)", () => {
         },
         logger,
       ),
-    ]);
+    ])
 
-    expect(first.status).toBe("fulfilled");
+    expect(first.status).toBe("fulfilled")
     expect(second).toEqual(
       expect.objectContaining({
         status: "rejected",
@@ -3068,11 +3068,11 @@ describe("concurrent writes (exclusive lock)", () => {
           message: "concurrent write in progress",
         }),
       }),
-    );
-  });
+    )
+  })
 
   it("rejects the second write when replaceInNote and patchNote target the same note", async () => {
-    await writeTestNote("note.md", "---\ntitle: Note\n---\n\n## Section\n\nOriginal text.\n\n- Item one\n");
+    await writeTestNote("note.md", "---\ntitle: Note\n---\n\n## Section\n\nOriginal text.\n\n- Item one\n")
 
     const [first, second] = await Promise.allSettled([
       replaceInNote(
@@ -3094,9 +3094,9 @@ describe("concurrent writes (exclusive lock)", () => {
         },
         logger,
       ),
-    ]);
+    ])
 
-    expect(first.status).toBe("fulfilled");
+    expect(first.status).toBe("fulfilled")
     expect(second).toEqual(
       expect.objectContaining({
         status: "rejected",
@@ -3104,14 +3104,14 @@ describe("concurrent writes (exclusive lock)", () => {
           message: "concurrent write in progress",
         }),
       }),
-    );
-  });
+    )
+  })
 
   it("rejects the second write when deleteSpan and patchNote target the same note", async () => {
     await writeTestNote(
       "mixed.md",
       "---\ntitle: Mixed\n---\n\n## Tasks\n\n- [ ] Keep this\n- [ ] Remove this\n- [ ] Also keep\n",
-    );
+    )
 
     const [first, second] = await Promise.allSettled([
       deleteSpan(
@@ -3132,9 +3132,9 @@ describe("concurrent writes (exclusive lock)", () => {
         },
         logger,
       ),
-    ]);
+    ])
 
-    expect(first.status).toBe("fulfilled");
+    expect(first.status).toBe("fulfilled")
     expect(second).toEqual(
       expect.objectContaining({
         status: "rejected",
@@ -3142,9 +3142,9 @@ describe("concurrent writes (exclusive lock)", () => {
           message: "concurrent write in progress",
         }),
       }),
-    );
-  });
-});
+    )
+  })
+})
 
 describe("replaceSpan", () => {
   const TABLE_NOTE = `---
@@ -3158,10 +3158,10 @@ title: Tracker
 | 2026-05-01 | Acme Corp | Applied |
 | 2026-05-02 | Beta Inc | Interviewing |
 | 2026-05-03 | Gamma LLC | Rejected |
-`;
+`
 
   it("replaces a single line identified by start_anchor", async () => {
-    await writeTestNote("tracker.md", TABLE_NOTE);
+    await writeTestNote("tracker.md", TABLE_NOTE)
     const replaceMessage = await replaceSpan(
       {
         vaultPath: vault,
@@ -3170,9 +3170,9 @@ title: Tracker
         content: "| 2026-05-02 | Beta Inc | Offer received |",
       },
       logger,
-    );
-    const updatedNote = await readTestNote("tracker.md");
-    expect(replaceMessage).toBe("Replaced 1 line with 1 line in tracker.md");
+    )
+    const updatedNote = await readTestNote("tracker.md")
+    expect(replaceMessage).toBe("Replaced 1 line with 1 line in tracker.md")
     expect(updatedNote).toBe(`---
 title: Tracker
 ---
@@ -3184,8 +3184,8 @@ title: Tracker
 | 2026-05-01 | Acme Corp | Applied |
 | 2026-05-02 | Beta Inc | Offer received |
 | 2026-05-03 | Gamma LLC | Rejected |
-`);
-  });
+`)
+  })
 
   it("replaces a multi-line block from start through end anchor", async () => {
     const noteContent = `---
@@ -3200,8 +3200,8 @@ Before paragraph.
 > remove after launch
 
 After paragraph.
-`;
-    await writeTestNote("plan.md", noteContent);
+`
+    await writeTestNote("plan.md", noteContent)
     const replaceMessage = await replaceSpan(
       {
         vaultPath: vault,
@@ -3211,9 +3211,9 @@ After paragraph.
         content: "> [!info] Current\n> Updated for v2.",
       },
       logger,
-    );
-    const updatedNote = await readTestNote("plan.md");
-    expect(replaceMessage).toBe("Replaced 4 lines with 2 lines in plan.md");
+    )
+    const updatedNote = await readTestNote("plan.md")
+    expect(replaceMessage).toBe("Replaced 4 lines with 2 lines in plan.md")
     expect(updatedNote).toBe(`---
 title: Plan
 ---
@@ -3224,8 +3224,8 @@ Before paragraph.
 > Updated for v2.
 
 After paragraph.
-`);
-  });
+`)
+  })
 
   it("replaces with more lines than removed (expansion)", async () => {
     const noteContent = `---
@@ -3235,8 +3235,8 @@ title: Test
 line before
 single target line
 line after
-`;
-    await writeTestNote("expand.md", noteContent);
+`
+    await writeTestNote("expand.md", noteContent)
     await replaceSpan(
       {
         vaultPath: vault,
@@ -3245,8 +3245,8 @@ line after
         content: "expanded line 1\nexpanded line 2\nexpanded line 3",
       },
       logger,
-    );
-    const updatedNote = await readTestNote("expand.md");
+    )
+    const updatedNote = await readTestNote("expand.md")
     expect(updatedNote).toBe(`---
 title: Test
 ---
@@ -3256,8 +3256,8 @@ expanded line 1
 expanded line 2
 expanded line 3
 line after
-`);
-  });
+`)
+  })
 
   it("treats start and end anchors on the same line as a single-line replace", async () => {
     const noteContent = `---
@@ -3267,8 +3267,8 @@ title: Single
 keep before
 alpha middle omega
 keep after
-`;
-    await writeTestNote("single.md", noteContent);
+`
+    await writeTestNote("single.md", noteContent)
     const replaceMessage = await replaceSpan(
       {
         vaultPath: vault,
@@ -3278,9 +3278,9 @@ keep after
         content: "replaced line",
       },
       logger,
-    );
-    const updatedNote = await readTestNote("single.md");
-    expect(replaceMessage).toBe("Replaced 1 line with 1 line in single.md");
+    )
+    const updatedNote = await readTestNote("single.md")
+    expect(replaceMessage).toBe("Replaced 1 line with 1 line in single.md")
     expect(updatedNote).toBe(`---
 title: Single
 ---
@@ -3288,8 +3288,8 @@ title: Single
 keep before
 replaced line
 keep after
-`);
-  });
+`)
+  })
 
   it("collapses 3+ blank-line runs created by the replacement", async () => {
     const noteContent = `---
@@ -3302,8 +3302,8 @@ old block line 1
 old block line 2
 
 after
-`;
-    await writeTestNote("seam.md", noteContent);
+`
+    await writeTestNote("seam.md", noteContent)
     await replaceSpan(
       {
         vaultPath: vault,
@@ -3313,8 +3313,8 @@ after
         content: "\nnew content\n",
       },
       logger,
-    );
-    const updatedNote = await readTestNote("seam.md");
+    )
+    const updatedNote = await readTestNote("seam.md")
     // The leading/trailing blank lines in content stack with surrounding blanks,
     // but collapseBlankRuns prevents 3+ consecutive blanks.
     expect(updatedNote).toBe(`---
@@ -3326,11 +3326,11 @@ before
 new content
 
 after
-`);
-  });
+`)
+  })
 
   it("preserves frontmatter during replacement", async () => {
-    await writeTestNote("tracker.md", TABLE_NOTE);
+    await writeTestNote("tracker.md", TABLE_NOTE)
     await replaceSpan(
       {
         vaultPath: vault,
@@ -3339,8 +3339,8 @@ after
         content: "| 2026-05-01 | Acme Corp | Updated |",
       },
       logger,
-    );
-    const updatedNote = await readTestNote("tracker.md");
+    )
+    const updatedNote = await readTestNote("tracker.md")
     expect(updatedNote).toBe(`---
 title: Tracker
 ---
@@ -3352,8 +3352,8 @@ title: Tracker
 | 2026-05-01 | Acme Corp | Updated |
 | 2026-05-02 | Beta Inc | Interviewing |
 | 2026-05-03 | Gamma LLC | Rejected |
-`);
-  });
+`)
+  })
 
   it("does not match an anchor that appears only in frontmatter", async () => {
     const content = `---
@@ -3361,8 +3361,8 @@ title: "| 2026-05-01 |"
 ---
 
 body line
-`;
-    await writeTestNote("fm.md", content);
+`
+    await writeTestNote("fm.md", content)
     await expect(
       replaceSpan(
         {
@@ -3373,11 +3373,11 @@ body line
         },
         logger,
       ),
-    ).rejects.toThrow('start anchor not found in "fm.md": "| 2026-05-01 |"');
-  });
+    ).rejects.toThrow('start anchor not found in "fm.md": "| 2026-05-01 |"')
+  })
 
   it("rejects content containing a control character", async () => {
-    await writeTestNote("tracker.md", TABLE_NOTE);
+    await writeTestNote("tracker.md", TABLE_NOTE)
     await expect(
       replaceSpan(
         {
@@ -3390,11 +3390,11 @@ body line
       ),
     ).rejects.toThrow(
       "content contains a control character (U+0000 at position 3) — control characters other than tab, LF, and CR are not allowed",
-    );
-  });
+    )
+  })
 
   it("throws when start anchor is not found", async () => {
-    await writeTestNote("tracker.md", TABLE_NOTE);
+    await writeTestNote("tracker.md", TABLE_NOTE)
     await expect(
       replaceSpan(
         {
@@ -3405,11 +3405,11 @@ body line
         },
         logger,
       ),
-    ).rejects.toThrow('start anchor not found in "tracker.md"');
-  });
+    ).rejects.toThrow('start anchor not found in "tracker.md"')
+  })
 
   it("throws when end anchor is not found at or after start", async () => {
-    await writeTestNote("tracker.md", TABLE_NOTE);
+    await writeTestNote("tracker.md", TABLE_NOTE)
     await expect(
       replaceSpan(
         {
@@ -3421,8 +3421,8 @@ body line
         },
         logger,
       ),
-    ).rejects.toThrow('end anchor not found in "tracker.md" at or after the start anchor: "| 2026-05-01 |"');
-  });
+    ).rejects.toThrow('end anchor not found in "tracker.md" at or after the start anchor: "| 2026-05-01 |"')
+  })
 
   it("throws on ambiguous start anchor", async () => {
     const noteContent = `---
@@ -3432,8 +3432,8 @@ title: Ambiguous
 duplicate line
 other content
 duplicate line
-`;
-    await writeTestNote("ambiguous.md", noteContent);
+`
+    await writeTestNote("ambiguous.md", noteContent)
     await expect(
       replaceSpan(
         {
@@ -3444,8 +3444,8 @@ duplicate line
         },
         logger,
       ),
-    ).rejects.toThrow('ambiguous start anchor in "ambiguous.md": "duplicate line" matches 2 lines');
-  });
+    ).rejects.toThrow('ambiguous start anchor in "ambiguous.md": "duplicate line" matches 2 lines')
+  })
 
   it("uses first match when first_match is set on ambiguous anchor", async () => {
     const noteContent = `---
@@ -3455,8 +3455,8 @@ title: First
 duplicate line alpha
 unique middle
 duplicate line beta
-`;
-    await writeTestNote("first.md", noteContent);
+`
+    await writeTestNote("first.md", noteContent)
     await replaceSpan(
       {
         vaultPath: vault,
@@ -3466,8 +3466,8 @@ duplicate line beta
         firstMatch: true,
       },
       logger,
-    );
-    const updatedNote = await readTestNote("first.md");
+    )
+    const updatedNote = await readTestNote("first.md")
     expect(updatedNote).toBe(`---
 title: First
 ---
@@ -3475,8 +3475,8 @@ title: First
 replaced first
 unique middle
 duplicate line beta
-`);
-  });
+`)
+  })
 
   it("throws on ambiguous end anchor", async () => {
     const noteContent = `---
@@ -3487,8 +3487,8 @@ unique start
 repeated end
 other content
 repeated end
-`;
-    await writeTestNote("endambig.md", noteContent);
+`
+    await writeTestNote("endambig.md", noteContent)
     await expect(
       replaceSpan(
         {
@@ -3502,8 +3502,8 @@ repeated end
       ),
     ).rejects.toThrow(
       'ambiguous end anchor in "endambig.md": "repeated end" matches 2 lines at or after the start anchor',
-    );
-  });
+    )
+  })
 
   it("uses first match when first_match is set on ambiguous end anchor", async () => {
     const noteContent = `---
@@ -3515,8 +3515,8 @@ repeated end alpha
 middle line
 repeated end beta
 trailing
-`;
-    await writeTestNote("endfirst.md", noteContent);
+`
+    await writeTestNote("endfirst.md", noteContent)
     await replaceSpan(
       {
         vaultPath: vault,
@@ -3527,8 +3527,8 @@ trailing
         firstMatch: true,
       },
       logger,
-    );
-    const updatedNote = await readTestNote("endfirst.md");
+    )
+    const updatedNote = await readTestNote("endfirst.md")
     expect(updatedNote).toBe(`---
 title: EndFirst
 ---
@@ -3537,8 +3537,8 @@ replaced block
 middle line
 repeated end beta
 trailing
-`);
-  });
+`)
+  })
 
   it("throws when the note does not exist", async () => {
     await expect(
@@ -3551,11 +3551,11 @@ trailing
         },
         logger,
       ),
-    ).rejects.toThrow('note not found: "missing.md"');
-  });
+    ).rejects.toThrow('note not found: "missing.md"')
+  })
 
   it("throws when content is empty", async () => {
-    await writeTestNote("tracker.md", TABLE_NOTE);
+    await writeTestNote("tracker.md", TABLE_NOTE)
     await expect(
       replaceSpan(
         {
@@ -3566,11 +3566,11 @@ trailing
         },
         logger,
       ),
-    ).rejects.toThrow("content cannot be empty");
-  });
+    ).rejects.toThrow("content cannot be empty")
+  })
 
   it("throws when startAnchor is empty", async () => {
-    await writeTestNote("tracker.md", TABLE_NOTE);
+    await writeTestNote("tracker.md", TABLE_NOTE)
     await expect(
       replaceSpan(
         {
@@ -3581,11 +3581,11 @@ trailing
         },
         logger,
       ),
-    ).rejects.toThrow("startAnchor cannot be empty");
-  });
+    ).rejects.toThrow("startAnchor cannot be empty")
+  })
 
   it("throws when endAnchor is empty string", async () => {
-    await writeTestNote("tracker.md", TABLE_NOTE);
+    await writeTestNote("tracker.md", TABLE_NOTE)
     await expect(
       replaceSpan(
         {
@@ -3597,8 +3597,8 @@ trailing
         },
         logger,
       ),
-    ).rejects.toThrow("endAnchor cannot be empty");
-  });
+    ).rejects.toThrow("endAnchor cannot be empty")
+  })
 
   it("throws on path without .md extension", async () => {
     await expect(
@@ -3611,8 +3611,8 @@ trailing
         },
         logger,
       ),
-    ).rejects.toThrow('path must end in ".md"');
-  });
+    ).rejects.toThrow('path must end in ".md"')
+  })
 
   it("rejects concurrent writes on the same file", async () => {
     const noteContent = `---
@@ -3621,8 +3621,8 @@ title: Concurrent
 
 line one
 line two
-`;
-    await writeTestNote("concurrent.md", noteContent);
+`
+    await writeTestNote("concurrent.md", noteContent)
     const [first, second] = await Promise.allSettled([
       replaceSpan(
         {
@@ -3642,8 +3642,8 @@ line two
         },
         logger,
       ),
-    ]);
-    expect(first.status).toBe("fulfilled");
+    ])
+    expect(first.status).toBe("fulfilled")
     expect(second).toEqual(
       expect.objectContaining({
         status: "rejected",
@@ -3651,9 +3651,9 @@ line two
           message: "concurrent write in progress",
         }),
       }),
-    );
-  });
-});
+    )
+  })
+})
 
 describe("insertAtAnchor", () => {
   const LIST_NOTE = `---
@@ -3665,10 +3665,10 @@ title: Shopping
 - Apples
 - Bananas
 - Cherries
-`;
+`
 
   it("inserts a line after the anchor line", async () => {
-    await writeTestNote("shopping.md", LIST_NOTE);
+    await writeTestNote("shopping.md", LIST_NOTE)
     const insertMessage = await insertAtAnchor(
       {
         vaultPath: vault,
@@ -3678,9 +3678,9 @@ title: Shopping
         content: "- Blueberries",
       },
       logger,
-    );
-    const updatedNote = await readTestNote("shopping.md");
-    expect(insertMessage).toBe("Inserted 1 line after anchor in shopping.md");
+    )
+    const updatedNote = await readTestNote("shopping.md")
+    expect(insertMessage).toBe("Inserted 1 line after anchor in shopping.md")
     expect(updatedNote).toBe(`---
 title: Shopping
 ---
@@ -3691,11 +3691,11 @@ title: Shopping
 - Bananas
 - Blueberries
 - Cherries
-`);
-  });
+`)
+  })
 
   it("inserts a line before the anchor line", async () => {
-    await writeTestNote("shopping.md", LIST_NOTE);
+    await writeTestNote("shopping.md", LIST_NOTE)
     const insertMessage = await insertAtAnchor(
       {
         vaultPath: vault,
@@ -3705,9 +3705,9 @@ title: Shopping
         content: "- Avocados",
       },
       logger,
-    );
-    const updatedNote = await readTestNote("shopping.md");
-    expect(insertMessage).toBe("Inserted 1 line before anchor in shopping.md");
+    )
+    const updatedNote = await readTestNote("shopping.md")
+    expect(insertMessage).toBe("Inserted 1 line before anchor in shopping.md")
     expect(updatedNote).toBe(`---
 title: Shopping
 ---
@@ -3718,11 +3718,11 @@ title: Shopping
 - Avocados
 - Bananas
 - Cherries
-`);
-  });
+`)
+  })
 
   it("inserts multiple lines after the anchor", async () => {
-    await writeTestNote("shopping.md", LIST_NOTE);
+    await writeTestNote("shopping.md", LIST_NOTE)
     await insertAtAnchor(
       {
         vaultPath: vault,
@@ -3732,8 +3732,8 @@ title: Shopping
         content: "- Dates\n- Elderberries\n- Figs",
       },
       logger,
-    );
-    const updatedNote = await readTestNote("shopping.md");
+    )
+    const updatedNote = await readTestNote("shopping.md")
     expect(updatedNote).toBe(`---
 title: Shopping
 ---
@@ -3746,11 +3746,11 @@ title: Shopping
 - Dates
 - Elderberries
 - Figs
-`);
-  });
+`)
+  })
 
   it("inserts multiple lines before the anchor", async () => {
-    await writeTestNote("shopping.md", LIST_NOTE);
+    await writeTestNote("shopping.md", LIST_NOTE)
     await insertAtAnchor(
       {
         vaultPath: vault,
@@ -3760,8 +3760,8 @@ title: Shopping
         content: "**Priority items:**\n",
       },
       logger,
-    );
-    const updatedNote = await readTestNote("shopping.md");
+    )
+    const updatedNote = await readTestNote("shopping.md")
     expect(updatedNote).toBe(`---
 title: Shopping
 ---
@@ -3773,8 +3773,8 @@ title: Shopping
 - Apples
 - Bananas
 - Cherries
-`);
-  });
+`)
+  })
 
   it("inserts after the last line in the body", async () => {
     const noteContent = `---
@@ -3782,8 +3782,8 @@ title: Short
 ---
 
 only line
-`;
-    await writeTestNote("short.md", noteContent);
+`
+    await writeTestNote("short.md", noteContent)
     await insertAtAnchor(
       {
         vaultPath: vault,
@@ -3793,16 +3793,16 @@ only line
         content: "new last line",
       },
       logger,
-    );
-    const updatedNote = await readTestNote("short.md");
+    )
+    const updatedNote = await readTestNote("short.md")
     expect(updatedNote).toBe(`---
 title: Short
 ---
 
 only line
 new last line
-`);
-  });
+`)
+  })
 
   it("inserts before the first line of the body", async () => {
     const noteContent = `---
@@ -3811,8 +3811,8 @@ title: Short
 
 first line
 second line
-`;
-    await writeTestNote("short.md", noteContent);
+`
+    await writeTestNote("short.md", noteContent)
     await insertAtAnchor(
       {
         vaultPath: vault,
@@ -3822,8 +3822,8 @@ second line
         content: "new first line",
       },
       logger,
-    );
-    const updatedNote = await readTestNote("short.md");
+    )
+    const updatedNote = await readTestNote("short.md")
     expect(updatedNote).toBe(`---
 title: Short
 ---
@@ -3831,11 +3831,11 @@ title: Short
 new first line
 first line
 second line
-`);
-  });
+`)
+  })
 
   it("preserves frontmatter during insertion", async () => {
-    await writeTestNote("shopping.md", LIST_NOTE);
+    await writeTestNote("shopping.md", LIST_NOTE)
     await insertAtAnchor(
       {
         vaultPath: vault,
@@ -3845,8 +3845,8 @@ second line
         content: "- Added item",
       },
       logger,
-    );
-    const updatedNote = await readTestNote("shopping.md");
+    )
+    const updatedNote = await readTestNote("shopping.md")
     expect(updatedNote).toBe(`---
 title: Shopping
 ---
@@ -3857,8 +3857,8 @@ title: Shopping
 - Added item
 - Bananas
 - Cherries
-`);
-  });
+`)
+  })
 
   it("does not match an anchor that appears only in frontmatter", async () => {
     const content = `---
@@ -3866,8 +3866,8 @@ title: "- Apples"
 ---
 
 body line
-`;
-    await writeTestNote("fm.md", content);
+`
+    await writeTestNote("fm.md", content)
     await expect(
       insertAtAnchor(
         {
@@ -3879,11 +3879,11 @@ body line
         },
         logger,
       ),
-    ).rejects.toThrow('anchor not found in "fm.md": "- Apples"');
-  });
+    ).rejects.toThrow('anchor not found in "fm.md": "- Apples"')
+  })
 
   it("rejects content containing a control character", async () => {
-    await writeTestNote("shopping.md", LIST_NOTE);
+    await writeTestNote("shopping.md", LIST_NOTE)
     await expect(
       insertAtAnchor(
         {
@@ -3897,8 +3897,8 @@ body line
       ),
     ).rejects.toThrow(
       "content contains a control character (U+0000 at position 3) — control characters other than tab, LF, and CR are not allowed",
-    );
-  });
+    )
+  })
 
   it("does not collapse blank lines (insertion never creates gaps)", async () => {
     const noteContent = `---
@@ -3910,8 +3910,8 @@ before
 anchor line
 
 after
-`;
-    await writeTestNote("blanks.md", noteContent);
+`
+    await writeTestNote("blanks.md", noteContent)
     await insertAtAnchor(
       {
         vaultPath: vault,
@@ -3921,8 +3921,8 @@ after
         content: "\nnew content\n",
       },
       logger,
-    );
-    const updatedNote = await readTestNote("blanks.md");
+    )
+    const updatedNote = await readTestNote("blanks.md")
     // Content "\nnew content\n" splits to ["", "new content", ""].
     // The trailing empty line stacks with the existing blank line before "after",
     // creating a 3-newline run — insert deliberately does NOT collapse it.
@@ -3938,8 +3938,8 @@ new content
 
 
 after
-`);
-  });
+`)
+  })
 
   it("preserves 3+ consecutive blank lines inside content (no collapse on insert)", async () => {
     const noteContent = `---
@@ -3948,8 +3948,8 @@ title: Internal
 
 anchor line
 trailing
-`;
-    await writeTestNote("internal.md", noteContent);
+`
+    await writeTestNote("internal.md", noteContent)
     await insertAtAnchor(
       {
         vaultPath: vault,
@@ -3959,8 +3959,8 @@ trailing
         content: "para one\n\n\n\npara two",
       },
       logger,
-    );
-    const updatedNote = await readTestNote("internal.md");
+    )
+    const updatedNote = await readTestNote("internal.md")
     expect(updatedNote).toBe(`---
 title: Internal
 ---
@@ -3972,11 +3972,11 @@ para one
 
 para two
 trailing
-`);
-  });
+`)
+  })
 
   it("throws when anchor is not found", async () => {
-    await writeTestNote("shopping.md", LIST_NOTE);
+    await writeTestNote("shopping.md", LIST_NOTE)
     await expect(
       insertAtAnchor(
         {
@@ -3988,8 +3988,8 @@ trailing
         },
         logger,
       ),
-    ).rejects.toThrow('anchor not found in "shopping.md"');
-  });
+    ).rejects.toThrow('anchor not found in "shopping.md"')
+  })
 
   it("throws on ambiguous anchor", async () => {
     const noteContent = `---
@@ -3999,8 +3999,8 @@ title: Dupes
 duplicate
 other
 duplicate
-`;
-    await writeTestNote("dupes.md", noteContent);
+`
+    await writeTestNote("dupes.md", noteContent)
     await expect(
       insertAtAnchor(
         {
@@ -4012,8 +4012,8 @@ duplicate
         },
         logger,
       ),
-    ).rejects.toThrow('ambiguous anchor in "dupes.md": "duplicate" matches 2 lines');
-  });
+    ).rejects.toThrow('ambiguous anchor in "dupes.md": "duplicate" matches 2 lines')
+  })
 
   it("uses first match when first_match is set", async () => {
     const noteContent = `---
@@ -4023,8 +4023,8 @@ title: Dupes
 duplicate alpha
 middle
 duplicate beta
-`;
-    await writeTestNote("dupes.md", noteContent);
+`
+    await writeTestNote("dupes.md", noteContent)
     await insertAtAnchor(
       {
         vaultPath: vault,
@@ -4035,8 +4035,8 @@ duplicate beta
         firstMatch: true,
       },
       logger,
-    );
-    const updatedNote = await readTestNote("dupes.md");
+    )
+    const updatedNote = await readTestNote("dupes.md")
     expect(updatedNote).toBe(`---
 title: Dupes
 ---
@@ -4045,8 +4045,8 @@ duplicate alpha
 inserted after first
 middle
 duplicate beta
-`);
-  });
+`)
+  })
 
   it("throws when the note does not exist", async () => {
     await expect(
@@ -4060,11 +4060,11 @@ duplicate beta
         },
         logger,
       ),
-    ).rejects.toThrow('note not found: "missing.md"');
-  });
+    ).rejects.toThrow('note not found: "missing.md"')
+  })
 
   it("throws when content is empty", async () => {
-    await writeTestNote("shopping.md", LIST_NOTE);
+    await writeTestNote("shopping.md", LIST_NOTE)
     await expect(
       insertAtAnchor(
         {
@@ -4076,11 +4076,11 @@ duplicate beta
         },
         logger,
       ),
-    ).rejects.toThrow("content cannot be empty");
-  });
+    ).rejects.toThrow("content cannot be empty")
+  })
 
   it("throws when anchor is empty", async () => {
-    await writeTestNote("shopping.md", LIST_NOTE);
+    await writeTestNote("shopping.md", LIST_NOTE)
     await expect(
       insertAtAnchor(
         {
@@ -4092,8 +4092,8 @@ duplicate beta
         },
         logger,
       ),
-    ).rejects.toThrow("anchor cannot be empty");
-  });
+    ).rejects.toThrow("anchor cannot be empty")
+  })
 
   it("throws on path without .md extension", async () => {
     await expect(
@@ -4107,11 +4107,11 @@ duplicate beta
         },
         logger,
       ),
-    ).rejects.toThrow('path must end in ".md"');
-  });
+    ).rejects.toThrow('path must end in ".md"')
+  })
 
   it("rejects concurrent writes on the same file", async () => {
-    await writeTestNote("shopping.md", LIST_NOTE);
+    await writeTestNote("shopping.md", LIST_NOTE)
     const [first, second] = await Promise.allSettled([
       insertAtAnchor(
         {
@@ -4133,8 +4133,8 @@ duplicate beta
         },
         logger,
       ),
-    ]);
-    expect(first.status).toBe("fulfilled");
+    ])
+    expect(first.status).toBe("fulfilled")
     expect(second).toEqual(
       expect.objectContaining({
         status: "rejected",
@@ -4142,19 +4142,19 @@ duplicate beta
           message: "concurrent write in progress",
         }),
       }),
-    );
-  });
-});
+    )
+  })
+})
 
 describe("hidden paths", () => {
   // The note exists on disk so a removed guard would make the operations
   // succeed — the tests then fail because the edit went through, never via
   // a coincidental "note not found".
-  const HIDDEN_NOTE = ".trash/secret.md";
-  const HIDDEN_CONTENT = "# Secret\n\nBody line.\n";
+  const HIDDEN_NOTE = ".trash/secret.md"
+  const HIDDEN_CONTENT = "# Secret\n\nBody line.\n"
 
   it("patchNote rejects a note inside a hidden folder and leaves it unchanged", async () => {
-    await writeTestNote(HIDDEN_NOTE, HIDDEN_CONTENT);
+    await writeTestNote(HIDDEN_NOTE, HIDDEN_CONTENT)
     await expect(
       patchNote(
         {
@@ -4165,12 +4165,12 @@ describe("hidden paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder');
-    expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT);
-  });
+    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
+    expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
+  })
 
   it("replaceInNote rejects a note inside a hidden folder and leaves it unchanged", async () => {
-    await writeTestNote(HIDDEN_NOTE, HIDDEN_CONTENT);
+    await writeTestNote(HIDDEN_NOTE, HIDDEN_CONTENT)
     await expect(
       replaceInNote(
         {
@@ -4181,20 +4181,20 @@ describe("hidden paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder');
-    expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT);
-  });
+    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
+    expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
+  })
 
   it("deleteSpan rejects a note inside a hidden folder and leaves it unchanged", async () => {
-    await writeTestNote(HIDDEN_NOTE, HIDDEN_CONTENT);
+    await writeTestNote(HIDDEN_NOTE, HIDDEN_CONTENT)
     await expect(
       deleteSpan({ vaultPath: vault, path: HIDDEN_NOTE, startAnchor: "Body line." }, logger),
-    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder');
-    expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT);
-  });
+    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
+    expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
+  })
 
   it("replaceSpan rejects a note inside a hidden folder and leaves it unchanged", async () => {
-    await writeTestNote(HIDDEN_NOTE, HIDDEN_CONTENT);
+    await writeTestNote(HIDDEN_NOTE, HIDDEN_CONTENT)
     await expect(
       replaceSpan(
         {
@@ -4205,12 +4205,12 @@ describe("hidden paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder');
-    expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT);
-  });
+    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
+    expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
+  })
 
   it("insertAtAnchor rejects a note inside a hidden folder and leaves it unchanged", async () => {
-    await writeTestNote(HIDDEN_NOTE, HIDDEN_CONTENT);
+    await writeTestNote(HIDDEN_NOTE, HIDDEN_CONTENT)
     await expect(
       insertAtAnchor(
         {
@@ -4222,7 +4222,7 @@ describe("hidden paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder');
-    expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT);
-  });
-});
+    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder')
+    expect(await readTestNote(HIDDEN_NOTE)).toBe(HIDDEN_CONTENT)
+  })
+})

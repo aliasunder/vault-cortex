@@ -17,24 +17,24 @@
  *  editing should use it, so heading/section/callout parsing and blank-run
  *  handling behave identically regardless of the file's line endings. */
 export const splitIntoLines = (content: string): string[] =>
-  content.split("\n").map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line));
+  content.split("\n").map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line))
 
 // ── Line paging ────────────────────────────────────────────────
 
 /** The 1-based line window a paged text read covered, plus the rendition's
  *  total line count so the caller can tell a final page from a mid-file one. */
 export type LineWindow = Readonly<{
-  startLine: number;
-  endLine: number;
-  totalLines: number;
-}>;
+  startLine: number
+  endLine: number
+  totalLines: number
+}>
 
 /** A paged text result: the windowed text (LF-joined) and the line window
  *  metadata describing what was served and how much remains. */
 export type PagedTextResult = Readonly<{
-  text: string;
-  lineWindow: LineWindow;
-}>;
+  text: string
+  lineWindow: LineWindow
+}>
 
 /**
  * Pages a text string by line range — the shared primitive behind both
@@ -45,46 +45,46 @@ export type PagedTextResult = Readonly<{
  * `path` is used only in error messages — the function does no I/O.
  */
 export const pageTextByLines = (params: {
-  text: string;
-  path: string;
-  startLine?: number | undefined;
-  limit?: number | undefined;
+  text: string
+  path: string
+  startLine?: number | undefined
+  limit?: number | undefined
 }): PagedTextResult => {
-  const { text, path, startLine, limit } = params;
+  const { text, path, startLine, limit } = params
 
-  const splitLines = splitIntoLines(text);
+  const splitLines = splitIntoLines(text)
   // wc -l semantics: a rendition ending in "\n" splits into a trailing ""
   // that isn't a line of content — drop exactly that one element.
-  const hasTrailingNewlineArtifact = splitLines.length > 0 && splitLines[splitLines.length - 1] === "";
-  const contentLines = hasTrailingNewlineArtifact ? splitLines.slice(0, -1) : splitLines;
-  const totalLines = contentLines.length;
+  const hasTrailingNewlineArtifact = splitLines.length > 0 && splitLines[splitLines.length - 1] === ""
+  const contentLines = hasTrailingNewlineArtifact ? splitLines.slice(0, -1) : splitLines
+  const totalLines = contentLines.length
 
-  const firstLine = startLine ?? 1;
+  const firstLine = startLine ?? 1
   // The tool schema already enforces >= 1, but a negative slice start would
   // silently serve lines from the END of the rendition — guard here too so a
   // future direct caller gets a loud error, never the wrong window.
-  const hasInvalidLineRange = firstLine < 1 || (limit !== undefined && limit < 1);
+  const hasInvalidLineRange = firstLine < 1 || (limit !== undefined && limit < 1)
 
   if (hasInvalidLineRange) {
-    throw new Error(`invalid line range: "${path}" needs a start line and limit of at least 1`);
+    throw new Error(`invalid line range: "${path}" needs a start line and limit of at least 1`)
   }
   // An empty rendition has no lines to overshoot — any window of it is the
   // empty window; only a non-empty rendition can have a start past its end.
-  const isStartPastEnd = totalLines > 0 && firstLine > totalLines;
+  const isStartPastEnd = totalLines > 0 && firstLine > totalLines
 
   if (isStartPastEnd) {
-    throw new Error(`start line past the end: "${path}" renders to ${totalLines} lines`);
+    throw new Error(`start line past the end: "${path}" renders to ${totalLines} lines`)
   }
 
-  const windowLines = contentLines.slice(firstLine - 1, limit === undefined ? undefined : firstLine - 1 + limit);
-  const windowText = windowLines.join("\n");
-  const endLine = firstLine - 1 + windowLines.length;
+  const windowLines = contentLines.slice(firstLine - 1, limit === undefined ? undefined : firstLine - 1 + limit)
+  const windowText = windowLines.join("\n")
+  const endLine = firstLine - 1 + windowLines.length
 
   return {
     text: windowText,
     lineWindow: { startLine: firstLine, endLine, totalLines },
-  };
-};
+  }
+}
 
 // ── Blank-edge trimming ─────────────────────────────────────────
 
@@ -93,18 +93,18 @@ export const pageTextByLines = (params: {
  *  leading content, a byte count in a write confirmation — wants the region's
  *  real extent, not the blank padding that separates it from its neighbours. */
 export const trimBlankEdgeLines = (lines: readonly string[]): readonly string[] => {
-  const firstContentIndex = lines.findIndex((line) => line.trim() !== "");
+  const firstContentIndex = lines.findIndex((line) => line.trim() !== "")
 
-  if (firstContentIndex === -1) return [];
-  const lastContentIndex = lines.findLastIndex((line) => line.trim() !== "");
-  return lines.slice(firstContentIndex, lastContentIndex + 1);
-};
+  if (firstContentIndex === -1) return []
+  const lastContentIndex = lines.findLastIndex((line) => line.trim() !== "")
+  return lines.slice(firstContentIndex, lastContentIndex + 1)
+}
 
 // ── Blockquote prefix stripping ─────────────────────────────────
 
 /** Matches one blockquote marker: up to 3 spaces indent + `>` + optional
  *  space or tab (CommonMark §5.1). Applied iteratively to count nesting depth. */
-const BLOCKQUOTE_MARKER = /^ {0,3}>[ \t]?/;
+const BLOCKQUOTE_MARKER = /^ {0,3}>[ \t]?/
 
 /** Counts the blockquote nesting depth of a line and returns the content
  *  after all markers are stripped, so fence matching runs on the inner
@@ -112,53 +112,53 @@ const BLOCKQUOTE_MARKER = /^ {0,3}>[ \t]?/;
 const stripBlockquotePrefix = (line: string): { depth: number; innerContent: string } => {
   // Iterative prefix stripping — depth and remaining track the cursor across
   // successive `> ` markers.
-  let depth = 0;
-  let remaining = line;
+  let depth = 0
+  let remaining = line
   for (;;) {
-    const match = BLOCKQUOTE_MARKER.exec(remaining);
+    const match = BLOCKQUOTE_MARKER.exec(remaining)
 
-    if (match === null) break;
-    depth++;
-    remaining = remaining.slice(match[0].length);
+    if (match === null) break
+    depth++
+    remaining = remaining.slice(match[0].length)
   }
-  return { depth, innerContent: remaining };
-};
+  return { depth, innerContent: remaining }
+}
 
 // ── Fenced-code state machine ───────────────────────────────────
 
 /** Matches fenced code block openers: 0-3 spaces indent + 3+ backticks or tildes
  *  (CommonMark §4.5). Applied to the inner content after blockquote markers are
  *  stripped. */
-const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/
 
 /** The currently-open fence: its delimiter run (e.g. "```") plus the blockquote
  *  depth it opened at, or null when not inside a fenced code block. A fence
  *  opened at depth N closes only at the same depth; a line at lower depth
  *  closes it implicitly (the container ended per CommonMark §5.1). */
-export type OpenFence = { delimiter: string; quoteDepth: number } | null;
+export type OpenFence = { delimiter: string; quoteDepth: number } | null
 
 type FenceResult = {
-  openFence: OpenFence;
-  isFenceDelimiter: boolean;
+  openFence: OpenFence
+  isFenceDelimiter: boolean
   /** Whether this line is inside a fenced code block — accounts for blockquote
    *  depth, including implicit fence closure when the container ends. Consumers
    *  should use this instead of computing `isFenceDelimiter || openFence !== null`. */
-  lineIsCode: boolean;
-};
+  lineIsCode: boolean
+}
 
 /** Attempts to match a fence delimiter in `innerContent` and, if matched,
  *  returns a new fence opened at `quoteDepth`. */
 const tryOpenFence = (innerContent: string, quoteDepth: number): FenceResult | null => {
-  const fenceMatch = FENCE_OPEN.exec(innerContent);
-  const fenceChars = fenceMatch?.[1];
+  const fenceMatch = FENCE_OPEN.exec(innerContent)
+  const fenceChars = fenceMatch?.[1]
 
-  if (fenceChars === undefined) return null;
+  if (fenceChars === undefined) return null
   return {
     openFence: { delimiter: fenceChars, quoteDepth },
     isFenceDelimiter: true,
     lineIsCode: true,
-  };
-};
+  }
+}
 
 /** Advances the fenced-code state machine by one line — the single CommonMark
  *  §4.5 fence transition shared by every fence-aware walk.
@@ -178,7 +178,7 @@ const tryOpenFence = (innerContent: string, quoteDepth: number): FenceResult | n
  *  support it either, and real vaults almost always include the `> ` prefix on
  *  every line. */
 export const advanceFence = (line: string, openFence: OpenFence): FenceResult => {
-  const { depth: lineQuoteDepth, innerContent } = stripBlockquotePrefix(line);
+  const { depth: lineQuoteDepth, innerContent } = stripBlockquotePrefix(line)
 
   // Fence implicitly closed — this line's blockquote depth is below the fence's,
   // so the container that held the fence has ended. The line itself is NOT code;
@@ -190,24 +190,24 @@ export const advanceFence = (line: string, openFence: OpenFence): FenceResult =>
         isFenceDelimiter: false,
         lineIsCode: false,
       }
-    );
+    )
   }
 
   // Deeper depth — content inside the fence, not a delimiter at this depth.
   if (openFence !== null && lineQuoteDepth > openFence.quoteDepth) {
-    return { openFence, isFenceDelimiter: false, lineIsCode: true };
+    return { openFence, isFenceDelimiter: false, lineIsCode: true }
   }
 
   // Same depth (or no fence open) — normal fence matching on inner content.
-  const fenceMatch = FENCE_OPEN.exec(innerContent);
-  const fenceChars = fenceMatch?.[1];
+  const fenceMatch = FENCE_OPEN.exec(innerContent)
+  const fenceChars = fenceMatch?.[1]
 
   if (fenceChars === undefined) {
     return {
       openFence,
       isFenceDelimiter: false,
       lineIsCode: openFence !== null,
-    };
+    }
   }
 
   if (openFence === null) {
@@ -215,27 +215,27 @@ export const advanceFence = (line: string, openFence: OpenFence): FenceResult =>
       openFence: { delimiter: fenceChars, quoteDepth: lineQuoteDepth },
       isFenceDelimiter: true,
       lineIsCode: true,
-    };
+    }
   }
 
   // Inside a fence at the same depth: only a matching closer ends it.
   const closesFence =
     fenceChars[0] === openFence.delimiter[0] &&
     fenceChars.length >= openFence.delimiter.length &&
-    innerContent.trim() === fenceChars;
+    innerContent.trim() === fenceChars
   return {
     openFence: closesFence ? null : openFence,
     isFenceDelimiter: true,
     lineIsCode: true,
-  };
-};
+  }
+}
 
 // ── Obsidian comment state machine ─────────────────────────────
 
 /** Obsidian comment delimiter — toggles comment state when it occurs at a
  *  line boundary (start or end of trimmed line). Mid-line `%%` (e.g. `100%%`
  *  embedded in card text) is not a delimiter. */
-export const COMMENT_DELIMITER = "%%";
+export const COMMENT_DELIMITER = "%%"
 
 /**
  * Counts how many comment-state toggles a single line produces. Obsidian
@@ -248,18 +248,18 @@ export const COMMENT_DELIMITER = "%%";
  * - 2 — trimmed line both starts and ends with `%%` (inline `%% comment %%`)
  */
 const countCommentToggles = (line: string): number => {
-  const trimmed = line.trim();
+  const trimmed = line.trim()
 
-  if (trimmed === COMMENT_DELIMITER) return 1;
-  const startsWithDelimiter = trimmed.startsWith(COMMENT_DELIMITER);
-  const endsWithDelimiter = trimmed.endsWith(COMMENT_DELIMITER);
-  return (startsWithDelimiter ? 1 : 0) + (endsWithDelimiter ? 1 : 0);
-};
+  if (trimmed === COMMENT_DELIMITER) return 1
+  const startsWithDelimiter = trimmed.startsWith(COMMENT_DELIMITER)
+  const endsWithDelimiter = trimmed.endsWith(COMMENT_DELIMITER)
+  return (startsWithDelimiter ? 1 : 0) + (endsWithDelimiter ? 1 : 0)
+}
 
 export type CommentResult = {
-  commentOpen: boolean;
-  lineIsComment: boolean;
-};
+  commentOpen: boolean
+  lineIsComment: boolean
+}
 
 /** Advances the Obsidian `%% %%` comment state machine by one line — the
  *  single comment transition shared by every comment-aware walk.
@@ -274,20 +274,20 @@ export type CommentResult = {
  *  Obsidian's parser — inside a comment, fence delimiters are just text;
  *  inside a fence, `%%` is just text. */
 export const advanceComment = (line: string, commentOpen: boolean): CommentResult => {
-  const toggleCount = countCommentToggles(line);
+  const toggleCount = countCommentToggles(line)
   // Each toggle flips the state; an even count nets no change.
-  const currentlyOpen = toggleCount % 2 === 0 ? commentOpen : !commentOpen;
+  const currentlyOpen = toggleCount % 2 === 0 ? commentOpen : !commentOpen
   return {
     commentOpen: currentlyOpen,
     lineIsComment: commentOpen || toggleCount > 0,
-  };
-};
+  }
+}
 
 // ── Line classification ─────────────────────────────────────────
 
 /** One line tagged with whether it sits in a fenced code block (a fence
  *  delimiter line counts as code — it never bears links or headings). */
-type ClassifiedLine = { text: string; inCode: boolean };
+type ClassifiedLine = { text: string; inCode: boolean }
 
 /** Walks markdown content line by line, threading fence state via advanceFence
  *  and tagging each line as code or not. Used by link extraction (skips code
@@ -299,10 +299,10 @@ type ClassifiedLine = { text: string; inCode: boolean };
 export const classifyLines = function* (content: string): Generator<ClassifiedLine> {
   // A fenced-code scan is inherently sequential, so this generator threads one
   // mutable open fence across the loop rather than folding line-state pairs.
-  let openFence: OpenFence = null;
+  let openFence: OpenFence = null
   for (const text of content.split("\n")) {
-    const result = advanceFence(text, openFence);
-    openFence = result.openFence;
-    yield { text, inCode: result.lineIsCode };
+    const result = advanceFence(text, openFence)
+    openFence = result.openFence
+    yield { text, inCode: result.lineIsCode }
   }
-};
+}

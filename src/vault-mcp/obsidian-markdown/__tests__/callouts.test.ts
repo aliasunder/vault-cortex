@@ -1,251 +1,251 @@
-import { describe, it, expect } from "vitest";
-import { parseLeadingCallout, parseLeadingCalloutSpan } from "../callouts.js";
+import { describe, it, expect } from "vitest"
+import { parseLeadingCallout, parseLeadingCalloutSpan } from "../callouts.js"
 
 describe("parseLeadingCallout", () => {
   it("parses a callout that is the first body line (before any heading)", () => {
-    const lines = ["> [!info] Scope of this file", "> **Contains:** identity facts.", "", "## Identity"];
+    const lines = ["> [!info] Scope of this file", "> **Contains:** identity facts.", "", "## Identity"]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "info",
       title: "Scope of this file",
       body: "**Contains:** identity facts.",
-    });
-  });
+    })
+  })
 
   it("skips a single leading H1 and blank lines before the callout", () => {
-    const lines = ["", "# Me", "", "> [!info] Scope of this file", "> line one", "> line two", "", "## Section"];
+    const lines = ["", "# Me", "", "> [!info] Scope of this file", "> line one", "> line two", "", "## Section"]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "info",
       title: "Scope of this file",
       body: "line one\nline two",
-    });
-  });
+    })
+  })
 
   it("skips a leading H1 with leading spaces (CommonMark §4.2)", () => {
-    const lines = [" # Me", "> [!info] Scope", "> body", "", "## Section"];
+    const lines = [" # Me", "> [!info] Scope", "> body", "", "## Section"]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "info",
       title: "Scope",
       body: "body",
-    });
-  });
+    })
+  })
 
   it("skips a leading H1 with a tab separator (CommonMark §4.2)", () => {
-    const lines = ["#\tMe", "> [!info] Scope", "> body", "", "## Section"];
+    const lines = ["#\tMe", "> [!info] Scope", "> body", "", "## Section"]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "info",
       title: "Scope",
       body: "body",
-    });
-  });
+    })
+  })
 
   it("does not skip a line with 4+ leading spaces as an H1", () => {
     // 4 spaces makes it an indented code block, not a heading — the callout
     // is preceded by body content, so it is not a leading callout.
-    const lines = ["    # Not a heading", "> [!info] Not leading", "> body"];
-    expect(parseLeadingCallout(lines)).toBeNull();
-  });
+    const lines = ["    # Not a heading", "> [!info] Not leading", "> body"]
+    expect(parseLeadingCallout(lines)).toBeNull()
+  })
 
   it("skips an empty H1 (no separator or text)", () => {
-    const lines = ["#", "> [!info] Scope", "> body", "", "## Section"];
+    const lines = ["#", "> [!info] Scope", "> body", "", "## Section"]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "info",
       title: "Scope",
       body: "body",
-    });
-  });
+    })
+  })
 
   it("returns null when there is no callout", () => {
-    const lines = ["# Title", "", "Just prose, no callout.", "", "## Section"];
-    expect(parseLeadingCallout(lines)).toBeNull();
-  });
+    const lines = ["# Title", "", "Just prose, no callout.", "", "## Section"]
+    expect(parseLeadingCallout(lines)).toBeNull()
+  })
 
   it("returns null when a callout appears after real body content", () => {
-    const lines = ["# Title", "", "Intro paragraph.", "", "> [!note] Too late", "> not a leading callout"];
-    expect(parseLeadingCallout(lines)).toBeNull();
-  });
+    const lines = ["# Title", "", "Intro paragraph.", "", "> [!note] Too late", "> not a leading callout"]
+    expect(parseLeadingCallout(lines)).toBeNull()
+  })
 
   it("returns null when a deeper heading precedes the callout", () => {
     // Only a single leading H1 is skipped; an H2 is body content.
-    const lines = ["## Section", "> [!info] Not leading", "> body"];
-    expect(parseLeadingCallout(lines)).toBeNull();
-  });
+    const lines = ["## Section", "> [!info] Not leading", "> body"]
+    expect(parseLeadingCallout(lines)).toBeNull()
+  })
 
   it("skips a setext H1 before a callout", () => {
-    const lines = ["Title", "===", "> [!info] Scope", "> body"];
+    const lines = ["Title", "===", "> [!info] Scope", "> body"]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "info",
       title: "Scope",
       body: "body",
-    });
-  });
+    })
+  })
 
   it("does not skip a setext H2 before a callout", () => {
     // Only H1 is skipped; a setext H2 (---) is body content.
-    const lines = ["Title", "---", "> [!info] Not leading", "> body"];
-    expect(parseLeadingCallout(lines)).toBeNull();
-  });
+    const lines = ["Title", "---", "> [!info] Not leading", "> body"]
+    expect(parseLeadingCallout(lines)).toBeNull()
+  })
 
   it("skips a setext H1 with leading spaces on the underline", () => {
-    const lines = ["Title", "  ===", "> [!info] Scope", "> body"];
+    const lines = ["Title", "  ===", "> [!info] Scope", "> body"]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "info",
       title: "Scope",
       body: "body",
-    });
-  });
+    })
+  })
 
   it("does not swallow a callout opener followed by === as setext H1", () => {
-    const lines = ["> [!info] Scope", "===", "> body"];
+    const lines = ["> [!info] Scope", "===", "> body"]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "info",
       title: "Scope",
       body: "",
-    });
-  });
+    })
+  })
 
   it("does not swallow a list item followed by === as setext H1", () => {
-    const lines = ["- item", "===", "> [!info] Scope", "> body"];
-    expect(parseLeadingCallout(lines)).toBeNull();
-  });
+    const lines = ["- item", "===", "> [!info] Scope", "> body"]
+    expect(parseLeadingCallout(lines)).toBeNull()
+  })
 
   it("collects only the first of two stacked callouts", () => {
-    const lines = ["> [!info] First", "> first body", "> [!warning] Second", "> second body"];
+    const lines = ["> [!info] First", "> first body", "> [!warning] Second", "> second body"]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "info",
       title: "First",
       body: "first body",
-    });
-  });
+    })
+  })
 
   it("strips the fold marker and lowercases the type", () => {
-    const lines = ["> [!INFO]- Folded", "> body"];
+    const lines = ["> [!INFO]- Folded", "> body"]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "info",
       title: "Folded",
       body: "body",
-    });
-  });
+    })
+  })
 
   it("returns null when the first significant line is a code fence, not a callout opener", () => {
-    const lines = ["```md", "> [!info] inside a fence", "> body", "```"];
-    expect(parseLeadingCallout(lines)).toBeNull();
-  });
+    const lines = ["```md", "> [!info] inside a fence", "> body", "```"]
+    expect(parseLeadingCallout(lines)).toBeNull()
+  })
 
   it("allows an empty title", () => {
-    const lines = ["> [!warning]", "> heads up"];
+    const lines = ["> [!warning]", "> heads up"]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "warning",
       title: "",
       body: "heads up",
-    });
-  });
+    })
+  })
 
   it("stops the body at the first non-blockquote line", () => {
-    const lines = ["> [!info] Scope", "> kept", "plain text ends the callout", "> not part of it"];
+    const lines = ["> [!info] Scope", "> kept", "plain text ends the callout", "> not part of it"]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "info",
       title: "Scope",
       body: "kept",
-    });
-  });
+    })
+  })
 
   it("trims trailing blank body lines", () => {
-    const lines = ["> [!info] Scope", "> content", ">", ">  ", "", "## Next"];
+    const lines = ["> [!info] Scope", "> content", ">", ">  ", "", "## Next"]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "info",
       title: "Scope",
       body: "content",
-    });
-  });
+    })
+  })
 
   it("returns null for an empty array", () => {
-    expect(parseLeadingCallout([])).toBeNull();
-  });
+    expect(parseLeadingCallout([])).toBeNull()
+  })
 
   it("returns null for a whitespace-only array", () => {
-    expect(parseLeadingCallout(["", "   ", ""])).toBeNull();
-  });
+    expect(parseLeadingCallout(["", "   ", ""])).toBeNull()
+  })
 
   it("handles CRLF line endings without leaking carriage returns", () => {
     // A CRLF file split on "\n" leaves a trailing "\r" on every line.
-    const lines = "# Me\r\n> [!info] Scope\r\n> line one\r\n> line two\r\n\r\n## H\r".split("\n");
-    const leadingCallout = parseLeadingCallout(lines);
+    const lines = "# Me\r\n> [!info] Scope\r\n> line one\r\n> line two\r\n\r\n## H\r".split("\n")
+    const leadingCallout = parseLeadingCallout(lines)
     expect(leadingCallout).toEqual({
       type: "info",
       title: "Scope",
       body: "line one\nline two",
-    });
-    expect(leadingCallout?.body).not.toContain("\r");
-    expect(leadingCallout?.title).not.toContain("\r");
-  });
+    })
+    expect(leadingCallout?.body).not.toContain("\r")
+    expect(leadingCallout?.title).not.toContain("\r")
+  })
 
   it("handles a callout with no space after the blockquote marker", () => {
-    const lines = [">[!tip] Tight", "> body"];
+    const lines = [">[!tip] Tight", "> body"]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "tip",
       title: "Tight",
       body: "body",
-    });
-  });
-});
+    })
+  })
+})
 
 describe("parseLeadingCalloutSpan", () => {
   it("spans a callout that is the first body line", () => {
-    const lines = ["> [!info] Scope", "> body line", "", "## Section"];
+    const lines = ["> [!info] Scope", "> body line", "", "## Section"]
     expect(parseLeadingCalloutSpan(lines)).toEqual({
       callout: { type: "info", title: "Scope", body: "body line" },
       startLine: 0,
       endLine: 2,
-    });
-  });
+    })
+  })
 
   it("starts the span below a skipped H1 and blank lines", () => {
     // startLine must not be 0 here — a consumer subtracting the span from the
     // top of the body would otherwise swallow the H1.
-    const lines = ["# Me", "", "> [!info] Scope", "> body", "", "## Identity"];
+    const lines = ["# Me", "", "> [!info] Scope", "> body", "", "## Identity"]
     expect(parseLeadingCalloutSpan(lines)).toEqual({
       callout: { type: "info", title: "Scope", body: "body" },
       startLine: 2,
       endLine: 4,
-    });
-  });
+    })
+  })
 
   it("spans trailing blank blockquote lines that the rendered body drops", () => {
-    const lines = ["> [!info] Scope", "> content", ">", ">  ", "", "## Next"];
+    const lines = ["> [!info] Scope", "> content", ">", ">  ", "", "## Next"]
     // Span and body are asserted together so they cannot drift: the body stops
     // at "content", the span still covers the two blank `>` lines.
     expect(parseLeadingCalloutSpan(lines)).toEqual({
       callout: { type: "info", title: "Scope", body: "content" },
       startLine: 0,
       endLine: 4,
-    });
-  });
+    })
+  })
 
   it("ends the span before a stacked sibling callout", () => {
-    const lines = ["> [!info] First", "> a", "> [!warning] Second", "> b", "", "## S"];
+    const lines = ["> [!info] First", "> a", "> [!warning] Second", "> b", "", "## S"]
     expect(parseLeadingCalloutSpan(lines)).toEqual({
       callout: { type: "info", title: "First", body: "a" },
       startLine: 0,
       endLine: 2,
-    });
+    })
     // Line 2 sits outside the span, so it stays visible to consumers.
-    expect(lines[2]).toBe("> [!warning] Second");
-  });
+    expect(lines[2]).toBe("> [!warning] Second")
+  })
 
   it("indexes the caller's own array when lines carry CRLF", () => {
-    const lines = "# Me\r\n> [!info] Scope\r\n> line one\r\n> line two\r\n\r\n## H\r".split("\n");
+    const lines = "# Me\r\n> [!info] Scope\r\n> line one\r\n> line two\r\n\r\n## H\r".split("\n")
     expect(parseLeadingCalloutSpan(lines)).toEqual({
       callout: { type: "info", title: "Scope", body: "line one\nline two" },
       startLine: 1,
       endLine: 4,
-    });
-  });
+    })
+  })
 
   it("returns null when there is no callout", () => {
-    expect(parseLeadingCalloutSpan(["Just prose.", "", "## S"])).toBeNull();
-  });
+    expect(parseLeadingCalloutSpan(["Just prose.", "", "## S"])).toBeNull()
+  })
 
   it("returns null for an empty array", () => {
-    expect(parseLeadingCalloutSpan([])).toBeNull();
-  });
-});
+    expect(parseLeadingCalloutSpan([])).toBeNull()
+  })
+})

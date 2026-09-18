@@ -1,10 +1,10 @@
 /** Task tool registrations — task listing (query), creation, and updating (mutation). */
 
-import { z } from "zod";
-import { TOOL_NAMES } from "../tool-registry.js";
-import type { ToolRegistrationContext } from "./tool-helpers.js";
-import { safeHandler, dateFilterSchema } from "./tool-helpers.js";
-import { taskMutations } from "../../vault-operations/task-mutations.js";
+import { z } from "zod"
+import { TOOL_NAMES } from "../tool-registry.js"
+import type { ToolRegistrationContext } from "./tool-helpers.js"
+import { safeHandler, dateFilterSchema } from "./tool-helpers.js"
+import { taskMutations } from "../../vault-operations/task-mutations.js"
 
 export const registerTaskTools = ({
   registerTool,
@@ -136,7 +136,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_LIST_TASKS,
-      });
+      })
       reqLogger.info("tool_call", {
         status,
         due,
@@ -154,7 +154,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
         limit,
         sortBy: sort_by,
         sortDirection: sort_direction,
-      });
+      })
       return safeHandler(
         reqLogger,
         async () =>
@@ -183,15 +183,15 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           reqLogger.info("tool_result", {
             resultCount: result.tasks.length,
             total: result.total,
-          });
+          })
           return JSON.stringify({
             total: result.total,
             tasks: result.tasks,
-          });
+          })
         },
-      );
+      )
     },
-  );
+  )
 
   // ── vault_create_task ──────────────────────────────────────────
 
@@ -366,7 +366,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_CREATE_TASK,
-      });
+      })
       reqLogger.info("tool_call", {
         path,
         blockId: block_id,
@@ -384,7 +384,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
         dependsOn: depends_on,
         subtaskCount: subtasks?.length,
         format,
-      });
+      })
       return safeHandler(
         reqLogger,
         async () =>
@@ -418,12 +418,12 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
             blockId: result.block_id,
             heading: result.heading,
             changes: result.changes,
-          });
-          return JSON.stringify(result);
+          })
+          return JSON.stringify(result)
         },
-      );
+      )
     },
-  );
+  )
 
   // ── vault_update_task ───────────────────────────────────────────
 
@@ -627,7 +627,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_UPDATE_TASK,
-      });
+      })
       reqLogger.info("tool_call", {
         path,
         blockId: block_id,
@@ -647,7 +647,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
         heading,
         position,
         format,
-      });
+      })
       return safeHandler(
         reqLogger,
         async () =>
@@ -681,10 +681,10 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
             path: result.path,
             line: result.line,
             changes: result.changes,
-          });
-          return JSON.stringify(result);
+          })
+          return JSON.stringify(result)
         },
-      );
+      )
     },
-  );
-};
+  )
+}

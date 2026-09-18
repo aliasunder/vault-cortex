@@ -14,17 +14,17 @@
 // unpinned `npx` would hand that credential to whatever `latest` resolves to
 // on the day. Bump the pin deliberately, the way the workflows pin actions.
 
-import { writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs"
 import {
   buildLobehubManifest,
   serializeLobehubManifest,
   LOBEHUB_MANIFEST_PATH,
   LOBEHUB_IDENTIFIER,
-} from "./lobehub-manifest.js";
+} from "./lobehub-manifest.js"
 
-const manifest = await buildLobehubManifest();
-writeFileSync(LOBEHUB_MANIFEST_PATH, serializeLobehubManifest(manifest));
+const manifest = await buildLobehubManifest()
+writeFileSync(LOBEHUB_MANIFEST_PATH, serializeLobehubManifest(manifest))
 
 console.log(
   `Wrote lhm.plugin.json — ${LOBEHUB_IDENTIFIER} v${manifest.version} (${manifest.tools.length} tools, ${manifest.prompts.length} prompts)`,
-);
+)

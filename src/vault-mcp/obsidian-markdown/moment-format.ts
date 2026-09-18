@@ -24,20 +24,20 @@ const MOMENT_TO_LUXON: ReadonlyArray<readonly [string, string]> = [
   ["D", "d"], // day of month, no padding (1–31)
   ["M", "M"], // month number, no padding (1–12) — identity, pinned
   ["A", "a"],
-];
+]
 
 /** Matches Moment.js [literal] escape groups — e.g. [Daily Note]. */
-const MOMENT_ESCAPE_RE = /\[([^\]]*)\]/g;
+const MOMENT_ESCAPE_RE = /\[([^\]]*)\]/g
 
 /** Matches any known Moment token — alternation order is longest-first
  *  (from MOMENT_TO_LUXON). */
-const MOMENT_TOKEN_RE = new RegExp(MOMENT_TO_LUXON.map(([momentToken]) => momentToken).join("|"), "g");
+const MOMENT_TOKEN_RE = new RegExp(MOMENT_TO_LUXON.map(([momentToken]) => momentToken).join("|"), "g")
 
-const MOMENT_TOKEN_MAP = new Map(MOMENT_TO_LUXON);
+const MOMENT_TOKEN_MAP = new Map(MOMENT_TO_LUXON)
 
 /** Replaces Moment tokens with their Luxon equivalents in a single pass. */
 const convertMomentTokens = (formatSpan: string): string =>
-  formatSpan.replace(MOMENT_TOKEN_RE, (match) => MOMENT_TOKEN_MAP.get(match) ?? match);
+  formatSpan.replace(MOMENT_TOKEN_RE, (match) => MOMENT_TOKEN_MAP.get(match) ?? match)
 
 /** Converts a Moment.js format string to Luxon format tokens. [literal]
  *  escapes become Luxon 'literal' quotes (single quotes doubled), and token
@@ -52,13 +52,13 @@ export const momentToLuxonFormat = (momentFormat: string): string => {
       // Odd indices are the contents of [literal] escapes: splitting on a
       // regex with a capturing group keeps each captured match in the result
       // array, so segments alternate format span / literal contents.
-      const isLiteralContent = segmentIndex % 2 === 1;
+      const isLiteralContent = segmentIndex % 2 === 1
       // Luxon wraps literal text in single quotes and escapes an embedded
       // quote by doubling it ("it's" → 'it''s').
-      return isLiteralContent ? `'${segment.replace(/'/g, "''")}'` : convertMomentTokens(segment);
+      return isLiteralContent ? `'${segment.replace(/'/g, "''")}'` : convertMomentTokens(segment)
     })
-    .join("");
-};
+    .join("")
+}
 
 /** Moment tokens with no Luxon equivalent. Each entry is a standalone
  *  regex pattern with boundary guards so it doesn't false-positive inside
@@ -84,7 +84,7 @@ const UNSUPPORTED_PATTERNS: ReadonlyArray<{ pattern: RegExp; token: string }> = 
   { pattern: /(?<!Z)Z(?!Z)/, token: "Z" },
   { pattern: /(?<![A-Za-z])Q(?![A-Za-z])/, token: "Q" },
   { pattern: /(?<![A-Za-z])w(?![A-Za-z])/, token: "w" },
-];
+]
 
 /** Returns unsupported Moment tokens present in the format string outside
  *  of [literal] escapes, or an empty array if none. */
@@ -93,12 +93,12 @@ export const findUnsupportedTokens = (momentFormat: string): string[] => {
   const formatSegments = momentFormat
     .split(MOMENT_ESCAPE_RE)
     .filter((_, segmentIndex) => segmentIndex % 2 === 0)
-    .join("\0");
-  const found = new Set<string>();
+    .join("\0")
+  const found = new Set<string>()
   for (const { pattern, token } of UNSUPPORTED_PATTERNS) {
     if (pattern.test(formatSegments)) {
-      found.add(token);
+      found.add(token)
     }
   }
-  return [...found];
-};
+  return [...found]
+}

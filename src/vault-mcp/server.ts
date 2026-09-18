@@ -1,26 +1,26 @@
 /** MCP server entry point — config, mount routes, listen. */
 
-import express from "express";
-import type { Request, Response, NextFunction } from "express";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createSearchIndex } from "./search/search-index.js";
-import { createEmbedder } from "./search/embedder.js";
-import { createReranker } from "./search/reranker.js";
-import { createMemoryStore } from "./vault-operations/memory-store.js";
-import { trashSweeper } from "./vault-operations/trash-sweeper.js";
-import { startFileWatcher } from "./search/file-watcher.js";
-import { createOAuthProvider } from "./oauth/oauth-provider.js";
-import { createOAuthRoutes } from "./oauth/oauth-routes.js";
-import { createMcpRouter } from "./mcp-core/mcp-router.js";
-import { renderSetupPage } from "./setup/setup-page.js";
-import { loadConfig } from "./config.js";
-import type { VaultConfig } from "./config.js";
-import { logger } from "../logger.js";
-import { extractClientIp, headerAsString } from "../auth.js";
-import { describeError } from "../utils/describe-error.js";
-import { urlHasCredentials } from "../utils/url-has-credentials.js";
-import env from "env-var";
+import express from "express"
+import type { Request, Response, NextFunction } from "express"
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+import { createSearchIndex } from "./search/search-index.js"
+import { createEmbedder } from "./search/embedder.js"
+import { createReranker } from "./search/reranker.js"
+import { createMemoryStore } from "./vault-operations/memory-store.js"
+import { trashSweeper } from "./vault-operations/trash-sweeper.js"
+import { startFileWatcher } from "./search/file-watcher.js"
+import { createOAuthProvider } from "./oauth/oauth-provider.js"
+import { createOAuthRoutes } from "./oauth/oauth-routes.js"
+import { createMcpRouter } from "./mcp-core/mcp-router.js"
+import { renderSetupPage } from "./setup/setup-page.js"
+import { loadConfig } from "./config.js"
+import type { VaultConfig } from "./config.js"
+import { logger } from "../logger.js"
+import { extractClientIp, headerAsString } from "../auth.js"
+import { describeError } from "../utils/describe-error.js"
+import { urlHasCredentials } from "../utils/url-has-credentials.js"
+import env from "env-var"
 
 /** Error middleware — logs the failure with request context, answers 500.
  *  The client IP is derived under the same Forwarded hop count as
@@ -36,11 +36,11 @@ export const createErrorMiddleware =
       path: req.path,
       error: describeError(err),
       stack: err.stack,
-    });
+    })
     if (!res.headersSent) {
-      res.status(500).json({ error: "internal server error" });
+      res.status(500).json({ error: "internal server error" })
     }
-  };
+  }
 
 /**
  * SIGTERM handler that drains in-flight requests before exiting, so a write
@@ -51,16 +51,16 @@ export const createErrorMiddleware =
 export const createShutdownHandler =
   (httpServer: { close: (callback: () => void) => void }, forceExitMs = 10_000): (() => void) =>
   (): void => {
-    logger.info("SIGTERM received, draining");
+    logger.info("SIGTERM received, draining")
     httpServer.close(() => {
-      logger.info("drained, exiting");
-      process.exit(0);
-    });
+      logger.info("drained, exiting")
+      process.exit(0)
+    })
     setTimeout(() => {
-      logger.warn("drain timed out, forcing exit");
-      process.exit(1);
-    }, forceExitMs).unref();
-  };
+      logger.warn("drain timed out, forcing exit")
+      process.exit(1)
+    }, forceExitMs).unref()
+  }
 
 /**
  * Runs the memory template bootstrap unless config forbids it — memory
@@ -68,51 +68,51 @@ export const createShutdownHandler =
  * and this is the one server-initiated vault write).
  */
 export const bootstrapMemoryIfEnabled = async (config: VaultConfig, vaultPath: string): Promise<void> => {
-  if (!config.memoryEnabled || config.readOnlyMode) return;
-  const memoryStore = createMemoryStore({ memoryDir: config.memoryDir });
-  await memoryStore.bootstrapMemoryDir({ vaultPath }, logger);
-};
+  if (!config.memoryEnabled || config.readOnlyMode) return
+  const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
+  await memoryStore.bootstrapMemoryDir({ vaultPath }, logger)
+}
 
 /** Matches `*`, `?`, or `[` — `find -path` glob metacharacters. */
-const GLOB_CHARS = /[*?[]/;
+const GLOB_CHARS = /[*?[]/
 
 const startServer = async (): Promise<void> => {
-  const config = loadConfig();
+  const config = loadConfig()
   // Trim so a stray trailing space or newline on MCP_AUTH_TOKEN in .env
   // can't silently break every auth attempt — a valid token has no
   // surrounding whitespace.
-  const authToken = env.get("MCP_AUTH_TOKEN").required().asString().trim();
-  const vaultPath = env.get("VAULT_PATH").required().asString();
+  const authToken = env.get("MCP_AUTH_TOKEN").required().asString().trim()
+  const vaultPath = env.get("VAULT_PATH").required().asString()
 
   if (GLOB_CHARS.test(vaultPath)) {
-    throw new Error("VAULT_PATH must not contain glob characters (*, ?, [)");
+    throw new Error("VAULT_PATH must not contain glob characters (*, ?, [)")
   }
-  const publicUrl = env.get("PUBLIC_URL").required().asString();
-  const serverUrl = new URL(publicUrl);
+  const publicUrl = env.get("PUBLIC_URL").required().asString()
+  const serverUrl = new URL(publicUrl)
 
   if (serverUrl.protocol !== "http:" && serverUrl.protocol !== "https:") {
-    throw new Error("PUBLIC_URL must be an http:// or https:// URL (e.g. https://vault.example.com)");
+    throw new Error("PUBLIC_URL must be an http:// or https:// URL (e.g. https://vault.example.com)")
   }
   // Credentials in the URL would be minted into every token's `iss`
   // claim and served by the discovery documents — refuse to start.
   if (urlHasCredentials(serverUrl)) {
-    throw new Error("PUBLIC_URL must not contain credentials (user:password@)");
+    throw new Error("PUBLIC_URL must not contain credentials (user:password@)")
   }
   if (publicUrl.includes("?") || publicUrl.includes("#")) {
-    throw new Error("PUBLIC_URL must be a bare origin — no query string or fragment");
+    throw new Error("PUBLIC_URL must be a bare origin — no query string or fragment")
   }
   if (serverUrl.pathname.replace(/\/+$/, "") !== "") {
     throw new Error(
       "PUBLIC_URL must be a bare origin — path prefixes are not supported (e.g. https://vault.example.com)",
-    );
+    )
   }
 
-  const indexDbPath = env.get("INDEX_DB_PATH").asString();
-  const dataDir = indexDbPath ? dirname(indexDbPath) : "/data";
-  const searchDbPath = indexDbPath ?? `${dataDir}/search.db`;
-  const oauthDbPath = `${dataDir}/oauth.db`;
-  const port = env.get("PORT").default("8000").asPortNumber();
-  const host = env.get("HOST").default("0.0.0.0").asString();
+  const indexDbPath = env.get("INDEX_DB_PATH").asString()
+  const dataDir = indexDbPath ? dirname(indexDbPath) : "/data"
+  const searchDbPath = indexDbPath ?? `${dataDir}/search.db`
+  const oauthDbPath = `${dataDir}/oauth.db`
+  const port = env.get("PORT").default("8000").asPortNumber()
+  const host = env.get("HOST").default("0.0.0.0").asString()
 
   logger.info("config loaded", {
     memoryEnabled: config.memoryEnabled,
@@ -126,49 +126,49 @@ const startServer = async (): Promise<void> => {
     trustProxyHops: config.trustProxyHops,
     trustForwardedHops: config.trustForwardedHops,
     trashRetentionDays: config.trashRetentionDays ?? "none",
-  });
+  })
 
-  const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined;
-  const reranker = config.embeddingEnabled && config.rerankMode === "blended" ? createReranker(logger) : undefined;
+  const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
+  const reranker = config.embeddingEnabled && config.rerankMode === "blended" ? createReranker(logger) : undefined
   const search = createSearchIndex(searchDbPath, embedder, reranker, {
     memoryDir: config.memoryEnabled ? config.memoryDir : undefined,
     fileToolsEnabled: config.fileToolsEnabled,
-  });
-  const { count } = await search.rebuildFromVault({ vaultPath }, logger);
-  logger.info("initial index built", { count });
+  })
+  const { count } = await search.rebuildFromVault({ vaultPath }, logger)
+  logger.info("initial index built", { count })
 
-  await bootstrapMemoryIfEnabled(config, vaultPath);
+  await bootstrapMemoryIfEnabled(config, vaultPath)
   await startFileWatcher(vaultPath, search, {
     usePolling: config.windowsBindMount,
-  });
+  })
 
   const oauthProvider = createOAuthProvider({
     authToken,
     dbPath: oauthDbPath,
     serverUrl,
     logger,
-  });
+  })
 
-  const app = express();
+  const app = express()
   // Proxy trust is deployment-explicit: TRUST_PROXY_HOPS grants one
   // X-Forwarded-For hop per proxy the deployment controls. With the
   // default 0, req.ip — the OAuth rate limiter's fallback bucket key —
   // is the socket peer, and an injected header can't shift it. Never
   // widen this to Express's blanket `true`: trusting the whole chain
   // lets any client claim any IP via appended headers.
-  app.set("trust proxy", config.trustProxyHops);
-  app.use(express.json());
+  app.set("trust proxy", config.trustProxyHops)
+  app.use(express.json())
 
   app.get("/healthz", (_req: Request, res: Response) => {
-    res.json({ ok: true });
-  });
+    res.json({ ok: true })
+  })
 
   // The :remote image serves the Sync sign-in page here while it has no
   // token (setup/setup-server.ts); once configured, the same address says so
   // instead of 404ing on a link from that flow or a guide.
   app.get("/setup", (_req: Request, res: Response) => {
-    res.type("html").send(renderSetupPage({ kind: "configured" }));
-  });
+    res.type("html").send(renderSetupPage({ kind: "configured" }))
+  })
 
   app.use(
     createOAuthRoutes({
@@ -179,7 +179,7 @@ const startServer = async (): Promise<void> => {
       trustForwardedHops: config.trustForwardedHops,
       logger,
     }),
-  );
+  )
   app.use(
     createMcpRouter({
       vaultPath,
@@ -188,9 +188,9 @@ const startServer = async (): Promise<void> => {
       provider: oauthProvider.provider,
       config,
     }),
-  );
+  )
 
-  app.use(createErrorMiddleware({ trustForwardedHops: config.trustForwardedHops }));
+  app.use(createErrorMiddleware({ trustForwardedHops: config.trustForwardedHops }))
 
   // Express 5 reports a bind failure (EADDRINUSE, EACCES) through the
   // callback's error argument instead of throwing, so an unchecked callback
@@ -201,34 +201,34 @@ const startServer = async (): Promise<void> => {
         host,
         port,
         error: describeError(listenError),
-      });
-      process.exit(1);
+      })
+      process.exit(1)
     }
-    logger.info("server started", { host, port });
-  });
+    logger.info("server started", { host, port })
+  })
 
   // Started after listen so a large trash backlog (unlinks at bind-mount
   // latency) can never stall /healthz past container health-check budgets.
   // Sync deploys never trash (the delete handler bypasses to "none") and a
   // read-only server never modifies the vault, so neither runs.
-  const trashBookkeepingEnabled = !config.readOnlyMode && !config.obsidianSyncEnabled;
+  const trashBookkeepingEnabled = !config.readOnlyMode && !config.obsidianSyncEnabled
 
-  process.on("SIGTERM", createShutdownHandler(httpServer));
+  process.on("SIGTERM", createShutdownHandler(httpServer))
 
   // Orphan purge: drops rows whose .trash/ entry is gone — runs once at
   // boot regardless of TRASH_RETENTION_DAYS.
   if (trashBookkeepingEnabled) {
     try {
-      await trashSweeper.purgeOrphanedTrashEntries({ vaultPath, trashEntryStore: search }, logger);
+      await trashSweeper.purgeOrphanedTrashEntries({ vaultPath, trashEntryStore: search }, logger)
     } catch (error) {
       logger.error("orphaned trash entry purge failed", {
         error: describeError(error),
-      });
+      })
     }
   }
 
   // Retention sweep: unlinks expired files on a daily schedule.
-  const { trashRetentionDays } = config;
+  const { trashRetentionDays } = config
 
   if (trashBookkeepingEnabled && trashRetentionDays !== null) {
     trashSweeper.startTrashSweepSchedule(
@@ -238,19 +238,19 @@ const startServer = async (): Promise<void> => {
         trashEntryStore: search,
       },
       logger,
-    );
+    )
   }
-};
+}
 
 // Node ESM has no `require.main` — compare argv[1] to this module's path
 // to avoid running the server when imported by tests
-const isEntryPoint = resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url);
+const isEntryPoint = resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)
 
 if (isEntryPoint) {
   startServer().catch((err) => {
     logger.error("failed to start server", {
       error: describeError(err),
-    });
-    process.exit(1);
-  });
+    })
+    process.exit(1)
+  })
 }

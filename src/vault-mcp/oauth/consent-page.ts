@@ -1,19 +1,19 @@
 /** Minimal HTML consent page for OAuth authorization flow. */
 
-import { escapeHtml } from "../../utils/escape-html.js";
+import { escapeHtml } from "../../utils/escape-html.js"
 
 type ConsentPageParams = {
-  clientName: string;
-  clientId: string;
-  scopes: string[];
-  requestId: string;
-  error?: string;
-};
+  clientName: string
+  clientId: string
+  scopes: string[]
+  requestId: string
+  error?: string
+}
 
 export const renderConsentPage = ({ clientName, clientId, scopes, requestId, error }: ConsentPageParams): string => {
   const scopeList = scopes.length
     ? scopes.map((scope) => `<li>${escapeHtml(scope)}</li>`).join("")
-    : "<li><em>No specific scopes requested</em></li>";
+    : "<li><em>No specific scopes requested</em></li>"
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -78,5 +78,5 @@ export const renderConsentPage = ({ clientName, clientId, scopes, requestId, err
   </form>
 </div>
 </body>
-</html>`;
-};
+</html>`
+}

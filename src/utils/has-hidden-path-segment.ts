@@ -5,5 +5,5 @@
  * guard so they can't drift.
  */
 export const hasHiddenPathSegment = (relativePath: string): boolean => {
-  return relativePath.split("/").some((segment) => segment.startsWith("."));
-};
+  return relativePath.split("/").some((segment) => segment.startsWith("."))
+}

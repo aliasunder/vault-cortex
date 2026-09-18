@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { stripMarkdownSyntax } from "../plaintext.js";
+import { describe, it, expect } from "vitest"
+import { stripMarkdownSyntax } from "../plaintext.js"
 
 describe("stripMarkdownSyntax", () => {
   const scenarios = [
@@ -118,10 +118,10 @@ describe("stripMarkdownSyntax", () => {
       input: "",
       expected: "",
     },
-  ];
+  ]
 
   it.each(scenarios)("$name", ({ input, expected }) => {
-    const result = stripMarkdownSyntax(input);
-    expect(result).toBe(expected);
-  });
-});
+    const result = stripMarkdownSyntax(input)
+    expect(result).toBe(expected)
+  })
+})

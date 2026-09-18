@@ -1,7 +1,7 @@
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
-import { createIsomorphicCanvasFactory, definePDFJSModule, getDocumentProxy } from "unpdf";
-import type { PDFDocumentProxy } from "unpdf/pdfjs";
+import { createRequire } from "node:module"
+import { dirname, join } from "node:path"
+import { createIsomorphicCanvasFactory, definePDFJSModule, getDocumentProxy } from "unpdf"
+import type { PDFDocumentProxy } from "unpdf/pdfjs"
 
 /**
  * PDF engine bootstrap — swaps unpdf's bundled pdfjs build for the real
@@ -38,53 +38,53 @@ import type { PDFDocumentProxy } from "unpdf/pdfjs";
 
 /** The canvas factory class unpdf wires into pdfjs so intermediate canvases
  *  (transparency groups, patterns, masks) come from @napi-rs/canvas. */
-type PdfCanvasFactory = Awaited<ReturnType<typeof createIsomorphicCanvasFactory>>;
+type PdfCanvasFactory = Awaited<ReturnType<typeof createIsomorphicCanvasFactory>>
 
 type PdfEngine = Readonly<{
-  standardFontDataUrl: string;
-  cMapUrl: string;
-  CanvasFactory: PdfCanvasFactory;
-}>;
+  standardFontDataUrl: string
+  cMapUrl: string
+  CanvasFactory: PdfCanvasFactory
+}>
 
 /** The one canvas-module importer every PDF surface shares — proxies (via
  *  CanvasFactory), page rendering, and tests must all wire the same backend,
  *  or output canvases could silently come from a different canvas package
  *  than the document's intermediate canvases. */
-export const canvasImport = (): Promise<typeof import("@napi-rs/canvas")> => import("@napi-rs/canvas");
+export const canvasImport = (): Promise<typeof import("@napi-rs/canvas")> => import("@napi-rs/canvas")
 
 /** Resolves pdfjs-dist's bundled font and cMap directories as plain paths
  *  (trailing slash required — pdfjs concatenates the file name directly). */
 const resolvePdfjsAssetPaths = (): {
-  standardFontDataUrl: string;
-  cMapUrl: string;
+  standardFontDataUrl: string
+  cMapUrl: string
 } => {
-  const require = createRequire(import.meta.url);
-  const pdfjsPackageRoot = dirname(require.resolve("pdfjs-dist/package.json"));
+  const require = createRequire(import.meta.url)
+  const pdfjsPackageRoot = dirname(require.resolve("pdfjs-dist/package.json"))
   return {
     standardFontDataUrl: join(pdfjsPackageRoot, "standard_fonts/"),
     cMapUrl: join(pdfjsPackageRoot, "cmaps/"),
-  };
-};
+  }
+}
 
 const initializePdfEngine = async (): Promise<PdfEngine> => {
-  const canvasModule = await canvasImport();
+  const canvasModule = await canvasImport()
   // Step 1 — the overwrite (not set-if-undefined) is the load-bearing part;
   // running before the pdfjs import below is defense in depth. See docstring.
   Object.assign(globalThis, {
     DOMMatrix: canvasModule.DOMMatrix,
     Path2D: canvasModule.Path2D,
     ImageData: canvasModule.ImageData,
-  });
+  })
   // Step 2 — every later unpdf call resolves this module.
-  await definePDFJSModule(() => import("pdfjs-dist/legacy/build/pdf.mjs"));
-  const CanvasFactory = await createIsomorphicCanvasFactory(canvasImport);
-  return { ...resolvePdfjsAssetPaths(), CanvasFactory };
-};
+  await definePDFJSModule(() => import("pdfjs-dist/legacy/build/pdf.mjs"))
+  const CanvasFactory = await createIsomorphicCanvasFactory(canvasImport)
+  return { ...resolvePdfjsAssetPaths(), CanvasFactory }
+}
 
 // Single-flight init: the module swap and global injection must run exactly
 // once per process, before any pdfjs use — concurrent callers share the same
 // in-flight promise. Mutation justified: memoization is inherently stateful.
-let pdfEnginePromise: Promise<PdfEngine> | undefined;
+let pdfEnginePromise: Promise<PdfEngine> | undefined
 
 const getPdfEngine = (): Promise<PdfEngine> => {
   if (!pdfEnginePromise) {
@@ -94,12 +94,12 @@ const getPdfEngine = (): Promise<PdfEngine> => {
     // next call retries, then re-throws so every caller sharing this
     // promise still observes the rejection.
     pdfEnginePromise = initializePdfEngine().catch((error: unknown) => {
-      pdfEnginePromise = undefined;
-      throw error;
-    });
+      pdfEnginePromise = undefined
+      throw error
+    })
   }
-  return pdfEnginePromise;
-};
+  return pdfEnginePromise
+}
 
 /**
  * Creates a fully-configured pdfjs document proxy from raw PDF bytes — the
@@ -109,7 +109,7 @@ const getPdfEngine = (): Promise<PdfEngine> => {
  * disposal call; `cleanup()` alone keeps the document alive).
  */
 export const createPdfDocumentProxy = async (pdfData: Uint8Array): Promise<PDFDocumentProxy> => {
-  const engine = await getPdfEngine();
+  const engine = await getPdfEngine()
   return getDocumentProxy(pdfData, {
     useSystemFonts: false,
     disableFontFace: true,
@@ -117,5 +117,5 @@ export const createPdfDocumentProxy = async (pdfData: Uint8Array): Promise<PDFDo
     cMapUrl: engine.cMapUrl,
     cMapPacked: true,
     CanvasFactory: engine.CanvasFactory,
-  });
-};
+  })
+}

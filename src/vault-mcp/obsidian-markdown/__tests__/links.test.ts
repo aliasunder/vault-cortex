@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { links } from "../links.js";
+import { describe, it, expect } from "vitest"
+import { links } from "../links.js"
 
 // ── matchLinksInLine ─────────────────────────────────────────────
 
@@ -7,56 +7,56 @@ describe("matchLinksInLine", () => {
   it("finds a wikilink with its offsets and kind", () => {
     expect(links.matchLinksInLine("see [[Note A]] end")).toEqual([
       { text: "[[Note A]]", start: 4, end: 14, kind: "wikilink" },
-    ]);
-  });
+    ])
+  })
 
   it("finds a markdown link with its offsets and kind", () => {
     expect(links.matchLinksInLine("see [x](a/b.md) end")).toEqual([
       { text: "[x](a/b.md)", start: 4, end: 15, kind: "markdown" },
-    ]);
-  });
+    ])
+  })
 
   it("finds both link kinds in one line", () => {
     expect(links.matchLinksInLine("[[A]] and [x](b.md)")).toEqual([
       { text: "[[A]]", start: 0, end: 5, kind: "wikilink" },
       { text: "[x](b.md)", start: 10, end: 19, kind: "markdown" },
-    ]);
-  });
+    ])
+  })
 
   it("returns an empty array when the line has no links", () => {
-    expect(links.matchLinksInLine("just plain text")).toEqual([]);
-  });
+    expect(links.matchLinksInLine("just plain text")).toEqual([])
+  })
 
   it("does not match scheme-prefixed or anchor targets even when they end in .md", () => {
     // .md targets so the scheme/anchor guard — not the .md filter — excludes them.
-    expect(links.matchLinksInLine("[g](https://x.com/g.md) [m](mailto:m@x.md) [a](#a.md)")).toEqual([]);
-  });
+    expect(links.matchLinksInLine("[g](https://x.com/g.md) [m](mailto:m@x.md) [a](#a.md)")).toEqual([])
+  })
 
   it("finds a markdown asset embed with kind markdown, offsets excluding the embed marker", () => {
     expect(links.matchLinksInLine("see ![alt](image.png) end")).toEqual([
       { text: "[alt](image.png)", start: 5, end: 21, kind: "markdown" },
-    ]);
-  });
-});
+    ])
+  })
+})
 
 // ── inlineCodeSpans ──────────────────────────────────────────────
 
 describe("inlineCodeSpans", () => {
   it("returns the character range of an inline code span", () => {
-    expect(links.inlineCodeSpans("use `code` here")).toEqual([{ start: 4, end: 10 }]);
-  });
+    expect(links.inlineCodeSpans("use `code` here")).toEqual([{ start: 4, end: 10 }])
+  })
 
   it("returns every span on the line", () => {
     expect(links.inlineCodeSpans("`a` and `bb`")).toEqual([
       { start: 0, end: 3 },
       { start: 8, end: 12 },
-    ]);
-  });
+    ])
+  })
 
   it("returns an empty array when the line has no inline code", () => {
-    expect(links.inlineCodeSpans("plain text")).toEqual([]);
-  });
-});
+    expect(links.inlineCodeSpans("plain text")).toEqual([])
+  })
+})
 
 // ── splitWikilink ────────────────────────────────────────────────
 
@@ -122,16 +122,16 @@ describe("splitWikilink", () => {
       input: "[[path\\]]",
       expected: { embed: "", target: "path", heading: "", alias: "\\" },
     },
-  ];
+  ]
 
   it.each(scenarios)("$name", ({ input, expected }) => {
-    expect(links.splitWikilink(input)).toEqual(expected);
-  });
+    expect(links.splitWikilink(input)).toEqual(expected)
+  })
 
   it("returns null for text that is not a well-formed wikilink", () => {
-    expect(links.splitWikilink("[[A")).toBeNull();
-  });
-});
+    expect(links.splitWikilink("[[A")).toBeNull()
+  })
+})
 
 // ── splitMarkdownLink ────────────────────────────────────────────
 
@@ -247,154 +247,154 @@ describe("splitMarkdownLink", () => {
         closeParen: ")",
       },
     },
-  ];
+  ]
 
   it.each(scenarios)("$name", ({ input, expected }) => {
-    expect(links.splitMarkdownLink(input)).toEqual(expected);
-  });
+    expect(links.splitMarkdownLink(input)).toEqual(expected)
+  })
 
   it("returns null for malformed link text (missing closing paren)", () => {
-    expect(links.splitMarkdownLink("[t](path.md")).toBeNull();
-  });
-});
+    expect(links.splitMarkdownLink("[t](path.md")).toBeNull()
+  })
+})
 
 // ── extractFromBody ──────────────────────────────────────────────
 
 describe("extractFromBody", () => {
   it("extracts basic wikilinks", () => {
-    const targets = links.extractFromBody("See [[Note A]] and [[Note B]].");
-    expect(targets).toEqual(["Note A", "Note B"]);
-  });
+    const targets = links.extractFromBody("See [[Note A]] and [[Note B]].")
+    expect(targets).toEqual(["Note A", "Note B"])
+  })
 
   it("extracts wikilinks with display text", () => {
-    const targets = links.extractFromBody("See [[Note A|my note]].");
-    expect(targets).toEqual(["Note A"]);
-  });
+    const targets = links.extractFromBody("See [[Note A|my note]].")
+    expect(targets).toEqual(["Note A"])
+  })
 
   it("extracts wikilinks with heading anchors", () => {
-    const targets = links.extractFromBody("See [[Note A#Section One]].");
-    expect(targets).toEqual(["Note A"]);
-  });
+    const targets = links.extractFromBody("See [[Note A#Section One]].")
+    expect(targets).toEqual(["Note A"])
+  })
 
   it("extracts wikilinks with heading and display text", () => {
-    const targets = links.extractFromBody("See [[Note A#Section|display]].");
-    expect(targets).toEqual(["Note A"]);
-  });
+    const targets = links.extractFromBody("See [[Note A#Section|display]].")
+    expect(targets).toEqual(["Note A"])
+  })
 
   it("extracts wikilinks with folder paths", () => {
-    const targets = links.extractFromBody("See [[Projects/vault-cortex]].");
-    expect(targets).toEqual(["Projects/vault-cortex"]);
-  });
+    const targets = links.extractFromBody("See [[Projects/vault-cortex]].")
+    expect(targets).toEqual(["Projects/vault-cortex"])
+  })
 
   it("extracts embeds as links", () => {
-    const targets = links.extractFromBody("![[Embedded Note]]");
-    expect(targets).toEqual(["Embedded Note"]);
-  });
+    const targets = links.extractFromBody("![[Embedded Note]]")
+    expect(targets).toEqual(["Embedded Note"])
+  })
 
   it("extracts markdown internal links with the target as written", () => {
-    const targets = links.extractFromBody("[click here](Projects/plan.md)");
-    expect(targets).toEqual(["Projects/plan.md"]);
-  });
+    const targets = links.extractFromBody("[click here](Projects/plan.md)")
+    expect(targets).toEqual(["Projects/plan.md"])
+  })
 
   it("excludes a scheme-prefixed URL even when it ends in .md", () => {
     // .md target so the https:// guard — not the .md filter — is what excludes it;
     // the [[Internal]] link proves extraction still happens.
-    const targets = links.extractFromBody("[Google](https://google.com/page.md) and [[Internal]]");
-    expect(targets).toEqual(["Internal"]);
-  });
+    const targets = links.extractFromBody("[Google](https://google.com/page.md) and [[Internal]]")
+    expect(targets).toEqual(["Internal"])
+  })
 
   it("excludes a mailto target even when it ends in .md", () => {
     // .md target so the mailto: guard — not the .md filter — is what excludes it.
-    const targets = links.extractFromBody("[email](mailto:hi@example.md) and [[Reach Out]]");
-    expect(targets).toEqual(["Reach Out"]);
-  });
+    const targets = links.extractFromBody("[email](mailto:hi@example.md) and [[Reach Out]]")
+    expect(targets).toEqual(["Reach Out"])
+  })
 
   it("excludes same-page anchors", () => {
-    const targets = links.extractFromBody("[section](#heading) — see [[Details]]");
-    expect(targets).toEqual(["Details"]);
-  });
+    const targets = links.extractFromBody("[section](#heading) — see [[Details]]")
+    expect(targets).toEqual(["Details"])
+  })
 
   it("deduplicates repeated targets", () => {
-    const targets = links.extractFromBody("[[Note A]] and again [[Note A]]");
-    expect(targets).toEqual(["Note A"]);
-  });
+    const targets = links.extractFromBody("[[Note A]] and again [[Note A]]")
+    expect(targets).toEqual(["Note A"])
+  })
 
   it("skips links inside fenced code blocks", () => {
-    const content = ["before [[Real Link]]", "```", "[[Fake Link]]", "```", "after [[Another Real Link]]"].join("\n");
-    const targets = links.extractFromBody(content);
-    expect(targets).toEqual(["Real Link", "Another Real Link"]);
-  });
+    const content = ["before [[Real Link]]", "```", "[[Fake Link]]", "```", "after [[Another Real Link]]"].join("\n")
+    const targets = links.extractFromBody(content)
+    expect(targets).toEqual(["Real Link", "Another Real Link"])
+  })
 
   it("skips links inside tilde fenced blocks", () => {
-    const content = ["[[Before]]", "~~~", "[[Fake]]", "~~~", "[[After]]"].join("\n");
-    const targets = links.extractFromBody(content);
-    expect(targets).toEqual(["Before", "After"]);
-  });
+    const content = ["[[Before]]", "~~~", "[[Fake]]", "~~~", "[[After]]"].join("\n")
+    const targets = links.extractFromBody(content)
+    expect(targets).toEqual(["Before", "After"])
+  })
 
   it("handles nested fences correctly", () => {
-    const content = ["````", "```", "[[Inside Nested]]", "```", "````", "[[Outside]]"].join("\n");
-    const targets = links.extractFromBody(content);
-    expect(targets).toEqual(["Outside"]);
-  });
+    const content = ["````", "```", "[[Inside Nested]]", "```", "````", "[[Outside]]"].join("\n")
+    const targets = links.extractFromBody(content)
+    expect(targets).toEqual(["Outside"])
+  })
 
   it("returns empty for content with no links", () => {
-    expect(links.extractFromBody("Just plain text.")).toEqual([]);
-  });
+    expect(links.extractFromBody("Just plain text.")).toEqual([])
+  })
 
   it("skips wikilinks inside inline code spans", () => {
-    const targets = links.extractFromBody("See [[Live Note]] but not the `[[Code Note]]` example.");
-    expect(targets).toEqual(["Live Note"]);
-  });
+    const targets = links.extractFromBody("See [[Live Note]] but not the `[[Code Note]]` example.")
+    expect(targets).toEqual(["Live Note"])
+  })
 
   it("skips markdown links inside inline code spans", () => {
-    const targets = links.extractFromBody("Real [link](real.md) but `[code](code.md)` is inert.");
-    expect(targets).toEqual(["real.md"]);
-  });
+    const targets = links.extractFromBody("Real [link](real.md) but `[code](code.md)` is inert.")
+    expect(targets).toEqual(["real.md"])
+  })
 
   it("skips links inside indented fences (CommonMark §4.5)", () => {
-    const content = ["- list item:", "  ```", "  [[Fake Link]]", "  ```", "[[Real Link]]"].join("\n");
-    const targets = links.extractFromBody(content);
-    expect(targets).toEqual(["Real Link"]);
-  });
+    const content = ["- list item:", "  ```", "  [[Fake Link]]", "  ```", "[[Real Link]]"].join("\n")
+    const targets = links.extractFromBody(content)
+    expect(targets).toEqual(["Real Link"])
+  })
 
   it("skips wikilink-like patterns inside Templater expressions", () => {
-    const content = "[[Real Link]] and <% tp.file.include('[[Daily Template]]') %>";
-    const targets = links.extractFromBody(content);
-    expect(targets).toEqual(["Real Link"]);
-  });
+    const content = "[[Real Link]] and <% tp.file.include('[[Daily Template]]') %>"
+    const targets = links.extractFromBody(content)
+    expect(targets).toEqual(["Real Link"])
+  })
 
   it("skips links inside <%+ output expressions", () => {
-    const content = "[[Before]] <%+ tp.file.include('[[Template]]') %> [[After]]";
-    const targets = links.extractFromBody(content);
-    expect(targets).toEqual(["Before", "After"]);
-  });
+    const content = "[[Before]] <%+ tp.file.include('[[Template]]') %> [[After]]"
+    const targets = links.extractFromBody(content)
+    expect(targets).toEqual(["Before", "After"])
+  })
 
   it("handles multiple Templater expressions on one line", () => {
-    const content = "<% tp.file.include('[[Header]]') %> [[Real]] <% tp.file.include('[[Footer]]') %>";
-    const targets = links.extractFromBody(content);
-    expect(targets).toEqual(["Real"]);
-  });
+    const content = "<% tp.file.include('[[Header]]') %> [[Real]] <% tp.file.include('[[Footer]]') %>"
+    const targets = links.extractFromBody(content)
+    expect(targets).toEqual(["Real"])
+  })
 
   it("does not suppress links when <% has no closing %>", () => {
-    const content = "<% unclosed expression [[Real Link]]";
-    const targets = links.extractFromBody(content);
-    expect(targets).toEqual(["Real Link"]);
-  });
+    const content = "<% unclosed expression [[Real Link]]"
+    const targets = links.extractFromBody(content)
+    expect(targets).toEqual(["Real Link"])
+  })
 
   it("extracts markdown links and embeds to non-.md assets", () => {
-    const targets = links.extractFromBody("![photo](pics/photo.png), [doc](papers/report.pdf), and [[Caption]]");
-    expect(targets).toEqual(["Caption", "pics/photo.png", "papers/report.pdf"]);
-  });
+    const targets = links.extractFromBody("![photo](pics/photo.png), [doc](papers/report.pdf), and [[Caption]]")
+    expect(targets).toEqual(["Caption", "pics/photo.png", "papers/report.pdf"])
+  })
 
   it("extracts extensionless markdown links, percent-decoded", () => {
-    const targets = links.extractFromBody("[team notes](Some%20Note)");
-    expect(targets).toEqual(["Some Note"]);
-  });
+    const targets = links.extractFromBody("[team notes](Some%20Note)")
+    expect(targets).toEqual(["Some Note"])
+  })
 
   it("percent-decodes markdown asset paths with folders and spaces", () => {
-    const targets = links.extractFromBody("![shot](Trip%20Photos/pic%201.png)");
-    expect(targets).toEqual(["Trip Photos/pic 1.png"]);
-  });
+    const targets = links.extractFromBody("![shot](Trip%20Photos/pic%201.png)")
+    expect(targets).toEqual(["Trip Photos/pic 1.png"])
+  })
 
   it("excludes scheme-prefixed targets of any scheme, not just http and mailto", () => {
     // The control wikilink proves extraction ran — a wrong lookahead would
@@ -407,19 +407,19 @@ describe("extractFromBody", () => {
         "[u](HTTPS://x.com/a.png)",
         "[[Control]]",
       ].join(" "),
-    );
-    expect(targets).toEqual(["Control"]);
-  });
+    )
+    expect(targets).toEqual(["Control"])
+  })
 
   it("strips the heading anchor from a non-md markdown link", () => {
-    const targets = links.extractFromBody("[docs](papers/report.pdf#page=2)");
-    expect(targets).toEqual(["papers/report.pdf"]);
-  });
+    const targets = links.extractFromBody("[docs](papers/report.pdf#page=2)")
+    expect(targets).toEqual(["papers/report.pdf"])
+  })
 
   it("falls back to raw target when percent-encoding is malformed", () => {
-    const targets = links.extractFromBody("[done](100%zzcomplete.md)");
-    expect(targets).toEqual(["100%zzcomplete.md"]);
-  });
+    const targets = links.extractFromBody("[done](100%zzcomplete.md)")
+    expect(targets).toEqual(["100%zzcomplete.md"])
+  })
 
   it("strips the escaped pipe backslash from wikilink targets in table cells", () => {
     const content = [
@@ -427,72 +427,72 @@ describe("extractFromBody", () => {
       "| --- | --- |",
       "| [[sessions/log-a\\|log-a]] | First session |",
       "| [[sessions/log-b\\|log-b]] | Second session |",
-    ].join("\n");
-    const targets = links.extractFromBody(content);
-    expect(targets).toEqual(["sessions/log-a", "sessions/log-b"]);
-  });
+    ].join("\n")
+    const targets = links.extractFromBody(content)
+    expect(targets).toEqual(["sessions/log-a", "sessions/log-b"])
+  })
 
   it("strips the escaped pipe backslash from aliased wikilinks outside tables", () => {
-    const targets = links.extractFromBody("See [[Note A\\|display text]].");
-    expect(targets).toEqual(["Note A"]);
-  });
+    const targets = links.extractFromBody("See [[Note A\\|display text]].")
+    expect(targets).toEqual(["Note A"])
+  })
 
   it("does not alter wikilinks that use a plain pipe alias", () => {
-    const targets = links.extractFromBody("See [[Note A|display]].");
-    expect(targets).toEqual(["Note A"]);
-  });
+    const targets = links.extractFromBody("See [[Note A|display]].")
+    expect(targets).toEqual(["Note A"])
+  })
 
   it("extracts wikilinks to non-markdown assets alongside note links", () => {
-    const targets = links.extractFromBody("![[photo.png]] and ![[report.pdf]] and ![[song.mp3]] and [[Note A]]");
-    expect(targets).toEqual(["photo.png", "report.pdf", "song.mp3", "Note A"]);
-  });
+    const targets = links.extractFromBody("![[photo.png]] and ![[report.pdf]] and ![[song.mp3]] and [[Note A]]")
+    expect(targets).toEqual(["photo.png", "report.pdf", "song.mp3", "Note A"])
+  })
 
   it("extracts embedded assets with folder paths", () => {
-    const targets = links.extractFromBody("![[attachments/diagram.svg]] and [[Real Note]]");
-    expect(targets).toEqual(["attachments/diagram.svg", "Real Note"]);
-  });
+    const targets = links.extractFromBody("![[attachments/diagram.svg]] and [[Real Note]]")
+    expect(targets).toEqual(["attachments/diagram.svg", "Real Note"])
+  })
 
   it("keeps wikilinks to notes with dots in the name", () => {
-    const targets = links.extractFromBody("[[v2.0]] and [[release-1.3]]");
-    expect(targets).toEqual(["v2.0", "release-1.3"]);
-  });
+    const targets = links.extractFromBody("[[v2.0]] and [[release-1.3]]")
+    expect(targets).toEqual(["v2.0", "release-1.3"])
+  })
 
   it("keeps wikilinks with explicit .md extension", () => {
-    const targets = links.extractFromBody("[[Projects/plan.md]]");
-    expect(targets).toEqual(["Projects/plan.md"]);
-  });
-});
+    const targets = links.extractFromBody("[[Projects/plan.md]]")
+    expect(targets).toEqual(["Projects/plan.md"])
+  })
+})
 
 // ── extractFromFrontmatter ───────────────────────────────────────
 
 describe("extractFromFrontmatter", () => {
   it("extracts a wikilink from a string property value", () => {
-    expect(links.extractFromFrontmatter({ up: "[[Parent Note]]" })).toEqual(["Parent Note"]);
-  });
+    expect(links.extractFromFrontmatter({ up: "[[Parent Note]]" })).toEqual(["Parent Note"])
+  })
 
   it("extracts wikilinks from an array property (e.g. related)", () => {
-    expect(links.extractFromFrontmatter({ related: ["[[Note A]]", "[[Note B]]"] })).toEqual(["Note A", "Note B"]);
-  });
+    expect(links.extractFromFrontmatter({ related: ["[[Note A]]", "[[Note B]]"] })).toEqual(["Note A", "Note B"])
+  })
 
   it("strips alias and heading from a frontmatter wikilink", () => {
-    expect(links.extractFromFrontmatter({ related: ["[[Note A#Section|display]]"] })).toEqual(["Note A"]);
-  });
+    expect(links.extractFromFrontmatter({ related: ["[[Note A#Section|display]]"] })).toEqual(["Note A"])
+  })
 
   it("extracts a wikilink embedded in surrounding text", () => {
-    expect(links.extractFromFrontmatter({ note: "see [[Note A]] for context" })).toEqual(["Note A"]);
-  });
+    expect(links.extractFromFrontmatter({ note: "see [[Note A]] for context" })).toEqual(["Note A"])
+  })
 
   it("walks nested object property values", () => {
-    expect(links.extractFromFrontmatter({ meta: { parent: "[[Note A]]" } })).toEqual(["Note A"]);
-  });
+    expect(links.extractFromFrontmatter({ meta: { parent: "[[Note A]]" } })).toEqual(["Note A"])
+  })
 
   it("returns empty for plain-string values with no wikilinks", () => {
-    expect(links.extractFromFrontmatter({ related: ["Routines", "Career"] })).toEqual([]);
-  });
+    expect(links.extractFromFrontmatter({ related: ["Routines", "Career"] })).toEqual([])
+  })
 
   it("ignores non-string scalar values", () => {
-    expect(links.extractFromFrontmatter({ count: 3, draft: true, missing: null })).toEqual([]);
-  });
+    expect(links.extractFromFrontmatter({ count: 3, draft: true, missing: null })).toEqual([])
+  })
 
   it("deduplicates a target repeated across properties", () => {
     expect(
@@ -500,25 +500,25 @@ describe("extractFromFrontmatter", () => {
         up: "[[Note A]]",
         related: ["[[Note A]]"],
       }),
-    ).toEqual(["Note A"]);
-  });
+    ).toEqual(["Note A"])
+  })
 
   it("strips the escaped pipe backslash from frontmatter wikilinks", () => {
     expect(
       links.extractFromFrontmatter({
         related: ["[[sessions/log-a\\|log-a]]"],
       }),
-    ).toEqual(["sessions/log-a"]);
-  });
+    ).toEqual(["sessions/log-a"])
+  })
 
   it("extracts wikilinks to non-markdown assets in frontmatter", () => {
     expect(
       links.extractFromFrontmatter({
         related: ["[[diagram.png]]", "[[Note A]]"],
       }),
-    ).toEqual(["diagram.png", "Note A"]);
-  });
-});
+    ).toEqual(["diagram.png", "Note A"])
+  })
+})
 
 // ── resolve ──────────────────────────────────────────────────────
 
@@ -529,66 +529,66 @@ describe("resolve", () => {
     "notes/random.md",
     "deep/nested/note.md",
     "note.md",
-  ];
+  ]
 
   it("resolves exact path match", () => {
-    expect(links.resolve({ target: "Projects/vault-cortex", allPaths })).toBe("Projects/vault-cortex.md");
-  });
+    expect(links.resolve({ target: "Projects/vault-cortex", allPaths })).toBe("Projects/vault-cortex.md")
+  })
 
   it("resolves exact path with .md extension", () => {
-    expect(links.resolve({ target: "Projects/vault-cortex.md", allPaths })).toBe("Projects/vault-cortex.md");
-  });
+    expect(links.resolve({ target: "Projects/vault-cortex.md", allPaths })).toBe("Projects/vault-cortex.md")
+  })
 
   it("resolves basename match", () => {
-    expect(links.resolve({ target: "Principles", allPaths })).toBe("About Me/Principles.md");
-  });
+    expect(links.resolve({ target: "Principles", allPaths })).toBe("About Me/Principles.md")
+  })
 
   it("resolves to shortest path when multiple basename matches exist", () => {
-    expect(links.resolve({ target: "note", allPaths })).toBe("note.md");
-  });
+    expect(links.resolve({ target: "note", allPaths })).toBe("note.md")
+  })
 
   it("returns null for unresolvable target", () => {
-    expect(links.resolve({ target: "NonExistent", allPaths })).toBeNull();
-  });
+    expect(links.resolve({ target: "NonExistent", allPaths })).toBeNull()
+  })
 
   it("resolves an upward relative path against the source note's directory", () => {
-    const paths = ["A/C/target.md", "A/B/note.md"];
+    const paths = ["A/C/target.md", "A/B/note.md"]
     expect(
       links.resolve({
         target: "../C/target",
         allPaths: paths,
         sourcePath: "A/B/note.md",
       }),
-    ).toBe("A/C/target.md");
-  });
+    ).toBe("A/C/target.md")
+  })
 
   it("resolves a descending relative path to the source's own subfolder over a shorter same-named path elsewhere", () => {
     // "X/sub/target.md" is the shorter basename/suffix match, but the link is
     // relative to Areas/note.md, so it must resolve into Areas/sub/.
-    const paths = ["Areas/sub/target.md", "X/sub/target.md", "Areas/note.md"];
+    const paths = ["Areas/sub/target.md", "X/sub/target.md", "Areas/note.md"]
     expect(
       links.resolve({
         target: "sub/target",
         allPaths: paths,
         sourcePath: "Areas/note.md",
       }),
-    ).toBe("Areas/sub/target.md");
-  });
+    ).toBe("Areas/sub/target.md")
+  })
 
   it("prefers an exact vault-absolute path over a relative-to-source match", () => {
-    const paths = ["Projects/other.md", "A/B/Projects/other.md", "A/B/note.md"];
+    const paths = ["Projects/other.md", "A/B/Projects/other.md", "A/B/note.md"]
     expect(
       links.resolve({
         target: "Projects/other",
         allPaths: paths,
         sourcePath: "A/B/note.md",
       }),
-    ).toBe("Projects/other.md");
-  });
+    ).toBe("Projects/other.md")
+  })
 
   it("cannot resolve an upward relative path without a source note", () => {
-    expect(links.resolve({ target: "../C/target", allPaths: ["A/C/target.md"] })).toBeNull();
-  });
+    expect(links.resolve({ target: "../C/target", allPaths: ["A/C/target.md"] })).toBeNull()
+  })
 
   it("does not let an upward ../ path escape to a same-named vault-root note", () => {
     // "secret.md" exists at the vault root, but "../secret" from a root note
@@ -599,61 +599,61 @@ describe("resolve", () => {
         allPaths: ["secret.md"],
         sourcePath: "note.md",
       }),
-    ).toBeNull();
-  });
-});
+    ).toBeNull()
+  })
+})
 
 // ── stripExtension ───────────────────────────────────────────────
 
 describe("stripExtension", () => {
   it("strips the extension after the last dot in the filename", () => {
-    expect(links.stripExtension("boards/Trip Route.canvas")).toBe("boards/Trip Route");
-  });
+    expect(links.stripExtension("boards/Trip Route.canvas")).toBe("boards/Trip Route")
+  })
 
   it("keeps the inner dots of a multi-dot filename", () => {
-    expect(links.stripExtension("assets/photo.png.canvas")).toBe("assets/photo.png");
-  });
+    expect(links.stripExtension("assets/photo.png.canvas")).toBe("assets/photo.png")
+  })
 
   it("returns the path unchanged when the filename has no dot", () => {
-    expect(links.stripExtension("assets/LICENSE")).toBe("assets/LICENSE");
-  });
+    expect(links.stripExtension("assets/LICENSE")).toBe("assets/LICENSE")
+  })
 
   it("treats a leading-dot file as having no extension", () => {
-    expect(links.stripExtension("config/.hidden")).toBe("config/.hidden");
-  });
+    expect(links.stripExtension("config/.hidden")).toBe("config/.hidden")
+  })
 
   it("ignores dots in folder names", () => {
-    expect(links.stripExtension("v1.2/note")).toBe("v1.2/note");
-  });
-});
+    expect(links.stripExtension("v1.2/note")).toBe("v1.2/note")
+  })
+})
 
 // ── getExtension ────────────────────────────────────────────────
 
 describe("getExtension", () => {
   it("returns the extension including the dot for a normal filename", () => {
-    expect(links.getExtension("boards/Trip Route.canvas")).toBe(".canvas");
-  });
+    expect(links.getExtension("boards/Trip Route.canvas")).toBe(".canvas")
+  })
 
   it("returns the last extension of a multi-dot filename", () => {
-    expect(links.getExtension("assets/photo.png.canvas")).toBe(".canvas");
-  });
+    expect(links.getExtension("assets/photo.png.canvas")).toBe(".canvas")
+  })
 
   it("returns empty string when the filename has no dot", () => {
-    expect(links.getExtension("assets/LICENSE")).toBe("");
-  });
+    expect(links.getExtension("assets/LICENSE")).toBe("")
+  })
 
   it("treats a leading-dot file as having no extension", () => {
-    expect(links.getExtension("config/.hidden")).toBe("");
-  });
+    expect(links.getExtension("config/.hidden")).toBe("")
+  })
 
   it("ignores dots in folder names", () => {
-    expect(links.getExtension("v1.2/note")).toBe("");
-  });
+    expect(links.getExtension("v1.2/note")).toBe("")
+  })
 
   it("returns .png for a typical image path", () => {
-    expect(links.getExtension("attachments/photo.png")).toBe(".png");
-  });
-});
+    expect(links.getExtension("attachments/photo.png")).toBe(".png")
+  })
+})
 
 // ── resolveAsset ─────────────────────────────────────────────────
 
@@ -663,11 +663,11 @@ describe("resolveAsset", () => {
     "boards/Trip Route.canvas",
     "deep/nested/assets/photo.png",
     "app/views/Inventory.base",
-  ];
+  ]
 
   it("resolves an exact path with extension", () => {
-    expect(links.resolveAsset({ target: "assets/photo.png", allAssetPaths })).toBe("assets/photo.png");
-  });
+    expect(links.resolveAsset({ target: "assets/photo.png", allAssetPaths })).toBe("assets/photo.png")
+  })
 
   it("resolves a path relative to the source note's directory", () => {
     expect(
@@ -676,23 +676,23 @@ describe("resolveAsset", () => {
         allAssetPaths,
         sourcePath: "Notes/Note.md",
       }),
-    ).toBe("assets/photo.png");
-  });
+    ).toBe("assets/photo.png")
+  })
 
   it("resolves a full-filename suffix to the shortest match", () => {
-    expect(links.resolveAsset({ target: "photo.png", allAssetPaths })).toBe("assets/photo.png");
-  });
+    expect(links.resolveAsset({ target: "photo.png", allAssetPaths })).toBe("assets/photo.png")
+  })
 
   it("prefers the full-filename match over a stem match (family ordering)", () => {
     // "photo.png" stem-matches "b/photo.png.canvas", but the full-filename
     // family runs first and wins with "a/photo.png".
-    const paths = ["b/photo.png.canvas", "a/photo.png"];
-    expect(links.resolveAsset({ target: "photo.png", allAssetPaths: paths })).toBe("a/photo.png");
-  });
+    const paths = ["b/photo.png.canvas", "a/photo.png"]
+    expect(links.resolveAsset({ target: "photo.png", allAssetPaths: paths })).toBe("a/photo.png")
+  })
 
   it("resolves an extensionless target by exact stem", () => {
-    expect(links.resolveAsset({ target: "boards/Trip Route", allAssetPaths })).toBe("boards/Trip Route.canvas");
-  });
+    expect(links.resolveAsset({ target: "boards/Trip Route", allAssetPaths })).toBe("boards/Trip Route.canvas")
+  })
 
   it("resolves an extensionless target relative to the source by stem", () => {
     expect(
@@ -701,17 +701,17 @@ describe("resolveAsset", () => {
         allAssetPaths,
         sourcePath: "Notes/N.md",
       }),
-    ).toBe("boards/Trip Route.canvas");
-  });
+    ).toBe("boards/Trip Route.canvas")
+  })
 
   it("resolves a bare-name stem to the shortest basename match", () => {
-    const paths = ["deep/nested/photo.png", "a/photo.png"];
-    expect(links.resolveAsset({ target: "photo", allAssetPaths: paths })).toBe("a/photo.png");
-  });
+    const paths = ["deep/nested/photo.png", "a/photo.png"]
+    expect(links.resolveAsset({ target: "photo", allAssetPaths: paths })).toBe("a/photo.png")
+  })
 
   it("resolves a stem with folder segments as a suffix match", () => {
-    expect(links.resolveAsset({ target: "views/Inventory", allAssetPaths })).toBe("app/views/Inventory.base");
-  });
+    expect(links.resolveAsset({ target: "views/Inventory", allAssetPaths })).toBe("app/views/Inventory.base")
+  })
 
   it("resolves a multi-dot stem when no full-filename match exists", () => {
     expect(
@@ -719,21 +719,21 @@ describe("resolveAsset", () => {
         target: "photo.png",
         allAssetPaths: ["assets/photo.png.canvas"],
       }),
-    ).toBe("assets/photo.png.canvas");
-  });
+    ).toBe("assets/photo.png.canvas")
+  })
 
   it("breaks same-length stem ties lexicographically", () => {
     // Matches the SQL resolver's ORDER BY length(path), path — deterministic
     // regardless of array order.
-    const paths = ["a/photo.png", "a/photo.jpg"];
-    expect(links.resolveAsset({ target: "photo", allAssetPaths: paths })).toBe("a/photo.jpg");
-  });
+    const paths = ["a/photo.png", "a/photo.jpg"]
+    expect(links.resolveAsset({ target: "photo", allAssetPaths: paths })).toBe("a/photo.jpg")
+  })
 
   it("returns null when nothing matches", () => {
-    expect(links.resolveAsset({ target: "missing.png", allAssetPaths })).toBeNull();
-  });
+    expect(links.resolveAsset({ target: "missing.png", allAssetPaths })).toBeNull()
+  })
 
   it("cannot resolve a relative target without a source path", () => {
-    expect(links.resolveAsset({ target: "../assets/photo.png", allAssetPaths })).toBeNull();
-  });
-});
+    expect(links.resolveAsset({ target: "../assets/photo.png", allAssetPaths })).toBeNull()
+  })
+})

@@ -1,6 +1,6 @@
 /** C0 controls (except tab/LF/CR), DEL, and C1 controls. */
 // eslint-disable-next-line no-control-regex -- matching control characters is the purpose of this guard
-const CONTROL_CHARACTER_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/;
+const CONTROL_CHARACTER_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/
 
 /**
  * Rejects content containing non-printable control characters. A control byte
@@ -11,20 +11,20 @@ const CONTROL_CHARACTER_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/;
  * prevents the stuck-byte scenario entirely.
  */
 export const assertNoControlCharacters = (value: string, paramName: string): void => {
-  const match = CONTROL_CHARACTER_PATTERN.exec(value);
+  const match = CONTROL_CHARACTER_PATTERN.exec(value)
 
-  if (!match) return;
+  if (!match) return
 
-  const codePointValue = match[0].codePointAt(0);
+  const codePointValue = match[0].codePointAt(0)
 
   if (codePointValue === undefined) {
     throw new Error(
       `${paramName} contains a control character at position ${match.index} — control characters other than tab, LF, and CR are not allowed`,
-    );
+    )
   }
-  const codePointHex = codePointValue.toString(16).toUpperCase().padStart(4, "0");
+  const codePointHex = codePointValue.toString(16).toUpperCase().padStart(4, "0")
 
   throw new Error(
     `${paramName} contains a control character (U+${codePointHex} at position ${match.index}) — control characters other than tab, LF, and CR are not allowed`,
-  );
-};
+  )
+}
