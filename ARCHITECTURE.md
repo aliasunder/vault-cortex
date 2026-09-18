@@ -451,7 +451,7 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 
 **Incremental updates:** the file watcher calls `embedNote` after `upsertNote` and `embedFileContent` after `upsertFileContent`; deletion cleans up both vectors and chunks.
 
-**Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Notes are chunked via heading-aware splitting (`chunker.ts`) with paragraph sub-splitting for oversized sections (MAX_CHUNK_TOKENS = 450). Markdown syntax is stripped before embedding (`plaintext.ts`). Each chunk is prefixed with the note title for context. Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds.
+**Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Notes split into disjoint per-heading sections (`chunker.ts`) — each heading owns only the lines above its first child heading — with paragraph sub-splitting for oversized sections (MAX_CHUNK_TOKENS = 450, minus each chunk's prefix cost) and a sub-minimum trailing fragment merged backward. Markdown syntax is stripped before embedding (`plaintext.ts`). Each chunk is prefixed with the note title plus a `Section:` line naming its heading's ancestor path; a heading with no body of its own emits no chunk (its words appear in descendant chunks' Section lines). Short notes (under 500 body tokens) stay a single title-prefixed chunk. Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds.
 
 **Vector schema:** Four tables in the same SQLite database as FTS5 (which also holds the `tasks` table — see [Tasks](#tasks)):
 
