@@ -3118,7 +3118,7 @@ kanban-plugin: board
 
       it("integer position stops at a setext child heading", async () => {
         const vault = await createVault()
-        const note = `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n\nSub\n---\n\n- [ ] Beta ^beta\n`
+        const note = `---\ntitle: Notes\n---\n\n# Active\n\n- [ ] Alpha ^alpha\n\nSub\n---\n\n- [ ] Beta ^beta\n`
         await writeTestNote(vault, "notes.md", note)
 
         await taskMutations.createTask(
@@ -3135,7 +3135,7 @@ kanban-plugin: board
 
         const content = await readTestNote(vault, "notes.md")
         expect(content).toBe(
-          `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Charlie ➕ ${today()} ^charlie\n\nSub\n---\n\n- [ ] Beta ^beta\n`,
+          `---\ntitle: Notes\n---\n\n# Active\n\n- [ ] Alpha ^alpha\n- [ ] Charlie ➕ ${today()} ^charlie\n\nSub\n---\n\n- [ ] Beta ^beta\n`,
         )
       })
 

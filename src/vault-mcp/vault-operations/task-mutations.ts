@@ -753,9 +753,12 @@ const moveTaskBlock = ({
     const before = beforePosition ?? positionOfTaskInLane(lines, targetHeading, taskLineIndex)
     const after = headingInResult ? positionOfTaskInLane(resultLines, headingInResult, insertAt) : 1
 
-    // The raw-index guard above catches most no-ops, but blank-line
-    // shifts can produce a different index for the same card slot.
-    if (before === after) return { lines, taskLineIndex, changes: [] }
+    // Compare the card's position in the move-input lines (not the
+    // pre-spawn before-value) with the result — a spawn shifts the
+    // card's slot, so pre-spawn equality would suppress a real move.
+    const currentSlot = positionOfTaskInLane(lines, targetHeading, taskLineIndex)
+
+    if (currentSlot === after) return { lines, taskLineIndex, changes: [] }
     changes.push(formatChange({ field: "position", before, after }))
   } else if (typeof position === "number") {
     const before = currentHeading

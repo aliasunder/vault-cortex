@@ -491,7 +491,7 @@ Parameters:
   - add_subtasks: non-empty string array — appends one indented [ ] checklist item per entry under the task; existing checklist items are kept.${whenToolEnabledText("vault_create_task", " For full sub-tasks with their own metadata, use vault_create_task with parent_block_id.")}
   - assign_block_id: adds or replaces the ^block-id on the task line. Letters, digits, and hyphens only; must be unique within the note.
   - heading: target heading to move the task to. On Kanban boards this is a lane move; works on any note with headings. Not valid on sub-tasks.
-  - position: "top", "bottom", or a 1-based integer — where within the target heading the task lands after a heading move or auto-done-lane move. Position 1 is the first card; past the card count lands directly below the last card. Defaults to "top" on heading moves. Without a heading, triggers a same-lane reorder to the given position. Ignored when the task is deleted on completion. Not valid on sub-tasks.
+  - position: "top", "bottom", or a 1-based integer — where within the target heading the task lands after a heading move or auto-done-lane move. Position 1 is the first card; past the card count lands directly below the last card. Defaults to "top" on heading moves. Without a heading, triggers a same-lane reorder to the given position; omitting position entirely performs no reorder. Ignored when the task is deleted on completion. Not valid on sub-tasks.
   - Clearing is always explicit null — omitting a field leaves it untouched.
 - format: "emoji" or "dataview" — overrides the auto-detected Tasks plugin format.
 
@@ -636,7 +636,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .union([z.enum(["top", "bottom"]), z.number().int().min(1)])
           .optional()
           .describe(
-            'Where within the target heading the task lands after a heading move or auto-done-lane move. "top" or "bottom" for the extremes; an integer (1-based) for an exact position among the lane\'s top-level cards (sub-tasks move with their parent and are not counted). Position 1 is the first card. A position past the card count lands directly below the last card (unlike "bottom", which appends after any trailing section content). Defaults to "top" on heading moves. Without a heading, triggers a same-lane reorder to the given position. Ignored when the task is deleted on completion. Not valid on sub-tasks.',
+            'Where within the target heading the task lands after a heading move or auto-done-lane move. "top" or "bottom" for the extremes; an integer (1-based) for an exact position among the lane\'s top-level cards (sub-tasks move with their parent and are not counted). Position 1 is the first card. A position past the card count lands directly below the last card (unlike "bottom", which appends after any trailing section content). Defaults to "top" on heading moves. Without a heading, triggers a same-lane reorder to the given position; omitting position entirely performs no reorder. Ignored when the task is deleted on completion. Not valid on sub-tasks.',
           ),
         format: z
           .enum(["emoji", "dataview"])
