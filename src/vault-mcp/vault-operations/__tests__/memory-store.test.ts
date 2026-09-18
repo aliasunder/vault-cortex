@@ -1533,6 +1533,57 @@ title: Dupe
       'section not found: "Nope" in About Me/Principles.md. Available sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
     )
   })
+
+  it("does not match a fenced line when deleting an entry", async () => {
+    const fencedDeleteFixture = `---
+title: FencedDelete
+type: profile
+created: 2026-01-01T00:00:00-05:00
+---
+
+# FencedDelete
+
+## Notes (newest first)
+- **2026-06-15**: Real entry
+\`\`\`
+- **2026-06-10**: Fenced duplicate text
+\`\`\`
+- **2026-06-10**: Fenced duplicate text
+`
+    await writeFile(
+      join(vault, "About Me/FencedDelete.md"),
+      fencedDeleteFixture,
+      "utf8",
+    )
+
+    // The real entry at column 0 (after the fence) should be deleted.
+    // The fenced copy inside the code block must not be counted.
+    await deleteMemory(
+      {
+        vaultPath: vault,
+        file: "FencedDelete",
+        section: "Notes",
+        date: "2026-06-10",
+        entry: "Fenced duplicate text",
+      },
+      logger,
+    )
+
+    const section = await getMemory(
+      { vaultPath: vault, file: "FencedDelete", section: "Notes" },
+      logger,
+    )
+
+    // The real entry is gone, the fenced copy survives inside the code block.
+    expect(section).toBe(
+      [
+        "- **2026-06-15**: Real entry",
+        "```",
+        "- **2026-06-10**: Fenced duplicate text",
+        "```",
+      ].join("\n"),
+    )
+  })
 })
 
 describe("listMemoryFiles", () => {

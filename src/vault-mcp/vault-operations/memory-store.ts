@@ -623,6 +623,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       )
     }
 
+    // parseMemoryEntries calls parseHeadings internally; the heading text it
+    // assigns to each entry is identical to match.heading from findSection above.
     const allEntries = parseMemoryEntries(lines)
     const sectionEntries = allEntries.filter(
       (entry) => entry.section === match.heading,
@@ -815,6 +817,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           return "unchanged"
         }
 
+        // -1 when the section has no genuine entries (the >= 0 guards below fall back to bodyEndLine)
         const firstBulletOffset = entryLineOffsets.at(0) ?? -1
         const lastBulletOffset = entryLineOffsets.at(-1) ?? -1
 
@@ -1061,11 +1064,46 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const sections = parseSections(lines)
       const match = findSection(sections, params.section, 2)
 
-      if (!match) {
-        throw new Error(
-          `section not found: "${params.section}" in ${memoryDir}/${params.file}.md. Available sections: ${listSectionHeadings(sections)}`,
+        // Build the exact bullet string and find matching lines within the
+        // section, skipping lines inside fences or comments (same fence-aware
+        // walk as updateMemory's insertion scan).
+        const targetBullet = `- **${params.date}**: ${params.entry}`
+        const sectionBodyLines = lines.slice(
+          match.bodyStartLine,
+          match.bodyEndLine,
         )
-      }
+        const matchingIndices: number[] = []
+        // Loop-carried parser state (same pattern as updateMemory's scan above).
+        let deleteScanFence: OpenFence = null
+        let deleteScanCommentOpen = false
+
+        for (const [offsetIndex, bodyLine] of sectionBodyLines.entries()) {
+          if (!bodyLine) continue
+
+          const fenceResult: ReturnType<typeof advanceFence> | null =
+            deleteScanCommentOpen
+              ? null
+              : advanceFence(bodyLine, deleteScanFence)
+          deleteScanFence = fenceResult
+            ? fenceResult.openFence
+            : deleteScanFence
+
+          const commentResult: CommentResult | null = fenceResult?.lineIsCode
+            ? null
+            : advanceComment(bodyLine, deleteScanCommentOpen)
+          deleteScanCommentOpen = commentResult
+            ? commentResult.commentOpen
+            : deleteScanCommentOpen
+
+          const insideCodeOrComment =
+            (fenceResult?.lineIsCode ?? false) ||
+            (commentResult?.lineIsComment ?? false)
+          if (insideCodeOrComment) continue
+
+          if (bodyLine === targetBullet) {
+            matchingIndices.push(match.bodyStartLine + offsetIndex)
+          }
+        }
 
       // Build the exact bullet string and find matching lines within the section
       const targetBullet = `- **${params.date}**: ${params.entry}`
