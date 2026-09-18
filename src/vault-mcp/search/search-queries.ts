@@ -313,10 +313,13 @@ export const fullTextSearch = (
 
 // ── Memory recall ──────────────────────────────────────────────
 
-/** Vector-leg candidate count. ≈30% of today's ~350-entry corpus — an arc
- *  member outside its own topic's top 100 with zero lexical overlap is, for
- *  practical purposes, unrelated text, and the cross-encoder can't rescue
- *  what it never scores. sqlite-vec brute-forces this in ~1ms at this size. */
+/** Vector-leg window size. The KNN binds k at 2× this value and the slice
+ *  keeps this many lowest-distance rows, so the window's size is this
+ *  constant while boundary ties order by the statement's secondary keys.
+ *  ≈30% of today's ~350-entry corpus — an arc member outside its own topic's
+ *  top 100 with zero lexical overlap is, for practical purposes, unrelated
+ *  text, and the cross-encoder can't rescue what it never scores. sqlite-vec
+ *  brute-forces the doubled fetch in ~1ms at this size. */
 const MEMORY_VECTOR_CANDIDATE_LIMIT = 100
 
 /** Latency safety valve on the cross-encoder pass (~10ms/pair, so ~1–2s at

@@ -608,6 +608,80 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     const { results } = await tieIndex.hybridSearch({ query: "orca", limit: 2 }, logger)
     expect(results.map((result) => result.path)).toEqual(["aaa.txt", "bbb.txt"])
   })
+
+  it("keeps path order for note ties straddling the folder-scoped KNN window boundary", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder())
+    // Eight tied in-folder notes against a window of six (limit 2 →
+    // candidateLimit 6): docs/aaa and docs/bbb are inserted first, so if the
+    // folder statement's over-fetch reverts, reverse-insertion emission drops
+    // both at the boundary. The equally-tied note outside the folder is
+    // excluded by the folder filter.
+    for (const notePath of [
+      "docs/aaa.md",
+      "docs/bbb.md",
+      "docs/ccc.md",
+      "other/out.md",
+      "docs/ddd.md",
+      "docs/eee.md",
+      "docs/fff.md",
+      "docs/ggg.md",
+      "docs/hhh.md",
+    ]) {
+      tieIndex.upsertNote(
+        {
+          filePath: notePath,
+          rawContent: IDENTICAL_NOTE,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch(
+      { query: "orca", filters: { folder: "docs" }, limit: 2 },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["docs/aaa.md", "docs/bbb.md"])
+  })
+
+  it("keeps path order for file ties straddling the folder-scoped KNN window boundary", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder(), undefined, {
+      fileToolsEnabled: true,
+    })
+    const identicalFileContent = "walrus habitat survey notes"
+    // Same eight-versus-six construction as the folder-scoped note test above
+    // — file legs scope to the folder in SQL alone, so the outside seed here
+    // genuinely proves the in-folder statement ran.
+    for (const filePath of [
+      "docs/aaa.txt",
+      "docs/bbb.txt",
+      "docs/ccc.txt",
+      "other/out.txt",
+      "docs/ddd.txt",
+      "docs/eee.txt",
+      "docs/fff.txt",
+      "docs/ggg.txt",
+      "docs/hhh.txt",
+    ]) {
+      tieIndex.upsertNonMdFile(filePath, 100)
+      tieIndex.upsertFileContent(
+        {
+          filePath,
+          rawContent: identicalFileContent,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await tieIndex.embedFileContent({ filePath }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch(
+      { query: "orca", filters: { folder: "docs" }, limit: 2 },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["docs/aaa.txt", "docs/bbb.txt"])
+  })
 })
 
 describe("leading callout", () => {

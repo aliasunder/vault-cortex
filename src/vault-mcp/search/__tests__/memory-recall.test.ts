@@ -421,9 +421,15 @@ describe("memoryRecall", () => {
       },
     })
 
-    const result = await index.memoryRecall({ query: "recovery rhythm" }, logger)
+    // limit 101 lifts the output cap past the KNN window, so the returned
+    // entries expose which side of the 100-entry window the tie drop took.
+    const result = await index.memoryRecall({ query: "recovery rhythm", limit: 101 }, logger)
     expect(result.total).toBe(100)
-    expect(result.entries[0]?.text).toBe("- **2026-07-02**: Pacing beats crunch entry 0.")
+    const survivingEntryTexts = Array.from(
+      { length: 100 },
+      (_, entryNumber) => `- **2026-07-02**: Pacing beats crunch entry ${String(entryNumber)}.`,
+    )
+    expect(result.entries.map((entry) => entry.text)).toEqual(survivingEntryTexts)
   })
 
   it("orders same-date evidence entries by code units, not locale collation", async () => {
