@@ -328,6 +328,44 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     ])
   })
 
+  it("orders equal-count sample values alphabetically within a property key", () => {
+    // Each note contributes a different status value (one note each), so all
+    // three sample values tie at count 1 — the alphabetical tie-break in the
+    // sample-values sub-query decides their order.
+    const tieIndex = createSearchIndex(":memory:")
+    tieIndex.upsertNote(
+      {
+        filePath: "a.md",
+        rawContent: "---\nstatus: zzz-status\n---\n\n# A\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    tieIndex.upsertNote(
+      {
+        filePath: "b.md",
+        rawContent: "---\nstatus: aaa-status\n---\n\n# B\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    tieIndex.upsertNote(
+      {
+        filePath: "c.md",
+        rawContent: "---\nstatus: mmm-status\n---\n\n# C\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    const results = tieIndex.listPropertyKeys({}, logger)
+    const statusKey = results.find((keyInfo) => keyInfo.key === "status")
+    expect(statusKey?.sample_values).toEqual([
+      "aaa-status",
+      "mmm-status",
+      "zzz-status",
+    ])
+  })
+
   it("orders equal-count property values alphabetically", () => {
     const tieIndex = createReverseInsertedPair(
       "---\nstatus: [zzz-value, aaa-value]\n---\n\n# Values\n",
