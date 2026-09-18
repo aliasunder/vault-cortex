@@ -6,18 +6,13 @@
  *  1. Strip markdown syntax (via plaintext.ts)
  *  2. Short notes (< CHUNK_THRESHOLD_TOKENS) → single chunk, unless a
  *     metadata prefix lowers the budget below the body's token count
- *  3. Longer notes → two views per note (via parseHeadings): each
- *     top-level heading owns its FULL subtree (the aggregate view), and
- *     each deeper heading owns only the lines above the next heading of
- *     any level (the disjoint leaf view). Every fragment is prefixed
- *     with the note title plus a `Section:` line naming the heading's
- *     ancestor path — except a singleton top-level heading's aggregate,
- *     which keeps the plain title prefix (see collectSectionSpans)
- *  4. A heading whose span has no content emits nothing — its words live
- *     in every descendant fragment's Section line and in the TOC chunk
+ *  3. Longer notes → two views per note: top-level headings own their
+ *     full subtree, deeper headings own only their disjoint bodies, each
+ *     fragment prefixed with title + `Section:` ancestor path (the why
+ *     lives on collectSectionSpans)
+ *  4. A heading whose span has no content emits nothing
  *  5. Each split note with named headings also emits one table-of-contents
- *     chunk (folder segments + title, then heading names in document
- *     order) — the note's one deliberately short chunk
+ *     chunk, last (the why lives on buildTableOfContentsText)
  *  6. Spans over their budget → sub-split at paragraph boundaries,
  *     with a sub-MIN trailing fragment merged backward into its
  *     predecessor
@@ -229,6 +224,10 @@ const buildTableOfContentsText = (
 
   // A single short chunk is the point — splitting an oversized name list
   // into more chunks would defeat it, so the list truncates at the budget.
+  // Deliberately no MIN floor (unlike budgetAfterPrefix): padding a huge
+  // title line with 50 name tokens would push the chunk past MAX and
+  // defeat its short-chunk purpose — when the title line exhausts the
+  // budget, the TOC is suppressed instead (the null return below).
   const headingNameBudget = MAX_CHUNK_TOKENS - approximateTokenCount(titleLine)
   const budgetedHeadingNames: string[] = []
   // Cumulative token total threads through the loop sequentially.
@@ -339,7 +338,10 @@ export const chunkContent = (
   const tableOfContentsText = buildTableOfContentsText(noteTitle, headings, folderSegments)
   const tableOfContentsFragments = tableOfContentsText ? [tableOfContentsText] : []
 
-  const prefixedFragments = [...tableOfContentsFragments, ...preambleFragments, ...sectionFragments]
+  // The TOC is emitted LAST: the reranker scores FTS-only candidates on
+  // chunk index 0 as "title + intro" text, so the first chunk must stay
+  // body content, not a heading list.
+  const prefixedFragments = [...preambleFragments, ...sectionFragments, ...tableOfContentsFragments]
 
   // A note whose split yields nothing (every heading bare of text and body)
   // keeps the whole-body fallback so it never silently leaves the vector
