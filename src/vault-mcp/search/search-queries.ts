@@ -283,6 +283,10 @@ export const fullTextSearch = (
   // The path tie-break keeps equal-bm25 rows in the same order across index
   // rebuilds — without it they arrive in insertion order, which follows the
   // directory listing.
+  //
+  // snippetTokens is interpolated (not a bound ?) because it sits in the
+  // SELECT list before the WHERE params; a ? here would mis-align the
+  // positional binding with queryParams.
   const sql = `
     SELECT n.path, n.title,
            snippet(notes_fts, 2, '', '', '...', ${Number(snippetTokens)}) as snippet,
@@ -388,6 +392,8 @@ const DEFAULT_MEMORY_RECALL_LIMIT = 50
  *  like a project name is what the query is about). */
 type MemoryRecallCandidate = {
   row: MemoryEntryRow
+  /** True when this candidate came from the strict all-terms AND query;
+   *  false for any-term rescue hits that bypass relevance cuts. */
   ftsHit: boolean
   fusedScore: number
   distance: number | undefined

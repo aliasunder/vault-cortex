@@ -686,9 +686,10 @@ export const createSearchIndex = (
   const resolveNonMdByFullPathStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE path = ? LIMIT 1`,
   )
-  /** All four base_path/basename/suffix queries use ORDER BY length(path), path
-   *  so resolution is deterministic when multiple non-md files share a stem —
-   *  shortest path wins, matching links.resolve's note-resolution heuristic. */
+  /** The multi-match resolution queries (resolveNonMdByBasePath, ByBasename,
+   *  ByBasePathSuffix, ByFullPathSuffix) all ORDER BY length(path), path so
+   *  the shortest path wins deterministically — matching links.resolve's
+   *  note-resolution heuristic. */
   const resolveNonMdByBasePathStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE base_path = ? ORDER BY length(path), path LIMIT 1`,
   )
@@ -947,6 +948,10 @@ export const createSearchIndex = (
         )
       : null
   // Query side — memoryRecall's two retrieval legs plus row hydration.
+  // Every retrieval leg (FTS, KNN, memory, file content) orders ties by a
+  // stable content key (path, then chunk or entry position) — equal scores
+  // otherwise arrive in insertion order, which changes across index rebuilds
+  // and would flip fused rankings.
   const memoryFtsSearchStmt = memoryDir
     ? db.prepare<[string], { entry_id: number }>(
         `SELECT entry_id FROM memory_entries_fts
@@ -974,9 +979,6 @@ export const createSearchIndex = (
       : null
 
   // ── Vector query statements ─────────────────────────────────────
-  // Every retrieval leg orders ties by a stable content key (path, then chunk
-  // or entry position) — equal scores otherwise arrive in insertion order,
-  // which changes across index rebuilds and would flip fused rankings.
   /** KNN search — finds the k nearest chunks to a query embedding. */
   const knnSearchStmt = embedder
     ? db.prepare<
@@ -1077,8 +1079,10 @@ export const createSearchIndex = (
    *  links.resolve's three-tier strategy but checks against non_md_files
    *  instead of the notes table.
    *
-   *  The full-filename tiers (path column) all run before any stem tier
-   *  (extension-stripped base_path/basename columns). The families are
+   *  Resolution tiers are grouped into two families by what they match
+   *  against: the full-filename family queries the path column as-is, and
+   *  the stem family queries the extension-stripped base_path/basename
+   *  columns. The full-filename family runs first. The families are
    *  NOT disjoint: a multi-dot filename's stem retains its inner dots
    *  ("photo.png.canvas" → base_path "photo.png"), so a with-extension target
    *  can stem-match a different file. Family ordering makes the full-filename

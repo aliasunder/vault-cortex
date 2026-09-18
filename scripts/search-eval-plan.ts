@@ -56,6 +56,9 @@ const matchesExpectedPath = (
   const expectedPrefix = judgmentQuery.expected_prefix
 
   if (!expectedPrefix) return false
+
+  // Trailing slash means this is a folder-membership test: paths inside the
+  // folder match, but the folder path itself never does.
   const folderPrefix = expectedPrefix.endsWith("/")
     ? expectedPrefix
     : `${expectedPrefix}/`

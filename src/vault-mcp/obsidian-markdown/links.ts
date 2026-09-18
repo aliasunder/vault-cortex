@@ -320,7 +320,8 @@ const stripExtension = (filePath: string): string => {
   const fileName = posix.basename(filePath)
   const dotIndex = fileName.lastIndexOf(".")
   if (dotIndex <= 0) return filePath
-  return filePath.slice(0, filePath.length - (fileName.length - dotIndex))
+  const extensionLength = fileName.length - dotIndex
+  return filePath.slice(0, filePath.length - extensionLength)
 }
 
 /** Returns the file extension including its dot ("photo.png" → ".png"), or ""
