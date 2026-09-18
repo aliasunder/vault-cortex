@@ -1549,7 +1549,9 @@ export const createSearchIndex = (
           tags: coerceToArray(parsed.data.tags),
         })
       : null
-    const chunks = chunkContent(noteTitle, parsed.content, {
+    const chunks = chunkContent({
+      noteTitle,
+      bodyContent: parsed.content,
       metadataPrefix,
       sourcePath: notePath,
     })
@@ -1710,7 +1712,11 @@ export const createSearchIndex = (
 
     // chunkContent handles file content too — sourcePath extracts folder
     // segments for the TOC chunk's disambiguation line.
-    const chunks = chunkContent(params.title, params.content, { sourcePath: params.filePath })
+    const chunks = chunkContent({
+      noteTitle: params.title,
+      bodyContent: params.content,
+      sourcePath: params.filePath,
+    })
 
     const existingHashes = new Map(
       selectFileChunkHashesStmt

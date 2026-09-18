@@ -274,21 +274,22 @@ const buildTableOfContentsText = (
  *  would push body tail content out of view. Short notes (< threshold)
  *  without a metadata prefix stay byte-identical to the historical behavior
  *  so their content hashes don't churn on upgrade. */
-export const chunkContent = (
-  noteTitle: string,
-  bodyContent: string,
-  options?: { metadataPrefix?: string | null | undefined; sourcePath?: string | undefined },
-): NoteChunk[] => {
-  const metadataPrefix = options?.metadataPrefix
+export const chunkContent = (params: {
+  noteTitle: string
+  bodyContent: string
+  metadataPrefix?: string | null | undefined
+  sourcePath?: string | undefined
+}): NoteChunk[] => {
+  const { noteTitle, bodyContent, metadataPrefix, sourcePath } = params
 
   // Folder segments feed only the TOC chunk's first line — the vault-relative
   // path minus the filename (POSIX separators in all deployment paths).
-  const folderSegments = options?.sourcePath ? options.sourcePath.split("/").slice(0, -1) : []
+  const folderSegments = sourcePath ? sourcePath.split("/").slice(0, -1) : []
 
   // A non-markdown source keeps its full filename on the TOC title line —
   // a file and a same-stem note in one folder (Report.pdf beside Report.md)
   // would otherwise emit byte-identical TOC chunks and tie arbitrarily.
-  const sourceFileName = options?.sourcePath?.split("/").at(-1)
+  const sourceFileName = sourcePath?.split("/").at(-1)
   const tocTitle = sourceFileName && !sourceFileName.endsWith(".md") ? sourceFileName : noteTitle
 
   const basePrefix = metadataPrefix ? `${noteTitle}\n${metadataPrefix}` : noteTitle
@@ -343,8 +344,8 @@ export const chunkContent = (
       // A heading whose span has no content emits nothing — a heading-only
       // fragment is too small to embed meaningfully, and any descendant
       // fragment already carries the heading's words in its Section line.
-      // A childless empty heading drops out of the vector index entirely;
-      // the FTS leg still indexes the full note text.
+      // A childless empty heading emits no section chunk, but its name still
+      // rides the TOC chunk, and the FTS leg indexes the full note text.
       if (!sectionSpanText) return []
 
       const sectionLine =
@@ -367,8 +368,11 @@ export const chunkContent = (
   const tableOfContentsFragments = tableOfContentsText ? [tableOfContentsText] : []
 
   // The TOC is emitted LAST: the reranker scores FTS-only candidates on
-  // chunk index 0 as "title + intro" text, so the first chunk must stay
-  // body content, not a heading list.
+  // chunk index 0 as "title + intro" text, so whenever any body fragment
+  // exists the first chunk is body content, not a heading list. A note
+  // whose sections are all empty emits the TOC as its only fragment —
+  // there the heading list IS the note's content, so index 0 holding it
+  // is the accurate representation.
   const prefixedFragments = [...preambleFragments, ...sectionFragments, ...tableOfContentsFragments]
 
   // A note whose split yields nothing (every heading bare of text and body)
