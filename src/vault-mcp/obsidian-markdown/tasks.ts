@@ -560,11 +560,15 @@ const extractTasks = (
     const statusChar = capturedGroup(taskLineMatch, 1)
     const resolvedStatus = statusForChar(statusChar, statusRegistry)
 
-    // NON_TASK lines are invisible to the task system — skip them without
-    // updating the indent stack, so any tasks nested below become top-level.
+    // NON_TASK lines are invisible to the task system — prune the indent
+    // stack (closing any open task at the same or deeper indent) so tasks
+    // nested below become top-level, then skip the line.
     // After this guard, resolvedStatus is narrowed to TaskStatus (the four
     // values ParsedTask.status accepts).
-    if (resolvedStatus === "non_task") continue
+    if (resolvedStatus === "non_task") {
+      indentStack = ancestorsOf(indentStack, getTaskIndent(lineText))
+      continue
+    }
 
     // The block link sits at the end of the line — strip it before metadata
     // parsing, exactly as the plugin does.

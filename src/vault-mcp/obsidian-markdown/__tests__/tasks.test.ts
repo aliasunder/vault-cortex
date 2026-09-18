@@ -170,6 +170,20 @@ describe("tasks.extractTasks", () => {
       ])
     })
 
+    it("closes a prior task's scope when a NON_TASK line appears at the same indent", () => {
+      const content = [
+        "- [ ] Parent task ^parent",
+        "- [>] Forwarded ref",
+        "  - [ ] Child after non-task",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content, customRegistry)
+
+      expect(extracted).toEqual([
+        task({ line: 1, description: "Parent task", blockId: "parent", depth: 0 }),
+        task({ line: 3, description: "Child after non-task", depth: 0 }),
+      ])
+    })
+
     it("falls back to todo for chars not in the registry", () => {
       const extracted = tasks.extractTasks("- [!] Unknown char", customRegistry)
       expect(extracted).toEqual([

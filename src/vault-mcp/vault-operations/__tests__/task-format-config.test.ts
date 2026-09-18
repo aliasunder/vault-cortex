@@ -102,10 +102,13 @@ describe("readTaskFormatConfig", () => {
 
     const config = await readTaskFormatConfig(vault)
 
+    // Defaults (including X) merge under the config entries — config wins
+    // on overlap, defaults fill in what the config omits.
     expect(config.statusRegistry).toEqual(
       new Map<string, StatusClassification>([
         [" ", "todo"],
         ["x", "done"],
+        ["X", "done"],
         ["/", "in_progress"],
         ["-", "cancelled"],
         ["D", "done"],
@@ -160,10 +163,15 @@ describe("readTaskFormatConfig", () => {
 
     const config = await readTaskFormatConfig(vault)
 
+    // The parsed entries (space + x) merge on top of the defaults, so
+    // the built-in X, /, - keep their classifications.
     expect(config.statusRegistry).toEqual(
       new Map<string, StatusClassification>([
         [" ", "todo"],
         ["x", "done"],
+        ["X", "done"],
+        ["/", "in_progress"],
+        ["-", "cancelled"],
       ]),
     )
   })

@@ -112,7 +112,10 @@ const statusRegistryFrom = (
     })
   })
 
-  return entries.length > 0 ? new Map(entries) : DEFAULT_STATUS_REGISTRY
+  // Merge parsed entries ON TOP of defaults so chars the config omits
+  // (notably uppercase X, which the plugin's coreStatuses never lists)
+  // keep their built-in classification instead of falling to "todo".
+  return new Map([...DEFAULT_STATUS_REGISTRY, ...entries])
 }
 
 // ── Config reader ───────────────────────────────────────────────
