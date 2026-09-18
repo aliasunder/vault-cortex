@@ -3071,6 +3071,28 @@ kanban-plugin: board
         )
       })
 
+      it("rejects integer position when heading name is duplicated (create)", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Tasks\n\n- [ ] Alpha ^alpha\n\n## Tasks\n\n- [ ] Bravo ^bravo\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await expect(
+          taskMutations.createTask(
+            {
+              vaultPath: vault,
+              path: "notes.md",
+              description: "Charlie",
+              blockId: "charlie",
+              heading: "Tasks",
+              position: 2,
+            },
+            logger,
+          ),
+        ).rejects.toThrow(
+          `cannot place at position 2 under "Tasks" — the heading appears 2 times; rename one section to make it unique`,
+        )
+      })
+
       it("integer position stops at an ATX child heading", async () => {
         const vault = await createVault()
         const note = `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n\n### In Progress\n\n- [ ] Beta ^beta\n`

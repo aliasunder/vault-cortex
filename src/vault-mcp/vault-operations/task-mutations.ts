@@ -482,9 +482,26 @@ const headingInsertIndex = ({
   if (typeof position === "number") {
     return headingInsertIndexAtPosition({ lines, heading, position })
   }
-  return position === "top"
-    ? taskInsertIndexUnderHeading({ lines, heading })
-    : taskAppendIndexUnderHeading({ lines, heading })
+  if (position === "top") {
+    return taskInsertIndexUnderHeading({ lines, heading })
+  }
+  // "bottom" — append after the lane's own content, bounded at the first
+  // child heading so the card doesn't land inside a nested section.
+  const firstChildStart = parseHeadings(lines).find((childHeading) => {
+    return (
+      childHeading.startLine >= heading.bodyStartLine &&
+      childHeading.startLine < heading.bodyEndLine
+    )
+  })?.startLine
+
+  if (firstChildStart !== undefined) {
+    const sectionLines = lines.slice(heading.bodyStartLine, firstChildStart)
+    const lastContentOffset = sectionLines.findLastIndex((sectionLine) => sectionLine.trim() !== "")
+    return lastContentOffset >= 0
+      ? heading.bodyStartLine + lastContentOffset + 1
+      : heading.bodyStartLine
+  }
+  return taskAppendIndexUnderHeading({ lines, heading })
 }
 
 /** Resolves the effective insertion position for a new task under a heading.
@@ -698,7 +715,7 @@ const moveTaskBlock = ({
   const headingsAfterRemoval = parseHeadings(linesWithoutBlock)
   const matchingHeadings = headingsAfterRemoval.filter((heading) => heading.text === targetLane)
 
-  if (matchingHeadings.length > 1 && isSameLane) {
+  if (matchingHeadings.length > 1 && (isSameLane || typeof position === "number")) {
     throw new Error(
       `cannot reorder within "${targetLane}" — the heading appears ${matchingHeadings.length} times; rename one section to make it unique`,
     )
@@ -1867,7 +1884,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // move paths (explicit heading, auto-done, same-lane) when an integer
     // position is requested and the task has a heading to count against.
     const preSpawnHeading =
-      recurrenceSpawn.kind === "spawn" && typeof position === "number"
+      recurrenceSpawn.kind === "spawn" && position
         ? headings.findLast((heading) => heading.startLine < taskLineIndex)
         : undefined
     const beforePositionInLane = preSpawnHeading
