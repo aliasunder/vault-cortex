@@ -103,6 +103,29 @@
 
 
 
+
+## [0.53.0] — 2026-09-18
+
+### Features
+
+- **memory:** On_or_after date filter + fence-aware entry scans + multi-line delete (#585)
+- **search:** Down-weight file-content legs in RRF fusion (#584)
+- **vault:** Add file metadata to note outlines (#583)
+
+### Bug Fixes
+
+- **search:** Resolve KNN window-boundary ties by path order; pin eval error contracts (#588)
+- **search:** Deterministic tie-breaks in retrieval legs + eval harness guards (#586)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.52.1
+
+### Maintenance
+
+- **lint:** Enforce declaration-guard spacing via ESLint; pin Prettier at 120 columns (#587)
+- **ci:** Bump umm-actually to v0.4.6 (#581)
+
 ## [0.52.1] — 2026-09-17
 
 ### Features
