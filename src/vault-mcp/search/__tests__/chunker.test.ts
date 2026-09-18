@@ -71,9 +71,10 @@ describe("chunkNoteContent", () => {
       const chunks = chunkNoteContent("My Note", body)
 
       expect(chunks).toEqual([
-        { index: 0, text: `My Note\nSection: Section 1\n\n${section1}` },
-        { index: 1, text: `My Note\nSection: Section 2\n\n${section2}` },
-        { index: 2, text: `My Note\nSection: Section 3\n\n${section3}` },
+        { index: 0, text: "My Note\n\nSection 1\nSection 2\nSection 3" },
+        { index: 1, text: `My Note\nSection: Section 1\n\n${section1}` },
+        { index: 2, text: `My Note\nSection: Section 2\n\n${section2}` },
+        { index: 3, text: `My Note\nSection: Section 3\n\n${section3}` },
       ])
     })
 
@@ -93,8 +94,9 @@ describe("chunkNoteContent", () => {
       const chunks = chunkNoteContent("Note", body)
 
       expect(chunks).toEqual([
-        { index: 0, text: `Note\n\n${preamble}` },
-        { index: 1, text: `Note\nSection: Section\n\n${section}` },
+        { index: 0, text: "Note\n\nSection" },
+        { index: 1, text: `Note\n\n${preamble}` },
+        { index: 2, text: `Note\nSection: Section\n\n${section}` },
       ])
     })
 
@@ -107,9 +109,10 @@ describe("chunkNoteContent", () => {
       // Main's budget is 447 (450 minus the 3-token prefix), so its 520
       // tokens split 447 + 73 (over MIN, not merged)
       expect(chunks).toEqual([
-        { index: 0, text: "Note\n\nintro line before headings" },
-        { index: 1, text: `Note\nSection: Main\n\n${mainWords.slice(0, 447).join(" ")}` },
-        { index: 2, text: `Note\nSection: Main\n\n${mainWords.slice(447).join(" ")}` },
+        { index: 0, text: "Note\n\nMain" },
+        { index: 1, text: "Note\n\nintro line before headings" },
+        { index: 2, text: `Note\nSection: Main\n\n${mainWords.slice(0, 447).join(" ")}` },
+        { index: 3, text: `Note\nSection: Main\n\n${mainWords.slice(447).join(" ")}` },
       ])
     })
   })
@@ -127,14 +130,15 @@ describe("chunkNoteContent", () => {
       // Exact equality doubles as the duplication regression check: the
       // parent's chunk holds ONLY its intro, never its children's text
       expect(chunks).toEqual([
-        { index: 0, text: `Probe\nSection: Alpha\n\n${alphaIntro}` },
-        { index: 1, text: `Probe\nSection: Alpha > AlphaChildOne\n\n${childOne}` },
-        { index: 2, text: `Probe\nSection: Alpha > AlphaChildTwo\n\n${childTwo}` },
-        { index: 3, text: `Probe\nSection: Beta\n\n${beta}` },
+        { index: 0, text: "Probe\n\nAlpha\nAlphaChildOne\nAlphaChildTwo\nBeta" },
+        { index: 1, text: `Probe\nSection: Alpha\n\n${alphaIntro}` },
+        { index: 2, text: `Probe\nSection: Alpha > AlphaChildOne\n\n${childOne}` },
+        { index: 3, text: `Probe\nSection: Alpha > AlphaChildTwo\n\n${childTwo}` },
+        { index: 4, text: `Probe\nSection: Beta\n\n${beta}` },
       ])
     })
 
-    it("emits nothing for a parent heading with no own body, keeping its path segment alive in descendants", () => {
+    it("emits no section chunk for a parent heading with no own body, keeping its name in the TOC and in descendants' paths", () => {
       const childContent = generateLabeledTokens(400, "child")
       const otherContent = generateLabeledTokens(150, "other")
       const body = `## Parent\n### Child\n${childContent}\n\n## Other\n${otherContent}`
@@ -142,8 +146,9 @@ describe("chunkNoteContent", () => {
       const chunks = chunkNoteContent("Note", body)
 
       expect(chunks).toEqual([
-        { index: 0, text: `Note\nSection: Parent > Child\n\n${childContent}` },
-        { index: 1, text: `Note\nSection: Other\n\n${otherContent}` },
+        { index: 0, text: "Note\n\nParent\nChild\nOther" },
+        { index: 1, text: `Note\nSection: Parent > Child\n\n${childContent}` },
+        { index: 2, text: `Note\nSection: Other\n\n${otherContent}` },
       ])
     })
 
@@ -154,7 +159,8 @@ describe("chunkNoteContent", () => {
       const chunks = chunkNoteContent("Note", body)
 
       // A bare `##` heading has no text: the path is empty, so no Section
-      // line is emitted and the budget is 449 (450 minus the title)
+      // line and no TOC chunk are emitted, and the budget is 449 (450
+      // minus the title)
       expect(chunks).toEqual([
         { index: 0, text: `Note\n\n${contentWords.slice(0, 449).join(" ")}` },
         { index: 1, text: `Note\n\n${contentWords.slice(449).join(" ")}` },
@@ -174,30 +180,35 @@ describe("chunkNoteContent", () => {
       // Sub-MIN sections are no longer merged across headings — the tiny
       // section keeps its own chunk and its own Section attribution
       expect(chunks).toEqual([
-        { index: 0, text: `Note\nSection: Tiny\n\n${tinySection}` },
-        { index: 1, text: `Note\nSection: Normal\n\n${normalSection}` },
-        { index: 2, text: `Note\nSection: Another\n\n${anotherSection}` },
+        { index: 0, text: "Note\n\nTiny\nNormal\nAnother" },
+        { index: 1, text: `Note\nSection: Tiny\n\n${tinySection}` },
+        { index: 2, text: `Note\nSection: Normal\n\n${normalSection}` },
+        { index: 3, text: `Note\nSection: Another\n\n${anotherSection}` },
       ])
     })
 
-    it("emits nothing for an empty section", () => {
+    it("emits no section chunk for an empty section, keeping its name in the TOC", () => {
       const notesWords = generateLabeledTokens(500, "notes").split(" ")
       const body = `## Active\ncard one alpha\ncard two beta\n\n## Done\n\n## Notes\n${notesWords.join(" ")}`
 
       const chunks = chunkNoteContent("Note", body)
 
-      // "Done" has no body → no chunk mentions it; Notes' 500 tokens split
-      // 447 + 53 against its 3-token prefix budget
+      // "Done" has no body → no section chunk, but its name stays in the
+      // TOC; Notes' 500 tokens split 447 + 53 against its 3-token prefix
+      // budget
       expect(chunks).toEqual([
-        { index: 0, text: "Note\nSection: Active\n\ncard one alpha\ncard two beta" },
-        { index: 1, text: `Note\nSection: Notes\n\n${notesWords.slice(0, 447).join(" ")}` },
-        { index: 2, text: `Note\nSection: Notes\n\n${notesWords.slice(447).join(" ")}` },
+        { index: 0, text: "Note\n\nActive\nDone\nNotes" },
+        { index: 1, text: "Note\nSection: Active\n\ncard one alpha\ncard two beta" },
+        { index: 2, text: `Note\nSection: Notes\n\n${notesWords.slice(0, 447).join(" ")}` },
+        { index: 3, text: `Note\nSection: Notes\n\n${notesWords.slice(447).join(" ")}` },
       ])
     })
 
-    it("falls back to one whole-body chunk when every section is empty", () => {
+    it("emits only a TOC chunk, its name list truncated at the budget, when every section is empty", () => {
       // 100 headings of 5 words each: ≥500 stripped tokens, so the split
-      // path runs, but no heading has an own body
+      // path runs, but no heading has an own body. The TOC name list
+      // truncates at its 449-token budget (450 minus the title): 89
+      // five-token names fit, the 90th would overflow.
       const headingLines = Array.from(
         { length: 100 },
         (_, i) => `## heading${i} alpha beta gamma delta`,
@@ -206,11 +217,29 @@ describe("chunkNoteContent", () => {
 
       const chunks = chunkNoteContent("Note", body)
 
-      const expectedStrippedBody = Array.from(
-        { length: 100 },
+      const expectedHeadingNames = Array.from(
+        { length: 89 },
         (_, i) => `heading${i} alpha beta gamma delta`,
       ).join("\n")
-      expect(chunks).toEqual([{ index: 0, text: `Note\n\n${expectedStrippedBody}` }])
+      expect(chunks).toEqual([{ index: 0, text: `Note\n\n${expectedHeadingNames}` }])
+    })
+  })
+
+  describe("table of contents chunk", () => {
+    it("omits empty-text headings from the TOC name list", () => {
+      const bareSectionContent = generateLabeledTokens(300, "bare")
+      const namedSectionContent = generateLabeledTokens(300, "named")
+      const body = `##\n${bareSectionContent}\n\n## Named\n${namedSectionContent}`
+
+      const chunks = chunkNoteContent("Note", body)
+
+      // The bare `##` section still emits its body (with no Section line),
+      // but only the named heading appears in the TOC
+      expect(chunks).toEqual([
+        { index: 0, text: "Note\n\nNamed" },
+        { index: 1, text: `Note\n\n${bareSectionContent}` },
+        { index: 2, text: `Note\nSection: Named\n\n${namedSectionContent}` },
+      ])
     })
   })
 
@@ -228,9 +257,10 @@ describe("chunkNoteContent", () => {
       const chunks = chunkNoteContent("Note", body)
 
       expect(chunks).toEqual([
-        { index: 0, text: `Note\nSection: Big Section\n\n${paragraphs[0]}\n\n${paragraphs[1]}` },
-        { index: 1, text: `Note\nSection: Big Section\n\n${paragraphs[2]}\n\n${paragraphs[3]}` },
-        { index: 2, text: `Note\nSection: Big Section\n\n${paragraphs[4]}\n\n${paragraphs[5]}` },
+        { index: 0, text: "Note\n\nBig Section" },
+        { index: 1, text: `Note\nSection: Big Section\n\n${paragraphs[0]}\n\n${paragraphs[1]}` },
+        { index: 2, text: `Note\nSection: Big Section\n\n${paragraphs[2]}\n\n${paragraphs[3]}` },
+        { index: 3, text: `Note\nSection: Big Section\n\n${paragraphs[4]}\n\n${paragraphs[5]}` },
       ])
     })
 
@@ -245,8 +275,9 @@ describe("chunkNoteContent", () => {
       // 440 + 30 exceeds the 447-token budget, so the section splits — but
       // the 30-token tail is under MIN and merges back, slightly over budget
       expect(chunks).toEqual([
-        { index: 0, text: `Note\nSection: Big\n\n${bigParagraph}\n\n${tailParagraph}` },
-        { index: 1, text: `Note\nSection: Pad\n\n${padSection}` },
+        { index: 0, text: "Note\n\nBig\nPad" },
+        { index: 1, text: `Note\nSection: Big\n\n${bigParagraph}\n\n${tailParagraph}` },
+        { index: 2, text: `Note\nSection: Pad\n\n${padSection}` },
       ])
     })
 
@@ -260,17 +291,19 @@ describe("chunkNoteContent", () => {
 
       // The 421-token prefix would leave a 29-token budget; the 50-token
       // floor catches it: 120 tokens → 50 + 50 + 20, and the sub-MIN
-      // 20-token tail merges backward → two fragments for that section
+      // 20-token tail merges backward → two fragments for that section.
+      // The TOC keeps both names: 419 + 1 tokens fit its 449-token budget.
       expect(chunks).toEqual([
+        { index: 0, text: `Note\n\n${hugeHeading}\nNormal` },
         {
-          index: 0,
+          index: 1,
           text: `Note\nSection: ${hugeHeading}\n\n${smallBodyWords.slice(0, 50).join(" ")}`,
         },
         {
-          index: 1,
+          index: 2,
           text: `Note\nSection: ${hugeHeading}\n\n${smallBodyWords.slice(50, 100).join(" ")}\n\n${smallBodyWords.slice(100).join(" ")}`,
         },
-        { index: 2, text: `Note\nSection: Normal\n\n${normalSection}` },
+        { index: 3, text: `Note\nSection: Normal\n\n${normalSection}` },
       ])
     })
   })
@@ -338,7 +371,7 @@ describe("chunkNoteContent", () => {
   })
 
   describe("metadata prefix enrichment", () => {
-    it("prefixes every chunk with title, Section line, then the metadata line", () => {
+    it("prefixes every section chunk with title, Section line, then the metadata line, leaving the TOC chunk bare", () => {
       const section1 = generateLabeledTokens(300, "one")
       const section2 = generateLabeledTokens(300, "two")
       const body = `## One\n\n${section1}\n\n## Two\n\n${section2}`
@@ -347,13 +380,17 @@ describe("chunkNoteContent", () => {
         metadataPrefix: "Type: session-log. Tags: project/vault-cortex.",
       })
 
+      // The TOC chunk never carries the metadata line — on a chunk this
+      // small the line would dominate the token average, and same-type
+      // notes would all share it, washing out note-vs-note discrimination
       expect(chunks).toEqual([
+        { index: 0, text: "Note\n\nOne\nTwo" },
         {
-          index: 0,
+          index: 1,
           text: `Note\nSection: One\nType: session-log. Tags: project/vault-cortex.\n\n${section1}`,
         },
         {
-          index: 1,
+          index: 2,
           text: `Note\nSection: Two\nType: session-log. Tags: project/vault-cortex.\n\n${section2}`,
         },
       ])

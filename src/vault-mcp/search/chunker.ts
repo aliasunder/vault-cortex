@@ -12,10 +12,13 @@
  *     plus a `Section:` line naming the heading's ancestor path
  *  4. A heading with no own-body content emits nothing — its words live
  *     in every descendant fragment's Section line
- *  5. Sections over their budget → sub-split at paragraph boundaries,
+ *  5. Each split note with named headings also emits one table-of-contents
+ *     chunk (title + heading names in document order) — the note's one
+ *     deliberately short chunk
+ *  6. Sections over their budget → sub-split at paragraph boundaries,
  *     with a sub-MIN trailing fragment merged backward into its
  *     predecessor
- *  6. A split that yields no fragments at all falls back to one
+ *  7. A split that yields no fragments at all falls back to one
  *     whole-body chunk so the note never leaves the vector index */
 
 import { parseHeadings, type HeadingInfo } from "../obsidian-markdown/headings.js"
@@ -174,10 +177,46 @@ const collectSectionSpans = (headings: readonly HeadingInfo[]): SectionSpan[] =>
   return sectionSpans
 }
 
+/** One deliberately short chunk naming the note and its headings in document
+ *  order (`Title\n\nHeading one\nHeading two…`). Generic intent-phrased
+ *  queries ("what should I work on next") are structurally won by short
+ *  chunks — a long chunk's extra tokens dilute its similarity average — so
+ *  each split note gets one short chunk of its own, carrying the names of
+ *  all its sections, populated or empty. Null when no heading has text. */
+const buildTableOfContentsText = (
+  noteTitle: string,
+  headings: readonly HeadingInfo[],
+): string | null => {
+  const headingNames = headings
+    .map((heading) => heading.text.trim())
+    .filter((headingName) => headingName !== "")
+
+  if (headingNames.length === 0) return null
+
+  // A single short chunk is the point — splitting an oversized name list
+  // into more chunks would defeat it, so the list truncates at the budget.
+  const headingNameBudget = MAX_CHUNK_TOKENS - approximateTokenCount(noteTitle)
+  const budgetedHeadingNames: string[] = []
+  // Cumulative token total threads through the loop sequentially.
+  let tokensUsed = 0
+  for (const headingName of headingNames) {
+    const headingNameTokenCount = approximateTokenCount(headingName)
+
+    if (tokensUsed + headingNameTokenCount > headingNameBudget) break
+    budgetedHeadingNames.push(headingName)
+    tokensUsed += headingNameTokenCount
+  }
+
+  if (budgetedHeadingNames.length === 0) return null
+
+  return `${noteTitle}\n\n${budgetedHeadingNames.join("\n")}`
+}
+
 /** Split a note into chunks for embedding. Short notes become a single chunk;
  *  longer notes split into disjoint per-heading sections, each fragment
  *  prefixed with the note title, a `Section:` line naming the heading's
- *  ancestor path, and — when `metadataPrefix` is given — a metadata line.
+ *  ancestor path, and — when `metadataPrefix` is given — a metadata line,
+ *  plus one table-of-contents chunk naming the note's headings.
  *
  *  Every prefix counts against the chunk token budget — the embedding and
  *  reranker windows truncate at 512 model tokens, so an unbudgeted prefix
@@ -254,10 +293,18 @@ export const chunkNoteContent = (
     )
   })
 
-  const prefixedFragments = [...preambleFragments, ...sectionFragments]
+  // The TOC chunk takes no metadata prefix — on a chunk this small the prefix
+  // would dominate the token average, and notes of one type (e.g. Kanban
+  // boards) would all share an identical Type/Tags line, collapsing exactly
+  // the note-vs-note discrimination this chunk exists to provide.
+  const tableOfContentsText = buildTableOfContentsText(noteTitle, headings)
+  const tableOfContentsFragments = tableOfContentsText ? [tableOfContentsText] : []
 
-  // A note whose split yields nothing (all-heading pathology) keeps the
-  // whole-body fallback so it never silently leaves the vector index.
+  const prefixedFragments = [...tableOfContentsFragments, ...preambleFragments, ...sectionFragments]
+
+  // A note whose split yields nothing (every heading bare of text and body)
+  // keeps the whole-body fallback so it never silently leaves the vector
+  // index.
   if (prefixedFragments.length === 0) {
     return toChunks([strippedBody], basePrefix)
   }
