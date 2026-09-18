@@ -2573,6 +2573,22 @@ created: 2026-01-01T00:00:00-05:00
     )
   })
 
+  it("throws when the section does not exist even with onOrAfter set", async () => {
+    await expect(
+      getMemoryEntries(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Nonexistent section",
+          onOrAfter: "2026-05-01",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      'section not found: "Nonexistent section" in About Me/Principles.md',
+    )
+  })
+
   it("throws when the memory file does not exist", async () => {
     await expect(
       getMemoryEntries(
