@@ -356,7 +356,9 @@ export const foldAsciiCase = (path: string): string =>
  *  with a byte-order tiebreak for determinism — the same total order as the
  *  SQL resolver's ORDER BY length(path), path LIMIT 1 (code-point length,
  *  BINARY collation), so the array-based and SQL-backed resolvers can never
- *  pick different files for one target. */
+ *  pick different files for one target. The Buffer.compare tie-break is
+ *  deliberately inline: this leaf layer cannot import utils, so it must
+ *  stay in lockstep with utils/compare-utf8-bytes.ts. */
 const shortestOf = (paths: string[]): string | null => {
   if (paths.length === 0) return null
   return paths.reduce((shortest, candidatePath) => {
