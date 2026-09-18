@@ -1708,6 +1708,8 @@ export const createSearchIndex = (
       return 0
     }
 
+    // chunkNoteContent handles file content too — notePath extracts folder
+    // segments for the TOC chunk's disambiguation line.
     const chunks = chunkNoteContent(params.title, params.content, { notePath: params.filePath })
 
     const existingHashes = new Map(

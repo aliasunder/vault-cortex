@@ -173,6 +173,8 @@ const collectSectionSpans = (headings: readonly HeadingInfo[]): SectionSpan[] =>
   const ancestorStack: { text: string; level: number }[] = []
 
   headings.forEach((heading, headingIndex) => {
+    // Pop siblings and descendants (same or deeper level) so the stack
+    // holds only the current heading's ancestors.
     while ((ancestorStack.at(-1)?.level ?? 0) >= heading.level) {
       ancestorStack.pop()
     }
@@ -182,13 +184,15 @@ const collectSectionSpans = (headings: readonly HeadingInfo[]): SectionSpan[] =>
       (segment) => segment.trim() !== "",
     )
 
-    // The last heading's own body runs to its bodyEndLine, which already
-    // stops before any trailing `%% %%` comment block.
+    // The next heading's startLine gives the disjoint boundary (own body
+    // only); bodyEndLine would span the full subtree.
     const ownBodyEndLine = headings[headingIndex + 1]?.startLine ?? heading.bodyEndLine
 
     const isTopLevelHeading = heading.level === topLevel
+    // An empty headingPath suppresses the Section line in the chunk prefix.
+    const skipSectionLine = isTopLevelHeading && hasSingletonWrapper
     sectionSpans.push({
-      headingPath: isTopLevelHeading && hasSingletonWrapper ? [] : headingPath,
+      headingPath: skipSectionLine ? [] : headingPath,
       startLine: heading.bodyStartLine,
       endLine: isTopLevelHeading ? heading.bodyEndLine : ownBodyEndLine,
     })
@@ -344,6 +348,8 @@ export const chunkNoteContent = (
     return toChunks([strippedBody], basePrefix)
   }
 
+  // Each fragment already carries its per-section prefix (sections have
+  // different prefixes), so toChunks' uniform-prefix join doesn't apply.
   return prefixedFragments.map((fragmentText, index) => ({
     index,
     text: fragmentText.trim(),
