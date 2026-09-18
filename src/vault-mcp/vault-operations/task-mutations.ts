@@ -10,7 +10,12 @@ import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
 import { parseHeadings, type HeadingInfo } from "../obsidian-markdown/headings.js"
-import { splitIntoLines } from "../obsidian-markdown/lines.js"
+import {
+  splitIntoLines,
+  advanceFence,
+  advanceComment,
+  type OpenFence,
+} from "../obsidian-markdown/lines.js"
 import { tasks } from "../obsidian-markdown/tasks.js"
 import type {
   TaskStatus,
@@ -659,6 +664,9 @@ const locateTaskLine = ({
     if (foundIndex === null) {
       throw new Error(`blockId "${blockId}" not found in "${path}"`)
     }
+    if (isInsideFenceOrComment(bodyLines, foundIndex)) {
+      throw new Error(`blockId "${blockId}" is inside a fenced code block or comment in "${path}"`)
+    }
     return foundIndex
   }
   if (!line) {
@@ -671,6 +679,9 @@ const locateTaskLine = ({
 
   if (taskLineIndex < 0 || !taskLineText || !tasks.isTaskLine(taskLineText)) {
     throw new Error(`no task at line ${line}`)
+  }
+  if (isInsideFenceOrComment(bodyLines, taskLineIndex)) {
+    throw new Error(`line ${line} is inside a fenced code block or comment`)
   }
   return taskLineIndex
 }
@@ -701,6 +712,34 @@ const rejectNonTaskCheckbox = ({
   if (classification === "non_task") {
     throw new Error(`checkbox "[${statusChar}]" is a NON_TASK status in the Tasks plugin registry`)
   }
+}
+
+/** Returns true when the body-line index falls inside a fenced code block
+ *  or a `%% %%` comment block — the same exclusions extractTasks applies. */
+const isInsideFenceOrComment = (bodyLines: readonly string[], lineIndex: number): boolean => {
+  // Sequential parser state — fence and comment scanners are inherently
+  // stateful (same pattern as extractTasks in tasks.ts).
+  let openFence: OpenFence = null
+  let commentOpen = false
+
+  for (let index = 0; index <= lineIndex; index++) {
+    const lineText = bodyLines[index]
+
+    if (!lineText) return false
+
+    if (!commentOpen) {
+      const fenceResult = advanceFence(lineText, openFence)
+      openFence = fenceResult.openFence
+
+      if (index === lineIndex) return fenceResult.lineIsCode
+    }
+
+    const commentResult = advanceComment(lineText, commentOpen)
+    commentOpen = commentResult.commentOpen
+
+    if (index === lineIndex) return commentResult.lineIsComment
+  }
+  return false
 }
 
 /** No-op when the task already sits under the target heading and no
@@ -1166,6 +1205,11 @@ const findParentLineIndex = ({
     if (foundIndex === null) {
       throw new Error(`parent task not found: blockId "${locator.blockId}"`)
     }
+    if (isInsideFenceOrComment(bodyLines, foundIndex)) {
+      throw new Error(
+        `parent task not found: blockId "${locator.blockId}" is inside a fenced code block or comment`,
+      )
+    }
     const foundLine = bodyLines[foundIndex]
 
     if (statusRegistry && foundLine) {
@@ -1178,6 +1222,11 @@ const findParentLineIndex = ({
 
   if (!parentLineText || !tasks.isTaskLine(parentLineText)) {
     throw new Error(`parent task not found: line ${locator.line}`)
+  }
+  if (isInsideFenceOrComment(bodyLines, parentLineIndex)) {
+    throw new Error(
+      `parent task not found: line ${locator.line} is inside a fenced code block or comment`,
+    )
   }
   if (statusRegistry) {
     rejectNonTaskCheckbox({ taskLine: parentLineText, statusRegistry })

@@ -616,8 +616,20 @@ const EMOJI_FOR_PRIORITY: Readonly<Record<TaskPriority, string>> = {
   lowest: "⏬",
 }
 
-/** The checkbox character for a given status. */
-const charForStatus = (status: TaskStatus): string => CHAR_FOR_STATUS[status]
+/** The checkbox character for a given status. When a registry is present,
+ *  picks a char the registry maps to that classification — so the write
+ *  path never emits a symbol the read path would classify differently. */
+const charForStatus = (
+  status: TaskStatus,
+  statusRegistry?: ReadonlyMap<string, StatusClassification>,
+): string => {
+  if (statusRegistry) {
+    for (const [char, classification] of statusRegistry) {
+      if (classification === status) return char
+    }
+  }
+  return CHAR_FOR_STATUS[status]
+}
 
 /** The emoji signifier for a given priority level. */
 const emojiForPriority = (priority: TaskPriority): string => EMOJI_FOR_PRIORITY[priority]
@@ -1584,7 +1596,7 @@ const updateTaskLineStatus = (params: {
 }): string => {
   const withNewCheckbox = replaceCheckboxChar({
     taskLine: params.taskLine,
-    newChar: charForStatus(params.newStatus),
+    newChar: charForStatus(params.newStatus, params.config.statusRegistry),
   })
 
   const stripMetadataField = (taskLine: string, regex: RegExp): string => {
