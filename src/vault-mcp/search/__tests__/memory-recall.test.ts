@@ -468,6 +468,56 @@ describe("memoryRecall", () => {
     expect(result.entries.map((entry) => entry.file)).toEqual(["Aaa"])
   })
 
+  it("breaks a same-file fused-score tie by numeric entry order past nine entries", async () => {
+    // Entries 9 (alpha) and 10 (beta) swap ranks between the legs: FTS ties
+    // them on BM25 and orders by entry_index (9 first), while the embedder
+    // puts beta on the query's vector and alpha slightly off it (10 first).
+    // Their RRF sums tie exactly and the fusion identifier decides the limit
+    // cut — an unpadded index serializes "10" before "9" in byte order and
+    // returns the wrong entry.
+    const queryAlignedEmbedding = (): Float32Array => seededEmbedding(5)
+    const nearQueryEmbedding = (): Float32Array => {
+      const embedding = new Float32Array(DIMENSIONS).fill(0)
+      embedding[5] = 0.8
+      embedding[6] = 0.6
+      return embedding
+    }
+    const embeddingFor = (text: string): Float32Array => {
+      if (text.includes("beta-topic")) return queryAlignedEmbedding()
+      if (text.includes("alpha-topic")) return nearQueryEmbedding()
+      if (text.toLowerCase().includes("pacing")) return queryAlignedEmbedding()
+      return seededEmbedding(7)
+    }
+    const tieEmbedder = {
+      embedText: vi.fn().mockImplementation((text: string) => Promise.resolve(embeddingFor(text))),
+      embedBatch: vi
+        .fn()
+        .mockImplementation((texts: string[]) => Promise.resolve(texts.map(embeddingFor))),
+    }
+    const index = createSearchIndex(":memory:", tieEmbedder, undefined, {
+      memoryDir: "About Me",
+    })
+    const fillerEntries = Array.from(
+      { length: 9 },
+      (_, fillerIndex) => `- **2026-07-02**: Background logistics note ${String(fillerIndex)}.`,
+    ).join("\n")
+    const content = `# Ledger\n\n## Working style (newest first)\n\n${fillerEntries}\n- **2026-07-02**: Pacing beats crunch on alpha-topic.\n- **2026-07-02**: Pacing beats crunch on beta-topic.\n`
+    index.upsertNote(
+      {
+        filePath: "About Me/Ledger.md",
+        rawContent: content,
+        fileStat: { mtimeMs: 1000, size: 500 },
+      },
+      logger,
+    )
+    await index.embedNote({ notePath: "About Me/Ledger.md", rawContent: content }, logger)
+
+    const result = await index.memoryRecall({ query: "pacing crunch", limit: 1 }, logger)
+    expect(result.entries.map((entry) => entry.text)).toEqual([
+      "- **2026-07-02**: Pacing beats crunch on alpha-topic.",
+    ])
+  })
+
   it("rejects with a remediation message when no memory dir is configured", async () => {
     const index = createSearchIndex(":memory:")
     await expect(index.memoryRecall({ query: "anything" }, logger)).rejects.toThrow(

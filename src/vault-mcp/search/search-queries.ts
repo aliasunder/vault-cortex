@@ -493,9 +493,10 @@ const compareMemoryEntriesChronologically = (a: MemoryEntryRow, b: MemoryEntryRo
  *  Rowids are reassigned when the index is rebuilt, and computeRrfScores
  *  breaks equal-score ties by identifier — a rowid key would let a rebuild
  *  reorder tied entries. NUL cannot appear in file names, so the key never
- *  collides across files. */
+ *  collides across files; the index is zero-padded so the identifier's
+ *  byte order equals numeric entry order past nine entries. */
 const memoryEntryFusionKey = (row: MemoryEntryRow): string =>
-  `${row.file}\u0000${String(row.entry_index)}`
+  `${row.file}\u0000${String(row.entry_index).padStart(6, "0")}`
 
 const memoryEntryRowToWireEntry = (row: MemoryEntryRow): MemoryRecallEntry => ({
   file: row.file,
