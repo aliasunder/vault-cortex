@@ -70,8 +70,7 @@ export default defineConfig(
   {
     // AGENTS.md → Code style: blank lines separate logical sections — a
     // declaration never runs straight into the guard that consumes it.
-    // Mirrors the guard hook's warn-smushed-var-guard; auto-fixable, and
-    // Prettier leaves single blank lines alone so the two don't fight.
+    // Prettier does not manage blank lines, so this rule cannot conflict with it.
     plugins: { "@stylistic": stylistic },
     rules: {
       "@stylistic/padding-line-between-statements": [
