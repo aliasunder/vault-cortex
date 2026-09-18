@@ -857,11 +857,13 @@ const appendSubtasks = ({
   taskLineIndex,
   descriptions,
   bodyStartLine,
+  statusRegistry,
 }: {
   lines: readonly string[]
   taskLineIndex: number
   descriptions: readonly string[]
   bodyStartLine: number
+  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
 }): {
   lines: readonly string[]
   subtaskPositions: SubtaskPosition[]
@@ -873,9 +875,12 @@ const appendSubtasks = ({
     parentLineIndex: taskLineIndex,
   })
   const subtaskLines = descriptions.map((subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`)
-  const existingSubtaskCount = lines
-    .slice(taskLineIndex + 1, blockEnd)
-    .filter((blockLine) => tasks.isTaskLine(blockLine)).length
+  const existingSubtaskCount = lines.slice(taskLineIndex + 1, blockEnd).filter((blockLine) => {
+    if (!tasks.isTaskLine(blockLine)) return false
+    const charMatch = CHECKBOX_CHAR_RE.exec(blockLine)
+    const statusChar = charMatch?.[1]
+    return !statusChar || tasks.statusForChar(statusChar, statusRegistry) !== "non_task"
+  }).length
   return {
     lines: lines.toSpliced(blockEnd, 0, ...subtaskLines),
     subtaskPositions: subtaskPositionsFrom({
@@ -1984,6 +1989,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
           taskLineIndex: moved.taskLineIndex,
           descriptions: addSubtasks,
           bodyStartLine,
+          statusRegistry: formatConfig.statusRegistry,
         })
       : { lines: moved.lines, subtaskPositions: undefined, change: undefined }
 
