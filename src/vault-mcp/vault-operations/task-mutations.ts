@@ -274,6 +274,8 @@ const subtaskPositionsFrom = ({
   descriptions: readonly string[]
 }): SubtaskPosition[] => {
   return descriptions.map((description, offset) => ({
+    // frontmatter lines + body index of the first subtask + offset within
+    // the batch + 1 for the file's 1-based line numbering
     line: bodyStartLine + firstBodyIndex + offset + 1,
     description,
   }))
@@ -606,6 +608,8 @@ const locateTaskLine = ({
   if (!line) {
     throw new Error("exactly one of blockId or line is required")
   }
+  // 1-based file line → 0-based body index (subtract 1 for 1-based, then
+  // subtract the frontmatter lines that precede the body array)
   const taskLineIndex = line - 1 - bodyStartLine
   const taskLineText = bodyLines[taskLineIndex]
 
@@ -671,7 +675,9 @@ const moveTaskBlock = ({
     position: resolvedPosition,
   })
 
-  // The card already sits at the target position within the same lane
+  // After removing the block, lines below it shift up by the block's
+  // length — so insertAt (in the post-removal array) equalling the
+  // original taskLineIndex means the card would land back where it was.
   if (isSameLane && insertAt === taskLineIndex) return { lines, taskLineIndex }
 
   const resultLines = linesWithoutBlock.toSpliced(insertAt, 0, ...taskBlock)
@@ -721,6 +727,8 @@ const positionOfTaskInLane = (
     if (walkIndex === taskLineIndex) return cardPosition
     walkIndex = findTaskBlockEnd(lines, walkIndex)
   }
+  // Task was not found among the section's cards — place it after the
+  // last counted position as a defensive fallback.
   return cardPosition + 1
 }
 
@@ -1607,6 +1615,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
 
     const lineChanges = descriptionChangedAndDeduped
       ? lineEdits.map((edit) => {
+          // Identify the description entry by its formatted prefix —
+          // formatChange produces "description: ..." strings.
           if (edit.change?.startsWith("description:")) {
             return formatChange({
               field: "description",
@@ -1773,10 +1783,14 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       }
     }
 
-    // Heading move — an explicit heading, or the done lane when completing
-    // a top-level card on a Kanban board, or the current heading for a
-    // position-only same-lane reorder.
+    // Three paths resolve the target lane:
+    //   1. Explicit heading param — the caller picks the destination.
+    //   2. Auto-done-lane — completing a top-level Kanban card with no
+    //      explicit heading detects the board's done lane.
+    //   3. Same-lane reorder — position without a heading or auto-done
+    //      resolves the card's current heading so it stays in place.
     const autoDoneLane = !targetHeadingParam && status === "done" && isKanbanBoard && !isSubtask
+    // Path 3: look up the card's current heading for a position-only reorder
     const currentHeadingForReorder =
       !targetHeadingParam && !autoDoneLane && position
         ? headingsAfterSpawn.findLast((heading) => heading.startLine < completedIndexAfterSpawn)
