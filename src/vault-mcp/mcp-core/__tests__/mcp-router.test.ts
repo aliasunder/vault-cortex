@@ -556,7 +556,12 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
 
     it("connects the new server to the new transport", async () => {
       const { harness, transport } = await setupInitializedSession()
-      expect(harness.serverInstances[0]?.connect).toHaveBeenCalledWith(transport)
+      const firstServer = harness.serverInstances[0]
+
+      if (!firstServer) {
+        throw new Error("no McpServer instance was constructed")
+      }
+      expect(firstServer.connect).toHaveBeenCalledWith(transport)
     })
 
     it("forwards the request body to transport.handleRequest", async () => {
