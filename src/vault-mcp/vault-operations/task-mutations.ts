@@ -725,7 +725,7 @@ const isInsideFenceOrComment = (bodyLines: readonly string[], lineIndex: number)
   for (let index = 0; index <= lineIndex; index++) {
     const lineText = bodyLines[index]
 
-    if (!lineText) return false
+    if (lineText === undefined) return false
 
     if (!commentOpen) {
       const fenceResult = advanceFence(lineText, openFence)
@@ -913,7 +913,10 @@ const appendSubtasks = ({
     lines,
     parentLineIndex: taskLineIndex,
   })
-  const subtaskLines = descriptions.map((subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`)
+  const todoChar = tasks.charForStatus("todo", statusRegistry)
+  const subtaskLines = descriptions.map(
+    (subtaskText) => `${subtaskIndent}- [${todoChar}] ${subtaskText}`,
+  )
   const parentLine = lines[taskLineIndex]
 
   if (!parentLine) {
@@ -922,15 +925,18 @@ const appendSubtasks = ({
 
   const parentIndent = tasks.getTaskIndent(parentLine)
   const childLines = lines.slice(taskLineIndex + 1, blockEnd)
-  const firstChildTask = childLines.find((childLine) => tasks.isTaskLine(childLine))
+  const isIndexedTask = (taskLine: string): boolean => {
+    if (!tasks.isTaskLine(taskLine)) return false
+    const charMatch = CHECKBOX_CHAR_RE.exec(taskLine)
+    const statusChar = charMatch?.[1]
+    return !statusChar || tasks.statusForChar(statusChar, statusRegistry) !== "non_task"
+  }
+  const firstChildTask = childLines.find(isIndexedTask)
   const directChildIndent = firstChildTask ? tasks.getTaskIndent(firstChildTask) : parentIndent + 1
 
   const existingSubtaskCount = childLines.filter((blockLine) => {
-    if (!tasks.isTaskLine(blockLine)) return false
-    if (tasks.getTaskIndent(blockLine) !== directChildIndent) return false
-    const charMatch = CHECKBOX_CHAR_RE.exec(blockLine)
-    const statusChar = charMatch?.[1]
-    return !statusChar || tasks.statusForChar(statusChar, statusRegistry) !== "non_task"
+    if (!isIndexedTask(blockLine)) return false
+    return tasks.getTaskIndent(blockLine) === directChildIndent
   }).length
   return {
     lines: lines.toSpliced(blockEnd, 0, ...subtaskLines),

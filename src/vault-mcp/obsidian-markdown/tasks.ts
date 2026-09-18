@@ -1550,7 +1550,7 @@ const buildTaskLine = (params: BuildTaskLineParams, config: TaskFormatConfig): s
   )
 
   const parts = [
-    `${params.indent ?? ""}- [ ] ${params.description}`,
+    `${params.indent ?? ""}- [${charForStatus("todo", config.statusRegistry)}] ${params.description}`,
     ...(params.priority ? [formatPriority(params.priority, format)] : []),
     ...(params.recurrence ? [formatRecurrence(params.recurrence, format)] : []),
     ...(params.onCompletion ? [formatOnCompletion(params.onCompletion, format)] : []),
