@@ -41,9 +41,16 @@ const deriveFolderCounts = (paths: readonly string[]): FolderCount[] => {
       counts.set(folder, (counts.get(folder) ?? 0) + 1)
     }
   }
-  return [...counts.entries()]
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => a.name.localeCompare(b.name))
+  return (
+    [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      // Code-unit comparison — localeCompare would order the listing
+      // differently across deployments depending on the runtime's locale.
+      .toSorted((folderA, folderB) => {
+        if (folderA.name < folderB.name) return -1
+        return Number(folderA.name > folderB.name)
+      })
+  )
 }
 
 /** Formats a single property key with its adoption rate, sample values, and

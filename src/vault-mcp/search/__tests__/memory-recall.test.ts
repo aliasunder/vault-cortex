@@ -460,6 +460,82 @@ describe("memoryRecall", () => {
     expect(result.entries.map((entry) => entry.file)).toEqual(["Aaa"])
   })
 
+  it("orders same-date evidence entries by code units, not locale collation", async () => {
+    const identicalEntry = "- **2026-07-02**: Pacing beats crunch every time."
+    // "Zeta" and "alpha" disagree between code-unit order (Z 0x5A before
+    // a 0x61) and en-US locale collation (alpha before Zeta) — the
+    // chronological sort's file tie-break must not follow the runtime's
+    // locale.
+    const index = await createRecallIndex({
+      withEmbedder: false,
+      files: {
+        alpha: `# alpha\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+        Zeta: `# Zeta\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+      },
+    })
+
+    const result = await index.memoryRecall({ query: "pacing crunch" }, logger)
+    expect(result.entries.map((entry) => entry.file)).toEqual(["Zeta", "alpha"])
+  })
+
+  it("resolves fused-score ties by content key, not index rowids", async () => {
+    // Aaa and Zzz swap ranks between the legs — identical BM25 stats put
+    // Aaa first in the FTS leg, while the embedder puts Zzz's vector on the
+    // query's dimension and Aaa's orthogonal — so their RRF sums tie
+    // exactly and the fusion identifier decides the limit cut. Zzz is
+    // upserted first to take the lower rowid; a rowid-keyed fusion would
+    // return Zzz's entry.
+    const embedderFavoringZzz = {
+      embedText: vi
+        .fn()
+        .mockImplementation((text: string) =>
+          Promise.resolve(
+            seededEmbedding(text.includes("alpha-topic") ? 6 : 5),
+          ),
+        ),
+      embedBatch: vi
+        .fn()
+        .mockImplementation((texts: string[]) =>
+          Promise.resolve(
+            texts.map((text) =>
+              seededEmbedding(text.includes("alpha-topic") ? 6 : 5),
+            ),
+          ),
+        ),
+    }
+    const index = createSearchIndex(
+      ":memory:",
+      embedderFavoringZzz,
+      undefined,
+      {
+        memoryDir: "About Me",
+      },
+    )
+    const seededFiles = [
+      ["Zzz", "beta-topic"],
+      ["Aaa", "alpha-topic"],
+    ] as const
+    for (const [fileName, topicMarker] of seededFiles) {
+      const filePath = `About Me/${fileName}.md`
+      const content = `# ${fileName}\n\n## Working style (newest first)\n\n- **2026-07-02**: Pacing beats crunch on ${topicMarker}.\n`
+      index.upsertNote(
+        {
+          filePath,
+          rawContent: content,
+          fileStat: { mtimeMs: 1000, size: 100 },
+        },
+        logger,
+      )
+      await index.embedNote({ notePath: filePath, rawContent: content }, logger)
+    }
+
+    const result = await index.memoryRecall(
+      { query: "pacing crunch", limit: 1 },
+      logger,
+    )
+    expect(result.entries.map((entry) => entry.file)).toEqual(["Aaa"])
+  })
+
   it("rejects with a remediation message when no memory dir is configured", async () => {
     const index = createSearchIndex(":memory:")
     await expect(

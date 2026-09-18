@@ -521,6 +521,13 @@ const tryRerankMemoryCandidates = async (
   }
 }
 
+/** Code-unit comparison — localeCompare would order ties differently
+ *  across deployments depending on the runtime's locale. */
+const compareByCodeUnits = (left: string, right: string): number => {
+  if (left < right) return -1
+  return Number(left > right)
+}
+
 /** Ascending chronological order for the final evidence set: lexicographic
  *  ISO date (chronological for YYYY-MM-DD), then file and document position
  *  for same-date determinism — same-date entries have no knowable order. */
@@ -528,9 +535,17 @@ const compareMemoryEntriesChronologically = (
   a: MemoryEntryRow,
   b: MemoryEntryRow,
 ): number =>
-  a.entry_date.localeCompare(b.entry_date) ||
-  a.file.localeCompare(b.file) ||
+  compareByCodeUnits(a.entry_date, b.entry_date) ||
+  compareByCodeUnits(a.file, b.file) ||
   a.entry_index - b.entry_index
+
+/** Fusion identifier for RRF and its lookup maps: a stable content key.
+ *  Rowids are reassigned when the index is rebuilt, and computeRrfScores
+ *  breaks equal-score ties by identifier — a rowid key would let a rebuild
+ *  reorder tied entries. NUL cannot appear in file names, so the key never
+ *  collides across files. */
+const memoryEntryFusionKey = (row: MemoryEntryRow): string =>
+  `${row.file} ${String(row.entry_index)}`
 
 const memoryEntryRowToWireEntry = (row: MemoryEntryRow): MemoryRecallEntry => ({
   file: row.file,
@@ -649,35 +664,49 @@ export const memoryRecall = async (
     return result
   }
 
-  // RRF fusion: dedupes by entry id, orders most-agreed-first.
+  // RRF fusion dedupes by content key and orders most-agreed-first.
   const fusedScores = computeRrfScores({
     rankedLists: [
-      { items: ftsRows.map((row) => ({ identifier: String(row.id) })) },
-      { items: vectorRows.map((row) => ({ identifier: String(row.id) })) },
+      {
+        items: ftsRows.map((row) => ({
+          identifier: memoryEntryFusionKey(row),
+        })),
+      },
+      {
+        items: vectorRows.map((row) => ({
+          identifier: memoryEntryFusionKey(row),
+        })),
+      },
     ],
   })
-  const rowsById = new Map<string, MemoryEntryRow>([
-    ...ftsRows.map((row): [string, MemoryEntryRow] => [String(row.id), row]),
-    ...vectorRows.map((row): [string, MemoryEntryRow] => [String(row.id), row]),
+  const rowsByKey = new Map<string, MemoryEntryRow>([
+    ...ftsRows.map((row): [string, MemoryEntryRow] => [
+      memoryEntryFusionKey(row),
+      row,
+    ]),
+    ...vectorRows.map((row): [string, MemoryEntryRow] => [
+      memoryEntryFusionKey(row),
+      row,
+    ]),
   ])
-  const distancesById = new Map(
-    vectorRows.map((row) => [String(row.id), row.distance]),
+  const distancesByKey = new Map(
+    vectorRows.map((row) => [memoryEntryFusionKey(row), row.distance]),
   )
-  const ftsIds = new Set(ftsRows.map((row) => String(row.id)))
+  const ftsKeys = new Set(ftsRows.map((row) => memoryEntryFusionKey(row)))
 
   // Lexical hits always pass; only the lowest-fused vector-only candidates
   // fall off once the rerank window cap is reached.
   const candidates: MemoryRecallCandidate[] = []
-  for (const { identifier: entryId, score } of fusedScores) {
-    const row = rowsById.get(entryId)
+  for (const { identifier: entryKey, score } of fusedScores) {
+    const row = rowsByKey.get(entryKey)
     if (!row) continue
-    const ftsHit = ftsIds.has(entryId)
+    const ftsHit = ftsKeys.has(entryKey)
     if (!ftsHit && candidates.length >= MEMORY_RERANK_CANDIDATE_LIMIT) continue
     candidates.push({
       row,
       ftsHit,
       fusedScore: score,
-      distance: distancesById.get(entryId),
+      distance: distancesByKey.get(entryKey),
     })
   }
 
@@ -742,7 +771,7 @@ export const memoryRecall = async (
 
   // Fallback: distance margin off the best vector hit.
   const keepableDistance =
-    Math.min(...distancesById.values()) + MEMORY_RECALL_DISTANCE_MARGIN
+    Math.min(...distancesByKey.values()) + MEMORY_RECALL_DISTANCE_MARGIN
   const marginCutCandidates = candidates.filter(
     (candidate) =>
       candidate.ftsHit ||
