@@ -1473,10 +1473,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     const today = todayIsoDate()
 
     // In-line edits, in the order they are applied to the task line.
-    // Description must be LAST because every field edit splits the line at
-    // the description/metadata boundary, and a signifier in new description
-    // text would shift that boundary — see the comment on the description
-    // entry below. The recurrence spawn reads the fully edited line, so
+    // Description must be last — see the comment on the description entry
+    // for why. The recurrence spawn reads the fully edited line, so
     // an update that changes dates or the rule and completes in one call
     // advances from the edited values. Each edit carries its own `changes`
     // entry; description's after-value is read through the parser so tags
