@@ -23,7 +23,7 @@ describe("chunkNoteContent", () => {
     it("prefixes the chunk with the note title", () => {
       const chunks = chunkNoteContent("Title", "Body content.")
 
-      expect(chunks[0]?.text).toBe("Title\n\nBody content.")
+      expect(chunks).toEqual([{ index: 0, text: "Title\n\nBody content." }])
     })
 
     it("returns a single chunk for exactly 499 tokens", () => {
@@ -306,6 +306,22 @@ describe("chunkNoteContent", () => {
       ])
     })
 
+    it("omits the TOC chunk when the folder-enriched title exhausts the heading-name budget", () => {
+      const section1 = generateLabeledTokens(300, "first")
+      const section2 = generateLabeledTokens(300, "second")
+      const body = `## S1\n${section1}\n\n## S2\n${section2}`
+      // 449 words as a single directory name → titleLine is 451 tokens
+      // (449 folder + ">" + "Note"), leaving -1 budget for heading names
+      const longFolderPath = `${generateTokens(449)}/note.md`
+
+      const chunks = chunkNoteContent("Note", body, { notePath: longFolderPath })
+
+      expect(chunks).toEqual([
+        { index: 0, text: `Note\nSection: S1\n\n${section1}` },
+        { index: 1, text: `Note\nSection: S2\n\n${section2}` },
+      ])
+    })
+
     it("omits empty-text headings from the TOC name list", () => {
       const bareSectionContent = generateLabeledTokens(300, "bare")
       const namedSectionContent = generateLabeledTokens(300, "named")
@@ -409,31 +425,36 @@ describe("chunkNoteContent", () => {
 
   describe("markdown stripping in chunks", () => {
     it("strips wikilinks in chunk text", () => {
-      const body = `Some text with [[Target|display text]] and more ${generateTokens(10)}`
+      const filler = generateTokens(10)
+      const body = `Some text with [[Target|display text]] and more ${filler}`
       const chunks = chunkNoteContent("Note", body)
 
-      expect(chunks[0]?.text).toContain("display text")
-      expect(chunks[0]?.text).not.toContain("[[")
+      expect(chunks).toEqual([
+        { index: 0, text: `Note\n\nSome text with display text and more ${filler}` },
+      ])
     })
 
     it("strips bold/italic markers in chunk text", () => {
-      const body = `This has **bold** and *italic* text ${generateTokens(10)}`
+      const filler = generateTokens(10)
+      const body = `This has **bold** and *italic* text ${filler}`
       const chunks = chunkNoteContent("Note", body)
 
-      expect(chunks[0]?.text).toContain("bold")
-      expect(chunks[0]?.text).toContain("italic")
-      expect(chunks[0]?.text).not.toContain("**")
-      expect(chunks[0]?.text).not.toContain("*italic*")
+      expect(chunks).toEqual([
+        { index: 0, text: `Note\n\nThis has bold and italic text ${filler}` },
+      ])
     })
 
     it("strips heading markers in chunk text", () => {
-      const section = generateTokens(200)
-      const body = `## My Section\n${section}\n\n## Another\n${generateTokens(200)}`
+      const firstSection = generateLabeledTokens(200, "first")
+      const secondSection = generateLabeledTokens(200, "second")
+      const body = `## My Section\n${firstSection}\n\n## Another\n${secondSection}`
       const chunks = chunkNoteContent("Note", body)
 
-      const allText = chunks.map((chunk) => chunk.text).join("\n")
-      expect(allText).toContain("My Section")
-      expect(allText).not.toContain("## My Section")
+      // 403 stripped tokens (< 500 threshold) → single chunk, no heading
+      // splitting; heading markers removed, text preserved inline
+      expect(chunks).toEqual([
+        { index: 0, text: `Note\n\nMy Section\n${firstSection}\n\nAnother\n${secondSection}` },
+      ])
     })
   })
 
