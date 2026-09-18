@@ -111,12 +111,11 @@ export type SearchQueryContext = {
    *  without an embedder — recall degrades to its lexical leg. */
   readonly memory: {
     readonly embedder: Embedder | undefined
-    readonly ftsSearchStmt: Database.Statement<[string], { entry_id: number }>
+    readonly ftsSearchStmt: Database.Statement<[string], MemoryEntryRow>
     readonly knnStmt: Database.Statement<
       unknown[],
       MemoryEntryVectorHitRow
     > | null
-    readonly selectEntryByIdStmt: Database.Statement<[number], MemoryEntryRow>
   } | null
   /** Null when FILE_TOOLS_ENABLED is off — hybridSearch skips the file
    *  content FTS leg. */
@@ -438,8 +437,6 @@ const anyTermLexicalCandidates = (
 ): MemoryRecallCandidate[] =>
   memory.ftsSearchStmt
     .all(sanitizeFtsQueryAnyTerm(query))
-    .map((row) => memory.selectEntryByIdStmt.get(row.entry_id))
-    .filter((row): row is MemoryEntryRow => row !== undefined)
     .filter(matchesFileFilter)
     .map((row, ftsRank) => ({
       row,
@@ -607,8 +604,6 @@ export const memoryRecall = async (
   // queries tight, and a lexical hit on a short entry is strong evidence.
   const ftsRows = memory.ftsSearchStmt
     .all(sanitizeFtsQuery(params.query))
-    .map((row) => memory.selectEntryByIdStmt.get(row.entry_id))
-    .filter((row): row is MemoryEntryRow => row !== undefined)
     .filter(matchesFileFilter)
 
   // Vector leg: generous KNN, file-filtered after the join (over-fetch is

@@ -335,17 +335,28 @@ const getExtension = (filePath: string): string => {
   return fileName.slice(dotIndex)
 }
 
+/** Code-point count of a path — SQLite's length() metric, not the UTF-16
+ *  code-unit count that String.length reports (they differ on paths with
+ *  emoji or other non-BMP characters). */
+const codePointLength = (path: string): number => [...path].length
+
 /** Picks the winner among same-tier resolution matches: the shortest path,
- *  with a lexicographic tiebreak for determinism — mirroring the SQL
- *  resolver's ORDER BY length(path), path LIMIT 1. */
+ *  with a byte-order tiebreak for determinism — the same total order as the
+ *  SQL resolver's ORDER BY length(path), path LIMIT 1 (code-point length,
+ *  BINARY collation), so the array-based and SQL-backed resolvers can never
+ *  pick different files for one target. */
 const shortestOf = (paths: string[]): string | null => {
   if (paths.length === 0) return null
-  return paths.reduce((shortest, candidatePath) =>
-    candidatePath.length < shortest.length ||
-    (candidatePath.length === shortest.length && candidatePath < shortest)
-      ? candidatePath
-      : shortest,
-  )
+  return paths.reduce((shortest, candidatePath) => {
+    const candidateLength = codePointLength(candidatePath)
+    const shortestLength = codePointLength(shortest)
+
+    if (candidateLength < shortestLength) return candidatePath
+    const tieBreaksEarlier =
+      candidateLength === shortestLength &&
+      Buffer.compare(Buffer.from(candidatePath), Buffer.from(shortest)) < 0
+    return tieBreaksEarlier ? candidatePath : shortest
+  })
 }
 
 /** Resolves a link target to a known non-markdown vault file, or null when no

@@ -622,6 +622,23 @@ describe("resolve", () => {
     )
   })
 
+  it("measures shortest by code points, matching the SQL resolver's length()", () => {
+    // "📚/a.md" is 6 code points but 7 UTF-16 units — under a String.length
+    // metric it ties with "ab/a.md" and loses the tie, diverging from
+    // SQLite's ORDER BY length(path), which counts code points.
+    const paths = ["ab/a.md", "📚/a.md"]
+    expect(links.resolve({ target: "a", allPaths: paths })).toBe("📚/a.md")
+  })
+
+  it("breaks equal-length ties in UTF-8 byte order, matching BINARY collation", () => {
+    // Both paths hold the same two characters in opposite order, so both
+    // length metrics tie. UTF-16 code units put the emoji (surrogates,
+    // 0xD83D…) before U+FFFD, but UTF-8 bytes put U+FFFD (0xEF…) before
+    // the emoji (0xF0…) — SQLite's BINARY collation compares bytes.
+    const paths = ["😀�/a.md", "�😀/a.md"]
+    expect(links.resolve({ target: "a", allPaths: paths })).toBe("�😀/a.md")
+  })
+
   it("returns null for unresolvable target", () => {
     expect(links.resolve({ target: "NonExistent", allPaths })).toBeNull()
   })

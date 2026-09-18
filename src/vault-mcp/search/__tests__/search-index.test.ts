@@ -1795,15 +1795,15 @@ describe("listPropertyKeys", () => {
     expect(keys.length).toBeGreaterThan(0)
     const titleKey = keys.find((entry) => entry.key === "title")
     expect(titleKey).toBeDefined()
-    expect(titleKey!.count).toBe(3)
+    expect(titleKey?.count).toBe(3)
   })
 
   it("includes sample_values for each key", () => {
     const keys = index.listPropertyKeys({}, logger)
     const statusKey = keys.find((entry) => entry.key === "status")
     expect(statusKey).toBeDefined()
-    expect(statusKey!.sample_values).toContain("in-progress")
-    expect(statusKey!.sample_values).toContain("done")
+    expect(statusKey?.sample_values).toContain("in-progress")
+    expect(statusKey?.sample_values).toContain("done")
   })
 
   it("returns at most 3 sample values", () => {
@@ -1819,7 +1819,7 @@ describe("listPropertyKeys", () => {
     }
     const keys = index.listPropertyKeys({}, logger)
     const varietyKey = keys.find((entry) => entry.key === "variety")
-    expect(varietyKey!.sample_values.length).toBeLessThanOrEqual(3)
+    expect(varietyKey?.sample_values.length).toBeLessThanOrEqual(3)
   })
 
   it("sorts by count descending", () => {
@@ -1836,7 +1836,7 @@ describe("listPropertyKeys", () => {
     const keys = index.listPropertyKeys({ folder: "Projects" }, logger)
     const statusKey = keys.find((entry) => entry.key === "status")
     expect(statusKey).toBeDefined()
-    expect(statusKey!.count).toBe(2)
+    expect(statusKey?.count).toBe(2)
   })
 
   it("folder filter excludes notes outside the folder", () => {
@@ -1857,7 +1857,7 @@ describe("listPropertyKeys", () => {
     const keys = index.listPropertyKeys({ folder: "Projects" }, logger)
     const statusKey = keys.find((entry) => entry.key === "status")
     expect(statusKey).toBeDefined()
-    expect(statusKey!.sample_values).not.toContain("blocked")
+    expect(statusKey?.sample_values).not.toContain("blocked")
   })
 })
 
@@ -2261,11 +2261,11 @@ describe("rebuildFromVault", () => {
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "Trip Route.canvas")
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "missing-note")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -2315,11 +2315,11 @@ describe("rebuildFromVault", () => {
     const asset = outgoing.find(
       (link) => link.path === "canvases/Dashboard.canvas",
     )
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -2340,11 +2340,11 @@ describe("rebuildFromVault", () => {
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "views/Inventory.base")
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -2360,7 +2360,7 @@ describe("rebuildFromVault", () => {
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("views/Inventory")
+    expect(outgoing[0]?.path).toBe("views/Inventory")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -2390,11 +2390,11 @@ describe("rebuildFromVault", () => {
     const outgoing = index.getOutgoingLinks({ path: "sub/source.md" }, logger)
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "Route.canvas")
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -2422,10 +2422,10 @@ describe("rebuildFromVault", () => {
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "photo.png")
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
-    expect(broken!.exists).toBe(false)
+    expect(broken?.exists).toBe(false)
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -2445,9 +2445,9 @@ describe("rebuildFromVault", () => {
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("Report.md")
-    expect(outgoing[0]!.kind).toBe("note")
-    expect(outgoing[0]!.exists).toBe(true)
+    expect(outgoing[0]?.path).toBe("Report.md")
+    expect(outgoing[0]?.kind).toBe("note")
+    expect(outgoing[0]?.exists).toBe(true)
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
   })
 
@@ -2652,27 +2652,27 @@ describe("getOutgoingLinks", () => {
 
     const existing = links.find((link) => link.path === "target-exists.md")
     expect(existing).toBeDefined()
-    expect(existing!.exists).toBe(true)
-    expect(existing!.kind).toBe("note")
-    expect(existing!.title).toBe("Target")
+    expect(existing?.exists).toBe(true)
+    expect(existing?.kind).toBe("note")
+    expect(existing?.title).toBe("Target")
   })
 
   it("marks unresolved links as exists: false with kind note", () => {
     const links = index.getOutgoingLinks({ path: "source.md" }, logger)
     const missing = links.find((link) => link.path === "NonExistent")
     expect(missing).toBeDefined()
-    expect(missing!.exists).toBe(false)
-    expect(missing!.kind).toBe("note")
-    expect(missing!.title).toBeNull()
-    expect(missing!.bytes).toBeNull()
+    expect(missing?.exists).toBe(false)
+    expect(missing?.kind).toBe("note")
+    expect(missing?.title).toBeNull()
+    expect(missing?.bytes).toBeNull()
   })
 
   it("includes bytes for existing targets, null for broken links", () => {
     const links = index.getOutgoingLinks({ path: "source.md" }, logger)
     const existing = links.find((link) => link.path === "target-exists.md")
-    expect(existing!.bytes).toBe(222)
+    expect(existing?.bytes).toBe(222)
     const broken = links.find((link) => link.path === "NonExistent")
-    expect(broken!.bytes).toBeNull()
+    expect(broken?.bytes).toBeNull()
   })
 
   it("flags daily note forward-refs when the folder is passed", () => {
@@ -2693,12 +2693,12 @@ describe("getOutgoingLinks", () => {
     const forwardRef = links.find(
       (link) => link.path === "Daily Notes/2026-06-25",
     )
-    expect(forwardRef!.exists).toBe(false)
-    expect(forwardRef!.daily_note_forward_ref).toBe(true)
+    expect(forwardRef?.exists).toBe(false)
+    expect(forwardRef?.daily_note_forward_ref).toBe(true)
 
     const genuinelyBroken = links.find((link) => link.path === "missing")
-    expect(genuinelyBroken!.exists).toBe(false)
-    expect(genuinelyBroken!.daily_note_forward_ref).toBe(false)
+    expect(genuinelyBroken?.exists).toBe(false)
+    expect(genuinelyBroken?.daily_note_forward_ref).toBe(false)
   })
 
   it("returns empty for notes with no outgoing links", () => {
@@ -2800,11 +2800,11 @@ describe("findOrphans", () => {
       (orphan) => orphan.path === "Projects/orphan.md",
     )
     expect(projectOrphan).toBeDefined()
-    expect(projectOrphan!.title).toBe("Orphan")
-    expect(projectOrphan!.tags).toEqual(["project"])
-    expect(projectOrphan!.folder).toBe("Projects")
-    expect(projectOrphan!.bytes).toBe(100)
-    expect(typeof projectOrphan!.modified).toBe("string")
+    expect(projectOrphan?.title).toBe("Orphan")
+    expect(projectOrphan?.tags).toEqual(["project"])
+    expect(projectOrphan?.folder).toBe("Projects")
+    expect(projectOrphan?.bytes).toBe(100)
+    expect(typeof projectOrphan?.modified).toBe("string")
   })
 
   it("treats self-linking notes as orphans", () => {
@@ -3149,9 +3149,9 @@ describe("brokenLinkCount", () => {
     )
     const outgoing = index.getOutgoingLinks({ path: "dashboard.md" }, logger)
     expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("sessions/log-a.md")
-    expect(outgoing[0]!.exists).toBe(true)
-    expect(outgoing[0]!.kind).toBe("note")
+    expect(outgoing[0]?.path).toBe("sessions/log-a.md")
+    expect(outgoing[0]?.exists).toBe(true)
+    expect(outgoing[0]?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
   })
 
@@ -3170,14 +3170,14 @@ describe("brokenLinkCount", () => {
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(3)
     const photo = outgoing.find((link) => link.path === "photo.png")
-    expect(photo!.exists).toBe(true)
-    expect(photo!.kind).toBe("file")
+    expect(photo?.exists).toBe(true)
+    expect(photo?.kind).toBe("file")
     const pdf = outgoing.find((link) => link.path === "report.pdf")
-    expect(pdf!.exists).toBe(true)
-    expect(pdf!.kind).toBe("file")
+    expect(pdf?.exists).toBe(true)
+    expect(pdf?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "real-note")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -3194,11 +3194,11 @@ describe("brokenLinkCount", () => {
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "Trip Route.canvas")
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "missing")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -3217,9 +3217,9 @@ describe("brokenLinkCount", () => {
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("Route.canvas")
-    expect(outgoing[0]!.exists).toBe(true)
-    expect(outgoing[0]!.kind).toBe("file")
+    expect(outgoing[0]?.path).toBe("Route.canvas")
+    expect(outgoing[0]?.exists).toBe(true)
+    expect(outgoing[0]?.kind).toBe("file")
   })
 
   it("removeNonMdFile makes previously resolved file links broken again", () => {
@@ -3238,8 +3238,8 @@ describe("brokenLinkCount", () => {
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.exists).toBe(false)
-    expect(outgoing[0]!.kind).toBe("note")
+    expect(outgoing[0]?.exists).toBe(false)
+    expect(outgoing[0]?.kind).toBe("note")
   })
 
   it("excludes forward-reference links that are valid dates under the daily note folder", () => {

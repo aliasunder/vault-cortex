@@ -947,23 +947,20 @@ export const createSearchIndex = (
           `DELETE FROM memory_entry_vectors WHERE entry_id IN (SELECT id FROM memory_entries WHERE file = ?)`,
         )
       : null
-  // Query side — memoryRecall's two retrieval legs plus row hydration.
+  // Query side — memoryRecall's two retrieval legs, each returning whole
+  // rows (the tie-break JOIN already reads memory_entries, so a separate
+  // per-row hydration lookup would re-read the same data).
   // Every retrieval leg (FTS, KNN, memory, file content) orders ties by a
   // stable content key (path, then chunk or entry position) — equal scores
   // otherwise arrive in insertion order, which changes across index rebuilds
   // and would flip fused rankings.
   const memoryFtsSearchStmt = memoryDir
-    ? db.prepare<[string], { entry_id: number }>(
-        `SELECT entry_id FROM memory_entries_fts
+    ? db.prepare<[string], queries.MemoryEntryRow>(
+        `SELECT me.id, me.file, me.section, me.entry_date, me.entry_text, me.entry_index
+         FROM memory_entries_fts
          JOIN memory_entries me ON me.id = memory_entries_fts.entry_id
          WHERE memory_entries_fts MATCH ?
          ORDER BY rank, me.file, me.entry_index`,
-      )
-    : null
-  const selectMemoryEntryByIdStmt = memoryDir
-    ? db.prepare<[number], queries.MemoryEntryRow>(
-        `SELECT id, file, section, entry_date, entry_text, entry_index
-         FROM memory_entries WHERE id = ?`,
       )
     : null
   const memoryKnnStmt =
@@ -2566,15 +2563,13 @@ export const createSearchIndex = (
     // Null when no memory dir is configured — memoryRecall rejects with a
     // remediation message. knnStmt is additionally null without an embedder
     // (lexical-only recall).
-    memory:
-      memoryFtsSearchStmt && selectMemoryEntryByIdStmt
-        ? {
-            embedder,
-            ftsSearchStmt: memoryFtsSearchStmt,
-            knnStmt: memoryKnnStmt,
-            selectEntryByIdStmt: selectMemoryEntryByIdStmt,
-          }
-        : null,
+    memory: memoryFtsSearchStmt
+      ? {
+          embedder,
+          ftsSearchStmt: memoryFtsSearchStmt,
+          knnStmt: memoryKnnStmt,
+        }
+      : null,
     fileContentFts: searchFileContentFtsStmt
       ? { searchStmt: searchFileContentFtsStmt }
       : null,
