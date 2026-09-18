@@ -89,7 +89,7 @@ describe("readTaskFormatConfig", () => {
           { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
           { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
           { symbol: "/", name: "In Progress", nextStatusSymbol: "x", type: "IN_PROGRESS" },
-          { symbol: "-", name: "Cancelled", nextStatusSymbol: " ", type: "CANCELLED" },
+          { symbol: "-", name: "Deferred", nextStatusSymbol: " ", type: "TODO" },
         ],
         customStatuses: [
           { symbol: "D", name: "Deployed", nextStatusSymbol: " ", type: "DONE" },
@@ -102,15 +102,15 @@ describe("readTaskFormatConfig", () => {
 
     const config = await readTaskFormatConfig(vault)
 
-    // Defaults (including X) merge under the config entries — config wins
-    // on overlap, defaults fill in what the config omits.
+    // Config wins on overlap (- is retyped from cancelled to todo),
+    // defaults fill in what the config omits (X stays done).
     expect(config.statusRegistry).toEqual(
       new Map<string, StatusClassification>([
         [" ", "todo"],
         ["x", "done"],
         ["X", "done"],
         ["/", "in_progress"],
-        ["-", "cancelled"],
+        ["-", "todo"],
         ["D", "done"],
         ["!", "todo"],
         [">", "non_task"],

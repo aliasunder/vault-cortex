@@ -925,19 +925,23 @@ const appendSubtasks = ({
   }
 
   const parentIndent = tasks.getTaskIndent(parentLine)
-  const childLines = lines.slice(taskLineIndex + 1, blockEnd)
-  const isIndexedTask = (taskLine: string): boolean => {
+  const childStartIndex = taskLineIndex + 1
+  const childLines = lines.slice(childStartIndex, blockEnd)
+  const isIndexedTask = (taskLine: string, childOffset: number): boolean => {
     if (!tasks.isTaskLine(taskLine)) return false
+    if (isInsideFenceOrComment(lines, childStartIndex + childOffset)) return false
     const charMatch = CHECKBOX_CHAR_RE.exec(taskLine)
     const statusChar = charMatch?.[1]
     return !statusChar || tasks.statusForChar(statusChar, statusRegistry) !== "non_task"
   }
-  const indexedChildIndents = childLines.filter(isIndexedTask).map(tasks.getTaskIndent)
+  const indexedChildIndents = childLines
+    .filter((childLine, childOffset) => isIndexedTask(childLine, childOffset))
+    .map(tasks.getTaskIndent)
   const directChildIndent =
     indexedChildIndents.length > 0 ? Math.min(...indexedChildIndents) : parentIndent + 1
 
-  const existingSubtaskCount = childLines.filter((blockLine) => {
-    if (!isIndexedTask(blockLine)) return false
+  const existingSubtaskCount = childLines.filter((blockLine, childOffset) => {
+    if (!isIndexedTask(blockLine, childOffset)) return false
     return tasks.getTaskIndent(blockLine) === directChildIndent
   }).length
   return {
