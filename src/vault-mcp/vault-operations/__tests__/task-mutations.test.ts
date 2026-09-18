@@ -2658,6 +2658,29 @@ kanban-plugin: board
         )
       })
 
+      it("position=1 on an empty lane inserts the card as the only entry", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n## Done\n`
+        await writeTestNote(vault, "board.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Solo",
+            blockId: "solo",
+            heading: "Active",
+            position: 1,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n- [ ] Solo ➕ ${today()} ^solo\n\n## Done\n`,
+        )
+      })
+
       it("position=2 skips sub-items when counting top-level cards", async () => {
         const vault = await createVault()
         const note = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Card A ^card-a\n  - [ ] Sub-item 1\n  - [ ] Sub-item 2\n- [ ] Card B ^card-b\n`
@@ -2881,7 +2904,7 @@ kanban-plugin: board
         const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n\n## Up Next\n\n- [ ] Charlie ^charlie\n- [ ] Delta ^delta\n`
         await writeTestNote(vault, "board.md", board)
 
-        await taskMutations.updateTask(
+        const result = await taskMutations.updateTask(
           {
             vaultPath: vault,
             path: "board.md",
@@ -2896,6 +2919,7 @@ kanban-plugin: board
         expect(content).toBe(
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n\n## Up Next\n\n- [ ] Charlie ^charlie\n- [ ] Alpha ^alpha\n- [ ] Delta ^delta\n`,
         )
+        expect(result.changes).toEqual(["heading: Active → Up Next"])
       })
 
       it("position-only call without heading or status succeeds", async () => {
@@ -2920,6 +2944,28 @@ kanban-plugin: board
         )
       })
 
+      it("same-lane reorder preserves sub-items attached to their parent", async () => {
+        const vault = await createVault()
+        const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n  - [ ] Sub-A1\n  - [ ] Sub-A2\n- [ ] Bravo ^bravo\n  - [ ] Sub-B1\n- [ ] Charlie ^charlie\n\n## Done\n`
+        await writeTestNote(vault, "board.md", board)
+
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "bravo",
+            position: 1,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n  - [ ] Sub-B1\n- [ ] Alpha ^alpha\n  - [ ] Sub-A1\n  - [ ] Sub-A2\n- [ ] Charlie ^charlie\n\n## Done\n`,
+        )
+        expect(result.changes).toEqual(["position: 2 → 1"])
+      })
+
       it("rejects position on a sub-task", async () => {
         const vault = await createVault()
         const note = `---\ntitle: Notes\n---\n\n- [ ] Parent ^parent\n  - [ ] Child ^child\n`
@@ -2935,7 +2981,9 @@ kanban-plugin: board
             },
             logger,
           ),
-        ).rejects.toThrow("cannot reposition a sub-task")
+        ).rejects.toThrow(
+          "cannot reposition a sub-task — the parent's position determines placement",
+        )
       })
 
       it("status=done auto-move + position=bottom → bottom of done lane", async () => {
