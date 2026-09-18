@@ -1086,9 +1086,10 @@ export const createSearchIndex = (
    *  match win ("photo.png" prefers a/photo.png), while the stem tiers remain
    *  the fallback so [[photo.png]] with only photo.png.canvas in the vault
    *  still resolves — mirroring Obsidian's [[Trip Route]] → Trip Route.canvas
-   *  stem matching. An extensionless target passes through the full-filename
-   *  family too, matching only when an extensionless file (LICENSE,
-   *  Dockerfile) shares its exact path. */
+   *  stem matching. An extensionless target can match in both families: the
+   *  full-filename tiers hit an extensionless file (LICENSE, Dockerfile) by
+   *  exact path or path suffix, and the stem tiers hit any file whose
+   *  extension-stripped name matches. */
   const resolveNonMarkdownFile = (
     target: string,
     sourcePath?: string,

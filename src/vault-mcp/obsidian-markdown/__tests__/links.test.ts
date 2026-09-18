@@ -775,6 +775,15 @@ describe("resolveAsset", () => {
     ).toBe("photos/Sunset.png")
   })
 
+  it("folds ASCII case in the folder-qualified stem tier, matching the SQL twin's LIKE", () => {
+    expect(
+      links.resolveAsset({
+        target: "views/Inventory",
+        allAssetPaths: ["app/Views/Inventory.base"],
+      }),
+    ).toBe("app/Views/Inventory.base")
+  })
+
   it("keeps the exact-path tier case-sensitive, matching the SQL twin's =", () => {
     // A full-path target with different casing misses the case-sensitive
     // exact tier, and the suffix tier's leading "/" can never match a path

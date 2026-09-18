@@ -555,6 +555,64 @@ describe("equal-score tie-breaking in retrieval legs", () => {
     const { results } = await tieIndex.hybridSearch({ query: "orca" }, logger)
     expect(results.map((result) => result.path)).toEqual(["aaa.txt", "zzz.txt"])
   })
+
+  it("orders tied-distance note vector hits by path under a folder filter", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder())
+    // docs/aaa.md inserted first (vec0 returns ties in reverse insertion
+    // order), plus an equally-tied note outside the folder to prove the
+    // in-folder statement — not the unfiltered one — produced the ranking.
+    for (const notePath of ["docs/aaa.md", "docs/zzz.md", "other/out.md"]) {
+      tieIndex.upsertNote(
+        {
+          filePath: notePath,
+          rawContent: IDENTICAL_NOTE,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch(
+      { query: "orca", filters: { folder: "docs" } },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual([
+      "docs/aaa.md",
+      "docs/zzz.md",
+    ])
+  })
+
+  it("orders tied-distance file vector hits by path under a folder filter", async () => {
+    const tieIndex = createSearchIndex(
+      ":memory:",
+      createUniformEmbedder(),
+      undefined,
+      { fileToolsEnabled: true },
+    )
+    const identicalFileContent = "walrus habitat survey notes"
+    for (const filePath of ["docs/aaa.txt", "docs/zzz.txt", "other/out.txt"]) {
+      tieIndex.upsertNonMdFile(filePath, 100)
+      tieIndex.upsertFileContent(
+        {
+          filePath,
+          rawContent: identicalFileContent,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await tieIndex.embedFileContent({ filePath }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch(
+      { query: "orca", filters: { folder: "docs" } },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual([
+      "docs/aaa.txt",
+      "docs/zzz.txt",
+    ])
+  })
 })
 
 describe("leading callout", () => {

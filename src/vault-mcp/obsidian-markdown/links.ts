@@ -380,9 +380,10 @@ const shortestOf = (paths: string[]): string | null => {
  *  with-extension target can stem-match a different file. Family ordering
  *  makes the full-filename match win, while the stem tiers stay the fallback
  *  so [[photo.png]] with only photo.png.canvas in the vault still resolves —
- *  mirroring Obsidian's stem matching. An extensionless target passes through
- *  the full-filename family too, matching only when an extensionless file
- *  (LICENSE, Dockerfile) shares its exact path. */
+ *  mirroring Obsidian's stem matching. An extensionless target can match in
+ *  both families: the full-filename tiers hit an extensionless file
+ *  (LICENSE, Dockerfile) by exact path or path suffix, and the stem tiers
+ *  hit any file whose extension-stripped name matches. */
 const resolveAsset = (params: {
   target: string
   allAssetPaths: readonly string[]
