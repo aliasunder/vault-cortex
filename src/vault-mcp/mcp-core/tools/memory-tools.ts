@@ -124,10 +124,7 @@ Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entrie
         return safeHandler(
           reqLogger,
           () => {
-            return memoryStore.getMemoryEntries(
-              { vaultPath, file, section, onOrAfter },
-              reqLogger,
-            )
+            return memoryStore.getMemoryEntries({ vaultPath, file, section, onOrAfter }, reqLogger)
           },
           (entries) => {
             reqLogger.info("tool_result", {
@@ -430,10 +427,7 @@ Returns: Confirmation message.`,
       return safeHandler(
         reqLogger,
         () => {
-          return memoryStore.deleteMemory(
-            { vaultPath, file, section, date, entry },
-            reqLogger,
-          )
+          return memoryStore.deleteMemory({ vaultPath, file, section, date, entry }, reqLogger)
         },
         () => {
           reqLogger.info("tool_result", { outcome: "entry_deleted" })

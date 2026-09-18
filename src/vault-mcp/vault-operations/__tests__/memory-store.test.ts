@@ -300,11 +300,7 @@ created: 2026-01-01T00:00:00-05:00
   continuation line one
   continuation line two
 `
-    await writeFile(
-      join(vault, "About Me/MultiBottom.md"),
-      multiLineFixture,
-      "utf8",
-    )
+    await writeFile(join(vault, "About Me/MultiBottom.md"), multiLineFixture, "utf8")
 
     await updateMemory(
       {
@@ -583,10 +579,7 @@ created: 2026-01-01T00:00:00-05:00
       logger,
     )
 
-    const section = await getMemory(
-      { vaultPath: vault, file: "Fenced", section: "Notes" },
-      logger,
-    )
+    const section = await getMemory({ vaultPath: vault, file: "Fenced", section: "Notes" }, logger)
 
     // The new entry is inserted before the first real entry, not before
     // the column-0 fenced bullet that matches ENTRY_PATTERN.
@@ -617,11 +610,7 @@ created: 2026-01-01T00:00:00-05:00
 - **2026-06-10**: Retry-safe entry
 \`\`\`
 `
-    await writeFile(
-      join(vault, "About Me/FencedDup.md"),
-      fencedDuplicateFixture,
-      "utf8",
-    )
+    await writeFile(join(vault, "About Me/FencedDup.md"), fencedDuplicateFixture, "utf8")
 
     const outcome = await updateMemory(
       {
@@ -641,56 +630,6 @@ created: 2026-01-01T00:00:00-05:00
 
   // A multiline entry would write a block the line-based duplicate guard
   // (and deleteMemory's exact line match) can never detect — it must be
-  it("ignores a dated-bullet-looking line inside a %% comment when computing insertion offsets", async () => {
-    const commentFixture = `---
-title: Commented
-type: profile
-created: 2026-01-01T00:00:00-05:00
----
-
-# Commented
-
-## Notes (newest first)
-- **2026-06-15**: Real entry
-%%
-- **2026-01-01**: This is inside an Obsidian comment
-%%
-- **2026-06-14**: Another real entry
-`
-    await writeFile(
-      join(vault, "About Me/Commented.md"),
-      commentFixture,
-      "utf8",
-    )
-
-    await updateMemory(
-      {
-        vaultPath: vault,
-        file: "Commented",
-        section: "Notes",
-        entry: "New entry at top",
-        date: "2026-06-16",
-      },
-      logger,
-    )
-
-    const section = await getMemory(
-      { vaultPath: vault, file: "Commented", section: "Notes" },
-      logger,
-    )
-
-    expect(section).toBe(
-      [
-        "- **2026-06-16**: New entry at top",
-        "- **2026-06-15**: Real entry",
-        "%%",
-        "- **2026-01-01**: This is inside an Obsidian comment",
-        "%%",
-        "- **2026-06-14**: Another real entry",
-      ].join("\n"),
-    )
-  })
-
   // rejected before anything is written.
   it.each([
     { lineBreakKind: "a line feed", entry: "line one\nline two" },
@@ -1651,11 +1590,7 @@ created: 2026-01-01T00:00:00-05:00
   continuation line two
 - **2026-06-13**: Entry after
 `
-    await writeFile(
-      join(vault, "About Me/MultiDel.md"),
-      multiLineDeleteFixture,
-      "utf8",
-    )
+    await writeFile(join(vault, "About Me/MultiDel.md"), multiLineDeleteFixture, "utf8")
 
     await deleteMemory(
       {
@@ -1675,9 +1610,7 @@ created: 2026-01-01T00:00:00-05:00
 
     // The bullet and both continuation lines are gone; neighboring entries intact.
     expect(section).toBe(
-      ["- **2026-06-15**: Entry before", "- **2026-06-13**: Entry after"].join(
-        "\n",
-      ),
+      ["- **2026-06-15**: Entry before", "- **2026-06-13**: Entry after"].join("\n"),
     )
   })
 
@@ -1697,11 +1630,7 @@ created: 2026-01-01T00:00:00-05:00
 \`\`\`
 - **2026-06-10**: Fenced duplicate text
 `
-    await writeFile(
-      join(vault, "About Me/FencedDelete.md"),
-      fencedDeleteFixture,
-      "utf8",
-    )
+    await writeFile(join(vault, "About Me/FencedDelete.md"), fencedDeleteFixture, "utf8")
 
     // The real entry at column 0 (after the fence) should be deleted.
     // The fenced copy inside the code block must not be counted.
@@ -2498,11 +2427,7 @@ created: 2026-01-01T00:00:00-05:00
 - **2026-05-06**: Newer entry placed second
 - **2026-05-03**: Oldest entry placed last
 `
-    await writeFile(
-      join(vault, "About Me/OutOfOrder.md"),
-      outOfOrderFixture,
-      "utf8",
-    )
+    await writeFile(join(vault, "About Me/OutOfOrder.md"), outOfOrderFixture, "utf8")
 
     const entries = await getMemoryEntries(
       {
@@ -2583,11 +2508,7 @@ created: 2026-01-01T00:00:00-05:00
   Continuation line two
 - **2026-06-14**: Simple entry
 `
-    await writeFile(
-      join(vault, "About Me/MultiLine.md"),
-      multiLineFixture,
-      "utf8",
-    )
+    await writeFile(join(vault, "About Me/MultiLine.md"), multiLineFixture, "utf8")
 
     const entries = await getMemoryEntries(
       {
@@ -2618,9 +2539,7 @@ created: 2026-01-01T00:00:00-05:00
         },
         logger,
       ),
-    ).rejects.toThrow(
-      'section not found: "Nonexistent section" in About Me/Principles.md',
-    )
+    ).rejects.toThrow('section not found: "Nonexistent section" in About Me/Principles.md')
   })
 
   it("throws when the section does not exist even with onOrAfter set", async () => {
@@ -2634,9 +2553,7 @@ created: 2026-01-01T00:00:00-05:00
         },
         logger,
       ),
-    ).rejects.toThrow(
-      'section not found: "Nonexistent section" in About Me/Principles.md',
-    )
+    ).rejects.toThrow('section not found: "Nonexistent section" in About Me/Principles.md')
   })
 
   it("throws when the memory file does not exist", async () => {

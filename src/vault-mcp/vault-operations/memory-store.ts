@@ -9,10 +9,7 @@ import { readFileOrNull } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
-import {
-  parseMemoryEntries,
-  type MemoryEntry,
-} from "../obsidian-markdown/memory-entries.js"
+import { parseMemoryEntries, type MemoryEntry } from "../obsidian-markdown/memory-entries.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
@@ -114,9 +111,7 @@ export type MemoryEntryPolicy = "append-only" | "living"
  *  as the append-only default — the safe reading, since append-only forbids
  *  destructive maintenance. */
 const entryPolicyFromFrontmatter = (value: unknown): MemoryEntryPolicy => {
-  return typeof value === "string" && value === "living"
-    ? "living"
-    : "append-only"
+  return typeof value === "string" && value === "living" ? "living" : "append-only"
 }
 
 export type MemoryFileOutline = Readonly<{
@@ -167,13 +162,11 @@ const scanGenuineEntryOffsets = (bodyLines: readonly string[]): number[] => {
     const commentResult: CommentResult | null = fenceResult?.lineIsCode
       ? null
       : advanceComment(bodyLine, scanCommentOpen)
-    scanCommentOpen = commentResult
-      ? commentResult.commentOpen
-      : scanCommentOpen
+    scanCommentOpen = commentResult ? commentResult.commentOpen : scanCommentOpen
 
     const insideCodeOrComment =
-      (fenceResult?.lineIsCode ?? false) ||
-      (commentResult?.lineIsComment ?? false)
+      (fenceResult?.lineIsCode ?? false) || (commentResult?.lineIsComment ?? false)
+
     if (insideCodeOrComment) continue
 
     if (ENTRY_PATTERN.test(bodyLine)) {
@@ -207,9 +200,7 @@ const parseSections = (lines: readonly string[]): ParsedSection[] => {
       bodyEndLine: heading.bodyEndLine,
       entryCount:
         heading.level === 2
-          ? scanGenuineEntryOffsets(
-              lines.slice(heading.bodyStartLine, heading.bodyEndLine),
-            ).length
+          ? scanGenuineEntryOffsets(lines.slice(heading.bodyStartLine, heading.bodyEndLine)).length
           : 0,
     })
   }
@@ -225,14 +216,9 @@ const findSection = (
   // Memory headings are canonically suffixed "(newest first)"; resolve the
   // caller's name to that form so a short name matches the stored heading
   // (and update_memory doesn't append a duplicate section).
-  const normalizedSectionName = headingWithNewestFirstSuffix(sectionName)
-    .trim()
-    .toLowerCase()
+  const normalizedSectionName = headingWithNewestFirstSuffix(sectionName).trim().toLowerCase()
   return sections.find((section) => {
-    return (
-      section.level === level &&
-      section.heading.toLowerCase() === normalizedSectionName
-    )
+    return section.level === level && section.heading.toLowerCase() === normalizedSectionName
   })
 }
 
@@ -323,6 +309,7 @@ const findNearMissSection = (
   const isNearMissOfRequested = (section: ParsedSection): boolean => {
     if (section.level !== 2) return false
     const existingForm = sectionComparisonForm(section.heading)
+
     // Catches what findSection's stricter normalization misses — e.g.
     // "&amp;" decoded to "&", or extra whitespace collapsed.
     if (existingForm === requestedForm) return true
@@ -656,9 +643,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     // parseMemoryEntries calls parseHeadings internally; the heading text it
     // assigns to each entry is identical to match.heading from findSection above.
     const allEntries = parseMemoryEntries(lines)
-    const sectionEntries = allEntries.filter(
-      (entry) => entry.section === match.heading,
-    )
+    const sectionEntries = allEntries.filter((entry) => entry.section === match.heading)
 
     // YYYY-MM-DD strings sort lexicographically in chronological order;
     // onOrAfter is validated above, and entry dates are YYYY-MM-DD by construction.
@@ -724,116 +709,14 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
       const existingContent = await readMemoryFileOrNull(params.vaultPath, params.file)
 
-        // File does not exist — create directory + file with section and entry
-        if (existingContent === null) {
-          const newSection = headingWithNewestFirstSuffix(params.section)
-          const filePath = memoryFilePath(params.vaultPath, params.file)
-          await mkdir(dirname(filePath), { recursive: true })
-          const content = buildNewMemoryFile({
-            fileName: params.file,
-            section: newSection,
-            bullet,
-          })
-          await atomicWriteFile({ filePath, content }, logger)
-          logger.info("created memory file", {
-            file: params.file,
-            section: newSection,
-            date,
-            outcome: "created-file",
-            beforeBytes: 0,
-            afterBytes: Buffer.byteLength(content, "utf8"),
-          })
-          return "created-file"
-        }
-
-        const parsed = parseNote(existingContent)
-        const contentLines = splitIntoLines(parsed.content)
-        const sections = parseSections(contentLines)
-        const match = findSection(sections, params.section, 2)
-
-        // File exists but section does not — append new H2 + entry at end
-        if (!match) {
-          // A missing section is normally created — but a name that is merely
-          // a mangled form of an existing heading (entity slip, typo, spacing)
-          // would silently fragment the file into near-duplicate sections,
-          // with the new entry unreachable via the real heading. Explicit
-          // rejection over silent normalization: refuse and name both
-          // headings so the caller can self-correct.
-          const nearMiss = findNearMissSection(sections, params.section)
-
-          if (nearMiss) {
-            throw new Error(
-              `section not created: "${params.section}" is nearly identical to existing section "${nearMiss.heading}". Existing sections: ${listSectionHeadings(sections)}`,
-            )
-          }
-          const newSection = headingWithNewestFirstSuffix(params.section)
-          const appendedLines = [...contentLines, `## ${newSection}`, bullet]
-          const newContent = appendedLines.join("\n")
-          const serialized = stringifyNote(newContent, parsed.data)
-          const beforeBytes = Buffer.byteLength(existingContent, "utf8")
-          const afterBytes = Buffer.byteLength(serialized, "utf8")
-          guardAgainstShrink(beforeBytes, afterBytes, "creating memory section")
-          await atomicWriteFile(
-            {
-              filePath: memoryFilePath(params.vaultPath, params.file),
-              content: serialized,
-            },
-            logger,
-          )
-          logger.info("created memory section", {
-            file: params.file,
-            section: newSection,
-            date,
-            outcome: "created-section",
-            beforeBytes,
-            afterBytes,
-          })
-          return "created-section"
-        }
-
-        const bodyLines = contentLines.slice(
-          match.bodyStartLine,
-          match.bodyEndLine,
-        )
-
-        const entryLineOffsets = scanGenuineEntryOffsets(bodyLines)
-
-        // Duplicate check scoped to genuine entries (not fenced lines).
-        // An exact duplicate means the entry already landed, typically from an
-        // MCP client retrying after a gateway timeout. The same bullet under a
-        // different heading is a distinct entry and does not suppress the append.
-        const isDuplicate = entryLineOffsets.some(
-          (offset) => bodyLines[offset] === bullet,
-        )
-
-        if (isDuplicate) {
-          logger.info("memory entry unchanged", {
-            file: params.file,
-            section: params.section,
-            date,
-            outcome: "unchanged",
-          })
-          return "unchanged"
-        }
-
-        // -1 when the section has no genuine entries (the >= 0 guard below falls back to bodyEndLine)
-        const firstBulletOffset = entryLineOffsets.at(0) ?? -1
-
-        // "top" inserts before the first existing bullet (newest-first ordering).
-        // "bottom" inserts at the section end — the last entry's continuation
-        // lines extend to there, so lastBulletOffset + 1 would land inside them.
-        // Empty sections fall back to bodyEndLine for both positions.
-        const topInsertIndex =
-          firstBulletOffset >= 0
-            ? match.bodyStartLine + firstBulletOffset
-            : match.bodyEndLine
-        const bottomInsertIndex = match.bodyEndLine
-        const insertIndex =
-          position === "top" ? topInsertIndex : bottomInsertIndex
-
-        // Splice the new bullet into the content lines
-        const updatedLines = [
-          ...contentLines.slice(0, insertIndex),
+      // File does not exist — create directory + file with section and entry
+      if (existingContent === null) {
+        const newSection = headingWithNewestFirstSuffix(params.section)
+        const filePath = memoryFilePath(params.vaultPath, params.file)
+        await mkdir(dirname(filePath), { recursive: true })
+        const content = buildNewMemoryFile({
+          fileName: params.file,
+          section: newSection,
           bullet,
         })
         await atomicWriteFile({ filePath, content }, logger)
@@ -895,13 +778,15 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
       const bodyLines = contentLines.slice(match.bodyStartLine, match.bodyEndLine)
 
-      // Idempotency guard: if the exact bullet already exists in this section,
-      // the entry already landed — typically an MCP client retrying after a
-      // gateway timeout. Splicing again would create a duplicate that
-      // deleteMemory refuses to disambiguate, so no-op instead. Scoped to the
-      // target section: the same bullet under a different heading is a
-      // distinct entry and does not suppress the append.
-      if (bodyLines.includes(bullet)) {
+      const entryLineOffsets = scanGenuineEntryOffsets(bodyLines)
+
+      // Duplicate check scoped to genuine entries (not fenced lines).
+      // An exact duplicate means the entry already landed, typically from an
+      // MCP client retrying after a gateway timeout. The same bullet under a
+      // different heading is a distinct entry and does not suppress the append.
+      const isDuplicate = entryLineOffsets.some((offset) => bodyLines[offset] === bullet)
+
+      if (isDuplicate) {
         logger.info("memory entry unchanged", {
           file: params.file,
           section: params.section,
@@ -911,22 +796,16 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         return "unchanged"
       }
 
-      // File + section exist — find the first and last dated bullet within the
-      // section body to determine where to insert. Offsets are relative to bodyStartLine.
-      const firstBulletOffset = bodyLines.findIndex((line) => ENTRY_PATTERN.test(line))
-      const lastBulletOffset = bodyLines.reduce(
-        (lastMatchIndex, line, index) => (ENTRY_PATTERN.test(line) ? index : lastMatchIndex),
-        -1,
-      )
+      // -1 when the section has no genuine entries (the >= 0 guard below falls back to bodyEndLine)
+      const firstBulletOffset = entryLineOffsets.at(0) ?? -1
 
-      // Compute the absolute line index in the full content array for insertion.
       // "top" inserts before the first existing bullet (newest-first ordering).
-      // "bottom" inserts after the last existing bullet.
-      // Empty sections (no bullets) fall back to bodyEndLine — appends at section end.
+      // "bottom" inserts at the section end — the last entry's continuation
+      // lines extend to there, so lastBulletOffset + 1 would land inside them.
+      // Empty sections fall back to bodyEndLine for both positions.
       const topInsertIndex =
         firstBulletOffset >= 0 ? match.bodyStartLine + firstBulletOffset : match.bodyEndLine
-      const bottomInsertIndex =
-        lastBulletOffset >= 0 ? match.bodyStartLine + lastBulletOffset + 1 : match.bodyEndLine
+      const bottomInsertIndex = match.bodyEndLine
       const insertIndex = position === "top" ? topInsertIndex : bottomInsertIndex
 
       // Splice the new bullet into the content lines
@@ -1052,82 +931,30 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
     // Serialize with concurrent updates/deletes to the same file so the
     // read-modify-write can't be interleaved and lose a write.
-    return withFileLock(
-      memoryFilePath(params.vaultPath, params.file),
-      async () => {
-        const raw = await readMemoryFile(params.vaultPath, params.file)
-        const parsed = parseNote(raw)
-        const lines = splitIntoLines(parsed.content)
-        const sections = parseSections(lines)
-        const match = findSection(sections, params.section, 2)
+    return withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
+      const raw = await readMemoryFile(params.vaultPath, params.file)
+      const parsed = parseNote(raw)
+      const lines = splitIntoLines(parsed.content)
+      const sections = parseSections(lines)
+      const match = findSection(sections, params.section, 2)
 
-        if (!match) {
-          throw new Error(
-            `section not found: "${params.section}" in ${memoryDir}/${params.file}.md. Available sections: ${listSectionHeadings(sections)}`,
-          )
-        }
-
-        // Find the target bullet among genuine (non-fenced) entry lines.
-        const targetBullet = `- **${params.date}**: ${params.entry}`
-        const sectionBodyLines = lines.slice(
-          match.bodyStartLine,
-          match.bodyEndLine,
+      if (!match) {
+        throw new Error(
+          `section not found: "${params.section}" in ${memoryDir}/${params.file}.md. Available sections: ${listSectionHeadings(sections)}`,
         )
-        const genuineEntryOffsets = scanGenuineEntryOffsets(sectionBodyLines)
-        const matchingIndices = genuineEntryOffsets
-          .filter((offset) => sectionBodyLines[offset] === targetBullet)
-          .map((offset) => match.bodyStartLine + offset)
+      }
 
-      // Build the exact bullet string and find matching lines within the section
+      // Find the target bullet among genuine (non-fenced) entry lines.
       const targetBullet = `- **${params.date}**: ${params.entry}`
-      const matchingIndices = lines.flatMap((line, index) =>
-        index >= match.bodyStartLine && index < match.bodyEndLine && line === targetBullet
-          ? [index]
-          : [],
-      )
+      const sectionBodyLines = lines.slice(match.bodyStartLine, match.bodyEndLine)
+      const genuineEntryOffsets = scanGenuineEntryOffsets(sectionBodyLines)
+      const matchingIndices = genuineEntryOffsets
+        .filter((offset) => sectionBodyLines[offset] === targetBullet)
+        .map((offset) => match.bodyStartLine + offset)
 
-        // Remove the matched entry's full span (bullet + continuation lines),
-        // not just the bullet — leaving continuations would fold them into the
-        // preceding entry's text.
-        const matchIndex = matchingIndices[0]
-
-        if (matchIndex === undefined) {
-          throw new Error("expected at least one matching index")
-        }
-        const matchOffset = matchIndex - match.bodyStartLine
-        const matchPosition = genuineEntryOffsets.indexOf(matchOffset)
-        const nextEntryOffset = genuineEntryOffsets[matchPosition + 1]
-        const rawSpanEnd =
-          nextEntryOffset !== undefined
-            ? match.bodyStartLine + nextEntryOffset
-            : match.bodyEndLine
-
-        // Trim trailing blank lines from the span — they separate sections
-        // or entries visually and don't belong to the deleted entry.
-        let trimmedSpanEnd = rawSpanEnd
-
-        while (
-          trimmedSpanEnd > matchIndex + 1 &&
-          lines[trimmedSpanEnd - 1]?.trim() === ""
-        ) {
-          trimmedSpanEnd--
-        }
-        const updatedLines = [
-          ...lines.slice(0, matchIndex),
-          ...lines.slice(trimmedSpanEnd),
-        ]
-
-        const newContent = updatedLines.join("\n")
-        const serialized = stringifyNote(newContent, parsed.data)
-        const beforeBytes = Buffer.byteLength(raw, "utf8")
-        const afterBytes = Buffer.byteLength(serialized, "utf8")
-        guardAgainstShrink(beforeBytes, afterBytes, "deleting memory entry")
-        await atomicWriteFile(
-          {
-            filePath: memoryFilePath(params.vaultPath, params.file),
-            content: serialized,
-          },
-          logger,
+      if (matchingIndices.length === 0) {
+        throw new Error(
+          `no entry matching (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
         )
       }
       if (matchingIndices.length > 1) {
@@ -1136,13 +963,28 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         )
       }
 
-      // Remove the single matched line, preserving everything before and after it
+      // Remove the matched entry's full span (bullet + continuation lines),
+      // not just the bullet — leaving continuations would fold them into the
+      // preceding entry's text.
       const matchIndex = matchingIndices[0]
 
       if (matchIndex === undefined) {
         throw new Error("expected at least one matching index")
       }
-      const updatedLines = [...lines.slice(0, matchIndex), ...lines.slice(matchIndex + 1)]
+      const matchOffset = matchIndex - match.bodyStartLine
+      const matchPosition = genuineEntryOffsets.indexOf(matchOffset)
+      const nextEntryOffset = genuineEntryOffsets[matchPosition + 1]
+      const rawSpanEnd =
+        nextEntryOffset !== undefined ? match.bodyStartLine + nextEntryOffset : match.bodyEndLine
+
+      // Trim trailing blank lines from the span — they separate sections
+      // or entries visually and don't belong to the deleted entry.
+      let trimmedSpanEnd = rawSpanEnd
+
+      while (trimmedSpanEnd > matchIndex + 1 && lines[trimmedSpanEnd - 1]?.trim() === "") {
+        trimmedSpanEnd--
+      }
+      const updatedLines = [...lines.slice(0, matchIndex), ...lines.slice(trimmedSpanEnd)]
 
       const newContent = updatedLines.join("\n")
       const serialized = stringifyNote(newContent, parsed.data)
