@@ -1142,7 +1142,8 @@ const parentTaskLocatorFrom = ({
   return undefined
 }
 
-/** Throws when the locator resolves to nothing or to a non-task line. */
+/** The parent's body-line index; throws when the locator resolves to
+ *  nothing, a non-task line, or a NON_TASK-typed checkbox. */
 const findParentLineIndex = ({
   locator,
   bodyLines,

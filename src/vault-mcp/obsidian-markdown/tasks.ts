@@ -563,8 +563,8 @@ const extractTasks = (
     // NON_TASK lines are invisible to the task system — prune the indent
     // stack (closing any open task at the same or deeper indent) so tasks
     // nested below become top-level, then skip the line.
-    // After this guard, resolvedStatus is narrowed to TaskStatus (the four
-    // values ParsedTask.status accepts).
+    // After this guard, resolvedStatus is narrowed to TaskStatus
+    // (StatusClassification is TaskStatus | "non_task").
     if (resolvedStatus === "non_task") {
       indentStack = ancestorsOf(indentStack, getTaskIndent(lineText))
       continue

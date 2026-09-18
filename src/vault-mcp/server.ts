@@ -114,6 +114,7 @@ const startServer = async (): Promise<void> => {
   }
 
   const indexDbPath = env.get("INDEX_DB_PATH").asString()
+  // /data is the Docker volume where the container persists indexes and logs
   const dataDir = indexDbPath ? dirname(indexDbPath) : "/data"
   const searchDbPath = indexDbPath ?? `${dataDir}/search.db`
   const oauthDbPath = `${dataDir}/oauth.db`
