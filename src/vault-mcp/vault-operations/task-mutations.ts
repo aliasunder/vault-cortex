@@ -38,7 +38,7 @@ type CreateTaskParams = {
   heading?: string | undefined
   parentBlockId?: string | undefined
   parentLine?: number | undefined
-  position?: "top" | "bottom" | undefined
+  position?: "top" | "bottom" | number | undefined
   priority?: TaskPriority | undefined
   recurrence?: string | undefined
   onCompletion?: string | undefined
@@ -82,7 +82,7 @@ type UpdateTaskParams = {
   recurrence?: string | null | undefined
   onCompletion?: string | null | undefined
   heading?: string | undefined
-  position?: "top" | "bottom" | undefined
+  position?: "top" | "bottom" | number | undefined
   description?: string | undefined
   due?: string | null | undefined
   scheduled?: string | null | undefined
@@ -410,6 +410,40 @@ const taskAppendIndexUnderHeading = ({
   return heading.bodyStartLine + lastContentOffset + 1
 }
 
+/** Body index for inserting at position N (1-based) among a section's
+ *  top-level cards. Walks from the first valid card slot to the section
+ *  end, skipping each card's sub-item block via findTaskBlockEnd. */
+const headingInsertIndexAtPosition = ({
+  lines,
+  heading,
+  position,
+}: {
+  lines: readonly string[]
+  heading: HeadingInfo
+  position: number
+}): number => {
+  const sectionStart = taskInsertIndexUnderHeading({ lines, heading })
+  const sectionEnd = heading.bodyEndLine
+
+  const cardStartIndices: number[] = []
+  // Variable-length jumps through the section: each card's sub-item block
+  // is skipped via findTaskBlockEnd, so the step size varies per iteration.
+  let walkIndex = sectionStart
+
+  while (walkIndex < sectionEnd) {
+    const line = lines[walkIndex]
+
+    if (!line?.trim() || !tasks.isTaskLine(line)) {
+      walkIndex++
+      continue
+    }
+    cardStartIndices.push(walkIndex)
+    walkIndex = findTaskBlockEnd(lines, walkIndex)
+  }
+
+  return cardStartIndices[position - 1] ?? taskAppendIndexUnderHeading({ lines, heading })
+}
+
 const headingInsertIndex = ({
   lines,
   heading,
@@ -417,8 +451,11 @@ const headingInsertIndex = ({
 }: {
   lines: readonly string[]
   heading: HeadingInfo
-  position: "top" | "bottom"
+  position: "top" | "bottom" | number
 }): number => {
+  if (typeof position === "number") {
+    return headingInsertIndexAtPosition({ lines, heading, position })
+  }
   return position === "top"
     ? taskInsertIndexUnderHeading({ lines, heading })
     : taskAppendIndexUnderHeading({ lines, heading })
@@ -471,7 +508,7 @@ const resolveNewTaskPlacement = ({
   parentLocator: ParentLocator | undefined
   heading: string | undefined
   isKanbanBoard: boolean
-  position: "top" | "bottom" | undefined
+  position: "top" | "bottom" | number | undefined
 }): NewTaskPlacement => {
   if (parentLocator) {
     const parentLineIndex = findParentLineIndex({
@@ -495,11 +532,15 @@ const resolveNewTaskPlacement = ({
       const availableHeadings = headings.map((headingInfo) => headingInfo.text).join(", ")
       throw new Error(`heading "${heading}" not found; available: ${availableHeadings}`)
     }
-    const resolvedPosition = resolveCreatePosition({
-      explicitPosition: position,
-      isKanbanBoard,
-      bodyLines,
-    })
+    // Integer positions bypass the Kanban default-resolution path
+    const resolvedPosition =
+      typeof position === "number"
+        ? position
+        : resolveCreatePosition({
+            explicitPosition: position,
+            isKanbanBoard,
+            bodyLines,
+          })
     return {
       insertAt: headingInsertIndex({
         lines: bodyLines,
@@ -573,19 +614,21 @@ const locateTaskLine = ({
   return taskLineIndex
 }
 
-/** No-op when the task already sits under the target heading. */
+/** No-op when the task already sits under the target heading and no
+ *  explicit position is requested. With a position, same-lane reorders
+ *  go through the extract-reinsert cycle. */
 const moveTaskBlock = ({
   lines,
   taskLineIndex,
   targetLane,
   headings,
-  position = "top",
+  position,
 }: {
   lines: readonly string[]
   taskLineIndex: number
   targetLane: string
   headings: readonly HeadingInfo[]
-  position?: "top" | "bottom"
+  position?: "top" | "bottom" | number
 }): {
   lines: readonly string[]
   taskLineIndex: number
@@ -604,8 +647,9 @@ const moveTaskBlock = ({
 
   const currentHeading = headings.findLast((heading) => heading.startLine < taskLineIndex)
   const currentLane = currentHeading?.text ?? "(before first heading)"
+  const isSameLane = currentLane === targetLane
 
-  if (currentLane === targetLane) return { lines, taskLineIndex }
+  if (isSameLane && !position) return { lines, taskLineIndex }
 
   const taskBlockEnd = findTaskBlockEnd(lines, taskLineIndex)
   const taskBlock = lines.slice(taskLineIndex, taskBlockEnd)
@@ -619,21 +663,64 @@ const moveTaskBlock = ({
   if (!headingAfterRemoval) {
     throw new Error(`heading "${targetLane}" not found after line removal`)
   }
+  const resolvedPosition = position ?? "top"
   const insertAt = headingInsertIndex({
     lines: linesWithoutBlock,
     heading: headingAfterRemoval,
-    position,
+    position: resolvedPosition,
   })
+
+  // The card already sits at the target position within the same lane
+  if (isSameLane && insertAt === taskLineIndex) return { lines, taskLineIndex }
+
+  const resultLines = linesWithoutBlock.toSpliced(insertAt, 0, ...taskBlock)
+
+  const change = isSameLane
+    ? formatChange({
+        field: "position",
+        before: positionOfTaskInLane(lines, targetHeading, taskLineIndex),
+        after: positionOfTaskInLane(resultLines, headingAfterRemoval, insertAt),
+      })
+    : formatChange({
+        field: "heading",
+        before: currentLane,
+        after: targetLane,
+      })
+
   return {
-    lines: linesWithoutBlock.toSpliced(insertAt, 0, ...taskBlock),
+    lines: resultLines,
     taskLineIndex: insertAt,
-    change: formatChange({
-      field: "heading",
-      before: currentLane,
-      after: targetLane,
-    }),
+    change,
     movedBlockLength: taskBlock.length,
   }
+}
+
+/** 1-based position of a task among its lane's top-level cards. */
+const positionOfTaskInLane = (
+  lines: readonly string[],
+  heading: HeadingInfo,
+  taskLineIndex: number,
+): number => {
+  const sectionStart = taskInsertIndexUnderHeading({ lines, heading })
+  const sectionEnd = heading.bodyEndLine
+
+  // Each card's sub-items are skipped via findTaskBlockEnd, so the
+  // step size varies per iteration — both counters must be mutable.
+  let walkIndex = sectionStart
+  let cardPosition = 0
+
+  while (walkIndex < sectionEnd) {
+    const line = lines[walkIndex]
+
+    if (!line?.trim() || !tasks.isTaskLine(line)) {
+      walkIndex++
+      continue
+    }
+    cardPosition++
+    if (walkIndex === taskLineIndex) return cardPosition
+    walkIndex = findTaskBlockEnd(lines, walkIndex)
+  }
+  return cardPosition + 1
 }
 
 /** Appends checklist items under a task, after its existing sub-items. */
@@ -1209,11 +1296,12 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     taskId !== undefined ||
     dependsOn !== undefined ||
     addSubtasks !== undefined ||
-    newBlockId !== undefined
+    newBlockId !== undefined ||
+    position !== undefined
 
   if (!hasMutation) {
     throw new Error(
-      "at least one mutation (status, priority, recurrence, onCompletion, heading, description, due, scheduled, start, created, taskId, dependsOn, addSubtasks, or assignBlockId) is required",
+      "at least one mutation (status, priority, recurrence, onCompletion, heading, position, description, due, scheduled, start, created, taskId, dependsOn, addSubtasks, or assignBlockId) is required",
     )
   }
 
@@ -1291,12 +1379,15 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     }
     const isSubtask = taskBefore.depth > 0
 
-    // A sub-task's placement is its parent's — an explicit heading has
-    // nothing to move.
+    // A sub-task's placement is its parent's — neither a heading move
+    // nor a position reorder applies.
     if (targetHeadingParam && isSubtask) {
       throw new Error(
         "cannot move a sub-task to a heading — the parent's heading determines placement",
       )
+    }
+    if (position && isSubtask) {
+      throw new Error("cannot reposition a sub-task — the parent's position determines placement")
     }
     if (newBlockId) {
       validateBlockId(newBlockId, bodyLines, taskLineIndex)
@@ -1666,18 +1757,24 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     }
 
     // Heading move — an explicit heading, or the done lane when completing
-    // a top-level card on a Kanban board.
+    // a top-level card on a Kanban board, or the current heading for a
+    // position-only same-lane reorder.
     const autoDoneLane = !targetHeadingParam && status === "done" && isKanbanBoard && !isSubtask
+    const currentHeadingForReorder =
+      !targetHeadingParam && !autoDoneLane && position
+        ? headingsAfterSpawn.findLast((heading) => heading.startLine < completedIndexAfterSpawn)
+            ?.text
+        : undefined
     const targetLane = autoDoneLane
       ? detectDoneLane(linesWithSpawn, headingsAfterSpawn)
-      : targetHeadingParam
+      : (targetHeadingParam ?? currentHeadingForReorder)
     const moved = targetLane
       ? moveTaskBlock({
           lines: linesWithSpawn,
           taskLineIndex: completedIndexAfterSpawn,
           targetLane,
           headings: headingsAfterSpawn,
-          position: position ?? "top",
+          position,
         })
       : {
           lines: linesWithSpawn,
