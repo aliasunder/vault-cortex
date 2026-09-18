@@ -5946,6 +5946,11 @@ title: Tasks
         block_id: "normal",
         changes: ["status: todo → done"],
       })
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [x] Normal task ➕ 2026-07-02 ✅ ${today()} ^normal\n`,
+      )
     })
 
     it("appendSubtasks excludes NON_TASK children from the count", async () => {

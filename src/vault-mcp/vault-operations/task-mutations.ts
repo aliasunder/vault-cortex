@@ -1119,9 +1119,11 @@ const validateBlockId = (
   }
   // trimEnd: a hard break's trailing spaces must not hide an existing
   // block link — an invisible duplicate would win every later id lookup.
-  const existingIndex = bodyLines.findIndex(
-    (bodyLine, index) => index !== excludeLineIndex && bodyLine.trimEnd().endsWith(` ^${blockId}`),
-  )
+  const existingIndex = bodyLines.findIndex((bodyLine, index) => {
+    if (index === excludeLineIndex) return false
+    if (!bodyLine.trimEnd().endsWith(` ^${blockId}`)) return false
+    return !isInsideFenceOrComment(bodyLines, index)
+  })
 
   if (existingIndex !== -1) {
     throw new Error(`blockId "${blockId}" already exists in this note`)
