@@ -6,10 +6,14 @@ import { parseNote } from "../../obsidian-markdown/frontmatter.js"
 import { createMemoryStore } from "../memory-store.js"
 import { logger } from "../../../logger.js"
 
-const { getMemory, updateMemory, listMemoryFiles, listMemoryFileNames, deleteMemory } =
-  createMemoryStore({
-    memoryDir: "About Me",
-  })
+const {
+  getMemory,
+  getMemoryEntries,
+  updateMemory,
+  listMemoryFiles,
+  listMemoryFileNames,
+  deleteMemory,
+} = createMemoryStore({ memoryDir: "About Me" })
 
 let vault: string
 
@@ -282,6 +286,53 @@ describe("updateMemory", () => {
     expect(lines[lines.length - 1]).toBe("- **2026-04-01**: bottom entry")
   })
 
+  it("inserts bottom entry after the last entry's continuation lines", async () => {
+    const multiLineFixture = `---
+title: MultiBottom
+type: profile
+created: 2026-01-01T00:00:00-05:00
+---
+
+# MultiBottom
+
+## Notes (newest first)
+- **2026-06-15**: First entry
+  continuation line one
+  continuation line two
+`
+    await writeFile(join(vault, "About Me/MultiBottom.md"), multiLineFixture, "utf8")
+
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "MultiBottom",
+        section: "Notes",
+        entry: "Bottom entry",
+        date: "2026-06-14",
+        position: "bottom",
+      },
+      logger,
+    )
+
+    const section = await getMemory(
+      { vaultPath: vault, file: "MultiBottom", section: "Notes" },
+      logger,
+    )
+
+    // The bottom entry must land after the continuation lines, not between
+    // the bullet and its continuations. A trailing blank line from the
+    // section body is expected (bodyEndLine includes it).
+    expect(section).toBe(
+      [
+        "- **2026-06-15**: First entry",
+        "  continuation line one",
+        "  continuation line two",
+        "",
+        "- **2026-06-14**: Bottom entry",
+      ].join("\n"),
+    )
+  })
+
   it("inserts entry into empty section", async () => {
     await updateMemory(
       {
@@ -497,6 +548,84 @@ describe("updateMemory idempotency", () => {
     // neither duplicated nor was anything else touched.
     const fileContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     expect(fileContent).toBe(PRINCIPLES_MD)
+  })
+
+  it("ignores a dated-bullet-looking line inside a code fence when computing insertion offsets", async () => {
+    const fencedFixture = `---
+title: Fenced
+type: profile
+created: 2026-01-01T00:00:00-05:00
+---
+
+# Fenced
+
+## Notes (newest first)
+- **2026-06-15**: Entry with a code example
+\`\`\`
+- **2026-01-01**: This looks like an entry but is inside a fence
+\`\`\`
+- **2026-06-14**: Earlier entry
+`
+    await writeFile(join(vault, "About Me/Fenced.md"), fencedFixture, "utf8")
+
+    await updateMemory(
+      {
+        vaultPath: vault,
+        file: "Fenced",
+        section: "Notes",
+        entry: "New entry appended at top",
+        date: "2026-06-16",
+      },
+      logger,
+    )
+
+    const section = await getMemory({ vaultPath: vault, file: "Fenced", section: "Notes" }, logger)
+
+    // The new entry is inserted before the first real entry, not before
+    // the column-0 fenced bullet that matches ENTRY_PATTERN.
+    expect(section).toBe(
+      [
+        "- **2026-06-16**: New entry appended at top",
+        "- **2026-06-15**: Entry with a code example",
+        "```",
+        "- **2026-01-01**: This looks like an entry but is inside a fence",
+        "```",
+        "- **2026-06-14**: Earlier entry",
+      ].join("\n"),
+    )
+  })
+
+  it("does not treat a fenced duplicate as an existing entry in the idempotency guard", async () => {
+    const fencedDuplicateFixture = `---
+title: FencedDup
+type: profile
+created: 2026-01-01T00:00:00-05:00
+---
+
+# FencedDup
+
+## Notes (newest first)
+- **2026-06-15**: Real entry
+\`\`\`
+- **2026-06-10**: Retry-safe entry
+\`\`\`
+`
+    await writeFile(join(vault, "About Me/FencedDup.md"), fencedDuplicateFixture, "utf8")
+
+    const outcome = await updateMemory(
+      {
+        vaultPath: vault,
+        file: "FencedDup",
+        section: "Notes",
+        entry: "Retry-safe entry",
+        date: "2026-06-10",
+      },
+      logger,
+    )
+
+    // The fenced line has the exact same bullet text, but the guard must
+    // not treat it as a duplicate — the entry should be appended.
+    expect(outcome).toBe("appended")
   })
 
   // A multiline entry would write a block the line-based duplicate guard
@@ -811,7 +940,7 @@ describe("updateMemory auto-creation", () => {
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
     const health = outlines.find((outline) => outline.file === "Health")!
     expect(health.leading_callout?.title).toBe("Scope of this file")
-    // Generic form: convention + a Contains placeholder, no per-file Does-NOT-contain.
+    // Generic form has the convention line and a Contains placeholder, but no per-file Does-NOT-contain.
     expect(health.leading_callout?.body).toBe(
       "**Contains:** (describe what belongs in this file — and what doesn't)\n**Convention:** append newest first; never overwrite dated entries; ISO dates only.",
     )
@@ -1444,6 +1573,93 @@ title: Dupe
       'section not found: "Nope" in About Me/Principles.md. Available sections: Decision heuristics (newest first), Working style (newest first), Empty section (newest first)',
     )
   })
+
+  it("removes a multi-line entry's continuation lines along with its bullet", async () => {
+    const multiLineDeleteFixture = `---
+title: MultiDel
+type: profile
+created: 2026-01-01T00:00:00-05:00
+---
+
+# MultiDel
+
+## Notes (newest first)
+- **2026-06-15**: Entry before
+- **2026-06-14**: Target entry
+  continuation line one
+  continuation line two
+- **2026-06-13**: Entry after
+`
+    await writeFile(join(vault, "About Me/MultiDel.md"), multiLineDeleteFixture, "utf8")
+
+    await deleteMemory(
+      {
+        vaultPath: vault,
+        file: "MultiDel",
+        section: "Notes",
+        date: "2026-06-14",
+        entry: "Target entry",
+      },
+      logger,
+    )
+
+    const section = await getMemory(
+      { vaultPath: vault, file: "MultiDel", section: "Notes" },
+      logger,
+    )
+
+    // The bullet and both continuation lines are gone; neighboring entries intact.
+    expect(section).toBe(
+      ["- **2026-06-15**: Entry before", "- **2026-06-13**: Entry after"].join("\n"),
+    )
+  })
+
+  it("does not match a fenced line when deleting an entry", async () => {
+    const fencedDeleteFixture = `---
+title: FencedDelete
+type: profile
+created: 2026-01-01T00:00:00-05:00
+---
+
+# FencedDelete
+
+## Notes (newest first)
+- **2026-06-15**: Real entry
+\`\`\`
+- **2026-06-10**: Fenced duplicate text
+\`\`\`
+- **2026-06-10**: Fenced duplicate text
+`
+    await writeFile(join(vault, "About Me/FencedDelete.md"), fencedDeleteFixture, "utf8")
+
+    // The real entry at column 0 (after the fence) should be deleted.
+    // The fenced copy inside the code block must not be counted.
+    await deleteMemory(
+      {
+        vaultPath: vault,
+        file: "FencedDelete",
+        section: "Notes",
+        date: "2026-06-10",
+        entry: "Fenced duplicate text",
+      },
+      logger,
+    )
+
+    const section = await getMemory(
+      { vaultPath: vault, file: "FencedDelete", section: "Notes" },
+      logger,
+    )
+
+    // The real entry is gone, the fenced copy survives inside the code block.
+    expect(section).toBe(
+      [
+        "- **2026-06-15**: Real entry",
+        "```",
+        "- **2026-06-10**: Fenced duplicate text",
+        "```",
+      ].join("\n"),
+    )
+  })
 })
 
 describe("listMemoryFiles", () => {
@@ -1807,8 +2023,8 @@ describe("bootstrapMemoryDir", () => {
 
 describe("large-shrink guard", () => {
   it("refuses a delete that would shrink the file by more than half", async () => {
-    // One dominant entry: deleting it drops the file from ~2 KB to ~90 bytes,
-    // a >50% shrink the guard must reject (a skeleton template overwriting real content).
+    // Deleting the dominant entry drops the file from ~2 KB to ~90 bytes,
+    // a >50% shrink the guard must reject.
     const dominantEntry = "x".repeat(2000)
     const fileContent = `---
 title: Big
@@ -1855,7 +2071,7 @@ title: Big
     expect(content).toContain("Secrets invisible at every layer")
   })
 
-  it("skips the guard for files at or below the 200-byte floor", async () => {
+  it("skips the guard for files at or below the 1250-byte floor", async () => {
     const tiny = `---
 title: T
 ---
@@ -1865,8 +2081,8 @@ title: T
 ## S (newest first)
 - **2026-06-14**: hi
 `
-    // Sanity-check the fixture is genuinely under the guard's floor.
-    expect(Buffer.byteLength(tiny, "utf8")).toBeLessThan(200)
+    // Sanity-check the fixture is genuinely under the guard's 1250-byte floor.
+    expect(Buffer.byteLength(tiny, "utf8")).toBeLessThan(1250)
     await writeFile(join(vault, "About Me/T.md"), tiny, "utf8")
 
     await deleteMemory(
@@ -2072,6 +2288,337 @@ describe("concurrent memory writes", () => {
     expect(bulletLines).toEqual([
       "- **2026-06-14**: freshly added",
       "- **2026-05-06**: Secrets invisible at every layer",
+    ])
+  })
+})
+
+describe("getMemoryEntries", () => {
+  it("returns entries on or after the boundary date", async () => {
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics",
+        onOrAfter: "2026-05-06",
+      },
+      logger,
+    )
+    expect(entries).toEqual([
+      {
+        section: "Decision heuristics (newest first)",
+        date: "2026-05-06",
+        text: "- **2026-05-06**: Secrets invisible at every layer",
+        entryIndex: 0,
+      },
+    ])
+  })
+
+  it("includes entries exactly on the boundary date (inclusive)", async () => {
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics",
+        onOrAfter: "2026-05-05",
+      },
+      logger,
+    )
+    expect(entries).toEqual([
+      {
+        section: "Decision heuristics (newest first)",
+        date: "2026-05-06",
+        text: "- **2026-05-06**: Secrets invisible at every layer",
+        entryIndex: 0,
+      },
+      {
+        section: "Decision heuristics (newest first)",
+        date: "2026-05-05",
+        text: "- **2026-05-05**: Least-privilege for AI agents",
+        entryIndex: 1,
+      },
+    ])
+  })
+
+  it("includes all entries when multiple share the boundary date", async () => {
+    const sameDayFixture = `---
+title: SameDay
+type: profile
+created: 2026-01-01T00:00:00-05:00
+---
+
+# SameDay
+
+## Items (newest first)
+- **2026-06-15**: Third entry on same day
+- **2026-06-15**: Second entry on same day
+- **2026-06-15**: First entry on same day
+- **2026-06-14**: Earlier entry
+`
+    await writeFile(join(vault, "About Me/SameDay.md"), sameDayFixture, "utf8")
+
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "SameDay",
+        section: "Items",
+        onOrAfter: "2026-06-15",
+      },
+      logger,
+    )
+    expect(entries).toEqual([
+      {
+        section: "Items (newest first)",
+        date: "2026-06-15",
+        text: "- **2026-06-15**: Third entry on same day",
+        entryIndex: 0,
+      },
+      {
+        section: "Items (newest first)",
+        date: "2026-06-15",
+        text: "- **2026-06-15**: Second entry on same day",
+        entryIndex: 1,
+      },
+      {
+        section: "Items (newest first)",
+        date: "2026-06-15",
+        text: "- **2026-06-15**: First entry on same day",
+        entryIndex: 2,
+      },
+    ])
+  })
+
+  it("returns all entries when boundary is older than everything", async () => {
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics",
+        onOrAfter: "2020-01-01",
+      },
+      logger,
+    )
+    expect(entries).toEqual([
+      {
+        section: "Decision heuristics (newest first)",
+        date: "2026-05-06",
+        text: "- **2026-05-06**: Secrets invisible at every layer",
+        entryIndex: 0,
+      },
+      {
+        section: "Decision heuristics (newest first)",
+        date: "2026-05-05",
+        text: "- **2026-05-05**: Least-privilege for AI agents",
+        entryIndex: 1,
+      },
+    ])
+  })
+
+  it("filters correctly when entries are not in date order", async () => {
+    const outOfOrderFixture = `---
+title: OutOfOrder
+type: profile
+created: 2026-01-01T00:00:00-05:00
+---
+
+# OutOfOrder
+
+## Items (newest first)
+- **2026-05-04**: Older entry placed first
+- **2026-05-06**: Newer entry placed second
+- **2026-05-03**: Oldest entry placed last
+`
+    await writeFile(join(vault, "About Me/OutOfOrder.md"), outOfOrderFixture, "utf8")
+
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "OutOfOrder",
+        section: "Items",
+        onOrAfter: "2026-05-05",
+      },
+      logger,
+    )
+    expect(entries.map((entry) => entry.text)).toEqual([
+      "- **2026-05-06**: Newer entry placed second",
+    ])
+  })
+
+  it("returns empty array when boundary is newer than all entries", async () => {
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics",
+        onOrAfter: "2030-01-01",
+      },
+      logger,
+    )
+    expect(entries).toEqual([])
+  })
+
+  it("returns empty array for an empty section", async () => {
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Empty section",
+      },
+      logger,
+    )
+    expect(entries).toEqual([])
+  })
+
+  it("preserves newest-first (document) order", async () => {
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Decision heuristics",
+      },
+      logger,
+    )
+    expect(entries).toEqual([
+      {
+        section: "Decision heuristics (newest first)",
+        date: "2026-05-06",
+        text: "- **2026-05-06**: Secrets invisible at every layer",
+        entryIndex: 0,
+      },
+      {
+        section: "Decision heuristics (newest first)",
+        date: "2026-05-05",
+        text: "- **2026-05-05**: Least-privilege for AI agents",
+        entryIndex: 1,
+      },
+    ])
+  })
+
+  it("includes continuation lines in multi-line entries", async () => {
+    const multiLineFixture = `---
+title: MultiLine
+type: profile
+created: 2026-01-01T00:00:00-05:00
+---
+
+# MultiLine
+
+## Notes (newest first)
+- **2026-06-15**: First line of the entry
+  Continuation line one
+  Continuation line two
+- **2026-06-14**: Simple entry
+`
+    await writeFile(join(vault, "About Me/MultiLine.md"), multiLineFixture, "utf8")
+
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "MultiLine",
+        section: "Notes",
+        onOrAfter: "2026-06-15",
+      },
+      logger,
+    )
+    expect(entries).toEqual([
+      {
+        section: "Notes (newest first)",
+        date: "2026-06-15",
+        text: "- **2026-06-15**: First line of the entry\n  Continuation line one\n  Continuation line two",
+        entryIndex: 0,
+      },
+    ])
+  })
+
+  it("throws when the section does not exist", async () => {
+    await expect(
+      getMemoryEntries(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Nonexistent section",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('section not found: "Nonexistent section" in About Me/Principles.md')
+  })
+
+  it("throws when the section does not exist even with onOrAfter set", async () => {
+    await expect(
+      getMemoryEntries(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Nonexistent section",
+          onOrAfter: "2026-05-01",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('section not found: "Nonexistent section" in About Me/Principles.md')
+  })
+
+  it("throws when the memory file does not exist", async () => {
+    await expect(
+      getMemoryEntries(
+        {
+          vaultPath: vault,
+          file: "Ghost",
+          section: "Decision heuristics",
+          onOrAfter: "2026-05-01",
+        },
+        logger,
+      ),
+    ).rejects.toThrow('memory file not found: "About Me/Ghost.md"')
+  })
+
+  it("throws on an invalid on_or_after date", async () => {
+    await expect(
+      getMemoryEntries(
+        {
+          vaultPath: vault,
+          file: "Principles",
+          section: "Decision heuristics",
+          onOrAfter: "not-a-date",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("date must be a real ISO calendar date")
+  })
+
+  it("returns entries with correct field shape", async () => {
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "Working style",
+      },
+      logger,
+    )
+    expect(entries).toEqual([
+      {
+        section: "Working style (newest first)",
+        date: "2026-05-04",
+        text: "- **2026-05-04**: Single-purpose files",
+        entryIndex: 2,
+      },
+    ])
+  })
+
+  it("resolves the section name case-insensitively with suffix normalization", async () => {
+    const entries = await getMemoryEntries(
+      {
+        vaultPath: vault,
+        file: "Principles",
+        section: "working style",
+      },
+      logger,
+    )
+    expect(entries).toEqual([
+      {
+        section: "Working style (newest first)",
+        date: "2026-05-04",
+        text: "- **2026-05-04**: Single-purpose files",
+        entryIndex: 2,
+      },
     ])
   })
 })

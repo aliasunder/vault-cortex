@@ -716,6 +716,46 @@ describe("memory errors", () => {
     expectToolError(result, 'section not found: "No Such Section" in About Me/Preferences.md')
   })
 
+  it("vault_get_memory on_or_after without file", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_memory",
+      args: { on_or_after: "2026-01-01" },
+    })
+    expectToolError(result, "on_or_after requires file and section")
+  })
+
+  it("vault_get_memory on_or_after with section but no file", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_memory",
+      args: { section: "Editor settings", on_or_after: "2026-01-01" },
+    })
+    expectToolError(result, "on_or_after requires file and section")
+  })
+
+  it("vault_get_memory on_or_after with file but no section", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_memory",
+      args: { file: "Preferences", on_or_after: "2026-01-01" },
+    })
+    expectToolError(result, "on_or_after requires file and section")
+  })
+
+  it("vault_get_memory on_or_after with invalid date", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_memory",
+      args: {
+        file: "Preferences",
+        section: "Editor settings",
+        on_or_after: "not-a-date",
+      },
+    })
+    expectToolError(result, "date must be a real ISO calendar date")
+  })
+
   it("vault_update_memory rejects multi-line entries", async () => {
     const result = await callTool({
       client,

@@ -9,10 +9,17 @@ import { readFileOrNull } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
+import { parseMemoryEntries, type MemoryEntry } from "../obsidian-markdown/memory-entries.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
-import { splitIntoLines } from "../obsidian-markdown/lines.js"
+import {
+  splitIntoLines,
+  advanceFence,
+  advanceComment,
+  type OpenFence,
+  type CommentResult,
+} from "../obsidian-markdown/lines.js"
 import { levenshteinDistance } from "../../utils/levenshtein-distance.js"
 import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
@@ -50,6 +57,7 @@ const MEMORY_ENTRY_LINE_BREAK_PATTERN = /[\r\n]/
  *  would accept) and calendar validity ("2026-02-30" parses as out of range). */
 const isValidMemoryEntryDate = (dateText: string | undefined): boolean => {
   if (dateText === undefined) return true
+
   return DateTime.fromFormat(dateText, "yyyy-MM-dd").isValid
 }
 
@@ -60,19 +68,27 @@ const INVALID_MEMORY_ENTRY_DATE_MESSAGE =
 
 const isString = (value: unknown): value is string => typeof value === "string"
 
-/** Returns the heading name with the "(newest first)" suffix, appending it if absent (case-insensitive). */
-const headingWithNewestFirstSuffix = (sectionName: string): string =>
-  sectionName.trimEnd().toLowerCase().endsWith("(newest first)")
+/** Appends "(newest first)" when absent (case-insensitive match). */
+const headingWithNewestFirstSuffix = (sectionName: string): string => {
+  return sectionName.trimEnd().toLowerCase().endsWith("(newest first)")
     ? sectionName
     : `${sectionName} (newest first)`
+}
+
+/** Matches runs of non-alphanumeric characters (replaced with hyphens in kebab-case). */
+const NON_ALPHANUMERIC_RUN_PATTERN = /[^a-z0-9]+/g
+
+/** Matches a leading or trailing hyphen left over after kebab-case replacement. */
+const LEADING_TRAILING_HYPHEN_PATTERN = /^-|-$/g
 
 /** Converts a string to kebab-case for use as a tag. */
-const toKebabCase = (text: string): string =>
-  text
+const toKebabCase = (text: string): string => {
+  return text
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
+    .replace(NON_ALPHANUMERIC_RUN_PATTERN, "-")
+    .replace(LEADING_TRAILING_HYPHEN_PATTERN, "")
+}
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -94,8 +110,9 @@ export type MemoryEntryPolicy = "append-only" | "living"
  *  other than the explicit "living" opt-in (missing, misspelled, wrong type)
  *  as the append-only default — the safe reading, since append-only forbids
  *  destructive maintenance. */
-const entryPolicyFromFrontmatter = (value: unknown): MemoryEntryPolicy =>
-  typeof value === "string" && value === "living" ? "living" : "append-only"
+const entryPolicyFromFrontmatter = (value: unknown): MemoryEntryPolicy => {
+  return typeof value === "string" && value === "living" ? "living" : "append-only"
+}
 
 export type MemoryFileOutline = Readonly<{
   file: string
@@ -122,17 +139,42 @@ type ParsedSection = Readonly<{
 
 // ── Internal helpers ────────────────────────────────────────────
 
-/** Counts dated bullet entries within a section's body span [start, end). A plain
- *  loop — a sequential count with no slice/filter allocations over what can be a
- *  large memory file. */
-const countDatedEntries = (lines: readonly string[], start: number, end: number): number => {
-  let count = 0
-  for (let lineIndex = start; lineIndex < end; lineIndex++) {
-    const entryLine = lines[lineIndex]
+/** Walks section body lines with fence/comment awareness and returns the
+ *  0-based offsets of genuine entry bullets (lines matching ENTRY_PATTERN that
+ *  are not inside a code fence or %% comment). Used by updateMemory's insertion
+ *  scan, deleteMemory's bullet match, and parseSections' entry count — all three
+ *  must agree on what counts as a real entry. */
+const scanGenuineEntryOffsets = (bodyLines: readonly string[]): number[] => {
+  const offsets: number[] = []
+  // Loop-carried parser state — each iteration reads the previous
+  // iteration's fence/comment position (same pattern as parseMemoryEntries).
+  let scanFence: OpenFence = null
+  let scanCommentOpen = false
 
-    if (entryLine !== undefined && ENTRY_PATTERN.test(entryLine)) count += 1
+  for (const [offsetIndex, bodyLine] of bodyLines.entries()) {
+    if (!bodyLine) continue
+
+    const fenceResult: ReturnType<typeof advanceFence> | null = scanCommentOpen
+      ? null
+      : advanceFence(bodyLine, scanFence)
+    scanFence = fenceResult ? fenceResult.openFence : scanFence
+
+    const commentResult: CommentResult | null = fenceResult?.lineIsCode
+      ? null
+      : advanceComment(bodyLine, scanCommentOpen)
+    scanCommentOpen = commentResult ? commentResult.commentOpen : scanCommentOpen
+
+    const insideCodeOrComment =
+      (fenceResult?.lineIsCode ?? false) || (commentResult?.lineIsComment ?? false)
+
+    if (insideCodeOrComment) continue
+
+    if (ENTRY_PATTERN.test(bodyLine)) {
+      offsets.push(offsetIndex)
+    }
   }
-  return count
+
+  return offsets
 }
 
 /**
@@ -158,7 +200,7 @@ const parseSections = (lines: readonly string[]): ParsedSection[] => {
       bodyEndLine: heading.bodyEndLine,
       entryCount:
         heading.level === 2
-          ? countDatedEntries(lines, heading.bodyStartLine, heading.bodyEndLine)
+          ? scanGenuineEntryOffsets(lines.slice(heading.bodyStartLine, heading.bodyEndLine)).length
           : 0,
     })
   }
@@ -175,9 +217,9 @@ const findSection = (
   // caller's name to that form so a short name matches the stored heading
   // (and update_memory doesn't append a duplicate section).
   const normalizedSectionName = headingWithNewestFirstSuffix(sectionName).trim().toLowerCase()
-  return sections.find(
-    (section) => section.level === level && section.heading.toLowerCase() === normalizedSectionName,
-  )
+  return sections.find((section) => {
+    return section.level === level && section.heading.toLowerCase() === normalizedSectionName
+  })
 }
 
 /** Matches the HTML character entities the decoder understands — decimal
@@ -203,8 +245,8 @@ const NAMED_ENTITY_VALUES: Readonly<Record<string, string>> = {
  *  double-unescaping would misread deliberately double-encoded names). An
  *  out-of-range numeric entity is left as-is rather than thrown on: this
  *  feeds a similarity comparison, not a renderer. */
-const decodeBasicHtmlEntities = (text: string): string =>
-  text.replace(HTML_ENTITY_PATTERN, (entity, entityBody: string) => {
+const decodeBasicHtmlEntities = (text: string): string => {
+  return text.replace(HTML_ENTITY_PATTERN, (entity, entityBody: string) => {
     const loweredEntityBody = entityBody.toLowerCase()
 
     if (loweredEntityBody.startsWith("#x")) {
@@ -217,6 +259,7 @@ const decodeBasicHtmlEntities = (text: string): string =>
     }
     return NAMED_ENTITY_VALUES[loweredEntityBody] ?? entity
   })
+}
 
 /** Matches the canonical "(newest first)" suffix at the end of a section
  *  name, with any surrounding whitespace. */
@@ -229,16 +272,16 @@ const NEWEST_FIRST_SUFFIX_PATTERN = /\s*\(newest first\)\s*$/i
  *  of the name rather than the shared suffix. Deliberately broader than
  *  findSection's own normalization — the matcher stays strict; only the
  *  create-guard uses this looser fold. */
-const sectionComparisonForm = (sectionName: string): string =>
-  decodeBasicHtmlEntities(sectionName)
+const sectionComparisonForm = (sectionName: string): string => {
+  return decodeBasicHtmlEntities(sectionName)
     .toLowerCase()
     .replace(NEWEST_FIRST_SUFFIX_PATTERN, "")
     .trim()
     .replace(/\s+/g, " ")
+}
 
-/** Matches every digit run — used to test whether two section names differ
- *  only in their numbers ("2025" vs "2026"), which marks them as legitimately
- *  distinct rather than near duplicates. */
+/** Matches every digit run so the near-miss guard can exempt sections that
+ *  differ only in their numbers ("2025" vs "2026"). */
 const DIGIT_RUN_PATTERN = /\d+/g
 
 /** Edit-distance budget for fuzzy near-miss detection, scaled to the shorter
@@ -267,6 +310,8 @@ const findNearMissSection = (
     if (section.level !== 2) return false
     const existingForm = sectionComparisonForm(section.heading)
 
+    // Catches what findSection's stricter normalization misses — e.g.
+    // "&amp;" decoded to "&", or extra whitespace collapsed.
     if (existingForm === requestedForm) return true
     const differsOnlyInDigits =
       existingForm.replace(DIGIT_RUN_PATTERN, "") === requestedFormWithoutDigits
@@ -431,28 +476,30 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   const renderMemoryTemplate = (
     spec: MemoryTemplateSpec,
     created: string,
-  ): { fileName: string; content: string } => ({
-    fileName: spec.fileName,
-    content: [
-      "---",
-      `title: ${spec.title}`,
-      `created: ${created}`,
-      "type: profile",
-      `entry-policy: ${spec.entryPolicy}`,
-      "tags:",
-      "  - memory",
-      `  - ${spec.tag}`,
-      "related:",
-      ...spec.related.map((sibling) => `  - "[[${memoryDir}/${sibling}]]"`),
-      "---",
-      "",
-      `# ${spec.title}`,
-      "",
-      spec.scope,
-      "",
-      ...spec.sections.flatMap((section) => [`## ${section}`, ""]),
-    ].join("\n"),
-  })
+  ): { fileName: string; content: string } => {
+    return {
+      fileName: spec.fileName,
+      content: [
+        "---",
+        `title: ${spec.title}`,
+        `created: ${created}`,
+        "type: profile",
+        `entry-policy: ${spec.entryPolicy}`,
+        "tags:",
+        "  - memory",
+        `  - ${spec.tag}`,
+        "related:",
+        ...spec.related.map((sibling) => `  - "[[${memoryDir}/${sibling}]]"`),
+        "---",
+        "",
+        `# ${spec.title}`,
+        "",
+        spec.scope,
+        "",
+        ...spec.sections.flatMap((section) => [`## ${section}`, ""]),
+      ].join("\n"),
+    }
+  }
 
   const readMemoryFile = async (vaultPath: string, file: string): Promise<string> => {
     try {
@@ -517,9 +564,9 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   ): Promise<string> => {
     if (!params.file) {
       const dir = join(params.vaultPath, memoryDir)
-      let entries: string[]
+      let filenames: string[]
       try {
-        entries = await readdir(dir)
+        filenames = await readdir(dir)
       } catch (err) {
         if (isErrnoException(err, "ENOENT")) {
           logger.info("get memory", { mode: "all", fileCount: 0 })
@@ -527,7 +574,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         }
         throw err
       }
-      const mdFiles = entries.filter(isVisibleMemoryFile).sort()
+      const mdFiles = filenames.filter(isVisibleMemoryFile).toSorted()
       const contents = await Promise.all(
         mdFiles.map(async (filename) => {
           const raw = await readFile(join(dir, filename), "utf8")
@@ -564,6 +611,55 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       section: params.section,
     })
     return body
+  }
+
+  const getMemoryEntries = async (
+    params: {
+      vaultPath: string
+      file: string
+      section: string
+      onOrAfter?: string | undefined
+    },
+    logger: Logger,
+  ): Promise<MemoryEntry[]> => {
+    const { onOrAfter } = params
+
+    if (onOrAfter && !isValidMemoryEntryDate(onOrAfter)) {
+      throw new Error(INVALID_MEMORY_ENTRY_DATE_MESSAGE)
+    }
+
+    const raw = await readMemoryFile(params.vaultPath, params.file)
+    const parsed = parseNote(raw)
+    const lines = splitIntoLines(parsed.content)
+    const sections = parseSections(lines)
+    const match = findSection(sections, params.section, 2)
+
+    if (!match) {
+      throw new Error(
+        `section not found: "${params.section}" in ${memoryDir}/${params.file}.md. Available sections: ${listSectionHeadings(sections)}`,
+      )
+    }
+
+    // parseMemoryEntries calls parseHeadings internally; the heading text it
+    // assigns to each entry is identical to match.heading from findSection above.
+    const allEntries = parseMemoryEntries(lines)
+    const sectionEntries = allEntries.filter((entry) => entry.section === match.heading)
+
+    // YYYY-MM-DD strings sort lexicographically in chronological order;
+    // onOrAfter is validated above, and entry dates are YYYY-MM-DD by construction.
+    const filteredEntries = onOrAfter
+      ? sectionEntries.filter((entry) => entry.date >= onOrAfter)
+      : sectionEntries
+
+    logger.info("get memory entries", {
+      file: params.file,
+      section: params.section,
+      onOrAfter,
+      totalInSection: sectionEntries.length,
+      returned: filteredEntries.length,
+    })
+
+    return filteredEntries
   }
 
   const updateMemory = async (
@@ -682,13 +778,15 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
       const bodyLines = contentLines.slice(match.bodyStartLine, match.bodyEndLine)
 
-      // Idempotency guard: if the exact bullet already exists in this section,
-      // the entry already landed — typically an MCP client retrying after a
-      // gateway timeout. Splicing again would create a duplicate that
-      // deleteMemory refuses to disambiguate, so no-op instead. Scoped to the
-      // target section: the same bullet under a different heading is a
-      // distinct entry and does not suppress the append.
-      if (bodyLines.includes(bullet)) {
+      const entryLineOffsets = scanGenuineEntryOffsets(bodyLines)
+
+      // Duplicate check scoped to genuine entries (not fenced lines).
+      // An exact duplicate means the entry already landed, typically from an
+      // MCP client retrying after a gateway timeout. The same bullet under a
+      // different heading is a distinct entry and does not suppress the append.
+      const isDuplicate = entryLineOffsets.some((offset) => bodyLines[offset] === bullet)
+
+      if (isDuplicate) {
         logger.info("memory entry unchanged", {
           file: params.file,
           section: params.section,
@@ -698,22 +796,16 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         return "unchanged"
       }
 
-      // File + section exist — find the first and last dated bullet within the
-      // section body to determine where to insert. Offsets are relative to bodyStartLine.
-      const firstBulletOffset = bodyLines.findIndex((line) => ENTRY_PATTERN.test(line))
-      const lastBulletOffset = bodyLines.reduce(
-        (lastMatchIndex, line, index) => (ENTRY_PATTERN.test(line) ? index : lastMatchIndex),
-        -1,
-      )
+      // -1 when the section has no genuine entries (the >= 0 guard below falls back to bodyEndLine)
+      const firstBulletOffset = entryLineOffsets.at(0) ?? -1
 
-      // Compute the absolute line index in the full content array for insertion.
       // "top" inserts before the first existing bullet (newest-first ordering).
-      // "bottom" inserts after the last existing bullet.
-      // Empty sections (no bullets) fall back to bodyEndLine — appends at section end.
+      // "bottom" inserts at the section end — the last entry's continuation
+      // lines extend to there, so lastBulletOffset + 1 would land inside them.
+      // Empty sections fall back to bodyEndLine for both positions.
       const topInsertIndex =
         firstBulletOffset >= 0 ? match.bodyStartLine + firstBulletOffset : match.bodyEndLine
-      const bottomInsertIndex =
-        lastBulletOffset >= 0 ? match.bodyStartLine + lastBulletOffset + 1 : match.bodyEndLine
+      const bottomInsertIndex = match.bodyEndLine
       const insertIndex = position === "top" ? topInsertIndex : bottomInsertIndex
 
       // Splice the new bullet into the content lines
@@ -752,15 +844,15 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     logger: Logger,
   ): Promise<MemoryFileOutline[]> => {
     const dir = join(params.vaultPath, memoryDir)
-    let entries: string[]
+    let filenames: string[]
     try {
-      entries = await readdir(dir)
+      filenames = await readdir(dir)
     } catch (err) {
       if (isErrnoException(err, "ENOENT")) return []
       throw err
     }
 
-    const mdFiles = entries.filter(isVisibleMemoryFile).sort()
+    const mdFiles = filenames.filter(isVisibleMemoryFile).toSorted()
 
     const outlines = await Promise.all(
       mdFiles.map(async (filename) => {
@@ -772,15 +864,15 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         const leadingCallout = parseLeadingCallout(lines)
         const sections = parseSections(lines)
 
-        const headings: MemoryHeading[] = sections.map((section) =>
-          section.level === 1
+        const headings: MemoryHeading[] = sections.map((section) => {
+          return section.level === 1
             ? { level: 1 as const, text: section.heading }
             : {
                 level: 2 as const,
                 text: section.heading,
                 entryCount: section.entryCount,
-              },
-        )
+              }
+        })
 
         const bytes = Buffer.byteLength(raw, "utf8")
         return {
@@ -806,17 +898,17 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     logger: Logger,
   ): Promise<string[]> => {
     const dir = join(params.vaultPath, memoryDir)
-    let entries: string[]
+    let filenames: string[]
     try {
-      entries = await readdir(dir)
+      filenames = await readdir(dir)
     } catch (err) {
       if (isErrnoException(err, "ENOENT")) return []
       throw err
     }
-    const names = entries
+    const names = filenames
       .filter(isVisibleMemoryFile)
       .map((filename) => basename(filename, ".md"))
-      .sort()
+      .toSorted()
     logger.debug("listed memory file names", { count: names.length })
     return names
   }
@@ -852,13 +944,13 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         )
       }
 
-      // Build the exact bullet string and find matching lines within the section
+      // Find the target bullet among genuine (non-fenced) entry lines.
       const targetBullet = `- **${params.date}**: ${params.entry}`
-      const matchingIndices = lines.flatMap((line, index) =>
-        index >= match.bodyStartLine && index < match.bodyEndLine && line === targetBullet
-          ? [index]
-          : [],
-      )
+      const sectionBodyLines = lines.slice(match.bodyStartLine, match.bodyEndLine)
+      const genuineEntryOffsets = scanGenuineEntryOffsets(sectionBodyLines)
+      const matchingIndices = genuineEntryOffsets
+        .filter((offset) => sectionBodyLines[offset] === targetBullet)
+        .map((offset) => match.bodyStartLine + offset)
 
       if (matchingIndices.length === 0) {
         throw new Error(
@@ -871,13 +963,28 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         )
       }
 
-      // Remove the single matched line, preserving everything before and after it
+      // Remove the matched entry's full span (bullet + continuation lines),
+      // not just the bullet — leaving continuations would fold them into the
+      // preceding entry's text.
       const matchIndex = matchingIndices[0]
 
       if (matchIndex === undefined) {
         throw new Error("expected at least one matching index")
       }
-      const updatedLines = [...lines.slice(0, matchIndex), ...lines.slice(matchIndex + 1)]
+      const matchOffset = matchIndex - match.bodyStartLine
+      const matchPosition = genuineEntryOffsets.indexOf(matchOffset)
+      const nextEntryOffset = genuineEntryOffsets[matchPosition + 1]
+      const rawSpanEnd =
+        nextEntryOffset !== undefined ? match.bodyStartLine + nextEntryOffset : match.bodyEndLine
+
+      // Trim trailing blank lines from the span — they separate sections
+      // or entries visually and don't belong to the deleted entry.
+      let trimmedSpanEnd = rawSpanEnd
+
+      while (trimmedSpanEnd > matchIndex + 1 && lines[trimmedSpanEnd - 1]?.trim() === "") {
+        trimmedSpanEnd--
+      }
+      const updatedLines = [...lines.slice(0, matchIndex), ...lines.slice(trimmedSpanEnd)]
 
       const newContent = updatedLines.join("\n")
       const serialized = stringifyNote(newContent, parsed.data)
@@ -901,7 +1008,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     })
   }
 
-  /** Creates the memory directory with template files if it doesn't exist. Idempotent. */
+  /** Idempotent — seeds the memory directory with template files on first boot. */
   const bootstrapMemoryDir = async (
     params: { vaultPath: string },
     logger: Logger,
@@ -919,17 +1026,19 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     if (!created) {
       throw new Error("DateTime.now().toISO() returned null")
     }
-    const templates = MEMORY_TEMPLATE_SPECS.map((spec) => renderMemoryTemplate(spec, created))
+    const templates = MEMORY_TEMPLATE_SPECS.map((spec) => {
+      return renderMemoryTemplate(spec, created)
+    })
     await Promise.all(
-      templates.map((template) =>
-        atomicWriteFile(
+      templates.map((template) => {
+        return atomicWriteFile(
           {
             filePath: join(dirPath, `${template.fileName}.md`),
             content: template.content,
           },
           logger,
-        ),
-      ),
+        )
+      }),
     )
     logger.info("bootstrapped memory directory", {
       memoryDir,
@@ -939,6 +1048,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
   return {
     getMemory,
+    getMemoryEntries,
     updateMemory,
     listMemoryFiles,
     listMemoryFileNames,
