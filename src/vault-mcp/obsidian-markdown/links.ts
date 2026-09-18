@@ -306,14 +306,11 @@ const resolve = (params: {
   const onlyMatch = basenameMatches.length === 1 ? basenameMatches[0] : undefined
 
   if (onlyMatch) return onlyMatch
-  // Multiple matches: prefer the shortest path (Obsidian's resolution heuristic)
-  if (basenameMatches.length > 1) {
-    return basenameMatches.reduce((shortest, candidatePath) =>
-      candidatePath.length < shortest.length ? candidatePath : shortest,
-    )
-  }
-
-  return null
+  // With multiple matches, Obsidian's heuristic prefers the shortest path;
+  // shortestOf also breaks equal-length ties lexicographically, so the
+  // winner never depends on allPaths order (callers feed it from unordered
+  // SQL scans that change across index rebuilds).
+  return shortestOf(basenameMatches)
 }
 
 /** Strips the file extension from a path, or returns the path unchanged when
@@ -326,7 +323,8 @@ const stripExtension = (filePath: string): string => {
   const dotIndex = fileName.lastIndexOf(".")
 
   if (dotIndex <= 0) return filePath
-  return filePath.slice(0, filePath.length - (fileName.length - dotIndex))
+  const extensionLength = fileName.length - dotIndex
+  return filePath.slice(0, filePath.length - extensionLength)
 }
 
 /** Returns the file extension including its dot ("photo.png" → ".png"), or ""
@@ -341,17 +339,38 @@ const getExtension = (filePath: string): string => {
   return fileName.slice(dotIndex)
 }
 
+/** Code-point count of a path — SQLite's length() metric, not the UTF-16
+ *  code-unit count that String.length reports (they differ on paths with
+ *  emoji or other non-BMP characters). */
+const codePointLength = (path: string): number => [...path].length
+
+/** Folds ASCII letters to lowercase — SQLite's LIKE folding, which touches
+ *  A-Z only. A full toLowerCase would also fold non-ASCII letters and
+ *  diverge from the LIKE predicates this fold exists to mirror. Exported so
+ *  every LIKE mirror (the asset suffix tiers here, the folder predicate in
+ *  search) folds by one rule. */
+export const foldAsciiCase = (path: string): string =>
+  path.replace(/[A-Z]/g, (letter) => letter.toLowerCase())
+
 /** Picks the winner among same-tier resolution matches: the shortest path,
- *  with a lexicographic tiebreak for determinism — mirroring the SQL
- *  resolver's ORDER BY length(path), path LIMIT 1. */
+ *  with a byte-order tiebreak for determinism — the same total order as the
+ *  SQL resolver's ORDER BY length(path), path LIMIT 1 (code-point length,
+ *  BINARY collation), so the array-based and SQL-backed resolvers can never
+ *  pick different files for one target. The Buffer.compare tie-break is
+ *  deliberately inline: this leaf layer cannot import utils, so it must
+ *  stay in lockstep with utils/compare-utf8-bytes.ts. */
 const shortestOf = (paths: string[]): string | null => {
   if (paths.length === 0) return null
-  return paths.reduce((shortest, candidatePath) =>
-    candidatePath.length < shortest.length ||
-    (candidatePath.length === shortest.length && candidatePath < shortest)
-      ? candidatePath
-      : shortest,
-  )
+  return paths.reduce((shortest, candidatePath) => {
+    const candidateLength = codePointLength(candidatePath)
+    const shortestLength = codePointLength(shortest)
+
+    if (candidateLength < shortestLength) return candidatePath
+    const tieBreaksEarlier =
+      candidateLength === shortestLength &&
+      Buffer.compare(Buffer.from(candidatePath), Buffer.from(shortest)) < 0
+    return tieBreaksEarlier ? candidatePath : shortest
+  })
 }
 
 /** Resolves a link target to a known non-markdown vault file, or null when no
@@ -369,8 +388,10 @@ const shortestOf = (paths: string[]): string | null => {
  *  with-extension target can stem-match a different file. Family ordering
  *  makes the full-filename match win, while the stem tiers stay the fallback
  *  so [[photo.png]] with only photo.png.canvas in the vault still resolves —
- *  mirroring Obsidian's stem matching. Extensionless targets fall through the
- *  full-filename family unmatched (stored paths always carry an extension). */
+ *  mirroring Obsidian's stem matching. An extensionless target can match in
+ *  both families: the full-filename tiers hit an extensionless file
+ *  (LICENSE, Dockerfile) by exact path or path suffix, and the stem tiers
+ *  hit any file whose extension-stripped name matches. */
 const resolveAsset = (params: {
   target: string
   allAssetPaths: readonly string[]
@@ -387,8 +408,12 @@ const resolveAsset = (params: {
     return relativeTarget
   }
 
+  // The suffix tiers fold ASCII case because their SQL twins compare with
+  // LIKE, which is ASCII-case-insensitive; the exact tiers stay
+  // case-sensitive because their twins compare with =.
+  const foldedTargetSuffix = foldAsciiCase(`/${target}`)
   const fullPathSuffixMatch = shortestOf(
-    allAssetPaths.filter((assetPath) => assetPath.endsWith(`/${target}`)),
+    allAssetPaths.filter((assetPath) => foldAsciiCase(assetPath).endsWith(foldedTargetSuffix)),
   )
 
   if (fullPathSuffixMatch) return fullPathSuffixMatch
@@ -414,7 +439,9 @@ const resolveAsset = (params: {
   // the last tier: shortestOf returns null on no match — the unresolved case.
   if (target.includes("/")) {
     return shortestOf(
-      allAssetPaths.filter((assetPath) => stripExtension(assetPath).endsWith(`/${target}`)),
+      allAssetPaths.filter((assetPath) =>
+        foldAsciiCase(stripExtension(assetPath)).endsWith(foldedTargetSuffix),
+      ),
     )
   }
   return shortestOf(

@@ -571,6 +571,30 @@ describe("resolve", () => {
     expect(links.resolve({ target: "note", allPaths })).toBe("note.md")
   })
 
+  it("breaks an equal-length basename tie lexicographically, not by input order", () => {
+    // zzz/Note.md first in the list — without the tie-break, input order
+    // (an unordered SQL scan at the call sites) would decide the winner.
+    const equalLengthPaths = ["zzz/Note.md", "aaa/Note.md"]
+    expect(links.resolve({ target: "Note", allPaths: equalLengthPaths })).toBe("aaa/Note.md")
+  })
+
+  it("measures shortest by code points, matching the SQL resolver's length()", () => {
+    // "📚/a.md" is 6 code points but 7 UTF-16 units — under a String.length
+    // metric it ties with "ab/a.md" and loses the tie, diverging from
+    // SQLite's ORDER BY length(path), which counts code points.
+    const paths = ["ab/a.md", "📚/a.md"]
+    expect(links.resolve({ target: "a", allPaths: paths })).toBe("📚/a.md")
+  })
+
+  it("breaks equal-length ties in UTF-8 byte order, matching BINARY collation", () => {
+    // Both paths hold the same two characters in opposite order, so both
+    // length metrics tie. UTF-16 code units put the emoji (surrogates,
+    // 0xD83D…) before U+FFFD, but UTF-8 bytes put U+FFFD (0xEF…) before
+    // the emoji (0xF0…) — SQLite's BINARY collation compares bytes.
+    const paths = ["😀�/a.md", "�😀/a.md"]
+    expect(links.resolve({ target: "a", allPaths: paths })).toBe("�😀/a.md")
+  })
+
   it("returns null for unresolvable target", () => {
     expect(links.resolve({ target: "NonExistent", allPaths })).toBeNull()
   })
@@ -688,6 +712,39 @@ describe("resolveAsset", () => {
     "deep/nested/assets/photo.png",
     "app/views/Inventory.base",
   ]
+
+  it("folds ASCII case in the path-suffix tier, matching the SQL twin's LIKE", () => {
+    // The indexer's suffix statements compare with LIKE (ASCII-case-
+    // insensitive), so the array resolver must fold too or the two
+    // resolvers pick different files for one target.
+    expect(
+      links.resolveAsset({
+        target: "sunset.png",
+        allAssetPaths: ["photos/Sunset.png"],
+      }),
+    ).toBe("photos/Sunset.png")
+  })
+
+  it("folds ASCII case in the folder-qualified stem tier, matching the SQL twin's LIKE", () => {
+    expect(
+      links.resolveAsset({
+        target: "views/Inventory",
+        allAssetPaths: ["app/Views/Inventory.base"],
+      }),
+    ).toBe("app/Views/Inventory.base")
+  })
+
+  it("keeps the exact-path tier case-sensitive, matching the SQL twin's =", () => {
+    // A full-path target with different casing misses the case-sensitive
+    // exact tier, and the suffix tier's leading "/" can never match a path
+    // from the vault root — null on both resolvers.
+    expect(
+      links.resolveAsset({
+        target: "photos/sunset.png",
+        allAssetPaths: ["photos/Sunset.png"],
+      }),
+    ).toBeNull()
+  })
 
   it("resolves an exact path with extension", () => {
     expect(links.resolveAsset({ target: "assets/photo.png", allAssetPaths })).toBe(

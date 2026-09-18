@@ -350,6 +350,174 @@ describe("memoryRecall", () => {
     expect(result.truncated).toBe(true)
   })
 
+  it("ranks tied FTS matches by file and entry position, not insertion order", async () => {
+    const identicalEntry = "- **2026-07-02**: Pacing beats crunch every time."
+    // Zzz is upserted before Aaa — without the tie-break, equal-bm25 entries
+    // return in insertion order and Zzz's copy would win the limit cut.
+    const index = await createRecallIndex({
+      withEmbedder: false,
+      files: {
+        Zzz: `# Zzz\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+        Aaa: `# Aaa\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+      },
+    })
+
+    const result = await index.memoryRecall({ query: "pacing crunch", limit: 1 }, logger)
+    expect(result.entries.map((entry) => entry.file)).toEqual(["Aaa"])
+  })
+
+  it("keeps the lower entry_index entry when identical same-file entries tie", async () => {
+    // Two identical entries in one file tie on rank and file, so entry_index
+    // decides the limit cut. Within one file, entry ids ascend with
+    // entry_index by construction, so this pins the first-entry-wins
+    // contract and a wrong sort direction — a dropped entry_index key alone
+    // is not observable here.
+    const identicalEntry = "- **2026-07-02**: Pacing beats crunch every time."
+    const index = await createRecallIndex({
+      withEmbedder: false,
+      files: {
+        Solo: `# Solo\n\n## First section (newest first)\n\n${identicalEntry}\n\n## Second section (newest first)\n\n${identicalEntry}\n`,
+      },
+    })
+
+    const result = await index.memoryRecall({ query: "pacing crunch", limit: 1 }, logger)
+    expect(result.entries.map((entry) => entry.section)).toEqual(["First section (newest first)"])
+  })
+
+  it("ranks tied-distance vector hits by file, not insertion order", async () => {
+    const identicalEntry = "- **2026-07-02**: Pacing beats crunch every time."
+    // All three entries embed to the same topic vector, so the KNN leg ties
+    // on distance; "recovery rhythm" shares no stems with the entry text, so
+    // the FTS leg is empty and the tie-break decides the limit cut. Aaa is
+    // upserted in the middle so neither insertion order nor its reverse puts
+    // it first — only the (file, entry_index) sort keys can, whichever way a
+    // vec0 build returns tied distances.
+    const index = await createRecallIndex({
+      files: {
+        Zzz: `# Zzz\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+        Aaa: `# Aaa\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+        Mmm: `# Mmm\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+      },
+    })
+
+    const result = await index.memoryRecall({ query: "recovery rhythm", limit: 1 }, logger)
+    expect(result.entries.map((entry) => entry.file)).toEqual(["Aaa"])
+  })
+
+  it("orders same-date evidence entries by code units, not locale collation", async () => {
+    const identicalEntry = "- **2026-07-02**: Pacing beats crunch every time."
+    // "Zeta" and "alpha" disagree between code-unit order (Z 0x5A before
+    // a 0x61) and en-US locale collation (alpha before Zeta) — the
+    // chronological sort's file tie-break must not follow the runtime's
+    // locale.
+    const index = await createRecallIndex({
+      withEmbedder: false,
+      files: {
+        alpha: `# alpha\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+        Zeta: `# Zeta\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+      },
+    })
+
+    const result = await index.memoryRecall({ query: "pacing crunch" }, logger)
+    expect(result.entries.map((entry) => entry.file)).toEqual(["Zeta", "alpha"])
+  })
+
+  it("resolves fused-score ties by content key, not index rowids", async () => {
+    // Aaa and Zzz swap ranks between the legs — identical BM25 stats put
+    // Aaa first in the FTS leg, while the embedder puts Zzz's vector on the
+    // query's dimension and Aaa's orthogonal — so their RRF sums tie
+    // exactly and the fusion identifier decides the limit cut. Zzz is
+    // upserted first to take the lower rowid; a rowid-keyed fusion would
+    // return Zzz's entry.
+    const embedderFavoringZzz = {
+      embedText: vi
+        .fn()
+        .mockImplementation((text: string) =>
+          Promise.resolve(seededEmbedding(text.includes("alpha-topic") ? 6 : 5)),
+        ),
+      embedBatch: vi
+        .fn()
+        .mockImplementation((texts: string[]) =>
+          Promise.resolve(
+            texts.map((text) => seededEmbedding(text.includes("alpha-topic") ? 6 : 5)),
+          ),
+        ),
+    }
+    const index = createSearchIndex(":memory:", embedderFavoringZzz, undefined, {
+      memoryDir: "About Me",
+    })
+    const seededFiles = [
+      ["Zzz", "beta-topic"],
+      ["Aaa", "alpha-topic"],
+    ] as const
+    for (const [fileName, topicMarker] of seededFiles) {
+      const filePath = `About Me/${fileName}.md`
+      const content = `# ${fileName}\n\n## Working style (newest first)\n\n- **2026-07-02**: Pacing beats crunch on ${topicMarker}.\n`
+      index.upsertNote(
+        {
+          filePath,
+          rawContent: content,
+          fileStat: { mtimeMs: 1000, size: 100 },
+        },
+        logger,
+      )
+      await index.embedNote({ notePath: filePath, rawContent: content }, logger)
+    }
+
+    const result = await index.memoryRecall({ query: "pacing crunch", limit: 1 }, logger)
+    expect(result.entries.map((entry) => entry.file)).toEqual(["Aaa"])
+  })
+
+  it("breaks a same-file fused-score tie by numeric entry order past nine entries", async () => {
+    // Entries 9 (alpha) and 10 (beta) swap ranks between the legs: FTS ties
+    // them on BM25 and orders by entry_index (9 first), while the embedder
+    // puts beta on the query's vector and alpha slightly off it (10 first).
+    // Their RRF sums tie exactly and the fusion identifier decides the limit
+    // cut — an unpadded index serializes "10" before "9" in byte order and
+    // returns the wrong entry.
+    const queryAlignedEmbedding = (): Float32Array => seededEmbedding(5)
+    const nearQueryEmbedding = (): Float32Array => {
+      const embedding = new Float32Array(DIMENSIONS).fill(0)
+      embedding[5] = 0.8
+      embedding[6] = 0.6
+      return embedding
+    }
+    const embeddingFor = (text: string): Float32Array => {
+      if (text.includes("beta-topic")) return queryAlignedEmbedding()
+      if (text.includes("alpha-topic")) return nearQueryEmbedding()
+      if (text.toLowerCase().includes("pacing")) return queryAlignedEmbedding()
+      return seededEmbedding(7)
+    }
+    const tieEmbedder = {
+      embedText: vi.fn().mockImplementation((text: string) => Promise.resolve(embeddingFor(text))),
+      embedBatch: vi
+        .fn()
+        .mockImplementation((texts: string[]) => Promise.resolve(texts.map(embeddingFor))),
+    }
+    const index = createSearchIndex(":memory:", tieEmbedder, undefined, {
+      memoryDir: "About Me",
+    })
+    const fillerEntries = Array.from(
+      { length: 9 },
+      (_, fillerIndex) => `- **2026-07-02**: Background logistics note ${String(fillerIndex)}.`,
+    ).join("\n")
+    const content = `# Ledger\n\n## Working style (newest first)\n\n${fillerEntries}\n- **2026-07-02**: Pacing beats crunch on alpha-topic.\n- **2026-07-02**: Pacing beats crunch on beta-topic.\n`
+    index.upsertNote(
+      {
+        filePath: "About Me/Ledger.md",
+        rawContent: content,
+        fileStat: { mtimeMs: 1000, size: 500 },
+      },
+      logger,
+    )
+    await index.embedNote({ notePath: "About Me/Ledger.md", rawContent: content }, logger)
+
+    const result = await index.memoryRecall({ query: "pacing crunch", limit: 1 }, logger)
+    expect(result.entries.map((entry) => entry.text)).toEqual([
+      "- **2026-07-02**: Pacing beats crunch on alpha-topic.",
+    ])
+  })
+
   it("rejects with a remediation message when no memory dir is configured", async () => {
     const index = createSearchIndex(":memory:")
     await expect(index.memoryRecall({ query: "anything" }, logger)).rejects.toThrow(

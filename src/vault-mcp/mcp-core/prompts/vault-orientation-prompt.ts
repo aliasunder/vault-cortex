@@ -4,6 +4,7 @@ import { createMemoryStore, type MemoryFileOutline } from "../../vault-operation
 import { vaultFs } from "../../vault-operations/vault-filesystem.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import { describeError } from "../../../utils/describe-error.js"
+import { compareByUtf8Bytes } from "../../../utils/compare-utf8-bytes.js"
 import type { ToolName } from "../tool-registry.js"
 import { type PromptRegistrationContext, textResult, formatNoteLine } from "./prompt-helpers.js"
 
@@ -37,7 +38,7 @@ const deriveFolderCounts = (paths: readonly string[]): FolderCount[] => {
   }
   return [...counts.entries()]
     .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .toSorted((folderA, folderB) => compareByUtf8Bytes(folderA.name, folderB.name))
 }
 
 /** Formats a single property key with its adoption rate, sample values, and

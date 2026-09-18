@@ -83,6 +83,19 @@ const requireCall = (name: string): RegisterToolCall => {
   return call
 }
 
+/** A registered tool's description, throwing a failure that names the tool —
+ *  a direct toContain over a missing description reads as a reference-list
+ *  problem instead of the registration bug that dropped it. */
+const requireDescription = (
+  toolConfig: { description?: string | undefined },
+  toolName: string,
+): string => {
+  if (!toolConfig.description) {
+    throw new Error(`tool ${toolName} registered without a description`)
+  }
+  return toolConfig.description
+}
+
 describe("registerTools", () => {
   it(`registers exactly ${ALL_TOOL_NAMES.length} tools`, () => {
     expect(mockServer.registerTool).toHaveBeenCalledTimes(ALL_TOOL_NAMES.length)
@@ -1026,8 +1039,8 @@ describe("MEMORY_ENABLED=false", () => {
       TOOL_NAMES.VAULT_UPDATE_MEMORY,
       TOOL_NAMES.VAULT_DELETE_MEMORY,
     ]
-    for (const [, config] of disabledCalls) {
-      const description = config.description!
+    for (const [name, config] of disabledCalls) {
+      const description = requireDescription(config, name)
       for (const memoryToolName of memoryToolReferences) {
         expect(description).not.toContain(memoryToolName)
       }
@@ -1070,10 +1083,10 @@ describe("FILE_TOOLS_ENABLED=false", () => {
 
   it("non-file tool descriptions do not reference file tools", () => {
     const disabledCalls = registerWithDisabledFileTools()
-    for (const [, toolConfig] of disabledCalls) {
-      expect(toolConfig.description).toBeDefined()
+    for (const [toolName, toolConfig] of disabledCalls) {
+      const description = requireDescription(toolConfig, toolName)
       for (const fileToolName of FILE_TOOLS) {
-        expect(toolConfig.description).not.toContain(fileToolName)
+        expect(description).not.toContain(fileToolName)
       }
     }
   })
@@ -1113,10 +1126,10 @@ describe("READONLY_MODE=true", () => {
 
   it("surviving tool descriptions do not reference mutating tools", () => {
     const readOnlyCalls = registerReadOnly()
-    for (const [, toolConfig] of readOnlyCalls) {
-      expect(toolConfig.description).toBeDefined()
+    for (const [toolName, toolConfig] of readOnlyCalls) {
+      const description = requireDescription(toolConfig, toolName)
       for (const mutatingToolName of MUTATING_TOOLS) {
-        expect(toolConfig.description).not.toContain(mutatingToolName)
+        expect(description).not.toContain(mutatingToolName)
       }
     }
   })

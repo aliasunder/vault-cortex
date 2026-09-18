@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { z } from "zod"
 import { isHarnessSnapshot } from "./search-eval-snapshot.js"
+import { caseFoldPath } from "../src/utils/case-fold-path.js"
 import type { SearchResult } from "../src/vault-mcp/search/search-index.js"
 
 // The schemas are strict because a plain schema would strip a typoed key
@@ -38,17 +39,25 @@ export type JudgmentQuery = z.infer<typeof judgmentQuerySchema>
 // ── Scoring ────────────────────────────────────────────────────
 
 /** True when the path is one of the judgment entry's expected answers —
- *  by exact `expected_any` match or by `expected_prefix`. A prefix without
- *  a trailing slash matches at a path-segment boundary, mirroring the
- *  snapshot exclusions — "docs" must not swallow "docs2/noise.txt". */
+ *  an exact `expected_any` match, or `expected_prefix` at a path-segment
+ *  boundary ("docs" never swallows "docs2/noise.txt"). Both sides are
+ *  case-folded like the snapshot exclusions, so a hand-typed "docs"
+ *  matches an on-disk "Docs/"; the cost is that paths differing only in
+ *  case both credit on a case-sensitive vault. */
 const matchesExpectedPath = (judgmentQuery: JudgmentQuery, path: string): boolean => {
-  if (judgmentQuery.expected_any?.includes(path)) return true
+  const foldedPath = caseFoldPath(path)
+  const foldedExpectedPaths = judgmentQuery.expected_any?.map(caseFoldPath)
+
+  if (foldedExpectedPaths?.includes(foldedPath)) return true
 
   const expectedPrefix = judgmentQuery.expected_prefix
 
   if (!expectedPrefix) return false
+
+  // Trailing slash means this is a folder-membership test: paths inside the
+  // folder match, but the folder path itself never does.
   const folderPrefix = expectedPrefix.endsWith("/") ? expectedPrefix : `${expectedPrefix}/`
-  return path.startsWith(folderPrefix)
+  return foldedPath.startsWith(caseFoldPath(folderPrefix))
 }
 
 export const rankOfFirstExpected = (
@@ -94,6 +103,20 @@ type EvalRunPlan = {
   indexReused: boolean
 }
 
+/** Parses a --file-leg-weight value, throwing unless it is a finite number
+ *  >= 0. Blank and whitespace-only values are rejected explicitly because
+ *  Number() coerces them to 0, which would silently disable the file legs;
+ *  an actual 0 is valid and does exactly that on purpose. */
+const parseFileLegWeight = (rawWeight: string): number => {
+  const weight = Number(rawWeight)
+  const weightIsValid = rawWeight.trim() !== "" && Number.isFinite(weight) && weight >= 0
+
+  if (!weightIsValid) {
+    throw new Error("--file-leg-weight must be a finite number >= 0")
+  }
+  return weight
+}
+
 /** Validates the CLI arguments and decides snapshot/index reuse from the
  *  work directory's current state, before anything opens the index
  *  database — createSearchIndex creates the file, so a later existence
@@ -112,18 +135,12 @@ export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
     return limit
   })
 
-  // An empty string (--file-leg-weight= with an unset shell variable) must
-  // reject like any other non-number, not silently fall back to the default.
+  // An absent flag means the server default applies; a present flag must
+  // parse cleanly, so a blank value (--file-leg-weight= with an unset shell
+  // variable) rejects instead of silently falling back.
   const rawFileLegWeight = cliArgs["file-leg-weight"]
-  const fileLegWeight = rawFileLegWeight === undefined ? undefined : Number(rawFileLegWeight)
-  // Strict undefined check — 0 is a valid weight (removes the file legs).
-  // Negated >= catches NaN (which fails every comparison).
-  const fileLegWeightInvalid =
-    rawFileLegWeight === "" || (fileLegWeight !== undefined && !(fileLegWeight >= 0))
-
-  if (fileLegWeightInvalid) {
-    throw new Error("--file-leg-weight must be a number >= 0")
-  }
+  const fileLegWeight =
+    rawFileLegWeight === undefined ? undefined : parseFileLegWeight(rawFileLegWeight)
 
   // A reused index over a freshly copied snapshot would score a corpus the
   // index never saw — the two reuse flags only make sense together.

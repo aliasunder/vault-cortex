@@ -659,9 +659,10 @@ export const createSearchIndex = (
   const resolveNonMdByFullPathStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE path = ? LIMIT 1`,
   )
-  /** All four base_path/basename/suffix queries use ORDER BY length(path), path
-   *  so resolution is deterministic when multiple non-md files share a stem —
-   *  shortest path wins, matching links.resolve's note-resolution heuristic. */
+  /** The multi-match resolution queries (resolveNonMdByBasePath, ByBasename,
+   *  ByBasePathSuffix, ByFullPathSuffix) all ORDER BY length(path), path so
+   *  the shortest path wins deterministically — matching links.resolve's
+   *  note-resolution heuristic. */
   const resolveNonMdByBasePathStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE base_path = ? ORDER BY length(path), path LIMIT 1`,
   )
@@ -720,7 +721,7 @@ export const createSearchIndex = (
          JOIN file_content fc ON fc.path = file_content_fts.path
          WHERE file_content_fts MATCH ?
            AND fc.path LIKE ? ESCAPE '\\'
-         ORDER BY rank LIMIT ?`,
+         ORDER BY rank, fc.path LIMIT ?`,
       )
     : null
   const selectFileContentMetadataStmt = fileToolsEnabled
@@ -892,16 +893,20 @@ export const createSearchIndex = (
           `DELETE FROM memory_entry_vectors WHERE entry_id IN (SELECT id FROM memory_entries WHERE file = ?)`,
         )
       : null
-  // Query side — memoryRecall's two retrieval legs plus row hydration.
+  // Query side — memoryRecall's two retrieval legs, each returning whole
+  // rows (the tie-break JOIN already reads memory_entries, so a separate
+  // per-row hydration lookup would re-read the same data).
+  // Every retrieval leg (FTS, KNN, memory, file content) orders ties by a
+  // stable content key (path, then chunk or entry position) — equal scores
+  // otherwise arrive in insertion order, which changes across index rebuilds
+  // and would flip fused rankings.
   const memoryFtsSearchStmt = memoryDir
-    ? db.prepare<[string], { entry_id: number }>(
-        `SELECT entry_id FROM memory_entries_fts WHERE memory_entries_fts MATCH ? ORDER BY rank`,
-      )
-    : null
-  const selectMemoryEntryByIdStmt = memoryDir
-    ? db.prepare<[number], queries.MemoryEntryRow>(
-        `SELECT id, file, section, entry_date, entry_text, entry_index
-         FROM memory_entries WHERE id = ?`,
+    ? db.prepare<[string], queries.MemoryEntryRow>(
+        `SELECT me.id, me.file, me.section, me.entry_date, me.entry_text, me.entry_index
+         FROM memory_entries_fts
+         JOIN memory_entries me ON me.id = memory_entries_fts.entry_id
+         WHERE memory_entries_fts MATCH ?
+         ORDER BY rank, me.file, me.entry_index`,
       )
     : null
   const memoryKnnStmt =
@@ -912,7 +917,7 @@ export const createSearchIndex = (
            JOIN memory_entries me ON me.id = mev.entry_id
            WHERE mev.embedding MATCH ?
              AND mev.k = ?
-           ORDER BY mev.distance`,
+           ORDER BY mev.distance, me.file, me.entry_index`,
         )
       : null
 
@@ -925,7 +930,7 @@ export const createSearchIndex = (
          JOIN note_chunks nc ON nc.id = nv.chunk_id
          WHERE nv.embedding MATCH ?
            AND nv.k = ?
-         ORDER BY nv.distance`,
+         ORDER BY nv.distance, nc.note_path, nc.chunk_index`,
       )
     : null
 
@@ -944,7 +949,7 @@ export const createSearchIndex = (
            AND nv.chunk_id IN (
              SELECT id FROM note_chunks WHERE note_path LIKE ? ESCAPE '\\'
            )
-         ORDER BY nv.distance`,
+         ORDER BY nv.distance, nc.note_path, nc.chunk_index`,
       )
     : null
 
@@ -964,7 +969,7 @@ export const createSearchIndex = (
          JOIN file_content_chunks fc ON fc.id = fv.chunk_id
          WHERE fv.embedding MATCH ?
            AND fv.k = ?
-         ORDER BY fv.distance`,
+         ORDER BY fv.distance, fc.file_path, fc.chunk_index`,
       )
     : null
 
@@ -979,7 +984,7 @@ export const createSearchIndex = (
            AND fv.chunk_id IN (
              SELECT id FROM file_content_chunks WHERE file_path LIKE ? ESCAPE '\\'
            )
-         ORDER BY fv.distance`,
+         ORDER BY fv.distance, fc.file_path, fc.chunk_index`,
       )
     : null
 
@@ -1005,17 +1010,20 @@ export const createSearchIndex = (
    *  links.resolve's three-tier strategy but checks against non_md_files
    *  instead of the notes table.
    *
-   *  The full-filename tiers (path column) all run before any stem tier
-   *  (extension-stripped base_path/basename columns). The families are
+   *  Resolution tiers are grouped into two families by what they match
+   *  against: the full-filename family queries the path column as-is, and
+   *  the stem family queries the extension-stripped base_path/basename
+   *  columns. The full-filename family runs first. The families are
    *  NOT disjoint: a multi-dot filename's stem retains its inner dots
    *  ("photo.png.canvas" → base_path "photo.png"), so a with-extension target
    *  can stem-match a different file. Family ordering makes the full-filename
    *  match win ("photo.png" prefers a/photo.png), while the stem tiers remain
    *  the fallback so [[photo.png]] with only photo.png.canvas in the vault
    *  still resolves — mirroring Obsidian's [[Trip Route]] → Trip Route.canvas
-   *  stem matching. Extensionless targets fall through the full-filename
-   *  family unmatched (stored paths always carry an extension) at the cost of
-   *  three query misses. */
+   *  stem matching. An extensionless target can match in both families: the
+   *  full-filename tiers hit an extensionless file (LICENSE, Dockerfile) by
+   *  exact path or path suffix, and the stem tiers hit any file whose
+   *  extension-stripped name matches. */
   const resolveNonMarkdownFile = (target: string, sourcePath?: string): string | null => {
     const relativeTarget =
       sourcePath === undefined ? null : posix.join(posix.dirname(sourcePath), target)
@@ -2383,15 +2391,13 @@ export const createSearchIndex = (
     // Null when no memory dir is configured — memoryRecall rejects with a
     // remediation message. knnStmt is additionally null without an embedder
     // (lexical-only recall).
-    memory:
-      memoryFtsSearchStmt && selectMemoryEntryByIdStmt
-        ? {
-            embedder,
-            ftsSearchStmt: memoryFtsSearchStmt,
-            knnStmt: memoryKnnStmt,
-            selectEntryByIdStmt: selectMemoryEntryByIdStmt,
-          }
-        : null,
+    memory: memoryFtsSearchStmt
+      ? {
+          embedder,
+          ftsSearchStmt: memoryFtsSearchStmt,
+          knnStmt: memoryKnnStmt,
+        }
+      : null,
     fileContentFts: searchFileContentFtsStmt ? { searchStmt: searchFileContentFtsStmt } : null,
     fileContentVector:
       fileContentKnnSearchStmt && fileContentKnnSearchInFolderStmt

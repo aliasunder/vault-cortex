@@ -219,6 +219,21 @@ const createSession = async (
   return { sessionId: transport.sessionId, transport }
 }
 
+/** First recorded call's args, throwing a named error when the function was
+ *  never called — so a wiring regression fails on the lookup that names the
+ *  missing call instead of a property access on undefined. */
+const requireFirstCall = <CallArgs extends readonly unknown[]>(
+  mockedFunction: { mock: { calls: CallArgs[] } },
+  functionName: string,
+): CallArgs => {
+  const firstCall = mockedFunction.mock.calls[0]
+
+  if (!firstCall) {
+    throw new Error(`${functionName} was never called`)
+  }
+  return firstCall
+}
+
 // Sets up a harness and immediately runs the initialize handshake so a
 // test can assert on the side-effects of session creation without
 // repeating the two-step setup in every it().
@@ -279,7 +294,7 @@ describe("createMcpRouter — POST /mcp", () => {
     it("constructs exactly one McpServer with the documented metadata", async () => {
       await setupInitializedSession()
       expect(McpServer).toHaveBeenCalledTimes(1)
-      const [info, options] = vi.mocked(McpServer).mock.calls[0]!
+      const [info, options] = requireFirstCall(vi.mocked(McpServer), "McpServer")
       expect(info).toEqual(SERVER_INFO)
       expect(options).toEqual(SERVER_OPTIONS)
     })
@@ -293,7 +308,7 @@ describe("createMcpRouter — POST /mcp", () => {
         headers: { ...baseHeaders },
         body: JSON.stringify(initializeBody),
       })
-      const callArgs = vi.mocked(McpServer).mock.calls[0]!
+      const callArgs = requireFirstCall(vi.mocked(McpServer), "McpServer")
       const info = callArgs[0] as { description?: string }
       const options = callArgs[1] as { instructions?: string }
       expect(info.description).toContain("Profile/")
@@ -541,32 +556,47 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
 
     it("connects the new server to the new transport", async () => {
       const { harness, transport } = await setupInitializedSession()
-      expect(harness.serverInstances[0]!.connect).toHaveBeenCalledWith(transport)
+      const firstServer = harness.serverInstances[0]
+
+      if (!firstServer) {
+        throw new Error("no McpServer instance was constructed")
+      }
+      expect(firstServer.connect).toHaveBeenCalledWith(transport)
     })
 
     it("forwards the request body to transport.handleRequest", async () => {
       const { transport } = await setupInitializedSession()
       expect(transport.handleRequest).toHaveBeenCalledTimes(1)
-      const requestBody = transport.handleRequest.mock.calls[0]![2]
-      expect(requestBody).toEqual(initializeBody)
+      // The first two args are live Express req/res instances — only the
+      // forwarded body has a comparable expected value.
+      expect(transport.handleRequest).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        initializeBody,
+      )
     })
 
     it("registers tools on the new server with vault context and config", async () => {
       const { harness } = await setupInitializedSession()
       expect(registerTools).toHaveBeenCalledTimes(1)
-      const toolRegistration = vi.mocked(registerTools).mock.calls[0]![0]
+      const [toolRegistration] = requireFirstCall(vi.mocked(registerTools), "registerTools")
+      const sessionLoggerResult = mockedLogger.child.mock.results[0]
+
+      if (!sessionLoggerResult) {
+        throw new Error("logger.child was never called")
+      }
       expect(toolRegistration.server).toBe(harness.serverInstances[0])
       expect(toolRegistration.vaultPath).toBe(VAULT_PATH)
       expect(toolRegistration.search).toBe(harness.search)
-      expect(toolRegistration.logger).toBe(mockedLogger.child.mock.results[0]!.value)
+      expect(toolRegistration.logger).toBe(sessionLoggerResult.value)
       expect(toolRegistration.config).toBe(DEFAULT_CONFIG)
     })
 
     it("registers prompts on the new server with the same vault context as the tools", async () => {
       const { harness } = await setupInitializedSession()
       expect(registerPrompts).toHaveBeenCalledTimes(1)
-      const promptRegistration = vi.mocked(registerPrompts).mock.calls[0]![0]
-      const toolRegistration = vi.mocked(registerTools).mock.calls[0]![0]
+      const [promptRegistration] = requireFirstCall(vi.mocked(registerPrompts), "registerPrompts")
+      const [toolRegistration] = requireFirstCall(vi.mocked(registerTools), "registerTools")
       expect(promptRegistration.server).toBe(harness.serverInstances[0])
       expect(promptRegistration.vaultPath).toBe(VAULT_PATH)
       expect(promptRegistration.search).toBe(harness.search)
@@ -733,8 +763,13 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
 
     expect(harness.transportInstances).toHaveLength(1)
     expect(transport.handleRequest).toHaveBeenCalledTimes(1)
-    const forwardedBody = transport.handleRequest.mock.calls[0]![2]
-    expect(forwardedBody).toEqual(followUp)
+    // The first two args are live Express req/res instances — only the
+    // forwarded body has a comparable expected value.
+    expect(transport.handleRequest).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      followUp,
+    )
     expect(mockedLogger.info).toHaveBeenCalledWith("mcp_response", {
       sessionId,
       clientIp: FORWARDED_IP,
@@ -927,7 +962,12 @@ describe("createMcpRouter — transport.onclose", () => {
     const { sessionId, transport } = await createSession(harness)
     mockedLogger.info.mockClear()
 
-    transport.onclose!()
+    const closeSession = transport.onclose
+
+    if (!closeSession) {
+      throw new Error("transport.onclose was not wired")
+    }
+    closeSession()
 
     expect(mockedLogger.info).toHaveBeenCalledWith("session_closed", {
       sessionId,
@@ -949,7 +989,12 @@ describe("createMcpRouter — transport.onclose", () => {
     transport.sessionId = undefined
     mockedLogger.info.mockClear()
 
-    expect(() => transport.onclose!()).not.toThrow()
+    const closeSession = transport.onclose
+
+    if (!closeSession) {
+      throw new Error("transport.onclose was not wired")
+    }
+    expect(closeSession).not.toThrow()
     expect(mockedLogger.info).not.toHaveBeenCalled()
   })
 })

@@ -198,6 +198,354 @@ describe("schema creation", () => {
   })
 })
 
+describe("equal-score tie-breaking in retrieval legs", () => {
+  const IDENTICAL_NOTE = "# Shared\n\nwalrus habitat survey notes\n"
+
+  it("orders equal-bm25 notes by path regardless of insertion order", () => {
+    const tieIndex = createSearchIndex(":memory:")
+    // Reverse-alphabetical insertion — without the path tie-break, equal
+    // bm25 scores return in insertion order and zzz.md would rank first.
+    tieIndex.upsertNote(
+      {
+        filePath: "zzz.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    tieIndex.upsertNote(
+      {
+        filePath: "aaa.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const results = tieIndex.fullTextSearch({ query: "walrus" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-mtime folder listings by path regardless of insertion order", () => {
+    const tieIndex = createSearchIndex(":memory:")
+    tieIndex.upsertNote(
+      {
+        filePath: "docs/zzz.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    tieIndex.upsertNote(
+      {
+        filePath: "docs/aaa.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const results = tieIndex.searchByFolder({ folder: "docs" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["docs/aaa.md", "docs/zzz.md"])
+  })
+
+  const TAGGED_NOTE = "---\ntags: [project]\n---\n\n# Tagged\n"
+
+  /** Two same-mtime notes sharing content, zzz.md inserted first. */
+  const createReverseInsertedPair = (rawContent: string): SearchIndex => {
+    const tieIndex = createSearchIndex(":memory:")
+    tieIndex.upsertNote({ filePath: "zzz.md", rawContent, fileStat: testStat(1000) }, logger)
+    tieIndex.upsertNote({ filePath: "aaa.md", rawContent, fileStat: testStat(1000) }, logger)
+    return tieIndex
+  }
+
+  it("orders equal-mtime tag search results by path", () => {
+    const tieIndex = createReverseInsertedPair(TAGGED_NOTE)
+    const results = tieIndex.searchByTag({ tag: "project" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-count tags alphabetically in the tag listing", () => {
+    const tieIndex = createReverseInsertedPair("---\ntags: [zzz-tag, aaa-tag]\n---\n\n# Tags\n")
+    const results = tieIndex.listAllTags({}, logger)
+    expect(results.map((tagCount) => tagCount.tag)).toEqual(["aaa-tag", "zzz-tag"])
+  })
+
+  it("orders equal-mtime recent notes by path", () => {
+    const tieIndex = createReverseInsertedPair(IDENTICAL_NOTE)
+    const results = tieIndex.recentNotes({}, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-created recent notes by path in created sort", () => {
+    const tieIndex = createReverseInsertedPair(
+      "---\ncreated: 2026-01-01T00:00:00-05:00\n---\n\n# Created\n",
+    )
+    const results = tieIndex.recentNotes({ sort_by: "created" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-count property keys alphabetically", () => {
+    const tieIndex = createReverseInsertedPair("---\nzz_last: 1\naa_first: 1\n---\n\n# Props\n")
+    const results = tieIndex.listPropertyKeys({}, logger)
+    expect(results.map((keyInfo) => keyInfo.key)).toEqual(["aa_first", "zz_last"])
+  })
+
+  it("orders equal-count sample values alphabetically within a property key", () => {
+    // Each note contributes a different status value (one note each), so all
+    // three sample values tie at count 1 — the alphabetical tie-break in the
+    // sample-values sub-query decides their order.
+    const tieIndex = createSearchIndex(":memory:")
+    tieIndex.upsertNote(
+      {
+        filePath: "a.md",
+        rawContent: "---\nstatus: zzz-status\n---\n\n# A\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    tieIndex.upsertNote(
+      {
+        filePath: "b.md",
+        rawContent: "---\nstatus: aaa-status\n---\n\n# B\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    tieIndex.upsertNote(
+      {
+        filePath: "c.md",
+        rawContent: "---\nstatus: mmm-status\n---\n\n# C\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    const results = tieIndex.listPropertyKeys({}, logger)
+    const statusKey = results.find((keyInfo) => keyInfo.key === "status")
+    expect(statusKey?.sample_values).toEqual(["aaa-status", "mmm-status", "zzz-status"])
+  })
+
+  it("orders equal-count property values alphabetically", () => {
+    const tieIndex = createReverseInsertedPair(
+      "---\nstatus: [zzz-value, aaa-value]\n---\n\n# Values\n",
+    )
+    const results = tieIndex.listPropertyValues({ key: "status" }, logger)
+    expect(results.map((valueCount) => valueCount.value)).toEqual(["aaa-value", "zzz-value"])
+  })
+
+  it("orders equal-mtime property search results by path", () => {
+    const tieIndex = createReverseInsertedPair("---\nstatus: active\n---\n\n# Status\n")
+    const results = tieIndex.searchByProperty({ key: "status", value: "active" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders same-title backlinks by source path", () => {
+    const tieIndex = createSearchIndex(":memory:")
+    tieIndex.upsertNote(
+      {
+        filePath: "Target.md",
+        rawContent: "# Target\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    const linkingNote = "---\ntitle: Same Title\n---\n\n[[Target]]\n"
+    tieIndex.upsertNote(
+      { filePath: "zzz.md", rawContent: linkingNote, fileStat: testStat(1000) },
+      logger,
+    )
+    tieIndex.upsertNote(
+      { filePath: "aaa.md", rawContent: linkingNote, fileStat: testStat(1000) },
+      logger,
+    )
+
+    const backlinks = tieIndex.getBacklinks({ path: "Target.md" }, logger)
+    expect(backlinks.map((backlink) => backlink.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-mtime orphans by path", () => {
+    const tieIndex = createReverseInsertedPair(IDENTICAL_NOTE)
+    const results = tieIndex.findOrphans({}, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-mtime notes by path in the modified-on-date listing", () => {
+    const middayMtime = DateTime.fromISO("2026-06-15T12:00:00").toMillis()
+    const tieIndex = createSearchIndex(":memory:")
+    tieIndex.upsertNote(
+      {
+        filePath: "zzz.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(middayMtime),
+      },
+      logger,
+    )
+    tieIndex.upsertNote(
+      {
+        filePath: "aaa.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(middayMtime),
+      },
+      logger,
+    )
+
+    const results = tieIndex.modifiedOnDate({ date: "2026-06-15" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-bm25 file results by path in FTS-only hybrid search", async () => {
+    const tieIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+    const identicalFileContent = "walrus habitat survey notes"
+    tieIndex.upsertNonMdFile("zzz.txt", 100)
+    tieIndex.upsertFileContent(
+      {
+        filePath: "zzz.txt",
+        rawContent: identicalFileContent,
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+    tieIndex.upsertNonMdFile("aaa.txt", 100)
+    tieIndex.upsertFileContent(
+      {
+        filePath: "aaa.txt",
+        rawContent: identicalFileContent,
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+
+    // With no embedder, fusion runs over the FTS legs alone — the file leg's
+    // internal order decides which tied file takes RRF rank 1, so this
+    // exercises the leg-level tie-break, not the fusion one.
+    const { results } = await tieIndex.hybridSearch({ query: "walrus" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.txt", "zzz.txt"])
+  })
+
+  /** Every text embeds to the same vector, so all KNN distances tie. */
+  const createUniformEmbedder = () => ({
+    embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+    embedBatch: vi.fn().mockImplementation((texts: string[]) => {
+      return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
+    }),
+  })
+
+  it("orders tied-distance note vector hits by path regardless of insertion order", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder())
+    // Insertion order (mmm, zzz, aaa) differs from both path order and its
+    // reverse, so the asserted order can come only from the secondary sort
+    // keys — whichever way a vec0 build returns tied distances.
+    for (const notePath of ["mmm.md", "zzz.md", "aaa.md"]) {
+      tieIndex.upsertNote(
+        {
+          filePath: notePath,
+          rawContent: IDENTICAL_NOTE,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+    }
+
+    // "orca" shares no stems with the note content, so the FTS leg is empty
+    // and the ranking comes from the vector leg's tied distances alone.
+    const { results } = await tieIndex.hybridSearch({ query: "orca" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "mmm.md", "zzz.md"])
+  })
+
+  it("orders tied-distance file vector hits by path regardless of insertion order", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder(), undefined, {
+      fileToolsEnabled: true,
+    })
+    const identicalFileContent = "walrus habitat survey notes"
+    // Insertion order (mmm, zzz, aaa) differs from both path order and its
+    // reverse, so the asserted order can come only from the secondary sort
+    // keys — whichever way a vec0 build returns tied distances.
+    for (const filePath of ["mmm.txt", "zzz.txt", "aaa.txt"]) {
+      tieIndex.upsertNonMdFile(filePath, 100)
+      tieIndex.upsertFileContent(
+        {
+          filePath,
+          rawContent: identicalFileContent,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await tieIndex.embedFileContent({ filePath }, logger)
+    }
+
+    // "orca" shares no stems with the file content, so the FTS legs are
+    // empty and the ranking comes from the file vector leg's tied distances.
+    const { results } = await tieIndex.hybridSearch({ query: "orca" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.txt", "mmm.txt", "zzz.txt"])
+  })
+
+  it("orders tied-distance note vector hits by path under a folder filter", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder())
+    // In-folder insertion order (mmm, zzz, aaa) differs from both path order
+    // and its reverse, so the asserted order can come only from the secondary
+    // sort keys — whichever way a vec0 build returns tied distances. The
+    // equally-tied note outside the folder is dropped by hybrid-search's
+    // post-SQL note filter under either KNN statement — this pins the
+    // in-folder statement's ordering keys, not which statement ran.
+    for (const notePath of ["docs/mmm.md", "docs/zzz.md", "other/out.md", "docs/aaa.md"]) {
+      tieIndex.upsertNote(
+        {
+          filePath: notePath,
+          rawContent: IDENTICAL_NOTE,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch(
+      { query: "orca", filters: { folder: "docs" } },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual([
+      "docs/aaa.md",
+      "docs/mmm.md",
+      "docs/zzz.md",
+    ])
+  })
+
+  it("orders tied-distance file vector hits by path under a folder filter", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder(), undefined, {
+      fileToolsEnabled: true,
+    })
+    const identicalFileContent = "walrus habitat survey notes"
+    // Same three-way seeding as the note test above — file legs scope to the
+    // folder in SQL alone, so the outside seed here genuinely proves the
+    // in-folder statement ran.
+    for (const filePath of ["docs/mmm.txt", "docs/zzz.txt", "other/out.txt", "docs/aaa.txt"]) {
+      tieIndex.upsertNonMdFile(filePath, 100)
+      tieIndex.upsertFileContent(
+        {
+          filePath,
+          rawContent: identicalFileContent,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await tieIndex.embedFileContent({ filePath }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch(
+      { query: "orca", filters: { folder: "docs" } },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual([
+      "docs/aaa.txt",
+      "docs/mmm.txt",
+      "docs/zzz.txt",
+    ])
+  })
+})
+
 describe("leading callout", () => {
   it("surfaces a note's leading callout in discovery results", () => {
     index.upsertNote(
@@ -1362,15 +1710,15 @@ describe("listPropertyKeys", () => {
     expect(keys.length).toBeGreaterThan(0)
     const titleKey = keys.find((entry) => entry.key === "title")
     expect(titleKey).toBeDefined()
-    expect(titleKey!.count).toBe(3)
+    expect(titleKey?.count).toBe(3)
   })
 
   it("includes sample_values for each key", () => {
     const keys = index.listPropertyKeys({}, logger)
     const statusKey = keys.find((entry) => entry.key === "status")
     expect(statusKey).toBeDefined()
-    expect(statusKey!.sample_values).toContain("in-progress")
-    expect(statusKey!.sample_values).toContain("done")
+    expect(statusKey?.sample_values).toContain("in-progress")
+    expect(statusKey?.sample_values).toContain("done")
   })
 
   it("returns at most 3 sample values", () => {
@@ -1386,7 +1734,7 @@ describe("listPropertyKeys", () => {
     }
     const keys = index.listPropertyKeys({}, logger)
     const varietyKey = keys.find((entry) => entry.key === "variety")
-    expect(varietyKey!.sample_values.length).toBeLessThanOrEqual(3)
+    expect(varietyKey?.sample_values.length).toBeLessThanOrEqual(3)
   })
 
   it("sorts by count descending", () => {
@@ -1404,7 +1752,7 @@ describe("listPropertyKeys", () => {
     const keys = index.listPropertyKeys({ folder: "Projects" }, logger)
     const statusKey = keys.find((entry) => entry.key === "status")
     expect(statusKey).toBeDefined()
-    expect(statusKey!.count).toBe(2)
+    expect(statusKey?.count).toBe(2)
   })
 
   it("folder filter excludes notes outside the folder", () => {
@@ -1425,7 +1773,7 @@ describe("listPropertyKeys", () => {
     const keys = index.listPropertyKeys({ folder: "Projects" }, logger)
     const statusKey = keys.find((entry) => entry.key === "status")
     expect(statusKey).toBeDefined()
-    expect(statusKey!.sample_values).not.toContain("blocked")
+    expect(statusKey?.sample_values).not.toContain("blocked")
   })
 })
 
@@ -1783,11 +2131,11 @@ describe("rebuildFromVault", () => {
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "Trip Route.canvas")
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "missing-note")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -1835,11 +2183,11 @@ describe("rebuildFromVault", () => {
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "canvases/Dashboard.canvas")
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -1856,11 +2204,11 @@ describe("rebuildFromVault", () => {
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "views/Inventory.base")
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -1872,7 +2220,7 @@ describe("rebuildFromVault", () => {
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("views/Inventory")
+    expect(outgoing[0]?.path).toBe("views/Inventory")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -1898,11 +2246,11 @@ describe("rebuildFromVault", () => {
     const outgoing = index.getOutgoingLinks({ path: "sub/source.md" }, logger)
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "Route.canvas")
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -1926,10 +2274,10 @@ describe("rebuildFromVault", () => {
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "photo.png")
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
-    expect(broken!.exists).toBe(false)
+    expect(broken?.exists).toBe(false)
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -1941,9 +2289,26 @@ describe("rebuildFromVault", () => {
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("Report.md")
-    expect(outgoing[0]!.kind).toBe("note")
-    expect(outgoing[0]!.exists).toBe(true)
+    expect(outgoing[0]?.path).toBe("Report.md")
+    expect(outgoing[0]?.kind).toBe("note")
+    expect(outgoing[0]?.exists).toBe(true)
+    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+  })
+
+  it("resolves a case-differing asset target through the SQL suffix tier's fold", async () => {
+    // The stored path differs from the link target only in case — the SQL
+    // suffix tier must match via LIKE's ASCII fold, mirroring the JS
+    // resolver's foldAsciiCase.
+    await mkdir(join(vaultDir, "photos"), { recursive: true })
+    await writeFile(join(vaultDir, "source.md"), "# Source\n\n![[sunset.png]]\n", "utf8")
+    await writeFile(join(vaultDir, "photos", "Sunset.png"), "binary", "utf8")
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]?.path).toBe("photos/Sunset.png")
+    expect(outgoing[0]?.kind).toBe("file")
+    expect(outgoing[0]?.exists).toBe(true)
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
   })
 
@@ -2122,27 +2487,27 @@ describe("getOutgoingLinks", () => {
 
     const existing = links.find((link) => link.path === "target-exists.md")
     expect(existing).toBeDefined()
-    expect(existing!.exists).toBe(true)
-    expect(existing!.kind).toBe("note")
-    expect(existing!.title).toBe("Target")
+    expect(existing?.exists).toBe(true)
+    expect(existing?.kind).toBe("note")
+    expect(existing?.title).toBe("Target")
   })
 
   it("marks unresolved links as exists: false with kind note", () => {
     const links = index.getOutgoingLinks({ path: "source.md" }, logger)
     const missing = links.find((link) => link.path === "NonExistent")
     expect(missing).toBeDefined()
-    expect(missing!.exists).toBe(false)
-    expect(missing!.kind).toBe("note")
-    expect(missing!.title).toBeNull()
-    expect(missing!.bytes).toBeNull()
+    expect(missing?.exists).toBe(false)
+    expect(missing?.kind).toBe("note")
+    expect(missing?.title).toBeNull()
+    expect(missing?.bytes).toBeNull()
   })
 
   it("includes bytes for existing targets, null for broken links", () => {
     const links = index.getOutgoingLinks({ path: "source.md" }, logger)
     const existing = links.find((link) => link.path === "target-exists.md")
-    expect(existing!.bytes).toBe(222)
+    expect(existing?.bytes).toBe(222)
     const broken = links.find((link) => link.path === "NonExistent")
-    expect(broken!.bytes).toBeNull()
+    expect(broken?.bytes).toBeNull()
   })
 
   it("flags daily note forward-refs when the folder is passed", () => {
@@ -2160,12 +2525,12 @@ describe("getOutgoingLinks", () => {
       logger,
     )
     const forwardRef = links.find((link) => link.path === "Daily Notes/2026-06-25")
-    expect(forwardRef!.exists).toBe(false)
-    expect(forwardRef!.daily_note_forward_ref).toBe(true)
+    expect(forwardRef?.exists).toBe(false)
+    expect(forwardRef?.daily_note_forward_ref).toBe(true)
 
     const genuinelyBroken = links.find((link) => link.path === "missing")
-    expect(genuinelyBroken!.exists).toBe(false)
-    expect(genuinelyBroken!.daily_note_forward_ref).toBe(false)
+    expect(genuinelyBroken?.exists).toBe(false)
+    expect(genuinelyBroken?.daily_note_forward_ref).toBe(false)
   })
 
   it("returns empty for notes with no outgoing links", () => {
@@ -2259,11 +2624,11 @@ describe("findOrphans", () => {
     const orphans = index.findOrphans({}, logger)
     const projectOrphan = orphans.find((orphan) => orphan.path === "Projects/orphan.md")
     expect(projectOrphan).toBeDefined()
-    expect(projectOrphan!.title).toBe("Orphan")
-    expect(projectOrphan!.tags).toEqual(["project"])
-    expect(projectOrphan!.folder).toBe("Projects")
-    expect(projectOrphan!.bytes).toBe(100)
-    expect(typeof projectOrphan!.modified).toBe("string")
+    expect(projectOrphan?.title).toBe("Orphan")
+    expect(projectOrphan?.tags).toEqual(["project"])
+    expect(projectOrphan?.folder).toBe("Projects")
+    expect(projectOrphan?.bytes).toBe(100)
+    expect(typeof projectOrphan?.modified).toBe("string")
   })
 
   it("treats self-linking notes as orphans", () => {
@@ -2589,9 +2954,9 @@ describe("brokenLinkCount", () => {
     )
     const outgoing = index.getOutgoingLinks({ path: "dashboard.md" }, logger)
     expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("sessions/log-a.md")
-    expect(outgoing[0]!.exists).toBe(true)
-    expect(outgoing[0]!.kind).toBe("note")
+    expect(outgoing[0]?.path).toBe("sessions/log-a.md")
+    expect(outgoing[0]?.exists).toBe(true)
+    expect(outgoing[0]?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
   })
 
@@ -2609,14 +2974,14 @@ describe("brokenLinkCount", () => {
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(3)
     const photo = outgoing.find((link) => link.path === "photo.png")
-    expect(photo!.exists).toBe(true)
-    expect(photo!.kind).toBe("file")
+    expect(photo?.exists).toBe(true)
+    expect(photo?.kind).toBe("file")
     const pdf = outgoing.find((link) => link.path === "report.pdf")
-    expect(pdf!.exists).toBe(true)
-    expect(pdf!.kind).toBe("file")
+    expect(pdf?.exists).toBe(true)
+    expect(pdf?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "real-note")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -2633,11 +2998,11 @@ describe("brokenLinkCount", () => {
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "Trip Route.canvas")
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "missing")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -2656,9 +3021,9 @@ describe("brokenLinkCount", () => {
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("Route.canvas")
-    expect(outgoing[0]!.exists).toBe(true)
-    expect(outgoing[0]!.kind).toBe("file")
+    expect(outgoing[0]?.path).toBe("Route.canvas")
+    expect(outgoing[0]?.exists).toBe(true)
+    expect(outgoing[0]?.kind).toBe("file")
   })
 
   it("removeNonMdFile makes previously resolved file links broken again", () => {
@@ -2677,8 +3042,8 @@ describe("brokenLinkCount", () => {
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.exists).toBe(false)
-    expect(outgoing[0]!.kind).toBe("note")
+    expect(outgoing[0]?.exists).toBe(false)
+    expect(outgoing[0]?.kind).toBe("note")
   })
 
   it("excludes forward-reference links that are valid dates under the daily note folder", () => {
@@ -4654,9 +5019,7 @@ describe("file content vector embeddings", () => {
 
       const vectorsAfter = inspectDb
         .prepare("SELECT COUNT(*) as count FROM file_content_vectors")
-        .get() as {
-        count: number
-      }
+        .get() as { count: number }
       expect(vectorsAfter.count).toBe(0)
     })
   })
@@ -4722,9 +5085,7 @@ describe("file content vector embeddings", () => {
 
       const vectorCount = inspectDb
         .prepare("SELECT COUNT(*) as count FROM file_content_vectors")
-        .get() as {
-        count: number
-      }
+        .get() as { count: number }
       expect(vectorCount.count).toBe(1)
     })
   })
