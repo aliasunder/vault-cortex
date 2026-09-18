@@ -28,9 +28,8 @@ const DEFAULT_STATUS_REGISTRY: ReadonlyMap<string, StatusClassification> = new M
   ["-", "cancelled"],
 ])
 
-/** The recurrence-behavior fields at the plugin's defaults — what a config
- *  file that doesn't mention them must produce. */
-const DEFAULT_RECURRENCE_FIELDS = {
+/** Plugin defaults shared by every config assertion: recurrence behavior + status registry. */
+const DEFAULT_PLUGIN_FIELDS = {
   setCreatedDate: false,
   recurrenceOnNextLine: false,
   removeScheduledDateOnRecurrence: false,
@@ -53,7 +52,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "emoji",
       setDoneDate: true,
       setCancelledDate: false,
-      ...DEFAULT_RECURRENCE_FIELDS,
+      ...DEFAULT_PLUGIN_FIELDS,
     })
   })
 
@@ -96,6 +95,7 @@ describe("readTaskFormatConfig", () => {
           { symbol: "!", name: "Urgent", nextStatusSymbol: "x", type: "TODO" },
           { symbol: ">", name: "Forwarded", nextStatusSymbol: " ", type: "NON_TASK" },
           { symbol: "?", name: "Question", nextStatusSymbol: " ", type: "IN_PROGRESS" },
+          { symbol: "~", name: "Dropped", nextStatusSymbol: " ", type: "CANCELLED" },
         ],
       },
     })
@@ -115,6 +115,7 @@ describe("readTaskFormatConfig", () => {
         ["!", "todo"],
         [">", "non_task"],
         ["?", "in_progress"],
+        ["~", "cancelled"],
       ]),
     )
   })
@@ -191,7 +192,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "dataview",
       setDoneDate: false,
       setCancelledDate: true,
-      ...DEFAULT_RECURRENCE_FIELDS,
+      ...DEFAULT_PLUGIN_FIELDS,
     })
   })
 
@@ -205,7 +206,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "emoji",
       setDoneDate: true,
       setCancelledDate: true,
-      ...DEFAULT_RECURRENCE_FIELDS,
+      ...DEFAULT_PLUGIN_FIELDS,
     })
   })
 
@@ -222,7 +223,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "emoji",
       setDoneDate: true,
       setCancelledDate: true,
-      ...DEFAULT_RECURRENCE_FIELDS,
+      ...DEFAULT_PLUGIN_FIELDS,
     })
   })
 
@@ -235,7 +236,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "emoji",
       setDoneDate: true,
       setCancelledDate: true,
-      ...DEFAULT_RECURRENCE_FIELDS,
+      ...DEFAULT_PLUGIN_FIELDS,
     })
 
     await writePluginConfig(vault, {
@@ -248,7 +249,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "dataview",
       setDoneDate: false,
       setCancelledDate: false,
-      ...DEFAULT_RECURRENCE_FIELDS,
+      ...DEFAULT_PLUGIN_FIELDS,
     })
   })
 
@@ -266,7 +267,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "dataview",
       setDoneDate: true,
       setCancelledDate: true,
-      ...DEFAULT_RECURRENCE_FIELDS,
+      ...DEFAULT_PLUGIN_FIELDS,
     })
 
     await writePluginConfig(vault, {
@@ -279,7 +280,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "dataview",
       setDoneDate: true,
       setCancelledDate: true,
-      ...DEFAULT_RECURRENCE_FIELDS,
+      ...DEFAULT_PLUGIN_FIELDS,
     })
   })
 })

@@ -16,7 +16,8 @@ const DEFAULT_STATUS_REGISTRY: ReadonlyMap<string, StatusClassification> = new M
 
 /** The recurrence-behavior settings at their plugin defaults, shared by
  *  every config literal in this file. */
-const DEFAULT_RECURRENCE_SETTINGS = {
+/** Plugin defaults shared by every config literal: recurrence behavior + status registry. */
+const DEFAULT_PLUGIN_SETTINGS = {
   setCreatedDate: false,
   recurrenceOnNextLine: false,
   removeScheduledDateOnRecurrence: false,
@@ -28,7 +29,7 @@ const EMOJI_CONFIG: TaskFormatConfig = {
   taskFormat: "emoji",
   setDoneDate: true,
   setCancelledDate: true,
-  ...DEFAULT_RECURRENCE_SETTINGS,
+  ...DEFAULT_PLUGIN_SETTINGS,
 }
 
 /** Dataview format config for format-specific tests. */
@@ -36,7 +37,7 @@ const DATAVIEW_CONFIG: TaskFormatConfig = {
   taskFormat: "dataview",
   setDoneDate: true,
   setCancelledDate: true,
-  ...DEFAULT_RECURRENCE_SETTINGS,
+  ...DEFAULT_PLUGIN_SETTINGS,
 }
 
 /** Builds a full ParsedTask from overrides so assertions compare whole
@@ -181,6 +182,20 @@ describe("tasks.extractTasks", () => {
       expect(extracted).toEqual([
         task({ line: 1, description: "Parent task", blockId: "parent", depth: 0 }),
         task({ line: 3, description: "Child after non-task", depth: 0 }),
+      ])
+    })
+
+    it("preserves the indent stack when a NON_TASK line is nested under a task", () => {
+      const content = [
+        "- [ ] Parent ^parent",
+        "  - [>] Forwarded child",
+        "  - [ ] Real child",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content, customRegistry)
+
+      expect(extracted).toEqual([
+        task({ line: 1, description: "Parent", blockId: "parent", depth: 0 }),
+        task({ line: 3, description: "Real child", depth: 1, parentLine: 1 }),
       ])
     })
 
@@ -1062,7 +1077,7 @@ describe("task line mutations", () => {
         taskFormat: "emoji",
         setDoneDate: false,
         setCancelledDate: true,
-        ...DEFAULT_RECURRENCE_SETTINGS,
+        ...DEFAULT_PLUGIN_SETTINGS,
       }
       const result = tasks.updateTaskLineStatus({
         taskLine: "- [ ] Task ➕ 2026-07-01",
@@ -1078,7 +1093,7 @@ describe("task line mutations", () => {
         taskFormat: "emoji",
         setDoneDate: true,
         setCancelledDate: false,
-        ...DEFAULT_RECURRENCE_SETTINGS,
+        ...DEFAULT_PLUGIN_SETTINGS,
       }
       const result = tasks.updateTaskLineStatus({
         taskLine: "- [ ] Task ➕ 2026-07-01",

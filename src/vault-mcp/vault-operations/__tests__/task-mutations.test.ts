@@ -5992,7 +5992,7 @@ title: Tasks
           { vaultPath: vault, path: "tasks.md", blockId: "example", status: "done" },
           logger,
         ),
-      ).rejects.toThrow("is inside a fenced code block or comment")
+      ).rejects.toThrow('blockId "example" is inside a fenced code block or comment in "tasks.md"')
     })
 
     it("createTask rejects a parent inside a fenced code block", async () => {
@@ -6014,7 +6014,9 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("is inside a fenced code block or comment")
+      ).rejects.toThrow(
+        'parent task not found: blockId "fenced" is inside a fenced code block or comment',
+      )
     })
 
     it("allows updating a task outside the fence", async () => {

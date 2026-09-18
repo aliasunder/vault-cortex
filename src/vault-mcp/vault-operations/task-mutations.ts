@@ -918,32 +918,13 @@ const appendSubtasks = ({
   const subtaskLines = descriptions.map(
     (subtaskText) => `${subtaskIndent}- [${todoChar}] ${subtaskText}`,
   )
-  const parentLine = lines[taskLineIndex]
-
-  if (!parentLine) {
-    throw new Error(`task line index ${taskLineIndex} out of bounds`)
-  }
-
-  const parentIndent = tasks.getTaskIndent(parentLine)
-  const childStartIndex = taskLineIndex + 1
-  const childLines = lines.slice(childStartIndex, blockEnd)
-  const isIndexedTask = (taskLine: string, childOffset: number): boolean => {
-    if (!tasks.isTaskLine(taskLine)) return false
-    if (isInsideFenceOrComment(lines, childStartIndex + childOffset)) return false
-    const charMatch = CHECKBOX_CHAR_RE.exec(taskLine)
-    const statusChar = charMatch?.[1]
-    return !statusChar || tasks.statusForChar(statusChar, statusRegistry) !== "non_task"
-  }
-  const indexedChildIndents = childLines
-    .filter((childLine, childOffset) => isIndexedTask(childLine, childOffset))
-    .map(tasks.getTaskIndent)
-  const directChildIndent =
-    indexedChildIndents.length > 0 ? Math.min(...indexedChildIndents) : parentIndent + 1
-
-  const existingSubtaskCount = childLines.filter((blockLine, childOffset) => {
-    if (!isIndexedTask(blockLine, childOffset)) return false
-    return tasks.getTaskIndent(blockLine) === directChildIndent
-  }).length
+  // Body-only content (lines has no frontmatter) so extractTasks line
+  // numbers are 1-based within the body, matching taskLineIndex + 1.
+  const bodyContent = lines.join("\n")
+  const taskBodyLine = taskLineIndex + 1
+  const existingSubtaskCount = tasks
+    .extractTasks(bodyContent, statusRegistry)
+    .filter((extractedTask) => extractedTask.parentLine === taskBodyLine).length
   return {
     lines: lines.toSpliced(blockEnd, 0, ...subtaskLines),
     subtaskPositions: subtaskPositionsFrom({
