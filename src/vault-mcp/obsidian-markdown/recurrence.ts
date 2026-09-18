@@ -21,22 +21,22 @@
  *  without spawning. The plugin wraps that null in an invalid moment and
  *  proceeds with garbage dates. */
 
-import { createRequire } from "node:module"
-import { DateTime } from "luxon"
-import type { Options } from "rrule"
-import type * as RRuleModule from "rrule"
+import { createRequire } from "node:module";
+import { DateTime } from "luxon";
+import type { Options } from "rrule";
+import type * as RRuleModule from "rrule";
 
 // rrule@2.8.1 has no `exports` map, and no single `import` works on both
 // resolution paths: plain node loads the CJS bundle (its named exports are
 // invisible to cjs-module-lexer), while bundler-style resolvers load the ESM
 // build (no default export, extensionless internal imports plain node
 // rejects). CommonJS require resolves the same CJS bundle everywhere.
-const requireModule = createRequire(import.meta.url)
-const rrule: typeof RRuleModule = requireModule("rrule")
-const { RRule } = rrule
+const requireModule = createRequire(import.meta.url);
+const rrule: typeof RRuleModule = requireModule("rrule");
+const { RRule } = rrule;
 // CJS require gives RRule as a value, not a type — this alias avoids
 // InstanceType<typeof RRule> at every use site.
-type RRuleInstance = InstanceType<typeof RRule>
+type RRuleInstance = InstanceType<typeof RRule>;
 
 // ── Rule parsing ────────────────────────────────────────────────
 
@@ -44,38 +44,38 @@ type RRuleInstance = InstanceType<typeof RRule>
  *  " when done" suffix (case-insensitive). The `!` in the charset is
  *  inherited from the plugin's own regex; rrule rejects it, but the
  *  try/catch handles that. */
-const RECURRENCE_RULE_RE = /^([a-zA-Z0-9, !]+?)( when done)?$/i
+const RECURRENCE_RULE_RE = /^([a-zA-Z0-9, !]+?)( when done)?$/i;
 
 export type ParsedRecurrenceRule = {
   /** True for " when done" rules — the next occurrence advances from the
    *  completion day instead of the reference date. */
-  advanceFromCompletionDay: boolean
+  advanceFromCompletionDay: boolean;
   /** rrule options from `RRule.parseText`, without a dtstart. */
-  rruleOptions: Partial<Options>
-}
+  rruleOptions: Partial<Options>;
+};
 
 /** Parses a 🔁 / `[repeat:: ]` rule's text, or null when the text is not a
  *  rule the plugin could read — the plugin treats such a task as
  *  non-recurring. */
-export const parseRecurrenceRule = (
-  recurrenceText: string,
-): ParsedRecurrenceRule | null => {
-  const ruleMatch = RECURRENCE_RULE_RE.exec(recurrenceText.trim())
-  if (!ruleMatch?.[1]) return null
+export const parseRecurrenceRule = (recurrenceText: string): ParsedRecurrenceRule | null => {
+  const ruleMatch = RECURRENCE_RULE_RE.exec(recurrenceText.trim());
 
-  const naturalLanguageRule = ruleMatch[1].trim()
-  const advanceFromCompletionDay = Boolean(ruleMatch[2])
+  if (!ruleMatch?.[1]) return null;
+
+  const naturalLanguageRule = ruleMatch[1].trim();
+  const advanceFromCompletionDay = Boolean(ruleMatch[2]);
 
   // The plugin wraps parseText in the same try/null — parseText throws on
   // text it half-recognizes and returns null on text it doesn't.
   try {
-    const rruleOptions = RRule.parseText(naturalLanguageRule)
-    if (rruleOptions === null) return null
-    return { advanceFromCompletionDay, rruleOptions }
+    const rruleOptions = RRule.parseText(naturalLanguageRule);
+
+    if (rruleOptions === null) return null;
+    return { advanceFromCompletionDay, rruleOptions };
   } catch {
-    return null
+    return null;
   }
-}
+};
 
 // ── Date plumbing ───────────────────────────────────────────────
 
@@ -83,51 +83,48 @@ export const parseRecurrenceRule = (
  *  date-only values enter and leave as UTC midnights and no local-time
  *  conversion ever happens on the rrule leg (the plugin's `.utc(true)` trick). */
 const utcMidnight = (isoDate: string): Date => {
-  const day = DateTime.fromISO(isoDate, { zone: "utc" })
-  if (!day.isValid) throw new Error(`invalid date: "${isoDate}"`)
-  return day.toJSDate()
-}
+  const day = DateTime.fromISO(isoDate, { zone: "utc" });
+
+  if (!day.isValid) throw new Error(`invalid date: "${isoDate}"`);
+  return day.toJSDate();
+};
 
 /** The last millisecond of a calendar day in UTC — the query point for
  *  "strictly after this day". */
 const utcEndOfDay = (isoDate: string): Date => {
-  const day = DateTime.fromISO(isoDate, { zone: "utc" })
-  if (!day.isValid) throw new Error(`invalid date: "${isoDate}"`)
-  return day.endOf("day").toJSDate()
-}
+  const day = DateTime.fromISO(isoDate, { zone: "utc" });
+
+  if (!day.isValid) throw new Error(`invalid date: "${isoDate}"`);
+  return day.endOf("day").toJSDate();
+};
 
 /** The calendar day of a UTC-midnight Date as a `YYYY-MM-DD` string. */
 const isoDateFromUtcDate = (date: Date): string => {
-  const isoDate = DateTime.fromJSDate(date, { zone: "utc" }).toISODate()
-  if (isoDate === null) throw new Error("invalid rrule result date")
-  return isoDate
-}
+  const isoDate = DateTime.fromJSDate(date, { zone: "utc" }).toISODate();
+
+  if (isoDate === null) throw new Error("invalid rrule result date");
+  return isoDate;
+};
 
 // ── Next-hit computation (the plugin's nextAfter) ───────────────
 
 /** Iteration cap for the walk-back loop. The real overflow is at most ~30
  *  days wide (one month), so 100 is well above any legitimate walk-back;
  *  the cap guards against a pathological rrule answer looping forever. */
-const WALK_BACK_ITERATION_CAP = 100
+const WALK_BACK_ITERATION_CAP = 100;
 
 /** Matches a monthly rule in rrule's canonical text ("every month",
  *  "every 3 months"), capturing the optional interval. The trailing
  *  non-capturing group absorbs modifiers like "on the 15th". */
-const MONTHLY_RULE_TEXT_RE = /every( \d+)? month(?:s)?(?:.*)?/
+const MONTHLY_RULE_TEXT_RE = /every( \d+)? month(?:s)?(?:.*)?/;
 /** Matches a yearly rule in rrule's canonical text, capturing the optional
  *  interval. */
-const YEARLY_RULE_TEXT_RE = /every( \d+)? year(?:s)?(?:.*)?/
+const YEARLY_RULE_TEXT_RE = /every( \d+)? year(?:s)?(?:.*)?/;
 
 /** Months from `after` to `next`, counted on UTC calendar components. */
-const monthsSkipped = ({
-  after,
-  next,
-}: {
-  after: DateTime
-  next: DateTime
-}): number => {
-  return next.month - after.month + (next.year - after.year) * 12
-}
+const monthsSkipped = ({ after, next }: { after: DateTime; next: DateTime }): number => {
+  return next.month - after.month + (next.year - after.year) * 12;
+};
 
 /** One walk-back step: move the query day one day into the past, rebuild
  *  the rule with dtstart on that day (rrule derives bymonthday from dtstart
@@ -137,19 +134,19 @@ const walkBackOneDay = ({
   queryDay,
   rruleOptions,
 }: {
-  queryDay: DateTime
-  rruleOptions: Partial<Options>
+  queryDay: DateTime;
+  rruleOptions: Partial<Options>;
 }): { queryDay: DateTime; candidateHit: Date | null } => {
-  const earlierDay = queryDay.minus({ days: 1 }).startOf("day")
+  const earlierDay = queryDay.minus({ days: 1 }).startOf("day");
   const rebuiltRule = new RRule({
     ...rruleOptions,
     dtstart: earlierDay.toJSDate(),
-  })
+  });
   return {
     queryDay: earlierDay,
     candidateHit: rebuiltRule.after(earlierDay.toJSDate()),
-  }
-}
+  };
+};
 
 /** The next rrule hit after `after`, with the plugin's monthly/yearly
  *  overflow correction: when the naive next hit skips more than the rule's
@@ -164,16 +161,17 @@ const correctedNextHit = ({
   rule,
   rruleOptions,
 }: {
-  after: Date
-  rule: RRuleInstance
-  rruleOptions: Partial<Options>
+  after: Date;
+  rule: RRuleInstance;
+  rruleOptions: Partial<Options>;
 }): Date | null => {
-  const uncorrectedHit = rule.after(after)
-  if (uncorrectedHit === null) return null
+  const uncorrectedHit = rule.after(after);
 
-  const canonicalRuleText = rule.toText()
-  const monthMatch = MONTHLY_RULE_TEXT_RE.exec(canonicalRuleText)
-  const yearMatch = YEARLY_RULE_TEXT_RE.exec(canonicalRuleText)
+  if (uncorrectedHit === null) return null;
+
+  const canonicalRuleText = rule.toText();
+  const monthMatch = MONTHLY_RULE_TEXT_RE.exec(canonicalRuleText);
+  const yearMatch = YEARLY_RULE_TEXT_RE.exec(canonicalRuleText);
 
   // " on " in the canonical text means the rule fixes an explicit day
   // ("every month on the 31st") — rrule's native month-skipping is correct
@@ -181,17 +179,14 @@ const correctedNextHit = ({
   // month rules only; year rules walk back unconditionally (its reachable
   // yearly grammar never carries " on " in canonical text — "every January
   // on the 31st" canonicalizes without the word "year").
-  const ruleFixesAnExplicitDay = canonicalRuleText.includes(" on ")
+  const ruleFixesAnExplicitDay = canonicalRuleText.includes(" on ");
 
   const monthIntervalToEnforce =
-    monthMatch && !ruleFixesAnExplicitDay
-      ? Number.parseInt(monthMatch[1]?.trim() ?? "1", 10)
-      : null
-  const yearIntervalToEnforce = yearMatch
-    ? Number.parseInt(yearMatch[1]?.trim() ?? "1", 10)
-    : null
+    monthMatch && !ruleFixesAnExplicitDay ? Number.parseInt(monthMatch[1]?.trim() ?? "1", 10) : null;
+  const yearIntervalToEnforce = yearMatch ? Number.parseInt(yearMatch[1]?.trim() ?? "1", 10) : null;
+
   if (monthIntervalToEnforce === null && yearIntervalToEnforce === null) {
-    return uncorrectedHit
+    return uncorrectedHit;
   }
 
   // Walk-back loop — sequential by nature: each iteration re-queries from
@@ -200,55 +195,54 @@ const correctedNextHit = ({
   // after the first step (walkBackOneDay normalizes it); harmless, because
   // the loop reads only month/year components, which are the same at either
   // end of a calendar day.
-  let queryDay: DateTime = DateTime.fromJSDate(after, { zone: "utc" })
-  let candidateHit = uncorrectedHit
+  let queryDay: DateTime = DateTime.fromJSDate(after, { zone: "utc" });
+  let candidateHit = uncorrectedHit;
   for (let iteration = 0; iteration < WALK_BACK_ITERATION_CAP; iteration++) {
-    const candidateDay = DateTime.fromJSDate(candidateHit, { zone: "utc" })
+    const candidateDay = DateTime.fromJSDate(candidateHit, { zone: "utc" });
 
     const skipsTooManyMonths =
       monthIntervalToEnforce !== null &&
-      monthsSkipped({ after: queryDay, next: candidateDay }) >
-        monthIntervalToEnforce
+      monthsSkipped({ after: queryDay, next: candidateDay }) > monthIntervalToEnforce;
     const skipsTooManyYears =
-      yearIntervalToEnforce !== null &&
-      candidateDay.year - queryDay.year > yearIntervalToEnforce
+      yearIntervalToEnforce !== null && candidateDay.year - queryDay.year > yearIntervalToEnforce;
 
-    if (!skipsTooManyMonths && !skipsTooManyYears) return candidateHit
+    if (!skipsTooManyMonths && !skipsTooManyYears) return candidateHit;
 
-    const walkedBack = walkBackOneDay({ queryDay, rruleOptions })
-    if (walkedBack.candidateHit === null) return null
+    const walkedBack = walkBackOneDay({ queryDay, rruleOptions });
 
-    queryDay = walkedBack.queryDay
-    candidateHit = walkedBack.candidateHit
+    if (walkedBack.candidateHit === null) return null;
+
+    queryDay = walkedBack.queryDay;
+    candidateHit = walkedBack.candidateHit;
   }
   // Budget exhausted — the rrule answer stayed out-of-interval for 100
   // walk-back steps. Return null (no next occurrence) rather than the
   // uncorrected date: a skipped spawn is recoverable, a wrong date isn't.
-  return null
-}
+  return null;
+};
 
 // ── Next occurrence dates (the plugin's Recurrence.next + Occurrence.next) ──
 
 export type NextOccurrenceParams = {
   /** Verbatim rule text from the task line (after 🔁 / `repeat::`). */
-  recurrenceText: string
-  startDate: string | null
-  scheduledDate: string | null
-  dueDate: string | null
+  recurrenceText: string;
+  startDate: string | null;
+  scheduledDate: string | null;
+  dueDate: string | null;
   /** The completion day, `YYYY-MM-DD` — "when done" rules advance from it. */
-  today: string
-  removeScheduledDateOnRecurrence: boolean
+  today: string;
+  removeScheduledDateOnRecurrence: boolean;
   /** IANA zone for the relative-shift day arithmetic (the plugin computes it
    *  on local instants, which differs from UTC-label arithmetic across
    *  half-day-plus timezone discontinuities). Defaults to the server zone. */
-  zone?: string | undefined
-}
+  zone?: string | undefined;
+};
 
 export type NextOccurrenceDates = {
-  startDate: string | null
-  scheduledDate: string | null
-  dueDate: string | null
-}
+  startDate: string | null;
+  scheduledDate: string | null;
+  dueDate: string | null;
+};
 
 /** First present date in the plugin's reference priority order. With
  *  `removeScheduledDateOnRecurrence` on, the scheduled date is about to be
@@ -259,16 +253,16 @@ const resolvedReferenceDate = ({
   dueDate,
   removeScheduledDateOnRecurrence,
 }: {
-  startDate: string | null
-  scheduledDate: string | null
-  dueDate: string | null
-  removeScheduledDateOnRecurrence: boolean
+  startDate: string | null;
+  scheduledDate: string | null;
+  dueDate: string | null;
+  removeScheduledDateOnRecurrence: boolean;
 }): string | null => {
   const datesInPriorityOrder = removeScheduledDateOnRecurrence
     ? [dueDate, startDate, scheduledDate]
-    : [dueDate, scheduledDate, startDate]
-  return datesInPriorityOrder.find((date) => date !== null) ?? null
-}
+    : [dueDate, scheduledDate, startDate];
+  return datesInPriorityOrder.find((date) => date !== null) ?? null;
+};
 
 /** Zone-local day arithmetic with truncation, matching the plugin's moment
  *  semantics — differs from UTC-label arithmetic across DST boundaries. */
@@ -278,48 +272,43 @@ const shiftByReferenceOffset = ({
   nextReferenceDate,
   zone,
 }: {
-  date: string
-  referenceDate: string
-  nextReferenceDate: string
-  zone: string
+  date: string;
+  referenceDate: string;
+  nextReferenceDate: string;
+  zone: string;
 }): string => {
-  const dateInZone = DateTime.fromISO(date, { zone })
-  const referenceInZone = DateTime.fromISO(referenceDate, { zone })
+  const dateInZone = DateTime.fromISO(date, { zone });
+  const referenceInZone = DateTime.fromISO(referenceDate, { zone });
   // Unitless diff then .as("days") is instant math — the plugin's moment
   // .diff() semantics. A "days"-unit diff would count calendar labels and
   // disagree across timezone discontinuities. Truncation toward zero matches
   // moment's behavior: on a spring-forward day the 23-hour gap gives 0, not 1.
-  const dayDistance = Math.trunc(dateInZone.diff(referenceInZone).as("days"))
-  const shifted = DateTime.fromISO(nextReferenceDate, { zone })
-    .plus({ days: dayDistance })
-    .toISODate()
-  if (shifted === null) throw new Error("invalid shifted occurrence date")
-  return shifted
-}
+  const dayDistance = Math.trunc(dateInZone.diff(referenceInZone).as("days"));
+  const shifted = DateTime.fromISO(nextReferenceDate, { zone }).plus({ days: dayDistance }).toISODate();
+
+  if (shifted === null) throw new Error("invalid shifted occurrence date");
+  return shifted;
+};
 
 /** The next occurrence's dates for a completed recurring task, or null when
  *  there is no next occurrence (rule text unparseable, or a finite rule is
  *  exhausted — the caller completes the task without spawning). A recurring
  *  task with no dates at all returns all-null dates: the plugin spawns a
  *  dateless copy. */
-export const nextOccurrenceDates = (
-  params: NextOccurrenceParams,
-): NextOccurrenceDates | null => {
-  const parsedRule = parseRecurrenceRule(params.recurrenceText)
-  if (parsedRule === null) return null
+export const nextOccurrenceDates = (params: NextOccurrenceParams): NextOccurrenceDates | null => {
+  const parsedRule = parseRecurrenceRule(params.recurrenceText);
 
-  const referenceDate = resolvedReferenceDate(params)
+  if (parsedRule === null) return null;
+
+  const referenceDate = resolvedReferenceDate(params);
 
   // The rule's dtstart anchors the series: the reference date normally, the
   // completion day for "when done" rules or when the task has no dates.
-  const seriesAnchor =
-    parsedRule.advanceFromCompletionDay || referenceDate === null
-      ? params.today
-      : referenceDate
+  const seriesAnchor = parsedRule.advanceFromCompletionDay || referenceDate === null ? params.today : referenceDate;
   const rule = new RRule({
     ...parsedRule.rruleOptions,
     dtstart: utcMidnight(seriesAnchor),
-  })
+  });
 
   // The next hit must be strictly after the anchor day, so the query point
   // is that day's last millisecond.
@@ -327,39 +316,37 @@ export const nextOccurrenceDates = (
     after: utcEndOfDay(seriesAnchor),
     rule,
     rruleOptions: parsedRule.rruleOptions,
-  })
-  if (nextHit === null) return null
+  });
+
+  if (nextHit === null) return null;
 
   // No reference date → the plugin spawns a dateless copy (it computes the
   // next hit and then discards it).
   if (referenceDate === null) {
-    return { startDate: null, scheduledDate: null, dueDate: null }
+    return { startDate: null, scheduledDate: null, dueDate: null };
   }
 
-  const nextReferenceDate = isoDateFromUtcDate(nextHit)
-  const zone = params.zone ?? "local"
+  const nextReferenceDate = isoDateFromUtcDate(nextHit);
+  const zone = params.zone ?? "local";
 
   const shiftedDate = (date: string | null): string | null => {
-    if (date === null) return null
+    if (date === null) return null;
     return shiftByReferenceOffset({
       date,
       referenceDate,
       nextReferenceDate,
       zone,
-    })
-  }
+    });
+  };
 
   // The scheduled date is dropped from the new occurrence when the setting
   // is on and another date survives to carry the series.
   const shouldDropScheduledDate =
-    params.removeScheduledDateOnRecurrence &&
-    (params.startDate !== null || params.dueDate !== null)
+    params.removeScheduledDateOnRecurrence && (params.startDate !== null || params.dueDate !== null);
 
   return {
     startDate: shiftedDate(params.startDate),
-    scheduledDate: shouldDropScheduledDate
-      ? null
-      : shiftedDate(params.scheduledDate),
+    scheduledDate: shouldDropScheduledDate ? null : shiftedDate(params.scheduledDate),
     dueDate: shiftedDate(params.dueDate),
-  }
-}
+  };
+};

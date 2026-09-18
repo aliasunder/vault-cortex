@@ -1,45 +1,34 @@
-import Database from "better-sqlite3"
-import { DateTime } from "luxon"
-import * as sqliteVec from "sqlite-vec"
-import { readFile, readdir, stat } from "node:fs/promises"
-import type { Dirent } from "node:fs"
-import { join, basename, posix, relative, resolve } from "node:path"
-import { setImmediate as setImmediateAsync } from "node:timers/promises"
-import type { Logger } from "../../logger.js"
-import { parseNote } from "../obsidian-markdown/frontmatter.js"
-import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
-import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
-import {
-  linearizeCanvas,
-  extractCanvasFileLinks,
-} from "../obsidian-markdown/canvas.js"
-import { links } from "../obsidian-markdown/links.js"
-import { splitIntoLines } from "../obsidian-markdown/lines.js"
-import { parseHeadings } from "../obsidian-markdown/headings.js"
-import {
-  parseMemoryEntries,
-  type MemoryEntry,
-} from "../obsidian-markdown/memory-entries.js"
-import { tasks } from "../obsidian-markdown/tasks.js"
-import type { TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
-import { contentHash, type Embedder } from "./embedder.js"
-import type { Reranker } from "./reranker.js"
-import { buildChunkMetadataPrefix, chunkNoteContent } from "./chunker.js"
-import { extractPdfText } from "../obsidian-markdown/pdf.js"
-import { caseFoldPath } from "../../utils/case-fold-path.js"
-import { describeError } from "../../utils/describe-error.js"
-import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
-import { statOrNull } from "../../utils/fs.js"
-import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
-import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
-import {
-  isString,
-  coerceToArray,
-  buildFtsMetadataText,
-  escapeLikeWildcards,
-} from "./search-helpers.js"
-import * as queries from "./search-queries.js"
-import { hybridSearch } from "./hybrid-search.js"
+import Database from "better-sqlite3";
+import { DateTime } from "luxon";
+import * as sqliteVec from "sqlite-vec";
+import { readFile, readdir, stat } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { join, basename, posix, relative, resolve } from "node:path";
+import { setImmediate as setImmediateAsync } from "node:timers/promises";
+import type { Logger } from "../../logger.js";
+import { parseNote } from "../obsidian-markdown/frontmatter.js";
+import { parseLeadingCallout } from "../obsidian-markdown/callouts.js";
+import type { LeadingCallout } from "../obsidian-markdown/callouts.js";
+import { linearizeCanvas, extractCanvasFileLinks } from "../obsidian-markdown/canvas.js";
+import { links } from "../obsidian-markdown/links.js";
+import { splitIntoLines } from "../obsidian-markdown/lines.js";
+import { parseHeadings } from "../obsidian-markdown/headings.js";
+import { parseMemoryEntries, type MemoryEntry } from "../obsidian-markdown/memory-entries.js";
+import { tasks } from "../obsidian-markdown/tasks.js";
+import type { TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js";
+import { contentHash, type Embedder } from "./embedder.js";
+import type { Reranker } from "./reranker.js";
+import { buildChunkMetadataPrefix, chunkNoteContent } from "./chunker.js";
+import { extractPdfText } from "../obsidian-markdown/pdf.js";
+import { caseFoldPath } from "../../utils/case-fold-path.js";
+import { describeError } from "../../utils/describe-error.js";
+import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js";
+import { statOrNull } from "../../utils/fs.js";
+import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js";
+import { mapWithConcurrency } from "../../utils/map-with-concurrency.js";
+import { isString, coerceToArray, buildFtsMetadataText, escapeLikeWildcards } from "./search-helpers.js";
+import * as queries from "./search-queries.js";
+import { hybridSearch } from "./hybrid-search.js";
 
 // ── File content indexing constants ─────────────────────────────
 
@@ -56,150 +45,151 @@ export const INDEXABLE_TEXT_EXTENSIONS = new Set([
   ".yaml",
   ".yml",
   ".base",
-])
+]);
 
 /** Cap on rendered content indexed into file_content_fts — prevents
  *  pathological FTS rows from large CSVs or verbose JSONs. */
-const MAX_INDEXED_CONTENT_BYTES = 102_400
+const MAX_INDEXED_CONTENT_BYTES = 102_400;
 
 /** Truncates a string to fit within a UTF-8 byte limit without splitting
  *  multi-byte characters — iterates Unicode code points and accumulates
  *  each code point's UTF-8 byte length, stopping before the cap. */
 const truncateToUtf8ByteLimit = (content: string, maxBytes: number): string => {
-  let usedBytes = 0
-  let endIndex = 0
+  let usedBytes = 0;
+  let endIndex = 0;
   for (const character of content) {
-    const characterBytes = Buffer.byteLength(character, "utf8")
-    if (usedBytes + characterBytes > maxBytes) break
-    usedBytes += characterBytes
+    const characterBytes = Buffer.byteLength(character, "utf8");
+
+    if (usedBytes + characterBytes > maxBytes) break;
+    usedBytes += characterBytes;
     // .length is UTF-16 code units — matches .slice()'s indexing
-    endIndex += character.length
+    endIndex += character.length;
   }
-  return content.slice(0, endIndex)
-}
+  return content.slice(0, endIndex);
+};
 
 // ── Types ───────────────────────────────────────────────────────
 
 /** A note path with its best-chunk distance from a vector KNN query. */
 export type VectorHit = Readonly<{
-  path: string
-  distance: number
-  chunkText: string
-}>
+  path: string;
+  distance: number;
+  chunkText: string;
+}>;
 
 export type SearchResult = {
-  path: string
-  title: string
-  snippet: string
-  score: number
-  tags: string[]
-  folder: string
-  type: string | null
-  created?: string
-  modified: string
-  bytes: number
-  leading_callout?: LeadingCallout
-  kind: "note" | "file"
-  extension?: string | undefined
-}
+  path: string;
+  title: string;
+  snippet: string;
+  score: number;
+  tags: string[];
+  folder: string;
+  type: string | null;
+  created?: string;
+  modified: string;
+  bytes: number;
+  leading_callout?: LeadingCallout;
+  kind: "note" | "file";
+  extension?: string | undefined;
+};
 
 export type HybridSearchResult = {
-  results: SearchResult[]
-  search_mode: "hybrid" | "fts"
-  reranked: boolean
-}
+  results: SearchResult[];
+  search_mode: "hybrid" | "fts";
+  reranked: boolean;
+};
 
 export type NoteMetadata = {
-  path: string
-  title: string
-  tags: string[]
-  related: string[]
-  folder: string
-  type: string | null
-  created: string | null
-  modified: string
-  bytes: number
-  properties: Record<string, unknown>
-  leading_callout: LeadingCallout | null
-}
+  path: string;
+  title: string;
+  tags: string[];
+  related: string[];
+  folder: string;
+  type: string | null;
+  created: string | null;
+  modified: string;
+  bytes: number;
+  properties: Record<string, unknown>;
+  leading_callout: LeadingCallout | null;
+};
 
 export type TagCount = {
-  tag: string
-  count: number
-}
+  tag: string;
+  count: number;
+};
 
 export type PropertyKeyInfo = {
-  key: string
-  count: number
-  sample_values: string[]
-}
+  key: string;
+  count: number;
+  sample_values: string[];
+};
 
 export type PropertyValueCount = {
-  value: string
-  count: number
-}
+  value: string;
+  count: number;
+};
 
 export type VaultStats = {
-  totalNotes: number
-  untaggedNotes: number
-  noPropertiesNotes: number
-}
+  totalNotes: number;
+  untaggedNotes: number;
+  noPropertiesNotes: number;
+};
 
 export type SearchFilters = {
-  folder?: string | undefined
-  tags?: string[] | undefined
-  related?: string[] | undefined
-  type?: string | undefined
-  properties?: Record<string, string | number | boolean> | undefined
-  created?: DateFilter | undefined
-  modified?: DateFilter | undefined
-}
+  folder?: string | undefined;
+  tags?: string[] | undefined;
+  related?: string[] | undefined;
+  type?: string | undefined;
+  properties?: Record<string, string | number | boolean> | undefined;
+  created?: DateFilter | undefined;
+  modified?: DateFilter | undefined;
+};
 
 export type NoteRow = {
-  path: string
-  title: string
-  tags: string
-  related: string
-  folder: string
-  type: string | null
-  created: string | null
-  mtime: number
-  properties: string
-  leading_callout: string | null
-  bytes: number
-}
+  path: string;
+  title: string;
+  tags: string;
+  related: string;
+  folder: string;
+  type: string | null;
+  created: string | null;
+  mtime: number;
+  properties: string;
+  leading_callout: string | null;
+  bytes: number;
+};
 
 /** One tasks-table row as stored in SQLite: depends_on and tags are
  *  JSON-encoded arrays; dates are raw YYYY-MM-DD strings. */
 export type TaskRow = {
-  note_path: string
-  line: number
-  status_char: string
-  status: TaskStatus
-  description: string
-  created: string | null
-  scheduled: string | null
-  start: string | null
-  due: string | null
-  done: string | null
-  cancelled: string | null
-  priority: TaskPriority | null
-  recurrence: string | null
-  on_completion: string | null
-  task_id: string | null
-  depends_on: string
-  tags: string
-  block_id: string | null
-  heading: string | null
-  folder: string
-  depth: number
-  parent_line: number | null
-  parent_block_id: string | null
-  subtask_done: number
-  subtask_total: number
-  is_kanban_task: number
-  kanban_done_lanes: string | null
-}
+  note_path: string;
+  line: number;
+  status_char: string;
+  status: TaskStatus;
+  description: string;
+  created: string | null;
+  scheduled: string | null;
+  start: string | null;
+  due: string | null;
+  done: string | null;
+  cancelled: string | null;
+  priority: TaskPriority | null;
+  recurrence: string | null;
+  on_completion: string | null;
+  task_id: string | null;
+  depends_on: string;
+  tags: string;
+  block_id: string | null;
+  heading: string | null;
+  folder: string;
+  depth: number;
+  parent_line: number | null;
+  parent_block_id: string | null;
+  subtask_done: number;
+  subtask_total: number;
+  is_kanban_task: number;
+  kanban_done_lanes: string | null;
+};
 
 /** One task on the wire — snake_case multi-word fields match the JSON
  *  response shape. Every entry carries its attribution (path, folder,
@@ -207,45 +197,44 @@ export type TaskRow = {
  *  the task doesn't have is omitted, never null: optional fields hold
  *  undefined, which JSON.stringify drops. */
 export type TaskEntry = {
-  path: string
-  line: number
-  status: TaskStatus
-  status_char: string
-  description: string
-  heading?: string | undefined
-  folder: string
-  created?: string | undefined
-  scheduled?: string | undefined
-  start?: string | undefined
-  due?: string | undefined
-  done?: string | undefined
-  cancelled?: string | undefined
-  priority?: TaskPriority | undefined
-  recurrence?: string | undefined
-  on_completion?: string | undefined
-  task_id?: string | undefined
-  depends_on: string[]
-  tags: string[]
-  block_id?: string | undefined
-  depth: number
-  parent_block_id?: string | undefined
-  subtask_progress?: SubtaskProgress | undefined
-  is_kanban_task: boolean
-  done_lanes?: string[] | undefined
-}
+  path: string;
+  line: number;
+  status: TaskStatus;
+  status_char: string;
+  description: string;
+  heading?: string | undefined;
+  folder: string;
+  created?: string | undefined;
+  scheduled?: string | undefined;
+  start?: string | undefined;
+  due?: string | undefined;
+  done?: string | undefined;
+  cancelled?: string | undefined;
+  priority?: TaskPriority | undefined;
+  recurrence?: string | undefined;
+  on_completion?: string | undefined;
+  task_id?: string | undefined;
+  depends_on: string[];
+  tags: string[];
+  block_id?: string | undefined;
+  depth: number;
+  parent_block_id?: string | undefined;
+  subtask_progress?: SubtaskProgress | undefined;
+  is_kanban_task: boolean;
+  done_lanes?: string[] | undefined;
+};
 
 /** Direct-children checklist progress, present only on tasks that have a
  *  checklist — an absent field means no checklist items. done counts
  *  status "done" only; cancelled children count toward total, not done.
  *  Counts are unaffected by the query's filters — progress is a property
  *  of the card, not of the query. */
-type SubtaskProgress = { done: number; total: number }
+type SubtaskProgress = { done: number; total: number };
 
 /** Status filter vocabulary for listTasks. "not_done" (the default) covers
  *  todo + in_progress — the Tasks plugin's own `not done` semantics, which
  *  exclude cancelled tasks. */
-export type TaskStatusFilter =
-  "not_done" | "todo" | "in_progress" | "done" | "cancelled" | "all"
+export type TaskStatusFilter = "not_done" | "todo" | "in_progress" | "done" | "cancelled" | "all";
 
 /** Date bounds for one date field — task dates and vault_search's
  *  created/modified filters. before/after are exclusive and on is an exact
@@ -253,41 +242,33 @@ export type TaskStatusFilter =
  *  dates and note created days compare lexicographically; modified bounds
  *  convert to server-local epoch-ms day boundaries. */
 export type DateFilter = {
-  before?: string | undefined
-  on?: string | undefined
-  after?: string | undefined
-}
+  before?: string | undefined;
+  on?: string | undefined;
+  after?: string | undefined;
+};
 
 /** Priority filter value — the five explicit levels plus "none" for tasks
  *  with no priority signifier. */
-export type TaskPriorityFilter = TaskPriority | "none"
+export type TaskPriorityFilter = TaskPriority | "none";
 
 /** Sort keys for listTasks. The five task dates and priority sort on the
  *  task's own metadata; note_mtime sorts on the owning note's modified time;
  *  position sorts by file path then line number (Kanban card order). */
-export type TaskSortKey =
-  | "due"
-  | "scheduled"
-  | "start"
-  | "created"
-  | "done"
-  | "priority"
-  | "note_mtime"
-  | "position"
+export type TaskSortKey = "due" | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime" | "position";
 
 /** listTasks response: tasks is the limit-capped page, total the full match
  *  count — so callers can tell "50 of 338" from "all 50". */
-export type ListTasksResult = { total: number; tasks: TaskEntry[] }
+export type ListTasksResult = { total: number; tasks: TaskEntry[] };
 
 /** One recalled memory entry on the wire. file + section feed directly back
  *  into vault_get_memory / vault_delete_memory; text is the raw entry
  *  markdown (wikilinks intact, continuation lines included). */
 export type MemoryRecallEntry = {
-  file: string
-  section: string
-  date: string
-  text: string
-}
+  file: string;
+  section: string;
+  date: string;
+  text: string;
+};
 
 /** memoryRecall response: entries is the limit-capped evidence set in
  *  ascending date order; total counts every entry that survived the
@@ -295,28 +276,28 @@ export type MemoryRecallEntry = {
  *  set is incomplete (the least-relevant matches were dropped — never a date
  *  range). */
 export type MemoryRecallResult = {
-  entries: MemoryRecallEntry[]
-  total: number
-  truncated: boolean
-  search_mode: "hybrid" | "fts"
-  reranked: boolean
-}
+  entries: MemoryRecallEntry[];
+  total: number;
+  truncated: boolean;
+  search_mode: "hybrid" | "fts";
+  reranked: boolean;
+};
 
-export type BacklinkEntry = { path: string; title: string; bytes: number }
+export type BacklinkEntry = { path: string; title: string; bytes: number };
 
 export type OutgoingLinkEntry = {
-  path: string
-  title: string | null
-  exists: boolean
+  path: string;
+  title: string | null;
+  exists: boolean;
   /** "note" for .md targets, "file" for resolved non-markdown files
    *  (.canvas, .base, images, etc.). Defaults to "note" for broken links. */
-  kind: "note" | "file"
-  bytes: number | null
+  kind: "note" | "file";
+  bytes: number | null;
   /** True when the target is under the daily notes folder and the note
    *  does not exist yet — a forward-reference ("create on click"
    *  navigation), not a genuinely broken link. */
-  daily_note_forward_ref: boolean
-}
+  daily_note_forward_ref: boolean;
+};
 
 // ── Link extraction ─────────────────────────────────────────────
 //
@@ -352,23 +333,23 @@ export const createSearchIndex = (
      *  its direct-child .md files are additionally indexed at entry
      *  granularity for vault_memory_recall; undefined (memory disabled)
      *  skips the entry tables entirely. */
-    memoryDir?: string | undefined
+    memoryDir?: string | undefined;
     /** When true, creates file_content + file_content_fts tables for
      *  full-text search of non-markdown file content (e.g. canvas). */
-    fileToolsEnabled?: boolean | undefined
+    fileToolsEnabled?: boolean | undefined;
     /** Query-time overrides for hybridSearch (file-leg RRF weight, reranker
      *  kind prefix — defaults in hybrid-search.ts) plus the index-time
      *  enrichChunkMetadata, which changes stored chunk text and re-embeds
      *  every note when flipped. Omitted in production; the search-eval
      *  harness sets these to measure candidate values. */
-    ranking?: queries.RankingTuning | undefined
+    ranking?: queries.RankingTuning | undefined;
   },
 ) => {
-  const memoryDir = options?.memoryDir
-  const fileToolsEnabled = options?.fileToolsEnabled ?? false
-  const db = new Database(dbPath)
-  db.pragma("journal_mode = WAL")
-  db.pragma("synchronous = NORMAL")
+  const memoryDir = options?.memoryDir;
+  const fileToolsEnabled = options?.fileToolsEnabled ?? false;
+  const db = new Database(dbPath);
+  db.pragma("journal_mode = WAL");
+  db.pragma("synchronous = NORMAL");
   // better-sqlite3 already defaults sqlite3_busy_timeout to 5000 ms at open;
   // stated explicitly so the retry contract survives refactors (e.g. a future
   // `timeout: 0` open option) and isn't re-flagged by audits as missing.
@@ -377,20 +358,16 @@ export const createSearchIndex = (
   // concurrent commit and the write-lock upgrade fails instantly with
   // SQLITE_BUSY_SNAPSHOT. Write-first wraps (upsertNote, removeNote) are
   // covered; a read-first wrap needs the .immediate() variant.
-  db.pragma("busy_timeout = 5000")
-  sqliteVec.load(db)
+  db.pragma("busy_timeout = 5000");
+  sqliteVec.load(db);
 
   // FTS5 doesn't support ALTER TABLE ADD COLUMN. When opening a warm database
   // that lacks the metadata column, drop the table so the CREATE below rebuilds
   // it with the new schema. rebuildFromVault repopulates on every startup.
-  const ftsColumns = db
-    .prepare<unknown[], { name: string }>("PRAGMA table_info(notes_fts)")
-    .all()
-  if (
-    ftsColumns.length > 0 &&
-    !ftsColumns.some((column) => column.name === "metadata")
-  ) {
-    db.exec("DROP TABLE notes_fts")
+  const ftsColumns = db.prepare<unknown[], { name: string }>("PRAGMA table_info(notes_fts)").all();
+
+  if (ftsColumns.length > 0 && !ftsColumns.some((column) => column.name === "metadata")) {
+    db.exec("DROP TABLE notes_fts");
   }
 
   db.exec(`
@@ -467,7 +444,7 @@ export const createSearchIndex = (
       trash_path  TEXT NOT NULL,
       trashed_at  INTEGER NOT NULL
     );
-  `)
+  `);
   // path UNINDEXED: stored for JOIN/DELETE but not searchable, saves index space
 
   // ── Vector tables (embedding pipeline) ────────────────────────
@@ -489,7 +466,7 @@ export const createSearchIndex = (
         chunk_id  INTEGER PRIMARY KEY,
         embedding float[384]
       );
-    `)
+    `);
   }
 
   // ── Memory-entry tables (vault_memory_recall) ──────────────────
@@ -518,7 +495,7 @@ export const createSearchIndex = (
       CREATE VIRTUAL TABLE IF NOT EXISTS memory_entries_fts USING fts5(
         entry_id UNINDEXED, file UNINDEXED, section, entry_text, tokenize='porter unicode61'
       );
-    `)
+    `);
     if (embedder) {
       // distance_metric=cosine (unlike note_vectors' L2 default): ordering is
       // identical on L2-normalized bge vectors, but memoryRecall's fallback
@@ -528,7 +505,7 @@ export const createSearchIndex = (
           entry_id  INTEGER PRIMARY KEY,
           embedding float[384] distance_metric=cosine
         );
-      `)
+      `);
     }
   }
 
@@ -549,7 +526,7 @@ export const createSearchIndex = (
       CREATE VIRTUAL TABLE IF NOT EXISTS file_content_fts USING fts5(
         path UNINDEXED, title, content, tokenize='porter unicode61'
       );
-    `)
+    `);
     if (embedder) {
       db.exec(`
         CREATE TABLE IF NOT EXISTS file_content_chunks (
@@ -566,7 +543,7 @@ export const createSearchIndex = (
           chunk_id  INTEGER PRIMARY KEY,
           embedding float[384]
         );
-      `)
+      `);
     }
   }
 
@@ -575,32 +552,30 @@ export const createSearchIndex = (
   // (and the upsert below would throw). Add it idempotently when absent. The
   // column is not FTS-indexed — the callout text already lives in `content`, so
   // it's searchable; this column only stores the parsed block for cheap retrieval.
-  const noteColumns = db
-    .prepare<unknown[], { name: string }>(`PRAGMA table_info(notes)`)
-    .all()
+  const noteColumns = db.prepare<unknown[], { name: string }>(`PRAGMA table_info(notes)`).all();
+
   if (!noteColumns.some((column) => column.name === "leading_callout")) {
-    db.exec(`ALTER TABLE notes ADD COLUMN leading_callout TEXT`)
+    db.exec(`ALTER TABLE notes ADD COLUMN leading_callout TEXT`);
   }
   if (!noteColumns.some((column) => column.name === "bytes")) {
-    db.exec(`ALTER TABLE notes ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0`)
+    db.exec(`ALTER TABLE notes ADD COLUMN bytes INTEGER NOT NULL DEFAULT 0`);
   }
   if (!noteColumns.some((column) => column.name === "kanban_done_lanes")) {
-    db.exec(`ALTER TABLE notes ADD COLUMN kanban_done_lanes TEXT`)
+    db.exec(`ALTER TABLE notes ADD COLUMN kanban_done_lanes TEXT`);
   }
 
   // Same idempotent migration for tasks: depth/parent columns for sub-task
   // tracking.
-  const taskColumns = db
-    .prepare<unknown[], { name: string }>(`PRAGMA table_info(tasks)`)
-    .all()
+  const taskColumns = db.prepare<unknown[], { name: string }>(`PRAGMA table_info(tasks)`).all();
+
   if (!taskColumns.some((column) => column.name === "depth")) {
-    db.exec(`ALTER TABLE tasks ADD COLUMN depth INTEGER NOT NULL DEFAULT 0`)
+    db.exec(`ALTER TABLE tasks ADD COLUMN depth INTEGER NOT NULL DEFAULT 0`);
   }
   if (!taskColumns.some((column) => column.name === "parent_line")) {
-    db.exec(`ALTER TABLE tasks ADD COLUMN parent_line INTEGER`)
+    db.exec(`ALTER TABLE tasks ADD COLUMN parent_line INTEGER`);
   }
   if (!taskColumns.some((column) => column.name === "parent_block_id")) {
-    db.exec(`ALTER TABLE tasks ADD COLUMN parent_block_id TEXT`)
+    db.exec(`ALTER TABLE tasks ADD COLUMN parent_block_id TEXT`);
   }
 
   // Created after the parent_line migration — the column may not exist when
@@ -610,16 +585,15 @@ export const createSearchIndex = (
   db.exec(
     `CREATE INDEX IF NOT EXISTS idx_tasks_parent_line
        ON tasks(note_path, parent_line) WHERE parent_line IS NOT NULL`,
-  )
+  );
 
   // Same idempotent migration for non_md_files.bytes: a warm database from
   // before the column existed would fail the upsert. Nullable — NULL means
   // "not yet statted"; the startup rebuild backfills every row.
-  const nonMdColumns = db
-    .prepare<unknown[], { name: string }>(`PRAGMA table_info(non_md_files)`)
-    .all()
+  const nonMdColumns = db.prepare<unknown[], { name: string }>(`PRAGMA table_info(non_md_files)`).all();
+
   if (!nonMdColumns.some((column) => column.name === "bytes")) {
-    db.exec(`ALTER TABLE non_md_files ADD COLUMN bytes INTEGER`)
+    db.exec(`ALTER TABLE non_md_files ADD COLUMN bytes INTEGER`);
   }
 
   // Prepared statements are compiled once here and reused across all calls.
@@ -628,13 +602,11 @@ export const createSearchIndex = (
   const upsertNotesStmt = db.prepare(`
     INSERT OR REPLACE INTO notes (path, title, content, tags, related, folder, type, created, mtime, properties, leading_callout, bytes, kanban_done_lanes)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `)
-  const deleteFtsStmt = db.prepare(`DELETE FROM notes_fts WHERE path = ?`)
-  const insertFtsStmt = db.prepare(
-    `INSERT INTO notes_fts (path, title, content, metadata) VALUES (?, ?, ?, ?)`,
-  )
-  const removeNotesStmt = db.prepare(`DELETE FROM notes WHERE path = ?`)
-  const deleteTasksStmt = db.prepare(`DELETE FROM tasks WHERE note_path = ?`)
+  `);
+  const deleteFtsStmt = db.prepare(`DELETE FROM notes_fts WHERE path = ?`);
+  const insertFtsStmt = db.prepare(`INSERT INTO notes_fts (path, title, content, metadata) VALUES (?, ?, ?, ?)`);
+  const removeNotesStmt = db.prepare(`DELETE FROM notes WHERE path = ?`);
+  const deleteTasksStmt = db.prepare(`DELETE FROM tasks WHERE note_path = ?`);
   const insertTaskStmt = db.prepare(`
     INSERT INTO tasks (note_path, line, status_char, status, description,
       created, scheduled, start, due, done, cancelled,
@@ -644,28 +616,21 @@ export const createSearchIndex = (
       @created, @scheduled, @start, @due, @done, @cancelled,
       @priority, @recurrence, @onCompletion, @taskId, @dependsOn, @tags,
       @blockId, @heading, @folder, @depth, @parentLine, @parentBlockId)
-  `)
-  const deleteLinksStmt = db.prepare(`DELETE FROM links WHERE source = ?`)
-  const insertLinkStmt = db.prepare(
-    `INSERT OR IGNORE INTO links (source, target) VALUES (?, ?)`,
-  )
+  `);
+  const deleteLinksStmt = db.prepare(`DELETE FROM links WHERE source = ?`);
+  const insertLinkStmt = db.prepare(`INSERT OR IGNORE INTO links (source, target) VALUES (?, ?)`);
   // Links whose target isn't a known note or non-md file — stored as raw text
   // because they were unresolved when indexed (e.g. a forward reference).
   // Used by both note and non-md re-resolution to find candidates to upgrade.
-  const selectUnresolvedLinksStmt = db.prepare<
-    unknown[],
-    { source: string; target: string }
-  >(
+  const selectUnresolvedLinksStmt = db.prepare<unknown[], { source: string; target: string }>(
     `SELECT source, target FROM links WHERE target NOT IN (SELECT path FROM notes) AND target NOT IN (SELECT path FROM non_md_files)`,
-  )
+  );
   // Upgrade one raw link to its resolved path. OR REPLACE drops a pre-existing
   // (source, resolved) row so re-resolution can't hit a PK collision.
   const updateLinkTargetStmt = db.prepare(
     `UPDATE OR REPLACE links SET target = @resolved WHERE source = @source AND target = @rawTarget`,
-  )
-  const selectAllNotePathsStmt = db.prepare<unknown[], { path: string }>(
-    `SELECT path FROM notes`,
-  )
+  );
+  const selectAllNotePathsStmt = db.prepare<unknown[], { path: string }>(`SELECT path FROM notes`);
 
   // ── Non-markdown file awareness ────────────────────────────────
   //
@@ -677,63 +642,49 @@ export const createSearchIndex = (
 
   const upsertNonMdFileStmt = db.prepare(
     `INSERT OR REPLACE INTO non_md_files (path, base_path, basename, bytes) VALUES (?, ?, ?, ?)`,
-  )
-  const deleteNonMdFileStmt = db.prepare(
-    `DELETE FROM non_md_files WHERE path = ?`,
-  )
+  );
+  const deleteNonMdFileStmt = db.prepare(`DELETE FROM non_md_files WHERE path = ?`);
   /** Direct path match for targets that already include a non-md extension
    *  (e.g. `[[photo.png]]`, `![[diagram.svg]]`). */
   const resolveNonMdByFullPathStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE path = ? LIMIT 1`,
-  )
+  );
   /** All four base_path/basename/suffix queries use ORDER BY length(path), path
    *  so resolution is deterministic when multiple non-md files share a stem —
    *  shortest path wins, matching links.resolve's note-resolution heuristic. */
   const resolveNonMdByBasePathStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE base_path = ? ORDER BY length(path), path LIMIT 1`,
-  )
+  );
   const resolveNonMdByBasenameStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE basename = ? ORDER BY length(path), path LIMIT 1`,
-  )
+  );
   /** Suffix-path match: finds non-md files whose base_path ends with the target
    *  (preserving folder segments). Mirrors links.resolve's basename tier which
    *  checks `candidatePath.endsWith('/' + target)`. ESCAPE clause prevents `_`
    *  and `%` in the target from acting as LIKE wildcards. */
-  const resolveNonMdByBasePathSuffixStmt = db.prepare<
-    [string],
-    { path: string }
-  >(
+  const resolveNonMdByBasePathSuffixStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE base_path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
-  )
+  );
   /** Suffix match on the full stored path, for targets that include their
    *  extension — [[photo.png]] or ![img](attachments/photo.png) where the file
    *  lives in a deeper folder (Obsidian's shortest-path format). The
    *  base_path/basename columns strip the extension, so with-extension targets
    *  can only ever match the path column. Same ESCAPE rationale as above. */
-  const resolveNonMdByFullPathSuffixStmt = db.prepare<
-    [string],
-    { path: string }
-  >(
+  const resolveNonMdByFullPathSuffixStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
-  )
+  );
   // ── File content prepared statements (conditional on fileToolsEnabled) ──
   const upsertFileContentStmt = fileToolsEnabled
     ? db.prepare(
         `INSERT OR REPLACE INTO file_content (path, title, content, folder, mtime, bytes)
          VALUES (?, ?, ?, ?, ?, ?)`,
       )
-    : null
-  const deleteFileContentStmt = fileToolsEnabled
-    ? db.prepare(`DELETE FROM file_content WHERE path = ?`)
-    : null
-  const deleteFileContentFtsStmt = fileToolsEnabled
-    ? db.prepare(`DELETE FROM file_content_fts WHERE path = ?`)
-    : null
+    : null;
+  const deleteFileContentStmt = fileToolsEnabled ? db.prepare(`DELETE FROM file_content WHERE path = ?`) : null;
+  const deleteFileContentFtsStmt = fileToolsEnabled ? db.prepare(`DELETE FROM file_content_fts WHERE path = ?`) : null;
   const insertFileContentFtsStmt = fileToolsEnabled
-    ? db.prepare(
-        `INSERT INTO file_content_fts (path, title, content) VALUES (?, ?, ?)`,
-      )
-    : null
+    ? db.prepare(`INSERT INTO file_content_fts (path, title, content) VALUES (?, ?, ?)`)
+    : null;
   // The folder predicate runs before ORDER BY/LIMIT so a folder-scoped search
   // sees every in-folder match, not just those that rank inside the candidate
   // window vault-wide; callers bind "%" when no folder filter applies.
@@ -741,12 +692,12 @@ export const createSearchIndex = (
     ? db.prepare<
         [number, string, string, number],
         {
-          path: string
-          title: string
-          folder: string
-          mtime: number
-          bytes: number
-          snippet: string
+          path: string;
+          title: string;
+          folder: string;
+          mtime: number;
+          bytes: number;
+          snippet: string;
         }
       >(
         `SELECT fc.path, fc.title, fc.folder, fc.mtime, fc.bytes,
@@ -757,21 +708,19 @@ export const createSearchIndex = (
            AND fc.path LIKE ? ESCAPE '\\'
          ORDER BY rank LIMIT ?`,
       )
-    : null
+    : null;
   const selectFileContentMetadataStmt = fileToolsEnabled
     ? db.prepare<
         [string],
         {
-          path: string
-          title: string
-          folder: string
-          mtime: number
-          bytes: number
+          path: string;
+          title: string;
+          folder: string;
+          mtime: number;
+          bytes: number;
         }
-      >(
-        "SELECT path, title, folder, mtime, bytes FROM file_content WHERE path = ?",
-      )
-    : null
+      >("SELECT path, title, folder, mtime, bytes FROM file_content WHERE path = ?")
+    : null;
 
   // ── Vector prepared statements (conditional on embedder) ──────
   const upsertChunkStmt = embedder
@@ -779,104 +728,82 @@ export const createSearchIndex = (
         `INSERT OR REPLACE INTO note_chunks (note_path, chunk_index, chunk_text, content_hash)
          VALUES (@note_path, @chunk_index, @chunk_text, @content_hash)`,
       )
-    : null
+    : null;
   const selectChunkHashesStmt = embedder
     ? db.prepare<unknown[], { chunk_index: number; content_hash: string }>(
         `SELECT chunk_index, content_hash FROM note_chunks WHERE note_path = ?`,
       )
-    : null
+    : null;
   const selectChunkIdStmt = embedder
-    ? db.prepare<[string, number], { id: number }>(
-        `SELECT id FROM note_chunks WHERE note_path = ? AND chunk_index = ?`,
-      )
-    : null
+    ? db.prepare<[string, number], { id: number }>(`SELECT id FROM note_chunks WHERE note_path = ? AND chunk_index = ?`)
+    : null;
   const deleteStaleChunksStmt = embedder
-    ? db.prepare(
-        `DELETE FROM note_chunks WHERE note_path = ? AND chunk_index >= ?`,
-      )
-    : null
-  const insertVectorStmt = embedder
-    ? db.prepare(`INSERT INTO note_vectors (chunk_id, embedding) VALUES (?, ?)`)
-    : null
-  const deleteVectorByChunkIdStmt = embedder
-    ? db.prepare(`DELETE FROM note_vectors WHERE chunk_id = ?`)
-    : null
+    ? db.prepare(`DELETE FROM note_chunks WHERE note_path = ? AND chunk_index >= ?`)
+    : null;
+  const insertVectorStmt = embedder ? db.prepare(`INSERT INTO note_vectors (chunk_id, embedding) VALUES (?, ?)`) : null;
+  const deleteVectorByChunkIdStmt = embedder ? db.prepare(`DELETE FROM note_vectors WHERE chunk_id = ?`) : null;
   const deleteVectorsForNoteStmt = embedder
-    ? db.prepare(
-        `DELETE FROM note_vectors WHERE chunk_id IN (SELECT id FROM note_chunks WHERE note_path = ?)`,
-      )
-    : null
-  const deleteChunksForNoteStmt = embedder
-    ? db.prepare(`DELETE FROM note_chunks WHERE note_path = ?`)
-    : null
+    ? db.prepare(`DELETE FROM note_vectors WHERE chunk_id IN (SELECT id FROM note_chunks WHERE note_path = ?)`)
+    : null;
+  const deleteChunksForNoteStmt = embedder ? db.prepare(`DELETE FROM note_chunks WHERE note_path = ?`) : null;
   const deleteStaleVectorsStmt = embedder
     ? db.prepare(
         `DELETE FROM note_vectors WHERE chunk_id IN (SELECT id FROM note_chunks WHERE note_path = ? AND chunk_index >= ?)`,
       )
-    : null
+    : null;
 
   // ── File content vector prepared statements (conditional on fileToolsEnabled + embedder) ──
-  const fileContentVectorEnabled = fileToolsEnabled && Boolean(embedder)
+  const fileContentVectorEnabled = fileToolsEnabled && Boolean(embedder);
   const upsertFileChunkStmt = fileContentVectorEnabled
     ? db.prepare(
         `INSERT OR REPLACE INTO file_content_chunks (file_path, chunk_index, chunk_text, content_hash)
          VALUES (@file_path, @chunk_index, @chunk_text, @content_hash)`,
       )
-    : null
+    : null;
   const selectFileChunkHashesStmt = fileContentVectorEnabled
     ? db.prepare<unknown[], { chunk_index: number; content_hash: string }>(
         `SELECT chunk_index, content_hash FROM file_content_chunks WHERE file_path = ?`,
       )
-    : null
+    : null;
   const selectFileChunkIdStmt = fileContentVectorEnabled
     ? db.prepare<[string, number], { id: number }>(
         `SELECT id FROM file_content_chunks WHERE file_path = ? AND chunk_index = ?`,
       )
-    : null
+    : null;
   const deleteStaleFileChunksStmt = fileContentVectorEnabled
-    ? db.prepare(
-        `DELETE FROM file_content_chunks WHERE file_path = ? AND chunk_index >= ?`,
-      )
-    : null
+    ? db.prepare(`DELETE FROM file_content_chunks WHERE file_path = ? AND chunk_index >= ?`)
+    : null;
   const insertFileVectorStmt = fileContentVectorEnabled
-    ? db.prepare(
-        `INSERT INTO file_content_vectors (chunk_id, embedding) VALUES (?, ?)`,
-      )
-    : null
+    ? db.prepare(`INSERT INTO file_content_vectors (chunk_id, embedding) VALUES (?, ?)`)
+    : null;
   const deleteFileVectorByChunkIdStmt = fileContentVectorEnabled
     ? db.prepare(`DELETE FROM file_content_vectors WHERE chunk_id = ?`)
-    : null
+    : null;
   const deleteFileVectorsForPathStmt = fileContentVectorEnabled
     ? db.prepare(
         `DELETE FROM file_content_vectors WHERE chunk_id IN (SELECT id FROM file_content_chunks WHERE file_path = ?)`,
       )
-    : null
+    : null;
   const deleteFileChunksForPathStmt = fileContentVectorEnabled
     ? db.prepare(`DELETE FROM file_content_chunks WHERE file_path = ?`)
-    : null
+    : null;
   const deleteStaleFileVectorsStmt = fileContentVectorEnabled
     ? db.prepare(
         `DELETE FROM file_content_vectors WHERE chunk_id IN (SELECT id FROM file_content_chunks WHERE file_path = ? AND chunk_index >= ?)`,
       )
-    : null
+    : null;
   // Reads the processed content from file_content for embedding.
   const selectFileContentForEmbeddingStmt = fileContentVectorEnabled
-    ? db.prepare<[string], { title: string; content: string }>(
-        "SELECT title, content FROM file_content WHERE path = ?",
-      )
-    : null
+    ? db.prepare<[string], { title: string; content: string }>("SELECT title, content FROM file_content WHERE path = ?")
+    : null;
 
   // ── Rebuild staleness checks ─────────────────────────────────────
   // Used by rebuildFromVault's embedding pass to skip notes/files the file
   // watcher already re-indexed while the pass was running.
-  const selectNoteMtimeStmt = db.prepare<[string], { mtime: number }>(
-    "SELECT mtime FROM notes WHERE path = ?",
-  )
+  const selectNoteMtimeStmt = db.prepare<[string], { mtime: number }>("SELECT mtime FROM notes WHERE path = ?");
   const selectFileMtimeStmt = fileToolsEnabled
-    ? db.prepare<[string], { mtime: number }>(
-        "SELECT mtime FROM file_content WHERE path = ?",
-      )
-    : null
+    ? db.prepare<[string], { mtime: number }>("SELECT mtime FROM file_content WHERE path = ?")
+    : null;
 
   // ── Memory-entry prepared statements (conditional on memoryDir) ──
   const insertMemoryEntryStmt = memoryDir
@@ -884,80 +811,61 @@ export const createSearchIndex = (
         `INSERT INTO memory_entries (file, section, entry_date, entry_text, entry_index, content_hash)
          VALUES (@file, @section, @entry_date, @entry_text, @entry_index, @content_hash)`,
       )
-    : null
+    : null;
   const updateMemoryEntryIndexStmt = memoryDir
     ? db.prepare(`UPDATE memory_entries SET entry_index = ? WHERE id = ?`)
-    : null
+    : null;
   const selectMemoryEntryHashesStmt = memoryDir
     ? db.prepare<[string], { id: number; content_hash: string }>(
         `SELECT id, content_hash FROM memory_entries WHERE file = ? ORDER BY entry_index`,
       )
-    : null
+    : null;
   const selectMemoryEntriesForFileStmt = memoryDir
     ? db.prepare<[string], { id: number; section: string; entry_text: string }>(
         `SELECT id, section, entry_text FROM memory_entries WHERE file = ?`,
       )
-    : null
-  const deleteMemoryEntryByIdStmt = memoryDir
-    ? db.prepare(`DELETE FROM memory_entries WHERE id = ?`)
-    : null
-  const deleteMemoryEntriesForFileStmt = memoryDir
-    ? db.prepare(`DELETE FROM memory_entries WHERE file = ?`)
-    : null
-  const deleteMemoryFtsForFileStmt = memoryDir
-    ? db.prepare(`DELETE FROM memory_entries_fts WHERE file = ?`)
-    : null
+    : null;
+  const deleteMemoryEntryByIdStmt = memoryDir ? db.prepare(`DELETE FROM memory_entries WHERE id = ?`) : null;
+  const deleteMemoryEntriesForFileStmt = memoryDir ? db.prepare(`DELETE FROM memory_entries WHERE file = ?`) : null;
+  const deleteMemoryFtsForFileStmt = memoryDir ? db.prepare(`DELETE FROM memory_entries_fts WHERE file = ?`) : null;
   const insertMemoryFtsStmt = memoryDir
     ? db.prepare(
         `INSERT INTO memory_entries_fts (entry_id, file, section, entry_text)
          VALUES (@entry_id, @file, @section, @entry_text)`,
       )
-    : null
+    : null;
   const selectDistinctMemoryFilesStmt = memoryDir
-    ? db.prepare<[], { file: string }>(
-        `SELECT DISTINCT file FROM memory_entries`,
-      )
-    : null
+    ? db.prepare<[], { file: string }>(`SELECT DISTINCT file FROM memory_entries`)
+    : null;
   // Vector side — additionally requires the embedder.
   const selectUnembeddedMemoryEntriesStmt =
     memoryDir && embedder
-      ? db.prepare<
-          [string],
-          { id: number; file: string; section: string; entry_text: string }
-        >(
+      ? db.prepare<[string], { id: number; file: string; section: string; entry_text: string }>(
           `SELECT id, file, section, entry_text FROM memory_entries
            WHERE file = ? AND id NOT IN (SELECT entry_id FROM memory_entry_vectors)
            ORDER BY id`,
         )
-      : null
+      : null;
   const insertMemoryVectorStmt =
-    memoryDir && embedder
-      ? db.prepare(
-          `INSERT INTO memory_entry_vectors (entry_id, embedding) VALUES (?, ?)`,
-        )
-      : null
+    memoryDir && embedder ? db.prepare(`INSERT INTO memory_entry_vectors (entry_id, embedding) VALUES (?, ?)`) : null;
   const deleteMemoryVectorByEntryIdStmt =
-    memoryDir && embedder
-      ? db.prepare(`DELETE FROM memory_entry_vectors WHERE entry_id = ?`)
-      : null
+    memoryDir && embedder ? db.prepare(`DELETE FROM memory_entry_vectors WHERE entry_id = ?`) : null;
   const deleteMemoryVectorsForFileStmt =
     memoryDir && embedder
-      ? db.prepare(
-          `DELETE FROM memory_entry_vectors WHERE entry_id IN (SELECT id FROM memory_entries WHERE file = ?)`,
-        )
-      : null
+      ? db.prepare(`DELETE FROM memory_entry_vectors WHERE entry_id IN (SELECT id FROM memory_entries WHERE file = ?)`)
+      : null;
   // Query side — memoryRecall's two retrieval legs plus row hydration.
   const memoryFtsSearchStmt = memoryDir
     ? db.prepare<[string], { entry_id: number }>(
         `SELECT entry_id FROM memory_entries_fts WHERE memory_entries_fts MATCH ? ORDER BY rank`,
       )
-    : null
+    : null;
   const selectMemoryEntryByIdStmt = memoryDir
     ? db.prepare<[number], queries.MemoryEntryRow>(
         `SELECT id, file, section, entry_date, entry_text, entry_index
          FROM memory_entries WHERE id = ?`,
       )
-    : null
+    : null;
   const memoryKnnStmt =
     memoryDir && embedder
       ? db.prepare<unknown[], queries.MemoryEntryVectorHitRow>(
@@ -968,15 +876,12 @@ export const createSearchIndex = (
              AND mev.k = ?
            ORDER BY mev.distance`,
         )
-      : null
+      : null;
 
   // ── Vector query statements ─────────────────────────────────────
   /** KNN search — finds the k nearest chunks to a query embedding. */
   const knnSearchStmt = embedder
-    ? db.prepare<
-        unknown[],
-        { note_path: string; chunk_text: string; distance: number }
-      >(
+    ? db.prepare<unknown[], { note_path: string; chunk_text: string; distance: number }>(
         `SELECT nc.note_path, nc.chunk_text, nv.distance
          FROM note_vectors nv
          JOIN note_chunks nc ON nc.id = nv.chunk_id
@@ -984,7 +889,7 @@ export const createSearchIndex = (
            AND nv.k = ?
          ORDER BY nv.distance`,
       )
-    : null
+    : null;
 
   // Folder-scoped KNN: the chunk_id IN (...) constraint narrows the vector
   // search to in-folder chunks BEFORE the k-window is taken, so a folder
@@ -992,10 +897,7 @@ export const createSearchIndex = (
   // survives a vault-wide top-k. sqlite-vec honours rowid IN constraints
   // inside KNN queries; chunk_id is the vec0 rowid alias.
   const knnSearchInFolderStmt = embedder
-    ? db.prepare<
-        unknown[],
-        { note_path: string; chunk_text: string; distance: number }
-      >(
+    ? db.prepare<unknown[], { note_path: string; chunk_text: string; distance: number }>(
         `SELECT nc.note_path, nc.chunk_text, nv.distance
          FROM note_vectors nv
          JOIN note_chunks nc ON nc.id = nv.chunk_id
@@ -1006,7 +908,7 @@ export const createSearchIndex = (
            )
          ORDER BY nv.distance`,
       )
-    : null
+    : null;
 
   /** First chunk text for a note — used by the reranker to score FTS-only
    *  results that have no vector hit. Chunk 0 contains the title + intro. */
@@ -1014,14 +916,11 @@ export const createSearchIndex = (
     ? db.prepare<[string], { chunk_text: string }>(
         `SELECT chunk_text FROM note_chunks WHERE note_path = ? AND chunk_index = 0`,
       )
-    : null
+    : null;
 
   /** KNN search over file content vectors — finds the k nearest file chunks. */
   const fileContentKnnSearchStmt = fileContentVectorEnabled
-    ? db.prepare<
-        unknown[],
-        { file_path: string; chunk_text: string; distance: number }
-      >(
+    ? db.prepare<unknown[], { file_path: string; chunk_text: string; distance: number }>(
         `SELECT fc.file_path, fc.chunk_text, fv.distance
          FROM file_content_vectors fv
          JOIN file_content_chunks fc ON fc.id = fv.chunk_id
@@ -1029,14 +928,11 @@ export const createSearchIndex = (
            AND fv.k = ?
          ORDER BY fv.distance`,
       )
-    : null
+    : null;
 
   // Folder-scoped variant — same pre-window narrowing as knnSearchInFolderStmt.
   const fileContentKnnSearchInFolderStmt = fileContentVectorEnabled
-    ? db.prepare<
-        unknown[],
-        { file_path: string; chunk_text: string; distance: number }
-      >(
+    ? db.prepare<unknown[], { file_path: string; chunk_text: string; distance: number }>(
         `SELECT fc.file_path, fc.chunk_text, fv.distance
          FROM file_content_vectors fv
          JOIN file_content_chunks fc ON fc.id = fv.chunk_id
@@ -1047,21 +943,21 @@ export const createSearchIndex = (
            )
          ORDER BY fv.distance`,
       )
-    : null
+    : null;
 
   /** First chunk text for a file — reranker fallback for FTS-only file hits. */
   const selectFirstFileChunkStmt = fileContentVectorEnabled
     ? db.prepare<[string], { chunk_text: string }>(
         `SELECT chunk_text FROM file_content_chunks WHERE file_path = ? AND chunk_index = 0`,
       )
-    : null
+    : null;
 
   /** Metadata lookup for notes found only via vector search. */
   const selectNoteMetadataStmt = db.prepare<[string], NoteRow>(
     `SELECT path, title, tags, related, folder, type, created, mtime,
             properties, leading_callout, bytes
      FROM notes WHERE path = ?`,
-  )
+  );
 
   /** Resolves a wikilink target to a known non-markdown file path, or null
    *  when no match is found. Handles both extensionless targets ([[Trip Route]]
@@ -1082,49 +978,44 @@ export const createSearchIndex = (
    *  stem matching. Extensionless targets fall through the full-filename
    *  family unmatched (stored paths always carry an extension) at the cost of
    *  three query misses. */
-  const resolveNonMarkdownFile = (
-    target: string,
-    sourcePath?: string,
-  ): string | null => {
-    const relativeTarget =
-      sourcePath === undefined
-        ? null
-        : posix.join(posix.dirname(sourcePath), target)
+  const resolveNonMarkdownFile = (target: string, sourcePath?: string): string | null => {
+    const relativeTarget = sourcePath === undefined ? null : posix.join(posix.dirname(sourcePath), target);
 
     // ── Full-filename family: exact → relative → path suffix ──
 
     // Exact path match for targets that already include a non-md extension
     // (e.g. [[photo.png]], ![[diagram.svg]]).
-    const fullPathMatch = resolveNonMdByFullPathStmt.get(target)
-    if (fullPathMatch) return fullPathMatch.path
+    const fullPathMatch = resolveNonMdByFullPathStmt.get(target);
+
+    if (fullPathMatch) return fullPathMatch.path;
 
     // Relative-to-source match ("path from current file"), e.g.
     // ![x](../assets/photo.png).
     if (relativeTarget) {
-      const relativeFullPathMatch =
-        resolveNonMdByFullPathStmt.get(relativeTarget)
-      if (relativeFullPathMatch) return relativeFullPathMatch.path
+      const relativeFullPathMatch = resolveNonMdByFullPathStmt.get(relativeTarget);
+
+      if (relativeFullPathMatch) return relativeFullPathMatch.path;
     }
 
     // Path-suffix match ("photo.png", "assets/photo.png") — Obsidian's
     // shortest-path format for assets in a deeper folder.
-    const fullPathSuffixMatch = resolveNonMdByFullPathSuffixStmt.get(
-      escapeLikeWildcards(target),
-    )
-    if (fullPathSuffixMatch) return fullPathSuffixMatch.path
+    const fullPathSuffixMatch = resolveNonMdByFullPathSuffixStmt.get(escapeLikeWildcards(target));
+
+    if (fullPathSuffixMatch) return fullPathSuffixMatch.path;
 
     // ── Stem family: exact → relative → suffix/basename ──
 
     // Exact base_path match ("path from vault folder")
-    const basePathMatch = resolveNonMdByBasePathStmt.get(target)
-    if (basePathMatch) return basePathMatch.path
+    const basePathMatch = resolveNonMdByBasePathStmt.get(target);
+
+    if (basePathMatch) return basePathMatch.path;
 
     // Relative-to-source match for extensionless targets
     // (e.g. [[../boards/Trip Route]]).
     if (relativeTarget) {
-      const relativeBasePathMatch =
-        resolveNonMdByBasePathStmt.get(relativeTarget)
-      if (relativeBasePathMatch) return relativeBasePathMatch.path
+      const relativeBasePathMatch = resolveNonMdByBasePathStmt.get(relativeTarget);
+
+      if (relativeBasePathMatch) return relativeBasePathMatch.path;
     }
 
     // Basename / suffix-path match (Obsidian's shortest-path resolution).
@@ -1132,65 +1023,57 @@ export const createSearchIndex = (
     // preserve them in the match — only strip to pure basename when the
     // target is already a bare name. Mirrors links.resolve's endsWith check.
     if (target.includes("/")) {
-      const basePathSuffixMatch = resolveNonMdByBasePathSuffixStmt.get(
-        escapeLikeWildcards(target),
-      )
-      return basePathSuffixMatch?.path ?? null
+      const basePathSuffixMatch = resolveNonMdByBasePathSuffixStmt.get(escapeLikeWildcards(target));
+      return basePathSuffixMatch?.path ?? null;
     }
-    const basenameMatch = resolveNonMdByBasenameStmt.get(target)
-    return basenameMatch?.path ?? null
-  }
+    const basenameMatch = resolveNonMdByBasenameStmt.get(target);
+    return basenameMatch?.path ?? null;
+  };
 
   /** Indexes pre-statted non-markdown files into the non_md_files table.
    *  The caller owns entry filtering and stat (fs work stays out of the
    *  write transaction); this just writes the rows. */
-  const indexNonMarkdownFiles = (
-    files: ReadonlyArray<{ relativePath: string; bytes: number }>,
-  ): number => {
+  const indexNonMarkdownFiles = (files: ReadonlyArray<{ relativePath: string; bytes: number }>): number => {
     for (const file of files) {
-      const basePath = links.stripExtension(file.relativePath)
-      const baseFilename = links.stripExtension(basename(file.relativePath))
-      upsertNonMdFileStmt.run(
-        file.relativePath,
-        basePath,
-        baseFilename,
-        file.bytes,
-      )
+      const basePath = links.stripExtension(file.relativePath);
+      const baseFilename = links.stripExtension(basename(file.relativePath));
+      upsertNonMdFileStmt.run(file.relativePath, basePath, baseFilename, file.bytes);
     }
-    return files.length
-  }
+    return files.length;
+  };
 
   /** Adds a single non-markdown file to the index and re-resolves any
    *  unresolved links that now match it. Called by the file watcher on
    *  add/change. Mirrors the note forward-reference re-resolution pattern:
    *  updates the link target from the raw text to the resolved non-md path. */
   const upsertNonMdFile = (filePath: string, bytes: number): void => {
-    const basePath = links.stripExtension(filePath)
-    const baseFilename = links.stripExtension(basename(filePath))
-    upsertNonMdFileStmt.run(filePath, basePath, baseFilename, bytes)
+    const basePath = links.stripExtension(filePath);
+    const baseFilename = links.stripExtension(basename(filePath));
+    upsertNonMdFileStmt.run(filePath, basePath, baseFilename, bytes);
 
     // Re-resolve unresolved links that now match this non-md file — upgrade
     // raw targets (e.g. "Trip Route") to resolved paths ("Trip Route.canvas").
-    const unresolvedLinks = selectUnresolvedLinksStmt.all()
+    const unresolvedLinks = selectUnresolvedLinksStmt.all();
     for (const link of unresolvedLinks) {
-      const resolvedPath = resolveNonMarkdownFile(link.target, link.source)
+      const resolvedPath = resolveNonMarkdownFile(link.target, link.source);
+
       if (resolvedPath !== null) {
         updateLinkTargetStmt.run({
           resolved: resolvedPath,
           source: link.source,
           rawTarget: link.target,
-        })
+        });
       }
     }
-  }
+  };
 
   /** Removes a non-markdown file from the index. Called by the file watcher
    *  on unlink. Links that resolved to this file become broken automatically
    *  at query time — getOutgoingLinks shows exists: false, brokenLinkCount
    *  includes them. Same behavior as removeNote for deleted .md files. */
   const removeNonMdFile = (filePath: string): void => {
-    deleteNonMdFileStmt.run(filePath)
-  }
+    deleteNonMdFileStmt.run(filePath);
+  };
 
   // ── File content indexing ─────────────────────────────────────
 
@@ -1202,50 +1085,43 @@ export const createSearchIndex = (
    *  is unconditional (graph integrity is a core feature). */
   const upsertFileContent = (
     params: {
-      filePath: string
-      rawContent: string
-      fileStat: { mtimeMs: number; size: number }
+      filePath: string;
+      rawContent: string;
+      fileStat: { mtimeMs: number; size: number };
     },
     logger: Logger,
   ): void => {
-    const extension = posix.extname(params.filePath)
-    const isCanvas = extension === ".canvas"
+    const extension = posix.extname(params.filePath);
+    const isCanvas = extension === ".canvas";
 
     // Canvas: linearize for FTS, raw JSON for link extraction.
     // Other types: rawContent is already the rendered text.
-    const contentToIndex = isCanvas
-      ? linearizeCanvas(params.rawContent)
-      : params.rawContent
+    const contentToIndex = isCanvas ? linearizeCanvas(params.rawContent) : params.rawContent;
 
     // Truncate content exceeding the FTS cap — iterates Unicode code points
     // and accumulates UTF-8 byte length so the cap is enforced in bytes
     // without splitting multi-byte characters at the boundary.
-    const contentBytes = Buffer.byteLength(contentToIndex, "utf8")
-    const needsTruncation = contentBytes > MAX_INDEXED_CONTENT_BYTES
+    const contentBytes = Buffer.byteLength(contentToIndex, "utf8");
+    const needsTruncation = contentBytes > MAX_INDEXED_CONTENT_BYTES;
     const truncatedContent = needsTruncation
       ? truncateToUtf8ByteLimit(contentToIndex, MAX_INDEXED_CONTENT_BYTES)
-      : contentToIndex
+      : contentToIndex;
+
     if (needsTruncation) {
       logger.debug("truncated file content for FTS indexing", {
         path: params.filePath,
         originalBytes: contentBytes,
         cappedBytes: MAX_INDEXED_CONTENT_BYTES,
-      })
+      });
     }
 
-    const canvasLinks = isCanvas
-      ? extractCanvasFileLinks(params.rawContent)
-      : []
+    const canvasLinks = isCanvas ? extractCanvasFileLinks(params.rawContent) : [];
 
     db.transaction(() => {
       // FTS indexing — gated behind fileToolsEnabled
-      if (
-        upsertFileContentStmt &&
-        deleteFileContentFtsStmt &&
-        insertFileContentFtsStmt
-      ) {
-        const title = basename(params.filePath, extension)
-        const folder = posix.dirname(params.filePath)
+      if (upsertFileContentStmt && deleteFileContentFtsStmt && insertFileContentFtsStmt) {
+        const title = basename(params.filePath, extension);
+        const folder = posix.dirname(params.filePath);
         upsertFileContentStmt.run(
           params.filePath,
           title,
@@ -1253,45 +1129,42 @@ export const createSearchIndex = (
           folder,
           Math.round(params.fileStat.mtimeMs),
           params.fileStat.size,
-        )
-        deleteFileContentFtsStmt.run(params.filePath)
-        insertFileContentFtsStmt.run(params.filePath, title, truncatedContent)
+        );
+        deleteFileContentFtsStmt.run(params.filePath);
+        insertFileContentFtsStmt.run(params.filePath, title, truncatedContent);
       }
 
       // Link extraction — canvas only, unconditional (graph integrity)
       if (isCanvas) {
-        deleteLinksStmt.run(params.filePath)
+        deleteLinksStmt.run(params.filePath);
         for (const linkTarget of canvasLinks) {
-          insertLinkStmt.run(params.filePath, linkTarget)
+          insertLinkStmt.run(params.filePath, linkTarget);
         }
       }
-    })()
+    })();
 
     logger.debug("indexed file content", {
       path: params.filePath,
       links: canvasLinks.length,
       fts: Boolean(upsertFileContentStmt),
-    })
-  }
+    });
+  };
 
   /** Removes a file's content from FTS and its links from the graph. */
-  const removeFileContent = (
-    params: { filePath: string },
-    logger: Logger,
-  ): void => {
+  const removeFileContent = (params: { filePath: string }, logger: Logger): void => {
     db.transaction(() => {
       if (deleteFileContentStmt && deleteFileContentFtsStmt) {
-        deleteFileContentFtsStmt.run(params.filePath)
-        deleteFileContentStmt.run(params.filePath)
+        deleteFileContentFtsStmt.run(params.filePath);
+        deleteFileContentStmt.run(params.filePath);
       }
       if (deleteFileVectorsForPathStmt && deleteFileChunksForPathStmt) {
-        deleteFileVectorsForPathStmt.run(params.filePath)
-        deleteFileChunksForPathStmt.run(params.filePath)
+        deleteFileVectorsForPathStmt.run(params.filePath);
+        deleteFileChunksForPathStmt.run(params.filePath);
       }
-      deleteLinksStmt.run(params.filePath)
-    })()
-    logger.debug("removed file content", { path: params.filePath })
-  }
+      deleteLinksStmt.run(params.filePath);
+    })();
+    logger.debug("removed file content", { path: params.filePath });
+  };
 
   // ── Memory-entry indexing ──────────────────────────────────────
 
@@ -1300,11 +1173,11 @@ export const createSearchIndex = (
    *  output feeds straight back into vault_get_memory / vault_delete_memory.
    *  Null for every other path (nested subfolders included). */
   const memoryFileNameFromPath = (filePath: string): string | null => {
-    if (memoryDir === undefined) return null
-    if (!filePath.endsWith(".md")) return null
-    if (posix.dirname(filePath) !== memoryDir) return null
-    return basename(filePath, ".md")
-  }
+    if (memoryDir === undefined) return null;
+    if (!filePath.endsWith(".md")) return null;
+    if (posix.dirname(filePath) !== memoryDir) return null;
+    return basename(filePath, ".md");
+  };
 
   /** Identity hash for one entry — NUL-delimited so field boundaries can't
    *  collide. Keyed on content, NOT position: memory appends insert at the
@@ -1313,7 +1186,7 @@ export const createSearchIndex = (
    *  The date is included (a hand-edited date is a changed entry) even though
    *  the embedding input excludes it. */
   const memoryEntryHash = (entry: MemoryEntry): string =>
-    contentHash([entry.section, entry.date, entry.text].join("\u0000"))
+    contentHash([entry.section, entry.date, entry.text].join("\u0000"));
 
   /** Reconciles a memory file's parsed entries against its stored rows by
    *  hash identity: unchanged entries keep their row id (and therefore their
@@ -1323,11 +1196,7 @@ export const createSearchIndex = (
    *  (delete-then-insert, the notes_fts convention). Runs in one transaction;
    *  embedding is NOT gated on these hashes but on vector absence, so a crash
    *  between this upsert and embedMemoryEntriesForFile self-heals. */
-  const upsertMemoryEntries = (
-    memoryFile: string,
-    noteBody: string,
-    logger: Logger,
-  ): void => {
+  const upsertMemoryEntries = (memoryFile: string, noteBody: string, logger: Logger): void => {
     if (
       !insertMemoryEntryStmt ||
       !updateMemoryEntryIndexStmt ||
@@ -1337,31 +1206,30 @@ export const createSearchIndex = (
       !deleteMemoryFtsForFileStmt ||
       !insertMemoryFtsStmt
     ) {
-      return
+      return;
     }
 
-    const parsedEntries = parseMemoryEntries(splitIntoLines(noteBody))
+    const parsedEntries = parseMemoryEntries(splitIntoLines(noteBody));
 
     db.transaction(() => {
       // Queue per hash (not a plain map): hand-edited duplicates can give two
       // entries the same hash, and each must claim its own row.
-      const rowIdQueuesByHash = new Map<string, number[]>()
+      const rowIdQueuesByHash = new Map<string, number[]>();
       for (const row of selectMemoryEntryHashesStmt.all(memoryFile)) {
-        const queue = rowIdQueuesByHash.get(row.content_hash) ?? []
-        queue.push(row.id)
-        rowIdQueuesByHash.set(row.content_hash, queue)
+        const queue = rowIdQueuesByHash.get(row.content_hash) ?? [];
+        queue.push(row.id);
+        rowIdQueuesByHash.set(row.content_hash, queue);
       }
 
       // Sequential reconcile — each parsed entry claims a matching stored row
       // or inserts a new one; counters feed the summary log.
-      let insertedCount = 0
+      let insertedCount = 0;
       for (const entry of parsedEntries) {
-        const matchingRowId = rowIdQueuesByHash
-          .get(memoryEntryHash(entry))
-          ?.shift()
+        const matchingRowId = rowIdQueuesByHash.get(memoryEntryHash(entry))?.shift();
+
         if (matchingRowId !== undefined) {
-          updateMemoryEntryIndexStmt.run(entry.entryIndex, matchingRowId)
-          continue
+          updateMemoryEntryIndexStmt.run(entry.entryIndex, matchingRowId);
+          continue;
         }
         insertMemoryEntryStmt.run({
           file: memoryFile,
@@ -1370,29 +1238,29 @@ export const createSearchIndex = (
           entry_text: entry.text,
           entry_index: entry.entryIndex,
           content_hash: memoryEntryHash(entry),
-        })
-        insertedCount++
+        });
+        insertedCount++;
       }
 
       // Unclaimed rows are entries that no longer exist (edited text hashes
       // differently and was inserted fresh above; pruned text just vanishes).
-      let deletedCount = 0
+      let deletedCount = 0;
       for (const staleRowIds of rowIdQueuesByHash.values()) {
         for (const staleRowId of staleRowIds) {
-          deleteMemoryVectorByEntryIdStmt?.run(BigInt(staleRowId))
-          deleteMemoryEntryByIdStmt.run(staleRowId)
-          deletedCount++
+          deleteMemoryVectorByEntryIdStmt?.run(BigInt(staleRowId));
+          deleteMemoryEntryByIdStmt.run(staleRowId);
+          deletedCount++;
         }
       }
 
-      deleteMemoryFtsForFileStmt.run(memoryFile)
+      deleteMemoryFtsForFileStmt.run(memoryFile);
       for (const row of selectMemoryEntriesForFileStmt.all(memoryFile)) {
         insertMemoryFtsStmt.run({
           entry_id: row.id,
           file: memoryFile,
           section: row.section,
           entry_text: row.entry_text,
-        })
+        });
       }
 
       logger.debug("indexed memory entries", {
@@ -1400,17 +1268,17 @@ export const createSearchIndex = (
         total: parsedEntries.length,
         inserted: insertedCount,
         deleted: deletedCount,
-      })
-    })()
-  }
+      });
+    })();
+  };
 
   /** Deletes every entry row, FTS row, and vector for one memory file. */
   const removeMemoryEntriesForFile = (memoryFile: string): void => {
-    if (!deleteMemoryEntriesForFileStmt || !deleteMemoryFtsForFileStmt) return
-    deleteMemoryVectorsForFileStmt?.run(memoryFile)
-    deleteMemoryEntriesForFileStmt.run(memoryFile)
-    deleteMemoryFtsForFileStmt.run(memoryFile)
-  }
+    if (!deleteMemoryEntriesForFileStmt || !deleteMemoryFtsForFileStmt) return;
+    deleteMemoryVectorsForFileStmt?.run(memoryFile);
+    deleteMemoryEntriesForFileStmt.run(memoryFile);
+    deleteMemoryFtsForFileStmt.run(memoryFile);
+  };
 
   // ── Index maintenance ──────────────────────────────────────────
 
@@ -1420,67 +1288,64 @@ export const createSearchIndex = (
   /** Parses a note's content and frontmatter, then indexes it for search. */
   const upsertNote = (
     params: {
-      filePath: string
-      rawContent: string
-      fileStat: { mtimeMs: number; size: number }
-      skipLinks?: boolean
+      filePath: string;
+      rawContent: string;
+      fileStat: { mtimeMs: number; size: number };
+      skipLinks?: boolean;
     },
     logger: Logger,
   ): void => {
-    const { filePath, rawContent, fileStat } = params
-    const skipLinks = params.skipLinks ?? false
-    const parsed = parseNote(rawContent)
-    const { data: frontmatter } = parsed
+    const { filePath, rawContent, fileStat } = params;
+    const skipLinks = params.skipLinks ?? false;
+    const parsed = parseNote(rawContent);
+    const { data: frontmatter } = parsed;
 
-    const tags = coerceToArray(frontmatter.tags)
-    const related = coerceToArray(frontmatter.related)
-    const bodyLines = splitIntoLines(parsed.content)
+    const tags = coerceToArray(frontmatter.tags);
+    const related = coerceToArray(frontmatter.related);
+    const bodyLines = splitIntoLines(parsed.content);
 
     // Store the leading callout (a top-of-file `> [!type]` block — info,
     // warning, etc.) as JSON so discovery tools can return it structured;
     // null when the note has none.
-    const leadingCallout = parseLeadingCallout(bodyLines)
+    const leadingCallout = parseLeadingCallout(bodyLines);
 
     // Detect Kanban done lanes for boards with kanban-plugin frontmatter.
     // The Kanban plugin marks completion lanes with a **Complete** paragraph.
-    const isKanbanBoard = Boolean(frontmatter["kanban-plugin"])
-    let kanbanDoneLanes: string | null = null
+    const isKanbanBoard = Boolean(frontmatter["kanban-plugin"]);
+    let kanbanDoneLanes: string | null = null;
+
     if (isKanbanBoard) {
-      const headings = parseHeadings(bodyLines)
-      const doneLanes = tasks.extractDoneLanes(bodyLines, headings)
-      kanbanDoneLanes = doneLanes.length > 0 ? JSON.stringify(doneLanes) : null
+      const headings = parseHeadings(bodyLines);
+      const doneLanes = tasks.extractDoneLanes(bodyLines, headings);
+      kanbanDoneLanes = doneLanes.length > 0 ? JSON.stringify(doneLanes) : null;
     }
 
     const note = {
       path: filePath,
-      title: isString(frontmatter.title)
-        ? frontmatter.title
-        : basename(filePath, ".md"),
+      title: isString(frontmatter.title) ? frontmatter.title : basename(filePath, ".md"),
       content: parsed.content,
       tags: JSON.stringify(tags),
       related: JSON.stringify(related),
       // First path segment only — search filters drill into subfolders
       folder: filePath.includes("/") ? filePath.split("/")[0] : "",
       type: isString(frontmatter.type) ? frontmatter.type : null,
-      created: isString(frontmatter.created)
-        ? DateTime.fromISO(frontmatter.created).toISO()
-        : null,
+      created: isString(frontmatter.created) ? DateTime.fromISO(frontmatter.created).toISO() : null,
       mtime: fileStat.mtimeMs,
       properties: JSON.stringify(frontmatter),
       leading_callout: leadingCallout ? JSON.stringify(leadingCallout) : null,
       bytes: fileStat.size,
       kanban_done_lanes: kanbanDoneLanes,
-    }
+    };
 
-    const metadataText = buildFtsMetadataText(frontmatter)
+    const metadataText = buildFtsMetadataText(frontmatter);
 
     // Task rows carry the full immediate-parent folder (posix dirname), unlike
     // notes.folder which stores only the first path segment — task triage
     // needs project-level attribution ("Code Projects/vault-cortex", not
     // "Code Projects").
-    const taskFolder = filePath.includes("/") ? posix.dirname(filePath) : ""
-    const extractedTasks = tasks.extractTasks(rawContent)
-    const memoryFile = memoryFileNameFromPath(filePath)
+    const taskFolder = filePath.includes("/") ? posix.dirname(filePath) : "";
+    const extractedTasks = tasks.extractTasks(rawContent);
+    const memoryFile = memoryFileNameFromPath(filePath);
 
     // All index writes commit or roll back together — a mid-sequence throw
     // must not leave notes/FTS/tasks/links mutually inconsistent. The
@@ -1488,7 +1353,7 @@ export const createSearchIndex = (
     // throw rolls back), so code after the wrap's `)()` runs on both paths
     // — no link-phase work may live there.
     db.transaction(() => {
-      deleteFtsStmt.run(note.path)
+      deleteFtsStmt.run(note.path);
       upsertNotesStmt.run(
         note.path,
         note.title,
@@ -1503,22 +1368,16 @@ export const createSearchIndex = (
         note.leading_callout,
         note.bytes,
         note.kanban_done_lanes,
-      )
-      insertFtsStmt.run(note.path, note.title, note.content, metadataText)
+      );
+      insertFtsStmt.run(note.path, note.title, note.content, metadataText);
 
-      deleteTasksStmt.run(note.path)
+      deleteTasksStmt.run(note.path);
       // Line→blockId lookup so each child can resolve its parent's
       // block_id from the same extraction batch (no second pass needed).
-      const blockIdByLine = new Map(
-        extractedTasks.map((extractedTask) => [
-          extractedTask.line,
-          extractedTask.blockId,
-        ]),
-      )
+      const blockIdByLine = new Map(extractedTasks.map((extractedTask) => [extractedTask.line, extractedTask.blockId]));
       for (const extractedTask of extractedTasks) {
-        const { parentLine } = extractedTask
-        const parentBlockId =
-          parentLine === null ? null : (blockIdByLine.get(parentLine) ?? null)
+        const { parentLine } = extractedTask;
+        const parentBlockId = parentLine === null ? null : (blockIdByLine.get(parentLine) ?? null);
         insertTaskStmt.run({
           notePath: note.path,
           line: extractedTask.line,
@@ -1543,32 +1402,33 @@ export const createSearchIndex = (
           depth: extractedTask.depth,
           parentLine: extractedTask.parentLine,
           parentBlockId,
-        })
+        });
       }
 
       // Memory files additionally maintain their entry-granular index. Placed
       // before the skipLinks return so rebuild Pass 1 covers it.
       if (memoryFile) {
-        upsertMemoryEntries(memoryFile, parsed.content, logger)
+        upsertMemoryEntries(memoryFile, parsed.content, logger);
       }
 
-      if (skipLinks) return
+      if (skipLinks) return;
 
-      const allPaths = selectAllNotePathsStmt.all()
-      const pathList = allPaths.map((row) => row.path)
+      const allPaths = selectAllNotePathsStmt.all();
+      const pathList = allPaths.map((row) => row.path);
 
-      deleteLinksStmt.run(note.path)
+      deleteLinksStmt.run(note.path);
       for (const rawTarget of links.extractAll(parsed.content, frontmatter)) {
         const resolved = links.resolve({
           target: rawTarget,
           allPaths: pathList,
           sourcePath: note.path,
-        })
+        });
+
         if (resolved !== null) {
-          insertLinkStmt.run(note.path, resolved)
+          insertLinkStmt.run(note.path, resolved);
         } else {
-          const resolvedNonMdPath = resolveNonMarkdownFile(rawTarget, note.path)
-          insertLinkStmt.run(note.path, resolvedNonMdPath ?? rawTarget)
+          const resolvedNonMdPath = resolveNonMarkdownFile(rawTarget, note.path);
+          insertLinkStmt.run(note.path, resolvedNonMdPath ?? rawTarget);
         }
       }
 
@@ -1576,22 +1436,23 @@ export const createSearchIndex = (
       // Re-run resolveLink with each link's own source so every form upgrades
       // uniformly — basename, full path, and source-relative ("../") — covering
       // Obsidian's "link first, create the note later" workflow.
-      const unresolvedLinks = selectUnresolvedLinksStmt.all()
+      const unresolvedLinks = selectUnresolvedLinksStmt.all();
       for (const link of unresolvedLinks) {
         const resolved = links.resolve({
           target: link.target,
           allPaths: pathList,
           sourcePath: link.source,
-        })
+        });
+
         if (resolved !== null) {
           updateLinkTargetStmt.run({
             resolved,
             source: link.source,
             rawTarget: link.target,
-          })
+          });
         }
       }
-    })()
+    })();
 
     // Emitted after the transaction commits so a rolled-back write can't
     // leave a success line behind.
@@ -1599,8 +1460,8 @@ export const createSearchIndex = (
       path: note.path,
       bytes: note.bytes,
       tasksIndexed: extractedTasks.length,
-    })
-  }
+    });
+  };
 
   // ── Embedding pipeline ─────────────────────────────────────────
 
@@ -1611,7 +1472,8 @@ export const createSearchIndex = (
     params: { notePath: string; rawContent: string },
     logger: Logger,
   ): Promise<number> => {
-    const { notePath, rawContent } = params
+    const { notePath, rawContent } = params;
+
     if (
       !embedder ||
       !upsertChunkStmt ||
@@ -1621,13 +1483,11 @@ export const createSearchIndex = (
       !insertVectorStmt ||
       !deleteVectorByChunkIdStmt
     ) {
-      return 0
+      return 0;
     }
 
-    const parsed = parseNote(rawContent)
-    const noteTitle =
-      (isString(parsed.data.title) ? parsed.data.title : null) ??
-      basename(notePath, ".md")
+    const parsed = parseNote(rawContent);
+    const noteTitle = (isString(parsed.data.title) ? parsed.data.title : null) ?? basename(notePath, ".md");
     // Metadata enrichment changes chunk text, so every note re-embeds once
     // (content-hash gated) after the option flips — kept off until the
     // search-eval measurements justify it.
@@ -1636,37 +1496,36 @@ export const createSearchIndex = (
           type: isString(parsed.data.type) ? parsed.data.type : null,
           tags: coerceToArray(parsed.data.tags),
         })
-      : null
+      : null;
     const chunks = chunkNoteContent(noteTitle, parsed.content, {
       metadataPrefix,
-    })
+    });
 
     // Load existing hashes for content-hash gating
     const existingHashes = new Map(
-      selectChunkHashesStmt
-        .all(notePath)
-        .map((row) => [row.chunk_index, row.content_hash]),
-    )
+      selectChunkHashesStmt.all(notePath).map((row) => [row.chunk_index, row.content_hash]),
+    );
 
     // Counter tracking how many chunks were actually (re-)embedded — returned for logging
-    let embeddedCount = 0
+    let embeddedCount = 0;
 
     for (const chunk of chunks) {
-      const hash = contentHash(chunk.text)
+      const hash = contentHash(chunk.text);
 
       // Skip if content hasn't changed
-      if (existingHashes.get(chunk.index) === hash) continue
+      if (existingHashes.get(chunk.index) === hash) continue;
 
-      const embedding = await embedder.embedText(chunk.text)
+      const embedding = await embedder.embedText(chunk.text);
 
       // Wrap the DB writes in a transaction so the content hash is never
       // saved without its corresponding vector — prevents a crash between
       // chunk upsert and vector insert from permanently marking the chunk
       // as "already embedded" while its vector is missing.
       db.transaction(() => {
-        const existingChunk = selectChunkIdStmt.get(notePath, chunk.index)
+        const existingChunk = selectChunkIdStmt.get(notePath, chunk.index);
+
         if (existingChunk) {
-          deleteVectorByChunkIdStmt.run(BigInt(existingChunk.id))
+          deleteVectorByChunkIdStmt.run(BigInt(existingChunk.id));
         }
 
         upsertChunkStmt.run({
@@ -1674,45 +1533,40 @@ export const createSearchIndex = (
           chunk_index: chunk.index,
           chunk_text: chunk.text,
           content_hash: hash,
-        })
+        });
 
-        const chunkRow = selectChunkIdStmt.get(notePath, chunk.index)
+        const chunkRow = selectChunkIdStmt.get(notePath, chunk.index);
+
         if (!chunkRow) {
-          throw new Error(
-            `chunk row missing after upsert: ${notePath} chunk ${String(chunk.index)}`,
-          )
+          throw new Error(`chunk row missing after upsert: ${notePath} chunk ${String(chunk.index)}`);
         }
         insertVectorStmt.run(
           BigInt(chunkRow.id),
-          Buffer.from(
-            embedding.buffer,
-            embedding.byteOffset,
-            embedding.byteLength,
-          ),
-        )
-      })()
-      embeddedCount++
+          Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength),
+        );
+      })();
+      embeddedCount++;
     }
 
     // Delete stale chunks and their vectors (note now has fewer chunks than before)
     if (deleteStaleVectorsStmt) {
-      deleteStaleVectorsStmt.run(notePath, chunks.length)
+      deleteStaleVectorsStmt.run(notePath, chunks.length);
     }
-    deleteStaleChunksStmt.run(notePath, chunks.length)
+    deleteStaleChunksStmt.run(notePath, chunks.length);
 
     logger.debug("embedded note", {
       path: notePath,
       totalChunks: chunks.length,
       embeddedCount,
-    })
-    return embeddedCount
-  }
+    });
+    return embeddedCount;
+  };
 
   /** How many memory entries go to the embedder per embedBatch call. Entries
    *  are uniformly short (~20–80 tokens), so padding waste inside a batch is
    *  negligible while the initial whole-corpus backfill collapses from one
    *  pipeline call per entry to one per 16. */
-  const MEMORY_EMBED_BATCH_SIZE = 16
+  const MEMORY_EMBED_BATCH_SIZE = 16;
 
   /** Embeds every not-yet-embedded entry of one memory file. Table-driven:
    *  upsertMemoryEntries is the single parse of truth, and this reads entry
@@ -1722,76 +1576,56 @@ export const createSearchIndex = (
    *  file and section name ("Agents > Communication\n...") so both the
    *  embedder and cross-encoder see which file an entry belongs to — the
    *  date is excluded (semantic noise). Returns the number embedded. */
-  const embedMemoryEntriesForFile = async (
-    memoryFile: string,
-    logger: Logger,
-  ): Promise<number> => {
-    if (
-      !embedder ||
-      !selectUnembeddedMemoryEntriesStmt ||
-      !insertMemoryVectorStmt
-    ) {
-      return 0
+  const embedMemoryEntriesForFile = async (memoryFile: string, logger: Logger): Promise<number> => {
+    if (!embedder || !selectUnembeddedMemoryEntriesStmt || !insertMemoryVectorStmt) {
+      return 0;
     }
-    const unembeddedRows = selectUnembeddedMemoryEntriesStmt.all(memoryFile)
-    if (unembeddedRows.length === 0) return 0
+    const unembeddedRows = selectUnembeddedMemoryEntriesStmt.all(memoryFile);
 
-    for (
-      let batchStart = 0;
-      batchStart < unembeddedRows.length;
-      batchStart += MEMORY_EMBED_BATCH_SIZE
-    ) {
-      const batchRows = unembeddedRows.slice(
-        batchStart,
-        batchStart + MEMORY_EMBED_BATCH_SIZE,
-      )
+    if (unembeddedRows.length === 0) return 0;
+
+    for (let batchStart = 0; batchStart < unembeddedRows.length; batchStart += MEMORY_EMBED_BATCH_SIZE) {
+      const batchRows = unembeddedRows.slice(batchStart, batchStart + MEMORY_EMBED_BATCH_SIZE);
       const embeddings = await embedder.embedBatch(
-        batchRows.map(
-          (row) => `${row.file} > ${row.section}\n${row.entry_text}`,
-        ),
-      )
+        batchRows.map((row) => `${row.file} > ${row.section}\n${row.entry_text}`),
+      );
       db.transaction(() => {
         for (const [rowIndexInBatch, row] of batchRows.entries()) {
-          const embedding = embeddings[rowIndexInBatch]
+          const embedding = embeddings[rowIndexInBatch];
+
           if (embedding === undefined) {
             throw new Error(
               `embedBatch returned ${String(embeddings.length)} vectors for ${String(batchRows.length)} entries`,
-            )
+            );
           }
           insertMemoryVectorStmt.run(
             BigInt(row.id),
-            Buffer.from(
-              embedding.buffer,
-              embedding.byteOffset,
-              embedding.byteLength,
-            ),
-          )
+            Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength),
+          );
         }
-      })()
+      })();
     }
 
     logger.debug("embedded memory entries", {
       file: memoryFile,
       embeddedCount: unembeddedRows.length,
-    })
-    return unembeddedRows.length
-  }
+    });
+    return unembeddedRows.length;
+  };
 
   /** Embed a note's content into vector storage — section-level chunks for
    *  every note, plus entry-level vectors when the note is a memory file.
    *  No-op when the embedding pipeline is disabled (no embedder provided).
    *  Safe to call unconditionally. */
-  const embedNote = async (
-    params: { notePath: string; rawContent: string },
-    logger: Logger,
-  ): Promise<void> => {
-    if (!embedder) return
-    await embedAndStoreChunks(params, logger)
-    const memoryFile = memoryFileNameFromPath(params.notePath)
+  const embedNote = async (params: { notePath: string; rawContent: string }, logger: Logger): Promise<void> => {
+    if (!embedder) return;
+    await embedAndStoreChunks(params, logger);
+    const memoryFile = memoryFileNameFromPath(params.notePath);
+
     if (memoryFile) {
-      await embedMemoryEntriesForFile(memoryFile, logger)
+      await embedMemoryEntriesForFile(memoryFile, logger);
     }
-  }
+  };
 
   /** Chunks and embeds file content into file_content_chunks / file_content_vectors.
    *  Mirrors embedAndStoreChunks for notes: content-hash gated, transaction-wrapped,
@@ -1809,36 +1643,31 @@ export const createSearchIndex = (
       !insertFileVectorStmt ||
       !deleteFileVectorByChunkIdStmt
     ) {
-      return 0
+      return 0;
     }
 
-    const chunks = chunkNoteContent(params.title, params.content)
+    const chunks = chunkNoteContent(params.title, params.content);
 
     const existingHashes = new Map(
       selectFileChunkHashesStmt
         .all(params.filePath)
-        .map((chunkHashRow) => [
-          chunkHashRow.chunk_index,
-          chunkHashRow.content_hash,
-        ]),
-    )
+        .map((chunkHashRow) => [chunkHashRow.chunk_index, chunkHashRow.content_hash]),
+    );
 
-    let embeddedCount = 0
+    let embeddedCount = 0;
 
     for (const chunk of chunks) {
-      const hash = contentHash(chunk.text)
+      const hash = contentHash(chunk.text);
 
-      if (existingHashes.get(chunk.index) === hash) continue
+      if (existingHashes.get(chunk.index) === hash) continue;
 
-      const embedding = await embedder.embedText(chunk.text)
+      const embedding = await embedder.embedText(chunk.text);
 
       db.transaction(() => {
-        const existingChunk = selectFileChunkIdStmt.get(
-          params.filePath,
-          chunk.index,
-        )
+        const existingChunk = selectFileChunkIdStmt.get(params.filePath, chunk.index);
+
         if (existingChunk) {
-          deleteFileVectorByChunkIdStmt.run(BigInt(existingChunk.id))
+          deleteFileVectorByChunkIdStmt.run(BigInt(existingChunk.id));
         }
 
         upsertFileChunkStmt.run({
@@ -1846,52 +1675,43 @@ export const createSearchIndex = (
           chunk_index: chunk.index,
           chunk_text: chunk.text,
           content_hash: hash,
-        })
+        });
 
-        const chunkRow = selectFileChunkIdStmt.get(params.filePath, chunk.index)
+        const chunkRow = selectFileChunkIdStmt.get(params.filePath, chunk.index);
+
         if (!chunkRow) {
-          throw new Error(
-            `file chunk row missing after upsert: ${params.filePath} chunk ${String(chunk.index)}`,
-          )
+          throw new Error(`file chunk row missing after upsert: ${params.filePath} chunk ${String(chunk.index)}`);
         }
         insertFileVectorStmt.run(
           BigInt(chunkRow.id),
-          Buffer.from(
-            embedding.buffer,
-            embedding.byteOffset,
-            embedding.byteLength,
-          ),
-        )
-      })()
-      embeddedCount++
+          Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength),
+        );
+      })();
+      embeddedCount++;
     }
 
     if (deleteStaleFileVectorsStmt) {
-      deleteStaleFileVectorsStmt.run(params.filePath, chunks.length)
+      deleteStaleFileVectorsStmt.run(params.filePath, chunks.length);
     }
-    deleteStaleFileChunksStmt.run(params.filePath, chunks.length)
+    deleteStaleFileChunksStmt.run(params.filePath, chunks.length);
 
     logger.debug("embedded file content", {
       path: params.filePath,
       totalChunks: chunks.length,
       embeddedCount,
-    })
-    return embeddedCount
-  }
+    });
+    return embeddedCount;
+  };
 
   /** Embed a file's rendered content into vector storage. Reads the processed
    *  content from the file_content table (already linearized/truncated by
    *  upsertFileContent). No-op when the embedding pipeline or file tools are
    *  disabled, or the file is not in the FTS index. Safe to call unconditionally. */
-  const embedFileContent = async (
-    params: { filePath: string },
-    logger: Logger,
-  ): Promise<void> => {
-    if (!embedder || !selectFileContentForEmbeddingStmt) return
-    const fileContentRow = selectFileContentForEmbeddingStmt.get(
-      params.filePath,
-    )
-    if (!fileContentRow) return
+  const embedFileContent = async (params: { filePath: string }, logger: Logger): Promise<void> => {
+    if (!embedder || !selectFileContentForEmbeddingStmt) return;
+    const fileContentRow = selectFileContentForEmbeddingStmt.get(params.filePath);
+
+    if (!fileContentRow) return;
     await embedAndStoreFileChunks(
       {
         filePath: params.filePath,
@@ -1899,32 +1719,32 @@ export const createSearchIndex = (
         content: fileContentRow.content,
       },
       logger,
-    )
-  }
+    );
+  };
 
   /** Removes a note from the notes table, FTS index, links, tasks, vectors,
    *  and — for memory files — the entry-granular index. A watcher rename
    *  arrives as unlink+add, so a renamed memory file behaves as delete+create:
    *  its entries re-enter as new rows and re-embed once in the background. */
   const removeNote = (filePath: string): void => {
-    const memoryFile = memoryFileNameFromPath(filePath)
+    const memoryFile = memoryFileNameFromPath(filePath);
 
     // All deletes commit or roll back together — a mid-sequence throw must
     // not leave the note half-removed across notes/FTS/tasks/links.
     db.transaction(() => {
-      deleteFtsStmt.run(filePath)
-      removeNotesStmt.run(filePath)
-      deleteLinksStmt.run(filePath)
-      deleteTasksStmt.run(filePath)
+      deleteFtsStmt.run(filePath);
+      removeNotesStmt.run(filePath);
+      deleteLinksStmt.run(filePath);
+      deleteTasksStmt.run(filePath);
       if (deleteVectorsForNoteStmt && deleteChunksForNoteStmt) {
-        deleteVectorsForNoteStmt.run(filePath)
-        deleteChunksForNoteStmt.run(filePath)
+        deleteVectorsForNoteStmt.run(filePath);
+        deleteChunksForNoteStmt.run(filePath);
       }
       if (memoryFile) {
-        removeMemoryEntriesForFile(memoryFile)
+        removeMemoryEntriesForFile(memoryFile);
       }
-    })()
-  }
+    })();
+  };
 
   /** Drops the entire index and re-indexes every .md file in the vault.
    *  Returns the note count and a background embedding promise. The server
@@ -1933,25 +1753,25 @@ export const createSearchIndex = (
     params: { vaultPath: string },
     logger: Logger,
   ): Promise<{ count: number; embedding: Promise<void> }> => {
-    const { vaultPath } = params
-    db.exec("DELETE FROM notes_fts")
-    db.exec("DELETE FROM notes")
-    db.exec("DELETE FROM links")
-    db.exec("DELETE FROM non_md_files")
-    db.exec("DELETE FROM tasks")
+    const { vaultPath } = params;
+    db.exec("DELETE FROM notes_fts");
+    db.exec("DELETE FROM notes");
+    db.exec("DELETE FROM links");
+    db.exec("DELETE FROM non_md_files");
+    db.exec("DELETE FROM tasks");
     if (fileToolsEnabled) {
-      db.exec("DELETE FROM file_content_fts")
-      db.exec("DELETE FROM file_content")
+      db.exec("DELETE FROM file_content_fts");
+      db.exec("DELETE FROM file_content");
     }
     // Vector tables are NOT wiped — embedAndStoreChunks uses content-hash
     // gating to skip unchanged chunks, so only new/modified notes re-embed.
     // Deleted notes are cleaned up in Pass 3 before embedding starts.
 
-    const normalizedVault = resolve(vaultPath)
+    const normalizedVault = resolve(vaultPath);
     const allEntries = await readdir(vaultPath, {
       recursive: true,
       withFileTypes: true,
-    })
+    });
 
     // Symlinks may point outside the vault (e.g. ARCHITECTURE.md →
     // ~/Code/repo/ARCHITECTURE.md) — Obsidian supports this natively, so we
@@ -1960,44 +1780,35 @@ export const createSearchIndex = (
       entries: allEntries,
       normalizedRoot: normalizedVault,
       logger,
-    })
+    });
 
     // Filter directory entries to visible files of one kind (.md notes or
     // non-md files) — shared by the notes pass and the non-md stat pass.
     // Named stages keep each pass O(n) (a spread-accumulating reduce would
     // re-copy the array per entry) and let the chain read top-to-bottom.
-    const visibleFilesOfKind = (
-      fileKind: "note" | "file",
-    ): { relativePath: string; absolutePath: string }[] => {
+    const visibleFilesOfKind = (fileKind: "note" | "file"): { relativePath: string; absolutePath: string }[] => {
       const matchesKind = (directoryEntry: Dirent): boolean => {
-        if (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink())
-          return false
-        const isNoteFile = directoryEntry.name.endsWith(".md")
-        return fileKind === "note" ? isNoteFile : !isNoteFile
-      }
-      const toFilePaths = (
-        directoryEntry: Dirent,
-      ): { relativePath: string; absolutePath: string } => {
-        const absolutePath = join(
-          directoryEntry.parentPath,
-          directoryEntry.name,
-        )
+        if (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink()) return false;
+        const isNoteFile = directoryEntry.name.endsWith(".md");
+        return fileKind === "note" ? isNoteFile : !isNoteFile;
+      };
+      const toFilePaths = (directoryEntry: Dirent): { relativePath: string; absolutePath: string } => {
+        const absolutePath = join(directoryEntry.parentPath, directoryEntry.name);
         return {
           relativePath: relative(normalizedVault, absolutePath),
           absolutePath,
-        }
-      }
-      const isVisiblePath = (file: { relativePath: string }): boolean =>
-        !hasHiddenPathSegment(file.relativePath)
+        };
+      };
+      const isVisiblePath = (file: { relativePath: string }): boolean => !hasHiddenPathSegment(file.relativePath);
 
-      return entries.filter(matchesKind).map(toFilePaths).filter(isVisiblePath)
-    }
+      return entries.filter(matchesKind).map(toFilePaths).filter(isVisiblePath);
+    };
 
-    const markdownFiles = visibleFilesOfKind("note")
+    const markdownFiles = visibleFilesOfKind("note");
 
     // Identify all non-md files once — reused for stat, content indexing,
     // and read-strategy splitting below.
-    const allNonMdFiles = visibleFilesOfKind("file")
+    const allNonMdFiles = visibleFilesOfKind("file");
 
     // Stat non-md files before the write transaction (fs stays out of it).
     // A file vanishing between listing and stat (sync race) is dropped here
@@ -2005,28 +1816,23 @@ export const createSearchIndex = (
     const nonMarkdownFileSizes = (
       await Promise.all(
         allNonMdFiles.map(async (file) => {
-          const fileStat = await statOrNull(file.absolutePath)
-          if (!fileStat) return null
-          return { relativePath: file.relativePath, bytes: fileStat.size }
+          const fileStat = await statOrNull(file.absolutePath);
+
+          if (!fileStat) return null;
+          return { relativePath: file.relativePath, bytes: fileStat.size };
         }),
       )
-    ).filter((entry) => entry !== null)
-    const canvasFiles = allNonMdFiles.filter((file) =>
-      file.relativePath.endsWith(".canvas"),
-    )
+    ).filter((entry) => entry !== null);
+    const canvasFiles = allNonMdFiles.filter((file) => file.relativePath.endsWith(".canvas"));
     // PDF and text files are only read when file content FTS is enabled —
     // without the tables, the extraction is wasted I/O.
-    const pdfFiles = fileToolsEnabled
-      ? allNonMdFiles.filter((file) => file.relativePath.endsWith(".pdf"))
-      : []
+    const pdfFiles = fileToolsEnabled ? allNonMdFiles.filter((file) => file.relativePath.endsWith(".pdf")) : [];
     const textFiles = fileToolsEnabled
       ? allNonMdFiles.filter((file) => {
-          const extension = posix.extname(file.relativePath)
-          return (
-            extension !== ".pdf" && INDEXABLE_TEXT_EXTENSIONS.has(extension)
-          )
+          const extension = posix.extname(file.relativePath);
+          return extension !== ".pdf" && INDEXABLE_TEXT_EXTENSIONS.has(extension);
         })
-      : []
+      : [];
 
     // Read canvas files for content indexing + link extraction.
     const canvasContents = (
@@ -2036,65 +1842,58 @@ export const createSearchIndex = (
             const [content, fileStat] = await Promise.all([
               readFile(file.absolutePath, "utf8"),
               stat(file.absolutePath),
-            ])
+            ]);
             return {
               relativePath: file.relativePath,
               content,
               modifiedAtMs: fileStat.mtimeMs,
               sizeBytes: fileStat.size,
-            }
+            };
           } catch (error) {
             logger.warn("skipped unreadable canvas file during rebuild", {
               path: file.relativePath,
               error: describeError(error),
-            })
-            return null
+            });
+            return null;
           }
         }),
       )
-    ).filter((entry) => entry !== null)
+    ).filter((entry) => entry !== null);
 
     // Extract PDF text with bounded concurrency (CPU-intensive pdfjs work).
     const extractPdfContent = async (file: {
-      absolutePath: string
-      relativePath: string
+      absolutePath: string;
+      relativePath: string;
     }): Promise<{
-      relativePath: string
-      content: string
-      modifiedAtMs: number
-      sizeBytes: number
+      relativePath: string;
+      content: string;
+      modifiedAtMs: number;
+      sizeBytes: number;
     } | null> => {
       try {
-        const [buffer, fileStat] = await Promise.all([
-          readFile(file.absolutePath),
-          stat(file.absolutePath),
-        ])
-        const pdfData = new Uint8Array(
-          buffer.buffer,
-          buffer.byteOffset,
-          buffer.byteLength,
-        )
-        const pdfResult = await extractPdfText(pdfData)
+        const [buffer, fileStat] = await Promise.all([readFile(file.absolutePath), stat(file.absolutePath)]);
+        const pdfData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+        const pdfResult = await extractPdfText(pdfData);
         return {
           relativePath: file.relativePath,
           content: pdfResult.text,
           modifiedAtMs: fileStat.mtimeMs,
           sizeBytes: fileStat.size,
-        }
+        };
       } catch (error) {
         logger.warn("skipped unreadable PDF during rebuild", {
           path: file.relativePath,
           error: describeError(error),
-        })
-        return null
+        });
+        return null;
       }
-    }
+    };
     const pdfResults = await mapWithConcurrency({
       items: pdfFiles,
       concurrency: 4,
       mapper: extractPdfContent,
-    })
-    const pdfContents = pdfResults.filter((entry) => entry !== null)
+    });
+    const pdfContents = pdfResults.filter((entry) => entry !== null);
 
     // Read text files for content indexing (raw UTF-8).
     const textFileContents = (
@@ -2104,23 +1903,23 @@ export const createSearchIndex = (
             const [content, fileStat] = await Promise.all([
               readFile(file.absolutePath, "utf8"),
               stat(file.absolutePath),
-            ])
+            ]);
             return {
               relativePath: file.relativePath,
               content,
               modifiedAtMs: fileStat.mtimeMs,
               sizeBytes: fileStat.size,
-            }
+            };
           } catch (error) {
             logger.warn("skipped unreadable text file during rebuild", {
               path: file.relativePath,
               error: describeError(error),
-            })
-            return null
+            });
+            return null;
           }
         }),
       )
-    ).filter((entry) => entry !== null)
+    ).filter((entry) => entry !== null);
 
     const noteContents = (
       await Promise.all(
@@ -2129,35 +1928,35 @@ export const createSearchIndex = (
             const [content, fileStat] = await Promise.all([
               readFile(file.absolutePath, "utf8"),
               stat(file.absolutePath),
-            ])
+            ]);
             return {
               relativePath: file.relativePath,
               content,
               modifiedAtMs: fileStat.mtimeMs,
               sizeBytes: fileStat.size,
-            }
+            };
           } catch (error) {
             logger.warn("skipped unreadable note during rebuild", {
               path: file.relativePath,
               error: describeError(error),
-            })
-            return null
+            });
+            return null;
           }
         }),
       )
-    ).filter((entry) => entry !== null)
+    ).filter((entry) => entry !== null);
 
     // Notes whose parse or index write throws are skipped with a warning
     // instead of aborting the rebuild — one malformed note must never
     // prevent the server from starting.
-    const skippedNotePaths = new Set<string>()
+    const skippedNotePaths = new Set<string>();
 
     // better-sqlite3: .transaction() returns a function; call it immediately
     db.transaction(() => {
       // Index non-markdown files so extensionless wikilinks to .canvas, .base,
       // etc. are recognized as file references rather than broken note links.
-      const nonMdCount = indexNonMarkdownFiles(nonMarkdownFileSizes)
-      logger.debug("indexed non-md files", { count: nonMdCount })
+      const nonMdCount = indexNonMarkdownFiles(nonMarkdownFileSizes);
+      logger.debug("indexed non-md files", { count: nonMdCount });
 
       // Pass 1: index all notes (content, frontmatter, FTS) — skip link
       // extraction here; Pass 2 handles it with the complete path list.
@@ -2171,13 +1970,13 @@ export const createSearchIndex = (
               skipLinks: true,
             },
             logger,
-          )
+          );
         } catch (error) {
-          skippedNotePaths.add(note.relativePath)
+          skippedNotePaths.add(note.relativePath);
           logger.warn("skipped malformed note during rebuild", {
             path: note.relativePath,
             error: describeError(error),
-          })
+          });
         }
       }
 
@@ -2194,71 +1993,59 @@ export const createSearchIndex = (
           markdownFiles
             .map((file) => memoryFileNameFromPath(file.relativePath))
             .filter((fileName) => fileName !== null),
-        )
+        );
         const deletedMemoryFiles = selectDistinctMemoryFilesStmt
           .all()
           .map((row) => row.file)
-          .filter((fileName) => !memoryFilesOnDisk.has(fileName))
+          .filter((fileName) => !memoryFilesOnDisk.has(fileName));
         for (const deletedFile of deletedMemoryFiles) {
-          removeMemoryEntriesForFile(deletedFile)
+          removeMemoryEntriesForFile(deletedFile);
         }
         if (deletedMemoryFiles.length > 0) {
           logger.info("cleaned up entries for deleted memory files", {
             count: deletedMemoryFiles.length,
-          })
+          });
         }
       }
 
       // Pass 2: re-extract links now that all paths are in the notes table,
       // resolving targets that the per-note upsertNote pass may have missed
       // (e.g. Note A links to Note B, but Note B was indexed after Note A).
-      const allPaths = selectAllNotePathsStmt.all()
-      const pathList = allPaths.map((row) => row.path)
+      const allPaths = selectAllNotePathsStmt.all();
+      const pathList = allPaths.map((row) => row.path);
 
-      db.exec("DELETE FROM links")
+      db.exec("DELETE FROM links");
       for (const note of noteContents) {
-        if (skippedNotePaths.has(note.relativePath)) continue
+        if (skippedNotePaths.has(note.relativePath)) continue;
         try {
-          const parsed = parseNote(note.content)
-          for (const rawTarget of links.extractAll(
-            parsed.content,
-            parsed.data,
-          )) {
+          const parsed = parseNote(note.content);
+          for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
             const resolved = links.resolve({
               target: rawTarget,
               allPaths: pathList,
               sourcePath: note.relativePath,
-            })
+            });
+
             if (resolved !== null) {
-              insertLinkStmt.run(note.relativePath, resolved)
+              insertLinkStmt.run(note.relativePath, resolved);
             } else {
-              const resolvedNonMdPath = resolveNonMarkdownFile(
-                rawTarget,
-                note.relativePath,
-              )
-              insertLinkStmt.run(
-                note.relativePath,
-                resolvedNonMdPath ?? rawTarget,
-              )
+              const resolvedNonMdPath = resolveNonMarkdownFile(rawTarget, note.relativePath);
+              insertLinkStmt.run(note.relativePath, resolvedNonMdPath ?? rawTarget);
             }
           }
         } catch (error) {
-          skippedNotePaths.add(note.relativePath)
+          skippedNotePaths.add(note.relativePath);
           logger.warn("skipped malformed note during rebuild", {
             path: note.relativePath,
             error: describeError(error),
-          })
+          });
         }
       }
 
       // File content indexing: canvas (FTS + link extraction), PDF and text
       // (FTS only). upsertFileContent deletes old canvas links before
       // inserting, so canvas links append cleanly after the note link pass.
-      const allFileContents = [
-        ...canvasContents,
-        ...pdfContents,
-        ...textFileContents,
-      ]
+      const allFileContents = [...canvasContents, ...pdfContents, ...textFileContents];
       for (const fileEntry of allFileContents) {
         try {
           upsertFileContent(
@@ -2271,28 +2058,23 @@ export const createSearchIndex = (
               },
             },
             logger,
-          )
+          );
         } catch (error) {
           logger.warn("skipped malformed file during rebuild", {
             path: fileEntry.relativePath,
             error: describeError(error),
-          })
+          });
         }
       }
-    })()
+    })();
 
-    const indexedNotes = noteContents.filter(
-      (note) => !skippedNotePaths.has(note.relativePath),
-    )
-    const totalBytes = indexedNotes.reduce(
-      (sum, note) => sum + note.sizeBytes,
-      0,
-    )
+    const indexedNotes = noteContents.filter((note) => !skippedNotePaths.has(note.relativePath));
+    const totalBytes = indexedNotes.reduce((sum, note) => sum + note.sizeBytes, 0);
     logger.info("rebuilt index", {
       count: indexedNotes.length,
       totalBytes,
       ...(skippedNotePaths.size > 0 ? { skipped: skippedNotePaths.size } : {}),
-    })
+    });
 
     // Extract only what Pass 3 needs so the full noteContents array (with
     // every note's body + stats) can be garbage-collected during embedding.
@@ -2300,18 +2082,17 @@ export const createSearchIndex = (
       relativePath: note.relativePath,
       content: note.content,
       snapshotMtimeMs: note.modifiedAtMs,
-    }))
+    }));
 
     // File content for embedding — read the processed text from file_content
     // (already linearized/extracted/truncated by upsertFileContent above).
     const filesForEmbedding = fileContentVectorEnabled
       ? db
-          .prepare<
-            unknown[],
-            { path: string; title: string; content: string; mtime: number }
-          >("SELECT path, title, content, mtime FROM file_content")
+          .prepare<unknown[], { path: string; title: string; content: string; mtime: number }>(
+            "SELECT path, title, content, mtime FROM file_content",
+          )
           .all()
-      : []
+      : [];
 
     // Pass 3 runs in the background — the server can start accepting requests
     // immediately after FTS indexing (Passes 1+2) finishes. Embedding is a
@@ -2319,121 +2100,102 @@ export const createSearchIndex = (
     const embeddingPromise = embedder
       ? (async () => {
           // Clean up vectors for notes that no longer exist on disk
-          const currentPaths = new Set(
-            notesForEmbedding.map((note) => note.relativePath),
-          )
+          const currentPaths = new Set(notesForEmbedding.map((note) => note.relativePath));
           const indexedChunkPaths = db
-            .prepare<unknown[], { note_path: string }>(
-              "SELECT DISTINCT note_path FROM note_chunks",
-            )
+            .prepare<unknown[], { note_path: string }>("SELECT DISTINCT note_path FROM note_chunks")
             .all()
-            .map((row) => row.note_path)
+            .map((row) => row.note_path);
 
-          const deletedPaths = indexedChunkPaths.filter(
-            (path) => !currentPaths.has(path),
-          )
-          const hasDeletedNotes =
-            deletedPaths.length > 0 &&
-            deleteVectorsForNoteStmt &&
-            deleteChunksForNoteStmt
+          const deletedPaths = indexedChunkPaths.filter((path) => !currentPaths.has(path));
+          const hasDeletedNotes = deletedPaths.length > 0 && deleteVectorsForNoteStmt && deleteChunksForNoteStmt;
+
           if (hasDeletedNotes) {
             for (const path of deletedPaths) {
-              deleteVectorsForNoteStmt.run(path)
-              deleteChunksForNoteStmt.run(path)
+              deleteVectorsForNoteStmt.run(path);
+              deleteChunksForNoteStmt.run(path);
             }
             logger.info("cleaned up vectors for deleted notes", {
               count: deletedPaths.length,
-            })
+            });
           }
 
           // Running totals accumulated across the sequential embedding loop
-          let chunksEmbedded = 0
-          let entriesEmbedded = 0
-          let embedErrors = 0
+          let chunksEmbedded = 0;
+          let entriesEmbedded = 0;
+          let embedErrors = 0;
           for (const note of notesForEmbedding) {
             // The watcher can update the index between the Pass 1 snapshot and
             // this embed — skip the note if its mtime changed.
-            const currentNote = selectNoteMtimeStmt.get(note.relativePath)
-            const noteIsStale =
-              !currentNote || currentNote.mtime !== note.snapshotMtimeMs
+            const currentNote = selectNoteMtimeStmt.get(note.relativePath);
+            const noteIsStale = !currentNote || currentNote.mtime !== note.snapshotMtimeMs;
+
             if (noteIsStale) {
-              continue
+              continue;
             }
 
             try {
               chunksEmbedded += await embedAndStoreChunks(
                 { notePath: note.relativePath, rawContent: note.content },
                 logger,
-              )
-              const memoryFile = memoryFileNameFromPath(note.relativePath)
+              );
+              const memoryFile = memoryFileNameFromPath(note.relativePath);
+
               if (memoryFile) {
-                entriesEmbedded += await embedMemoryEntriesForFile(
-                  memoryFile,
-                  logger,
-                )
+                entriesEmbedded += await embedMemoryEntriesForFile(memoryFile, logger);
               }
             } catch (err) {
-              embedErrors++
+              embedErrors++;
               logger.warn("failed to embed note", {
                 path: note.relativePath,
                 error: describeError(err),
-              })
+              });
             }
 
             // Yield to the event loop between notes so pending I/O callbacks
             // (Express healthz, MCP tool handlers) can drain.
-            await setImmediateAsync()
+            await setImmediateAsync();
           }
           // ── File content embedding ──────────────────────────────
           // Clean up vectors for files that no longer exist — runs
           // unconditionally so deletions while the server was down are caught
           // even when filesForEmbedding is empty (mirroring the note-side cleanup).
-          if (
-            fileContentVectorEnabled &&
-            deleteFileVectorsForPathStmt &&
-            deleteFileChunksForPathStmt
-          ) {
+          if (fileContentVectorEnabled && deleteFileVectorsForPathStmt && deleteFileChunksForPathStmt) {
             // Query the live table instead of the pre-loop snapshot — files
             // the watcher indexed during the note embedding loop are in the
             // table but absent from the snapshot.
             const currentFilePaths = new Set(
               db
-                .prepare<unknown[], { path: string }>(
-                  "SELECT path FROM file_content",
-                )
+                .prepare<unknown[], { path: string }>("SELECT path FROM file_content")
                 .all()
                 .map((fileContentPathRow) => fileContentPathRow.path),
-            )
+            );
             const indexedFileChunkPaths = db
-              .prepare<unknown[], { file_path: string }>(
-                "SELECT DISTINCT file_path FROM file_content_chunks",
-              )
+              .prepare<unknown[], { file_path: string }>("SELECT DISTINCT file_path FROM file_content_chunks")
               .all()
-              .map((chunkPathRow) => chunkPathRow.file_path)
+              .map((chunkPathRow) => chunkPathRow.file_path);
 
-            const deletedFilePaths = indexedFileChunkPaths.filter(
-              (path) => !currentFilePaths.has(path),
-            )
+            const deletedFilePaths = indexedFileChunkPaths.filter((path) => !currentFilePaths.has(path));
+
             if (deletedFilePaths.length > 0) {
               for (const path of deletedFilePaths) {
-                deleteFileVectorsForPathStmt.run(path)
-                deleteFileChunksForPathStmt.run(path)
+                deleteFileVectorsForPathStmt.run(path);
+                deleteFileChunksForPathStmt.run(path);
               }
               logger.info("cleaned up vectors for deleted files", {
                 count: deletedFilePaths.length,
-              })
+              });
             }
           }
 
           if (filesForEmbedding.length > 0 && selectFileMtimeStmt) {
-            let fileChunksEmbedded = 0
-            let fileEmbedErrors = 0
+            let fileChunksEmbedded = 0;
+            let fileEmbedErrors = 0;
             for (const file of filesForEmbedding) {
               // Same watcher-race guard as for notes above.
-              const currentFile = selectFileMtimeStmt.get(file.path)
-              const fileIsStale =
-                !currentFile || currentFile.mtime !== file.mtime
-              if (fileIsStale) continue
+              const currentFile = selectFileMtimeStmt.get(file.path);
+              const fileIsStale = !currentFile || currentFile.mtime !== file.mtime;
+
+              if (fileIsStale) continue;
 
               try {
                 fileChunksEmbedded += await embedAndStoreFileChunks(
@@ -2443,22 +2205,22 @@ export const createSearchIndex = (
                     content: file.content,
                   },
                   logger,
-                )
+                );
               } catch (err) {
-                fileEmbedErrors++
+                fileEmbedErrors++;
                 logger.warn("failed to embed file content", {
                   path: file.path,
                   error: describeError(err),
-                })
+                });
               }
 
-              await setImmediateAsync()
+              await setImmediateAsync();
             }
             logger.info("file content embedding pass complete", {
               files: filesForEmbedding.length,
               fileChunksEmbedded,
               ...(fileEmbedErrors > 0 ? { fileEmbedErrors } : {}),
-            })
+            });
           }
 
           logger.info("embedding pass complete", {
@@ -2466,79 +2228,69 @@ export const createSearchIndex = (
             chunksEmbedded,
             ...(entriesEmbedded > 0 ? { entriesEmbedded } : {}),
             ...(embedErrors > 0 ? { embedErrors } : {}),
-          })
+          });
         })()
-      : Promise.resolve()
+      : Promise.resolve();
 
     // Log but don't crash on unhandled embedding errors
     embeddingPromise.catch((err) => {
-      logger.error("embedding pass failed", { error: describeError(err) })
-    })
+      logger.error("embedding pass failed", { error: describeError(err) });
+    });
 
-    return { count: indexedNotes.length, embedding: embeddingPromise }
-  }
+    return { count: indexedNotes.length, embedding: embeddingPromise };
+  };
 
   // ── Trash entries (retention-sweep bookkeeping) ──────────────
 
   const upsertTrashEntryStmt = db.prepare(`
     INSERT OR REPLACE INTO trash_entries (trash_key, trash_path, trashed_at)
     VALUES (?, ?, ?)
-  `)
-  const selectTrashEntryStmt = db.prepare<
-    [string],
-    { trash_path: string; trashed_at: number }
-  >(`SELECT trash_path, trashed_at FROM trash_entries WHERE trash_key = ?`)
-  const selectAllTrashEntriesStmt = db.prepare<
-    [],
-    { trash_path: string; trashed_at: number }
-  >(`SELECT trash_path, trashed_at FROM trash_entries`)
-  const selectExpiredTrashEntriesStmt = db.prepare<
-    [number],
-    { trash_path: string; trashed_at: number }
-  >(`SELECT trash_path, trashed_at FROM trash_entries WHERE trashed_at < ?`)
-  const deleteTrashEntryStmt = db.prepare(
-    `DELETE FROM trash_entries WHERE trash_key = ?`,
-  )
+  `);
+  const selectTrashEntryStmt = db.prepare<[string], { trash_path: string; trashed_at: number }>(
+    `SELECT trash_path, trashed_at FROM trash_entries WHERE trash_key = ?`,
+  );
+  const selectAllTrashEntriesStmt = db.prepare<[], { trash_path: string; trashed_at: number }>(
+    `SELECT trash_path, trashed_at FROM trash_entries`,
+  );
+  const selectExpiredTrashEntriesStmt = db.prepare<[number], { trash_path: string; trashed_at: number }>(
+    `SELECT trash_path, trashed_at FROM trash_entries WHERE trashed_at < ?`,
+  );
+  const deleteTrashEntryStmt = db.prepare(`DELETE FROM trash_entries WHERE trash_key = ?`);
 
   /** Records a file this server moved to .trash/ — the retention sweep only
    *  ever deletes recorded entries. Reusing a path (or a case alias of one,
    *  via the folded key) replaces the old row, restarting the retention clock
    *  for the file now at that path. */
   const recordTrashEntry = (trashPath: string): void => {
-    upsertTrashEntryStmt.run(
-      caseFoldPath(trashPath),
-      trashPath,
-      DateTime.now().toUnixInteger(),
-    )
-  }
+    upsertTrashEntryStmt.run(caseFoldPath(trashPath), trashPath, DateTime.now().toUnixInteger());
+  };
 
   const getTrashEntry = (trashPath: string): TrashEntry | null => {
-    const row = selectTrashEntryStmt.get(caseFoldPath(trashPath))
-    if (!row) return null
-    return { trashPath: row.trash_path, trashedAt: row.trashed_at }
-  }
+    const row = selectTrashEntryStmt.get(caseFoldPath(trashPath));
+
+    if (!row) return null;
+    return { trashPath: row.trash_path, trashedAt: row.trashed_at };
+  };
 
   /** Every recorded trash entry — the orphan purge's candidate list. */
   const listAllTrashEntries = (): TrashEntry[] => {
     return selectAllTrashEntriesStmt.all().map((row) => ({
       trashPath: row.trash_path,
       trashedAt: row.trashed_at,
-    }))
-  }
+    }));
+  };
 
   /** Rows recorded strictly before the cutoff — the sweep's candidate list. */
-  const listExpiredTrashEntries = (
-    cutoffEpochSeconds: number,
-  ): TrashEntry[] => {
+  const listExpiredTrashEntries = (cutoffEpochSeconds: number): TrashEntry[] => {
     return selectExpiredTrashEntriesStmt.all(cutoffEpochSeconds).map((row) => ({
       trashPath: row.trash_path,
       trashedAt: row.trashed_at,
-    }))
-  }
+    }));
+  };
 
   const deleteTrashEntry = (trashPath: string): void => {
-    deleteTrashEntryStmt.run(caseFoldPath(trashPath))
-  }
+    deleteTrashEntryStmt.run(caseFoldPath(trashPath));
+  };
 
   // ── Query context + delegation ───────────────────────────────
 
@@ -2565,9 +2317,7 @@ export const createSearchIndex = (
             selectEntryByIdStmt: selectMemoryEntryByIdStmt,
           }
         : null,
-    fileContentFts: searchFileContentFtsStmt
-      ? { searchStmt: searchFileContentFtsStmt }
-      : null,
+    fileContentFts: searchFileContentFtsStmt ? { searchStmt: searchFileContentFtsStmt } : null,
     fileContentVector:
       fileContentKnnSearchStmt && fileContentKnnSearchInFolderStmt
         ? {
@@ -2577,15 +2327,15 @@ export const createSearchIndex = (
           }
         : null,
     selectFileContentMetadataStmt,
-  }
+  };
 
   /** Binds the query context as the first argument of a query function,
    *  producing the two-arg (params, logger) signature the factory exposes. */
   const bindQueryContext = <P, R>(
     fn: (context: queries.SearchQueryContext, params: P, logger: Logger) => R,
   ): ((params: P, logger: Logger) => R) => {
-    return (params, logger) => fn(queryContext, params, logger)
-  }
+    return (params, logger) => fn(queryContext, params, logger);
+  };
 
   return {
     upsertNote,
@@ -2620,23 +2370,20 @@ export const createSearchIndex = (
     modifiedOnDate: bindQueryContext(queries.modifiedOnDate),
     vaultStats: bindQueryContext(queries.vaultStats),
     fileContentIndexingEnabled: fileToolsEnabled,
-  }
-}
+  };
+};
 
-export type SearchIndex = ReturnType<typeof createSearchIndex>
+export type SearchIndex = ReturnType<typeof createSearchIndex>;
 
 /** A file this server moved to .trash/, as recorded for the retention sweep. */
 export type TrashEntry = {
-  trashPath: string
-  trashedAt: number
-}
+  trashPath: string;
+  trashedAt: number;
+};
 
 /** The slice of the index the trash sweeper needs — injected so
  *  vault-operations/ never runtime-imports search/ (lint-enforced layering). */
 export type TrashEntryStore = Pick<
   SearchIndex,
-  | "listAllTrashEntries"
-  | "listExpiredTrashEntries"
-  | "getTrashEntry"
-  | "deleteTrashEntry"
->
+  "listAllTrashEntries" | "listExpiredTrashEntries" | "getTrashEntry" | "deleteTrashEntry"
+>;

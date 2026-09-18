@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest"
-import { sanitizeFtsQuery, sanitizeFtsQueryAnyTerm } from "../fts-query.js"
+import { describe, it, expect } from "vitest";
+import { sanitizeFtsQuery, sanitizeFtsQueryAnyTerm } from "../fts-query.js";
 
 describe("sanitizeFtsQuery", () => {
   const scenarios = [
@@ -163,13 +163,13 @@ describe("sanitizeFtsQuery", () => {
       input: '"mcpservers.org"',
       expected: '"mcpservers.org"',
     },
-  ]
+  ];
 
   it.each(scenarios)("$name", ({ input, expected }) => {
-    const result = sanitizeFtsQuery(input)
-    expect(result).toBe(expected)
-  })
-})
+    const result = sanitizeFtsQuery(input);
+    expect(result).toBe(expected);
+  });
+});
 
 describe("sanitizeFtsQueryAnyTerm", () => {
   const scenarios = [
@@ -218,10 +218,10 @@ describe("sanitizeFtsQueryAnyTerm", () => {
       input: '"on call" rotations',
       expected: '"on call" OR rotations',
     },
-  ]
+  ];
 
   it.each(scenarios)("$name", ({ input, expected }) => {
-    const result = sanitizeFtsQueryAnyTerm(input)
-    expect(result).toBe(expected)
-  })
-})
+    const result = sanitizeFtsQueryAnyTerm(input);
+    expect(result).toBe(expected);
+  });
+});

@@ -9,4 +9,4 @@ export const isErrnoException = <C extends string = string>(
   error instanceof Error &&
   "code" in error &&
   typeof error.code === "string" &&
-  (code === undefined || error.code === code)
+  (code === undefined || error.code === code);

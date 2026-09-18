@@ -1,15 +1,15 @@
-import * as clack from "@clack/prompts"
+import * as clack from "@clack/prompts";
 
 export type SelectOption = {
-  value: string
-  label: string
-  hint?: string
-}
+  value: string;
+  label: string;
+  hint?: string;
+};
 
 type Spinner = {
-  start: (message: string) => void
-  stop: (message: string) => void
-}
+  start: (message: string) => void;
+  stop: (message: string) => void;
+};
 
 /**
  * The prompt surface init.ts depends on. The real implementation wraps
@@ -17,39 +17,32 @@ type Spinner = {
  * that touches stdin.
  */
 export type Prompts = {
-  intro: (message: string) => void
-  outro: (message: string) => void
-  note: (message: string, title?: string) => void
+  intro: (message: string) => void;
+  outro: (message: string) => void;
+  note: (message: string, title?: string) => void;
   /**
    * Print plain text with no clack framing. Used for the Connect
    * instructions: a clack note box hard-wraps long lines behind a "│ "
    * border, which corrupts a copied command — plain output lets the terminal
    * soft-wrap instead, keeping commands and tokens copyable.
    */
-  print: (message: string) => void
-  log: (message: string) => void
-  warn: (message: string) => void
-  error: (message: string) => void
-  select: (
-    message: string,
-    options: SelectOption[],
-    initialValue: string,
-  ) => Promise<string>
+  print: (message: string) => void;
+  log: (message: string) => void;
+  warn: (message: string) => void;
+  error: (message: string) => void;
+  select: (message: string, options: SelectOption[], initialValue: string) => Promise<string>;
   /**
    * Zero-or-more chooser (space toggles, enter submits). Always optional —
    * submitting with nothing selected resolves to an empty array, so callers
    * treat "no picks" as "skip", never as a validation error.
    */
-  multiselect: (message: string, options: SelectOption[]) => Promise<string[]>
-  text: (
-    message: string,
-    options?: { placeholder?: string; defaultValue?: string },
-  ) => Promise<string>
+  multiselect: (message: string, options: SelectOption[]) => Promise<string[]>;
+  text: (message: string, options?: { placeholder?: string; defaultValue?: string }) => Promise<string>;
   /** Like text, but input is masked — the value never echoes to the terminal or scrollback. */
-  password: (message: string) => Promise<string>
-  confirm: (message: string, initialValue: boolean) => Promise<boolean>
-  spinner: () => Spinner
-}
+  password: (message: string) => Promise<string>;
+  confirm: (message: string, initialValue: boolean) => Promise<boolean>;
+  spinner: () => Spinner;
+};
 
 // User pressed ctrl-C mid-prompt: 130 = 128 + SIGINT, the shell convention.
 // Guard on typeof, not clack.isCancel: since @clack/prompts 1.8.0 isCancel
@@ -58,11 +51,11 @@ export type Prompts = {
 // and the cancel sentinel is the only symbol a prompt ever resolves with.
 const exitOnCancel = <T>(value: T | symbol): T => {
   if (typeof value === "symbol") {
-    clack.cancel("Cancelled.")
-    process.exit(130)
+    clack.cancel("Cancelled.");
+    process.exit(130);
   }
-  return value
-}
+  return value;
+};
 
 /**
  * The production Prompts implementation: a thin pass-through to
@@ -86,10 +79,7 @@ export const createPrompts = (): Prompts => ({
     exitOnCancel(await clack.select({ message, options, initialValue })),
   // required: false makes an empty submission legal — the Prompts contract
   // promises "no picks" resolves to [] instead of a re-prompt loop.
-  multiselect: async (message, options) =>
-    exitOnCancel(
-      await clack.multiselect({ message, options, required: false }),
-    ),
+  multiselect: async (message, options) => exitOnCancel(await clack.multiselect({ message, options, required: false })),
   text: async (message, options = {}) =>
     exitOnCancel(
       await clack.text({
@@ -99,13 +89,12 @@ export const createPrompts = (): Prompts => ({
       }),
     ),
   password: async (message) => exitOnCancel(await clack.password({ message })),
-  confirm: async (message, initialValue) =>
-    exitOnCancel(await clack.confirm({ message, initialValue })),
+  confirm: async (message, initialValue) => exitOnCancel(await clack.confirm({ message, initialValue })),
   spinner: () => {
-    const clackSpinner = clack.spinner()
+    const clackSpinner = clack.spinner();
     return {
       start: (message) => clackSpinner.start(message),
       stop: (message) => clackSpinner.stop(message),
-    }
+    };
   },
-})
+});

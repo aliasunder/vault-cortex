@@ -1,36 +1,24 @@
-import { describe, it, expect, onTestFinished, vi } from "vitest"
-import {
-  mkdtempSync,
-  rmSync,
-  readFileSync,
-  writeFileSync,
-  readdirSync,
-  existsSync,
-} from "node:fs"
-import { join } from "node:path"
-import { tmpdir } from "node:os"
-import { DateTime, Settings } from "luxon"
-import { findSourceMap } from "node:module"
-import {
-  createFileSinkExtension,
-  pruneOldLogFiles,
-  logger,
-  resolveLogDir,
-} from "../logger.js"
+import { describe, it, expect, onTestFinished, vi } from "vitest";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { DateTime, Settings } from "luxon";
+import { findSourceMap } from "node:module";
+import { createFileSinkExtension, pruneOldLogFiles, logger, resolveLogDir } from "../logger.js";
 
-vi.mock("node:module", { spy: true })
+vi.mock("node:module", { spy: true });
 
 const createTempDir = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "logger-test-"))
+  const dir = mkdtempSync(join(tmpdir(), "logger-test-"));
   onTestFinished(() => {
     try {
-      rmSync(dir, { recursive: true, force: true })
+      rmSync(dir, { recursive: true, force: true });
     } catch {
       // ignore — OS tmp dir handles stragglers
     }
-  })
-  return dir
-}
+  });
+  return dir;
+};
 
 const sampleLine = (message: string): string =>
   JSON.stringify({
@@ -38,7 +26,7 @@ const sampleLine = (message: string): string =>
     level: "info",
     name: "test",
     message,
-  }) + "\n"
+  }) + "\n";
 
 const sampleEntry = (message: string) => ({
   timestamp: DateTime.now().toISO(),
@@ -46,244 +34,227 @@ const sampleEntry = (message: string) => ({
   name: "test",
   message,
   data: {},
-})
+});
 
 describe("resolveLogDir", () => {
   it("returns the directory for an ordinary path", () => {
-    expect(resolveLogDir("/data/logs")).toBe("/data/logs")
-  })
+    expect(resolveLogDir("/data/logs")).toBe("/data/logs");
+  });
 
   it("turns file logging off for the none sentinel", () => {
-    expect(resolveLogDir("none")).toBeUndefined()
-  })
+    expect(resolveLogDir("none")).toBeUndefined();
+  });
 
   it("matches the none sentinel case-insensitively", () => {
-    expect(resolveLogDir("NONE")).toBeUndefined()
-    expect(resolveLogDir("None")).toBeUndefined()
-  })
+    expect(resolveLogDir("NONE")).toBeUndefined();
+    expect(resolveLogDir("None")).toBeUndefined();
+  });
 
   it("turns file logging off when unset", () => {
-    expect(resolveLogDir(undefined)).toBeUndefined()
-  })
+    expect(resolveLogDir(undefined)).toBeUndefined();
+  });
 
   it("turns file logging off when empty", () => {
-    expect(resolveLogDir("")).toBeUndefined()
-  })
+    expect(resolveLogDir("")).toBeUndefined();
+  });
 
   it("does not treat a directory literally named none under a path as the sentinel", () => {
-    expect(resolveLogDir("/data/none")).toBe("/data/none")
-  })
-})
+    expect(resolveLogDir("/data/none")).toBe("/data/none");
+  });
+});
 
 describe("createFileSinkExtension", () => {
   it("writes log lines to a date-stamped file", () => {
-    const logDir = createTempDir()
-    const extension = createFileSinkExtension(logDir)
+    const logDir = createTempDir();
+    const extension = createFileSinkExtension(logDir);
 
-    extension(sampleEntry("hello"), sampleLine("hello"))
-    extension(sampleEntry("world"), sampleLine("world"))
+    extension(sampleEntry("hello"), sampleLine("hello"));
+    extension(sampleEntry("world"), sampleLine("world"));
 
-    const today = DateTime.now().toISODate()
+    const today = DateTime.now().toISODate();
     const lines = readFileSync(join(logDir, `vault-mcp-${today}.log`), "utf8")
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line))
-    expect(lines).toHaveLength(2)
-    expect(lines[0].message).toBe("hello")
-    expect(lines[1].message).toBe("world")
-  })
+      .map((line) => JSON.parse(line));
+    expect(lines).toHaveLength(2);
+    expect(lines[0].message).toBe("hello");
+    expect(lines[1].message).toBe("world");
+  });
 
   it("creates the log directory if it does not exist", () => {
-    const parentDir = createTempDir()
-    const nestedLogDir = join(parentDir, "nested", "logs")
+    const parentDir = createTempDir();
+    const nestedLogDir = join(parentDir, "nested", "logs");
 
-    createFileSinkExtension(nestedLogDir)
+    createFileSinkExtension(nestedLogDir);
 
-    expect(existsSync(nestedLogDir)).toBe(true)
-  })
+    expect(existsSync(nestedLogDir)).toBe(true);
+  });
 
   it("appends to an existing log file", () => {
-    const logDir = createTempDir()
-    const today = DateTime.now().toISODate()
-    const logFile = join(logDir, `vault-mcp-${today}.log`)
+    const logDir = createTempDir();
+    const today = DateTime.now().toISODate();
+    const logFile = join(logDir, `vault-mcp-${today}.log`);
 
-    writeFileSync(logFile, '{"message":"existing"}\n')
+    writeFileSync(logFile, '{"message":"existing"}\n');
 
-    const extension = createFileSinkExtension(logDir)
-    extension(sampleEntry("appended"), sampleLine("appended"))
+    const extension = createFileSinkExtension(logDir);
+    extension(sampleEntry("appended"), sampleLine("appended"));
 
     const lines = readFileSync(logFile, "utf8")
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line))
-    expect(lines).toHaveLength(2)
-    expect(lines[0].message).toBe("existing")
-    expect(lines[1].message).toBe("appended")
-  })
+      .map((line) => JSON.parse(line));
+    expect(lines).toHaveLength(2);
+    expect(lines[0].message).toBe("existing");
+    expect(lines[1].message).toBe("appended");
+  });
 
   it("rolls to a new file when the date changes", () => {
-    const logDir = createTempDir()
+    const logDir = createTempDir();
     onTestFinished(() => {
-      Settings.now = () => Date.now()
-    })
+      Settings.now = () => Date.now();
+    });
 
     // Day 1
-    Settings.now = () => Date.parse("2026-01-15T12:00:00Z")
-    const extension = createFileSinkExtension(logDir, 30)
-    extension(sampleEntry("day1"), '{"message":"day1"}\n')
+    Settings.now = () => Date.parse("2026-01-15T12:00:00Z");
+    const extension = createFileSinkExtension(logDir, 30);
+    extension(sampleEntry("day1"), '{"message":"day1"}\n');
 
     // Day 2
-    Settings.now = () => Date.parse("2026-01-16T12:00:00Z")
-    extension(sampleEntry("day2"), '{"message":"day2"}\n')
+    Settings.now = () => Date.parse("2026-01-16T12:00:00Z");
+    extension(sampleEntry("day2"), '{"message":"day2"}\n');
 
     const files = readdirSync(logDir)
       .filter((filename) => filename.endsWith(".log"))
-      .sort()
-    expect(files).toEqual([
-      "vault-mcp-2026-01-15.log",
-      "vault-mcp-2026-01-16.log",
-    ])
+      .sort();
+    expect(files).toEqual(["vault-mcp-2026-01-15.log", "vault-mcp-2026-01-16.log"]);
 
-    const day1Content = readFileSync(
-      join(logDir, "vault-mcp-2026-01-15.log"),
-      "utf8",
-    )
-    const day2Content = readFileSync(
-      join(logDir, "vault-mcp-2026-01-16.log"),
-      "utf8",
-    )
-    const day1Line = JSON.parse(day1Content.trim())
-    const day2Line = JSON.parse(day2Content.trim())
-    expect(day1Line.message).toBe("day1")
-    expect(day2Line.message).toBe("day2")
-  })
+    const day1Content = readFileSync(join(logDir, "vault-mcp-2026-01-15.log"), "utf8");
+    const day2Content = readFileSync(join(logDir, "vault-mcp-2026-01-16.log"), "utf8");
+    const day1Line = JSON.parse(day1Content.trim());
+    const day2Line = JSON.parse(day2Content.trim());
+    expect(day1Line.message).toBe("day1");
+    expect(day2Line.message).toBe("day2");
+  });
 
   it("prunes old files on creation", () => {
-    const logDir = createTempDir()
-    writeFileSync(join(logDir, "vault-mcp-2020-01-01.log"), "ancient")
+    const logDir = createTempDir();
+    writeFileSync(join(logDir, "vault-mcp-2020-01-01.log"), "ancient");
 
-    createFileSinkExtension(logDir, 7)
+    createFileSinkExtension(logDir, 7);
 
-    const remaining = readdirSync(logDir)
-    expect(remaining).toHaveLength(0)
-  })
-})
+    const remaining = readdirSync(logDir);
+    expect(remaining).toHaveLength(0);
+  });
+});
 
 describe("pruneOldLogFiles", () => {
   it("deletes log files older than retention period", () => {
-    const logDir = createTempDir()
+    const logDir = createTempDir();
 
-    writeFileSync(join(logDir, "vault-mcp-2020-01-01.log"), "old")
-    writeFileSync(join(logDir, "vault-mcp-2020-06-15.log"), "also old")
-    const today = DateTime.now().toISODate()
-    writeFileSync(join(logDir, `vault-mcp-${today}.log`), "current")
+    writeFileSync(join(logDir, "vault-mcp-2020-01-01.log"), "old");
+    writeFileSync(join(logDir, "vault-mcp-2020-06-15.log"), "also old");
+    const today = DateTime.now().toISODate();
+    writeFileSync(join(logDir, `vault-mcp-${today}.log`), "current");
 
-    pruneOldLogFiles(logDir, 30)
+    pruneOldLogFiles(logDir, 30);
 
-    const remaining = readdirSync(logDir)
-    expect(remaining).toHaveLength(1)
-    expect(remaining[0]).toBe(`vault-mcp-${today}.log`)
-  })
+    const remaining = readdirSync(logDir);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]).toBe(`vault-mcp-${today}.log`);
+  });
 
   it("ignores non-matching files", () => {
-    const logDir = createTempDir()
+    const logDir = createTempDir();
 
-    writeFileSync(join(logDir, "vault-mcp-2020-01-01.log"), "old")
-    writeFileSync(join(logDir, "other-file.txt"), "keep me")
-    writeFileSync(join(logDir, "README.md"), "keep me too")
+    writeFileSync(join(logDir, "vault-mcp-2020-01-01.log"), "old");
+    writeFileSync(join(logDir, "other-file.txt"), "keep me");
+    writeFileSync(join(logDir, "README.md"), "keep me too");
 
-    pruneOldLogFiles(logDir, 30)
+    pruneOldLogFiles(logDir, 30);
 
-    const remaining = readdirSync(logDir).sort()
-    expect(remaining).toEqual(["README.md", "other-file.txt"])
-  })
+    const remaining = readdirSync(logDir).sort();
+    expect(remaining).toEqual(["README.md", "other-file.txt"]);
+  });
 
   it("keeps files within retention window", () => {
-    const logDir = createTempDir()
+    const logDir = createTempDir();
 
-    const today = DateTime.now().toISODate()
-    const yesterday = DateTime.now().minus({ days: 1 }).toISODate()
-    writeFileSync(join(logDir, `vault-mcp-${today}.log`), "today")
-    writeFileSync(join(logDir, `vault-mcp-${yesterday}.log`), "yesterday")
+    const today = DateTime.now().toISODate();
+    const yesterday = DateTime.now().minus({ days: 1 }).toISODate();
+    writeFileSync(join(logDir, `vault-mcp-${today}.log`), "today");
+    writeFileSync(join(logDir, `vault-mcp-${yesterday}.log`), "yesterday");
 
-    pruneOldLogFiles(logDir, 30)
+    pruneOldLogFiles(logDir, 30);
 
-    const remaining = readdirSync(logDir).sort()
-    expect(remaining).toEqual([
-      `vault-mcp-${yesterday}.log`,
-      `vault-mcp-${today}.log`,
-    ])
-  })
+    const remaining = readdirSync(logDir).sort();
+    expect(remaining).toEqual([`vault-mcp-${yesterday}.log`, `vault-mcp-${today}.log`]);
+  });
 
   it("keeps 90 days of log files when no retention is configured", () => {
-    const logDir = createTempDir()
+    const logDir = createTempDir();
 
-    const sixtyDaysAgo = DateTime.now().minus({ days: 60 }).toISODate()
-    const hundredDaysAgo = DateTime.now().minus({ days: 100 }).toISODate()
-    writeFileSync(join(logDir, `vault-mcp-${sixtyDaysAgo}.log`), "kept")
-    writeFileSync(join(logDir, `vault-mcp-${hundredDaysAgo}.log`), "pruned")
+    const sixtyDaysAgo = DateTime.now().minus({ days: 60 }).toISODate();
+    const hundredDaysAgo = DateTime.now().minus({ days: 100 }).toISODate();
+    writeFileSync(join(logDir, `vault-mcp-${sixtyDaysAgo}.log`), "kept");
+    writeFileSync(join(logDir, `vault-mcp-${hundredDaysAgo}.log`), "pruned");
 
-    createFileSinkExtension(logDir)
+    createFileSinkExtension(logDir);
 
-    expect(readdirSync(logDir)).toEqual([`vault-mcp-${sixtyDaysAgo}.log`])
-  })
+    expect(readdirSync(logDir)).toEqual([`vault-mcp-${sixtyDaysAgo}.log`]);
+  });
 
   it("respects custom retention days", () => {
-    const logDir = createTempDir()
+    const logDir = createTempDir();
 
-    const twoDaysAgo = DateTime.now().minus({ days: 2 }).toISODate()
-    writeFileSync(join(logDir, `vault-mcp-${twoDaysAgo}.log`), "old-ish")
+    const twoDaysAgo = DateTime.now().minus({ days: 2 }).toISODate();
+    writeFileSync(join(logDir, `vault-mcp-${twoDaysAgo}.log`), "old-ish");
 
-    pruneOldLogFiles(logDir, 1)
+    pruneOldLogFiles(logDir, 1);
 
-    const remaining = readdirSync(logDir)
-    expect(remaining).toHaveLength(0)
-  })
-})
+    const remaining = readdirSync(logDir);
+    expect(remaining).toHaveLength(0);
+  });
+});
 
 describe("source location resolution", () => {
   /** Captures JSON log lines emitted to stdout while the spy is active. */
   const captureEmittedLines = (): (() => Record<string, unknown>[]) => {
-    const writtenChunks: string[] = []
-    const stdoutSpy = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation((chunk) => {
-        writtenChunks.push(String(chunk))
-        return true
-      })
-    onTestFinished(() => stdoutSpy.mockRestore())
-    return () =>
-      writtenChunks
-        .filter((chunk) => chunk.startsWith("{"))
-        .map((chunk) => JSON.parse(chunk))
-  }
+    const writtenChunks: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      writtenChunks.push(String(chunk));
+      return true;
+    });
+    onTestFinished(() => stdoutSpy.mockRestore());
+    return () => writtenChunks.filter((chunk) => chunk.startsWith("{")).map((chunk) => JSON.parse(chunk));
+  };
 
   it("emits a source field with a .ts extension when source maps are available", () => {
-    const emittedLines = captureEmittedLines()
+    const emittedLines = captureEmittedLines();
 
-    logger.info("source location test")
+    logger.info("source location test");
 
-    const source = emittedLines()[0]?.source
-    expect(source).toMatch(/\.ts:\d+$/)
-  })
+    const source = emittedLines()[0]?.source;
+    expect(source).toMatch(/\.ts:\d+$/);
+  });
 
   it("emits a source field pointing to this test file", () => {
-    const emittedLines = captureEmittedLines()
+    const emittedLines = captureEmittedLines();
 
-    logger.info("self-reference test")
+    logger.info("self-reference test");
 
-    const source = String(emittedLines()[0]?.source)
-    expect(source).toMatch(/^logger\.test\.ts:\d+$/)
-  })
+    const source = String(emittedLines()[0]?.source);
+    expect(source).toMatch(/^logger\.test\.ts:\d+$/);
+  });
 
   it("uses findOrigin to resolve the original source location", () => {
-    const emittedLines = captureEmittedLines()
+    const emittedLines = captureEmittedLines();
     const fakeOrigin = {
       name: undefined,
       fileName: "file:///fake/path/resolved-module.ts",
       lineNumber: 42,
       columnNumber: 5,
-    }
+    };
     vi.mocked(findSourceMap).mockReturnValueOnce({
       findEntry: vi.fn(),
       findOrigin: () => fakeOrigin,
@@ -296,25 +267,25 @@ describe("source location resolution", () => {
         mappings: "",
         sourceRoot: "",
       },
-    })
+    });
 
-    logger.info("resolved via source map")
+    logger.info("resolved via source map");
 
-    expect(emittedLines()[0]?.source).toBe("resolved-module.ts:42")
-  })
+    expect(emittedLines()[0]?.source).toBe("resolved-module.ts:42");
+  });
 
   it("falls back to the compiled filename when findSourceMap returns undefined", () => {
-    const emittedLines = captureEmittedLines()
-    vi.mocked(findSourceMap).mockReturnValueOnce(undefined)
+    const emittedLines = captureEmittedLines();
+    vi.mocked(findSourceMap).mockReturnValueOnce(undefined);
 
-    logger.info("no source map")
+    logger.info("no source map");
 
-    const source = String(emittedLines()[0]?.source)
-    expect(source).toMatch(/\.(ts|js):\d+$/)
-  })
+    const source = String(emittedLines()[0]?.source);
+    expect(source).toMatch(/\.(ts|js):\d+$/);
+  });
 
   it("falls back to the compiled filename when findOrigin returns an empty object", () => {
-    const emittedLines = captureEmittedLines()
+    const emittedLines = captureEmittedLines();
     vi.mocked(findSourceMap).mockReturnValueOnce({
       findEntry: vi.fn(),
       findOrigin: () => ({}),
@@ -327,122 +298,118 @@ describe("source location resolution", () => {
         mappings: "",
         sourceRoot: "",
       },
-    })
+    });
 
-    logger.info("unmapped line")
+    logger.info("unmapped line");
 
-    const source = String(emittedLines()[0]?.source)
-    expect(source).toMatch(/\.(ts|js):\d+$/)
-  })
+    const source = String(emittedLines()[0]?.source);
+    expect(source).toMatch(/\.(ts|js):\d+$/);
+  });
 
   it("does not emit a source field for debug-level logs", () => {
-    const emittedLines = captureEmittedLines()
+    const emittedLines = captureEmittedLines();
 
-    logger.debug("debug message")
+    logger.debug("debug message");
 
-    const debugLines = emittedLines()
+    const debugLines = emittedLines();
+
     if (debugLines.length > 0) {
-      expect(debugLines[0]).not.toHaveProperty("source")
+      expect(debugLines[0]).not.toHaveProperty("source");
     }
-  })
-})
+  });
+});
 
 describe("logger child lazy props", () => {
   /** Captures JSON log lines emitted to stdout while the spy is active.
    *  Non-JSON stdout writes (test-runner output) are filtered out. */
   const captureEmittedLines = (): (() => Record<string, unknown>[]) => {
-    const writtenChunks: string[] = []
-    const stdoutSpy = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation((chunk) => {
-        writtenChunks.push(String(chunk))
-        return true
-      })
-    onTestFinished(() => stdoutSpy.mockRestore())
-    return () =>
-      writtenChunks
-        .filter((chunk) => chunk.startsWith("{"))
-        .map((chunk) => JSON.parse(chunk))
-  }
+    const writtenChunks: string[] = [];
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      writtenChunks.push(String(chunk));
+      return true;
+    });
+    onTestFinished(() => stdoutSpy.mockRestore());
+    return () => writtenChunks.filter((chunk) => chunk.startsWith("{")).map((chunk) => JSON.parse(chunk));
+  };
 
   it("resolves a function-valued prop at emit time, not at child creation", () => {
-    const emittedLines = captureEmittedLines()
+    const emittedLines = captureEmittedLines();
     // Mutable — models the MCP transport, whose sessionId is assigned only
     // after the session logger child has been created
     const transport: { sessionId: string | undefined } = {
       sessionId: undefined,
-    }
-    const childLogger = logger.child({ sessionId: () => transport.sessionId })
+    };
+    const childLogger = logger.child({ sessionId: () => transport.sessionId });
 
-    transport.sessionId = "session-abc"
-    childLogger.info("tool_call")
+    transport.sessionId = "session-abc";
+    childLogger.info("tool_call");
 
-    expect(emittedLines()[0]?.sessionId).toBe("session-abc")
-  })
+    expect(emittedLines()[0]?.sessionId).toBe("session-abc");
+  });
 
   it("re-resolves the prop on every emit", () => {
-    const emittedLines = captureEmittedLines()
+    const emittedLines = captureEmittedLines();
     // Mutable — the test verifies each emit reads the current value
     const transport: { sessionId: string | undefined } = {
       sessionId: "first-session",
-    }
-    const childLogger = logger.child({ sessionId: () => transport.sessionId })
+    };
+    const childLogger = logger.child({ sessionId: () => transport.sessionId });
 
-    childLogger.info("first line")
-    transport.sessionId = "second-session"
-    childLogger.info("second line")
+    childLogger.info("first line");
+    transport.sessionId = "second-session";
+    childLogger.info("second line");
 
-    expect(emittedLines()[0]?.sessionId).toBe("first-session")
-    expect(emittedLines()[1]?.sessionId).toBe("second-session")
-  })
+    expect(emittedLines()[0]?.sessionId).toBe("first-session");
+    expect(emittedLines()[1]?.sessionId).toBe("second-session");
+  });
 
   it("omits a lazy prop that resolves to undefined", () => {
-    const emittedLines = captureEmittedLines()
+    const emittedLines = captureEmittedLines();
     const childLogger = logger.child({
       sessionId: () => undefined,
       // Companion lazy prop with a defined value — proves resolution actually
       // ran, so the absent sessionId can't be JSON.stringify silently
       // dropping an unresolved function value.
       clientIp: () => "203.0.113.7",
-    })
+    });
 
-    childLogger.info("tool_call")
+    childLogger.info("tool_call");
 
-    const emittedLine = emittedLines()[0]
-    expect(emittedLine?.message).toBe("tool_call")
-    expect(emittedLine?.clientIp).toBe("203.0.113.7")
-    expect(emittedLine).not.toHaveProperty("sessionId")
-  })
+    const emittedLine = emittedLines()[0];
+    expect(emittedLine?.message).toBe("tool_call");
+    expect(emittedLine?.clientIp).toBe("203.0.113.7");
+    expect(emittedLine).not.toHaveProperty("sessionId");
+  });
 
   it("passes static props through unchanged alongside a lazy prop", () => {
-    const emittedLines = captureEmittedLines()
+    const emittedLines = captureEmittedLines();
     const childLogger = logger.child({
       sessionId: () => "session-abc",
       clientIp: "203.0.113.7",
-    })
+    });
 
-    childLogger.info("tool_call")
+    childLogger.info("tool_call");
 
-    expect(emittedLines()[0]?.sessionId).toBe("session-abc")
-    expect(emittedLines()[0]?.clientIp).toBe("203.0.113.7")
-  })
+    expect(emittedLines()[0]?.sessionId).toBe("session-abc");
+    expect(emittedLines()[0]?.clientIp).toBe("203.0.113.7");
+  });
 
   it("resolves a lazy prop inherited through a grandchild logger", () => {
-    const emittedLines = captureEmittedLines()
+    const emittedLines = captureEmittedLines();
     // Mirrors the production chain: session logger (lazy sessionId) →
     // request logger child({ requestId, tool }) → tool_call line
     const transport: { sessionId: string | undefined } = {
       sessionId: undefined,
-    }
+    };
     const sessionLogger = logger.child({
       sessionId: () => transport.sessionId,
-    })
-    const requestLogger = sessionLogger.child({ requestId: 12 })
+    });
+    const requestLogger = sessionLogger.child({ requestId: 12 });
 
-    transport.sessionId = "session-abc"
-    requestLogger.info("tool_call")
+    transport.sessionId = "session-abc";
+    requestLogger.info("tool_call");
 
-    expect(emittedLines()[0]?.sessionId).toBe("session-abc")
-    expect(emittedLines()[0]?.requestId).toBe(12)
-  })
-})
+    expect(emittedLines()[0]?.sessionId).toBe("session-abc");
+    expect(emittedLines()[0]?.requestId).toBe(12);
+  });
+});

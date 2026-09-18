@@ -1,71 +1,32 @@
-import {
-  writeFile,
-  readdir,
-  mkdir,
-  open,
-  unlink,
-  rename,
-  link,
-  rm,
-  rmdir,
-} from "node:fs/promises"
-import { randomUUID } from "node:crypto"
-import {
-  join,
-  dirname,
-  relative,
-  resolve,
-  parse,
-  posix,
-  isAbsolute,
-  sep,
-} from "node:path"
-import picomatch from "picomatch"
-import { describeError } from "../../utils/describe-error.js"
-import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
-import {
-  fileExists,
-  readFileOrNull,
-  readdirOrNull,
-  statOrNull,
-} from "../../utils/fs.js"
-import { isErrnoException } from "../../utils/is-errno-exception.js"
-import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
-import { mtimeToIso } from "../../utils/mtime-to-iso.js"
-import {
-  withExclusiveFileLock,
-  withFileLock,
-} from "../../utils/file-write-lock.js"
-import { links } from "../obsidian-markdown/links.js"
-import {
-  parseNote,
-  stringifyNote,
-  mergeFrontmatter,
-} from "../obsidian-markdown/frontmatter.js"
-import {
-  parseHeadings,
-  findHeading,
-  linesBeforeFirstHeading,
-} from "../obsidian-markdown/headings.js"
-import { parseLeadingCalloutSpan } from "../obsidian-markdown/callouts.js"
-import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
-import {
-  splitIntoLines,
-  trimBlankEdgeLines,
-} from "../obsidian-markdown/lines.js"
-import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
-import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
-import { caseFoldPath } from "../../utils/case-fold-path.js"
-import type { TrashOption } from "./trash-config.js"
-import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
-import type { Logger } from "../../logger.js"
+import { writeFile, readdir, mkdir, open, unlink, rename, link, rm, rmdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { join, dirname, relative, resolve, parse, posix, isAbsolute, sep } from "node:path";
+import picomatch from "picomatch";
+import { describeError } from "../../utils/describe-error.js";
+import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js";
+import { fileExists, readFileOrNull, readdirOrNull, statOrNull } from "../../utils/fs.js";
+import { isErrnoException } from "../../utils/is-errno-exception.js";
+import { mapWithConcurrency } from "../../utils/map-with-concurrency.js";
+import { mtimeToIso } from "../../utils/mtime-to-iso.js";
+import { withExclusiveFileLock, withFileLock } from "../../utils/file-write-lock.js";
+import { links } from "../obsidian-markdown/links.js";
+import { parseNote, stringifyNote, mergeFrontmatter } from "../obsidian-markdown/frontmatter.js";
+import { parseHeadings, findHeading, linesBeforeFirstHeading } from "../obsidian-markdown/headings.js";
+import { parseLeadingCalloutSpan } from "../obsidian-markdown/callouts.js";
+import type { LeadingCallout } from "../obsidian-markdown/callouts.js";
+import { splitIntoLines, trimBlankEdgeLines } from "../obsidian-markdown/lines.js";
+import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js";
+import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js";
+import { caseFoldPath } from "../../utils/case-fold-path.js";
+import type { TrashOption } from "./trash-config.js";
+import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js";
+import type { Logger } from "../../logger.js";
 
 /** Normalizes a note path's spelling by converting Windows backslashes to
  *  forward slashes and collapsing "./" and "../" segments. Purely lexical —
  *  absolute and vault-escaping paths pass through unchanged, so safety checks
  *  belong to resolveSafePath and prefix guards to resolveVaultRelativePath. */
-export const toVaultRelativePath = (input: string): string =>
-  posix.normalize(input.replace(/\\/g, "/"))
+export const toVaultRelativePath = (input: string): string => posix.normalize(input.replace(/\\/g, "/"));
 
 /** Resolves a note path within the vault; throws on absolute paths,
  *  traversal, hidden paths (dot-prefixed segments — Obsidian ignores
@@ -73,10 +34,7 @@ export const toVaultRelativePath = (input: string): string =>
  *  checked on the resolved relative path (so "./" and "../" normalize)
  *  before any fs access (no existence leak). Internal ".obsidian/"
  *  config readers deliberately bypass this via direct readFile. */
-export const resolveSafePath = (
-  vaultPath: string,
-  notePath: string,
-): string => {
+export const resolveSafePath = (vaultPath: string, notePath: string): string => {
   // Vault paths are relative to the vault root — Obsidian has no other
   // form. An absolute input is rejected even when it lands inside the vault,
   // because accepting it would tie behavior to the deployment's mount point,
@@ -84,67 +42,53 @@ export const resolveSafePath = (
   // folder "vault/") would let one leading slash silently select the wrong
   // file.
   if (posix.isAbsolute(notePath)) {
-    throw new Error(
-      `absolute path blocked: "${notePath}" must be vault-relative`,
-    )
+    throw new Error(`absolute path blocked: "${notePath}" must be vault-relative`);
   }
 
-  const vaultRoot = resolve(vaultPath)
-  const resolvedPath = resolve(vaultRoot, notePath)
-  const pathFromVaultRoot = relative(vaultRoot, resolvedPath)
+  const vaultRoot = resolve(vaultPath);
+  const resolvedPath = resolve(vaultRoot, notePath);
+  const pathFromVaultRoot = relative(vaultRoot, resolvedPath);
   const escapesVault =
-    pathFromVaultRoot === ".." ||
-    pathFromVaultRoot.startsWith(`..${sep}`) ||
-    isAbsolute(pathFromVaultRoot)
+    pathFromVaultRoot === ".." || pathFromVaultRoot.startsWith(`..${sep}`) || isAbsolute(pathFromVaultRoot);
 
   if (escapesVault) {
-    throw new Error(`path traversal blocked: "${notePath}" escapes vault root`)
+    throw new Error(`path traversal blocked: "${notePath}" escapes vault root`);
   }
 
   if (resolvedPath === vaultRoot) {
-    throw new Error(
-      `path traversal blocked: "${notePath}" resolves to the vault root`,
-    )
+    throw new Error(`path traversal blocked: "${notePath}" resolves to the vault root`);
   }
 
   if (hasHiddenPathSegment(pathFromVaultRoot)) {
-    throw new Error(
-      `hidden path blocked: "${notePath}" targets a hidden file or folder`,
-    )
+    throw new Error(`hidden path blocked: "${notePath}" targets a hidden file or folder`);
   }
 
-  return resolvedPath
-}
+  return resolvedPath;
+};
 
 /** Canonical vault-relative form of a note path — prefix guards must run on
  *  this form so path aliases (separator variants, traversal segments) can't
  *  evade them. Throws resolveSafePath's absolute/traversal/hidden errors for
  *  unsafe input. */
-export const resolveVaultRelativePath = (params: {
-  vaultPath: string
-  notePath: string
-}): string => {
-  const normalizedInput = toVaultRelativePath(params.notePath)
+export const resolveVaultRelativePath = (params: { vaultPath: string; notePath: string }): string => {
+  const normalizedInput = toVaultRelativePath(params.notePath);
   // resolveSafePath is called for its safety guards; its absolute result is
   // an intermediate, converted straight back to vault-relative.
-  const resolvedPath = resolveSafePath(params.vaultPath, normalizedInput)
-  const relativePath = relative(resolve(params.vaultPath), resolvedPath)
-  return toVaultRelativePath(relativePath)
-}
+  const resolvedPath = resolveSafePath(params.vaultPath, normalizedInput);
+  const relativePath = relative(resolve(params.vaultPath), resolvedPath);
+  return toVaultRelativePath(relativePath);
+};
 
 /** True when the path sits under one of the protected folders (memory, daily
  *  notes). The comparison is case-folded so a case-aliased spelling can't slip
  *  past the guard on a case-insensitive filesystem (macOS/Windows bind
  *  mounts); the path must already be canonical (resolveVaultRelativePath). */
-export const isProtectedPath = (params: {
-  path: string
-  protectedPaths: readonly string[]
-}): boolean => {
-  const foldedPath = caseFoldPath(params.path)
+export const isProtectedPath = (params: { path: string; protectedPaths: readonly string[] }): boolean => {
+  const foldedPath = caseFoldPath(params.path);
   return params.protectedPaths
     .map((folder) => (folder.endsWith("/") ? folder : `${folder}/`))
-    .some((prefix) => foldedPath.startsWith(caseFoldPath(prefix)))
-}
+    .some((prefix) => foldedPath.startsWith(caseFoldPath(prefix)));
+};
 
 /**
  * Removes the note's now-empty parent folders, walking up from the note's
@@ -161,30 +105,31 @@ export const pruneEmptyParents = async (
   params: { vaultPath: string; path: string },
   logger: Logger,
 ): Promise<number> => {
-  const vaultRoot = resolve(params.vaultPath)
-  const start = dirname(resolveSafePath(params.vaultPath, params.path))
+  const vaultRoot = resolve(params.vaultPath);
+  const start = dirname(resolveSafePath(params.vaultPath, params.path));
 
   const pruneFrom = async (dir: string, removed: number): Promise<number> => {
     // Stop at the vault root (never remove it) and defend against the
     // filesystem root where dirname stops shrinking.
-    if (dir === vaultRoot || dir === dirname(dir)) return removed
+    if (dir === vaultRoot || dir === dirname(dir)) return removed;
     try {
-      const entries = await readdir(dir)
+      const entries = await readdir(dir);
+
       // A non-empty folder means no ancestor can be empty either — stop here.
-      if (entries.length > 0) return removed
-      await rmdir(dir)
+      if (entries.length > 0) return removed;
+      await rmdir(dir);
     } catch (error) {
       logger.warn("could not remove empty folder", {
         folder: relative(vaultRoot, dir),
         error: describeError(error),
-      })
-      return removed
+      });
+      return removed;
     }
-    return pruneFrom(dirname(dir), removed + 1)
-  }
+    return pruneFrom(dirname(dir), removed + 1);
+  };
 
-  return pruneFrom(start, 0)
-}
+  return pruneFrom(start, 0);
+};
 
 /**
  * Writes a file atomically: stage to a unique temp file, then rename over the
@@ -196,28 +141,25 @@ export const pruneEmptyParents = async (
  * Overwrites an existing target; use `atomicWriteFileExclusive` when the file
  * must not already exist.
  */
-export const atomicWriteFile = async (
-  params: { filePath: string; content: string },
-  logger: Logger,
-): Promise<void> => {
-  const tmpPath = `${params.filePath}.${randomUUID()}.tmp`
+export const atomicWriteFile = async (params: { filePath: string; content: string }, logger: Logger): Promise<void> => {
+  const tmpPath = `${params.filePath}.${randomUUID()}.tmp`;
   try {
-    await writeFile(tmpPath, params.content, "utf8")
-    await rename(tmpPath, params.filePath)
+    await writeFile(tmpPath, params.content, "utf8");
+    await rename(tmpPath, params.filePath);
   } catch (err) {
     // Best-effort cleanup so a failed write never strands a temp file. A
     // failed cleanup is logged, not thrown, so the write failure propagates.
     try {
-      await rm(tmpPath, { force: true })
+      await rm(tmpPath, { force: true });
     } catch (cleanupError) {
       logger.warn("failed to remove temp file", {
         path: tmpPath,
         error: describeError(cleanupError),
-      })
+      });
     }
-    throw err
+    throw err;
   }
-}
+};
 
 /**
  * Like {@link atomicWriteFile}, but **exclusive** (no-clobber): fails with
@@ -240,42 +182,40 @@ export const atomicWriteFile = async (
  */
 export const atomicWriteFileExclusive = async (
   params: {
-    filePath: string
-    content: string
-    hardLinksSupported?: boolean
+    filePath: string;
+    content: string;
+    hardLinksSupported?: boolean;
   },
   logger: Logger,
 ): Promise<void> => {
-  const tmpPath = `${params.filePath}.${randomUUID()}.tmp`
-  const hardLinksSupported = params.hardLinksSupported ?? true
+  const tmpPath = `${params.filePath}.${randomUUID()}.tmp`;
+  const hardLinksSupported = params.hardLinksSupported ?? true;
   try {
-    await writeFile(tmpPath, params.content, "utf8")
+    await writeFile(tmpPath, params.content, "utf8");
     if (hardLinksSupported) {
       // Atomic no-clobber create — link throws EEXIST if filePath exists.
-      await link(tmpPath, params.filePath)
-      return
+      await link(tmpPath, params.filePath);
+      return;
     }
     // No hard links on this filesystem. Reserve the target atomically
     // (O_EXCL) — it throws EEXIST if the target exists, with no separate
     // check, so there's no TOCTOU window in which a concurrent writer's file
     // could be clobbered.
-    await writeFile(params.filePath, "", { flag: "wx" })
+    await writeFile(params.filePath, "", { flag: "wx" });
     try {
       // Swap the fully-staged content over the empty placeholder.
-      await rename(tmpPath, params.filePath)
+      await rename(tmpPath, params.filePath);
     } catch (renameError) {
       // The reservation took but the swap failed — drop the placeholder so a
       // failed write never strands a 0-byte note at the destination. A failed
       // cleanup is logged, not thrown, so the swap failure propagates.
-      await rm(params.filePath, { force: true }).catch(
-        (cleanupError: unknown) => {
-          logger.warn("failed to remove reservation placeholder", {
-            path: params.filePath,
-            error: describeError(cleanupError),
-          })
-        },
-      )
-      throw renameError
+      await rm(params.filePath, { force: true }).catch((cleanupError: unknown) => {
+        logger.warn("failed to remove reservation placeholder", {
+          path: params.filePath,
+          error: describeError(cleanupError),
+        });
+      });
+      throw renameError;
     }
   } finally {
     // Always drop the temp file — renamed away on success, redundant otherwise.
@@ -285,109 +225,86 @@ export const atomicWriteFileExclusive = async (
       logger.warn("failed to remove temp file", {
         path: tmpPath,
         error: describeError(cleanupError),
-      })
-    })
+      });
+    });
   }
-}
+};
 
 /** Combines body + frontmatter into a gray-matter serialized string. Merges with existing frontmatter if file already exists; keys set to null are removed. */
-const serializeNote = (
-  existing: string | null,
-  body: string,
-  frontmatter?: Record<string, unknown>,
-): string => {
-  if (!existing)
-    return stringifyNote(body, mergeFrontmatter({}, frontmatter ?? {}))
+const serializeNote = (existing: string | null, body: string, frontmatter?: Record<string, unknown>): string => {
+  if (!existing) return stringifyNote(body, mergeFrontmatter({}, frontmatter ?? {}));
 
-  const parsed = parseNote(existing)
-  const mergedData = frontmatter
-    ? mergeFrontmatter(parsed.data, frontmatter)
-    : parsed.data
-  return stringifyNote(body, mergedData)
-}
+  const parsed = parseNote(existing);
+  const mergedData = frontmatter ? mergeFrontmatter(parsed.data, frontmatter) : parsed.data;
+  return stringifyNote(body, mergedData);
+};
 
 // ── Exported functions ──────────────────────────────────────────
 
 /** Reads a .md note by relative path. Returns raw content including frontmatter. */
-const readNote = async (
-  params: { vaultPath: string; path: string },
-  logger: Logger,
-): Promise<string> => {
-  assertPathHasExtension(params.path, ".md")
-  const fullPath = resolveSafePath(params.vaultPath, params.path)
-  const content = await readFileOrNull(fullPath)
+const readNote = async (params: { vaultPath: string; path: string }, logger: Logger): Promise<string> => {
+  assertPathHasExtension(params.path, ".md");
+  const fullPath = resolveSafePath(params.vaultPath, params.path);
+  const content = await readFileOrNull(fullPath);
+
   if (content === null) {
-    throw new Error(`note not found: "${params.path}"`)
+    throw new Error(`note not found: "${params.path}"`);
   }
-  logger.info("read note", { path: params.path })
-  return content
-}
+  logger.info("read note", { path: params.path });
+  return content;
+};
 
 /** One heading and the exact UTF-8 byte length returned by a section read. */
 type HeadingOutline = Readonly<{
-  level: number
-  text: string
-  bytes: number
-}>
+  level: number;
+  text: string;
+  bytes: number;
+}>;
 
 /** The optional leading fields are omitted when absent and never overlap. */
 type NoteOutline = Readonly<{
-  bytes: number
-  modified: string
-  leading_callout?: LeadingCallout
-  leading_content?: string
-  headings: HeadingOutline[]
-}>
+  bytes: number;
+  modified: string;
+  leading_callout?: LeadingCallout;
+  leading_content?: string;
+  headings: HeadingOutline[];
+}>;
 
 /** Returns file metadata and the heading tree without section bodies, plus visible content above the first heading. */
-const readNoteOutline = async (
-  params: { vaultPath: string; path: string },
-  logger: Logger,
-): Promise<NoteOutline> => {
-  assertPathHasExtension(params.path, ".md")
-  const fullPath = resolveSafePath(params.vaultPath, params.path)
-  const [content, fileStats] = await Promise.all([
-    readFileOrNull(fullPath),
-    statOrNull(fullPath),
-  ])
+const readNoteOutline = async (params: { vaultPath: string; path: string }, logger: Logger): Promise<NoteOutline> => {
+  assertPathHasExtension(params.path, ".md");
+  const fullPath = resolveSafePath(params.vaultPath, params.path);
+  const [content, fileStats] = await Promise.all([readFileOrNull(fullPath), statOrNull(fullPath)]);
 
   if (content === null || fileStats === null) {
-    throw new Error(`note not found: "${params.path}"`)
+    throw new Error(`note not found: "${params.path}"`);
   }
 
-  const lines = splitIntoLines(parseNote(content).content)
-  const headings = parseHeadings(lines)
-  const calloutSpan = parseLeadingCalloutSpan(lines)
+  const lines = splitIntoLines(parseNote(content).content);
+  const headings = parseHeadings(lines);
+  const calloutSpan = parseLeadingCalloutSpan(lines);
 
   // linesBeforeFirstHeading returns a zero-based prefix, so its indices still
   // match the callout span. Filtering that prefix also keeps a callout after a
   // leading H1 outside the region without span subtraction or negative slices.
-  const regionLines = linesBeforeFirstHeading(lines, headings)
+  const regionLines = linesBeforeFirstHeading(lines, headings);
   const regionOutsideCallout = regionLines.filter(
-    (_line, index) =>
-      calloutSpan === null ||
-      index < calloutSpan.startLine ||
-      index >= calloutSpan.endLine,
-  )
-  const leadingContent = trimBlankEdgeLines(regionOutsideCallout).join("\n")
+    (_line, index) => calloutSpan === null || index < calloutSpan.startLine || index >= calloutSpan.endLine,
+  );
+  const leadingContent = trimBlankEdgeLines(regionOutsideCallout).join("\n");
 
   const outline = headings.map((heading) => {
     // The section span runs from the heading line through bodyEndLine (the
     // same span a section read returns), so the size hint matches what
     // reading it would cost.
-    const sectionText = lines
-      .slice(heading.startLine, heading.bodyEndLine)
-      .join("\n")
+    const sectionText = lines.slice(heading.startLine, heading.bodyEndLine).join("\n");
     return {
       level: heading.level,
       text: heading.text,
       bytes: Buffer.byteLength(sectionText, "utf8"),
-    }
-  })
-  const totalSectionBytes = outline.reduce(
-    (sum, section) => sum + section.bytes,
-    0,
-  )
+    };
+  });
+  const totalSectionBytes = outline.reduce((sum, section) => sum + section.bytes, 0);
   logger.info("read note outline", {
     path: params.path,
     headingCount: outline.length,
@@ -395,7 +312,7 @@ const readNoteOutline = async (
     hasLeadingContent: leadingContent !== "",
     fileBytes: fileStats.size,
     totalSectionBytes,
-  })
+  });
   // Omit either key when absent, rather than emitting an explicit null.
   return {
     bytes: fileStats.size,
@@ -403,8 +320,8 @@ const readNoteOutline = async (
     ...(calloutSpan ? { leading_callout: calloutSpan.callout } : {}),
     ...(leadingContent ? { leading_content: leadingContent } : {}),
     headings: outline,
-  }
-}
+  };
+};
 
 /**
  * Returns a single section of a note: the heading line plus its body, through
@@ -413,116 +330,120 @@ const readNoteOutline = async (
  */
 const readNoteSection = async (
   params: {
-    vaultPath: string
-    path: string
-    heading: string
-    headingLevel?: number | undefined
+    vaultPath: string;
+    path: string;
+    heading: string;
+    headingLevel?: number | undefined;
   },
   logger: Logger,
 ): Promise<string> => {
-  assertPathHasExtension(params.path, ".md")
-  const fullPath = resolveSafePath(params.vaultPath, params.path)
-  const content = await readFileOrNull(fullPath)
+  assertPathHasExtension(params.path, ".md");
+  const fullPath = resolveSafePath(params.vaultPath, params.path);
+  const content = await readFileOrNull(fullPath);
+
   if (content === null) {
-    throw new Error(`note not found: "${params.path}"`)
+    throw new Error(`note not found: "${params.path}"`);
   }
-  const lines = splitIntoLines(parseNote(content).content)
-  const headings = parseHeadings(lines)
-  const target = findHeading(headings, params.heading, params.headingLevel)
+  const lines = splitIntoLines(parseNote(content).content);
+  const headings = parseHeadings(lines);
+  const target = findHeading(headings, params.heading, params.headingLevel);
   logger.info("read note section", {
     path: params.path,
     heading: target.text,
-  })
-  return lines.slice(target.startLine, target.bodyEndLine).join("\n")
-}
+  });
+  return lines.slice(target.startLine, target.bodyEndLine).join("\n");
+};
 
 /** Parses a note's YAML frontmatter and returns the properties as an object. */
 const readNoteProperties = async (
   params: { vaultPath: string; path: string },
   logger: Logger,
 ): Promise<Record<string, unknown>> => {
-  assertPathHasExtension(params.path, ".md")
-  const fullPath = resolveSafePath(params.vaultPath, params.path)
-  const content = await readFileOrNull(fullPath)
+  assertPathHasExtension(params.path, ".md");
+  const fullPath = resolveSafePath(params.vaultPath, params.path);
+  const content = await readFileOrNull(fullPath);
+
   if (content === null) {
-    throw new Error(`note not found: "${params.path}"`)
+    throw new Error(`note not found: "${params.path}"`);
   }
-  logger.info("read note properties", { path: params.path })
-  return parseNote(content).data
-}
+  logger.info("read note properties", { path: params.path });
+  return parseNote(content).data;
+};
 
 /** Creates a note. Rejects if the file already exists unless overwrite is set. */
 const writeNote = async (
   params: {
-    vaultPath: string
-    path: string
-    body: string
-    properties?: Record<string, unknown> | undefined
-    overwrite?: boolean | undefined
+    vaultPath: string;
+    path: string;
+    body: string;
+    properties?: Record<string, unknown> | undefined;
+    overwrite?: boolean | undefined;
   },
   logger: Logger,
 ): Promise<void> => {
-  assertPathHasExtension(params.path, ".md")
-  assertNoControlCharacters(params.body, "body")
-  const fullPath = resolveSafePath(params.vaultPath, params.path)
+  assertPathHasExtension(params.path, ".md");
+  assertNoControlCharacters(params.body, "body");
+  const fullPath = resolveSafePath(params.vaultPath, params.path);
   return withExclusiveFileLock(fullPath, async () => {
-    await mkdir(dirname(fullPath), { recursive: true })
+    await mkdir(dirname(fullPath), { recursive: true });
 
-    const existing = await readFileOrNull(fullPath)
+    const existing = await readFileOrNull(fullPath);
+
     if (existing !== null && !params.overwrite) {
-      throw new Error(`note already exists: "${params.path}"`)
+      throw new Error(`note already exists: "${params.path}"`);
     }
-    const serialized = serializeNote(existing, params.body, params.properties)
-    await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
+    const serialized = serializeNote(existing, params.body, params.properties);
+    await atomicWriteFile({ filePath: fullPath, content: serialized }, logger);
     logger.info("wrote note", {
       path: params.path,
       beforeBytes: existing ? Buffer.byteLength(existing, "utf8") : 0,
       afterBytes: Buffer.byteLength(serialized, "utf8"),
-    })
-  })
-}
+    });
+  });
+};
 
 /** Merges properties into an existing note's YAML frontmatter without touching the body. Keys set to null are removed. */
 const updateProperties = async (
   params: {
-    vaultPath: string
-    path: string
-    properties: Record<string, unknown>
+    vaultPath: string;
+    path: string;
+    properties: Record<string, unknown>;
   },
   logger: Logger,
 ): Promise<void> => {
-  assertPathHasExtension(params.path, ".md")
-  const fullPath = resolveSafePath(params.vaultPath, params.path)
+  assertPathHasExtension(params.path, ".md");
+  const fullPath = resolveSafePath(params.vaultPath, params.path);
   return withExclusiveFileLock(fullPath, async () => {
-    const existing = await readFileOrNull(fullPath)
+    const existing = await readFileOrNull(fullPath);
+
     if (existing === null) {
-      throw new Error(`note not found: "${params.path}"`)
+      throw new Error(`note not found: "${params.path}"`);
     }
-    const parsed = parseNote(existing)
-    const mergedProperties = mergeFrontmatter(parsed.data, params.properties)
-    const serialized = stringifyNote(parsed.content, mergedProperties)
-    await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
+    const parsed = parseNote(existing);
+    const mergedProperties = mergeFrontmatter(parsed.data, params.properties);
+    const serialized = stringifyNote(parsed.content, mergedProperties);
+    await atomicWriteFile({ filePath: fullPath, content: serialized }, logger);
     logger.info("updated properties", {
       path: params.path,
       beforeBytes: Buffer.byteLength(existing, "utf8"),
       afterBytes: Buffer.byteLength(serialized, "utf8"),
-    })
-  })
-}
+    });
+  });
+};
 
 type DeleteNoteResult = {
   /** Number of now-empty parent folders removed. Always 0 unless
    *  pruneEmptyFolders was set. */
-  prunedEmptyFolders: number
+  prunedEmptyFolders: number;
   /** Vault-relative path in `.trash/` when the note was moved to trash.
    *  Undefined when permanently deleted. */
-  trashLocation?: string
-}
+  trashLocation?: string;
+};
 
 /** Ties moveNoteToTrash's collision-exhaustion throw to deleteNote's rethrow
  *  guard — both use this lead-in, so a message edit can't silently break the
  *  guard's prefix match. */
-const TRASH_COLLISION_ERROR_PREFIX = "cannot move to trash"
+const TRASH_COLLISION_ERROR_PREFIX = "cannot move to trash";
 
 /** The one serializing-lock key shared by every trash move and the retention
  *  sweep's per-row processing (trash-sweeper.ts) — an in-memory key for
@@ -531,8 +452,8 @@ const TRASH_COLLISION_ERROR_PREFIX = "cannot move to trash"
  *  the lock, and a trash move interleaving with that decision could hand it
  *  a fresh file at a stale row's path. */
 export const trashDomainLockKey = (vaultPath: string): string => {
-  return join(vaultPath, ".trash")
-}
+  return join(vaultPath, ".trash");
+};
 
 /** Claims a trash destination with an exclusive create — the empty placeholder
  *  appears atomically, and only when nothing occupies the name. Returns false
@@ -544,13 +465,13 @@ const claimTrashTarget = async (targetPath: string): Promise<boolean> => {
     // "wx" opens with O_CREAT|O_EXCL — the create succeeds only when nothing
     // occupies the path and fails with EEXIST otherwise. The check and the
     // create are one atomic operation, so two claimants can't both win.
-    await writeFile(targetPath, "", { flag: "wx" })
-    return true
+    await writeFile(targetPath, "", { flag: "wx" });
+    return true;
   } catch (error) {
-    if (isErrnoException(error, "EEXIST")) return false
-    throw error
+    if (isErrnoException(error, "EEXIST")) return false;
+    throw error;
   }
-}
+};
 
 /** Moves a note to `.trash/`, creating parent directories as needed.
  *  Each candidate name — the original, then `note 1.md` … `note 100.md` —
@@ -565,24 +486,24 @@ const claimTrashTarget = async (targetPath: string): Promise<boolean> => {
  *  for sweeping. Returns the vault-relative trash path. */
 const moveNoteToTrash = async (
   params: {
-    vaultPath: string
-    relativePath: string
-    fullPath: string
-    recordTrashEntry?: ((trashRelativePath: string) => void) | undefined
-    clearStaleTrashEntry?: ((trashRelativePath: string) => void) | undefined
+    vaultPath: string;
+    relativePath: string;
+    fullPath: string;
+    recordTrashEntry?: ((trashRelativePath: string) => void) | undefined;
+    clearStaleTrashEntry?: ((trashRelativePath: string) => void) | undefined;
   },
   logger: Logger,
 ): Promise<string> => {
-  const { dir, name, ext } = parse(params.relativePath)
+  const { dir, name, ext } = parse(params.relativePath);
   const candidateRelativePaths = [
     `.trash/${params.relativePath}`,
     ...Array.from({ length: 100 }, (_, index) => {
-      const suffixedFileName = `${name} ${index + 1}${ext}`
-      return `.trash/${join(dir, suffixedFileName)}`
+      const suffixedFileName = `${name} ${index + 1}${ext}`;
+      return `.trash/${join(dir, suffixedFileName)}`;
     }),
-  ]
+  ];
 
-  await mkdir(join(params.vaultPath, ".trash", dir), { recursive: true })
+  await mkdir(join(params.vaultPath, ".trash", dir), { recursive: true });
 
   // Serialized with the retention sweep (trashDomainLockKey; withFileLock is
   // the serializing mode, so concurrent moves and sweep rows queue rather
@@ -592,23 +513,22 @@ const moveNoteToTrash = async (
   // just-trashed copy.
   return withFileLock(trashDomainLockKey(params.vaultPath), async () => {
     for (const candidateRelativePath of candidateRelativePaths) {
-      const candidateFullPath = join(params.vaultPath, candidateRelativePath)
-      if (!(await claimTrashTarget(candidateFullPath))) continue
+      const candidateFullPath = join(params.vaultPath, candidateRelativePath);
+
+      if (!(await claimTrashTarget(candidateFullPath))) continue;
       try {
-        await rename(params.fullPath, candidateFullPath)
+        await rename(params.fullPath, candidateFullPath);
       } catch (renameError) {
         // The claim took but the move failed — drop our placeholder so it
         // doesn't strand a 0-byte file occupying a suffix. A failed cleanup is
         // logged, not thrown, so the rename failure propagates as the cause.
-        await rm(candidateFullPath, { force: true }).catch(
-          (cleanupError: unknown) => {
-            logger.warn("failed to remove claim placeholder", {
-              path: candidateRelativePath,
-              error: describeError(cleanupError),
-            })
-          },
-        )
-        throw renameError
+        await rm(candidateFullPath, { force: true }).catch((cleanupError: unknown) => {
+          logger.warn("failed to remove claim placeholder", {
+            path: candidateRelativePath,
+            error: describeError(cleanupError),
+          });
+        });
+        throw renameError;
       }
       // The exclusive claim proved nothing occupied the landed path, so any
       // existing row for it belongs to an earlier, separately-removed
@@ -618,61 +538,60 @@ const moveNoteToTrash = async (
       // happened, so a failure can't be "aborted" — throwing here would hand
       // the moved note to the cleanup path above.
       const tryClearStaleTrashEntry = (): void => {
-        if (!params.clearStaleTrashEntry) return
+        if (!params.clearStaleTrashEntry) return;
         try {
-          params.clearStaleTrashEntry(candidateRelativePath)
+          params.clearStaleTrashEntry(candidateRelativePath);
         } catch (clearError) {
           logger.warn("failed to clear stale trash entry", {
             path: candidateRelativePath,
             error: describeError(clearError),
-          })
+          });
         }
-      }
+      };
+
       if (params.recordTrashEntry) {
         try {
-          params.recordTrashEntry(candidateRelativePath)
+          params.recordTrashEntry(candidateRelativePath);
         } catch (recordError) {
           logger.warn("failed to record trash entry", {
             path: candidateRelativePath,
             error: describeError(recordError),
-          })
+          });
           // The failed record left any stale row in place — still defuse it.
-          tryClearStaleTrashEntry()
+          tryClearStaleTrashEntry();
         }
       } else {
-        tryClearStaleTrashEntry()
+        tryClearStaleTrashEntry();
       }
-      return candidateRelativePath
+      return candidateRelativePath;
     }
 
-    throw new Error(
-      `${TRASH_COLLISION_ERROR_PREFIX} "${params.relativePath}" — 100 collisions in .trash/`,
-    )
-  })
-}
+    throw new Error(`${TRASH_COLLISION_ERROR_PREFIX} "${params.relativePath}" — 100 collisions in .trash/`);
+  });
+};
 
 /** Deletes or trashes a note depending on the vault's Deleted files setting.
  *  Rejects paths under the configured protected paths. When pruneEmptyFolders
  *  is set, removes any parent folders the operation empties. */
 const deleteNote = async (
   params: {
-    vaultPath: string
-    path: string
-    protectedPaths: readonly string[]
-    pruneEmptyFolders: boolean
-    trashOption: TrashOption
+    vaultPath: string;
+    path: string;
+    protectedPaths: readonly string[];
+    pruneEmptyFolders: boolean;
+    trashOption: TrashOption;
     /** Retention-sweep bookkeeping hook, forwarded to moveNoteToTrash. The
      *  caller decides which trash options are recorded (and therefore
      *  swept); omitted moves are kept in .trash/ forever. */
-    recordTrashEntry?: ((trashRelativePath: string) => void) | undefined
+    recordTrashEntry?: ((trashRelativePath: string) => void) | undefined;
     /** Forwarded to moveNoteToTrash: clears the sweep's row for a landed
      *  trash path when the move is not recorded, so an unrecorded move can
      *  never inherit an earlier occupant's retention clock. */
-    clearStaleTrashEntry?: ((trashRelativePath: string) => void) | undefined
+    clearStaleTrashEntry?: ((trashRelativePath: string) => void) | undefined;
   },
   logger: Logger,
 ): Promise<DeleteNoteResult> => {
-  assertPathHasExtension(params.path, ".md")
+  assertPathHasExtension(params.path, ".md");
   // Canonicalize before the protected-path check so an aliased spelling —
   // traversal ("X/../About Me/x.md") or separator variant — can't evade the
   // prefix test yet still resolve into a protected folder. Absolute input
@@ -680,13 +599,13 @@ const deleteNote = async (
   const path = resolveVaultRelativePath({
     vaultPath: params.vaultPath,
     notePath: params.path,
-  })
+  });
 
   if (isProtectedPath({ path, protectedPaths: params.protectedPaths })) {
-    throw new Error(`cannot delete protected path "${path}"`)
+    throw new Error(`cannot delete protected path "${path}"`);
   }
 
-  const fullPath = resolveSafePath(params.vaultPath, path)
+  const fullPath = resolveSafePath(params.vaultPath, path);
   // Locked so a concurrent read-modify-write (patch/replace) can't recreate
   // the note via its atomic-rename write after the unlink, and so a delete
   // throws while a note move holds this path — the lock fails fast, it never
@@ -696,14 +615,14 @@ const deleteNote = async (
     // vault-relative "note not found" instead of unlink's raw ENOENT (whose
     // message would leak the absolute container path to the client).
     if (!(await fileExists(fullPath))) {
-      throw new Error(`note not found: "${path}"`)
+      throw new Error(`note not found: "${path}"`);
     }
 
     // The trash path bypasses resolveSafePath because .trash/ is a hidden
     // path the guard rejects. Safe: `path` was already validated above.
     // Assigned inside the try, read after it — pruning and the completion
     // log below need the value, so const can't span the catch boundary
-    let trashLocation: string | undefined
+    let trashLocation: string | undefined;
     try {
       // "local" and "system" both land in .trash/ — a container has no host
       // trash, and Obsidian's own fallback for an unavailable system trash
@@ -718,43 +637,42 @@ const deleteNote = async (
             clearStaleTrashEntry: params.clearStaleTrashEntry,
           },
           logger,
-        )
+        );
       } else {
-        await unlink(fullPath)
+        await unlink(fullPath);
       }
     } catch (error) {
       // Collision-exhaustion errors from moveNoteToTrash are already vault-relative
-      const isTrashCollisionError =
-        error instanceof Error &&
-        error.message.startsWith(TRASH_COLLISION_ERROR_PREFIX)
+      const isTrashCollisionError = error instanceof Error && error.message.startsWith(TRASH_COLLISION_ERROR_PREFIX);
+
       if (isTrashCollisionError) {
-        throw error
+        throw error;
       }
       // Log the raw fs detail (errno, absolute path) for the operator;
       // surface only a vault-relative message to the client.
-      const action = params.trashOption !== "none" ? "move to trash" : "delete"
+      const action = params.trashOption !== "none" ? "move to trash" : "delete";
       logger.warn(`failed to ${action}`, {
         path,
         error: describeError(error),
-      })
-      throw new Error(`cannot ${action} "${path}"`, { cause: error })
+      });
+      throw new Error(`cannot ${action} "${path}"`, { cause: error });
     }
 
     const prunedEmptyFolders = params.pruneEmptyFolders
       ? await pruneEmptyParents({ vaultPath: params.vaultPath, path }, logger)
-      : 0
+      : 0;
 
     logger.info("deleted note", {
       path,
       ...(trashLocation ? { trash_location: trashLocation } : {}),
       pruned_empty_folders: prunedEmptyFolders,
-    })
+    });
     return {
       prunedEmptyFolders,
       ...(trashLocation ? { trashLocation } : {}),
-    }
-  })
-}
+    };
+  });
+};
 
 /** Recursively walks the vault (or a folder within it) and returns the sorted
  *  vault-relative paths of every file of the requested kind — "note"
@@ -763,19 +681,18 @@ const deleteNote = async (
  *  segments (any path part starting with ".") are skipped. */
 const listVaultFilePaths = async (
   params: {
-    vaultPath: string
-    folder?: string | undefined
-    fileKind: "note" | "file"
+    vaultPath: string;
+    folder?: string | undefined;
+    fileKind: "note" | "file";
   },
   logger: Logger,
 ): Promise<string[]> => {
-  const searchRoot = params.folder
-    ? resolveSafePath(params.vaultPath, params.folder)
-    : resolve(params.vaultPath)
-  const allEntries = await readdirOrNull(searchRoot)
-  if (!allEntries) return []
+  const searchRoot = params.folder ? resolveSafePath(params.vaultPath, params.folder) : resolve(params.vaultPath);
+  const allEntries = await readdirOrNull(searchRoot);
 
-  const normalizedVault = resolve(params.vaultPath)
+  if (!allEntries) return [];
+
+  const normalizedVault = resolve(params.vaultPath);
 
   // Symlinks may point outside the vault (e.g. ARCHITECTURE.md →
   // ~/Code/repo/ARCHITECTURE.md) — Obsidian supports this natively, so we
@@ -784,28 +701,26 @@ const listVaultFilePaths = async (
     entries: allEntries,
     normalizedRoot: normalizedVault,
     logger,
-  })
+  });
 
   const kindMatchingEntries = entries.filter((entry) => {
-    const isNoteFile = entry.name.endsWith(".md")
-    const matchesKind = params.fileKind === "note" ? isNoteFile : !isNoteFile
-    return (entry.isFile() || entry.isSymbolicLink()) && matchesKind
-  })
+    const isNoteFile = entry.name.endsWith(".md");
+    const matchesKind = params.fileKind === "note" ? isNoteFile : !isNoteFile;
+    return (entry.isFile() || entry.isSymbolicLink()) && matchesKind;
+  });
   const relativePaths = kindMatchingEntries.map((entry) =>
     relative(normalizedVault, join(entry.parentPath, entry.name)),
-  )
-  const visiblePaths = relativePaths.filter(
-    (relativePath) => !hasHiddenPathSegment(relativePath),
-  )
-  return visiblePaths.sort()
-}
+  );
+  const visiblePaths = relativePaths.filter((relativePath) => !hasHiddenPathSegment(relativePath));
+  return visiblePaths.sort();
+};
 
 /** Lists .md files under a folder (or vault root). Supports glob filtering. */
 const listNotes = async (
   params: {
-    vaultPath: string
-    folder?: string | undefined
-    glob?: string | undefined
+    vaultPath: string;
+    folder?: string | undefined;
+    glob?: string | undefined;
   },
   logger: Logger,
 ): Promise<string[]> => {
@@ -816,13 +731,13 @@ const listNotes = async (
       fileKind: "note",
     },
     logger,
-  )
+  );
 
-  const isMatch = params.glob ? picomatch(params.glob) : undefined
-  const result = isMatch ? paths.filter((notePath) => isMatch(notePath)) : paths
-  logger.info("listed notes", { folder: params.folder, count: result.length })
-  return result
-}
+  const isMatch = params.glob ? picomatch(params.glob) : undefined;
+  const result = isMatch ? paths.filter((notePath) => isMatch(notePath)) : paths;
+  logger.info("listed notes", { folder: params.folder, count: result.length });
+  return result;
+};
 
 /** Lists non-.md files (assets — images, canvases, PDFs, …) under a folder
  *  (or the vault root). Same walk and filters as listNotes; moveNote resolves
@@ -838,10 +753,10 @@ const listAssets = async (
       fileKind: "file",
     },
     logger,
-  )
-  logger.info("listed assets", { folder: params.folder, count: paths.length })
-  return paths
-}
+  );
+  logger.info("listed assets", { folder: params.folder, count: paths.length });
+  return paths;
+};
 
 /** Reads a non-.md vault file (an asset) as raw bytes, with a size cap.
  *  Markdown notes are rejected — .md reads go through readNote, which treats
@@ -854,67 +769,64 @@ const readAsset = async (
   logger: Logger,
 ): Promise<{ buffer: Buffer; bytes: number; extension: string }> => {
   if (params.path.endsWith(".md")) {
-    throw new Error(`not a file: "${params.path}" is a markdown note`)
+    throw new Error(`not a file: "${params.path}" is a markdown note`);
   }
-  const fullPath = resolveSafePath(params.vaultPath, params.path)
-  const fileStats = await statOrNull(fullPath)
+  const fullPath = resolveSafePath(params.vaultPath, params.path);
+  const fileStats = await statOrNull(fullPath);
+
   if (!fileStats || !fileStats.isFile()) {
-    throw new Error(`file not found: "${params.path}"`)
+    throw new Error(`file not found: "${params.path}"`);
   }
   if (fileStats.size > params.maxBytes) {
     throw new Error(
       `file too large: "${params.path}" is ${fileStats.size} bytes ` +
         `(cap ${params.maxBytes} bytes — raise MAX_FILE_BYTES to read larger files)`,
-    )
+    );
   }
 
   const fileHandle = await (async () => {
     try {
-      return await open(fullPath, "r")
+      return await open(fullPath, "r");
     } catch (error) {
       if (isErrnoException(error, "ENOENT")) {
-        throw new Error(`file not found: "${params.path}"`, { cause: error })
+        throw new Error(`file not found: "${params.path}"`, { cause: error });
       }
-      throw error
+      throw error;
     }
-  })()
+  })();
   try {
     // The buffer is one sentinel byte longer than the statted size — if the
     // file grew after the stat, the sentinel fills and the read is rejected
     // as unstable.
-    const readBuffer = Buffer.alloc(
-      Math.min(fileStats.size, params.maxBytes) + 1,
-    )
+    const readBuffer = Buffer.alloc(Math.min(fileStats.size, params.maxBytes) + 1);
     // A single read() may return short on some platforms, so the loop
     // accumulates until EOF or the buffer is full.
-    let totalBytesRead = 0
+    let totalBytesRead = 0;
     while (totalBytesRead < readBuffer.length) {
       const { bytesRead } = await fileHandle.read(
         readBuffer,
         totalBytesRead,
         readBuffer.length - totalBytesRead,
         totalBytesRead,
-      )
-      if (bytesRead === 0) break
-      totalBytesRead += bytesRead
+      );
+
+      if (bytesRead === 0) break;
+      totalBytesRead += bytesRead;
     }
     if (totalBytesRead === readBuffer.length) {
-      throw new Error(
-        `file changed while reading: "${params.path}" grew past its ` +
-          `measured size — retry the read`,
-      )
+      throw new Error(`file changed while reading: "${params.path}" grew past its ` + `measured size — retry the read`);
     }
-    const buffer = readBuffer.subarray(0, totalBytesRead)
-    logger.info("read asset", { path: params.path, bytes: buffer.length })
+    const buffer = readBuffer.subarray(0, totalBytesRead);
+    logger.info("read asset", { path: params.path, bytes: buffer.length });
     return {
       buffer,
       bytes: buffer.length,
       extension: links.getExtension(params.path).toLowerCase(),
-    }
+    };
   } finally {
-    await fileHandle.close()
+    await fileHandle.close();
   }
-}
+};
 
 /** Stats a page of asset paths, returning each existing file's byte size.
  *  Assets that vanished between listing and stat (a sync race) are dropped
@@ -927,17 +839,16 @@ const statAssets = async (
     items: params.paths,
     concurrency: 16,
     mapper: async (assetPath) => {
-      const fileStats = await statOrNull(
-        resolveSafePath(params.vaultPath, assetPath),
-      )
-      if (!fileStats) return null
-      return { path: assetPath, bytes: fileStats.size }
+      const fileStats = await statOrNull(resolveSafePath(params.vaultPath, assetPath));
+
+      if (!fileStats) return null;
+      return { path: assetPath, bytes: fileStats.size };
     },
-  })
-  const existingEntries = stattedEntries.filter((entry) => entry !== null)
-  logger.info("statted assets", { count: existingEntries.length })
-  return existingEntries
-}
+  });
+  const existingEntries = stattedEntries.filter((entry) => entry !== null);
+  logger.info("statted assets", { count: existingEntries.length });
+  return existingEntries;
+};
 
 export const vaultFs = {
   readNote,
@@ -951,4 +862,4 @@ export const vaultFs = {
   listAssets,
   readAsset,
   statAssets,
-}
+};

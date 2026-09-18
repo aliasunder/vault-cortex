@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest"
-import { describeError } from "../describe-error.js"
+import { describe, it, expect } from "vitest";
+import { describeError } from "../describe-error.js";
 
 describe("describeError", () => {
   const scenarios = [
@@ -29,9 +29,9 @@ describe("describeError", () => {
       input: undefined as unknown,
       expected: "undefined",
     },
-  ]
+  ];
 
   it.each(scenarios)("$name", ({ input, expected }) => {
-    expect(describeError(input)).toBe(expected)
-  })
-})
+    expect(describeError(input)).toBe(expected);
+  });
+});

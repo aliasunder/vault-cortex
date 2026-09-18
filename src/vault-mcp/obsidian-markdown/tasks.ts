@@ -21,25 +21,20 @@
  *  `tasks` namespace: one is `/g` (shared `lastIndex` footgun) and the
  *  `$`-anchored field regexes are only meaningful inside the stripping loop. */
 
-import { DateTime } from "luxon"
-import {
-  advanceComment,
-  advanceFence,
-  type OpenFence,
-  splitIntoLines,
-} from "./lines.js"
-import { parseHeadings, type HeadingInfo } from "./headings.js"
-import type { TaskFormatConfig } from "../vault-operations/task-format-config.js"
+import { DateTime } from "luxon";
+import { advanceComment, advanceFence, type OpenFence, splitIntoLines } from "./lines.js";
+import { parseHeadings, type HeadingInfo } from "./headings.js";
+import type { TaskFormatConfig } from "../vault-operations/task-format-config.js";
 
 // ── Types ───────────────────────────────────────────────────────
 
 /** The plugin's core status types, derived from the checkbox character.
  *  Unknown characters map to "todo" (the plugin's unknown-symbol behavior). */
-export type TaskStatus = "todo" | "in_progress" | "done" | "cancelled"
+export type TaskStatus = "todo" | "in_progress" | "done" | "cancelled";
 
 /** The five explicit priority levels. A task with no priority signifier has
  *  priority null — the plugin ranks "none" between medium and low. */
-export type TaskPriority = "highest" | "high" | "medium" | "low" | "lowest"
+export type TaskPriority = "highest" | "high" | "medium" | "low" | "lowest";
 
 /** One parsed task line. Dates are raw `YYYY-MM-DD` strings (the only format
  *  the plugin recognizes), so they compare lexicographically. A well-formed
@@ -49,47 +44,47 @@ export type TaskPriority = "highest" | "high" | "medium" | "low" | "lowest"
 export type ParsedTask = Readonly<{
   /** 1-based line number in the full file (frontmatter included), matching
    *  what an editor or vault_read_note shows. */
-  line: number
+  line: number;
   /** The raw character inside the checkbox brackets, e.g. " ", "x", "/". */
-  statusChar: string
-  status: TaskStatus
+  statusChar: string;
+  status: TaskStatus;
   /** Task text with metadata stripped; inline #tags remain part of it. */
-  description: string
-  createdDate: string | null
-  scheduledDate: string | null
-  startDate: string | null
-  dueDate: string | null
-  doneDate: string | null
-  cancelledDate: string | null
-  priority: TaskPriority | null
+  description: string;
+  createdDate: string | null;
+  scheduledDate: string | null;
+  startDate: string | null;
+  dueDate: string | null;
+  doneDate: string | null;
+  cancelledDate: string | null;
+  priority: TaskPriority | null;
   /** Verbatim recurrence rule text after 🔁 / `repeat::` (e.g. "every week
    *  when done"). Completing the task spawns the next occurrence from it. */
-  recurrence: string | null
+  recurrence: string | null;
   /** Raw word after 🏁 / `onCompletion::` (the plugin accepts "delete" and
    *  "keep"). */
-  onCompletion: string | null
+  onCompletion: string | null;
   /** The task's own 🆔 / `id::` value. */
-  taskId: string | null
+  taskId: string | null;
   /** IDs this task depends on (⛔ / `dependsOn::`), empty when none. */
-  dependsOn: readonly string[]
+  dependsOn: readonly string[];
   /** Inline #tags found in the description, stored bare (no "#") to match the
    *  vault-wide tag convention; nested tags keep their "/" segments. */
-  tags: readonly string[]
+  tags: readonly string[];
   /** Block ID without the "^", e.g. "my-card" for `^my-card`. */
-  blockId: string | null
+  blockId: string | null;
   /** Text of the nearest heading above the task, or null before the first
    *  heading — on a Kanban board this is the lane. */
-  heading: string | null
+  heading: string | null;
   /** Nesting depth: 0 for top-level tasks, 1+ for sub-tasks. Derived from
    *  structural indentation relative to ancestor task lines; a plain list
    *  item at a task's indent ends its scope, so a task nested under a
    *  non-task bullet is top-level. */
-  depth: number
+  depth: number;
   /** 1-based file line number of the parent task, or null for top-level
    *  tasks. The index resolves it to the parent's block_id; the wire shape
    *  never carries the line itself. */
-  parentLine: number | null
-}>
+  parentLine: number | null;
+}>;
 
 // ── Task-line grammar (private) ─────────────────────────────────
 
@@ -98,12 +93,12 @@ export type ParsedTask = Readonly<{
  *  `1.` / `1)`), one or more spaces, and `[c]` with exactly one status
  *  character. Captures: [1] status character, [2] everything after the
  *  checkbox. Anchored and non-global — safe for .exec(). */
-const TASK_LINE_RE = /^[\s\t>]*(?:[-*+]|[0-9]+[.)]) +\[(.)\] *(.*)$/u
+const TASK_LINE_RE = /^[\s\t>]*(?:[-*+]|[0-9]+[.)]) +\[(.)\] *(.*)$/u;
 
 /** Matches any list item — the same prefix and marker grammar as
  *  TASK_LINE_RE without the checkbox. A non-task item at a task's indent
  *  ends that task's list, so it must close the task's sub-task scope too. */
-const LIST_ITEM_RE = /^[\s\t>]*(?:[-*+]|[0-9]+[.)]) /u
+const LIST_ITEM_RE = /^[\s\t>]*(?:[-*+]|[0-9]+[.)]) /u;
 
 /** Matches a trailing block link ` ^block-id` at the very end of the line.
  *  Captures the ID without the caret (group 1). The plugin strips this before
@@ -112,34 +107,33 @@ const LIST_ITEM_RE = /^[\s\t>]*(?:[-*+]|[0-9]+[.)]) /u
  *  markdown hard break (two+ trailing spaces) would otherwise hide the link
  *  — and, since the unrecognized ` ^id` tail then stops the metadata scan,
  *  every field on the line with it. */
-const BLOCK_LINK_RE = / \^([a-zA-Z0-9-]+)$/u
+const BLOCK_LINK_RE = / \^([a-zA-Z0-9-]+)$/u;
 
 /** The parts around a task body's trailing block link. `body` is trimmed of
  *  trailing whitespace; `blockLink` keeps its leading space, "" when the
  *  line has none. */
-const splitTrailingBlockLink = (
-  taskBody: string,
-): { body: string; blockId: string | null; blockLink: string } => {
-  const trimmedBody = taskBody.trimEnd()
-  const blockLinkMatch = BLOCK_LINK_RE.exec(trimmedBody)
+const splitTrailingBlockLink = (taskBody: string): { body: string; blockId: string | null; blockLink: string } => {
+  const trimmedBody = taskBody.trimEnd();
+  const blockLinkMatch = BLOCK_LINK_RE.exec(trimmedBody);
+
   if (!blockLinkMatch) {
-    return { body: trimmedBody, blockId: null, blockLink: "" }
+    return { body: trimmedBody, blockId: null, blockLink: "" };
   }
   return {
     body: trimmedBody.slice(0, blockLinkMatch.index),
     blockId: blockLinkMatch[1] ?? null,
     blockLink: blockLinkMatch[0],
-  }
-}
+  };
+};
 
 /** Matches inline hashtags: `#` preceded by start-of-string or whitespace,
  *  followed by anything except spaces and common punctuation — the plugin's
  *  own hashtag grammar (nested `#a/b` tags pass). Global — matchAll only. */
-const HASHTAG_RE = /(^|\s)#[^ !@#$%^&*(),.?":{}|<>]+/g
+const HASHTAG_RE = /(^|\s)#[^ !@#$%^&*(),.?":{}|<>]+/g;
 
 /** HASHTAG_RE anchored to line end, for stripping a trailing tag during the
  *  metadata loop (tags may interleave with signifiers). Non-global. */
-const HASHTAG_FROM_END_RE = /(^|\s)#[^ !@#$%^&*(),.?":{}|<>]+$/
+const HASHTAG_FROM_END_RE = /(^|\s)#[^ !@#$%^&*(),.?":{}|<>]+$/;
 
 // ── Field grammar (private) ─────────────────────────────────────
 //
@@ -153,50 +147,35 @@ const HASHTAG_FROM_END_RE = /(^|\s)#[^ !@#$%^&*(),.?":{}|<>]+$/
 // optional trailing comma, anchored to line end.
 
 /** The allowed characters in a single 🆔 / `id::` task ID. */
-const TASK_ID = /[a-zA-Z0-9_-]+/
+const TASK_ID = /[a-zA-Z0-9_-]+/;
 /** Whole-string form of TASK_ID, for validating an id before it is written —
  *  anything else lands on the line as prose the parser never reads back. */
-const TASK_ID_WHOLE_RE = new RegExp(`^${TASK_ID.source}$`)
-const isTaskId = (candidate: string): boolean =>
-  TASK_ID_WHOLE_RE.test(candidate)
+const TASK_ID_WHOLE_RE = new RegExp(`^${TASK_ID.source}$`);
+const isTaskId = (candidate: string): boolean => TASK_ID_WHOLE_RE.test(candidate);
 /** A comma-separated sequence of task IDs, as accepted after ⛔ / `dependsOn::`. */
-const TASK_ID_SEQUENCE = new RegExp(
-  `${TASK_ID.source}( *, *${TASK_ID.source} *)*`,
-)
+const TASK_ID_SEQUENCE = new RegExp(`${TASK_ID.source}( *, *${TASK_ID.source} *)*`);
 
 /** Builds an emoji field regex: signifier + optional VS16 (U+FE0F, matched
  *  via escape so no invisible character hides in this source) + spaces +
  *  value, anchored to line end (see block comment above). */
-const emojiField = ({
-  symbols,
-  valuePattern,
-}: {
-  symbols: string
-  valuePattern: string
-}): RegExp =>
-  new RegExp(
-    valuePattern === ""
-      ? `${symbols}\\uFE0F?$`
-      : `${symbols}\\uFE0F? *${valuePattern}$`,
-  )
+const emojiField = ({ symbols, valuePattern }: { symbols: string; valuePattern: string }): RegExp =>
+  new RegExp(valuePattern === "" ? `${symbols}\\uFE0F?$` : `${symbols}\\uFE0F? *${valuePattern}$`);
 
 /** Builds a Dataview inline-field regex: `[key:: value]` or `(key:: value)`
  *  with matched brackets and an optional trailing comma, anchored to line end
  *  (see block comment above). */
 const dataviewField = (innerPattern: string): RegExp =>
-  new RegExp(
-    `(?:(?=[^\\]]+\\])\\[|(?=[^)]+\\))\\() *${innerPattern} *[)\\]](?: *,)?$`,
-  )
+  new RegExp(`(?:(?=[^\\]]+\\])\\[|(?=[^)]+\\))\\() *${innerPattern} *[)\\]](?: *,)?$`);
 
 /** `YYYY-MM-DD` — the only date format the plugin recognizes on task lines. */
-const DATE_VALUE = "(\\d{4}-\\d{2}-\\d{2})"
+const DATE_VALUE = "(\\d{4}-\\d{2}-\\d{2})";
 
 /** One date field's grammar in both formats, in the plugin's per-pass
  *  extraction order (done, cancelled, due, scheduled, start, created). */
 const DATE_FIELDS: ReadonlyArray<{
-  key: "done" | "cancelled" | "due" | "scheduled" | "start" | "created"
-  emoji: RegExp
-  dataview: RegExp
+  key: "done" | "cancelled" | "due" | "scheduled" | "start" | "created";
+  emoji: RegExp;
+  dataview: RegExp;
 }> = [
   {
     key: "done",
@@ -228,45 +207,41 @@ const DATE_FIELDS: ReadonlyArray<{
     emoji: emojiField({ symbols: "➕", valuePattern: DATE_VALUE }),
     dataview: dataviewField(`created:: *${DATE_VALUE}`),
   },
-]
+];
 
 /** Emoji priority signifier, anchored to line end. Captures the emoji. */
 const EMOJI_PRIORITY_RE = emojiField({
   symbols: "(🔺|⏫|🔼|🔽|⏬)",
   valuePattern: "",
-})
+});
 /** Dataview priority field, anchored to line end. Captures the level word
  *  (lowercase only, matching the plugin's regex; `highest` before `high` so
  *  the longer word wins). */
-const DATAVIEW_PRIORITY_RE = dataviewField(
-  "priority:: *(highest|high|medium|low|lowest)",
-)
+const DATAVIEW_PRIORITY_RE = dataviewField("priority:: *(highest|high|medium|low|lowest)");
 /** Recurrence rule text after 🔁 — letters, digits, commas, spaces, `!`. */
 const EMOJI_RECURRENCE_RE = emojiField({
   symbols: "🔁",
   valuePattern: "([a-zA-Z0-9, !]+)",
-})
-const DATAVIEW_RECURRENCE_RE = dataviewField("repeat:: *([a-zA-Z0-9, !]+)")
+});
+const DATAVIEW_RECURRENCE_RE = dataviewField("repeat:: *([a-zA-Z0-9, !]+)");
 /** On-completion action word after 🏁 (the plugin accepts delete/keep). */
 const EMOJI_ON_COMPLETION_RE = emojiField({
   symbols: "🏁",
   valuePattern: "([a-zA-Z]+)",
-})
-const DATAVIEW_ON_COMPLETION_RE = dataviewField("onCompletion:: *([a-zA-Z]+)")
+});
+const DATAVIEW_ON_COMPLETION_RE = dataviewField("onCompletion:: *([a-zA-Z]+)");
 /** The task's own ID after 🆔. */
 const EMOJI_ID_RE = emojiField({
   symbols: "🆔",
   valuePattern: `(${TASK_ID.source})`,
-})
-const DATAVIEW_ID_RE = dataviewField(`id:: *(${TASK_ID.source})`)
+});
+const DATAVIEW_ID_RE = dataviewField(`id:: *(${TASK_ID.source})`);
 /** Comma-separated IDs this task depends on, after ⛔. */
 const EMOJI_DEPENDS_ON_RE = emojiField({
   symbols: "⛔",
   valuePattern: `(${TASK_ID_SEQUENCE.source})`,
-})
-const DATAVIEW_DEPENDS_ON_RE = dataviewField(
-  `dependsOn:: *(${TASK_ID_SEQUENCE.source})`,
-)
+});
+const DATAVIEW_DEPENDS_ON_RE = dataviewField(`dependsOn:: *(${TASK_ID_SEQUENCE.source})`);
 
 /** Emoji signifier → priority level. */
 const PRIORITY_BY_EMOJI: Readonly<Record<string, TaskPriority>> = {
@@ -275,7 +250,7 @@ const PRIORITY_BY_EMOJI: Readonly<Record<string, TaskPriority>> = {
   "🔼": "medium",
   "🔽": "low",
   "⏬": "lowest",
-}
+};
 
 /** Dataview level word → priority level (identity lookup that narrows the
  *  captured string to the TaskPriority union without a type assertion). */
@@ -285,7 +260,7 @@ const PRIORITY_BY_WORD: Readonly<Record<string, TaskPriority>> = {
   medium: "medium",
   low: "low",
   lowest: "lowest",
-}
+};
 
 // ── Status mapping ──────────────────────────────────────────────
 
@@ -293,11 +268,11 @@ const PRIORITY_BY_WORD: Readonly<Record<string, TaskPriority>> = {
  *  `-` cancelled, `/` in progress, everything else (including custom
  *  characters) todo — the plugin's unknown-symbol behavior. */
 const statusForChar = (statusChar: string): TaskStatus => {
-  if (statusChar === "x" || statusChar === "X") return "done"
-  if (statusChar === "-") return "cancelled"
-  if (statusChar === "/") return "in_progress"
-  return "todo"
-}
+  if (statusChar === "x" || statusChar === "X") return "done";
+  if (statusChar === "-") return "cancelled";
+  if (statusChar === "/") return "in_progress";
+  return "todo";
+};
 
 // ── Metadata parsing ────────────────────────────────────────────
 
@@ -318,22 +293,23 @@ type TaskMetadata = Pick<
   | "taskId"
   | "dependsOn"
   | "tags"
->
+>;
 
 /** Passes cap for the stripping loop — the plugin's own runaway guard. A
  *  well-formed line finishes in one pass; 20 covers any field permutation. */
-const MAX_STRIPPING_PASSES = 20
+const MAX_STRIPPING_PASSES = 20;
 
 /** Extracts a regex capture group, throwing if absent. Capture groups are
  *  guaranteed by the engine when the regex matches, but noUncheckedIndexedAccess
  *  adds `| undefined` to all indexed access. */
 const capturedGroup = (match: RegExpExecArray, index: number): string => {
-  const value = match[index]
+  const value = match[index];
+
   if (value === undefined) {
-    throw new Error(`expected capture group ${index}`)
+    throw new Error(`expected capture group ${index}`);
   }
-  return value
-}
+  return value;
+};
 
 /** Strips metadata fields off the end of a task body, mirroring the plugin's
  *  deserialize(): each pass tries every field regex (all `$`-anchored) and
@@ -344,10 +320,10 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
   // The stripping loop is inherently sequential — every match shortens the
   // line and later passes depend on it — so mutable locals thread the parser
   // state, mirroring the plugin's ParsingState.
-  let line = taskBody.trim()
+  let line = taskBody.trim();
   // Assigned at the top of every stripping pass; no initializer needed.
-  let matchedThisPass: boolean
-  let priority: TaskPriority | null = null
+  let matchedThisPass: boolean;
+  let priority: TaskPriority | null = null;
   const dates: Record<(typeof DATE_FIELDS)[number]["key"], string | null> = {
     done: null,
     cancelled: null,
@@ -355,91 +331,84 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
     scheduled: null,
     start: null,
     created: null,
-  }
-  let recurrence: string | null = null
-  let onCompletion: string | null = null
-  let taskId: string | null = null
-  let dependsOn: readonly string[] = []
-  let trailingTags = ""
+  };
+  let recurrence: string | null = null;
+  let onCompletion: string | null = null;
+  let taskId: string | null = null;
+  let dependsOn: readonly string[] = [];
+  let trailingTags = "";
 
-  const extractField = (
-    regex: RegExp,
-    onMatch: (match: RegExpExecArray) => void,
-  ): void => {
-    const match = regex.exec(line)
-    if (!match) return
-    onMatch(match)
-    line = line.replace(regex, "").trim()
-    matchedThisPass = true
-  }
+  const extractField = (regex: RegExp, onMatch: (match: RegExpExecArray) => void): void => {
+    const match = regex.exec(line);
 
-  const extractDate = (
-    regex: RegExp,
-    key: (typeof DATE_FIELDS)[number]["key"],
-  ): void => {
+    if (!match) return;
+    onMatch(match);
+    line = line.replace(regex, "").trim();
+    matchedThisPass = true;
+  };
+
+  const extractDate = (regex: RegExp, key: (typeof DATE_FIELDS)[number]["key"]): void => {
     extractField(regex, (match) => {
-      dates[key] = capturedGroup(match, 1)
-    })
-  }
+      dates[key] = capturedGroup(match, 1);
+    });
+  };
 
   for (let pass = 0; pass < MAX_STRIPPING_PASSES; pass++) {
-    matchedThisPass = false
+    matchedThisPass = false;
 
     extractField(EMOJI_PRIORITY_RE, (match) => {
-      priority = PRIORITY_BY_EMOJI[capturedGroup(match, 1)] ?? priority
-    })
+      priority = PRIORITY_BY_EMOJI[capturedGroup(match, 1)] ?? priority;
+    });
     extractField(DATAVIEW_PRIORITY_RE, (match) => {
-      priority = PRIORITY_BY_WORD[capturedGroup(match, 1)] ?? priority
-    })
+      priority = PRIORITY_BY_WORD[capturedGroup(match, 1)] ?? priority;
+    });
 
     for (const field of DATE_FIELDS) {
-      extractDate(field.emoji, field.key)
-      extractDate(field.dataview, field.key)
+      extractDate(field.emoji, field.key);
+      extractDate(field.dataview, field.key);
     }
 
     extractField(EMOJI_RECURRENCE_RE, (match) => {
-      recurrence = capturedGroup(match, 1).trim()
-    })
+      recurrence = capturedGroup(match, 1).trim();
+    });
     extractField(DATAVIEW_RECURRENCE_RE, (match) => {
-      recurrence = capturedGroup(match, 1).trim()
-    })
+      recurrence = capturedGroup(match, 1).trim();
+    });
 
     extractField(EMOJI_ON_COMPLETION_RE, (match) => {
-      onCompletion = capturedGroup(match, 1)
-    })
+      onCompletion = capturedGroup(match, 1);
+    });
     extractField(DATAVIEW_ON_COMPLETION_RE, (match) => {
-      onCompletion = capturedGroup(match, 1)
-    })
+      onCompletion = capturedGroup(match, 1);
+    });
 
     // Tags may be mixed among the signifiers (`desc #a 📅 2026-01-01 #b`);
     // strip them here so fields further left stay reachable, and re-append
     // them to the description after the loop. Right-to-left matching means
     // each stripped tag is prepended to keep the original order.
     extractField(HASHTAG_FROM_END_RE, (match) => {
-      const tagText = capturedGroup(match, 0).trim()
-      trailingTags =
-        trailingTags === "" ? tagText : `${tagText} ${trailingTags}`
-    })
+      const tagText = capturedGroup(match, 0).trim();
+      trailingTags = trailingTags === "" ? tagText : `${tagText} ${trailingTags}`;
+    });
 
     extractField(EMOJI_ID_RE, (match) => {
-      taskId = capturedGroup(match, 1).trim()
-    })
+      taskId = capturedGroup(match, 1).trim();
+    });
     extractField(DATAVIEW_ID_RE, (match) => {
-      taskId = capturedGroup(match, 1).trim()
-    })
+      taskId = capturedGroup(match, 1).trim();
+    });
 
     extractField(EMOJI_DEPENDS_ON_RE, (match) => {
-      dependsOn = splitIdSequence(capturedGroup(match, 1))
-    })
+      dependsOn = splitIdSequence(capturedGroup(match, 1));
+    });
     extractField(DATAVIEW_DEPENDS_ON_RE, (match) => {
-      dependsOn = splitIdSequence(capturedGroup(match, 1))
-    })
+      dependsOn = splitIdSequence(capturedGroup(match, 1));
+    });
 
-    if (!matchedThisPass) break
+    if (!matchedThisPass) break;
   }
 
-  const description =
-    trailingTags === "" ? line : `${line} ${trailingTags}`.trim()
+  const description = trailingTags === "" ? line : `${line} ${trailingTags}`.trim();
 
   return {
     description,
@@ -455,33 +424,29 @@ const parseTaskMetadata = (taskBody: string): TaskMetadata => {
     taskId,
     dependsOn,
     tags: extractInlineTags(description),
-  }
-}
+  };
+};
 
 /** Drops calendar-invalid date values (e.g. "2026-99-99") after parsing. The
  *  plugin recognizes-and-strips a well-formed-but-invalid date field the same
  *  way, but marks it invalid and excludes it from every date comparison —
  *  mirrored here by indexing the value as null (dateless in filters/sorts). */
 const calendarValidOrNull = (date: string | null): string | null =>
-  date !== null && DateTime.fromFormat(date, "yyyy-MM-dd").isValid ? date : null
+  date !== null && DateTime.fromFormat(date, "yyyy-MM-dd").isValid ? date : null;
 
 /** Splits a ⛔ / `dependsOn::` value ("a, b ,c") into individual IDs. */
 const splitIdSequence = (idSequence: string): string[] =>
   idSequence
     .replace(/ /g, "")
     .split(",")
-    .filter((id) => id !== "")
+    .filter((id) => id !== "");
 
 /** Collects every inline #tag in a description, deduplicated and stored bare
  *  (no "#") to match the notes table tag format used by vault_list_tags and
  *  vault_search_by_tag. */
 const extractInlineTags = (description: string): string[] => [
-  ...new Set(
-    [...description.matchAll(HASHTAG_RE)].map((match) =>
-      match[0].trim().slice(1),
-    ),
-  ),
-]
+  ...new Set([...description.matchAll(HASHTAG_RE)].map((match) => match[0].trim().slice(1))),
+];
 
 // ── Note scanning ───────────────────────────────────────────────
 
@@ -489,12 +454,10 @@ const extractInlineTags = (description: string): string[] => [
  *  frontmatter, otherwise the line after the closing `---`. A `---` opener
  *  with no closer is a horizontal rule, not frontmatter. */
 const findBodyStartLine = (lines: readonly string[]): number => {
-  if (lines[0] !== "---") return 0
-  const closingIndex = lines.findIndex(
-    (line, index) => index > 0 && line === "---",
-  )
-  return closingIndex === -1 ? 0 : closingIndex + 1
-}
+  if (lines[0] !== "---") return 0;
+  const closingIndex = lines.findIndex((line, index) => index > 0 && line === "---");
+  return closingIndex === -1 ? 0 : closingIndex + 1;
+};
 
 /** Extracts every task line from raw note content (frontmatter included — it
  *  is skipped here so reported line numbers stay file-relative). Lines inside
@@ -505,28 +468,25 @@ const findBodyStartLine = (lines: readonly string[]): number => {
 /** One open task on the extraction indent stack: its structural indent and
  *  1-based file line. */
 type IndentEntry = {
-  indent: number
-  fileLine: number
-}
+  indent: number;
+  fileLine: number;
+};
 
 /** The open tasks that are ancestors of a new list item: every stack entry
  *  at a shallower indent. Entries at the same or deeper indent are siblings or
  *  cousins of the item, so they are dropped. Stack indents strictly increase,
  *  so the ancestors are always a prefix of the stack. */
-const ancestorsOf = (
-  indentStack: readonly IndentEntry[],
-  itemIndent: number,
-): readonly IndentEntry[] => {
-  return indentStack.filter((entry) => entry.indent < itemIndent)
-}
+const ancestorsOf = (indentStack: readonly IndentEntry[], itemIndent: number): readonly IndentEntry[] => {
+  return indentStack.filter((entry) => entry.indent < itemIndent);
+};
 
 const extractTasks = (rawContent: string): ParsedTask[] => {
-  const allLines = splitIntoLines(rawContent)
-  const bodyStartLine = findBodyStartLine(allLines)
-  const bodyLines = allLines.slice(bodyStartLine)
-  const headings = parseHeadings(bodyLines)
+  const allLines = splitIntoLines(rawContent);
+  const bodyStartLine = findBodyStartLine(allLines);
+  const bodyLines = allLines.slice(bodyStartLine);
+  const headings = parseHeadings(bodyLines);
 
-  const extractedTasks: ParsedTask[] = []
+  const extractedTasks: ParsedTask[] = [];
 
   // Indent stack for parent-child tracking:
   // - deeper indent than the stack top → the task is a child
@@ -535,67 +495,65 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
   // - a heading clears the stack (children can't span headings)
   // Sequential parser state, like the fence and comment scans below — each
   // step assigns a new stack, never mutates the current one.
-  let indentStack: readonly IndentEntry[] = []
+  let indentStack: readonly IndentEntry[] = [];
 
   // Fence and comment scans are inherently sequential — both thread mutable
   // state across the loop (same pattern as classifyLines).
-  let openFence: OpenFence = null
-  let commentOpen = false
+  let openFence: OpenFence = null;
+  let commentOpen = false;
   for (let lineIndex = 0; lineIndex < bodyLines.length; lineIndex++) {
-    const lineText = bodyLines[lineIndex]
-    if (lineText === undefined) continue
+    const lineText = bodyLines[lineIndex];
+
+    if (lineText === undefined) continue;
 
     // Fence/comment precedence: fence state advances only outside comments
     // (inside a comment, fence delimiters are just text). Comment toggles
     // run only outside fences (inside a fence, `%%` is just text).
     if (!commentOpen) {
-      const fenceResult = advanceFence(lineText, openFence)
-      openFence = fenceResult.openFence
-      if (fenceResult.lineIsCode) continue
+      const fenceResult = advanceFence(lineText, openFence);
+      openFence = fenceResult.openFence;
+      if (fenceResult.lineIsCode) continue;
     }
 
-    const commentResult = advanceComment(lineText, commentOpen)
-    commentOpen = commentResult.commentOpen
-    if (commentResult.lineIsComment) continue
+    const commentResult = advanceComment(lineText, commentOpen);
+    commentOpen = commentResult.commentOpen;
+    if (commentResult.lineIsComment) continue;
 
     // Reset indent stack at heading boundaries — sub-tasks can't span headings
-    const lineStartsHeading = headings.some(
-      (heading) => heading.startLine === lineIndex,
-    )
+    const lineStartsHeading = headings.some((heading) => heading.startLine === lineIndex);
+
     if (lineStartsHeading) {
-      indentStack = []
+      indentStack = [];
     }
 
-    const taskLineMatch = TASK_LINE_RE.exec(lineText)
+    const taskLineMatch = TASK_LINE_RE.exec(lineText);
+
     if (!taskLineMatch) {
       // A plain list item at a task's indent (or shallower) is that task's
       // sibling, so tasks nested under it belong to it, not to the earlier
       // task — drop the entries it closes. It is never a parent itself.
       if (LIST_ITEM_RE.test(lineText)) {
-        indentStack = ancestorsOf(indentStack, getTaskIndent(lineText))
+        indentStack = ancestorsOf(indentStack, getTaskIndent(lineText));
       }
-      continue
+      continue;
     }
 
-    const statusChar = capturedGroup(taskLineMatch, 1)
+    const statusChar = capturedGroup(taskLineMatch, 1);
     // The block link sits at the end of the line — strip it before metadata
     // parsing, exactly as the plugin does.
-    const bodyWithBlockLink = capturedGroup(taskLineMatch, 2)
-    const { body: taskBody, blockId } =
-      splitTrailingBlockLink(bodyWithBlockLink)
+    const bodyWithBlockLink = capturedGroup(taskLineMatch, 2);
+    const { body: taskBody, blockId } = splitTrailingBlockLink(bodyWithBlockLink);
 
-    const nearestHeading = headings.findLast(
-      (heading) => heading.startLine < lineIndex,
-    )
+    const nearestHeading = headings.findLast((heading) => heading.startLine < lineIndex);
 
-    const taskIndent = getTaskIndent(lineText)
-    const ancestors = ancestorsOf(indentStack, taskIndent)
-    const parentEntry = ancestors.at(-1)
-    const depth = ancestors.length
-    const parentLine = parentEntry?.fileLine ?? null
+    const taskIndent = getTaskIndent(lineText);
+    const ancestors = ancestorsOf(indentStack, taskIndent);
+    const parentEntry = ancestors.at(-1);
+    const depth = ancestors.length;
+    const parentLine = parentEntry?.fileLine ?? null;
 
-    const fileLine = bodyStartLine + lineIndex + 1
-    indentStack = [...ancestors, { indent: taskIndent, fileLine }]
+    const fileLine = bodyStartLine + lineIndex + 1;
+    indentStack = [...ancestors, { indent: taskIndent, fileLine }];
 
     extractedTasks.push({
       line: fileLine,
@@ -606,10 +564,10 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
       depth,
       parentLine,
       ...parseTaskMetadata(taskBody),
-    })
+    });
   }
-  return extractedTasks
-}
+  return extractedTasks;
+};
 
 // ── Reverse mappings (status → char, priority → emoji) ─────────
 
@@ -618,7 +576,7 @@ const CHAR_FOR_STATUS: Readonly<Record<TaskStatus, string>> = {
   in_progress: "/",
   done: "x",
   cancelled: "-",
-}
+};
 
 const EMOJI_FOR_PRIORITY: Readonly<Record<TaskPriority, string>> = {
   highest: "🔺",
@@ -626,14 +584,13 @@ const EMOJI_FOR_PRIORITY: Readonly<Record<TaskPriority, string>> = {
   medium: "🔼",
   low: "🔽",
   lowest: "⏬",
-}
+};
 
 /** The checkbox character for a given status. */
-const charForStatus = (status: TaskStatus): string => CHAR_FOR_STATUS[status]
+const charForStatus = (status: TaskStatus): string => CHAR_FOR_STATUS[status];
 
 /** The emoji signifier for a given priority level. */
-const emojiForPriority = (priority: TaskPriority): string =>
-  EMOJI_FOR_PRIORITY[priority]
+const emojiForPriority = (priority: TaskPriority): string => EMOJI_FOR_PRIORITY[priority];
 
 // ── Inline field regexes (non-anchored, for mid-line replacement) ──
 //
@@ -643,74 +600,59 @@ const emojiForPriority = (priority: TaskPriority): string =>
 
 /** Matches a done date in either format: `✅ YYYY-MM-DD` (emoji) or
  *  `[completion:: YYYY-MM-DD]` / `(completion:: YYYY-MM-DD)` (Dataview). */
-const DONE_DATE_INLINE_RE =
-  /✅️? *\d{4}-\d{2}-\d{2}|[[(] *completion:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
+const DONE_DATE_INLINE_RE = /✅️? *\d{4}-\d{2}-\d{2}|[[(] *completion:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u;
 
 /** Matches a cancelled date in either format. */
-const CANCELLED_DATE_INLINE_RE =
-  /❌️? *\d{4}-\d{2}-\d{2}|[[(] *cancelled:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
+const CANCELLED_DATE_INLINE_RE = /❌️? *\d{4}-\d{2}-\d{2}|[[(] *cancelled:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u;
 
 /** Matches a due date in either format (📅, 📆, 🗓 variants). */
-const DUE_DATE_INLINE_RE =
-  /(?:📅|📆|🗓)️? *\d{4}-\d{2}-\d{2}|[[(] *due:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
+const DUE_DATE_INLINE_RE = /(?:📅|📆|🗓)️? *\d{4}-\d{2}-\d{2}|[[(] *due:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u;
 
 /** Matches a scheduled date in either format (⏳, ⌛ variants). */
-const SCHEDULED_DATE_INLINE_RE =
-  /(?:⏳|⌛)️? *\d{4}-\d{2}-\d{2}|[[(] *scheduled:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
+const SCHEDULED_DATE_INLINE_RE = /(?:⏳|⌛)️? *\d{4}-\d{2}-\d{2}|[[(] *scheduled:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u;
 
 /** Matches a start date in either format. */
-const START_DATE_INLINE_RE =
-  /🛫️? *\d{4}-\d{2}-\d{2}|[[(] *start:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
+const START_DATE_INLINE_RE = /🛫️? *\d{4}-\d{2}-\d{2}|[[(] *start:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u;
 
 /** Matches a created date in either format. */
-const CREATED_DATE_INLINE_RE =
-  /➕️? *\d{4}-\d{2}-\d{2}|[[(] *created:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u
+const CREATED_DATE_INLINE_RE = /➕️? *\d{4}-\d{2}-\d{2}|[[(] *created:: *\d{4}-\d{2}-\d{2} *[\])](?: *,)?/u;
 
 /** Matches a task ID in either format. */
-const TASK_ID_INLINE_RE =
-  /🆔️? *[a-zA-Z0-9_-]+|[[(] *id:: *[a-zA-Z0-9_-]+ *[\])](?: *,)?/u
+const TASK_ID_INLINE_RE = /🆔️? *[a-zA-Z0-9_-]+|[[(] *id:: *[a-zA-Z0-9_-]+ *[\])](?: *,)?/u;
 
 /** Matches a depends-on field in either format (comma-separated IDs). */
 const DEPENDS_ON_INLINE_RE =
-  /⛔️? *[a-zA-Z0-9_-]+(?:,\s*[a-zA-Z0-9_-]+)*|[[(] *dependsOn:: *[a-zA-Z0-9_-]+(?:,\s*[a-zA-Z0-9_-]+)* *[\])](?: *,)?/u
+  /⛔️? *[a-zA-Z0-9_-]+(?:,\s*[a-zA-Z0-9_-]+)*|[[(] *dependsOn:: *[a-zA-Z0-9_-]+(?:,\s*[a-zA-Z0-9_-]+)* *[\])](?: *,)?/u;
 
 /** Matches a recurrence rule in either format: `🔁 rule text` (emoji) or
  *  `[repeat:: rule text]` / `(repeat:: rule text)` (Dataview). The value
  *  charset mirrors the parser's rule grammar, so the match ends where the
  *  next signifier begins. */
-const RECURRENCE_INLINE_RE =
-  /🔁️? *[a-zA-Z0-9, !]+|[[(] *repeat:: *[a-zA-Z0-9, !]+ *[\])](?: *,)?/u
+const RECURRENCE_INLINE_RE = /🔁️? *[a-zA-Z0-9, !]+|[[(] *repeat:: *[a-zA-Z0-9, !]+ *[\])](?: *,)?/u;
 
 /** Matches an onCompletion field in either format: `🏁 value` (emoji) or
  *  `[onCompletion:: value]` / `(onCompletion:: value)` (Dataview). */
-const ON_COMPLETION_INLINE_RE =
-  /🏁️? *[a-zA-Z]+|[[(] *onCompletion:: *[a-zA-Z]+ *[\])](?: *,)?/u
+const ON_COMPLETION_INLINE_RE = /🏁️? *[a-zA-Z]+|[[(] *onCompletion:: *[a-zA-Z]+ *[\])](?: *,)?/u;
 
 /** Matches any priority signifier in either format: emoji (🔺⏫🔼🔽⏬)
  *  or Dataview (`[priority:: level]` / `(priority:: level)`). */
-const PRIORITY_INLINE_RE =
-  /[🔺⏫🔼🔽⏬]️?|[[(] *priority:: *(?:highest|high|medium|low|lowest) *[\])](?: *,)?/u
+const PRIORITY_INLINE_RE = /[🔺⏫🔼🔽⏬]️?|[[(] *priority:: *(?:highest|high|medium|low|lowest) *[\])](?: *,)?/u;
 
 /** Matches the first metadata signifier — the boundary between the
  *  human-written description and the machine-managed fields. Covers
  *  both emoji signifiers and Dataview field openers. */
 const FIRST_METADATA_SIGNIFIER_RE =
-  /(?:➕|🛫|⏳|⌛|📅|📆|🗓|✅|❌|🔁|🏁|🆔|⛔|🔺|⏫|🔼|🔽|⏬)️?|[[(](?:completion|cancelled|due|scheduled|start|created|priority|repeat|onCompletion|id|dependsOn)::/u
+  /(?:➕|🛫|⏳|⌛|📅|📆|🗓|✅|❌|🔁|🏁|🆔|⛔|🔺|⏫|🔼|🔽|⏬)️?|[[(](?:completion|cancelled|due|scheduled|start|created|priority|repeat|onCompletion|id|dependsOn)::/u;
 
 // ── Task-line mutation (pure string transforms) ─────────────────
 
 /** Returns true when a line is a checkbox task line. */
-const isTaskLine = (line: string): boolean => TASK_LINE_RE.test(line)
+const isTaskLine = (line: string): boolean => TASK_LINE_RE.test(line);
 
 /** Replaces the checkbox character in a task line, e.g. `[/]` → `[x]`.
  *  Returns the line unchanged if it's not a task line. */
-const replaceCheckboxChar = ({
-  taskLine,
-  newChar,
-}: {
-  taskLine: string
-  newChar: string
-}): string => taskLine.replace(/\[.\]/, `[${newChar}]`)
+const replaceCheckboxChar = ({ taskLine, newChar }: { taskLine: string; newChar: string }): string =>
+  taskLine.replace(/\[.\]/, `[${newChar}]`);
 
 /** Removes the LAST occurrence of a field regex from a metadata tail.
  *  Description text ending in a parseable signifier lands at the front of
@@ -720,83 +662,58 @@ const replaceCheckboxChar = ({
 const removeLastMetadataMatch = (metadata: string, regex: RegExp): string => {
   // A fresh global twin per call — the shared constants stay non-global so
   // .exec call sites never carry a lastIndex.
-  const globalFlags = regex.flags.includes("g")
-    ? regex.flags
-    : `${regex.flags}g`
-  const occurrences = [
-    ...metadata.matchAll(new RegExp(regex.source, globalFlags)),
-  ]
-  const lastOccurrence = occurrences.at(-1)
-  if (!lastOccurrence) return metadata
-  const beforeMatch = metadata.slice(0, lastOccurrence.index)
-  const afterMatch = metadata.slice(
-    lastOccurrence.index + lastOccurrence[0].length,
-  )
-  return `${beforeMatch}${afterMatch}`.replace(/ {2,}/g, " ").trim()
-}
+  const globalFlags = regex.flags.includes("g") ? regex.flags : `${regex.flags}g`;
+  const occurrences = [...metadata.matchAll(new RegExp(regex.source, globalFlags))];
+  const lastOccurrence = occurrences.at(-1);
+
+  if (!lastOccurrence) return metadata;
+  const beforeMatch = metadata.slice(0, lastOccurrence.index);
+  const afterMatch = metadata.slice(lastOccurrence.index + lastOccurrence[0].length);
+  return `${beforeMatch}${afterMatch}`.replace(/ {2,}/g, " ").trim();
+};
 
 /** Removes EVERY occurrence of a field regex from a metadata tail.
  *  Used by clear paths (field set to null) where no copy should survive;
  *  the set paths use removeLastMetadataMatch to preserve a description signifier. */
 const removeAllMetadataMatches = (metadata: string, regex: RegExp): string => {
-  const stripped = removeLastMetadataMatch(metadata, regex)
-  return stripped === metadata
-    ? metadata
-    : removeAllMetadataMatches(stripped, regex)
-}
+  const stripped = removeLastMetadataMatch(metadata, regex);
+  return stripped === metadata ? metadata : removeAllMetadataMatches(stripped, regex);
+};
 
 // Re-export TaskFormatConfig so consumers of tasks.ts don't need a
 // separate import from the vault-operations layer.
-export type { TaskFormatConfig }
+export type { TaskFormatConfig };
 
 /** Formats a done date in the configured format. */
 const formatDoneDate = (today: string, format: "emoji" | "dataview"): string =>
-  format === "dataview" ? `[completion:: ${today}]` : `✅ ${today}`
+  format === "dataview" ? `[completion:: ${today}]` : `✅ ${today}`;
 
 /** Formats a cancelled date in the configured format. */
-const formatCancelledDate = (
-  today: string,
-  format: "emoji" | "dataview",
-): string => (format === "dataview" ? `[cancelled:: ${today}]` : `❌ ${today}`)
+const formatCancelledDate = (today: string, format: "emoji" | "dataview"): string =>
+  format === "dataview" ? `[cancelled:: ${today}]` : `❌ ${today}`;
 
 /** Formats a priority in the configured format. */
-const formatPriority = (
-  priority: TaskPriority,
-  format: "emoji" | "dataview",
-): string =>
-  format === "dataview"
-    ? `[priority:: ${priority}]`
-    : emojiForPriority(priority)
+const formatPriority = (priority: TaskPriority, format: "emoji" | "dataview"): string =>
+  format === "dataview" ? `[priority:: ${priority}]` : emojiForPriority(priority);
 
 /** Formats a task ID (🆔) in the configured format. */
 const formatTaskId = (taskId: string, format: "emoji" | "dataview"): string =>
-  format === "dataview" ? `[id:: ${taskId}]` : `🆔 ${taskId}`
+  format === "dataview" ? `[id:: ${taskId}]` : `🆔 ${taskId}`;
 
 /** Formats a recurrence rule (🔁) in the configured format. */
-const formatRecurrence = (
-  recurrenceText: string,
-  format: "emoji" | "dataview",
-): string =>
-  format === "dataview"
-    ? `[repeat:: ${recurrenceText}]`
-    : `🔁 ${recurrenceText}`
+const formatRecurrence = (recurrenceText: string, format: "emoji" | "dataview"): string =>
+  format === "dataview" ? `[repeat:: ${recurrenceText}]` : `🔁 ${recurrenceText}`;
 
 /** Formats an onCompletion value (🏁) in the configured format. */
-const formatOnCompletion = (
-  value: string,
-  format: "emoji" | "dataview",
-): string => {
-  return format === "dataview" ? `[onCompletion:: ${value}]` : `🏁 ${value}`
-}
+const formatOnCompletion = (value: string, format: "emoji" | "dataview"): string => {
+  return format === "dataview" ? `[onCompletion:: ${value}]` : `🏁 ${value}`;
+};
 
 /** Formats a depends-on list (⛔) in the configured format. */
-const formatDependsOn = (
-  dependsOn: readonly string[],
-  format: "emoji" | "dataview",
-): string => {
-  const idList = dependsOn.join(",")
-  return format === "dataview" ? `[dependsOn:: ${idList}]` : `⛔ ${idList}`
-}
+const formatDependsOn = (dependsOn: readonly string[], format: "emoji" | "dataview"): string => {
+  const idList = dependsOn.join(",");
+  return format === "dataview" ? `[dependsOn:: ${idList}]` : `⛔ ${idList}`;
+};
 
 // ── Date field keys and their format/strip data ──────────────────
 //
@@ -807,14 +724,13 @@ const formatDependsOn = (
 // updateTaskLineDate uses to find the insertion point.
 
 /** The six date-field keys in the Tasks plugin's canonical ordering. */
-type DateFieldKey =
-  "created" | "start" | "scheduled" | "due" | "done" | "cancelled"
+type DateFieldKey = "created" | "start" | "scheduled" | "due" | "done" | "cancelled";
 
 const DATE_FIELD_INFO: ReadonlyArray<{
-  key: DateFieldKey
-  emoji: string
-  dataviewKey: string
-  inlineRegex: RegExp
+  key: DateFieldKey;
+  emoji: string;
+  dataviewKey: string;
+  inlineRegex: RegExp;
 }> = [
   {
     key: "created",
@@ -852,7 +768,7 @@ const DATE_FIELD_INFO: ReadonlyArray<{
     dataviewKey: "cancelled",
     inlineRegex: CANCELLED_DATE_INLINE_RE,
   },
-]
+];
 
 /** Formats a date field in the configured format. */
 const formatDateField = ({
@@ -860,64 +776,59 @@ const formatDateField = ({
   date,
   format,
 }: {
-  field: DateFieldKey
-  date: string
-  format: "emoji" | "dataview"
+  field: DateFieldKey;
+  date: string;
+  format: "emoji" | "dataview";
 }): string => {
-  const info = DATE_FIELD_INFO.find((entry) => entry.key === field)
-  if (!info) throw new Error(`unknown date field: ${field}`)
-  return format === "dataview"
-    ? `[${info.dataviewKey}:: ${date}]`
-    : `${info.emoji} ${date}`
-}
+  const info = DATE_FIELD_INFO.find((entry) => entry.key === field);
+
+  if (!info) throw new Error(`unknown date field: ${field}`);
+  return format === "dataview" ? `[${info.dataviewKey}:: ${date}]` : `${info.emoji} ${date}`;
+};
 
 /** Sets or clears a date field on a task line. Strips existing values in
  *  both formats; inserts the new value at the correct position per the
  *  Tasks-plugin field ordering convention. A null date clears the field. */
 const updateTaskLineDate = (params: {
-  taskLine: string
-  field: DateFieldKey
-  date: string | null
-  config: TaskFormatConfig
+  taskLine: string;
+  field: DateFieldKey;
+  date: string | null;
+  config: TaskFormatConfig;
 }): string => {
-  const fieldInfo = DATE_FIELD_INFO.find((entry) => entry.key === params.field)
-  if (!fieldInfo) throw new Error(`unknown date field: ${params.field}`)
+  const fieldInfo = DATE_FIELD_INFO.find((entry) => entry.key === params.field);
+
+  if (!fieldInfo) throw new Error(`unknown date field: ${params.field}`);
 
   // Later fields in the canonical order: the remaining dates, then
   // task_id and depends_on — a new date is inserted ahead of the first one
   // present so the line keeps the order the create path writes.
-  const fieldIndex = DATE_FIELD_INFO.findIndex(
-    (entry) => entry.key === params.field,
-  )
+  const fieldIndex = DATE_FIELD_INFO.findIndex((entry) => entry.key === params.field);
   const laterFieldRegexes = [
     ...DATE_FIELD_INFO.slice(fieldIndex + 1).map((entry) => entry.inlineRegex),
     TASK_ID_INLINE_RE,
     DEPENDS_ON_INLINE_RE,
-  ]
+  ];
 
   return transformMetadata(params.taskLine, (metadata) => {
     // Clear: remove every copy so no stale date survives.
     if (params.date === null) {
-      return removeAllMetadataMatches(metadata, fieldInfo.inlineRegex)
+      return removeAllMetadataMatches(metadata, fieldInfo.inlineRegex);
     }
     // Set: remove only the last copy — if the description contains a field-like
     // signifier, it sits at the front and must survive as prose.
-    const metadataWithoutDate = removeLastMetadataMatch(
-      metadata,
-      fieldInfo.inlineRegex,
-    )
+    const metadataWithoutDate = removeLastMetadataMatch(metadata, fieldInfo.inlineRegex);
     const dateText = formatDateField({
       field: params.field,
       date: params.date,
       format: params.config.taskFormat,
-    })
+    });
     return insertFieldAtPosition({
       metadata: metadataWithoutDate,
       fieldText: dateText,
       laterFieldRegexes,
-    })
-  })
-}
+    });
+  });
+};
 
 /** Sets or clears the Tasks-plugin `🆔` / `[id:: ]` field on a task line.
  *  A new id goes ahead of an existing depends_on, matching the create order. */
@@ -926,24 +837,20 @@ const updateTaskLineTaskId = ({
   taskId,
   config,
 }: {
-  taskLine: string
-  taskId: string | null
-  config: TaskFormatConfig
+  taskLine: string;
+  taskId: string | null;
+  config: TaskFormatConfig;
 }): string => {
   return transformMetadata(taskLine, (metadata) => {
-    if (taskId === null)
-      return removeAllMetadataMatches(metadata, TASK_ID_INLINE_RE)
-    const metadataWithoutTaskId = removeLastMetadataMatch(
-      metadata,
-      TASK_ID_INLINE_RE,
-    )
+    if (taskId === null) return removeAllMetadataMatches(metadata, TASK_ID_INLINE_RE);
+    const metadataWithoutTaskId = removeLastMetadataMatch(metadata, TASK_ID_INLINE_RE);
     return insertFieldAtPosition({
       metadata: metadataWithoutTaskId,
       fieldText: formatTaskId(taskId, config.taskFormat),
       laterFieldRegexes: [DEPENDS_ON_INLINE_RE],
-    })
-  })
-}
+    });
+  });
+};
 
 /** Sets or clears the 🔁 / `[repeat:: ]` recurrence rule on a task line.
  *  A new rule is inserted after the priority and before the dates — the
@@ -954,18 +861,15 @@ const updateTaskLineRecurrence = ({
   recurrenceText,
   config,
 }: {
-  taskLine: string
-  recurrenceText: string | null
-  config: TaskFormatConfig
+  taskLine: string;
+  recurrenceText: string | null;
+  config: TaskFormatConfig;
 }): string => {
   return transformMetadata(taskLine, (metadata) => {
     if (recurrenceText === null) {
-      return removeAllMetadataMatches(metadata, RECURRENCE_INLINE_RE)
+      return removeAllMetadataMatches(metadata, RECURRENCE_INLINE_RE);
     }
-    const metadataWithoutRecurrence = removeLastMetadataMatch(
-      metadata,
-      RECURRENCE_INLINE_RE,
-    )
+    const metadataWithoutRecurrence = removeLastMetadataMatch(metadata, RECURRENCE_INLINE_RE);
     return insertFieldAtPosition({
       metadata: metadataWithoutRecurrence,
       fieldText: formatRecurrence(recurrenceText, config.taskFormat),
@@ -975,9 +879,9 @@ const updateTaskLineRecurrence = ({
         TASK_ID_INLINE_RE,
         DEPENDS_ON_INLINE_RE,
       ],
-    })
-  })
-}
+    });
+  });
+};
 
 /** Sets or clears the 🏁 / `[onCompletion:: ]` field on a task line.
  *  Inserted after recurrence and before dates — the plugin's field order. */
@@ -986,17 +890,15 @@ const updateTaskLineOnCompletion = ({
   onCompletion,
   config,
 }: {
-  taskLine: string
-  onCompletion: string | null
-  config: TaskFormatConfig
+  taskLine: string;
+  onCompletion: string | null;
+  config: TaskFormatConfig;
 }): string => {
   return transformMetadata(taskLine, (metadata) => {
-    const metadataWithoutOnCompletion = removeAllMetadataMatches(
-      metadata,
-      ON_COMPLETION_INLINE_RE,
-    )
+    const metadataWithoutOnCompletion = removeAllMetadataMatches(metadata, ON_COMPLETION_INLINE_RE);
+
     if (onCompletion === null) {
-      return metadataWithoutOnCompletion
+      return metadataWithoutOnCompletion;
     }
     return insertFieldAtPosition({
       metadata: metadataWithoutOnCompletion,
@@ -1006,9 +908,9 @@ const updateTaskLineOnCompletion = ({
         TASK_ID_INLINE_RE,
         DEPENDS_ON_INLINE_RE,
       ],
-    })
-  })
-}
+    });
+  });
+};
 
 /** Sets or clears the Tasks-plugin `⛔` / `[dependsOn:: ]` field. */
 const updateTaskLineDependsOn = ({
@@ -1016,31 +918,25 @@ const updateTaskLineDependsOn = ({
   dependsOn,
   config,
 }: {
-  taskLine: string
-  dependsOn: readonly string[] | null
-  config: TaskFormatConfig
+  taskLine: string;
+  dependsOn: readonly string[] | null;
+  config: TaskFormatConfig;
 }): string => {
   return transformMetadata(taskLine, (metadata) => {
     if (dependsOn === null || dependsOn.length === 0) {
-      return removeAllMetadataMatches(metadata, DEPENDS_ON_INLINE_RE)
+      return removeAllMetadataMatches(metadata, DEPENDS_ON_INLINE_RE);
     }
-    const metadataWithoutDependsOn = removeLastMetadataMatch(
-      metadata,
-      DEPENDS_ON_INLINE_RE,
-    )
+    const metadataWithoutDependsOn = removeLastMetadataMatch(metadata, DEPENDS_ON_INLINE_RE);
     return appendMetadataField({
       metadata: metadataWithoutDependsOn,
       fieldText: formatDependsOn(dependsOn, config.taskFormat),
-    })
-  })
-}
+    });
+  });
+};
 
 /** Global twin of FIRST_METADATA_SIGNIFIER_RE for matchAll — kept separate
  *  so the non-global regex never carries a lastIndex. */
-const METADATA_SIGNIFIER_CANDIDATES_RE = new RegExp(
-  FIRST_METADATA_SIGNIFIER_RE.source,
-  "gu",
-)
+const METADATA_SIGNIFIER_CANDIDATES_RE = new RegExp(FIRST_METADATA_SIGNIFIER_RE.source, "gu");
 
 /** Index in a task body (checkbox prefix and block link removed) where the
  *  metadata tail begins, or -1 when the whole body is description.
@@ -1050,44 +946,44 @@ const METADATA_SIGNIFIER_CANDIDATES_RE = new RegExp(
  *  - Tags interleaved with fields belong to the tail, not the description. */
 const findMetadataStart = (taskBody: string): number => {
   for (const candidate of taskBody.matchAll(METADATA_SIGNIFIER_CANDIDATES_RE)) {
-    const tail = parseTaskMetadata(taskBody.slice(candidate.index))
-    const tailDescription = tail.description.replace(HASHTAG_RE, "").trim()
-    if (tailDescription === "") return candidate.index
+    const tail = parseTaskMetadata(taskBody.slice(candidate.index));
+    const tailDescription = tail.description.replace(HASHTAG_RE, "").trim();
+
+    if (tailDescription === "") return candidate.index;
   }
-  return -1
-}
+  return -1;
+};
 
 type TaskLineParts = {
   /** Indentation, list marker, and checkbox, e.g. `  - [ ] `. */
-  prefix: string
-  description: string
+  prefix: string;
+  description: string;
   /** Metadata fields from the first real signifier on; "" when none. */
-  metadata: string
+  metadata: string;
   /** Trailing block link including its leading space; "" when none. */
-  blockLink: string
+  blockLink: string;
   /** Trailing whitespace after the block link (or after metadata when no
    *  block link is present) — a markdown hard break. "" when none. */
-  trailingWhitespace: string
-}
+  trailingWhitespace: string;
+};
 
 /** Splits a task line at the parser's description/metadata boundary.
  *  Returns null when the line is not a task line. */
 const splitTaskLine = (taskLine: string): TaskLineParts | null => {
   // Same prefix grammar as TASK_LINE_RE, captured up to and including the
   // checkbox — the two must stay in sync on what counts as the prefix.
-  const checkboxMatch = /^([\s\t>]*(?:[-*+]|[0-9]+[.)]) +\[.\] *)/.exec(
-    taskLine,
-  )
-  const prefix = checkboxMatch?.[1]
-  if (!prefix) return null
-  const afterCheckbox = taskLine.slice(prefix.length)
+  const checkboxMatch = /^([\s\t>]*(?:[-*+]|[0-9]+[.)]) +\[.\] *)/.exec(taskLine);
+  const prefix = checkboxMatch?.[1];
+
+  if (!prefix) return null;
+  const afterCheckbox = taskLine.slice(prefix.length);
   // Capture trailing whitespace before splitTrailingBlockLink trims it —
   // a markdown hard break (two+ trailing spaces) must survive the round-trip.
-  const trimmedAfterCheckbox = afterCheckbox.trimEnd()
-  const trailingWhitespace = afterCheckbox.slice(trimmedAfterCheckbox.length)
-  const { body: taskBody, blockLink } =
-    splitTrailingBlockLink(trimmedAfterCheckbox)
-  const metadataStart = findMetadataStart(taskBody)
+  const trimmedAfterCheckbox = afterCheckbox.trimEnd();
+  const trailingWhitespace = afterCheckbox.slice(trimmedAfterCheckbox.length);
+  const { body: taskBody, blockLink } = splitTrailingBlockLink(trimmedAfterCheckbox);
+  const metadataStart = findMetadataStart(taskBody);
+
   if (metadataStart === -1) {
     return {
       prefix,
@@ -1095,7 +991,7 @@ const splitTaskLine = (taskLine: string): TaskLineParts | null => {
       metadata: "",
       blockLink,
       trailingWhitespace,
-    }
+    };
   }
   return {
     prefix,
@@ -1103,41 +999,28 @@ const splitTaskLine = (taskLine: string): TaskLineParts | null => {
     metadata: taskBody.slice(metadataStart).trim(),
     blockLink,
     trailingWhitespace,
-  }
-}
+  };
+};
 
-const joinTaskLine = ({
-  prefix,
-  description,
-  metadata,
-  blockLink,
-  trailingWhitespace,
-}: TaskLineParts): string => {
-  const body = [description.trim(), metadata.trim()].filter(Boolean).join(" ")
-  return `${prefix}${body}${blockLink}${trailingWhitespace}`
-}
+const joinTaskLine = ({ prefix, description, metadata, blockLink, trailingWhitespace }: TaskLineParts): string => {
+  const body = [description.trim(), metadata.trim()].filter(Boolean).join(" ");
+  return `${prefix}${body}${blockLink}${trailingWhitespace}`;
+};
 
 /** Applies a field mutation to the metadata tail only — field-like text
  *  inside the description ("Trip on 📅 2026-09-15, then relax") is prose to
  *  the parser and must never be matched by a strip or replace. Returns the
  *  line unchanged when it is not a task line. */
-const transformMetadata = (
-  taskLine: string,
-  transform: (metadata: string) => string,
-): string => {
-  const parts = splitTaskLine(taskLine)
-  if (!parts) return taskLine
-  return joinTaskLine({ ...parts, metadata: transform(parts.metadata) })
-}
+const transformMetadata = (taskLine: string, transform: (metadata: string) => string): string => {
+  const parts = splitTaskLine(taskLine);
+
+  if (!parts) return taskLine;
+  return joinTaskLine({ ...parts, metadata: transform(parts.metadata) });
+};
 
 /** Appends a field to the end of a metadata tail. */
-const appendMetadataField = ({
-  metadata,
-  fieldText,
-}: {
-  metadata: string
-  fieldText: string
-}): string => [metadata, fieldText].filter(Boolean).join(" ")
+const appendMetadataField = ({ metadata, fieldText }: { metadata: string; fieldText: string }): string =>
+  [metadata, fieldText].filter(Boolean).join(" ");
 
 /** Inserts a field at its correct position in the task-line metadata by
  *  placing it before the first field in `laterFieldRegexes` that already
@@ -1149,34 +1032,36 @@ const insertFieldAtPosition = ({
   fieldText,
   laterFieldRegexes,
 }: {
-  metadata: string
-  fieldText: string
-  laterFieldRegexes: readonly RegExp[]
+  metadata: string;
+  fieldText: string;
+  laterFieldRegexes: readonly RegExp[];
 }): string => {
   for (const laterFieldRegex of laterFieldRegexes) {
-    const laterMatch = laterFieldRegex.exec(metadata)
+    const laterMatch = laterFieldRegex.exec(metadata);
+
     if (laterMatch) {
-      return `${metadata.slice(0, laterMatch.index)}${fieldText} ${metadata.slice(laterMatch.index)}`
+      return `${metadata.slice(0, laterMatch.index)}${fieldText} ${metadata.slice(laterMatch.index)}`;
     }
   }
-  return appendMetadataField({ metadata, fieldText })
-}
+  return appendMetadataField({ metadata, fieldText });
+};
 
 /** The metadata the parser reads back from one task line (checkbox prefix
  *  and block link removed), or null when the line is not a task line. */
 const parseTaskLineMetadata = (taskLine: string): TaskMetadata | null => {
-  const taskLineMatch = TASK_LINE_RE.exec(taskLine)
-  if (!taskLineMatch) return null
-  const bodyWithBlockLink = capturedGroup(taskLineMatch, 2)
-  const { body: taskBody } = splitTrailingBlockLink(bodyWithBlockLink)
-  return parseTaskMetadata(taskBody)
-}
+  const taskLineMatch = TASK_LINE_RE.exec(taskLine);
+
+  if (!taskLineMatch) return null;
+  const bodyWithBlockLink = capturedGroup(taskLineMatch, 2);
+  const { body: taskBody } = splitTrailingBlockLink(bodyWithBlockLink);
+  return parseTaskMetadata(taskBody);
+};
 
 /** The description the parser sees for a task line — metadata stripped
  *  from the right, interleaved tags re-appended, block link removed. */
 const describeTaskLine = (taskLine: string): string => {
-  return parseTaskLineMetadata(taskLine)?.description ?? taskLine
-}
+  return parseTaskLineMetadata(taskLine)?.description ?? taskLine;
+};
 
 // ── Round-trip divergence detection ─────────────────────────────
 
@@ -1187,64 +1072,63 @@ const describeTaskLine = (taskLine: string): string => {
  *  dates a status change writes or strips) belong here too, so stamps never
  *  register as fields appearing from nowhere. */
 export type SubmittedTaskFields = Readonly<{
-  description?: string | undefined
-  priority?: TaskPriority | null | undefined
-  createdDate?: string | null | undefined
-  startDate?: string | null | undefined
-  scheduledDate?: string | null | undefined
-  dueDate?: string | null | undefined
-  doneDate?: string | null | undefined
-  cancelledDate?: string | null | undefined
-  taskId?: string | null | undefined
-  dependsOn?: readonly string[] | null | undefined
-  recurrence?: string | null | undefined
-  onCompletion?: string | null | undefined
-}>
+  description?: string | undefined;
+  priority?: TaskPriority | null | undefined;
+  createdDate?: string | null | undefined;
+  startDate?: string | null | undefined;
+  scheduledDate?: string | null | undefined;
+  dueDate?: string | null | undefined;
+  doneDate?: string | null | undefined;
+  cancelledDate?: string | null | undefined;
+  taskId?: string | null | undefined;
+  dependsOn?: readonly string[] | null | undefined;
+  recurrence?: string | null | undefined;
+  onCompletion?: string | null | undefined;
+}>;
 
 /** One field whose parse-back value differs from what the call's inputs say
  *  it should be. Values are display strings; null means absent/empty. */
 export type TaskRoundTripDivergence = Readonly<{
-  field: string
-  expected: string | null
+  field: string;
+  expected: string | null;
   /** Where the expectation came from: a value submitted this call, the
    *  pre-mutation line's parse, or nothing (the field should be absent). */
-  expectedSource: "submitted" | "prior" | "none"
-  storedValue: string | null
+  expectedSource: "submitted" | "prior" | "none";
+  storedValue: string | null;
   /** Description divergence only: the submitted tail that parsed as
    *  metadata instead of staying description text. */
-  consumedTail?: string | undefined
-}>
+  consumedTail?: string | undefined;
+}>;
 
 /** The round-trip diff's reading of one written line: the full metadata
  *  parse, plus the raw description text before the metadata boundary
  *  (without the #tags the parser re-appends from the tail) — see
  *  descriptionDivergences for when each representation is compared. */
 type RoundTripLineReading = {
-  metadata: TaskMetadata
-  descriptionSlot: string | null
-}
+  metadata: TaskMetadata;
+  descriptionSlot: string | null;
+};
 
-const readTaskLineForRoundTrip = (
-  taskLine: string,
-): RoundTripLineReading | null => {
-  const metadata = parseTaskLineMetadata(taskLine)
-  const parts = splitTaskLine(taskLine)
-  if (!metadata || !parts) return null
+const readTaskLineForRoundTrip = (taskLine: string): RoundTripLineReading | null => {
+  const metadata = parseTaskLineMetadata(taskLine);
+  const parts = splitTaskLine(taskLine);
+
+  if (!metadata || !parts) return null;
   return {
     metadata,
     descriptionSlot: parts.description === "" ? null : parts.description,
-  }
-}
+  };
+};
 
 /** One field's participation in the round-trip diff. An undefined return
  *  from readSubmitted means the call did not set the field; a field with no
  *  readSubmitted can never be set by a call, so its expectation always
  *  comes from the prior parse. */
 type RoundTripFieldReading = {
-  field: string
-  readParsed: (reading: RoundTripLineReading) => string | null
-  readSubmitted?: (submitted: SubmittedTaskFields) => string | null | undefined
-}
+  field: string;
+  readParsed: (reading: RoundTripLineReading) => string | null;
+  readSubmitted?: (submitted: SubmittedTaskFields) => string | null | undefined;
+};
 
 const ROUND_TRIP_FIELDS: readonly RoundTripFieldReading[] = [
   {
@@ -1290,16 +1174,14 @@ const ROUND_TRIP_FIELDS: readonly RoundTripFieldReading[] = [
   {
     field: "depends_on",
     readParsed: (reading) => {
-      return reading.metadata.dependsOn.length === 0
-        ? null
-        : reading.metadata.dependsOn.join(",")
+      return reading.metadata.dependsOn.length === 0 ? null : reading.metadata.dependsOn.join(",");
     },
     readSubmitted: (submitted) => {
-      if (submitted.dependsOn === undefined) return undefined
+      if (submitted.dependsOn === undefined) return undefined;
       if (submitted.dependsOn === null || submitted.dependsOn.length === 0) {
-        return null
+        return null;
       }
-      return submitted.dependsOn.join(",")
+      return submitted.dependsOn.join(",");
     },
   },
   {
@@ -1312,7 +1194,7 @@ const ROUND_TRIP_FIELDS: readonly RoundTripFieldReading[] = [
     readParsed: (reading) => reading.metadata.onCompletion,
     readSubmitted: (submitted) => submitted.onCompletion,
   },
-]
+];
 
 /** The expected parse-back value for one field: the submitted value when the
  *  call set the field, else the prior line's parsed value, else absent. */
@@ -1320,17 +1202,17 @@ const expectedRoundTripValue = ({
   submittedValue,
   priorValue,
 }: {
-  submittedValue: string | null | undefined
-  priorValue: string | null
+  submittedValue: string | null | undefined;
+  priorValue: string | null;
 }): Pick<TaskRoundTripDivergence, "expected" | "expectedSource"> => {
   if (submittedValue !== undefined) {
-    return { expected: submittedValue, expectedSource: "submitted" }
+    return { expected: submittedValue, expectedSource: "submitted" };
   }
   if (priorValue !== null) {
-    return { expected: priorValue, expectedSource: "prior" }
+    return { expected: priorValue, expectedSource: "prior" };
   }
-  return { expected: null, expectedSource: "none" }
-}
+  return { expected: null, expectedSource: "none" };
+};
 
 /** The trailing part of a submitted description that the parser consumed
  *  as metadata. Defined when the stored description matches the start of
@@ -1340,15 +1222,15 @@ const consumedDescriptionTail = ({
   submitted,
   storedDescription,
 }: {
-  submitted: string | null
-  storedDescription: string | null
+  submitted: string | null;
+  storedDescription: string | null;
 }): string | undefined => {
-  if (submitted === null) return undefined
-  if (storedDescription === null) return submitted
-  if (!submitted.startsWith(storedDescription)) return undefined
-  const tail = submitted.slice(storedDescription.length).trim()
-  return tail === "" ? undefined : tail
-}
+  if (submitted === null) return undefined;
+  if (storedDescription === null) return submitted;
+  if (!submitted.startsWith(storedDescription)) return undefined;
+  const tail = submitted.slice(storedDescription.length).trim();
+  return tail === "" ? undefined : tail;
+};
 
 /** Description divergence uses two comparison modes with different
  *  representations:
@@ -1365,26 +1247,24 @@ const descriptionDivergences = ({
   priorReading,
   submitted,
 }: {
-  afterReading: RoundTripLineReading
-  priorReading: RoundTripLineReading | null
-  submitted: SubmittedTaskFields
+  afterReading: RoundTripLineReading;
+  priorReading: RoundTripLineReading | null;
+  submitted: SubmittedTaskFields;
 }): TaskRoundTripDivergence[] => {
-  const submittedDescription = submitted.description?.trim()
+  const submittedDescription = submitted.description?.trim();
 
   if (submittedDescription !== undefined) {
     // The slot triggers the divergence check (the parser view re-appends
     // tags and would flag every edit on a tagged line), but the advisory
     // quotes storedDescription — what vault_list_tasks actually returns.
-    if (afterReading.descriptionSlot === submittedDescription) return []
-    const storedDescription =
-      afterReading.metadata.description === ""
-        ? null
-        : afterReading.metadata.description
-    if (storedDescription === submittedDescription) return []
+    if (afterReading.descriptionSlot === submittedDescription) return [];
+    const storedDescription = afterReading.metadata.description === "" ? null : afterReading.metadata.description;
+
+    if (storedDescription === submittedDescription) return [];
     const consumedTail = consumedDescriptionTail({
       submitted: submittedDescription,
       storedDescription,
-    })
+    });
     return [
       {
         field: "description",
@@ -1393,18 +1273,14 @@ const descriptionDivergences = ({
         storedValue: storedDescription,
         ...(consumedTail && { consumedTail }),
       },
-    ]
+    ];
   }
 
-  const storedDescription =
-    afterReading.metadata.description === ""
-      ? null
-      : afterReading.metadata.description
+  const storedDescription = afterReading.metadata.description === "" ? null : afterReading.metadata.description;
   const priorDescription =
-    priorReading && priorReading.metadata.description !== ""
-      ? priorReading.metadata.description
-      : null
-  if (storedDescription === priorDescription) return []
+    priorReading && priorReading.metadata.description !== "" ? priorReading.metadata.description : null;
+
+  if (storedDescription === priorDescription) return [];
   return [
     {
       field: "description",
@@ -1412,8 +1288,8 @@ const descriptionDivergences = ({
       expectedSource: priorDescription === null ? "none" : "prior",
       storedValue: storedDescription,
     },
-  ]
-}
+  ];
+};
 
 /** Diffs a written task line against what the call's inputs say it should
  *  parse back to. Every divergence is a place where description prose and
@@ -1426,31 +1302,27 @@ const diffTaskRoundTrip = ({
   priorTaskLine,
   submitted,
 }: {
-  taskLine: string
-  priorTaskLine: string | null
-  submitted: SubmittedTaskFields
+  taskLine: string;
+  priorTaskLine: string | null;
+  submitted: SubmittedTaskFields;
 }): TaskRoundTripDivergence[] => {
-  const afterReading = readTaskLineForRoundTrip(taskLine)
-  if (!afterReading) return []
-  const priorReading =
-    priorTaskLine === null ? null : readTaskLineForRoundTrip(priorTaskLine)
+  const afterReading = readTaskLineForRoundTrip(taskLine);
+
+  if (!afterReading) return [];
+  const priorReading = priorTaskLine === null ? null : readTaskLineForRoundTrip(priorTaskLine);
 
   const fieldDivergences = ROUND_TRIP_FIELDS.flatMap((fieldReading) => {
-    const submittedValue = fieldReading.readSubmitted?.(submitted)
-    const priorValue = priorReading
-      ? fieldReading.readParsed(priorReading)
-      : null
-    const expectation = expectedRoundTripValue({ submittedValue, priorValue })
-    const storedValue = fieldReading.readParsed(afterReading)
-    if (storedValue === expectation.expected) return []
-    return [{ field: fieldReading.field, ...expectation, storedValue }]
-  })
+    const submittedValue = fieldReading.readSubmitted?.(submitted);
+    const priorValue = priorReading ? fieldReading.readParsed(priorReading) : null;
+    const expectation = expectedRoundTripValue({ submittedValue, priorValue });
+    const storedValue = fieldReading.readParsed(afterReading);
 
-  return [
-    ...descriptionDivergences({ afterReading, priorReading, submitted }),
-    ...fieldDivergences,
-  ]
-}
+    if (storedValue === expectation.expected) return [];
+    return [{ field: fieldReading.field, ...expectation, storedValue }];
+  });
+
+  return [...descriptionDivergences({ afterReading, priorReading, submitted }), ...fieldDivergences];
+};
 
 /** Replaces the description text on a task line — everything before the
  *  metadata tail. Metadata fields, block_id, and indentation are preserved. */
@@ -1458,108 +1330,106 @@ const replaceTaskLineDescription = ({
   taskLine,
   newDescription,
 }: {
-  taskLine: string
-  newDescription: string
+  taskLine: string;
+  newDescription: string;
 }): string => {
-  const parts = splitTaskLine(taskLine)
-  if (!parts) return taskLine
-  return joinTaskLine({ ...parts, description: newDescription })
-}
+  const parts = splitTaskLine(taskLine);
+
+  if (!parts) return taskLine;
+  return joinTaskLine({ ...parts, description: newDescription });
+};
 
 /** Matches a specific hashtag as a whole token — preceded by start-of-string
  *  or whitespace, followed by whitespace or end-of-string. */
 const hashtagTokenPattern = (escapedTag: string): RegExp => {
-  return new RegExp(`(^|\\s)${escapedTag}(?=\\s|$)`)
-}
+  return new RegExp(`(^|\\s)${escapedTag}(?=\\s|$)`);
+};
 
 /** The 12 RegExp metacharacters that need backslash-escaping. */
-const REGEX_SPECIAL_CHARS_RE = /[.*+?^${}()|[\]\\]/g
+const REGEX_SPECIAL_CHARS_RE = /[.*+?^${}()|[\]\\]/g;
 
 const escapeRegExp = (text: string): string => {
-  return text.replace(REGEX_SPECIAL_CHARS_RE, "\\$&")
-}
+  return text.replace(REGEX_SPECIAL_CHARS_RE, "\\$&");
+};
 
 /** Extracts trailing hashtags from a string by repeated right-to-left
  *  stripping — the same loop shape as parseTaskMetadata's tag pass. */
 const extractTrailingTags = (text: string): readonly string[] => {
-  const tags: string[] = []
+  const tags: string[] = [];
   // Each iteration shortens the string from the right; later passes
   // depend on the shortened result (sequential parser state).
-  let remaining = text
-  let tagMatch = HASHTAG_FROM_END_RE.exec(remaining)
+  let remaining = text;
+  let tagMatch = HASHTAG_FROM_END_RE.exec(remaining);
   while (tagMatch) {
-    tags.unshift(tagMatch[0].trim())
-    remaining = remaining.slice(0, tagMatch.index).trim()
-    tagMatch = HASHTAG_FROM_END_RE.exec(remaining)
+    tags.unshift(tagMatch[0].trim());
+    remaining = remaining.slice(0, tagMatch.index).trim();
+    tagMatch = HASHTAG_FROM_END_RE.exec(remaining);
   }
-  return tags
-}
+  return tags;
+};
 
 /** Strips tags from the metadata tail that byte-match trailing tags in the
  *  description — the round-trip duplication that occurs when an agent writes
  *  back the parser's re-appended view of interleaved tags. Returns the
  *  cleaned line and the tags that were removed. */
-const deduplicateDescriptionTags = (
-  taskLine: string,
-): { taskLine: string; deduplicatedTags: readonly string[] } => {
-  const parts = splitTaskLine(taskLine)
+const deduplicateDescriptionTags = (taskLine: string): { taskLine: string; deduplicatedTags: readonly string[] } => {
+  const parts = splitTaskLine(taskLine);
+
   if (!parts || !parts.metadata) {
-    return { taskLine, deduplicatedTags: [] }
+    return { taskLine, deduplicatedTags: [] };
   }
 
-  const descriptionTrailingTags = extractTrailingTags(parts.description)
+  const descriptionTrailingTags = extractTrailingTags(parts.description);
+
   if (descriptionTrailingTags.length === 0) {
-    return { taskLine, deduplicatedTags: [] }
+    return { taskLine, deduplicatedTags: [] };
   }
 
   // Strip from the metadata only tags that byte-match a trailing
   // description tag — non-overlapping tags stay in both positions.
   // Each iteration shortens the metadata (sequential stripping state).
-  let dedupedMetadata = parts.metadata
-  const deduplicatedTags: string[] = []
+  let dedupedMetadata = parts.metadata;
+  const deduplicatedTags: string[] = [];
   for (const tag of descriptionTrailingTags) {
-    const tagPattern = hashtagTokenPattern(escapeRegExp(tag))
+    const tagPattern = hashtagTokenPattern(escapeRegExp(tag));
+
     if (tagPattern.test(dedupedMetadata)) {
-      dedupedMetadata = dedupedMetadata.replace(tagPattern, "").trim()
-      deduplicatedTags.push(tag)
+      dedupedMetadata = dedupedMetadata.replace(tagPattern, "").trim();
+      deduplicatedTags.push(tag);
     }
   }
 
   if (deduplicatedTags.length === 0) {
-    return { taskLine, deduplicatedTags: [] }
+    return { taskLine, deduplicatedTags: [] };
   }
 
   return {
     taskLine: joinTaskLine({ ...parts, metadata: dedupedMetadata }),
     deduplicatedTags,
-  }
-}
+  };
+};
 
 /** Adds or replaces a `^block-id` at the end of a task line. Trailing
  *  whitespace (a markdown hard break) is preserved through the replacement. */
-const assignBlockId = ({
-  taskLine,
-  blockId,
-}: {
-  taskLine: string
-  blockId: string
-}): string => {
-  const trimmedLine = taskLine.trimEnd()
-  const trailingWhitespace = taskLine.slice(trimmedLine.length)
-  const existingMatch = BLOCK_LINK_RE.exec(trimmedLine)
+const assignBlockId = ({ taskLine, blockId }: { taskLine: string; blockId: string }): string => {
+  const trimmedLine = taskLine.trimEnd();
+  const trailingWhitespace = taskLine.slice(trimmedLine.length);
+  const existingMatch = BLOCK_LINK_RE.exec(trimmedLine);
+
   if (existingMatch) {
-    return `${trimmedLine.slice(0, existingMatch.index)} ^${blockId}${trailingWhitespace}`
+    return `${trimmedLine.slice(0, existingMatch.index)} ^${blockId}${trailingWhitespace}`;
   }
-  return `${trimmedLine} ^${blockId}${trailingWhitespace}`
-}
+  return `${trimmedLine} ^${blockId}${trailingWhitespace}`;
+};
 
 /** Removes the trailing `^block-id` from a task line, if it has one. */
 const stripBlockLink = (taskLine: string): string => {
-  const trimmedLine = taskLine.trimEnd()
-  const blockLinkMatch = BLOCK_LINK_RE.exec(trimmedLine)
-  if (!blockLinkMatch) return trimmedLine
-  return trimmedLine.slice(0, blockLinkMatch.index)
-}
+  const trimmedLine = taskLine.trimEnd();
+  const blockLinkMatch = BLOCK_LINK_RE.exec(trimmedLine);
+
+  if (!blockLinkMatch) return trimmedLine;
+  return trimmedLine.slice(0, blockLinkMatch.index);
+};
 
 /** Extracts the structural indent of a line — leading whitespace after
  *  stripping blockquote `>` markers. A top-level task returns 0; an
@@ -1568,111 +1438,101 @@ const getTaskIndent = (line: string): number => {
   // Strip leading blockquote markers: each `> ` (one `>` + one optional
   // space) is a blockquote level. Only the marker's own space is consumed;
   // additional spaces are structural indent that must be measured.
-  const withoutBlockquotes = line.replace(/^(?:> ?)+/, "")
-  const indentMatch = /^(\s*)/.exec(withoutBlockquotes)
-  return indentMatch?.[1]?.length ?? 0
-}
+  const withoutBlockquotes = line.replace(/^(?:> ?)+/, "");
+  const indentMatch = /^(\s*)/.exec(withoutBlockquotes);
+  return indentMatch?.[1]?.length ?? 0;
+};
 
 // ── Task line builder ─────────────────────────────────────────────
 
 /** Parameters for building a complete task line. */
 type BuildTaskLineParams = {
-  description: string
-  blockId: string
-  priority?: TaskPriority | undefined
-  recurrence?: string | undefined
-  onCompletion?: string | undefined
-  created: string
-  start?: string | undefined
-  scheduled?: string | undefined
-  due?: string | undefined
-  taskId?: string | undefined
-  dependsOn?: readonly string[] | undefined
-  indent?: string | undefined
-}
+  description: string;
+  blockId: string;
+  priority?: TaskPriority | undefined;
+  recurrence?: string | undefined;
+  onCompletion?: string | undefined;
+  created: string;
+  start?: string | undefined;
+  scheduled?: string | undefined;
+  due?: string | undefined;
+  taskId?: string | undefined;
+  dependsOn?: readonly string[] | undefined;
+  indent?: string | undefined;
+};
 
 /** Assembles a complete task line in the correct field ordering:
  *  description → priority → 🔁 recurrence → 🏁 onCompletion → ➕ created →
  *  🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id */
-const buildTaskLine = (
-  params: BuildTaskLineParams,
-  config: TaskFormatConfig,
-): string => {
-  const format = config.taskFormat
+const buildTaskLine = (params: BuildTaskLineParams, config: TaskFormatConfig): string => {
+  const format = config.taskFormat;
   const optionalDates: ReadonlyArray<{
-    field: DateFieldKey
-    date: string | undefined
+    field: DateFieldKey;
+    date: string | undefined;
   }> = [
     { field: "start", date: params.start },
     { field: "scheduled", date: params.scheduled },
     { field: "due", date: params.due },
-  ]
+  ];
   const optionalDateFields = optionalDates.flatMap(({ field, date }) =>
     date ? [formatDateField({ field, date, format })] : [],
-  )
+  );
 
   const parts = [
     `${params.indent ?? ""}- [ ] ${params.description}`,
     ...(params.priority ? [formatPriority(params.priority, format)] : []),
     ...(params.recurrence ? [formatRecurrence(params.recurrence, format)] : []),
-    ...(params.onCompletion
-      ? [formatOnCompletion(params.onCompletion, format)]
-      : []),
+    ...(params.onCompletion ? [formatOnCompletion(params.onCompletion, format)] : []),
     formatDateField({ field: "created", date: params.created, format }),
     ...optionalDateFields,
     ...(params.taskId ? [formatTaskId(params.taskId, format)] : []),
-    ...(params.dependsOn?.length
-      ? [formatDependsOn(params.dependsOn, format)]
-      : []),
+    ...(params.dependsOn?.length ? [formatDependsOn(params.dependsOn, format)] : []),
     `^${params.blockId}`,
-  ]
-  return parts.join(" ")
-}
+  ];
+  return parts.join(" ");
+};
 
 /** Stamps or strips a completion-style date field on a task line. Stamping
  *  removes any existing stamp and appends the new one at the end of the
  *  metadata tail; disabled stamping just removes any existing stamp. */
 const applyCompletionDate = (params: {
-  taskLine: string
-  shouldStamp: boolean
-  dateFieldText: string
-  dateRegex: RegExp
+  taskLine: string;
+  shouldStamp: boolean;
+  dateFieldText: string;
+  dateRegex: RegExp;
 }): string => {
   return transformMetadata(params.taskLine, (metadata) => {
     if (!params.shouldStamp) {
-      return removeAllMetadataMatches(metadata, params.dateRegex)
+      return removeAllMetadataMatches(metadata, params.dateRegex);
     }
-    const metadataWithoutStamp = removeAllMetadataMatches(
-      metadata,
-      params.dateRegex,
-    )
+    const metadataWithoutStamp = removeAllMetadataMatches(metadata, params.dateRegex);
     return appendMetadataField({
       metadata: metadataWithoutStamp,
       fieldText: params.dateFieldText,
-    })
-  })
-}
+    });
+  });
+};
 
 /** Updates the status-related fields of a task line: checkbox character
  *  and done/cancelled dates. Pure string transform — does not move lines
  *  between sections. Strips both emoji and Dataview formats; writes new
  *  fields in the configured format. */
 const updateTaskLineStatus = (params: {
-  taskLine: string
-  newStatus: TaskStatus
-  today: string
-  config: TaskFormatConfig
+  taskLine: string;
+  newStatus: TaskStatus;
+  today: string;
+  config: TaskFormatConfig;
 }): string => {
   const withNewCheckbox = replaceCheckboxChar({
     taskLine: params.taskLine,
     newChar: charForStatus(params.newStatus),
-  })
+  });
 
   const stripMetadataField = (taskLine: string, regex: RegExp): string => {
     return transformMetadata(taskLine, (metadata) => {
-      return removeAllMetadataMatches(metadata, regex)
-    })
-  }
+      return removeAllMetadataMatches(metadata, regex);
+    });
+  };
 
   if (params.newStatus === "done") {
     return applyCompletionDate({
@@ -1680,27 +1540,21 @@ const updateTaskLineStatus = (params: {
       shouldStamp: params.config.setDoneDate,
       dateFieldText: formatDoneDate(params.today, params.config.taskFormat),
       dateRegex: DONE_DATE_INLINE_RE,
-    })
+    });
   }
 
   if (params.newStatus === "cancelled") {
     return applyCompletionDate({
       taskLine: stripMetadataField(withNewCheckbox, DONE_DATE_INLINE_RE),
       shouldStamp: params.config.setCancelledDate,
-      dateFieldText: formatCancelledDate(
-        params.today,
-        params.config.taskFormat,
-      ),
+      dateFieldText: formatCancelledDate(params.today, params.config.taskFormat),
       dateRegex: CANCELLED_DATE_INLINE_RE,
-    })
+    });
   }
 
   // todo / in_progress — strip both completion dates
-  return stripMetadataField(
-    stripMetadataField(withNewCheckbox, DONE_DATE_INLINE_RE),
-    CANCELLED_DATE_INLINE_RE,
-  )
-}
+  return stripMetadataField(stripMetadataField(withNewCheckbox, DONE_DATE_INLINE_RE), CANCELLED_DATE_INLINE_RE);
+};
 
 /** The next-occurrence line for a completed recurring task — the plugin's
  *  createNextOccurrence as a line transform. The completed line's copy keeps
@@ -1718,45 +1572,45 @@ const buildNextOccurrenceLine = ({
   today,
   config,
 }: {
-  taskLine: string
+  taskLine: string;
   nextDates: {
-    startDate: string | null
-    scheduledDate: string | null
-    dueDate: string | null
-  }
-  today: string
-  config: TaskFormatConfig
+    startDate: string | null;
+    scheduledDate: string | null;
+    dueDate: string | null;
+  };
+  today: string;
+  config: TaskFormatConfig;
 }): string => {
   const todoLine = updateTaskLineStatus({
     taskLine: stripBlockLink(taskLine),
     newStatus: "todo",
     today,
     config,
-  })
+  });
   const withoutTaskId = updateTaskLineTaskId({
     taskLine: todoLine,
     taskId: null,
     config,
-  })
+  });
   const withoutIdentity = updateTaskLineDependsOn({
     taskLine: withoutTaskId,
     dependsOn: null,
     config,
-  })
+  });
 
   const dateReplacements: ReadonlyArray<{
-    field: DateFieldKey
-    date: string | null
+    field: DateFieldKey;
+    date: string | null;
   }> = [
     { field: "created", date: config.setCreatedDate ? today : null },
     { field: "start", date: nextDates.startDate },
     { field: "scheduled", date: nextDates.scheduledDate },
     { field: "due", date: nextDates.dueDate },
-  ]
+  ];
   return dateReplacements.reduce((line, { field, date }) => {
-    return updateTaskLineDate({ taskLine: line, field, date, config })
-  }, withoutIdentity)
-}
+    return updateTaskLineDate({ taskLine: line, field, date, config });
+  }, withoutIdentity);
+};
 
 /** Updates the priority on a task line: inserts, replaces, or removes
  *  it. A null priority removes any existing priority field (emoji or
@@ -1769,55 +1623,46 @@ const updateTaskLinePriority = ({
   newPriority,
   config,
 }: {
-  taskLine: string
-  newPriority: TaskPriority | null
-  config: TaskFormatConfig
+  taskLine: string;
+  newPriority: TaskPriority | null;
+  config: TaskFormatConfig;
 }): string => {
-  const parts = splitTaskLine(taskLine)
-  if (!parts) return taskLine
+  const parts = splitTaskLine(taskLine);
+
+  if (!parts) return taskLine;
   // Only the metadata tail can hold a priority field — a priority emoji
   // inside the description is prose to the parser and must be left alone.
-  const hasExistingPriority = PRIORITY_INLINE_RE.test(parts.metadata)
+  const hasExistingPriority = PRIORITY_INLINE_RE.test(parts.metadata);
 
   if (!newPriority) {
-    if (!hasExistingPriority) return taskLine
+    if (!hasExistingPriority) return taskLine;
     return joinTaskLine({
       ...parts,
       metadata: removeAllMetadataMatches(parts.metadata, PRIORITY_INLINE_RE),
-    })
+    });
   }
 
-  const priorityField = formatPriority(newPriority, config.taskFormat)
+  const priorityField = formatPriority(newPriority, config.taskFormat);
 
   // Strip the LAST existing signifier (a first-match replace would rewrite a
   // description emoji that the parser read as metadata and leave the real
   // field as a duplicate), then lead the tail with the new priority — its
   // canonical position, right after the description, before dates.
-  const metadataWithoutPriority = removeLastMetadataMatch(
-    parts.metadata,
-    PRIORITY_INLINE_RE,
-  )
+  const metadataWithoutPriority = removeLastMetadataMatch(parts.metadata, PRIORITY_INLINE_RE);
   return joinTaskLine({
     ...parts,
-    metadata: [priorityField, metadataWithoutPriority]
-      .filter(Boolean)
-      .join(" "),
-  })
-}
+    metadata: [priorityField, metadataWithoutPriority].filter(Boolean).join(" "),
+  });
+};
 
 /** Finds the 0-based line index of a task whose line ends with
  *  ` ^blockId`. Returns null when no match is found. */
-const findTaskByBlockId = (
-  lines: readonly string[],
-  blockId: string,
-): number | null => {
+const findTaskByBlockId = (lines: readonly string[], blockId: string): number | null => {
   // trimEnd: a hard break's trailing spaces must not hide the block link.
-  const suffix = ` ^${blockId}`
-  const lineIndex = lines.findIndex(
-    (line) => line.trimEnd().endsWith(suffix) && isTaskLine(line),
-  )
-  return lineIndex === -1 ? null : lineIndex
-}
+  const suffix = ` ^${blockId}`;
+  const lineIndex = lines.findIndex((line) => line.trimEnd().endsWith(suffix) && isTaskLine(line));
+  return lineIndex === -1 ? null : lineIndex;
+};
 
 // ── Kanban done-lane detection ─────────────────────────────────
 
@@ -1825,7 +1670,7 @@ const findTaskByBlockId = (
  *  paragraph between the heading and the first list item. The plugin
  *  serializes it as `**Complete**` and reads it back by checking the
  *  paragraph's stripped text against the (English) string "Complete". */
-const COMPLETE_MARKER = "**Complete**"
+const COMPLETE_MARKER = "**Complete**";
 
 /** Extracts heading names whose body starts with a `**Complete**` marker
  *  paragraph — the Kanban plugin's per-lane completion signal. Relies on
@@ -1835,71 +1680,64 @@ const COMPLETE_MARKER = "**Complete**"
  *
  *  @param bodyLines Note body lines (frontmatter stripped)
  *  @param headings  Pre-parsed headings from `parseHeadings(bodyLines)` */
-const extractDoneLanes = (
-  bodyLines: readonly string[],
-  headings: readonly HeadingInfo[],
-): string[] => {
+const extractDoneLanes = (bodyLines: readonly string[], headings: readonly HeadingInfo[]): string[] => {
   // The marker must be the very first content paragraph after the heading —
   // blank lines are skipped, anything else means the lane has no marker.
   const startsWithCompleteMarker = (heading: HeadingInfo): boolean => {
     const firstContentLine = bodyLines
       .slice(heading.bodyStartLine, heading.bodyEndLine)
-      .find((line) => line.trim() !== "")
-    return firstContentLine?.trim() === COMPLETE_MARKER
-  }
-  return headings
-    .filter(startsWithCompleteMarker)
-    .map((heading) => heading.text)
-}
+      .find((line) => line.trim() !== "");
+    return firstContentLine?.trim() === COMPLETE_MARKER;
+  };
+  return headings.filter(startsWithCompleteMarker).map((heading) => heading.text);
+};
 
 // ── Kanban settings parser ──────────────────────────────────────
 
 /** The two values the Kanban plugin recognizes for `new-card-insertion-method`. */
-type KanbanCardInsertionMethod = "prepend" | "append"
+type KanbanCardInsertionMethod = "prepend" | "append";
 
 /** Matches a backtick fence delimiter (with or without a language tag). */
-const BACKTICK_FENCE_RE = /^`{3,}/
+const BACKTICK_FENCE_RE = /^`{3,}/;
 
 /** Extracts `new-card-insertion-method` from the `%% kanban:settings %%`
  *  comment block. Returns `undefined` when the block is absent, the JSON
  *  is malformed, or the value is not a recognized insertion method. */
-const parseKanbanCardInsertionMethod = (
-  bodyLines: readonly string[],
-): KanbanCardInsertionMethod | undefined => {
-  const settingsLineIndex = bodyLines.findIndex((line) =>
-    line.trimStart().startsWith("%% kanban:settings"),
-  )
-  if (settingsLineIndex === -1) return undefined
+const parseKanbanCardInsertionMethod = (bodyLines: readonly string[]): KanbanCardInsertionMethod | undefined => {
+  const settingsLineIndex = bodyLines.findIndex((line) => line.trimStart().startsWith("%% kanban:settings"));
+
+  if (settingsLineIndex === -1) return undefined;
 
   // The block structure is fixed: %% kanban:settings → backtick fence →
   // JSON → closing fence → %%. Extract the lines between the fences.
-  const blockLines = bodyLines.slice(settingsLineIndex + 1)
-  const fenceStart = blockLines.findIndex((line) =>
-    BACKTICK_FENCE_RE.test(line.trim()),
-  )
-  if (fenceStart === -1) return undefined
+  const blockLines = bodyLines.slice(settingsLineIndex + 1);
+  const fenceStart = blockLines.findIndex((line) => BACKTICK_FENCE_RE.test(line.trim()));
 
-  const afterFence = blockLines.slice(fenceStart + 1)
-  const fenceEnd = afterFence.findIndex((line) =>
-    BACKTICK_FENCE_RE.test(line.trim()),
-  )
-  if (fenceEnd === -1) return undefined
+  if (fenceStart === -1) return undefined;
 
-  const jsonLines = afterFence.slice(0, fenceEnd)
-  if (jsonLines.length === 0) return undefined
+  const afterFence = blockLines.slice(fenceStart + 1);
+  const fenceEnd = afterFence.findIndex((line) => BACKTICK_FENCE_RE.test(line.trim()));
+
+  if (fenceEnd === -1) return undefined;
+
+  const jsonLines = afterFence.slice(0, fenceEnd);
+
+  if (jsonLines.length === 0) return undefined;
 
   try {
-    const parsed: unknown = JSON.parse(jsonLines.join("\n"))
-    if (typeof parsed !== "object" || parsed === null) return undefined
-    if (!("new-card-insertion-method" in parsed)) return undefined
-    const method = parsed["new-card-insertion-method"]
-    if (method === "prepend") return "prepend"
-    if (method === "append") return "append"
-    return undefined
+    const parsed: unknown = JSON.parse(jsonLines.join("\n"));
+
+    if (typeof parsed !== "object" || parsed === null) return undefined;
+    if (!("new-card-insertion-method" in parsed)) return undefined;
+    const method = parsed["new-card-insertion-method"];
+
+    if (method === "prepend") return "prepend";
+    if (method === "append") return "append";
+    return undefined;
   } catch {
-    return undefined
+    return undefined;
   }
-}
+};
 
 // ── Public surface ──────────────────────────────────────────────
 
@@ -1931,6 +1769,6 @@ export const tasks = {
   parseKanbanCardInsertionMethod,
   deduplicateDescriptionTags,
   BLOCK_LINK_RE,
-}
+};
 
-export type { DateFieldKey }
+export type { DateFieldKey };

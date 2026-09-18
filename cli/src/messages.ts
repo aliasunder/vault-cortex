@@ -1,8 +1,8 @@
-import { styleText } from "node:util"
+import { styleText } from "node:util";
 
-import { CONTAINER_NAME } from "./docker.js"
+import { CONTAINER_NAME } from "./docker.js";
 
-export type StartStatus = "running" | "starting" | "not-started"
+export type StartStatus = "running" | "starting" | "not-started";
 
 // Connect instructions are printed as plain text (not a clack note box) so the
 // terminal soft-wraps long commands instead of hard-wrapping them behind a
@@ -10,32 +10,24 @@ export type StartStatus = "running" | "starting" | "not-started"
 // characters, which then break the paste in a shell. Styling here is
 // display-only: ANSI escape codes are never part of a terminal text selection,
 // so a colored URL or token still copies clean.
-type TextStyle = Parameters<typeof styleText>[0]
+type TextStyle = Parameters<typeof styleText>[0];
 
 // Strip styling when stdout isn't a color TTY (piped output, CI) or NO_COLOR
 // is set (any value, including empty — per the NO_COLOR spec) so
 // captured/redirected output stays plain — no stray escape codes in copied
 // commands or logs.
 const paint = (style: TextStyle, text: string): string =>
-  process.stdout.isTTY && !("NO_COLOR" in process.env)
-    ? styleText(style, text)
-    : text
+  process.stdout.isTTY && !("NO_COLOR" in process.env) ? styleText(style, text) : text;
 
-const RULE_WIDTH = 56
+const RULE_WIDTH = 56;
 
 const topRule = (label: string): string =>
-  paint(
-    "dim",
-    `╭── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 6))}╮`,
-  )
+  paint("dim", `╭── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 6))}╮`);
 
-const bottomRule = (): string => paint("dim", `╰${"─".repeat(RULE_WIDTH - 2)}╯`)
+const bottomRule = (): string => paint("dim", `╰${"─".repeat(RULE_WIDTH - 2)}╯`);
 
 const sectionRule = (label: string): string =>
-  paint(
-    "dim",
-    `── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 4))}`,
-  )
+  paint("dim", `── ${label} ${"─".repeat(Math.max(0, RULE_WIDTH - label.length - 4))}`);
 
 /**
  * Daemon-stopped guidance shared by every command that needs the container
@@ -44,7 +36,7 @@ const sectionRule = (label: string): string =>
  */
 export const buildDaemonNotRunningMessage = (nextStep: string): string =>
   "Container runtime not running — start Docker Desktop, Colima,\n" +
-  `OrbStack, or another Docker-compatible runtime${nextStep}`
+  `OrbStack, or another Docker-compatible runtime${nextStep}`;
 
 /**
  * Per-platform install pointer — a docs link only, no install method
@@ -54,10 +46,10 @@ export const buildDaemonNotRunningMessage = (nextStep: string): string =>
  */
 const dockerInstallLine = (platform: NodeJS.Platform): string => {
   if (platform === "darwin" || platform === "win32") {
-    return "Install Docker Desktop: https://docs.docker.com/get-docker/"
+    return "Install Docker Desktop: https://docs.docker.com/get-docker/";
   }
-  return "Install Docker Engine: https://docs.docker.com/engine/install/"
-}
+  return "Install Docker Engine: https://docs.docker.com/engine/install/";
+};
 
 /**
  * "No runtime at all" guidance — distinct from the daemon-stopped message so
@@ -66,49 +58,44 @@ const dockerInstallLine = (platform: NodeJS.Platform): string => {
  * testable; `nextStep` is appended verbatim, as in
  * buildDaemonNotRunningMessage.
  */
-export const buildDockerNotInstalledMessage = (params: {
-  nextStep: string
-  platform?: NodeJS.Platform
-}): string => {
-  const { nextStep, platform = process.platform } = params
+export const buildDockerNotInstalledMessage = (params: { nextStep: string; platform?: NodeJS.Platform }): string => {
+  const { nextStep, platform = process.platform } = params;
   return (
     "No container runtime found — the server runs in Docker, so you need\n" +
     "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
     `${dockerInstallLine(platform)}${nextStep}`
-  )
-}
+  );
+};
 
 // targetDir is quoted: these lines are meant to be copy-pasted into a
 // shell, and an unquoted path breaks on spaces or special characters.
-const upgradeCommand = (targetDir: string): string =>
-  `npx vault-cortex@latest upgrade --dir "${targetDir}"`
+const upgradeCommand = (targetDir: string): string => `npx vault-cortex@latest upgrade --dir "${targetDir}"`;
 
 // Start guidance prints `start`, not `upgrade` — telling a user who has never
 // started anything to run "upgrade" reads as updating something they don't
 // have. `start` runs the same re-create cycle and pulls the image on demand.
-export const startCommand = (targetDir: string): string =>
-  `npx vault-cortex@latest start --dir "${targetDir}"`
+export const startCommand = (targetDir: string): string => `npx vault-cortex@latest start --dir "${targetDir}"`;
 
-const startServerLine = (targetDir: string): string =>
-  `Start the server:\n  ${startCommand(targetDir)}`
+const startServerLine = (targetDir: string): string => `Start the server:\n  ${startCommand(targetDir)}`;
 
 const startingInBackgroundLine = (): string =>
-  `The server is starting in the background — check progress:\n  docker logs ${CONTAINER_NAME}`
+  `The server is starting in the background — check progress:\n  docker logs ${CONTAINER_NAME}`;
 
 /** Remote start line: running, starting, blocked on the missing sync token, or ready to start. */
 const remoteStartLine = (params: {
-  targetDir: string
-  startStatus: StartStatus
-  obsidianTokenMissing: boolean
+  targetDir: string;
+  startStatus: StartStatus;
+  obsidianTokenMissing: boolean;
 }): string => {
-  const { targetDir, startStatus, obsidianTokenMissing } = params
-  if (startStatus === "running") return "The server is running."
-  if (startStatus === "starting") return startingInBackgroundLine()
+  const { targetDir, startStatus, obsidianTokenMissing } = params;
+
+  if (startStatus === "running") return "The server is running.";
+  if (startStatus === "starting") return startingInBackgroundLine();
   if (obsidianTokenMissing) {
-    return `Fill in OBSIDIAN_AUTH_TOKEN in ${targetDir}/.env, then start the server:\n  ${startCommand(targetDir)}`
+    return `Fill in OBSIDIAN_AUTH_TOKEN in ${targetDir}/.env, then start the server:\n  ${startCommand(targetDir)}`;
   }
-  return startServerLine(targetDir)
-}
+  return startServerLine(targetDir);
+};
 
 /**
  * Auth-token block shared by both modes. tokenWritten distinguishes whether
@@ -118,16 +105,12 @@ const remoteStartLine = (params: {
  * token was written, it goes alone on its own line so selecting that line
  * copies just the token — no "Auth token: " prefix to trim.
  */
-const tokenBlock = (params: {
-  targetDir: string
-  token: string
-  tokenWritten: boolean
-}): string => {
-  const { targetDir, token, tokenWritten } = params
+const tokenBlock = (params: { targetDir: string; token: string; tokenWritten: boolean }): string => {
+  const { targetDir, token, tokenWritten } = params;
   return tokenWritten
     ? `${paint("dim", "Auth token:")}\n  ${paint("cyan", token)}`
-    : `${paint("dim", "Auth token:")} use the existing MCP_AUTH_TOKEN in ${targetDir}/.env`
-}
+    : `${paint("dim", "Auth token:")} use the existing MCP_AUTH_TOKEN in ${targetDir}/.env`;
+};
 
 // ── Shared connect-message blocks ───────────────────────────────────────────
 // Both modes print the same skeleton; only the URL and the bits the topology
@@ -138,7 +121,7 @@ const tokenBlock = (params: {
 const connectUrlBlock = (mcpUrl: string, tokenLine: string): string =>
   `Connect your MCP client:
   ${paint("dim", "URL:")}        ${paint("cyan", mcpUrl)}
-  ${tokenLine}`
+  ${tokenLine}`;
 
 // OAuth connect instruction + the Claude Code walkthrough — shared by every
 // variant. You register the server by its URL however your MCP client allows:
@@ -152,15 +135,15 @@ then approve the consent page with the token. For example, Claude Code:
   1. claude mcp add --scope user --transport http vault-cortex ${mcpUrl}
   2. approve the browser consent page with the token above
   3. done — the client holds auto-refreshing access tokens; the token
-     never sits in client config`
+     never sits in client config`;
 
 const curlGuidance = (mcpUrl: string): string =>
   `Clients without OAuth, scripts, and curl send the token directly:
-  curl -H "Authorization: Bearer <token>" ${mcpUrl}`
+  curl -H "Authorization: Bearer <token>" ${mcpUrl}`;
 
 const smokeTest = (healthUrl: string): string =>
   `Smoke test:
-  curl ${healthUrl}`
+  curl ${healthUrl}`;
 
 /**
  * Remote health-check block. Running or starting: the CLI verified localhost
@@ -169,20 +152,17 @@ const smokeTest = (healthUrl: string): string =>
  * as the works-from-any-device check. Not started: the plain smoke test to
  * run after starting.
  */
-const remoteHealthCheckBlock = (
-  healthUrl: string,
-  startStatus: StartStatus,
-): string => {
+const remoteHealthCheckBlock = (healthUrl: string, startStatus: StartStatus): string => {
   if (startStatus === "running" || startStatus === "starting") {
     return `Health check — works from any device that can reach the URL:
-  curl ${healthUrl}`
+  curl ${healthUrl}`;
   }
-  return smokeTest(healthUrl)
-}
+  return smokeTest(healthUrl);
+};
 
 const updateGuidance = (targetDir: string): string =>
   `Update to the latest release:
-  ${upgradeCommand(targetDir)}`
+  ${upgradeCommand(targetDir)}`;
 
 /**
  * Local-mode "Connect" message. port comes from the .env on disk: a kept file
@@ -190,24 +170,20 @@ const updateGuidance = (targetDir: string): string =>
  * actually run.
  */
 export const buildLocalConnectMessage = (params: {
-  targetDir: string
-  token: string
-  startStatus: StartStatus
-  port: number
-  tokenWritten: boolean
+  targetDir: string;
+  token: string;
+  startStatus: StartStatus;
+  port: number;
+  tokenWritten: boolean;
 }): string => {
-  const { targetDir, token, startStatus, port, tokenWritten } = params
+  const { targetDir, token, startStatus, port, tokenWritten } = params;
 
-  const baseUrl = `http://localhost:${port}`
+  const baseUrl = `http://localhost:${port}`;
 
-  const nonRunningLine =
-    startStatus === "starting"
-      ? startingInBackgroundLine()
-      : startServerLine(targetDir)
-  const startLine =
-    startStatus === "running" ? "The server is running." : nonRunningLine
+  const nonRunningLine = startStatus === "starting" ? startingInBackgroundLine() : startServerLine(targetDir);
+  const startLine = startStatus === "running" ? "The server is running." : nonRunningLine;
 
-  const tokenLine = tokenBlock({ targetDir, token, tokenWritten })
+  const tokenLine = tokenBlock({ targetDir, token, tokenWritten });
 
   // Once the server is confirmed up, the smoke test is dropped — the CLI just
   // verified this exact URL, so re-printing it reads as leftover homework.
@@ -217,7 +193,7 @@ export const buildLocalConnectMessage = (params: {
     startStatus === "running" ? undefined : smokeTest(`${baseUrl}/healthz`),
   ]
     .filter(Boolean)
-    .join("\n\n")
+    .join("\n\n");
 
   // Flush-left on purpose: this is printed as plain text (see paint), so
   // leading whitespace would render as literal indentation. Local is always
@@ -263,10 +239,10 @@ ${updateGuidance(targetDir)}
 
 Full docs: https://github.com/aliasunder/vault-cortex
 
-${bottomRule()}`
+${bottomRule()}`;
 
-  return connectMessage
-}
+  return connectMessage;
+};
 
 /**
  * Remote-mode "Connect" message. See buildLocalConnectMessage for the
@@ -274,29 +250,22 @@ ${bottomRule()}`
  * handling here.
  */
 export const buildRemoteConnectMessage = (params: {
-  targetDir: string
-  token: string
-  publicUrl: string
-  startStatus: StartStatus
-  obsidianTokenMissing: boolean
-  tokenWritten: boolean
+  targetDir: string;
+  token: string;
+  publicUrl: string;
+  startStatus: StartStatus;
+  obsidianTokenMissing: boolean;
+  tokenWritten: boolean;
 }): string => {
-  const {
-    targetDir,
-    token,
-    publicUrl,
-    startStatus,
-    obsidianTokenMissing,
-    tokenWritten,
-  } = params
+  const { targetDir, token, publicUrl, startStatus, obsidianTokenMissing, tokenWritten } = params;
 
   const startLine = remoteStartLine({
     targetDir,
     startStatus,
     obsidianTokenMissing,
-  })
+  });
 
-  const tokenLine = tokenBlock({ targetDir, token, tokenWritten })
+  const tokenLine = tokenBlock({ targetDir, token, tokenWritten });
 
   // Both branches share the connect walkthrough; only the caveat differs. Over
   // https every client converges — nothing to set up. Over http the Claude
@@ -304,7 +273,7 @@ export const buildRemoteConnectMessage = (params: {
   // know which case it is, so the http branch states it rather than asking.
   // Case-insensitive: askPublicUrl stores the scheme as typed, so an HTTPS://
   // input is valid and must still route to the https branch.
-  const isHttps = publicUrl.toLowerCase().startsWith("https://")
+  const isHttps = publicUrl.toLowerCase().startsWith("https://");
   const clientGuidance = isHttps
     ? `${connectGuidance(`${publicUrl}/mcp`)}
 
@@ -314,7 +283,7 @@ and mobile), opencode, Cursor — from any device.`
 
 Other clients (opencode, Cursor, …) work over http too. claude.ai and
 Claude Desktop only accept https URLs — set up HTTPS for those clients
-(see the HTTPS section in the remote guide).`
+(see the HTTPS section in the remote guide).`;
 
   // Flush-left on purpose: this is printed as plain text (see paint), so
   // leading whitespace would render as literal indentation.
@@ -350,7 +319,7 @@ ${updateGuidance(targetDir)}
 For HTTPS options (API Gateway, Caddy, Cloudflare Tunnel), see:
 https://github.com/aliasunder/vault-cortex/blob/main/deploy/remote/README.md#https-access
 
-${bottomRule()}`
+${bottomRule()}`;
 
-  return connectMessage
-}
+  return connectMessage;
+};

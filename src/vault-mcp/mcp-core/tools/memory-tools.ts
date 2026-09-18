@@ -1,10 +1,10 @@
 /** Memory tool registrations — read, update, list, and delete About Me/ entries. */
 
-import { z } from "zod"
-import { createMemoryStore } from "../../vault-operations/memory-store.js"
-import { TOOL_NAMES } from "../tool-registry.js"
-import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { safeHandler } from "./tool-helpers.js"
+import { z } from "zod";
+import { createMemoryStore } from "../../vault-operations/memory-store.js";
+import { TOOL_NAMES } from "../tool-registry.js";
+import type { ToolRegistrationContext } from "./tool-helpers.js";
+import { safeHandler } from "./tool-helpers.js";
 
 export const registerMemoryTools = ({
   registerTool,
@@ -15,7 +15,7 @@ export const registerMemoryTools = ({
   logger: sessionLogger,
   config,
 }: ToolRegistrationContext): void => {
-  const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
+  const memoryStore = createMemoryStore({ memoryDir: config.memoryDir });
 
   // Tools a reader follows vault_list_memory_files with. Every one of them —
   // the read tool included — can be dropped individually via DISABLED_TOOLS,
@@ -25,23 +25,18 @@ export const registerMemoryTools = ({
     TOOL_NAMES.VAULT_GET_MEMORY,
     TOOL_NAMES.VAULT_UPDATE_MEMORY,
     TOOL_NAMES.VAULT_DELETE_MEMORY,
-  ])
+  ]);
   const discoveryPurpose =
     discoveryFollowUpTools.length > 0
       ? `Discovering what memory files and sections exist — and what each file is for — BEFORE calling ${discoveryFollowUpTools}.`
-      : "Discovering what memory files and sections exist — and what each file is for."
+      : "Discovering what memory files and sections exist — and what each file is for.";
 
   // The tools a recall entry's file/section fields feed into. Rendered as a
   // trailing clause (semicolon included) so the surrounding sentence keeps its
   // punctuation when neither consumer is served.
-  const recallConsumerTools = formatEnabledToolList([
-    TOOL_NAMES.VAULT_GET_MEMORY,
-    TOOL_NAMES.VAULT_DELETE_MEMORY,
-  ])
+  const recallConsumerTools = formatEnabledToolList([TOOL_NAMES.VAULT_GET_MEMORY, TOOL_NAMES.VAULT_DELETE_MEMORY]);
   const recallConsumerClause =
-    recallConsumerTools.length > 0
-      ? `; file and section feed directly into ${recallConsumerTools}`
-      : ""
+    recallConsumerTools.length > 0 ? `; file and section feed directly into ${recallConsumerTools}` : "";
 
   registerTool(
     TOOL_NAMES.VAULT_GET_MEMORY,
@@ -62,13 +57,7 @@ Errors:
 
 Returns: Raw markdown text.`,
       inputSchema: {
-        file: z
-          .string()
-          .min(1)
-          .optional()
-          .describe(
-            'Memory file name without .md (e.g. "Principles", "Opinions")',
-          ),
+        file: z.string().min(1).optional().describe('Memory file name without .md (e.g. "Principles", "Opinions")'),
         section: z
           .string()
           .min(1)
@@ -82,31 +71,31 @@ Returns: Raw markdown text.`,
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_GET_MEMORY,
-      })
-      reqLogger.info("tool_call", { file, section })
+      });
+      reqLogger.info("tool_call", { file, section });
 
       if (section !== undefined && file === undefined) {
         reqLogger.warn("tool_error", {
           error: "section requires a file",
-        })
+        });
         return {
           content: [{ type: "text" as const, text: "section requires a file" }],
           isError: true as const,
-        }
+        };
       }
 
       return safeHandler(
         reqLogger,
         () => memoryStore.getMemory({ vaultPath, file, section }, reqLogger),
         (text) => {
-          const scopeWithFile = !section ? "file" : "section"
-          const mode = !file ? "all" : scopeWithFile
-          reqLogger.info("tool_result", { mode })
-          return text
+          const scopeWithFile = !section ? "file" : "section";
+          const mode = !file ? "all" : scopeWithFile;
+          reqLogger.info("tool_result", { mode });
+          return text;
         },
-      )
+      );
     },
-  )
+  );
 
   registerTool(
     TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
@@ -128,18 +117,18 @@ Returns: JSON array of file outlines, each { file, title, bytes, entry_policy, l
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
-      })
-      reqLogger.info("tool_call")
+      });
+      reqLogger.info("tool_call");
       return safeHandler(
         reqLogger,
         () => memoryStore.listMemoryFiles({ vaultPath }, reqLogger),
         (outlines) => {
-          reqLogger.info("tool_result", { resultCount: outlines.length })
-          return JSON.stringify(outlines)
+          reqLogger.info("tool_result", { resultCount: outlines.length });
+          return JSON.stringify(outlines);
         },
-      )
+      );
     },
-  )
+  );
 
   // The recall description leads with its matching mode — hybrid semantic
   // matching is the tool's core promise, so keyword-only deployments
@@ -169,7 +158,7 @@ Errors:
 - No matching entries returns { entries: [], total: 0 }, not an error
 - An unknown file returns empty results — call vault_list_memory_files to discover valid names
 
-Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. entries ascend by date (oldest first). total counts all matched entries; truncated=true means limit dropped the least-relevant matches — never a date range. search_mode is always "fts" and reranked always false in keyword-only mode.`
+Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. entries ascend by date (oldest first). total counts all matched entries; truncated=true means limit dropped the least-relevant matches — never a date range. search_mode is always "fts" and reranked always false in keyword-only mode.`;
 
   registerTool(
     TOOL_NAMES.VAULT_MEMORY_RECALL,
@@ -207,12 +196,12 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_MEMORY_RECALL,
-      })
+      });
       reqLogger.info("tool_call", {
         query,
         ...(file !== undefined ? { file } : {}),
         limit,
-      })
+      });
       return safeHandler(
         reqLogger,
         () => search.memoryRecall({ query, file, limit }, reqLogger),
@@ -223,12 +212,12 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
             truncated: recallResult.truncated,
             searchMode: recallResult.search_mode,
             reranked: recallResult.reranked,
-          })
-          return JSON.stringify(recallResult)
+          });
+          return JSON.stringify(recallResult);
         },
-      )
+      );
     },
-  )
+  );
   registerTool(
     TOOL_NAMES.VAULT_UPDATE_MEMORY,
     {
@@ -257,10 +246,7 @@ Errors:
 
 Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
       inputSchema: {
-        file: z
-          .string()
-          .min(1)
-          .describe('Memory file name without .md (e.g. "Principles")'),
+        file: z.string().min(1).describe('Memory file name without .md (e.g. "Principles")'),
         section: z
           .string()
           .min(1)
@@ -275,11 +261,7 @@ Returns: Confirmation message (notes when an identical entry already existed and
           ),
         options: z
           .object({
-            date: z
-              .string()
-              .min(1)
-              .optional()
-              .describe("ISO YYYY-MM-DD date (defaults to today)"),
+            date: z.string().min(1).optional().describe("ISO YYYY-MM-DD date (defaults to today)"),
             position: z
               .enum(["top", "bottom"])
               .optional()
@@ -294,8 +276,8 @@ Returns: Confirmation message (notes when an identical entry already existed and
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_UPDATE_MEMORY,
-      })
-      reqLogger.info("tool_call", { file, section })
+      });
+      reqLogger.info("tool_call", { file, section });
       return safeHandler(
         reqLogger,
         () =>
@@ -311,20 +293,20 @@ Returns: Confirmation message (notes when an identical entry already existed and
             reqLogger,
           ),
         (outcome) => {
-          reqLogger.info("tool_result", { outcome })
+          reqLogger.info("tool_result", { outcome });
           if (outcome === "unchanged") {
-            return `Entry already exists in ${config.memoryDir}/${file}.md → ## ${section} — nothing was written.`
+            return `Entry already exists in ${config.memoryDir}/${file}.md → ## ${section} — nothing was written.`;
           }
-          const confirmation = `Added entry to ${config.memoryDir}/${file}.md → ## ${section}`
+          const confirmation = `Added entry to ${config.memoryDir}/${file}.md → ## ${section}`;
           // Nudge the caller to author the scope callout the new file was
           // seeded with, so the file self-documents what belongs in it.
           return outcome === "created-file"
             ? `${confirmation}. Created a new memory file with a placeholder scope callout — use vault_replace_in_note to replace its "(describe what belongs in this file — and what doesn't)" placeholder with what the file contains, so other agents know what it is for.`
-            : confirmation
+            : confirmation;
         },
-      )
+      );
     },
-  )
+  );
 
   registerTool(
     TOOL_NAMES.VAULT_DELETE_MEMORY,
@@ -351,10 +333,7 @@ Errors:
 
 Returns: Confirmation message.`,
       inputSchema: {
-        file: z
-          .string()
-          .min(1)
-          .describe('Memory file name without .md (e.g. "Principles")'),
+        file: z.string().min(1).describe('Memory file name without .md (e.g. "Principles")'),
         section: z
           .string()
           .min(1)
@@ -378,20 +357,16 @@ Returns: Confirmation message.`,
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_DELETE_MEMORY,
-      })
-      reqLogger.info("tool_call", { file, section, date })
+      });
+      reqLogger.info("tool_call", { file, section, date });
       return safeHandler(
         reqLogger,
-        () =>
-          memoryStore.deleteMemory(
-            { vaultPath, file, section, date, entry },
-            reqLogger,
-          ),
+        () => memoryStore.deleteMemory({ vaultPath, file, section, date, entry }, reqLogger),
         () => {
-          reqLogger.info("tool_result", { outcome: "entry_deleted" })
-          return `Deleted entry from ${config.memoryDir}/${file}.md → ## ${section}`
+          reqLogger.info("tool_result", { outcome: "entry_deleted" });
+          return `Deleted entry from ${config.memoryDir}/${file}.md → ## ${section}`;
         },
-      )
+      );
     },
-  )
-}
+  );
+};

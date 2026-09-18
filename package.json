@@ -120,6 +120,7 @@
   "devDependencies": {
     "@clack/prompts": "1.8.0",
     "@eslint/js": "10.0.1",
+    "@stylistic/eslint-plugin": "5.10.0",
     "@types/aws-lambda": "8.10.163",
     "@types/better-sqlite3": "9.6.0",
     "@types/express": "5.0.6",

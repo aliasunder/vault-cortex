@@ -2,43 +2,43 @@
  *  via chokidar events, plus a rescan safety net for the files chokidar's
  *  new-directory handling loses (see rescanNewDirectory). */
 
-import { watch } from "chokidar"
-import { DateTime } from "luxon"
-import { readFile, stat } from "node:fs/promises"
-import { extname, join, relative, resolve as resolvePath } from "node:path"
-import { INDEXABLE_TEXT_EXTENSIONS } from "./search-index.js"
-import type { SearchIndex } from "./search-index.js"
-import { extractPdfText } from "../obsidian-markdown/pdf.js"
-import { logger } from "../../logger.js"
-import { describeError } from "../../utils/describe-error.js"
-import { readdirOrNull, realpathOrNull, statOrNull } from "../../utils/fs.js"
-import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js"
+import { watch } from "chokidar";
+import { DateTime } from "luxon";
+import { readFile, stat } from "node:fs/promises";
+import { extname, join, relative, resolve as resolvePath } from "node:path";
+import { INDEXABLE_TEXT_EXTENSIONS } from "./search-index.js";
+import type { SearchIndex } from "./search-index.js";
+import { extractPdfText } from "../obsidian-markdown/pdf.js";
+import { logger } from "../../logger.js";
+import { describeError } from "../../utils/describe-error.js";
+import { readdirOrNull, realpathOrNull, statOrNull } from "../../utils/fs.js";
+import { hasHiddenPathSegment } from "../../utils/has-hidden-path-segment.js";
 
 /** ms between filesystem polls when usePolling is on. chokidar's raw default is
  *  100ms, which stat()s the whole tree 10×/sec; 300ms meaningfully cuts CPU, and
  *  re-index latency is already governed by the 2000ms awaitWriteFinish window, so
  *  the perceived cost is negligible. */
-const POLLING_INTERVAL_MS = 300
+const POLLING_INTERVAL_MS = 300;
 
 /** Default for FileWatcherOptions.stabilityThreshold (see its doc). */
-const DEFAULT_STABILITY_THRESHOLD_MS = 2000
+const DEFAULT_STABILITY_THRESHOLD_MS = 2000;
 
 type FileWatcherOptions = Readonly<{
   /** ms a file's size must stay unchanged before we index it (default 2000).
    *  Prevents reading partial writes from Obsidian Sync. */
-  stabilityThreshold?: number
+  stabilityThreshold?: number;
   /** ms between file-size checks during the stability window (default 100). */
-  pollInterval?: number
+  pollInterval?: number;
   /** Poll the filesystem instead of using native fs events (inotify). Needed
    *  when the vault is bind-mounted across the Docker Desktop ↔ WSL2 bridge,
    *  where inotify events don't propagate. CPU-heavier; default off. */
-  usePolling?: boolean
+  usePolling?: boolean;
   /** ms to wait after a new directory appears before reconciling its contents
    *  against chokidar's tracking (default 2 × stabilityThreshold). The margin
    *  past the awaitWriteFinish window lets in-flight writes settle before the
    *  rescan reads them. */
-  newDirectoryRescanDelay?: number
-}>
+  newDirectoryRescanDelay?: number;
+}>;
 
 /**
  * Watches the vault and mirrors every file add/change/delete into the search
@@ -53,42 +53,39 @@ export const startFileWatcher = (
 ): Promise<void> => {
   // Serializes embedding per note path so overlapping chokidar events for the
   // same file can't interleave and overwrite vectors with stale content.
-  const pendingEmbeds = new Map<string, Promise<void>>()
+  const pendingEmbeds = new Map<string, Promise<void>>();
 
   /** Indexes an added or modified file: non-md files land in the asset table;
    *  notes are read from disk, upserted into the FTS index, and re-embedded
    *  (embeds serialized per path via pendingEmbeds). */
   const handleChange = async (filePath: string): Promise<void> => {
-    const relativePath = relative(vaultPath, filePath)
+    const relativePath = relative(vaultPath, filePath);
 
     if (!filePath.endsWith(".md")) {
-      const fileStat = await statOrNull(filePath)
+      const fileStat = await statOrNull(filePath);
+
       // Vanished between the watcher event and the stat — the unlink event
       // that follows will remove any existing row.
-      if (!fileStat) return
-      search.upsertNonMdFile(relativePath, fileStat.size)
+      if (!fileStat) return;
+      search.upsertNonMdFile(relativePath, fileStat.size);
 
       // Canvas files are always read — link extraction is unconditional.
       // PDF and text files are only read when file content FTS is enabled.
-      const extension = extname(filePath)
-      const isCanvas = extension === ".canvas"
-      const isIndexableNonCanvas =
-        search.fileContentIndexingEnabled &&
-        INDEXABLE_TEXT_EXTENSIONS.has(extension)
+      const extension = extname(filePath);
+      const isCanvas = extension === ".canvas";
+      const isIndexableNonCanvas = search.fileContentIndexingEnabled && INDEXABLE_TEXT_EXTENSIONS.has(extension);
+
       if (isCanvas || isIndexableNonCanvas) {
         try {
-          let contentToIndex: string
+          let contentToIndex: string;
+
           if (extension === ".pdf") {
-            const buffer = await readFile(filePath)
-            const pdfData = new Uint8Array(
-              buffer.buffer,
-              buffer.byteOffset,
-              buffer.byteLength,
-            )
-            const pdfResult = await extractPdfText(pdfData)
-            contentToIndex = pdfResult.text
+            const buffer = await readFile(filePath);
+            const pdfData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+            const pdfResult = await extractPdfText(pdfData);
+            contentToIndex = pdfResult.text;
           } else {
-            contentToIndex = await readFile(filePath, "utf8")
+            contentToIndex = await readFile(filePath, "utf8");
           }
           search.upsertFileContent(
             {
@@ -97,56 +94,47 @@ export const startFileWatcher = (
               fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
             },
             logger,
-          )
+          );
 
           // Embed file content vectors — serialized per path via the same
           // pendingEmbeds map (note paths end in .md, file paths don't).
           // Reads the processed content from the file_content table.
-          const previousEmbed =
-            pendingEmbeds.get(relativePath) ?? Promise.resolve()
+          const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve();
           const currentEmbed = previousEmbed
             .catch((previousError) => {
-              logger.debug(
-                "previous file embed failed, proceeding with current",
-                {
-                  path: relativePath,
-                  error: describeError(previousError),
-                },
-              )
+              logger.debug("previous file embed failed, proceeding with current", {
+                path: relativePath,
+                error: describeError(previousError),
+              });
             })
-            .then(() =>
-              search.embedFileContent({ filePath: relativePath }, logger),
-            )
-          pendingEmbeds.set(relativePath, currentEmbed)
+            .then(() => search.embedFileContent({ filePath: relativePath }, logger));
+          pendingEmbeds.set(relativePath, currentEmbed);
           currentEmbed
             .catch((embedError) => {
               logger.warn("file content embedding failed", {
                 path: relativePath,
                 error: describeError(embedError),
-              })
+              });
             })
             .finally(() => {
               if (pendingEmbeds.get(relativePath) === currentEmbed) {
-                pendingEmbeds.delete(relativePath)
+                pendingEmbeds.delete(relativePath);
               }
-            })
+            });
         } catch (error) {
           logger.warn("file content indexing failed", {
             path: relativePath,
             error: describeError(error),
-          })
+          });
         }
       }
 
-      logger.debug("indexed non-md file", { path: relativePath })
-      return
+      logger.debug("indexed non-md file", { path: relativePath });
+      return;
     }
 
     try {
-      const [content, fileStat] = await Promise.all([
-        readFile(filePath, "utf8"),
-        stat(filePath),
-      ])
+      const [content, fileStat] = await Promise.all([readFile(filePath, "utf8"), stat(filePath)]);
       search.upsertNote(
         {
           filePath: relativePath,
@@ -154,72 +142,64 @@ export const startFileWatcher = (
           fileStat: { mtimeMs: fileStat.mtimeMs, size: fileStat.size },
         },
         logger,
-      )
+      );
       // Promise chain serializes embedding per path — if two events arrive for
       // the same note, the second waits for the first to finish. .catch()
       // swallows the previous rejection so a transient failure can't cascade
       // and block subsequent embeds for this path. .finally() clears the map
       // entry on success OR failure so a rejected promise can't permanently
       // block that note from re-embedding.
-      const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve()
+      const previousEmbed = pendingEmbeds.get(relativePath) ?? Promise.resolve();
       const currentEmbed = previousEmbed
         .catch((previousError) => {
           logger.debug("previous embed failed, proceeding with current", {
             path: relativePath,
             error: describeError(previousError),
-          })
+          });
         })
-        .then(() =>
-          search.embedNote(
-            { notePath: relativePath, rawContent: content },
-            logger,
-          ),
-        )
-      pendingEmbeds.set(relativePath, currentEmbed)
+        .then(() => search.embedNote({ notePath: relativePath, rawContent: content }, logger));
+      pendingEmbeds.set(relativePath, currentEmbed);
       // Await the .finally()-derived promise, not currentEmbed itself —
       // .finally() returns a new promise that rejects with the same error,
       // and awaiting it routes that rejection into the outer catch instead
       // of leaving a second, unhandled rejection.
       await currentEmbed.finally(() => {
         if (pendingEmbeds.get(relativePath) === currentEmbed) {
-          pendingEmbeds.delete(relativePath)
+          pendingEmbeds.delete(relativePath);
         }
-      })
+      });
     } catch (err) {
       logger.error("failed to process file change", {
         path: relativePath,
         error: describeError(err),
-      })
+      });
     }
-  }
+  };
 
   /** Removes a deleted file from the index — the asset table for non-md
    *  files, the note tables (FTS, links, tasks, vectors) for notes. */
   const handleDelete = (filePath: string): void => {
-    const relativePath = relative(vaultPath, filePath)
+    const relativePath = relative(vaultPath, filePath);
 
     if (!filePath.endsWith(".md")) {
-      search.removeNonMdFile(relativePath)
-      const deletedExtension = extname(filePath)
-      const isDeletedCanvas = deletedExtension === ".canvas"
-      const isDeletedIndexable =
-        search.fileContentIndexingEnabled &&
-        INDEXABLE_TEXT_EXTENSIONS.has(deletedExtension)
+      search.removeNonMdFile(relativePath);
+      const deletedExtension = extname(filePath);
+      const isDeletedCanvas = deletedExtension === ".canvas";
+      const isDeletedIndexable = search.fileContentIndexingEnabled && INDEXABLE_TEXT_EXTENSIONS.has(deletedExtension);
+
       if (isDeletedCanvas || isDeletedIndexable) {
-        search.removeFileContent({ filePath: relativePath }, logger)
+        search.removeFileContent({ filePath: relativePath }, logger);
       }
-      logger.debug("removed non-md file from index", { path: relativePath })
-      return
+      logger.debug("removed non-md file from index", { path: relativePath });
+      return;
     }
 
-    search.removeNote(relativePath)
-    logger.debug("removed from index", { path: relativePath })
-  }
+    search.removeNote(relativePath);
+    logger.debug("removed from index", { path: relativePath });
+  };
 
-  const stabilityThreshold =
-    options?.stabilityThreshold ?? DEFAULT_STABILITY_THRESHOLD_MS
-  const newDirectoryRescanDelay =
-    options?.newDirectoryRescanDelay ?? 2 * stabilityThreshold
+  const stabilityThreshold = options?.stabilityThreshold ?? DEFAULT_STABILITY_THRESHOLD_MS;
+  const newDirectoryRescanDelay = options?.newDirectoryRescanDelay ?? 2 * stabilityThreshold;
 
   /** True when the file's last write falls inside the stability window —
    *  plausibly still being written. A negative age (mtime in the future —
@@ -227,16 +207,17 @@ export const startFileWatcher = (
    *  forever would lose the note, while a too-early read is corrected by the
    *  file's next change event. */
   const isWithinStabilityWindow = (mtimeMs: number): boolean => {
-    const fileAgeMs = DateTime.now().toMillis() - mtimeMs
-    return fileAgeMs >= 0 && fileAgeMs < stabilityThreshold
-  }
+    const fileAgeMs = DateTime.now().toMillis() - mtimeMs;
+    return fileAgeMs >= 0 && fileAgeMs < stabilityThreshold;
+  };
 
   const watcher = watch(vaultPath, {
     // Skip dotfiles/directories (.obsidian/, .trash/) but allow the vault root itself
     ignored: (path: string) => {
-      const relativePath = relative(vaultPath, path)
-      if (!relativePath) return false
-      return hasHiddenPathSegment(relativePath)
+      const relativePath = relative(vaultPath, path);
+
+      if (!relativePath) return false;
+      return hasHiddenPathSegment(relativePath);
     },
     persistent: true,
     ignoreInitial: true,
@@ -252,7 +233,7 @@ export const startFileWatcher = (
       stabilityThreshold,
       pollInterval: options?.pollInterval ?? 100,
     },
-  })
+  });
 
   /**
    * Polls a mid-write file until its writes settle, then indexes it. Serves
@@ -267,27 +248,28 @@ export const startFileWatcher = (
   const scheduleUnstableFileRetry = (filePath: string): void => {
     const retryTimer = setTimeout(() => {
       const indexIfSettled = async (): Promise<void> => {
-        const fileStat = await stat(filePath)
+        const fileStat = await stat(filePath);
+
         if (isWithinStabilityWindow(fileStat.mtimeMs)) {
-          scheduleUnstableFileRetry(filePath)
-          return
+          scheduleUnstableFileRetry(filePath);
+          return;
         }
-        watcher.add(filePath)
+        watcher.add(filePath);
         logger.debug("rescan indexing settled file after retry", {
           path: relative(vaultPath, filePath),
-        })
-        await handleChange(filePath)
-      }
+        });
+        await handleChange(filePath);
+      };
       indexIfSettled().catch((err) => {
         logger.debug("rescan retry skipped unreadable file", {
           path: relative(vaultPath, filePath),
           error: describeError(err),
-        })
-      })
-    }, stabilityThreshold)
+        });
+      });
+    }, stabilityThreshold);
     // Never hold the process open for a pending retry.
-    retryTimer.unref()
-  }
+    retryTimer.unref();
+  };
 
   /**
    * The new-directory safety net. chokidar processes a newly-appeared
@@ -301,16 +283,14 @@ export const startFileWatcher = (
    * the directory's actual contents against what chokidar tracks
    * (getWatched) and indexes anything chokidar missed.
    */
-  const rescanNewDirectory = async (
-    dirPath: string,
-    visitedRealPaths: Set<string>,
-  ): Promise<void> => {
-    const entries = await readdirOrNull(dirPath)
+  const rescanNewDirectory = async (dirPath: string, visitedRealPaths: Set<string>): Promise<void> => {
+    const entries = await readdirOrNull(dirPath);
+
     if (entries === null) {
       logger.debug("rescan skipped, directory vanished", {
         path: relative(vaultPath, dirPath),
-      })
-      return
+      });
+      return;
     }
 
     // Symlinked directories recurse below; realpath identity breaks cycles
@@ -318,56 +298,60 @@ export const startFileWatcher = (
     // the filesystem throws ELOOP, indexing ghost duplicates along the way).
     // A null realpath means the directory was deleted after the readdir above
     // — the same benign race as the vanished-listing branch, not an error.
-    const realDirPath = await realpathOrNull(dirPath)
+    const realDirPath = await realpathOrNull(dirPath);
+
     if (realDirPath === null) {
       logger.debug("rescan skipped, directory vanished", {
         path: relative(vaultPath, dirPath),
-      })
-      return
+      });
+      return;
     }
-    if (visitedRealPaths.has(realDirPath)) return
-    visitedRealPaths.add(realDirPath)
+    if (visitedRealPaths.has(realDirPath)) return;
+    visitedRealPaths.add(realDirPath);
 
     // Map of watched directory (absolute) → tracked child basenames. Anything
     // on disk but absent here is an entry chokidar's new-directory scan missed.
-    const watchedChildren = watcher.getWatched()
+    const watchedChildren = watcher.getWatched();
 
     for (const entry of entries) {
-      const fullPath = join(entry.parentPath, entry.name)
-      const relativePath = relative(vaultPath, fullPath)
-      if (hasHiddenPathSegment(relativePath)) continue
+      const fullPath = join(entry.parentPath, entry.name);
+      const relativePath = relative(vaultPath, fullPath);
+
+      if (hasHiddenPathSegment(relativePath)) continue;
 
       // getWatched() keys are resolved paths (chokidar resolves internally).
-      const trackedSiblings = watchedChildren[resolvePath(entry.parentPath)]
-      if (trackedSiblings?.includes(entry.name)) continue
+      const trackedSiblings = watchedChildren[resolvePath(entry.parentPath)];
+
+      if (trackedSiblings?.includes(entry.name)) continue;
 
       if (entry.isDirectory()) {
         // A subdirectory chokidar never saw would stay unwatched forever —
         // watcher.add() registers its watches. Its contents are already covered
         // by this recursive listing, so the add's suppressed events don't matter.
-        watcher.add(fullPath)
+        watcher.add(fullPath);
         logger.debug("rescan registered missed directory", {
           path: relativePath,
-        })
-        continue
+        });
+        continue;
       }
 
       try {
         // stat follows symlinks, so a symlinked note is indexed like the add
         // path would; a broken symlink or vanished file throws and is skipped.
-        const fileStat = await stat(fullPath)
+        const fileStat = await stat(fullPath);
+
         if (fileStat.isDirectory()) {
           // Symlink to a directory — its contents aren't in this recursive
           // listing (readdir doesn't traverse symlinks), so reconcile it
           // before registering: watcher.add() tracks its children without
           // emitting events, which would make a later pass skip them as
           // already tracked.
-          await rescanNewDirectory(fullPath, visitedRealPaths)
-          watcher.add(fullPath)
+          await rescanNewDirectory(fullPath, visitedRealPaths);
+          watcher.add(fullPath);
           logger.debug("rescan registered missed symlinked directory", {
             path: relativePath,
-          })
-          continue
+          });
+          continue;
         }
         // A freshly-modified file is plausibly still being written — don't
         // read it yet. When its directory was already watched before this
@@ -377,25 +361,26 @@ export const startFileWatcher = (
         // directory), registration emits no replay for the write — retry once
         // it settles instead.
         if (isWithinStabilityWindow(fileStat.mtimeMs)) {
-          const parentWatchedBeforeRescan = trackedSiblings !== undefined
-          if (parentWatchedBeforeRescan) continue
-          scheduleUnstableFileRetry(fullPath)
-          continue
+          const parentWatchedBeforeRescan = trackedSiblings !== undefined;
+
+          if (parentWatchedBeforeRescan) continue;
+          scheduleUnstableFileRetry(fullPath);
+          continue;
         }
 
         // Register the file with chokidar too — indexed but untracked, its
         // later deletion would emit no unlink, leaving a ghost index entry.
-        watcher.add(fullPath)
-        logger.debug("rescan indexing missed file", { path: relativePath })
-        await handleChange(fullPath)
+        watcher.add(fullPath);
+        logger.debug("rescan indexing missed file", { path: relativePath });
+        await handleChange(fullPath);
       } catch (err) {
         logger.debug("rescan skipped unreadable entry", {
           path: relativePath,
           error: describeError(err),
-        })
+        });
       }
     }
-  }
+  };
 
   /** Runs rescanNewDirectory once per new directory, delayed by
    *  newDirectoryRescanDelay so in-flight writes settle before the rescan
@@ -406,12 +391,12 @@ export const startFileWatcher = (
         logger.error("failed to rescan new directory", {
           path: relative(vaultPath, dirPath),
           error: describeError(err),
-        })
-      })
-    }, newDirectoryRescanDelay)
+        });
+      });
+    }, newDirectoryRescanDelay);
     // Never hold the process open for a pending rescan.
-    rescanTimer.unref()
-  }
+    rescanTimer.unref();
+  };
 
   watcher
     .on("add", handleChange)
@@ -421,13 +406,13 @@ export const startFileWatcher = (
     .on("error", (err) => {
       logger.error("watcher error", {
         error: describeError(err),
-      })
-    })
+      });
+    });
 
   return new Promise((resolve) => {
     watcher.on("ready", () => {
-      logger.info("file watcher started", { vaultPath })
-      resolve()
-    })
-  })
-}
+      logger.info("file watcher started", { vaultPath });
+      resolve();
+    });
+  });
+};

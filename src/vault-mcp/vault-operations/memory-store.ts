@@ -1,21 +1,21 @@
 /** Memory store factory — heading-aware parser/writer for semantic memory files. */
 
-import { readFile, readdir, mkdir, access } from "node:fs/promises"
-import { constants } from "node:fs"
-import { join, basename, dirname } from "node:path"
-import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
-import { atomicWriteFile } from "./vault-filesystem.js"
-import { readFileOrNull } from "../../utils/fs.js"
-import { isErrnoException } from "../../utils/is-errno-exception.js"
-import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
-import { withFileLock } from "../../utils/file-write-lock.js"
-import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
-import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
-import { parseHeadings } from "../obsidian-markdown/headings.js"
-import { splitIntoLines } from "../obsidian-markdown/lines.js"
-import { levenshteinDistance } from "../../utils/levenshtein-distance.js"
-import { DateTime } from "luxon"
-import type { Logger } from "../../logger.js"
+import { readFile, readdir, mkdir, access } from "node:fs/promises";
+import { constants } from "node:fs";
+import { join, basename, dirname } from "node:path";
+import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js";
+import { atomicWriteFile } from "./vault-filesystem.js";
+import { readFileOrNull } from "../../utils/fs.js";
+import { isErrnoException } from "../../utils/is-errno-exception.js";
+import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js";
+import { withFileLock } from "../../utils/file-write-lock.js";
+import { parseLeadingCallout } from "../obsidian-markdown/callouts.js";
+import type { LeadingCallout } from "../obsidian-markdown/callouts.js";
+import { parseHeadings } from "../obsidian-markdown/headings.js";
+import { splitIntoLines } from "../obsidian-markdown/lines.js";
+import { levenshteinDistance } from "../../utils/levenshtein-distance.js";
+import { DateTime } from "luxon";
+import type { Logger } from "../../logger.js";
 
 // Refuse a memory write that would remove more than half of an existing file's
 // bytes — a catastrophic shrink almost always means the on-disk copy diverged
@@ -25,30 +25,23 @@ import type { Logger } from "../../logger.js"
 // ~900 B — frontmatter + scope callout + headings, no entries), so a file with
 // no real content is never guarded, while a file with even one dated entry
 // (~1270 B+) is.
-const SHRINK_FLOOR_BYTES = 1250
-const SHRINK_RATIO = 0.5
-const guardAgainstShrink = (
-  beforeBytes: number,
-  afterBytes: number,
-  context: string,
-): void => {
-  if (
-    beforeBytes > SHRINK_FLOOR_BYTES &&
-    afterBytes < beforeBytes * SHRINK_RATIO
-  ) {
+const SHRINK_FLOOR_BYTES = 1250;
+const SHRINK_RATIO = 0.5;
+const guardAgainstShrink = (beforeBytes: number, afterBytes: number, context: string): void => {
+  if (beforeBytes > SHRINK_FLOOR_BYTES && afterBytes < beforeBytes * SHRINK_RATIO) {
     throw new Error(
       `refusing memory write: ${context} would shrink content from ${beforeBytes} to ${afterBytes} bytes (>50% reduction) — the on-disk content has likely diverged from the copy this write was based on`,
-    )
+    );
   }
-}
+};
 
 // Matches dated bullet entries: `- **YYYY-MM-DD**: ...`
 // The date portion is the reliable anchor — entry text after `: ` may contain its own **bold**
-const ENTRY_PATTERN = /^- \*\*\d{4}-\d{2}-\d{2}\*\*:/
+const ENTRY_PATTERN = /^- \*\*\d{4}-\d{2}-\d{2}\*\*:/;
 
 /** Matches CR/LF anywhere in a string — memory entries are single-line dated
  *  bullets, so any line break in an input would corrupt the format. */
-const MEMORY_ENTRY_LINE_BREAK_PATTERN = /[\r\n]/
+const MEMORY_ENTRY_LINE_BREAK_PATTERN = /[\r\n]/;
 
 /** True when the text is a real ISO calendar date in bare YYYY-MM-DD form —
  *  or undefined, which callers treat as "not supplied" (updateMemory defaults
@@ -56,22 +49,19 @@ const MEMORY_ENTRY_LINE_BREAK_PATTERN = /[\r\n]/
  *  rejects timestamps and week/ordinal forms that the permissive fromISO
  *  would accept) and calendar validity ("2026-02-30" parses as out of range). */
 const isValidMemoryEntryDate = (dateText: string | undefined): boolean => {
-  if (dateText === undefined) return true
-  return DateTime.fromFormat(dateText, "yyyy-MM-dd").isValid
-}
+  if (dateText === undefined) return true;
+  return DateTime.fromFormat(dateText, "yyyy-MM-dd").isValid;
+};
 
 /** Thrown by updateMemory and deleteMemory when a supplied date fails
  *  isValidMemoryEntryDate — one string so the two sites can't drift. */
-const INVALID_MEMORY_ENTRY_DATE_MESSAGE =
-  "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)"
+const INVALID_MEMORY_ENTRY_DATE_MESSAGE = "date must be a real ISO calendar date (YYYY-MM-DD, e.g. 2026-07-02)";
 
-const isString = (value: unknown): value is string => typeof value === "string"
+const isString = (value: unknown): value is string => typeof value === "string";
 
 /** Returns the heading name with the "(newest first)" suffix, appending it if absent (case-insensitive). */
 const headingWithNewestFirstSuffix = (sectionName: string): string =>
-  sectionName.trimEnd().toLowerCase().endsWith("(newest first)")
-    ? sectionName
-    : `${sectionName} (newest first)`
+  sectionName.trimEnd().toLowerCase().endsWith("(newest first)") ? sectionName : `${sectionName} (newest first)`;
 
 /** Converts a string to kebab-case for use as a tag. */
 const toKebabCase = (text: string): string =>
@@ -79,15 +69,15 @@ const toKebabCase = (text: string): string =>
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
+    .replace(/^-|-$/g, "");
 
 // ── Types ───────────────────────────────────────────────────────
 
 type MemoryHeading = Readonly<{
-  level: 1 | 2
-  text: string
-  entryCount?: number
-}>
+  level: 1 | 2;
+  text: string;
+  entryCount?: number;
+}>;
 
 /** How a memory file's entries may be maintained. Append-only is the layer's
  *  default: entries are never edited or deleted, and corrections arrive as new
@@ -95,56 +85,52 @@ type MemoryHeading = Readonly<{
  *  is a current-state snapshot (e.g. a Routines file) — there, expired entries
  *  are pruned rather than left as history, so agents must not assume its
  *  timeline is complete. */
-export type MemoryEntryPolicy = "append-only" | "living"
+export type MemoryEntryPolicy = "append-only" | "living";
 
 /** Resolves a frontmatter `entry-policy` value to a policy, treating anything
  *  other than the explicit "living" opt-in (missing, misspelled, wrong type)
  *  as the append-only default — the safe reading, since append-only forbids
  *  destructive maintenance. */
 const entryPolicyFromFrontmatter = (value: unknown): MemoryEntryPolicy =>
-  typeof value === "string" && value === "living" ? "living" : "append-only"
+  typeof value === "string" && value === "living" ? "living" : "append-only";
 
 export type MemoryFileOutline = Readonly<{
-  file: string
-  title: string
-  bytes: number
-  entry_policy: MemoryEntryPolicy
-  leading_callout: LeadingCallout | null
-  headings: MemoryHeading[]
-}>
+  file: string;
+  title: string;
+  bytes: number;
+  entry_policy: MemoryEntryPolicy;
+  leading_callout: LeadingCallout | null;
+  headings: MemoryHeading[];
+}>;
 
 /** What an updateMemory call did — lets the tool layer tailor its confirmation
  *  (e.g. nudge the caller to fill in a new file's scope callout, or report
  *  that an identical entry already existed and nothing was written). */
-type UpdateMemoryOutcome =
-  "created-file" | "created-section" | "appended" | "unchanged"
+type UpdateMemoryOutcome = "created-file" | "created-section" | "appended" | "unchanged";
 
 type ParsedSection = Readonly<{
-  heading: string
-  level: 1 | 2
-  startLine: number
-  bodyStartLine: number
-  bodyEndLine: number
-  entryCount: number
-}>
+  heading: string;
+  level: 1 | 2;
+  startLine: number;
+  bodyStartLine: number;
+  bodyEndLine: number;
+  entryCount: number;
+}>;
 
 // ── Internal helpers ────────────────────────────────────────────
 
 /** Counts dated bullet entries within a section's body span [start, end). A plain
  *  loop — a sequential count with no slice/filter allocations over what can be a
  *  large memory file. */
-const countDatedEntries = (
-  lines: readonly string[],
-  start: number,
-  end: number,
-): number => {
-  let count = 0
+const countDatedEntries = (lines: readonly string[], start: number, end: number): number => {
+  let count = 0;
   for (let lineIndex = start; lineIndex < end; lineIndex++) {
-    const entryLine = lines[lineIndex]
-    if (entryLine !== undefined && ENTRY_PATTERN.test(entryLine)) count += 1
+    const entryLine = lines[lineIndex];
+
+    if (entryLine !== undefined && ENTRY_PATTERN.test(entryLine)) count += 1;
   }
-  return count
-}
+  return count;
+};
 
 /**
  * Parses a memory file's H1/H2 sections, with a dated-bullet count per H2.
@@ -158,23 +144,20 @@ const countDatedEntries = (
  * to EOF — is not scanned.
  */
 const parseSections = (lines: readonly string[]): ParsedSection[] => {
-  const sections: ParsedSection[] = []
+  const sections: ParsedSection[] = [];
   for (const heading of parseHeadings(lines)) {
-    if (heading.level !== 1 && heading.level !== 2) continue
+    if (heading.level !== 1 && heading.level !== 2) continue;
     sections.push({
       heading: heading.text,
       level: heading.level,
       startLine: heading.startLine,
       bodyStartLine: heading.bodyStartLine,
       bodyEndLine: heading.bodyEndLine,
-      entryCount:
-        heading.level === 2
-          ? countDatedEntries(lines, heading.bodyStartLine, heading.bodyEndLine)
-          : 0,
-    })
+      entryCount: heading.level === 2 ? countDatedEntries(lines, heading.bodyStartLine, heading.bodyEndLine) : 0,
+    });
   }
-  return sections
-}
+  return sections;
+};
 
 /** Case-insensitive section lookup by heading text. */
 const findSection = (
@@ -185,20 +168,14 @@ const findSection = (
   // Memory headings are canonically suffixed "(newest first)"; resolve the
   // caller's name to that form so a short name matches the stored heading
   // (and update_memory doesn't append a duplicate section).
-  const normalizedSectionName = headingWithNewestFirstSuffix(sectionName)
-    .trim()
-    .toLowerCase()
-  return sections.find(
-    (section) =>
-      section.level === level &&
-      section.heading.toLowerCase() === normalizedSectionName,
-  )
-}
+  const normalizedSectionName = headingWithNewestFirstSuffix(sectionName).trim().toLowerCase();
+  return sections.find((section) => section.level === level && section.heading.toLowerCase() === normalizedSectionName);
+};
 
 /** Matches the HTML character entities the decoder understands — decimal
  *  ("&#38;"), hex ("&#x26;"), and the common named forms — capturing the
  *  entity body between "&" and ";". */
-const HTML_ENTITY_PATTERN = /&(#\d+|#x[0-9a-f]+|amp|lt|gt|quot|apos|nbsp);/gi
+const HTML_ENTITY_PATTERN = /&(#\d+|#x[0-9a-f]+|amp|lt|gt|quot|apos|nbsp);/gi;
 
 /** Replacement values for the named entities in HTML_ENTITY_PATTERN. */
 const NAMED_ENTITY_VALUES: Readonly<Record<string, string>> = {
@@ -208,7 +185,7 @@ const NAMED_ENTITY_VALUES: Readonly<Record<string, string>> = {
   quot: '"',
   apos: "'",
   nbsp: " ",
-}
+};
 
 /** Decodes the common HTML character entities (named, decimal, and hex) that
  *  agents occasionally introduce into section names (e.g. "&amp;" for "&").
@@ -220,21 +197,22 @@ const NAMED_ENTITY_VALUES: Readonly<Record<string, string>> = {
  *  feeds a similarity comparison, not a renderer. */
 const decodeBasicHtmlEntities = (text: string): string =>
   text.replace(HTML_ENTITY_PATTERN, (entity, entityBody: string) => {
-    const loweredEntityBody = entityBody.toLowerCase()
+    const loweredEntityBody = entityBody.toLowerCase();
+
     if (loweredEntityBody.startsWith("#x")) {
-      const codePoint = Number.parseInt(loweredEntityBody.slice(2), 16)
-      return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity
+      const codePoint = Number.parseInt(loweredEntityBody.slice(2), 16);
+      return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity;
     }
     if (loweredEntityBody.startsWith("#")) {
-      const codePoint = Number(loweredEntityBody.slice(1))
-      return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity
+      const codePoint = Number(loweredEntityBody.slice(1));
+      return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity;
     }
-    return NAMED_ENTITY_VALUES[loweredEntityBody] ?? entity
-  })
+    return NAMED_ENTITY_VALUES[loweredEntityBody] ?? entity;
+  });
 
 /** Matches the canonical "(newest first)" suffix at the end of a section
  *  name, with any surrounding whitespace. */
-const NEWEST_FIRST_SUFFIX_PATTERN = /\s*\(newest first\)\s*$/i
+const NEWEST_FIRST_SUFFIX_PATTERN = /\s*\(newest first\)\s*$/i;
 
 /** Canonical comparison form for near-duplicate detection: entity decoding,
  *  case folding, whitespace collapsing, and the "(newest first)" suffix
@@ -248,12 +226,12 @@ const sectionComparisonForm = (sectionName: string): string =>
     .toLowerCase()
     .replace(NEWEST_FIRST_SUFFIX_PATTERN, "")
     .trim()
-    .replace(/\s+/g, " ")
+    .replace(/\s+/g, " ");
 
 /** Matches every digit run — used to test whether two section names differ
  *  only in their numbers ("2025" vs "2026"), which marks them as legitimately
  *  distinct rather than near duplicates. */
-const DIGIT_RUN_PATTERN = /\d+/g
+const DIGIT_RUN_PATTERN = /\d+/g;
 
 /** Edit-distance budget for fuzzy near-miss detection, scaled to the shorter
  *  of the two names (canonical suffix excluded). Very short names get no
@@ -261,42 +239,35 @@ const DIGIT_RUN_PATTERN = /\d+/g
  *  — while long prose headings tolerate the common slips (dropped letter,
  *  stray plural, transposed pair). */
 const nearMissEditBudget = (shorterNameLength: number): number => {
-  if (shorterNameLength <= 3) return 0
-  if (shorterNameLength <= 7) return 1
-  return 2
-}
+  if (shorterNameLength <= 3) return 0;
+  if (shorterNameLength <= 7) return 1;
+  return 2;
+};
 
 /** Finds an existing H2 section whose heading the requested name is likely a
  *  mangled form of — an HTML-entity slip, a case/whitespace/suffix variation,
  *  or a typo within the length-scaled edit budget. Names that differ only in
  *  digits are deliberately NOT near misses: numeric pairs ("2025" / "2026")
  *  are how distinct year- or version-named sections legitimately coexist. */
-const findNearMissSection = (
-  sections: readonly ParsedSection[],
-  sectionName: string,
-): ParsedSection | undefined => {
-  const requestedForm = sectionComparisonForm(sectionName)
-  const requestedFormWithoutDigits = requestedForm.replace(
-    DIGIT_RUN_PATTERN,
-    "",
-  )
+const findNearMissSection = (sections: readonly ParsedSection[], sectionName: string): ParsedSection | undefined => {
+  const requestedForm = sectionComparisonForm(sectionName);
+  const requestedFormWithoutDigits = requestedForm.replace(DIGIT_RUN_PATTERN, "");
   const isNearMissOfRequested = (section: ParsedSection): boolean => {
-    if (section.level !== 2) return false
-    const existingForm = sectionComparisonForm(section.heading)
-    if (existingForm === requestedForm) return true
-    const differsOnlyInDigits =
-      existingForm.replace(DIGIT_RUN_PATTERN, "") === requestedFormWithoutDigits
-    if (differsOnlyInDigits) return false
-    const shorterNameLength = Math.min(
-      existingForm.length,
-      requestedForm.length,
-    )
-    const editBudget = nearMissEditBudget(shorterNameLength)
-    if (editBudget === 0) return false
-    return levenshteinDistance(existingForm, requestedForm) <= editBudget
-  }
-  return sections.find(isNearMissOfRequested)
-}
+    if (section.level !== 2) return false;
+    const existingForm = sectionComparisonForm(section.heading);
+
+    if (existingForm === requestedForm) return true;
+    const differsOnlyInDigits = existingForm.replace(DIGIT_RUN_PATTERN, "") === requestedFormWithoutDigits;
+
+    if (differsOnlyInDigits) return false;
+    const shorterNameLength = Math.min(existingForm.length, requestedForm.length);
+    const editBudget = nearMissEditBudget(shorterNameLength);
+
+    if (editBudget === 0) return false;
+    return levenshteinDistance(existingForm, requestedForm) <= editBudget;
+  };
+  return sections.find(isNearMissOfRequested);
+};
 
 /** Comma-joined H2 headings for error messages — mirrors the heading
  *  parser's "Available headings" remediation so a caller can self-correct
@@ -305,22 +276,22 @@ const listSectionHeadings = (sections: readonly ParsedSection[]): string => {
   const sectionHeadings = sections
     .filter((section) => section.level === 2)
     .map((section) => section.heading)
-    .join(", ")
-  return sectionHeadings || "(none)"
-}
+    .join(", ");
+  return sectionHeadings || "(none)";
+};
 
 // ── Factory ────────────────────────────────────────────────────
 
 export const createMemoryStore = (options: { memoryDir: string }) => {
-  const { memoryDir } = options
+  const { memoryDir } = options;
 
   /** True for the .md entries the memory layer serves — excludes dot-prefixed
    *  (hidden) filenames so a pre-existing hidden file on disk never leaks
    *  through the no-file read or the list surfaces, mirroring the write-side
    *  rejection in memoryFilePath. */
   const isVisibleMemoryFile = (filename: string): boolean => {
-    return filename.endsWith(".md") && !filename.startsWith(".")
-  }
+    return filename.endsWith(".md") && !filename.startsWith(".");
+  };
 
   // A memory file is a bare name, never a path — a separator would let a
   // name like "../../outside" escape the memory directory (and the vault)
@@ -330,27 +301,23 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   // memory paths bypass resolveSafePath's hidden-path guard via direct join.
   const memoryFilePath = (vaultPath: string, file: string): string => {
     if (file.includes("/") || file.includes("\\")) {
-      throw new Error(
-        `memory file must be a bare name without path separators: "${file}"`,
-      )
+      throw new Error(`memory file must be a bare name without path separators: "${file}"`);
     }
     if (file.startsWith(".")) {
-      throw new Error(
-        `memory file must not start with a dot: "${file}" would be a hidden file`,
-      )
+      throw new Error(`memory file must not start with a dot: "${file}" would be a hidden file`);
     }
-    return join(vaultPath, memoryDir, `${file}.md`)
-  }
+    return join(vaultPath, memoryDir, `${file}.md`);
+  };
 
   type MemoryTemplateSpec = {
-    fileName: string
-    title: string
-    tag: string
-    entryPolicy: MemoryEntryPolicy
-    related: string[]
-    scope: string
-    sections: string[]
-  }
+    fileName: string;
+    title: string;
+    tag: string;
+    entryPolicy: MemoryEntryPolicy;
+    related: string[];
+    scope: string;
+    sections: string[];
+  };
 
   const MEMORY_TEMPLATE_SPECS: readonly MemoryTemplateSpec[] = [
     {
@@ -366,11 +333,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         '> **Section structure:** H2 sections grouped by theme, each suffixed "(newest first)".',
         "> **Convention:** append newest first; never overwrite dated entries; ISO dates only. Entry policy: append-only (declared in frontmatter).",
       ].join("\n"),
-      sections: [
-        "Identity (newest first)",
-        "Interests (newest first)",
-        "Context (newest first)",
-      ],
+      sections: ["Identity (newest first)", "Interests (newest first)", "Context (newest first)"],
     },
     {
       fileName: "Opinions",
@@ -443,20 +406,13 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         '> **Section structure:** H2 sections by domain, each suffixed "(newest first)".',
         "> **Convention:** append newest first; never overwrite dated entries; ISO dates only. Entry policy: append-only (declared in frontmatter).",
       ].join("\n"),
-      sections: [
-        "Communication (newest first)",
-        "Working style (newest first)",
-        "Verification & scope (newest first)",
-      ],
+      sections: ["Communication (newest first)", "Working style (newest first)", "Verification & scope (newest first)"],
     },
-  ]
+  ];
 
   /** Renders a memory template with the current timestamp so bootstrapped files
    *  carry a `created` property from the moment the server first seeds them. */
-  const renderMemoryTemplate = (
-    spec: MemoryTemplateSpec,
-    created: string,
-  ): { fileName: string; content: string } => ({
+  const renderMemoryTemplate = (spec: MemoryTemplateSpec, created: string): { fileName: string; content: string } => ({
     fileName: spec.fileName,
     content: [
       "---",
@@ -477,36 +433,27 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       "",
       ...spec.sections.flatMap((section) => [`## ${section}`, ""]),
     ].join("\n"),
-  })
+  });
 
-  const readMemoryFile = async (
-    vaultPath: string,
-    file: string,
-  ): Promise<string> => {
+  const readMemoryFile = async (vaultPath: string, file: string): Promise<string> => {
     try {
-      return await readFile(memoryFilePath(vaultPath, file), "utf8")
+      return await readFile(memoryFilePath(vaultPath, file), "utf8");
     } catch (err) {
       if (isErrnoException(err, "ENOENT")) {
         throw new Error(`memory file not found: "${memoryDir}/${file}.md"`, {
           cause: err,
-        })
+        });
       }
-      throw err
+      throw err;
     }
-  }
+  };
 
   /** Like readMemoryFile, but returns null when the file does not exist. */
-  const readMemoryFileOrNull = (
-    vaultPath: string,
-    file: string,
-  ): Promise<string | null> => readFileOrNull(memoryFilePath(vaultPath, file))
+  const readMemoryFileOrNull = (vaultPath: string, file: string): Promise<string | null> =>
+    readFileOrNull(memoryFilePath(vaultPath, file));
 
   /** Builds a new memory file with frontmatter, H1 title, H2 section, and initial entry. */
-  const buildNewMemoryFile = (params: {
-    fileName: string
-    section: string
-    bullet: string
-  }): string => {
+  const buildNewMemoryFile = (params: { fileName: string; section: string; bullet: string }): string => {
     const frontmatter = {
       title: params.fileName,
       type: "profile",
@@ -515,7 +462,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       "entry-policy": "append-only",
       tags: ["memory", toKebabCase(params.fileName)],
       created: DateTime.now().toISO(),
-    }
+    };
     // A programmatically-created file has an unknown purpose, so seed only the
     // generic convention + a Contains placeholder for the caller to fill in
     // (the full scope callout — Does NOT contain / Section structure — is
@@ -531,81 +478,79 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       `## ${params.section}`,
       params.bullet,
       "",
-    ].join("\n")
-    return stringifyNote(body, frontmatter)
-  }
+    ].join("\n");
+    return stringifyNote(body, frontmatter);
+  };
 
   // ── Exported functions ──────────────────────────────────────────
 
   const getMemory = async (
     params: {
-      vaultPath: string
-      file?: string | undefined
-      section?: string | undefined
+      vaultPath: string;
+      file?: string | undefined;
+      section?: string | undefined;
     },
     logger: Logger,
   ): Promise<string> => {
     if (!params.file) {
-      const dir = join(params.vaultPath, memoryDir)
-      let entries: string[]
+      const dir = join(params.vaultPath, memoryDir);
+      let entries: string[];
       try {
-        entries = await readdir(dir)
+        entries = await readdir(dir);
       } catch (err) {
         if (isErrnoException(err, "ENOENT")) {
-          logger.info("get memory", { mode: "all", fileCount: 0 })
-          return ""
+          logger.info("get memory", { mode: "all", fileCount: 0 });
+          return "";
         }
-        throw err
+        throw err;
       }
-      const mdFiles = entries.filter(isVisibleMemoryFile).sort()
+      const mdFiles = entries.filter(isVisibleMemoryFile).sort();
       const contents = await Promise.all(
         mdFiles.map(async (filename) => {
-          const raw = await readFile(join(dir, filename), "utf8")
-          return parseNote(raw).content.trim()
+          const raw = await readFile(join(dir, filename), "utf8");
+          return parseNote(raw).content.trim();
         }),
-      )
-      logger.info("get memory", { mode: "all", fileCount: mdFiles.length })
-      return contents.join("\n\n---\n\n")
+      );
+      logger.info("get memory", { mode: "all", fileCount: mdFiles.length });
+      return contents.join("\n\n---\n\n");
     }
 
-    const raw = await readMemoryFile(params.vaultPath, params.file)
-    const parsed = parseNote(raw)
+    const raw = await readMemoryFile(params.vaultPath, params.file);
+    const parsed = parseNote(raw);
 
     if (!params.section) {
-      logger.info("get memory", { mode: "file", file: params.file })
-      return parsed.content.trim()
+      logger.info("get memory", { mode: "file", file: params.file });
+      return parsed.content.trim();
     }
 
-    const lines = splitIntoLines(parsed.content)
-    const sections = parseSections(lines)
-    const match = findSection(sections, params.section, 2)
+    const lines = splitIntoLines(parsed.content);
+    const sections = parseSections(lines);
+    const match = findSection(sections, params.section, 2);
+
     if (!match) {
       throw new Error(
         `section not found: "${params.section}" in ${memoryDir}/${params.file}.md. Available sections: ${listSectionHeadings(sections)}`,
-      )
+      );
     }
 
     // Extract only the lines between this heading and the next
-    const body = lines
-      .slice(match.bodyStartLine, match.bodyEndLine)
-      .join("\n")
-      .trim()
+    const body = lines.slice(match.bodyStartLine, match.bodyEndLine).join("\n").trim();
     logger.info("get memory", {
       mode: "section",
       file: params.file,
       section: params.section,
-    })
-    return body
-  }
+    });
+    return body;
+  };
 
   const updateMemory = async (
     params: {
-      vaultPath: string
-      file: string
-      section: string
-      entry: string
-      date?: string | undefined
-      position?: "top" | "bottom" | undefined
+      vaultPath: string;
+      file: string;
+      section: string;
+      entry: string;
+      date?: string | undefined;
+      position?: "top" | "bottom" | undefined;
     },
     logger: Logger,
   ): Promise<UpdateMemoryOutcome> => {
@@ -616,209 +561,182 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     if (MEMORY_ENTRY_LINE_BREAK_PATTERN.test(params.entry)) {
       throw new Error(
         "entry must be a single line: memory entries are single dated bullets — collapse newlines or append multiple entries",
-      )
+      );
     }
     // An omitted date is fine (it defaults to today below); anything supplied
     // that isn't a real bare YYYY-MM-DD date (a line break, a timestamp, free
     // text, an impossible calendar value) would corrupt the bullet the same
     // way a multiline entry does.
     if (!isValidMemoryEntryDate(params.date)) {
-      throw new Error(INVALID_MEMORY_ENTRY_DATE_MESSAGE)
+      throw new Error(INVALID_MEMORY_ENTRY_DATE_MESSAGE);
     }
     // A section name with a line break would write a corrupted multi-line
     // "## heading" that findSection can never match again — every subsequent
     // call would append yet another broken section instead of reaching the
     // duplicate guard, so reject it at the boundary like entry and date.
     if (MEMORY_ENTRY_LINE_BREAK_PATTERN.test(params.section)) {
-      throw new Error(
-        "section must be a single line: section names become H2 headings — remove line breaks",
-      )
+      throw new Error("section must be a single line: section names become H2 headings — remove line breaks");
     }
-    assertNoControlCharacters(params.entry, "entry")
-    assertNoControlCharacters(params.section, "section")
+    assertNoControlCharacters(params.entry, "entry");
+    assertNoControlCharacters(params.section, "section");
     // Serialize the read-modify-write so concurrent appends to the same file
     // don't clobber each other's entries (lost update).
-    return withFileLock(
-      memoryFilePath(params.vaultPath, params.file),
-      async () => {
-        const date = params.date ?? DateTime.now().toISODate()
-        const position = params.position ?? "top"
-        const bullet = `- **${date}**: ${params.entry}`
+    return withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
+      const date = params.date ?? DateTime.now().toISODate();
+      const position = params.position ?? "top";
+      const bullet = `- **${date}**: ${params.entry}`;
 
-        const existingContent = await readMemoryFileOrNull(
-          params.vaultPath,
-          params.file,
-        )
+      const existingContent = await readMemoryFileOrNull(params.vaultPath, params.file);
 
-        // File does not exist — create directory + file with section and entry
-        if (existingContent === null) {
-          const newSection = headingWithNewestFirstSuffix(params.section)
-          const filePath = memoryFilePath(params.vaultPath, params.file)
-          await mkdir(dirname(filePath), { recursive: true })
-          const content = buildNewMemoryFile({
-            fileName: params.file,
-            section: newSection,
-            bullet,
-          })
-          await atomicWriteFile({ filePath, content }, logger)
-          logger.info("created memory file", {
-            file: params.file,
-            section: newSection,
-            date,
-            outcome: "created-file",
-            beforeBytes: 0,
-            afterBytes: Buffer.byteLength(content, "utf8"),
-          })
-          return "created-file"
-        }
-
-        const parsed = parseNote(existingContent)
-        const contentLines = splitIntoLines(parsed.content)
-        const sections = parseSections(contentLines)
-        const match = findSection(sections, params.section, 2)
-
-        // File exists but section does not — append new H2 + entry at end
-        if (!match) {
-          // A missing section is normally created — but a name that is merely
-          // a mangled form of an existing heading (entity slip, typo, spacing)
-          // would silently fragment the file into near-duplicate sections,
-          // with the new entry unreachable via the real heading. Explicit
-          // rejection over silent normalization: refuse and name both
-          // headings so the caller can self-correct.
-          const nearMiss = findNearMissSection(sections, params.section)
-          if (nearMiss) {
-            throw new Error(
-              `section not created: "${params.section}" is nearly identical to existing section "${nearMiss.heading}". Existing sections: ${listSectionHeadings(sections)}`,
-            )
-          }
-          const newSection = headingWithNewestFirstSuffix(params.section)
-          const appendedLines = [...contentLines, `## ${newSection}`, bullet]
-          const newContent = appendedLines.join("\n")
-          const serialized = stringifyNote(newContent, parsed.data)
-          const beforeBytes = Buffer.byteLength(existingContent, "utf8")
-          const afterBytes = Buffer.byteLength(serialized, "utf8")
-          guardAgainstShrink(beforeBytes, afterBytes, "creating memory section")
-          await atomicWriteFile(
-            {
-              filePath: memoryFilePath(params.vaultPath, params.file),
-              content: serialized,
-            },
-            logger,
-          )
-          logger.info("created memory section", {
-            file: params.file,
-            section: newSection,
-            date,
-            outcome: "created-section",
-            beforeBytes,
-            afterBytes,
-          })
-          return "created-section"
-        }
-
-        const bodyLines = contentLines.slice(
-          match.bodyStartLine,
-          match.bodyEndLine,
-        )
-
-        // Idempotency guard: if the exact bullet already exists in this section,
-        // the entry already landed — typically an MCP client retrying after a
-        // gateway timeout. Splicing again would create a duplicate that
-        // deleteMemory refuses to disambiguate, so no-op instead. Scoped to the
-        // target section: the same bullet under a different heading is a
-        // distinct entry and does not suppress the append.
-        if (bodyLines.includes(bullet)) {
-          logger.info("memory entry unchanged", {
-            file: params.file,
-            section: params.section,
-            date,
-            outcome: "unchanged",
-          })
-          return "unchanged"
-        }
-
-        // File + section exist — find the first and last dated bullet within the
-        // section body to determine where to insert. Offsets are relative to bodyStartLine.
-        const firstBulletOffset = bodyLines.findIndex((line) =>
-          ENTRY_PATTERN.test(line),
-        )
-        const lastBulletOffset = bodyLines.reduce(
-          (lastMatchIndex, line, index) =>
-            ENTRY_PATTERN.test(line) ? index : lastMatchIndex,
-          -1,
-        )
-
-        // Compute the absolute line index in the full content array for insertion.
-        // "top" inserts before the first existing bullet (newest-first ordering).
-        // "bottom" inserts after the last existing bullet.
-        // Empty sections (no bullets) fall back to bodyEndLine — appends at section end.
-        const topInsertIndex =
-          firstBulletOffset >= 0
-            ? match.bodyStartLine + firstBulletOffset
-            : match.bodyEndLine
-        const bottomInsertIndex =
-          lastBulletOffset >= 0
-            ? match.bodyStartLine + lastBulletOffset + 1
-            : match.bodyEndLine
-        const insertIndex =
-          position === "top" ? topInsertIndex : bottomInsertIndex
-
-        // Splice the new bullet into the content lines
-        const updatedLines = [
-          ...contentLines.slice(0, insertIndex),
+      // File does not exist — create directory + file with section and entry
+      if (existingContent === null) {
+        const newSection = headingWithNewestFirstSuffix(params.section);
+        const filePath = memoryFilePath(params.vaultPath, params.file);
+        await mkdir(dirname(filePath), { recursive: true });
+        const content = buildNewMemoryFile({
+          fileName: params.file,
+          section: newSection,
           bullet,
-          ...contentLines.slice(insertIndex),
-        ]
+        });
+        await atomicWriteFile({ filePath, content }, logger);
+        logger.info("created memory file", {
+          file: params.file,
+          section: newSection,
+          date,
+          outcome: "created-file",
+          beforeBytes: 0,
+          afterBytes: Buffer.byteLength(content, "utf8"),
+        });
+        return "created-file";
+      }
 
-        const newContent = updatedLines.join("\n")
-        const serialized = stringifyNote(newContent, parsed.data)
-        const beforeBytes = Buffer.byteLength(existingContent, "utf8")
-        const afterBytes = Buffer.byteLength(serialized, "utf8")
-        guardAgainstShrink(beforeBytes, afterBytes, "updating memory entry")
+      const parsed = parseNote(existingContent);
+      const contentLines = splitIntoLines(parsed.content);
+      const sections = parseSections(contentLines);
+      const match = findSection(sections, params.section, 2);
+
+      // File exists but section does not — append new H2 + entry at end
+      if (!match) {
+        // A missing section is normally created — but a name that is merely
+        // a mangled form of an existing heading (entity slip, typo, spacing)
+        // would silently fragment the file into near-duplicate sections,
+        // with the new entry unreachable via the real heading. Explicit
+        // rejection over silent normalization: refuse and name both
+        // headings so the caller can self-correct.
+        const nearMiss = findNearMissSection(sections, params.section);
+
+        if (nearMiss) {
+          throw new Error(
+            `section not created: "${params.section}" is nearly identical to existing section "${nearMiss.heading}". Existing sections: ${listSectionHeadings(sections)}`,
+          );
+        }
+        const newSection = headingWithNewestFirstSuffix(params.section);
+        const appendedLines = [...contentLines, `## ${newSection}`, bullet];
+        const newContent = appendedLines.join("\n");
+        const serialized = stringifyNote(newContent, parsed.data);
+        const beforeBytes = Buffer.byteLength(existingContent, "utf8");
+        const afterBytes = Buffer.byteLength(serialized, "utf8");
+        guardAgainstShrink(beforeBytes, afterBytes, "creating memory section");
         await atomicWriteFile(
           {
             filePath: memoryFilePath(params.vaultPath, params.file),
             content: serialized,
           },
           logger,
-        )
-        logger.info("updated memory", {
+        );
+        logger.info("created memory section", {
+          file: params.file,
+          section: newSection,
+          date,
+          outcome: "created-section",
+          beforeBytes,
+          afterBytes,
+        });
+        return "created-section";
+      }
+
+      const bodyLines = contentLines.slice(match.bodyStartLine, match.bodyEndLine);
+
+      // Idempotency guard: if the exact bullet already exists in this section,
+      // the entry already landed — typically an MCP client retrying after a
+      // gateway timeout. Splicing again would create a duplicate that
+      // deleteMemory refuses to disambiguate, so no-op instead. Scoped to the
+      // target section: the same bullet under a different heading is a
+      // distinct entry and does not suppress the append.
+      if (bodyLines.includes(bullet)) {
+        logger.info("memory entry unchanged", {
           file: params.file,
           section: params.section,
           date,
-          outcome: "appended",
-          beforeBytes,
-          afterBytes,
-        })
-        return "appended"
-      },
-    )
-  }
+          outcome: "unchanged",
+        });
+        return "unchanged";
+      }
 
-  const listMemoryFiles = async (
-    params: { vaultPath: string },
-    logger: Logger,
-  ): Promise<MemoryFileOutline[]> => {
-    const dir = join(params.vaultPath, memoryDir)
-    let entries: string[]
+      // File + section exist — find the first and last dated bullet within the
+      // section body to determine where to insert. Offsets are relative to bodyStartLine.
+      const firstBulletOffset = bodyLines.findIndex((line) => ENTRY_PATTERN.test(line));
+      const lastBulletOffset = bodyLines.reduce(
+        (lastMatchIndex, line, index) => (ENTRY_PATTERN.test(line) ? index : lastMatchIndex),
+        -1,
+      );
+
+      // Compute the absolute line index in the full content array for insertion.
+      // "top" inserts before the first existing bullet (newest-first ordering).
+      // "bottom" inserts after the last existing bullet.
+      // Empty sections (no bullets) fall back to bodyEndLine — appends at section end.
+      const topInsertIndex = firstBulletOffset >= 0 ? match.bodyStartLine + firstBulletOffset : match.bodyEndLine;
+      const bottomInsertIndex = lastBulletOffset >= 0 ? match.bodyStartLine + lastBulletOffset + 1 : match.bodyEndLine;
+      const insertIndex = position === "top" ? topInsertIndex : bottomInsertIndex;
+
+      // Splice the new bullet into the content lines
+      const updatedLines = [...contentLines.slice(0, insertIndex), bullet, ...contentLines.slice(insertIndex)];
+
+      const newContent = updatedLines.join("\n");
+      const serialized = stringifyNote(newContent, parsed.data);
+      const beforeBytes = Buffer.byteLength(existingContent, "utf8");
+      const afterBytes = Buffer.byteLength(serialized, "utf8");
+      guardAgainstShrink(beforeBytes, afterBytes, "updating memory entry");
+      await atomicWriteFile(
+        {
+          filePath: memoryFilePath(params.vaultPath, params.file),
+          content: serialized,
+        },
+        logger,
+      );
+      logger.info("updated memory", {
+        file: params.file,
+        section: params.section,
+        date,
+        outcome: "appended",
+        beforeBytes,
+        afterBytes,
+      });
+      return "appended";
+    });
+  };
+
+  const listMemoryFiles = async (params: { vaultPath: string }, logger: Logger): Promise<MemoryFileOutline[]> => {
+    const dir = join(params.vaultPath, memoryDir);
+    let entries: string[];
     try {
-      entries = await readdir(dir)
+      entries = await readdir(dir);
     } catch (err) {
-      if (isErrnoException(err, "ENOENT")) return []
-      throw err
+      if (isErrnoException(err, "ENOENT")) return [];
+      throw err;
     }
 
-    const mdFiles = entries.filter(isVisibleMemoryFile).sort()
+    const mdFiles = entries.filter(isVisibleMemoryFile).sort();
 
     const outlines = await Promise.all(
       mdFiles.map(async (filename) => {
-        const raw = await readFile(join(dir, filename), "utf8")
-        const parsed = parseNote(raw)
-        const name = basename(filename, ".md")
-        const title = isString(parsed.data.title) ? parsed.data.title : name
-        const lines = splitIntoLines(parsed.content)
-        const leadingCallout = parseLeadingCallout(lines)
-        const sections = parseSections(lines)
+        const raw = await readFile(join(dir, filename), "utf8");
+        const parsed = parseNote(raw);
+        const name = basename(filename, ".md");
+        const title = isString(parsed.data.title) ? parsed.data.title : name;
+        const lines = splitIntoLines(parsed.content);
+        const leadingCallout = parseLeadingCallout(lines);
+        const sections = parseSections(lines);
 
         const headings: MemoryHeading[] = sections.map((section) =>
           section.level === 1
@@ -828,9 +746,9 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
                 text: section.heading,
                 entryCount: section.entryCount,
               },
-        )
+        );
 
-        const bytes = Buffer.byteLength(raw, "utf8")
+        const bytes = Buffer.byteLength(raw, "utf8");
         return {
           file: name,
           title,
@@ -838,44 +756,41 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           entry_policy: entryPolicyFromFrontmatter(parsed.data["entry-policy"]),
           leading_callout: leadingCallout,
           headings,
-        }
+        };
       }),
-    )
+    );
 
-    logger.info("listed memory files", { count: outlines.length })
-    return outlines
-  }
+    logger.info("listed memory files", { count: outlines.length });
+    return outlines;
+  };
 
   /** Lists memory file names (without .md), sorted. Cheap by design — a
    *  readdir + filter with no file reads or parsing — so it's safe to call
    *  on a hot path like prompt-arg autocomplete, which fires per keystroke. */
-  const listMemoryFileNames = async (
-    params: { vaultPath: string },
-    logger: Logger,
-  ): Promise<string[]> => {
-    const dir = join(params.vaultPath, memoryDir)
-    let entries: string[]
+  const listMemoryFileNames = async (params: { vaultPath: string }, logger: Logger): Promise<string[]> => {
+    const dir = join(params.vaultPath, memoryDir);
+    let entries: string[];
     try {
-      entries = await readdir(dir)
+      entries = await readdir(dir);
     } catch (err) {
-      if (isErrnoException(err, "ENOENT")) return []
-      throw err
+      if (isErrnoException(err, "ENOENT")) return [];
+      throw err;
     }
     const names = entries
       .filter(isVisibleMemoryFile)
       .map((filename) => basename(filename, ".md"))
-      .sort()
-    logger.debug("listed memory file names", { count: names.length })
-    return names
-  }
+      .sort();
+    logger.debug("listed memory file names", { count: names.length });
+    return names;
+  };
 
   const deleteMemory = async (
     params: {
-      vaultPath: string
-      file: string
-      section: string
-      date: string
-      entry: string
+      vaultPath: string;
+      file: string;
+      section: string;
+      date: string;
+      entry: string;
     },
     logger: Logger,
   ): Promise<void> => {
@@ -883,98 +798,86 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     // malformed date can never match — reject it up front with remediation
     // instead of a guaranteed "no entry matching" miss.
     if (!isValidMemoryEntryDate(params.date)) {
-      throw new Error(INVALID_MEMORY_ENTRY_DATE_MESSAGE)
+      throw new Error(INVALID_MEMORY_ENTRY_DATE_MESSAGE);
     }
     // Serialize with concurrent updates/deletes to the same file so the
     // read-modify-write can't be interleaved and lose a write.
-    return withFileLock(
-      memoryFilePath(params.vaultPath, params.file),
-      async () => {
-        const raw = await readMemoryFile(params.vaultPath, params.file)
-        const parsed = parseNote(raw)
-        const lines = splitIntoLines(parsed.content)
-        const sections = parseSections(lines)
-        const match = findSection(sections, params.section, 2)
-        if (!match) {
-          throw new Error(
-            `section not found: "${params.section}" in ${memoryDir}/${params.file}.md. Available sections: ${listSectionHeadings(sections)}`,
-          )
-        }
+    return withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
+      const raw = await readMemoryFile(params.vaultPath, params.file);
+      const parsed = parseNote(raw);
+      const lines = splitIntoLines(parsed.content);
+      const sections = parseSections(lines);
+      const match = findSection(sections, params.section, 2);
 
-        // Build the exact bullet string and find matching lines within the section
-        const targetBullet = `- **${params.date}**: ${params.entry}`
-        const matchingIndices = lines.flatMap((line, index) =>
-          index >= match.bodyStartLine &&
-          index < match.bodyEndLine &&
-          line === targetBullet
-            ? [index]
-            : [],
-        )
+      if (!match) {
+        throw new Error(
+          `section not found: "${params.section}" in ${memoryDir}/${params.file}.md. Available sections: ${listSectionHeadings(sections)}`,
+        );
+      }
 
-        if (matchingIndices.length === 0) {
-          throw new Error(
-            `no entry matching (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
-          )
-        }
-        if (matchingIndices.length > 1) {
-          throw new Error(
-            `ambiguous: ${matchingIndices.length} entries match (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
-          )
-        }
+      // Build the exact bullet string and find matching lines within the section
+      const targetBullet = `- **${params.date}**: ${params.entry}`;
+      const matchingIndices = lines.flatMap((line, index) =>
+        index >= match.bodyStartLine && index < match.bodyEndLine && line === targetBullet ? [index] : [],
+      );
 
-        // Remove the single matched line, preserving everything before and after it
-        const matchIndex = matchingIndices[0]
-        if (matchIndex === undefined) {
-          throw new Error("expected at least one matching index")
-        }
-        const updatedLines = [
-          ...lines.slice(0, matchIndex),
-          ...lines.slice(matchIndex + 1),
-        ]
+      if (matchingIndices.length === 0) {
+        throw new Error(
+          `no entry matching (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
+        );
+      }
+      if (matchingIndices.length > 1) {
+        throw new Error(
+          `ambiguous: ${matchingIndices.length} entries match (${params.date}, "${params.entry}") under ## ${match.heading} in ${memoryDir}/${params.file}.md`,
+        );
+      }
 
-        const newContent = updatedLines.join("\n")
-        const serialized = stringifyNote(newContent, parsed.data)
-        const beforeBytes = Buffer.byteLength(raw, "utf8")
-        const afterBytes = Buffer.byteLength(serialized, "utf8")
-        guardAgainstShrink(beforeBytes, afterBytes, "deleting memory entry")
-        await atomicWriteFile(
-          {
-            filePath: memoryFilePath(params.vaultPath, params.file),
-            content: serialized,
-          },
-          logger,
-        )
-        logger.info("deleted memory entry", {
-          file: params.file,
-          section: params.section,
-          date: params.date,
-          beforeBytes,
-          afterBytes,
-        })
-      },
-    )
-  }
+      // Remove the single matched line, preserving everything before and after it
+      const matchIndex = matchingIndices[0];
+
+      if (matchIndex === undefined) {
+        throw new Error("expected at least one matching index");
+      }
+      const updatedLines = [...lines.slice(0, matchIndex), ...lines.slice(matchIndex + 1)];
+
+      const newContent = updatedLines.join("\n");
+      const serialized = stringifyNote(newContent, parsed.data);
+      const beforeBytes = Buffer.byteLength(raw, "utf8");
+      const afterBytes = Buffer.byteLength(serialized, "utf8");
+      guardAgainstShrink(beforeBytes, afterBytes, "deleting memory entry");
+      await atomicWriteFile(
+        {
+          filePath: memoryFilePath(params.vaultPath, params.file),
+          content: serialized,
+        },
+        logger,
+      );
+      logger.info("deleted memory entry", {
+        file: params.file,
+        section: params.section,
+        date: params.date,
+        beforeBytes,
+        afterBytes,
+      });
+    });
+  };
 
   /** Creates the memory directory with template files if it doesn't exist. Idempotent. */
-  const bootstrapMemoryDir = async (
-    params: { vaultPath: string },
-    logger: Logger,
-  ): Promise<void> => {
-    const dirPath = join(params.vaultPath, memoryDir)
+  const bootstrapMemoryDir = async (params: { vaultPath: string }, logger: Logger): Promise<void> => {
+    const dirPath = join(params.vaultPath, memoryDir);
     try {
-      await access(dirPath, constants.F_OK)
-      return
+      await access(dirPath, constants.F_OK);
+      return;
     } catch (err) {
-      if (!isErrnoException(err, "ENOENT")) throw err
+      if (!isErrnoException(err, "ENOENT")) throw err;
     }
-    await mkdir(dirPath, { recursive: true })
-    const created = DateTime.now().toISO()
+    await mkdir(dirPath, { recursive: true });
+    const created = DateTime.now().toISO();
+
     if (!created) {
-      throw new Error("DateTime.now().toISO() returned null")
+      throw new Error("DateTime.now().toISO() returned null");
     }
-    const templates = MEMORY_TEMPLATE_SPECS.map((spec) =>
-      renderMemoryTemplate(spec, created),
-    )
+    const templates = MEMORY_TEMPLATE_SPECS.map((spec) => renderMemoryTemplate(spec, created));
     await Promise.all(
       templates.map((template) =>
         atomicWriteFile(
@@ -985,12 +888,12 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           logger,
         ),
       ),
-    )
+    );
     logger.info("bootstrapped memory directory", {
       memoryDir,
       fileCount: templates.length,
-    })
-  }
+    });
+  };
 
   return {
     getMemory,
@@ -999,5 +902,5 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     listMemoryFileNames,
     deleteMemory,
     bootstrapMemoryDir,
-  }
-}
+  };
+};

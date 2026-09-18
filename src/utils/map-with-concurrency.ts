@@ -12,29 +12,28 @@
  *  The other already-started calls in the same batch still settle, but no further
  *  batch is started. */
 export const mapWithConcurrency = async <Item, Result>(params: {
-  items: readonly Item[]
-  concurrency: number
-  mapper: (item: Item) => Promise<Result>
+  items: readonly Item[];
+  concurrency: number;
+  mapper: (item: Item) => Promise<Result>;
 }): Promise<Result[]> => {
-  const { items, concurrency, mapper } = params
+  const { items, concurrency, mapper } = params;
+
   if (!Number.isInteger(concurrency) || concurrency < 1) {
-    throw new Error(
-      `concurrency must be a positive integer, got ${concurrency}`,
-    )
+    throw new Error(`concurrency must be a positive integer, got ${concurrency}`);
   }
 
   const batchStarts = Array.from(
     { length: Math.ceil(items.length / concurrency) },
     (_unused, batchIndex) => batchIndex * concurrency,
-  )
+  );
 
   // Sequential over batches (the await in the loop is intentional — it bounds the
   // concurrency); the items within each batch run together via Promise.all. The
   // const accumulator is pushed into rather than spread to avoid O(n^2) copying.
-  const results: Result[] = []
+  const results: Result[] = [];
   for (const start of batchStarts) {
-    const batch = items.slice(start, start + concurrency)
-    results.push(...(await Promise.all(batch.map(mapper))))
+    const batch = items.slice(start, start + concurrency);
+    results.push(...(await Promise.all(batch.map(mapper))));
   }
-  return results
-}
+  return results;
+};

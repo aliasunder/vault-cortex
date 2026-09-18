@@ -11,32 +11,27 @@
  * transform composing the shared heading and fence/comment machinery.
  */
 
-import { parseHeadings } from "./headings.js"
-import {
-  advanceComment,
-  advanceFence,
-  type CommentResult,
-  type OpenFence,
-} from "./lines.js"
+import { parseHeadings } from "./headings.js";
+import { advanceComment, advanceFence, type CommentResult, type OpenFence } from "./lines.js";
 
 // ── Types ───────────────────────────────────────────────────────
 
 export type MemoryEntry = Readonly<{
   /** H2 heading text the entry sits under, verbatim (including any
    *  "(newest first)" suffix as written). */
-  section: string
+  section: string;
   /** The bullet's date in YYYY-MM-DD shape, exactly as written. Shape-only:
    *  a calendar-invalid date like "2026-13-45" is kept verbatim — entries
    *  exist only via hand edits or the validated write path, and dropping one
    *  would silently lose memory content. */
-  date: string
+  date: string;
   /** Raw entry markdown: the dated bullet line plus every continuation line
    *  (wrapped prose, sub-bullets, fenced code examples) up to the next entry
    *  or section boundary, with trailing blank lines trimmed. */
-  text: string
+  text: string;
   /** 0-based document order across the whole file, spanning sections. */
-  entryIndex: number
-}>
+  entryIndex: number;
+}>;
 
 // ── Entry grammar ───────────────────────────────────────────────
 
@@ -44,7 +39,7 @@ export type MemoryEntry = Readonly<{
  *  captures the date. The bold date is the reliable anchor — entry text after
  *  the colon may contain its own `**bold**`. Same shape as memory-store's
  *  ENTRY_PATTERN, with a capture group added. */
-const ENTRY_START_PATTERN = /^- \*\*(\d{4}-\d{2}-\d{2})\*\*:/
+const ENTRY_START_PATTERN = /^- \*\*(\d{4}-\d{2}-\d{2})\*\*:/;
 
 /** Matches any ATX heading line (H1–H6) per CommonMark §4.2: 0-3 leading
  *  spaces, hashes, then a space/tab separator or end of line (empty headings
@@ -52,32 +47,26 @@ const ENTRY_START_PATTERN = /^- \*\*(\d{4}-\d{2}-\d{2})\*\*:/
  *  parseHeadings ends the span at the next H1/H2 — and a sub-heading starts
  *  new content, so it closes the open entry rather than being absorbed as
  *  continuation text. */
-const HEADING_LINE_PATTERN = /^ {0,3}#{1,6}(?:[ \t]|$)/
+const HEADING_LINE_PATTERN = /^ {0,3}#{1,6}(?:[ \t]|$)/;
 
 // ── Parser ──────────────────────────────────────────────────────
 
 /** One entry being accumulated while walking a section span. */
-type OpenEntry = { date: string; textLines: string[] }
+type OpenEntry = { date: string; textLines: string[] };
 
 /** Closes an accumulating entry into a MemoryEntry, trimming trailing blank
  *  lines (the gap before the next entry belongs to neither). findLastIndex
  *  returns -1 when every line is blank, so +1 slices to empty — though the
  *  first line is always the dated bullet, so that case cannot arise here. */
-const closeEntry = (
-  openEntry: OpenEntry,
-  section: string,
-  entryIndex: number,
-): MemoryEntry => {
-  const lastContentIndex = openEntry.textLines.findLastIndex(
-    (textLine) => textLine.trim() !== "",
-  )
+const closeEntry = (openEntry: OpenEntry, section: string, entryIndex: number): MemoryEntry => {
+  const lastContentIndex = openEntry.textLines.findLastIndex((textLine) => textLine.trim() !== "");
   return {
     section,
     date: openEntry.date,
     text: openEntry.textLines.slice(0, lastContentIndex + 1).join("\n"),
     entryIndex,
-  }
-}
+  };
+};
 
 /**
  * Parses a memory file's body lines into dated entries, in document order.
@@ -97,79 +86,69 @@ const closeEntry = (
  * entries legitimately contain code examples, and text is raw markdown.
  */
 export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
-  const sectionSpans = parseHeadings(lines).filter(
-    (heading) => heading.level === 2,
-  )
+  const sectionSpans = parseHeadings(lines).filter((heading) => heading.level === 2);
 
-  const entries: MemoryEntry[] = []
+  const entries: MemoryEntry[] = [];
   for (const span of sectionSpans) {
     // Fence and comment state start closed at each span: parseHeadings only
     // recognizes headings outside fences/comments, so a span can never begin
     // mid-fence. The walk is inherently sequential parser state.
-    let openFence: OpenFence = null
-    let commentOpen = false
-    let openEntry: OpenEntry | null = null
+    let openFence: OpenFence = null;
+    let commentOpen = false;
+    let openEntry: OpenEntry | null = null;
 
-    for (
-      let lineIndex = span.bodyStartLine;
-      lineIndex < span.bodyEndLine;
-      lineIndex++
-    ) {
-      const line = lines[lineIndex]
-      if (line === undefined) continue
+    for (let lineIndex = span.bodyStartLine; lineIndex < span.bodyEndLine; lineIndex++) {
+      const line = lines[lineIndex];
+
+      if (line === undefined) continue;
 
       // Fence/comment precedence, as in parseHeadings: fences advance only
       // outside comments, comment toggles run only outside fences. Explicit
       // annotations break the inference cycle through the loop-carried state.
-      const fenceResult: ReturnType<typeof advanceFence> | null = commentOpen
-        ? null
-        : advanceFence(line, openFence)
-      openFence = fenceResult !== null ? fenceResult.openFence : openFence
+      const fenceResult: ReturnType<typeof advanceFence> | null = commentOpen ? null : advanceFence(line, openFence);
+      openFence = fenceResult !== null ? fenceResult.openFence : openFence;
 
-      const commentResult: CommentResult | null = fenceResult?.lineIsCode
-        ? null
-        : advanceComment(line, commentOpen)
-      commentOpen =
-        commentResult !== null ? commentResult.commentOpen : commentOpen
+      const commentResult: CommentResult | null = fenceResult?.lineIsCode ? null : advanceComment(line, commentOpen);
+      commentOpen = commentResult !== null ? commentResult.commentOpen : commentOpen;
 
       // Inside code or a comment this line cannot START an entry, but it is
       // legitimate continuation content for one already open.
-      const lineCannotStartEntry =
-        (fenceResult?.lineIsCode ?? false) ||
-        (commentResult?.lineIsComment ?? false)
+      const lineCannotStartEntry = (fenceResult?.lineIsCode ?? false) || (commentResult?.lineIsComment ?? false);
+
       if (lineCannotStartEntry) {
-        if (openEntry !== null) openEntry.textLines.push(line)
-        continue
+        if (openEntry !== null) openEntry.textLines.push(line);
+        continue;
       }
 
-      const entryStartMatch = ENTRY_START_PATTERN.exec(line)
-      const entryDate = entryStartMatch?.[1]
+      const entryStartMatch = ENTRY_START_PATTERN.exec(line);
+      const entryDate = entryStartMatch?.[1];
+
       if (entryDate) {
         if (openEntry !== null) {
-          entries.push(closeEntry(openEntry, span.text, entries.length))
+          entries.push(closeEntry(openEntry, span.text, entries.length));
         }
-        openEntry = { date: entryDate, textLines: [line] }
-        continue
+        openEntry = { date: entryDate, textLines: [line] };
+        continue;
       }
 
       // A deeper heading (H3+) closes the open entry — it starts new content
       // within the section, not continuation text — and belongs to no entry.
       if (HEADING_LINE_PATTERN.test(line)) {
         if (openEntry !== null) {
-          entries.push(closeEntry(openEntry, span.text, entries.length))
-          openEntry = null
+          entries.push(closeEntry(openEntry, span.text, entries.length));
+          openEntry = null;
         }
-        continue
+        continue;
       }
 
       // Continuation of the open entry, or pre-entry prose (ignored).
-      if (openEntry !== null) openEntry.textLines.push(line)
+      if (openEntry !== null) openEntry.textLines.push(line);
     }
 
     if (openEntry !== null) {
-      entries.push(closeEntry(openEntry, span.text, entries.length))
+      entries.push(closeEntry(openEntry, span.text, entries.length));
     }
   }
 
-  return entries
-}
+  return entries;
+};

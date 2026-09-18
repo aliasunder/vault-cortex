@@ -1,7 +1,8 @@
-import js from "@eslint/js"
-import { defineConfig } from "eslint/config"
-import tseslint from "typescript-eslint"
-import eslintConfigPrettier from "eslint-config-prettier"
+import js from "@eslint/js";
+import stylistic from "@stylistic/eslint-plugin";
+import { defineConfig } from "eslint/config";
+import tseslint from "typescript-eslint";
+import eslintConfigPrettier from "eslint-config-prettier";
 
 // no-restricted-syntax options replace rather than merge across overlapping
 // config blocks, so any block that narrows the file set has to restate every
@@ -12,15 +13,13 @@ import eslintConfigPrettier from "eslint-config-prettier"
 const LUXON_OVER_DATE_RESTRICTIONS = [
   {
     selector: 'NewExpression[callee.name="Date"]',
-    message:
-      "Use Luxon DateTime over the native Date API (AGENTS.md → Code style)",
+    message: "Use Luxon DateTime over the native Date API (AGENTS.md → Code style)",
   },
   {
     selector: 'CallExpression[callee.object.name="Date"]',
-    message:
-      "Use Luxon (DateTime.now(), .toUnixInteger()) over Date static methods (AGENTS.md → Code style)",
+    message: "Use Luxon (DateTime.now(), .toUnixInteger()) over Date static methods (AGENTS.md → Code style)",
   },
-]
+];
 
 /** Bans direct use of `config.readOnlyMode` in tool/prompt modules —
  *  branching on the flag misses DISABLED_TOOLS and any future gating axis,
@@ -36,7 +35,7 @@ const ENABLED_SET_OVER_READONLY_FLAG_RESTRICTIONS = [
     message:
       "Key tool references on the enabled set (isToolEnabled / whenToolEnabled), not on config.readOnlyMode — the flag misses DISABLED_TOOLS (AGENTS.md → Module layering)",
   },
-]
+];
 
 export default defineConfig(
   js.configs.recommended,
@@ -44,14 +43,8 @@ export default defineConfig(
   eslintConfigPrettier,
   {
     rules: {
-      "@typescript-eslint/no-unused-vars": [
-        "error",
-        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
-      ],
-      "@typescript-eslint/consistent-type-assertions": [
-        "error",
-        { assertionStyle: "never" },
-      ],
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
+      "@typescript-eslint/consistent-type-assertions": ["error", { assertionStyle: "never" }],
       // AGENTS.md → Code style: arrow functions over `function` declarations.
       "func-style": ["error", "expression"],
       // AGENTS.md → Code style: `type` over `interface`.
@@ -64,9 +57,19 @@ export default defineConfig(
       // single-char identifiers. Exceptions: `i` (loop index), `a`/`b`
       // (sort comparators), `k` (the RRF constant's literature name),
       // `_` (unused-param convention).
-      "id-length": [
+      "id-length": ["error", { min: 2, properties: "never", exceptions: ["i", "a", "b", "k", "_"] }],
+    },
+  },
+  {
+    // AGENTS.md → Code style: blank lines separate logical sections — a
+    // declaration never runs straight into the guard that consumes it.
+    // Mirrors the guard hook's warn-smushed-var-guard; auto-fixable, and
+    // Prettier leaves single blank lines alone so the two don't fight.
+    plugins: { "@stylistic": stylistic },
+    rules: {
+      "@stylistic/padding-line-between-statements": [
         "error",
-        { min: 2, properties: "never", exceptions: ["i", "a", "b", "k", "_"] },
+        { blankLine: "always", prev: ["const", "let"], next: "if" },
       ],
     },
   },
@@ -100,8 +103,7 @@ export default defineConfig(
         {
           object: "process",
           property: "env",
-          message:
-            "Read env via the env-var package in config.ts — never raw process.env",
+          message: "Read env via the env-var package in config.ts — never raw process.env",
         },
       ],
     },
@@ -109,10 +111,7 @@ export default defineConfig(
   {
     files: ["**/__tests__/**/*.ts", "**/*.test.ts"],
     rules: {
-      "@typescript-eslint/consistent-type-assertions": [
-        "warn",
-        { assertionStyle: "never" },
-      ],
+      "@typescript-eslint/consistent-type-assertions": ["warn", { assertionStyle: "never" }],
       "@typescript-eslint/no-non-null-assertion": "warn",
     },
   },
@@ -151,13 +150,7 @@ export default defineConfig(
                 "obsidian-markdown/ is a leaf layer — no runtime imports of other internal modules (AGENTS.md → Module layering)",
             },
             {
-              group: [
-                "node:fs",
-                "node:fs/**",
-                "better-sqlite3",
-                "sqlite-vec",
-                "@modelcontextprotocol/**",
-              ],
+              group: ["node:fs", "node:fs/**", "better-sqlite3", "sqlite-vec", "@modelcontextprotocol/**"],
               allowTypeImports: true,
               message:
                 "pure parsers do no I/O — no fs, SQLite, or MCP SDK in obsidian-markdown/ (AGENTS.md → Module layering)",
@@ -198,12 +191,7 @@ export default defineConfig(
         {
           patterns: [
             {
-              group: [
-                "**/search/**",
-                "**/mcp-core/**",
-                "**/oauth/**",
-                "**/setup/**",
-              ],
+              group: ["**/search/**", "**/mcp-core/**", "**/oauth/**", "**/setup/**"],
               allowTypeImports: true,
               message:
                 "vault-operations/ builds on parsers and utils only — no runtime imports of search/, mcp-core/, oauth/, or setup/ (AGENTS.md → Module layering)",
@@ -224,12 +212,7 @@ export default defineConfig(
         {
           patterns: [
             {
-              group: [
-                "**/vault-operations/**",
-                "**/mcp-core/**",
-                "**/oauth/**",
-                "**/setup/**",
-              ],
+              group: ["**/vault-operations/**", "**/mcp-core/**", "**/oauth/**", "**/setup/**"],
               allowTypeImports: true,
               message:
                 "search/ builds on parsers and utils only — no runtime imports of vault-operations/, mcp-core/, oauth/, or setup/ (AGENTS.md → Module layering)",
@@ -267,10 +250,7 @@ export default defineConfig(
     // names live in the registry alone. Per-group name constants were a real
     // duplicate source of truth before the registry replaced them — a local
     // TOOL_NAMES would compile and pass tests while drifting from it.
-    files: [
-      "src/vault-mcp/mcp-core/tools/**/*.ts",
-      "src/vault-mcp/mcp-core/prompts/**/*.ts",
-    ],
+    files: ["src/vault-mcp/mcp-core/tools/**/*.ts", "src/vault-mcp/mcp-core/prompts/**/*.ts"],
     ignores: ["**/__tests__/**", "**/*.test.ts"],
     rules: {
       "no-restricted-syntax": [
@@ -333,4 +313,4 @@ export default defineConfig(
   {
     ignores: ["dist/", "cli/dist/", ".sst/", "sst-env.d.ts"],
   },
-)
+);

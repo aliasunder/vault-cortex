@@ -8,58 +8,46 @@
  *  living` (a current-state snapshot, e.g. a Routines file): there, expired
  *  entries are maintenance debt, and the review may propose pruning them. */
 
-import { completable } from "@modelcontextprotocol/sdk/server/completable.js"
-import { z } from "zod"
-import {
-  createMemoryStore,
-  type MemoryFileOutline,
-} from "../../vault-operations/memory-store.js"
-import { describeError } from "../../../utils/describe-error.js"
-import {
-  type PromptRegistrationContext,
-  textResult,
-  wrapWithDataMarkers,
-  maxCharsArg,
-} from "./prompt-helpers.js"
+import { completable } from "@modelcontextprotocol/sdk/server/completable.js";
+import { z } from "zod";
+import { createMemoryStore, type MemoryFileOutline } from "../../vault-operations/memory-store.js";
+import { describeError } from "../../../utils/describe-error.js";
+import { type PromptRegistrationContext, textResult, wrapWithDataMarkers, maxCharsArg } from "./prompt-helpers.js";
 
 const PROMPT_NAMES = {
   MEMORY_REVIEW: "memory-review",
-} as const
-export { PROMPT_NAMES as MEMORY_REVIEW_PROMPT_NAMES }
+} as const;
+export { PROMPT_NAMES as MEMORY_REVIEW_PROMPT_NAMES };
 
 /** Formats a single memory file outline as a bullet with scope and section details. */
 const formatFileOutline = (outline: MemoryFileOutline): string => {
-  const titleLine = `- **${outline.file}** (${outline.bytes} bytes, ${outline.entry_policy})`
+  const titleLine = `- **${outline.file}** (${outline.bytes} bytes, ${outline.entry_policy})`;
 
   const scopeLines = (outline.leading_callout?.body ?? "")
     .split("\n")
     .filter(Boolean)
-    .map((line) => `  ${line}`)
+    .map((line) => `  ${line}`);
 
   const sectionLines = outline.headings
     .filter((heading) => heading.level === 2)
     .map((heading) => {
-      const entryCount =
-        heading.entryCount != null ? ` (${heading.entryCount} entries)` : ""
-      return `  - ${heading.text}${entryCount}`
-    })
+      const entryCount = heading.entryCount != null ? ` (${heading.entryCount} entries)` : "";
+      return `  - ${heading.text}${entryCount}`;
+    });
 
-  return [titleLine, ...scopeLines, ...sectionLines].join("\n")
-}
+  return [titleLine, ...scopeLines, ...sectionLines].join("\n");
+};
 
 /** Renders a structural overview of memory files: file count, scope callouts,
  *  section names with entry counts, and file sizes. Shown before the raw
  *  content in memory-review so the LLM has structural context. */
-const formatMemoryStructuralOverview = (
-  outlines: readonly MemoryFileOutline[],
-  memoryDir: string,
-): string => {
-  const fileCount = outlines.length
-  const header = `${fileCount} memory file${fileCount === 1 ? "" : "s"} in ${memoryDir}/:`
-  const fileDetails = outlines.map(formatFileOutline).join("\n")
+const formatMemoryStructuralOverview = (outlines: readonly MemoryFileOutline[], memoryDir: string): string => {
+  const fileCount = outlines.length;
+  const header = `${fileCount} memory file${fileCount === 1 ? "" : "s"} in ${memoryDir}/:`;
+  const fileDetails = outlines.map(formatFileOutline).join("\n");
 
-  return [header, "", fileDetails].join("\n")
-}
+  return [header, "", fileDetails].join("\n");
+};
 
 export const registerMemoryReviewPrompt = ({
   server,
@@ -70,7 +58,7 @@ export const registerMemoryReviewPrompt = ({
   whenToolEnabledText,
   formatEnabledToolList,
 }: PromptRegistrationContext): void => {
-  const memoryStore = createMemoryStore({ memoryDir: config.memoryDir })
+  const memoryStore = createMemoryStore({ memoryDir: config.memoryDir });
 
   server.registerPrompt(
     PROMPT_NAMES.MEMORY_REVIEW,
@@ -86,31 +74,24 @@ export const registerMemoryReviewPrompt = ({
           z
             .string()
             .optional()
-            .describe(
-              `Memory file to review (e.g. one from ${config.memoryDir}/); omit to review all`,
-            ),
+            .describe(`Memory file to review (e.g. one from ${config.memoryDir}/); omit to review all`),
           // Autocomplete from the live set of memory file names (prefix match).
           // Uses the name-only lister (readdir, no parsing) because completion
           // fires per keystroke. No request context here, so use the session
           // logger; degrade to [] so completion never hard-fails.
           async (value) => {
             try {
-              const names = await memoryStore.listMemoryFileNames(
-                { vaultPath },
-                sessionLogger,
-              )
-              const loweredValue = (value ?? "").toLowerCase()
-              return names.filter((name) =>
-                name.toLowerCase().startsWith(loweredValue),
-              )
+              const names = await memoryStore.listMemoryFileNames({ vaultPath }, sessionLogger);
+              const loweredValue = (value ?? "").toLowerCase();
+              return names.filter((name) => name.toLowerCase().startsWith(loweredValue));
             } catch (err) {
               // Recoverable and high-frequency (fires per keystroke), so warn
               // rather than error — but never swallow it silently.
               sessionLogger.warn("prompt_completion_failed", {
                 prompt: PROMPT_NAMES.MEMORY_REVIEW,
                 error: describeError(err),
-              })
-              return []
+              });
+              return [];
             }
           },
         ),
@@ -121,86 +102,71 @@ export const registerMemoryReviewPrompt = ({
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         prompt: PROMPT_NAMES.MEMORY_REVIEW,
-      })
+      });
       reqLogger.info("prompt_call", {
         file: args.file,
         maxChars: args.max_chars,
-      })
-      const maxChars = args.max_chars ? Number(args.max_chars) : undefined
+      });
+      const maxChars = args.max_chars ? Number(args.max_chars) : undefined;
 
       try {
-        const outlines = await memoryStore.listMemoryFiles(
-          { vaultPath },
-          reqLogger,
-        )
+        const outlines = await memoryStore.listMemoryFiles({ vaultPath }, reqLogger);
 
         // Empty memory is not an error — explain how the layer gets started.
         if (outlines.length === 0) {
-          reqLogger.info("prompt_result", { outcome: "empty_memory" })
+          reqLogger.info("prompt_result", { outcome: "empty_memory" });
           return textResult(
             `The ${config.memoryDir}/ memory layer is empty — there's nothing to review yet.\n\nMemory is built with vault_update_memory, which appends dated entries (newest-first) under H2 sections of files like Me, Principles, and Opinions. Once a few entries exist, run this prompt again to reflect on them.`,
-          )
+          );
         }
 
         // A bad file name degrades to a friendly "valid names" message rather
         // than throwing through to the client. Bad client input → warn.
-        const isUnknownFile =
-          args.file && !outlines.some((outline) => outline.file === args.file)
+        const isUnknownFile = args.file && !outlines.some((outline) => outline.file === args.file);
+
         if (isUnknownFile) {
           reqLogger.warn("prompt_bad_argument", {
             argument: "file",
             value: args.file,
-          })
+          });
           return textResult(
             `No memory file named "${args.file}" in ${config.memoryDir}/. Available files: ${outlines
               .map((outline) => outline.file)
               .join(", ")}.`,
-          )
+          );
         }
 
-        const memory = await memoryStore.getMemory(
-          { vaultPath, file: args.file },
-          reqLogger,
-        )
-        const trimmedMemory = memory.trim()
-        const truncated =
-          maxChars !== undefined && trimmedMemory.length > maxChars
+        const memory = await memoryStore.getMemory({ vaultPath, file: args.file }, reqLogger);
+        const trimmedMemory = memory.trim();
+        const truncated = maxChars !== undefined && trimmedMemory.length > maxChars;
         const scope = args.file
           ? `the ${config.memoryDir}/${args.file} memory file`
-          : `the ${config.memoryDir}/ memory layer`
+          : `the ${config.memoryDir}/ memory layer`;
 
         const structuralOverview = formatMemoryStructuralOverview(
-          args.file
-            ? outlines.filter((outline) => outline.file === args.file)
-            : outlines,
+          args.file ? outlines.filter((outline) => outline.file === args.file) : outlines,
           config.memoryDir,
-        )
+        );
 
-        const memorySource = args.file
-          ? `${config.memoryDir}/${args.file}`
-          : config.memoryDir
+        const memorySource = args.file ? `${config.memoryDir}/${args.file}` : config.memoryDir;
         const cappedMemoryContent = wrapWithDataMarkers({
           content: trimmedMemory,
           markerAttributes: { source: memorySource, type: "memory" },
           maxChars,
-          truncationToolName: isToolEnabled("vault_get_memory")
-            ? "vault_get_memory"
-            : undefined,
-        })
+          truncationToolName: isToolEnabled("vault_get_memory") ? "vault_get_memory" : undefined,
+        });
         const memoryContentOrEmpty =
-          trimmedMemory.length > 0
-            ? cappedMemoryContent
-            : "_(the selected memory is empty)_"
+          trimmedMemory.length > 0 ? cappedMemoryContent : "_(the selected memory is empty)_";
 
         // vault_update_memory is guaranteed here — this prompt is only
         // registered when it is served. vault_delete_memory is not: it can be
         // dropped on its own, and the deletion-shaped guidance (corrections,
         // living-file pruning) has to go with it. Numbering is derived so a
         // dropped step doesn't leave a gap in the list.
-        const canDeleteMemory = isToolEnabled("vault_delete_memory")
+        const canDeleteMemory = isToolEnabled("vault_delete_memory");
         const correctionsStep = canDeleteMemory
           ? "**Corrections (rare, separate).** Only a fact that is mis-recorded or now genuinely incorrect — not one that simply changed over time — warrants a fix. Prefer an appended dated correction that preserves the old entry (history matters); reserve vault_delete_memory for genuinely wrong facts."
-          : "**Corrections (rare, separate).** Only a fact that is mis-recorded or now genuinely incorrect — not one that simply changed over time — warrants a fix. Propose an appended dated correction that preserves the old entry — history matters."
+          : "**Corrections (rare, separate).** Only a fact that is mis-recorded or now genuinely incorrect — not one that simply changed over time — warrants a fix. Propose an appended dated correction that preserves the old entry — history matters.";
         const reflectionSteps = [
           '**Read it as an evolution.** Summarize the current picture (the newest entries) *and* the trajectory that led there. Earlier entries aren\'t wrong — they\'re how things got here. Do **not** treat a newer entry as "overriding" or "superseding" an older one, and do **not** flag beliefs that changed over time as contradictions to reconcile — that misreads the system.',
           "**Scope-fit.** Using the scopes shown in the Structure section above, note any entry that seems to belong in a different file or section — does the entry match the file's declared Contains/Does NOT contain scope?",
@@ -213,10 +179,10 @@ export const registerMemoryReviewPrompt = ({
         ]
           .filter(Boolean)
           .map((step, index) => `${index + 1}. ${step}`)
-          .join("\n")
+          .join("\n");
         const proposalDirective = canDeleteMemory
           ? "Propose updates as explicit vault_update_memory calls and deletions as explicit vault_delete_memory calls; for living-file pruning, append any worthwhile outcome to the appropriate history section first. The server stamps update dates. **Confirm with me before writing or deleting anything**. Never delete an entry just for being old from an append-only file."
-          : "Propose updates as explicit vault_update_memory calls. The server stamps update dates. **Confirm with me before writing anything.**"
+          : "Propose updates as explicit vault_update_memory calls. The server stamps update dates. **Confirm with me before writing anything.**";
 
         const memoryReview = [
           `# Memory review — ${args.file ?? "all files"}`,
@@ -236,29 +202,24 @@ export const registerMemoryReviewPrompt = ({
           reflectionSteps,
           "",
           proposalDirective,
-        ].join("\n")
+        ].join("\n");
         reqLogger.info("prompt_result", {
           outcome: "ok",
           file: args.file ?? null,
           files: outlines.length,
           chars: memoryReview.length,
           truncated,
-        })
-        return textResult(memoryReview)
+        });
+        return textResult(memoryReview);
       } catch (err) {
-        const message = describeError(err)
-        reqLogger.error("prompt_error", { error: message })
-        const fallbackTools = formatEnabledToolList([
-          "vault_list_memory_files",
-          "vault_get_memory",
-        ])
+        const message = describeError(err);
+        reqLogger.error("prompt_error", { error: message });
+        const fallbackTools = formatEnabledToolList(["vault_list_memory_files", "vault_get_memory"]);
         const fallbackHint = fallbackTools
           ? ` Try ${fallbackTools} to inspect the ${config.memoryDir}/ layer directly.`
-          : ""
-        return textResult(
-          `Could not load memory for review (${message}).${fallbackHint}`,
-        )
+          : "";
+        return textResult(`Could not load memory for review (${message}).${fallbackHint}`);
       }
     },
-  )
-}
+  );
+};

@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest"
-import { parseRecurrenceRule, nextOccurrenceDates } from "../recurrence.js"
+import { describe, it, expect } from "vitest";
+import { parseRecurrenceRule, nextOccurrenceDates } from "../recurrence.js";
 
 /** Shorthand for the common case: no scheduled/start, no
  *  removeScheduledDateOnRecurrence, arithmetic in UTC so the vectors are
@@ -9,9 +9,9 @@ const nextDatesForDue = ({
   dueDate,
   today,
 }: {
-  recurrenceText: string
-  dueDate: string | null
-  today: string
+  recurrenceText: string;
+  dueDate: string | null;
+  today: string;
 }): ReturnType<typeof nextOccurrenceDates> => {
   return nextOccurrenceDates({
     recurrenceText,
@@ -21,31 +21,31 @@ const nextDatesForDue = ({
     today,
     removeScheduledDateOnRecurrence: false,
     zone: "utc",
-  })
-}
+  });
+};
 
 describe("parseRecurrenceRule", () => {
   it("parses a plain rule without the when-done flag", () => {
-    const parsed = parseRecurrenceRule("every week")
-    expect(parsed?.advanceFromCompletionDay).toBe(false)
+    const parsed = parseRecurrenceRule("every week");
+    expect(parsed?.advanceFromCompletionDay).toBe(false);
     // freq 2 = RRule.WEEKLY — assert the rrule output is structurally sound
-    expect(parsed?.rruleOptions.freq).toBe(2)
-  })
+    expect(parsed?.rruleOptions.freq).toBe(2);
+  });
 
   it('parses the " when done" suffix case-insensitively', () => {
-    const parsed = parseRecurrenceRule("every week WHEN DONE")
-    expect(parsed?.advanceFromCompletionDay).toBe(true)
-    expect(parsed?.rruleOptions.freq).toBe(2)
-  })
+    const parsed = parseRecurrenceRule("every week WHEN DONE");
+    expect(parsed?.advanceFromCompletionDay).toBe(true);
+    expect(parsed?.rruleOptions.freq).toBe(2);
+  });
 
   it("returns null for text rrule cannot read", () => {
-    expect(parseRecurrenceRule("whenever I feel like it")).toBeNull()
-  })
+    expect(parseRecurrenceRule("whenever I feel like it")).toBeNull();
+  });
 
   it("returns null for text outside the rule charset", () => {
-    expect(parseRecurrenceRule("every week ⏰")).toBeNull()
-  })
-})
+    expect(parseRecurrenceRule("every week ⏰")).toBeNull();
+  });
+});
 
 describe("nextOccurrenceDates", () => {
   it("advances a weekly rule one week from the due date", () => {
@@ -53,13 +53,13 @@ describe("nextOccurrenceDates", () => {
       recurrenceText: "every week",
       dueDate: "2026-01-05",
       today: "2026-01-05",
-    })
+    });
     expect(next).toEqual({
       startDate: null,
       scheduledDate: null,
       dueDate: "2026-01-12",
-    })
-  })
+    });
+  });
 
   it("advances from the original due date even when long overdue", () => {
     // The plugin's non-when-done recurrence ignores the completion day.
@@ -67,13 +67,13 @@ describe("nextOccurrenceDates", () => {
       recurrenceText: "every week",
       dueDate: "2026-01-05",
       today: "2026-09-11",
-    })
+    });
     expect(next).toEqual({
       startDate: null,
       scheduledDate: null,
       dueDate: "2026-01-12",
-    })
-  })
+    });
+  });
 
   // Plugin test: "creates a recurring instance even if no date is given"
   it("spawns a dateless occurrence for a task with no dates", () => {
@@ -81,13 +81,13 @@ describe("nextOccurrenceDates", () => {
       recurrenceText: "every week",
       dueDate: null,
       today: "2026-01-05",
-    })
+    });
     expect(next).toEqual({
       startDate: null,
       scheduledDate: null,
       dueDate: null,
-    })
-  })
+    });
+  });
 
   // Plugin test: "creates a recurrence the next month, even on the 31st"
   it("clamps a monthly rule from Jan 31 to Feb 28", () => {
@@ -95,13 +95,13 @@ describe("nextOccurrenceDates", () => {
       recurrenceText: "every month",
       dueDate: "2022-01-31",
       today: "2022-01-31",
-    })
+    });
     expect(next).toEqual({
       startDate: null,
       scheduledDate: null,
       dueDate: "2022-02-28",
-    })
-  })
+    });
+  });
 
   // Plugin test: "creates a recurrence 3 months in"
   it("clamps a 3-month rule from Jan 31 to Apr 30", () => {
@@ -109,13 +109,13 @@ describe("nextOccurrenceDates", () => {
       recurrenceText: "every 3 months",
       dueDate: "2022-01-31",
       today: "2022-01-31",
-    })
+    });
     expect(next).toEqual({
       startDate: null,
       scheduledDate: null,
       dueDate: "2022-04-30",
-    })
-  })
+    });
+  });
 
   // Plugin test: "creates a recurrence the next month, even across years"
   it("clamps a 2-month rule from Dec 31 to leap-year Feb 29", () => {
@@ -123,13 +123,13 @@ describe("nextOccurrenceDates", () => {
       recurrenceText: "every 2 months",
       dueDate: "2023-12-31",
       today: "2023-12-31",
-    })
+    });
     expect(next).toEqual({
       startDate: null,
       scheduledDate: null,
       dueDate: "2024-02-29",
-    })
-  })
+    });
+  });
 
   // Plugin test: "creates a recurrence in 2 years, even on Feb 29th" —
   // exercises the year walk-back, which has no " on " exemption.
@@ -138,13 +138,13 @@ describe("nextOccurrenceDates", () => {
       recurrenceText: "every 2 years",
       dueDate: "2024-02-29",
       today: "2024-02-29",
-    })
+    });
     expect(next).toEqual({
       startDate: null,
       scheduledDate: null,
       dueDate: "2026-02-28",
-    })
-  })
+    });
+  });
 
   // Plugin test: "creates a recurrence in 11 months, even on March 31"
   it("clamps an 11-month rule from Mar 31 to Feb 28", () => {
@@ -152,13 +152,13 @@ describe("nextOccurrenceDates", () => {
       recurrenceText: "every 11 months",
       dueDate: "2020-03-31",
       today: "2020-03-31",
-    })
+    });
     expect(next).toEqual({
       startDate: null,
       scheduledDate: null,
       dueDate: "2021-02-28",
-    })
-  })
+    });
+  });
 
   // Plugin test: "creates a recurrence in 13 months, even on Jan 31"
   it("clamps a 13-month rule from Jan 31 to Feb 28 the next year", () => {
@@ -166,13 +166,13 @@ describe("nextOccurrenceDates", () => {
       recurrenceText: "every 13 months",
       dueDate: "2020-01-31",
       today: "2020-01-31",
-    })
+    });
     expect(next).toEqual({
       startDate: null,
       scheduledDate: null,
       dueDate: "2021-02-28",
-    })
-  })
+    });
+  });
 
   it('keeps rrule\'s native month-skipping for rules that fix a date with " on "', () => {
     // February has no 31st, so the rule skips it — no walk-back clamp.
@@ -180,13 +180,13 @@ describe("nextOccurrenceDates", () => {
       recurrenceText: "every month on the 31st",
       dueDate: "2026-01-31",
       today: "2026-01-31",
-    })
+    });
     expect(next).toEqual({
       startDate: null,
       scheduledDate: null,
       dueDate: "2026-03-31",
-    })
-  })
+    });
+  });
 
   it("skips missing days natively for a yearly rule fixing month and day", () => {
     // "every January on the 31st" is yearly-frequency, but its canonical
@@ -196,13 +196,13 @@ describe("nextOccurrenceDates", () => {
       recurrenceText: "every January on the 31st",
       dueDate: "2026-01-31",
       today: "2026-01-31",
-    })
+    });
     expect(next).toEqual({
       startDate: null,
       scheduledDate: null,
       dueDate: "2027-01-31",
-    })
-  })
+    });
+  });
 
   it("shifts every present date by its distance from the reference date", () => {
     const next = nextOccurrenceDates({
@@ -213,26 +213,26 @@ describe("nextOccurrenceDates", () => {
       today: "2026-01-10",
       removeScheduledDateOnRecurrence: false,
       zone: "utc",
-    })
+    });
     expect(next).toEqual({
       startDate: "2026-01-11",
       scheduledDate: "2026-01-15",
       dueDate: "2026-01-17",
-    })
-  })
+    });
+  });
 
   it('bases a "when done" rule on the completion day, not the due date', () => {
     const next = nextDatesForDue({
       recurrenceText: "every week when done",
       dueDate: "2026-01-05",
       today: "2026-09-11",
-    })
+    });
     expect(next).toEqual({
       startDate: null,
       scheduledDate: null,
       dueDate: "2026-09-18",
-    })
-  })
+    });
+  });
 
   it('advances "every day when done" completed today to tomorrow', () => {
     // The next hit is strictly after today's end of day.
@@ -240,13 +240,13 @@ describe("nextOccurrenceDates", () => {
       recurrenceText: "every day when done",
       dueDate: "2026-09-11",
       today: "2026-09-11",
-    })
+    });
     expect(next).toEqual({
       startDate: null,
       scheduledDate: null,
       dueDate: "2026-09-12",
-    })
-  })
+    });
+  });
 
   // Plugin test: "should remove the scheduledDate when removeScheduledDate
   // is true"
@@ -259,13 +259,13 @@ describe("nextOccurrenceDates", () => {
       today: "2022-01-10",
       removeScheduledDateOnRecurrence: true,
       zone: "utc",
-    })
+    });
     expect(next).toEqual({
       startDate: "2022-02-01",
       scheduledDate: null,
       dueDate: "2022-02-10",
-    })
-  })
+    });
+  });
 
   // Plugin test: "should not remove the scheduledDate when it is the only
   // date"
@@ -278,13 +278,13 @@ describe("nextOccurrenceDates", () => {
       today: "2022-01-04",
       removeScheduledDateOnRecurrence: true,
       zone: "utc",
-    })
+    });
     expect(next).toEqual({
       startDate: null,
       scheduledDate: "2022-02-04",
       dueDate: null,
-    })
-  })
+    });
+  });
 
   // Plugin test: 'calculates correct start date with "dropScheduledDate"
   // and "when done", with no due date' — the reference priority flips to
@@ -298,22 +298,22 @@ describe("nextOccurrenceDates", () => {
       today: "2022-01-10",
       removeScheduledDateOnRecurrence: true,
       zone: "utc",
-    })
+    });
     expect(next).toEqual({
       startDate: "2022-01-13",
       scheduledDate: null,
       dueDate: null,
-    })
-  })
+    });
+  });
 
   it("returns null for an unparseable rule", () => {
     const next = nextDatesForDue({
       recurrenceText: "whenever I feel like it",
       dueDate: "2026-01-05",
       today: "2026-01-05",
-    })
-    expect(next).toBeNull()
-  })
+    });
+    expect(next).toBeNull();
+  });
 
   it("returns null for an exhausted finite rule", () => {
     // Count 1 means the reference day is the rule's only occurrence, so
@@ -323,9 +323,9 @@ describe("nextOccurrenceDates", () => {
       recurrenceText: "every day for 1 times",
       dueDate: "2026-01-05",
       today: "2026-01-05",
-    })
-    expect(next).toBeNull()
-  })
+    });
+    expect(next).toBeNull();
+  });
 
   it("computes day distances on zone-local instants, like the plugin", () => {
     // Pacific/Apia skipped 2011-12-30 crossing the date line: between
@@ -339,12 +339,12 @@ describe("nextOccurrenceDates", () => {
       today: "2011-12-31",
       removeScheduledDateOnRecurrence: false,
       zone: "Pacific/Apia",
-    })
+    });
     expect(shiftedInApia).toEqual({
       startDate: "2012-01-06",
       scheduledDate: null,
       dueDate: "2012-01-07",
-    })
+    });
 
     // The same dates in UTC keep their two-day label distance.
     const shiftedInUtc = nextOccurrenceDates({
@@ -355,13 +355,13 @@ describe("nextOccurrenceDates", () => {
       today: "2011-12-31",
       removeScheduledDateOnRecurrence: false,
       zone: "utc",
-    })
+    });
     expect(shiftedInUtc).toEqual({
       startDate: "2012-01-05",
       scheduledDate: null,
       dueDate: "2012-01-07",
-    })
-  })
+    });
+  });
 
   it("truncates the spring-forward day distance to match moment's absFloor", () => {
     // 2026-03-08 is DST spring-forward in America/New_York. The instant
@@ -376,11 +376,11 @@ describe("nextOccurrenceDates", () => {
       today: "2026-03-08",
       removeScheduledDateOnRecurrence: false,
       zone: "America/New_York",
-    })
+    });
     expect(shifted).toEqual({
       startDate: "2026-03-15",
       scheduledDate: null,
       dueDate: "2026-03-15",
-    })
-  })
-})
+    });
+  });
+});

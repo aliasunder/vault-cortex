@@ -41,28 +41,27 @@ export const TOOL_NAMES = {
   VAULT_UPDATE_TASK: "vault_update_task",
   VAULT_READ_FILE: "vault_read_file",
   VAULT_LIST_FILES: "vault_list_files",
-} as const
+} as const;
 
-export type ToolName = (typeof TOOL_NAMES)[keyof typeof TOOL_NAMES]
+export type ToolName = (typeof TOOL_NAMES)[keyof typeof TOOL_NAMES];
 
 /** Feature group a tool registers under. "memory" and "asset" are the
  *  flag-gated groups (MEMORY_ENABLED, FILE_TOOLS_ENABLED); the rest are
  *  always on. */
-export type ToolGroup =
-  "vault-crud" | "search" | "memory" | "daily-note" | "task" | "asset"
+export type ToolGroup = "vault-crud" | "search" | "memory" | "daily-note" | "task" | "asset";
 
 type ToolAnnotations = {
-  readOnlyHint: boolean
-  destructiveHint: boolean
-  idempotentHint: boolean
-  openWorldHint: boolean
-}
+  readOnlyHint: boolean;
+  destructiveHint: boolean;
+  idempotentHint: boolean;
+  openWorldHint: boolean;
+};
 
 export type RegistryEntry = {
-  name: ToolName
-  group: ToolGroup
-  annotations: ToolAnnotations
-}
+  name: ToolName;
+  group: ToolGroup;
+  annotations: ToolAnnotations;
+};
 
 /** Every read tool shares this shape: pure vault reads are idempotent, and
  *  no tool reaches beyond the vault (closed world). */
@@ -71,7 +70,7 @@ const READ_ONLY_ANNOTATIONS: ToolAnnotations = {
   destructiveHint: false,
   idempotentHint: true,
   openWorldHint: false,
-}
+};
 
 /** Write tools that can overwrite or remove existing content, where a replay
  *  is not safe (a second delete fails, a second patch double-applies). */
@@ -80,7 +79,7 @@ const DESTRUCTIVE_WRITE_ANNOTATIONS: ToolAnnotations = {
   destructiveHint: true,
   idempotentHint: false,
   openWorldHint: false,
-}
+};
 
 /** Write tools that only add lines to a note — never overwrite or remove
  *  existing content — where a replay duplicates the addition. */
@@ -89,7 +88,7 @@ const ADDITIVE_WRITE_ANNOTATIONS: ToolAnnotations = {
   destructiveHint: false,
   idempotentHint: false,
   openWorldHint: false,
-}
+};
 
 export const TOOL_REGISTRY: readonly RegistryEntry[] = [
   {
@@ -287,20 +286,18 @@ export const TOOL_REGISTRY: readonly RegistryEntry[] = [
     group: "asset",
     annotations: READ_ONLY_ANNOTATIONS,
   },
-]
+];
 
 /** Registry lookup by wire name — the registration wrapper resolves each
  *  tool's annotations through this, and config validation checks
  *  DISABLED_TOOLS entries against its keys. */
-export const TOOL_REGISTRY_BY_NAME: ReadonlyMap<ToolName, RegistryEntry> =
-  new Map(TOOL_REGISTRY.map((entry) => [entry.name, entry]))
+export const TOOL_REGISTRY_BY_NAME: ReadonlyMap<ToolName, RegistryEntry> = new Map(
+  TOOL_REGISTRY.map((entry) => [entry.name, entry]),
+);
 
-const TOOL_NAME_SET: ReadonlySet<string> = new Set(
-  TOOL_REGISTRY.map((entry) => entry.name),
-)
+const TOOL_NAME_SET: ReadonlySet<string> = new Set(TOOL_REGISTRY.map((entry) => entry.name));
 
 /** Type guard for a wire tool name — true exactly when the registry has an
  *  entry for it. Config validation uses this to reject DISABLED_TOOLS typos
  *  at boot. */
-export const isToolName = (value: string): value is ToolName =>
-  TOOL_NAME_SET.has(value)
+export const isToolName = (value: string): value is ToolName => TOOL_NAME_SET.has(value);

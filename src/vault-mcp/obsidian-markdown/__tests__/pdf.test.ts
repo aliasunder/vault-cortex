@@ -1,24 +1,19 @@
-import { describe, it, expect } from "vitest"
-import { extractPdfText } from "../pdf.js"
-import {
-  buildPdf,
-  buildMinimalPdf,
-  buildEmptyStreamPdf,
-  toPdfData,
-} from "./pdf-fixture.js"
+import { describe, it, expect } from "vitest";
+import { extractPdfText } from "../pdf.js";
+import { buildPdf, buildMinimalPdf, buildEmptyStreamPdf, toPdfData } from "./pdf-fixture.js";
 
-const HEADER = "Title: (untitled) | Pages: 1"
+const HEADER = "Title: (untitled) | Pages: 1";
 
 describe("extractPdfText", () => {
   it("extracts text from a valid PDF", async () => {
-    const result = await extractPdfText(toPdfData(buildMinimalPdf()))
-    expect(result).toEqual({ text: `${HEADER}\n\nHello PDF`, totalPages: 1 })
-  })
+    const result = await extractPdfText(toPdfData(buildMinimalPdf()));
+    expect(result).toEqual({ text: `${HEADER}\n\nHello PDF`, totalPages: 1 });
+  });
 
   it("returns empty text with page count for a PDF with no extractable text", async () => {
-    const result = await extractPdfText(toPdfData(buildEmptyStreamPdf()))
-    expect(result).toEqual({ text: "", totalPages: 1 })
-  })
+    const result = await extractPdfText(toPdfData(buildEmptyStreamPdf()));
+    expect(result).toEqual({ text: "", totalPages: 1 });
+  });
 
   describe("heading levels", () => {
     it("keeps the volume-dominant size as body even when smaller sizes exist", async () => {
@@ -38,8 +33,8 @@ describe("extractPdfText", () => {
           fontSize: 11,
         },
         { text: "toronto@example.com", x: 72, y: 610, fontSize: 9 },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
       expect(result.text).toBe(
         `${HEADER}\n\n` +
           "# Sample Heading\n" +
@@ -47,29 +42,27 @@ describe("extractPdfText", () => {
           "This is the body of the letter with plenty of text in it.\n" +
           "It keeps going with more words than any other size has.\n" +
           "toronto@example.com",
-      )
-    })
+      );
+    });
 
     it("produces no headings when the document has a single font size", async () => {
       const pdfBuffer = buildPdf([
         { text: "First line", x: 72, y: 720, fontSize: 12 },
         { text: "Second line", x: 72, y: 700, fontSize: 12 },
         { text: "Third line", x: 72, y: 680, fontSize: 12 },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(
-        `${HEADER}\n\nFirst line\nSecond line\nThird line`,
-      )
-    })
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
+      expect(result.text).toBe(`${HEADER}\n\nFirst line\nSecond line\nThird line`);
+    });
 
     it("resolves a volume tie by treating the larger size as body", async () => {
       const pdfBuffer = buildPdf([
         { text: "AAAA", x: 72, y: 720, fontSize: 14 },
         { text: "BBBB", x: 72, y: 690, fontSize: 12 },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(`${HEADER}\n\nAAAA\nBBBB`)
-    })
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
+      expect(result.text).toBe(`${HEADER}\n\nAAAA\nBBBB`);
+    });
 
     it("classifies a line by its dominant size, not one oversized glyph", async () => {
       const pdfBuffer = buildPdf([
@@ -81,14 +74,12 @@ describe("extractPdfText", () => {
           fontSize: 11,
         },
         { text: "!", x: 420, y: 680, fontSize: 18 },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
       expect(result.text).toBe(
-        `${HEADER}\n\n` +
-          "# Heading\n" +
-          "The body text of this line keeps its size dominant !",
-      )
-    })
+        `${HEADER}\n\n` + "# Heading\n" + "The body text of this line keeps its size dominant !",
+      );
+    });
 
     it("renders sizes smaller than body as plain text, never headings", async () => {
       const pdfBuffer = buildPdf([
@@ -99,25 +90,23 @@ describe("extractPdfText", () => {
           fontSize: 11,
         },
         { text: "small footer", x: 72, y: 690, fontSize: 9 },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
       expect(result.text).toBe(
-        `${HEADER}\n\n` +
-          "Body copy long enough to dominate the character count.\n" +
-          "small footer",
-      )
-    })
-  })
+        `${HEADER}\n\n` + "Body copy long enough to dominate the character count.\n" + "small footer",
+      );
+    });
+  });
 
   describe("within-line ordering and joining", () => {
     it("renders same-line items in x order even when the stream order differs", async () => {
       const pdfBuffer = buildPdf([
         { text: "world", x: 300, y: 700, fontSize: 12 },
         { text: "Hello", x: 100, y: 700, fontSize: 12 },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(`${HEADER}\n\nHello world`)
-    })
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
+      expect(result.text).toBe(`${HEADER}\n\nHello world`);
+    });
 
     it("collapses letter-spaced caps but keeps real word gaps and lowercase prose", async () => {
       // "SUMMARY" and "SECTION" as per-glyph ops with 0.3em tracking (pdfjs
@@ -140,40 +129,36 @@ describe("extractPdfText", () => {
         { text: "O", x: 248.34, y: 700, fontSize: 12 },
         { text: "N", x: 261.28, y: 700, fontSize: 12 },
         { text: "on a to", x: 100, y: 660, fontSize: 12 },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(`${HEADER}\n\nSUMMARY SECTION\non a to`)
-    })
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
+      expect(result.text).toBe(`${HEADER}\n\nSUMMARY SECTION\non a to`);
+    });
 
     it("does not collapse spaced digit runs", async () => {
-      const pdfBuffer = buildPdf([
-        { text: "12 34 56", x: 100, y: 700, fontSize: 12 },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(`${HEADER}\n\n12 34 56`)
-    })
+      const pdfBuffer = buildPdf([{ text: "12 34 56", x: 100, y: 700, fontSize: 12 }]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
+      expect(result.text).toBe(`${HEADER}\n\n12 34 56`);
+    });
 
     it("joins items separated by a word-sized gap with exactly one space", async () => {
       const pdfBuffer = buildPdf([
         { text: "foo", x: 100, y: 700, fontSize: 12 },
         { text: "bar", x: 200, y: 700, fontSize: 12 },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(`${HEADER}\n\nfoo bar`)
-    })
-  })
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
+      expect(result.text).toBe(`${HEADER}\n\nfoo bar`);
+    });
+  });
 
   describe("monospace rendering", () => {
     it("fences consecutive fully-monospace lines as one code block", async () => {
       const pdfBuffer = buildPdf([
         { text: "const x = 1", x: 72, y: 700, fontSize: 12, font: "courier" },
         { text: "return x", x: 72, y: 680, fontSize: 12, font: "courier" },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(
-        `${HEADER}\n\n\`\`\`\nconst x = 1\nreturn x\n\`\`\``,
-      )
-    })
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
+      expect(result.text).toBe(`${HEADER}\n\n\`\`\`\nconst x = 1\nreturn x\n\`\`\``);
+    });
 
     it("wraps a monospace run inside a mixed line in inline backticks, not a fence", async () => {
       const pdfBuffer = buildPdf([
@@ -186,10 +171,10 @@ describe("extractPdfText", () => {
           font: "courier",
         },
         { text: "now", x: 222.8, y: 700, fontSize: 12 },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(`${HEADER}\n\nRun \`kubectl apply\` now`)
-    })
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
+      expect(result.text).toBe(`${HEADER}\n\nRun \`kubectl apply\` now`);
+    });
 
     it("joins tight cross-font junctions without inserting spaces", async () => {
       // "(" ends at 103.996 (Helvetica 12pt); the Courier run starts 0.5pt
@@ -201,10 +186,10 @@ describe("extractPdfText", () => {
         { text: "(", x: 100, y: 700, fontSize: 12 },
         { text: "robt", x: 104.5, y: 700, fontSize: 12, font: "courier" },
         { text: ")", x: 133.8, y: 700, fontSize: 12 },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(`${HEADER}\n\n(\`robt\`)`)
-    })
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
+      expect(result.text).toBe(`${HEADER}\n\n(\`robt\`)`);
+    });
 
     it("reconstructs leading indentation inside fence blocks from glyph positions", async () => {
       // pdfjs folds the second op's leading spaces into its x position
@@ -220,12 +205,10 @@ describe("extractPdfText", () => {
           fontSize: 12,
           font: "courier",
         },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(
-        `${HEADER}\n\n\`\`\`\ndef check():\n    return True\n\`\`\``,
-      )
-    })
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
+      expect(result.text).toBe(`${HEADER}\n\n\`\`\`\ndef check():\n    return True\n\`\`\``);
+    });
 
     it("measures fence indentation from the block's leftmost line, not its first", async () => {
       // The first line sits two characters right of the second (Courier 12pt
@@ -239,23 +222,19 @@ describe("extractPdfText", () => {
           font: "courier",
         },
         { text: "at margin", x: 72, y: 680, fontSize: 12, font: "courier" },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(
-        `${HEADER}\n\n\`\`\`\n  indented first\nat margin\n\`\`\``,
-      )
-    })
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
+      expect(result.text).toBe(`${HEADER}\n\n\`\`\`\n  indented first\nat margin\n\`\`\``);
+    });
 
     it("lengthens the fence when block content contains backtick runs", async () => {
       const pdfBuffer = buildPdf([
         { text: "```js", x: 72, y: 700, fontSize: 12, font: "courier" },
         { text: "const x = 1", x: 72, y: 680, fontSize: 12, font: "courier" },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(
-        `${HEADER}\n\n\`\`\`\`\n\`\`\`js\nconst x = 1\n\`\`\`\``,
-      )
-    })
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
+      expect(result.text).toBe(`${HEADER}\n\n\`\`\`\`\n\`\`\`js\nconst x = 1\n\`\`\`\``);
+    });
 
     it("closes an open fence before a mixed line and reopens after it", async () => {
       const pdfBuffer = buildPdf([
@@ -263,13 +242,11 @@ describe("extractPdfText", () => {
         { text: "see", x: 72, y: 660, fontSize: 12 },
         { text: "cmd", x: 100, y: 660, fontSize: 12, font: "courier" },
         { text: "line two", x: 72, y: 620, fontSize: 12, font: "courier" },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(
-        `${HEADER}\n\n\`\`\`\nline one\n\`\`\`\nsee \`cmd\`\n\`\`\`\nline two\n\`\`\``,
-      )
-    })
-  })
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
+      expect(result.text).toBe(`${HEADER}\n\n\`\`\`\nline one\n\`\`\`\nsee \`cmd\`\n\`\`\`\nline two\n\`\`\``);
+    });
+  });
 
   describe("orphaned list markers", () => {
     it("rejoins numeric markers emitted before their items in the stream", async () => {
@@ -278,10 +255,10 @@ describe("extractPdfText", () => {
         { text: "2.", x: 100, y: 660, fontSize: 12 },
         { text: "First thing", x: 115, y: 700, fontSize: 12 },
         { text: "Second thing", x: 115, y: 660, fontSize: 12 },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(`${HEADER}\n\n1. First thing\n2. Second thing`)
-    })
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
+      expect(result.text).toBe(`${HEADER}\n\n1. First thing\n2. Second thing`);
+    });
 
     it("rejoins lettered markers, lowercase and uppercase, to their items", async () => {
       // The markers and their items are separated in the stream by another
@@ -293,22 +270,20 @@ describe("extractPdfText", () => {
         { text: "closing line", x: 72, y: 620, fontSize: 12 },
         { text: "Alpha item", x: 115, y: 700, fontSize: 12 },
         { text: "Upper item", x: 115, y: 660, fontSize: 12 },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(
-        `${HEADER}\n\nclosing line\na. Alpha item\nA. Upper item`,
-      )
-    })
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
+      expect(result.text).toBe(`${HEADER}\n\nclosing line\na. Alpha item\nA. Upper item`);
+    });
 
     it("rejoins bullet-glyph markers to their items", async () => {
       const pdfBuffer = buildPdf([
         { text: "•", x: 100, y: 700, fontSize: 12 },
         { text: "closing line", x: 72, y: 660, fontSize: 12 },
         { text: "Bullet item", x: 112, y: 700, fontSize: 12 },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(`${HEADER}\n\nclosing line\n• Bullet item`)
-    })
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
+      expect(result.text).toBe(`${HEADER}\n\nclosing line\n• Bullet item`);
+    });
 
     it("leaves non-marker short lines and partnerless markers untouched", async () => {
       const pdfBuffer = buildPdf([
@@ -316,9 +291,9 @@ describe("extractPdfText", () => {
         { text: "middle", x: 72, y: 660, fontSize: 12 },
         { text: "pi value", x: 150, y: 700, fontSize: 12 },
         { text: "7.", x: 100, y: 500, fontSize: 12 },
-      ])
-      const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(`${HEADER}\n\n3.14\nmiddle\npi value\n7.`)
-    })
-  })
-})
+      ]);
+      const result = await extractPdfText(toPdfData(pdfBuffer));
+      expect(result.text).toBe(`${HEADER}\n\n3.14\nmiddle\npi value\n7.`);
+    });
+  });
+});

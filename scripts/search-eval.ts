@@ -47,24 +47,21 @@
  *      [--reuse-index] [--json-out <path>]
  */
 
-import { parseArgs } from "node:util"
-import { mkdirSync, writeFileSync } from "node:fs"
-import { readFile } from "node:fs/promises"
+import { parseArgs } from "node:util";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import {
   countUnexpectedFilesInWindow,
   judgmentFileSchema,
   rankOfFirstExpected,
   resolveEvalRunPlan,
-} from "./search-eval-plan.js"
-import type { JudgmentQuery } from "./search-eval-plan.js"
-import {
-  createVaultSnapshot,
-  snapshotMatchesProvenance,
-} from "./search-eval-snapshot.js"
-import type { Logger } from "../src/logger.js"
-import { createEmbedder } from "../src/vault-mcp/search/embedder.js"
-import { createReranker } from "../src/vault-mcp/search/reranker.js"
-import { createSearchIndex } from "../src/vault-mcp/search/search-index.js"
+} from "./search-eval-plan.js";
+import type { JudgmentQuery } from "./search-eval-plan.js";
+import { createVaultSnapshot, snapshotMatchesProvenance } from "./search-eval-snapshot.js";
+import type { Logger } from "../src/logger.js";
+import { createEmbedder } from "../src/vault-mcp/search/embedder.js";
+import { createReranker } from "../src/vault-mcp/search/reranker.js";
+import { createSearchIndex } from "../src/vault-mcp/search/search-index.js";
 
 // ── Counting logger ────────────────────────────────────────────
 
@@ -73,69 +70,61 @@ import { createSearchIndex } from "../src/vault-mcp/search/search-index.js"
  *  note-KNN "vector search" lines (knnHits vs uniqueNotes) — the dedup
  *  collapse ratio shows when one note's chunks flood the KNN window. */
 const createCountingLogger = (): {
-  logger: Logger
-  problems: { level: string; message: string }[]
-  vectorSearchStats: { knnHits: number; uniqueNotes: number }[]
+  logger: Logger;
+  problems: { level: string; message: string }[];
+  vectorSearchStats: { knnHits: number; uniqueNotes: number }[];
 } => {
-  const problems: { level: string; message: string }[] = []
-  const vectorSearchStats: { knnHits: number; uniqueNotes: number }[] = []
-  const printProblem = (
-    level: "warn" | "error",
-    message: string,
-    data: Record<string, unknown> | undefined,
-  ): void => {
-    problems.push({ level, message })
+  const problems: { level: string; message: string }[] = [];
+  const vectorSearchStats: { knnHits: number; uniqueNotes: number }[] = [];
+  const printProblem = (level: "warn" | "error", message: string, data: Record<string, unknown> | undefined): void => {
+    problems.push({ level, message });
     if (data) {
-      console.error(`[${level}] ${message}`, data)
-      return
+      console.error(`[${level}] ${message}`, data);
+      return;
     }
-    console.error(`[${level}] ${message}`)
-  }
+    console.error(`[${level}] ${message}`);
+  };
   const logger: Logger = {
     debug: () => {},
     info: (message, data) => {
-      if (
-        message === "vector search" &&
-        typeof data?.knnHits === "number" &&
-        typeof data.uniqueNotes === "number"
-      ) {
+      if (message === "vector search" && typeof data?.knnHits === "number" && typeof data.uniqueNotes === "number") {
         vectorSearchStats.push({
           knnHits: data.knnHits,
           uniqueNotes: data.uniqueNotes,
-        })
+        });
       }
     },
     warn: (message, data) => {
-      printProblem("warn", message, data)
+      printProblem("warn", message, data);
     },
     error: (message, data) => {
-      printProblem("error", message, data)
+      printProblem("error", message, data);
     },
     child: () => logger,
-  }
-  return { logger, problems, vectorSearchStats }
-}
+  };
+  return { logger, problems, vectorSearchStats };
+};
 
 // ── Scoring ────────────────────────────────────────────────────
 
 type QueryScore = {
-  id: string
-  class: JudgmentQuery["class"]
-  query: string
-  limit: number
-  expectedRank: number | null
+  id: string;
+  class: JudgmentQuery["class"];
+  query: string;
+  limit: number;
+  expectedRank: number | null;
   // The pollution metric targets the top 5, but results are truncated to the
   // query's limit first — the window records how deep the count actually saw.
-  pollutionWindow: number
-  filesInWindow: number
-  latencyMs: number
-  topPaths: string[]
-}
+  pollutionWindow: number;
+  filesInWindow: number;
+  latencyMs: number;
+  topPaths: string[];
+};
 
 const formatMissedIds = (misses: readonly QueryScore[]): string => {
-  if (misses.length === 0) return ""
-  return ` (${misses.map((entry) => entry.id).join(", ")})`
-}
+  if (misses.length === 0) return "";
+  return ` (${misses.map((entry) => entry.id).join(", ")})`;
+};
 
 // ── Main ───────────────────────────────────────────────────────
 
@@ -153,28 +142,20 @@ const main = async (): Promise<void> => {
       "reuse-index": { type: "boolean", default: false },
       "json-out": { type: "string" },
     },
-  })
+  });
 
   // Validation and the snapshot/index reuse decisions live in the plan
   // resolver (search-eval-plan.ts) so they are testable — this script's
   // top-level await makes it unimportable.
-  const {
-    judgmentPath,
-    limits,
-    fileLegWeight,
-    workDir,
-    snapshotDir,
-    indexDbPath,
-    snapshotReused,
-    indexReused,
-  } = resolveEvalRunPlan(cliArgs)
+  const { judgmentPath, limits, fileLegWeight, workDir, snapshotDir, indexDbPath, snapshotReused, indexReused } =
+    resolveEvalRunPlan(cliArgs);
 
-  const judgmentRaw: unknown = JSON.parse(await readFile(judgmentPath, "utf8"))
-  const judgment = judgmentFileSchema.parse(judgmentRaw)
+  const judgmentRaw: unknown = JSON.parse(await readFile(judgmentPath, "utf8"));
+  const judgment = judgmentFileSchema.parse(judgmentRaw);
   // The work dir is created owner-only because it holds a full copy of a
   // private vault under a predictable temp-dir name — default modes would
   // expose it to every local user on a shared host.
-  mkdirSync(workDir, { recursive: true, mode: 0o700 })
+  mkdirSync(workDir, { recursive: true, mode: 0o700 });
 
   if (snapshotReused) {
     // A marker-bearing snapshot may still have been built from another
@@ -184,28 +165,27 @@ const main = async (): Promise<void> => {
       vaultPath: judgment.vault_path,
       excludePaths: judgment.exclude_paths,
       excludePrefixes: judgment.exclude_prefixes,
-    })
+    });
+
     if (!provenanceMatches) {
       throw new Error(
         "--reuse-snapshot found a snapshot built from a different vault or exclusion lists — re-run without --reuse-snapshot to rebuild it",
-      )
+      );
     }
-    console.log(
-      `reusing snapshot: ${snapshotDir} (vault ${judgment.vault_path})`,
-    )
+    console.log(`reusing snapshot: ${snapshotDir} (vault ${judgment.vault_path})`);
   } else {
-    console.log(`snapshotting vault ${judgment.vault_path} → ${snapshotDir}`)
+    console.log(`snapshotting vault ${judgment.vault_path} → ${snapshotDir}`);
     createVaultSnapshot({
       vaultPath: judgment.vault_path,
       snapshotDir,
       excludePaths: judgment.exclude_paths,
       excludePrefixes: judgment.exclude_prefixes,
-    })
+    });
   }
 
-  const { logger, problems, vectorSearchStats } = createCountingLogger()
-  const embedder = createEmbedder(logger)
-  const reranker = createReranker(logger)
+  const { logger, problems, vectorSearchStats } = createCountingLogger();
+  const embedder = createEmbedder(logger);
+  const reranker = createReranker(logger);
   const search = createSearchIndex(indexDbPath, embedder, reranker, {
     memoryDir: "About Me",
     fileToolsEnabled: true,
@@ -214,55 +194,49 @@ const main = async (): Promise<void> => {
       rerankKindPrefix: cliArgs["kind-prefix"],
       enrichChunkMetadata: cliArgs["enrich-metadata"],
     },
-  })
+  });
 
   if (indexReused) {
-    console.log(`reusing index: ${indexDbPath}`)
+    console.log(`reusing index: ${indexDbPath}`);
   } else {
-    console.log("rebuilding index (FTS + embedding — this takes minutes)…")
-    const rebuildStartMs = performance.now()
-    const { count, embedding } = await search.rebuildFromVault(
-      { vaultPath: snapshotDir },
-      logger,
-    )
+    console.log("rebuilding index (FTS + embedding — this takes minutes)…");
+    const rebuildStartMs = performance.now();
+    const { count, embedding } = await search.rebuildFromVault({ vaultPath: snapshotDir }, logger);
     // Scoring against a partially embedded index measures indexing order,
     // not ranking — wait for the background pass and fail on any error.
-    await embedding
+    await embedding;
     const embedProblems = problems.filter((problem) => {
-      return problem.message.includes("embed")
-    })
+      return problem.message.includes("embed");
+    });
+
     if (embedProblems.length > 0) {
-      throw new Error(
-        `embedding pass logged ${embedProblems.length} problem(s) — fix before scoring`,
-      )
+      throw new Error(`embedding pass logged ${embedProblems.length} problem(s) — fix before scoring`);
     }
-    const rebuildSeconds = Math.round(
-      (performance.now() - rebuildStartMs) / 1000,
-    )
-    console.log(`indexed ${count} notes in ${rebuildSeconds}s`)
+    const rebuildSeconds = Math.round((performance.now() - rebuildStartMs) / 1000);
+    console.log(`indexed ${count} notes in ${rebuildSeconds}s`);
   }
 
   // The run is only meaningful fully hybrid + reranked, so a probe query
   // checks the pipeline before scoring. A fixed probe string keeps the
   // check independent of the judgment file's query order — with a healthy
   // index, KNN returns neighbors for any text.
-  const PROBE_QUERY = "vault search eval probe"
-  const probe = await search.hybridSearch({ query: PROBE_QUERY }, logger)
+  const PROBE_QUERY = "vault search eval probe";
+  const probe = await search.hybridSearch({ query: PROBE_QUERY }, logger);
 
   if (probe.search_mode !== "hybrid" || !probe.reranked) {
     throw new Error(
       `probe query ran search_mode=${probe.search_mode} reranked=${String(probe.reranked)} — expected hybrid + reranked (is the index fully embedded?)`,
-    )
+    );
   }
 
   // The probe's vault-wide KNN window would dilute the diversity ratio —
   // only stats recorded from here on belong to the scoring runs.
-  const vectorSearchStatsBeforeScoring = vectorSearchStats.length
+  const vectorSearchStatsBeforeScoring = vectorSearchStats.length;
 
-  const scores: QueryScore[] = []
+  const scores: QueryScore[] = [];
   for (const judgmentQuery of judgment.queries) {
     for (const limit of limits) {
-      const queryStartMs = performance.now()
+      const queryStartMs = performance.now();
       const searchResult = await search.hybridSearch(
         {
           query: judgmentQuery.query,
@@ -270,17 +244,18 @@ const main = async (): Promise<void> => {
           ...(judgmentQuery.filters ? { filters: judgmentQuery.filters } : {}),
         },
         logger,
-      )
-      const latencyMs = Math.round(performance.now() - queryStartMs)
+      );
+      const latencyMs = Math.round(performance.now() - queryStartMs);
+
       // The probe proves the pipeline once; a reranker failure mid-sweep
       // would otherwise degrade silently to RRF-only ordering while the
       // report attributes the numbers to the reranked pipeline.
       if (searchResult.search_mode !== "hybrid" || !searchResult.reranked) {
         throw new Error(
           `query ${judgmentQuery.id} ran search_mode=${searchResult.search_mode} reranked=${String(searchResult.reranked)} — expected hybrid + reranked`,
-        )
+        );
       }
-      const pollutionWindow = Math.min(5, limit)
+      const pollutionWindow = Math.min(5, limit);
       scores.push({
         id: judgmentQuery.id,
         class: judgmentQuery.class,
@@ -288,65 +263,47 @@ const main = async (): Promise<void> => {
         limit,
         expectedRank: rankOfFirstExpected(searchResult.results, judgmentQuery),
         pollutionWindow,
-        filesInWindow: countUnexpectedFilesInWindow(
-          searchResult.results,
-          judgmentQuery,
-          pollutionWindow,
-        ),
+        filesInWindow: countUnexpectedFilesInWindow(searchResult.results, judgmentQuery, pollutionWindow),
         latencyMs,
         topPaths: searchResult.results.slice(0, 5).map((result) => result.path),
-      })
+      });
     }
   }
 
   // ── Report ──────────────────────────────────────────────────
-  const primaryLimit = limits[0] ?? 20
+  const primaryLimit = limits[0] ?? 20;
   console.log(
     `\n=== ${cliArgs.label} · fileLegWeight=${fileLegWeight ?? "default"} · kindPrefix=${String(cliArgs["kind-prefix"])} ===`,
-  )
-  console.log(`per-query results at limit ${primaryLimit}:`)
+  );
+  console.log(`per-query results at limit ${primaryLimit}:`);
   for (const score of scores.filter((entry) => entry.limit === primaryLimit)) {
-    const rankText =
-      score.expectedRank === null ? "MISS" : `#${score.expectedRank}`
-    const gate =
-      score.expectedRank !== null && score.expectedRank <= 3 ? "pass" : "FAIL"
-    const pollutionText =
-      score.class === "precision"
-        ? ` files@${score.pollutionWindow}=${score.filesInWindow}`
-        : ""
+    const rankText = score.expectedRank === null ? "MISS" : `#${score.expectedRank}`;
+    const gate = score.expectedRank !== null && score.expectedRank <= 3 ? "pass" : "FAIL";
+    const pollutionText = score.class === "precision" ? ` files@${score.pollutionWindow}=${score.filesInWindow}` : "";
     console.log(
       `  [${score.class}] ${score.id}: expected ${rankText} (top-3 ${gate})${pollutionText} ${score.latencyMs}ms`,
-    )
+    );
   }
 
   // The note-KNN diversity ratio covers the scoring runs. When a repeated
   // metadata prefix lets one note's chunks flood the window, hits rise
   // while unique notes fall, so a shrinking ratio is the warning sign.
-  const scoringVectorSearchStats = vectorSearchStats.slice(
-    vectorSearchStatsBeforeScoring,
-  )
-  const totalKnnHits = scoringVectorSearchStats.reduce(
-    (sum, stats) => sum + stats.knnHits,
-    0,
-  )
-  const totalUniqueNotes = scoringVectorSearchStats.reduce(
-    (sum, stats) => sum + stats.uniqueNotes,
-    0,
-  )
+  const scoringVectorSearchStats = vectorSearchStats.slice(vectorSearchStatsBeforeScoring);
+  const totalKnnHits = scoringVectorSearchStats.reduce((sum, stats) => sum + stats.knnHits, 0);
+  const totalUniqueNotes = scoringVectorSearchStats.reduce((sum, stats) => sum + stats.uniqueNotes, 0);
+
   if (totalKnnHits > 0) {
     console.log(
       `note-KNN diversity: ${totalUniqueNotes} unique notes from ${totalKnnHits} chunk hits (${((100 * totalUniqueNotes) / totalKnnHits).toFixed(1)}%)`,
-    )
+    );
   }
 
-  const otherLimits = limits.slice(1)
+  const otherLimits = limits.slice(1);
   for (const limit of otherLimits) {
-    const missesAtLimit = scores.filter(
-      (entry) => entry.limit === limit && entry.expectedRank === null,
-    )
+    const missesAtLimit = scores.filter((entry) => entry.limit === limit && entry.expectedRank === null);
     console.log(
       `at limit ${limit}: ${missesAtLimit.length} queries lose their expected result${formatMissedIds(missesAtLimit)}`,
-    )
+    );
   }
 
   if (cliArgs["json-out"]) {
@@ -370,9 +327,9 @@ const main = async (): Promise<void> => {
         null,
         2,
       ),
-    )
-    console.log(`full results written to ${cliArgs["json-out"]}`)
+    );
+    console.log(`full results written to ${cliArgs["json-out"]}`);
   }
-}
+};
 
-await main()
+await main();

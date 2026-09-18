@@ -1,24 +1,17 @@
 /** Vault CRUD tool registrations — read, write, patch, replace, delete, move. */
 
-import { z } from "zod"
-import type { VaultConfig } from "../../config.js"
-import {
-  vaultFs,
-  resolveVaultRelativePath,
-} from "../../vault-operations/vault-filesystem.js"
-import { noteMover } from "../../vault-operations/note-mover.js"
-import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
-import { readTrashConfig } from "../../vault-operations/trash-config.js"
-import { vaultPatcher } from "../../vault-operations/vault-patcher.js"
-import type { DisplacedLeadingContent } from "../../vault-operations/vault-patcher.js"
-import { pageTextByLines } from "../../obsidian-markdown/lines.js"
-import { TOOL_NAMES } from "../tool-registry.js"
-import type { ToolRegistrationContext } from "./tool-helpers.js"
-import {
-  describeTextWindow,
-  safeHandler,
-  safeHandlerContent,
-} from "./tool-helpers.js"
+import { z } from "zod";
+import type { VaultConfig } from "../../config.js";
+import { vaultFs, resolveVaultRelativePath } from "../../vault-operations/vault-filesystem.js";
+import { noteMover } from "../../vault-operations/note-mover.js";
+import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js";
+import { readTrashConfig } from "../../vault-operations/trash-config.js";
+import { vaultPatcher } from "../../vault-operations/vault-patcher.js";
+import type { DisplacedLeadingContent } from "../../vault-operations/vault-patcher.js";
+import { pageTextByLines } from "../../obsidian-markdown/lines.js";
+import { TOOL_NAMES } from "../tool-registry.js";
+import type { ToolRegistrationContext } from "./tool-helpers.js";
+import { describeTextWindow, safeHandler, safeHandlerContent } from "./tool-helpers.js";
 
 /** Advisory sentence for a no-heading prepend that nested pre-existing content
  *  inside the heading it inserted. Names the remedy as a vault_patch_note
@@ -26,15 +19,12 @@ import {
  *  returns the facts and this composes them. The heading is named by its bare
  *  text, which is what the `heading` param matches; the level rides along so an
  *  ambiguous-heading retry has what it needs. */
-const describeDisplacedLeadingContent = ({
-  bytes,
-  firstHeading,
-}: DisplacedLeadingContent): string => {
+const describeDisplacedLeadingContent = ({ bytes, firstHeading }: DisplacedLeadingContent): string => {
   if (!firstHeading) {
-    return `The note's entire pre-existing body (${bytes} bytes) is now nested under the inserted heading — the note has no other headings to end the new section. To add a section below existing content instead, use operation "append".`
+    return `The note's entire pre-existing body (${bytes} bytes) is now nested under the inserted heading — the note has no other headings to end the new section. To add a section below existing content instead, use operation "append".`;
   }
-  return `The ${bytes} bytes of pre-existing content above the note's first heading are now nested under the inserted heading. To add a section above the first heading without pulling existing content into it, use operation "insert_before" with heading "${firstHeading.text}" (H${firstHeading.level}).`
-}
+  return `The ${bytes} bytes of pre-existing content above the note's first heading are now nested under the inserted heading. To add a section above the first heading without pulling existing content into it, use operation "insert_before" with heading "${firstHeading.text}" (H${firstHeading.level}).`;
+};
 
 /** The user's PROTECTED_PATHS when set; otherwise the memory dir plus the
  *  daily notes folder resolved now (env → .obsidian/daily-notes.json →
@@ -43,26 +33,24 @@ export const resolveEffectiveProtectedPaths = async (
   config: VaultConfig,
   vaultPath: string,
 ): Promise<readonly string[]> => {
-  if (config.protectedPathsOverride) return config.protectedPathsOverride
+  if (config.protectedPathsOverride) return config.protectedPathsOverride;
 
   const dailyNotesConfig = await readDailyNotesConfig(vaultPath, {
     folder: config.dailyNotesFolder,
     format: config.dailyNotesFormat,
-  })
-  const dailyFolder = dailyNotesConfig.folder.trim()
-  return dailyFolder ? [config.memoryDir, dailyFolder] : [config.memoryDir]
-}
+  });
+  const dailyFolder = dailyNotesConfig.folder.trim();
+  return dailyFolder ? [config.memoryDir, dailyFolder] : [config.memoryDir];
+};
 
 /** Protected-path list for tool descriptions — the daily notes folder is
  *  named by its sources because it is resolved per call, not at startup. */
 const describeProtectedPaths = (config: VaultConfig): string => {
   if (config.protectedPathsOverride) {
-    return config.protectedPathsOverride
-      .map((protectedPath) => protectedPath + "/")
-      .join(", ")
+    return config.protectedPathsOverride.map((protectedPath) => protectedPath + "/").join(", ");
   }
-  return `${config.memoryDir}/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/)`
-}
+  return `${config.memoryDir}/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/)`;
+};
 
 export const registerVaultCrudTools = ({
   registerTool,
@@ -114,9 +102,7 @@ Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }
         properties_only: z
           .boolean()
           .optional()
-          .describe(
-            "If true, returns parsed properties as JSON instead of full note content",
-          ),
+          .describe("If true, returns parsed properties as JSON instead of full note content"),
         outline: z
           .boolean()
           .optional()
@@ -157,22 +143,11 @@ Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }
           ),
       },
     },
-    async (
-      {
-        path,
-        properties_only,
-        outline,
-        heading,
-        heading_level,
-        start_line,
-        limit,
-      },
-      extra,
-    ) => {
+    async ({ path, properties_only, outline, heading, heading_level, start_line, limit }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_READ_NOTE,
-      })
+      });
       reqLogger.info("tool_call", {
         path,
         propertiesOnly: properties_only,
@@ -181,48 +156,41 @@ Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }
         headingLevel: heading_level,
         startLine: start_line,
         limit,
-      })
+      });
 
-      const returnError = (
-        message: string,
-      ): { content: Array<{ type: "text"; text: string }>; isError: true } => {
-        reqLogger.warn("tool_error", { error: message })
+      const returnError = (message: string): { content: Array<{ type: "text"; text: string }>; isError: true } => {
+        reqLogger.warn("tool_error", { error: message });
         return {
           content: [{ type: "text" as const, text: message }],
           isError: true as const,
-        }
-      }
+        };
+      };
 
       // The read modes select different content; allowing more than one would
       // make the result ambiguous, so reject the combination up front. An empty
       // heading still counts as section mode (heading !== undefined) so it's
       // rejected here rather than silently falling through to a full read.
-      const selectedModeCount = [
-        properties_only === true,
-        outline === true,
-        heading !== undefined,
-      ].filter(Boolean).length
+      const selectedModeCount = [properties_only === true, outline === true, heading !== undefined].filter(
+        Boolean,
+      ).length;
+
       if (selectedModeCount > 1) {
-        return returnError(
-          "outline, heading, and properties_only are mutually exclusive — set at most one",
-        )
+        return returnError("outline, heading, and properties_only are mutually exclusive — set at most one");
       }
 
       // heading_level only disambiguates a heading; on its own it would be
       // silently ignored, so require its companion explicitly.
       if (heading_level !== undefined && heading === undefined) {
-        return returnError("heading_level requires a heading")
+        return returnError("heading_level requires a heading");
       }
 
-      const isPagedRead = start_line !== undefined || limit !== undefined
+      const isPagedRead = start_line !== undefined || limit !== undefined;
 
       if (isPagedRead && outline) {
-        return returnError("line paging is not available in outline mode")
+        return returnError("line paging is not available in outline mode");
       }
       if (isPagedRead && properties_only) {
-        return returnError(
-          "line paging is not available in properties_only mode",
-        )
+        return returnError("line paging is not available in properties_only mode");
       }
 
       if (properties_only) {
@@ -230,10 +198,10 @@ Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }
           reqLogger,
           () => vaultFs.readNoteProperties({ vaultPath, path }, reqLogger),
           (properties) => {
-            reqLogger.info("tool_result", { mode: "properties" })
-            return JSON.stringify(properties, null, 2)
+            reqLogger.info("tool_result", { mode: "properties" });
+            return JSON.stringify(properties, null, 2);
           },
-        )
+        );
       }
 
       if (outline) {
@@ -241,10 +209,10 @@ Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }
           reqLogger,
           () => vaultFs.readNoteOutline({ vaultPath, path }, reqLogger),
           (outline) => {
-            reqLogger.info("tool_result", { mode: "outline" })
-            return JSON.stringify(outline)
+            reqLogger.info("tool_result", { mode: "outline" });
+            return JSON.stringify(outline);
           },
-        )
+        );
       }
 
       // A present heading selects section mode; its absence falls through to a
@@ -254,41 +222,33 @@ Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }
         if (isPagedRead) {
           return safeHandlerContent(
             reqLogger,
-            () =>
-              vaultFs.readNoteSection(
-                { vaultPath, path, heading, headingLevel: heading_level },
-                reqLogger,
-              ),
+            () => vaultFs.readNoteSection({ vaultPath, path, heading, headingLevel: heading_level }, reqLogger),
             (text) => {
               const { text: windowText, lineWindow } = pageTextByLines({
                 text,
                 path,
                 startLine: start_line,
                 limit,
-              })
-              reqLogger.info("tool_result", { mode: "section", lineWindow })
+              });
+              reqLogger.info("tool_result", { mode: "section", lineWindow });
               return [
                 {
                   type: "text" as const,
                   text: describeTextWindow(path, lineWindow),
                 },
                 { type: "text" as const, text: windowText },
-              ]
+              ];
             },
-          )
+          );
         }
         return safeHandler(
           reqLogger,
-          () =>
-            vaultFs.readNoteSection(
-              { vaultPath, path, heading, headingLevel: heading_level },
-              reqLogger,
-            ),
+          () => vaultFs.readNoteSection({ vaultPath, path, heading, headingLevel: heading_level }, reqLogger),
           (text) => {
-            reqLogger.info("tool_result", { mode: "section" })
-            return text
+            reqLogger.info("tool_result", { mode: "section" });
+            return text;
           },
-        )
+        );
       }
 
       if (isPagedRead) {
@@ -301,29 +261,29 @@ Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }
               path,
               startLine: start_line,
               limit,
-            })
-            reqLogger.info("tool_result", { mode: "full", lineWindow })
+            });
+            reqLogger.info("tool_result", { mode: "full", lineWindow });
             return [
               {
                 type: "text" as const,
                 text: describeTextWindow(path, lineWindow),
               },
               { type: "text" as const, text: windowText },
-            ]
+            ];
           },
-        )
+        );
       }
 
       return safeHandler(
         reqLogger,
         () => vaultFs.readNote({ vaultPath, path }, reqLogger),
         (text) => {
-          reqLogger.info("tool_result", { mode: "full" })
-          return text
+          reqLogger.info("tool_result", { mode: "full" });
+          return text;
         },
-      )
+      );
     },
-  )
+  );
 
   registerTool(
     TOOL_NAMES.VAULT_LIST_NOTES,
@@ -366,18 +326,18 @@ Returns: JSON array of vault-relative path strings (e.g. ["Projects/plan.md", "N
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_LIST_NOTES,
-      })
-      reqLogger.info("tool_call", { folder, glob })
+      });
+      reqLogger.info("tool_call", { folder, glob });
       return safeHandler(
         reqLogger,
         () => vaultFs.listNotes({ vaultPath, folder, glob }, reqLogger),
         (paths) => {
-          reqLogger.info("tool_result", { resultCount: paths.length })
-          return JSON.stringify(paths)
+          reqLogger.info("tool_result", { resultCount: paths.length });
+          return JSON.stringify(paths);
         },
-      )
+      );
     },
-  )
+  );
   registerTool(
     TOOL_NAMES.VAULT_WRITE_NOTE,
     {
@@ -424,35 +384,29 @@ Returns: Confirmation message.`,
           .boolean()
           .optional()
           .default(false)
-          .describe(
-            "Allow overwriting an existing note (default: false — errors if file exists).",
-          ),
+          .describe("Allow overwriting an existing note (default: false — errors if file exists)."),
       },
     },
     async ({ path, body, properties, overwrite }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_WRITE_NOTE,
-      })
+      });
       reqLogger.info("tool_call", {
         path,
         hasProperties: Boolean(properties),
         overwrite,
-      })
+      });
       return safeHandler(
         reqLogger,
-        () =>
-          vaultFs.writeNote(
-            { vaultPath, path, body, properties, overwrite },
-            reqLogger,
-          ),
+        () => vaultFs.writeNote({ vaultPath, path, body, properties, overwrite }, reqLogger),
         () => {
-          reqLogger.info("tool_result", { outcome: "written" })
-          return `Wrote ${path}`
+          reqLogger.info("tool_result", { outcome: "written" });
+          return `Wrote ${path}`;
         },
-      )
+      );
     },
-  )
+  );
 
   registerTool(
     TOOL_NAMES.VAULT_PATCH_NOTE,
@@ -532,9 +486,7 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
           .min(1)
           .max(6)
           .optional()
-          .describe(
-            "Heading level (1-6) for disambiguation when multiple headings share the same text",
-          ),
+          .describe("Heading level (1-6) for disambiguation when multiple headings share the same text"),
         include_children: z
           .boolean()
           .optional()
@@ -544,21 +496,18 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
           ),
       },
     },
-    async (
-      { path, operation, content, heading, heading_level, include_children },
-      extra,
-    ) => {
+    async ({ path, operation, content, heading, heading_level, include_children }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_PATCH_NOTE,
-      })
+      });
       reqLogger.info("tool_call", {
         path,
         operation,
         heading,
         headingLevel: heading_level,
         includeChildren: include_children,
-      })
+      });
       return safeHandler(
         reqLogger,
         () =>
@@ -578,13 +527,13 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
           reqLogger.info("tool_result", {
             outcome: "patched",
             displaced: result.displacedLeadingContent !== null,
-          })
-          if (!result.displacedLeadingContent) return result.message
-          return `${result.message}. ${describeDisplacedLeadingContent(result.displacedLeadingContent)}`
+          });
+          if (!result.displacedLeadingContent) return result.message;
+          return `${result.message}. ${describeDisplacedLeadingContent(result.displacedLeadingContent)}`;
         },
-      )
+      );
     },
-  )
+  );
 
   registerTool(
     TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
@@ -618,39 +567,31 @@ Returns: Confirmation message with replacement count (number of occurrences repl
         path: z
           .string()
           .min(1)
-          .describe(
-            'Vault-relative path to the note, including the ".md" extension (e.g. "Projects/plan.md")',
-          ),
+          .describe('Vault-relative path to the note, including the ".md" extension (e.g. "Projects/plan.md")'),
         old_text: z
           .string()
           .min(1)
           .describe(
             "Exact text to find (case-sensitive). Matches in the body only — text inside frontmatter properties is not searched.",
           ),
-        new_text: z
-          .string()
-          .describe(
-            'Replacement text. Empty string ("") deletes the matched text.',
-          ),
+        new_text: z.string().describe('Replacement text. Empty string ("") deletes the matched text.'),
         replace_all_occurrences: z
           .boolean()
           .optional()
           .default(false)
-          .describe(
-            "Replace all occurrences (default: false — replaces first occurrence only)",
-          ),
+          .describe("Replace all occurrences (default: false — replaces first occurrence only)"),
       },
     },
     async ({ path, old_text, new_text, replace_all_occurrences }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_REPLACE_IN_NOTE,
-      })
+      });
       reqLogger.info("tool_call", {
         path,
         isDeletion: new_text.length === 0,
         replaceAllOccurrences: replace_all_occurrences,
-      })
+      });
       return safeHandler(
         reqLogger,
         () =>
@@ -668,12 +609,12 @@ Returns: Confirmation message with replacement count (number of occurrences repl
           reqLogger.info("tool_result", {
             outcome: "replaced",
             count: result.count,
-          })
-          return result.message
+          });
+          return result.message;
         },
-      )
+      );
     },
-  )
+  );
 
   registerTool(
     TOOL_NAMES.VAULT_DELETE_SPAN,
@@ -735,12 +676,12 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_DELETE_SPAN,
-      })
+      });
       reqLogger.info("tool_call", {
         path,
         hasEndAnchor: Boolean(end_anchor),
         firstMatch: first_match,
-      })
+      });
       return safeHandler(
         reqLogger,
         () =>
@@ -755,12 +696,12 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
             reqLogger,
           ),
         (msg) => {
-          reqLogger.info("tool_result", { outcome: "span_deleted" })
-          return msg
+          reqLogger.info("tool_result", { outcome: "span_deleted" });
+          return msg;
         },
-      )
+      );
     },
-  )
+  );
 
   registerTool(
     TOOL_NAMES.VAULT_REPLACE_SPAN,
@@ -832,12 +773,12 @@ Returns: Confirmation message "Replaced <N> lines with <M> lines in <path>" — 
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_REPLACE_SPAN,
-      })
+      });
       reqLogger.info("tool_call", {
         path,
         hasEndAnchor: Boolean(end_anchor),
         firstMatch: first_match,
-      })
+      });
       return safeHandler(
         reqLogger,
         () =>
@@ -853,12 +794,12 @@ Returns: Confirmation message "Replaced <N> lines with <M> lines in <path>" — 
             reqLogger,
           ),
         (confirmation) => {
-          reqLogger.info("tool_result", { outcome: "span_replaced" })
-          return confirmation
+          reqLogger.info("tool_result", { outcome: "span_replaced" });
+          return confirmation;
         },
-      )
+      );
     },
-  )
+  );
 
   registerTool(
     TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
@@ -927,12 +868,12 @@ Returns: Confirmation message "Inserted <N> lines <before|after> anchor in <path
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_INSERT_AT_ANCHOR,
-      })
+      });
       reqLogger.info("tool_call", {
         path,
         position,
         firstMatch: first_match,
-      })
+      });
       return safeHandler(
         reqLogger,
         () =>
@@ -948,12 +889,12 @@ Returns: Confirmation message "Inserted <N> lines <before|after> anchor in <path
             reqLogger,
           ),
         (confirmation) => {
-          reqLogger.info("tool_result", { outcome: "inserted_at_anchor" })
-          return confirmation
+          reqLogger.info("tool_result", { outcome: "inserted_at_anchor" });
+          return confirmation;
         },
-      )
+      );
     },
-  )
+  );
 
   registerTool(
     TOOL_NAMES.VAULT_DELETE_NOTE,
@@ -982,12 +923,7 @@ Errors:
 
 Returns: Confirmation message naming the outcome — "Deleted" for permanent removal, "Moved to trash" when the note landed in .trash/. Notes how many empty folders were pruned when any were.`,
       inputSchema: {
-        path: z
-          .string()
-          .min(1)
-          .describe(
-            'Vault-relative path of the note to delete, including the ".md" extension',
-          ),
+        path: z.string().min(1).describe('Vault-relative path of the note to delete, including the ".md" extension'),
         prune_empty_folders: z
           .boolean()
           .optional()
@@ -1001,22 +937,17 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_DELETE_NOTE,
-      })
-      reqLogger.info("tool_call", { path, pruneEmptyFolders })
+      });
+      reqLogger.info("tool_call", { path, pruneEmptyFolders });
       return safeHandler(
         reqLogger,
         async () => {
-          const protectedPaths = await resolveEffectiveProtectedPaths(
-            config,
-            vaultPath,
-          )
+          const protectedPaths = await resolveEffectiveProtectedPaths(config, vaultPath);
           // On :remote (Obsidian Sync), skip the config and delete for good —
           // recovery is through Sync's version history, and a server-side
           // .trash/ would never sync back to the user. "none" (not "system")
           // because "system" now lands in .trash/.
-          const trashOption = config.obsidianSyncEnabled
-            ? "none"
-            : await readTrashConfig(vaultPath)
+          const trashOption = config.obsidianSyncEnabled ? "none" : await readTrashConfig(vaultPath);
           // Record for retention only under "system": Docker has no system
           // trash, so the server maps it to .trash/ — the server chose that
           // destination, so the server sweeps it. "local" means the user
@@ -1033,32 +964,28 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
               protectedPaths,
               pruneEmptyFolders,
               trashOption,
-              recordTrashEntry:
-                trashOption === "system" ? search.recordTrashEntry : undefined,
+              recordTrashEntry: trashOption === "system" ? search.recordTrashEntry : undefined,
               clearStaleTrashEntry: search.deleteTrashEntry,
             },
             reqLogger,
-          )
+          );
         },
         ({ prunedEmptyFolders, trashLocation }) => {
-          const outcome = trashLocation ? "trashed" : "deleted"
+          const outcome = trashLocation ? "trashed" : "deleted";
           reqLogger.info("tool_result", {
             outcome,
             prunedEmptyFolders,
             ...(trashLocation ? { trash_location: trashLocation } : {}),
-          })
-          const folderLabel = prunedEmptyFolders > 1 ? "folders" : "folder"
-          const pruneSuffix =
-            prunedEmptyFolders > 0
-              ? ` (removed ${prunedEmptyFolders} empty ${folderLabel})`
-              : ""
+          });
+          const folderLabel = prunedEmptyFolders > 1 ? "folders" : "folder";
+          const pruneSuffix = prunedEmptyFolders > 0 ? ` (removed ${prunedEmptyFolders} empty ${folderLabel})` : "";
           return trashLocation
             ? `Moved ${path} to trash (${trashLocation})${pruneSuffix}`
-            : `Deleted ${path}${pruneSuffix}`
+            : `Deleted ${path}${pruneSuffix}`;
         },
-      )
+      );
     },
-  )
+  );
 
   registerTool(
     TOOL_NAMES.VAULT_MOVE_NOTE,
@@ -1093,9 +1020,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
         old_path: z
           .string()
           .min(1)
-          .describe(
-            'Current vault-relative path of the note to move (e.g. "Inbox/Draft.md"). Must end in .md.',
-          ),
+          .describe('Current vault-relative path of the note to move (e.g. "Inbox/Draft.md"). Must end in .md.'),
         new_path: z
           .string()
           .min(1)
@@ -1111,19 +1036,12 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
           ),
       },
     },
-    async (
-      {
-        old_path: oldPath,
-        new_path: newPath,
-        prune_empty_folders: pruneEmptyFolders,
-      },
-      extra,
-    ) => {
+    async ({ old_path: oldPath, new_path: newPath, prune_empty_folders: pruneEmptyFolders }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_MOVE_NOTE,
-      })
-      reqLogger.info("tool_call", { oldPath, newPath, pruneEmptyFolders })
+      });
+      reqLogger.info("tool_call", { oldPath, newPath, pruneEmptyFolders });
       return safeHandler(
         reqLogger,
         async () => {
@@ -1134,21 +1052,17 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
           const normalizedOldPath = resolveVaultRelativePath({
             vaultPath,
             notePath: oldPath,
-          })
+          });
           const normalizedNewPath = resolveVaultRelativePath({
             vaultPath,
             notePath: newPath,
-          })
-          const backlinks = search.getBacklinks(
-            { path: normalizedOldPath },
-            reqLogger,
-          )
-          const [allNotePaths, allAssetPaths, protectedPaths] =
-            await Promise.all([
-              vaultFs.listNotes({ vaultPath }, reqLogger),
-              vaultFs.listAssets({ vaultPath }, reqLogger),
-              resolveEffectiveProtectedPaths(config, vaultPath),
-            ])
+          });
+          const backlinks = search.getBacklinks({ path: normalizedOldPath }, reqLogger);
+          const [allNotePaths, allAssetPaths, protectedPaths] = await Promise.all([
+            vaultFs.listNotes({ vaultPath }, reqLogger),
+            vaultFs.listAssets({ vaultPath }, reqLogger),
+            resolveEffectiveProtectedPaths(config, vaultPath),
+          ]);
           return noteMover.moveNote(
             {
               vaultPath,
@@ -1162,19 +1076,19 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
               windowsBindMount: config.windowsBindMount,
             },
             reqLogger,
-          )
+          );
         },
         (result) => {
           reqLogger.info("tool_result", {
             outcome: "moved",
             linksUpdated: result.links_updated,
             prunedEmptyFolders: result.pruned_empty_folders,
-          })
-          return JSON.stringify(result)
+          });
+          return JSON.stringify(result);
         },
-      )
+      );
     },
-  )
+  );
 
   registerTool(
     TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
@@ -1198,12 +1112,7 @@ Obsidian syntax: Use arrays for multi-value fields (tags: [a, b]), quote wikilin
 
 Returns: Confirmation message.`,
       inputSchema: {
-        path: z
-          .string()
-          .min(1)
-          .describe(
-            'Vault-relative path to the note, including the ".md" extension',
-          ),
+        path: z.string().min(1).describe('Vault-relative path to the note, including the ".md" extension'),
         properties: z
           .record(z.string().min(1), z.unknown())
           .describe(
@@ -1215,17 +1124,16 @@ Returns: Confirmation message.`,
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
-      })
-      reqLogger.info("tool_call", { path })
+      });
+      reqLogger.info("tool_call", { path });
       return safeHandler(
         reqLogger,
-        () =>
-          vaultFs.updateProperties({ vaultPath, path, properties }, reqLogger),
+        () => vaultFs.updateProperties({ vaultPath, path, properties }, reqLogger),
         () => {
-          reqLogger.info("tool_result", { outcome: "properties_updated" })
-          return `Updated properties on ${path}`
+          reqLogger.info("tool_result", { outcome: "properties_updated" });
+          return `Updated properties on ${path}`;
         },
-      )
+      );
     },
-  )
-}
+  );
+};

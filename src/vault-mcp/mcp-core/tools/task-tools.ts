@@ -1,10 +1,10 @@
 /** Task tool registrations — task listing (query), creation, and updating (mutation). */
 
-import { z } from "zod"
-import { TOOL_NAMES } from "../tool-registry.js"
-import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { safeHandler, dateFilterSchema } from "./tool-helpers.js"
-import { taskMutations } from "../../vault-operations/task-mutations.js"
+import { z } from "zod";
+import { TOOL_NAMES } from "../tool-registry.js";
+import type { ToolRegistrationContext } from "./tool-helpers.js";
+import { safeHandler, dateFilterSchema } from "./tool-helpers.js";
+import { taskMutations } from "../../vault-operations/task-mutations.js";
 
 export const registerTaskTools = ({
   registerTool,
@@ -48,26 +48,8 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
       inputSchema: {
         status: z
           .union([
-            z.enum([
-              "not_done",
-              "todo",
-              "in_progress",
-              "done",
-              "cancelled",
-              "all",
-            ]),
-            z
-              .array(
-                z.enum([
-                  "not_done",
-                  "todo",
-                  "in_progress",
-                  "done",
-                  "cancelled",
-                  "all",
-                ]),
-              )
-              .min(1),
+            z.enum(["not_done", "todo", "in_progress", "done", "cancelled", "all"]),
+            z.array(z.enum(["not_done", "todo", "in_progress", "done", "cancelled", "all"])).min(1),
           ])
           .optional()
           .default("not_done")
@@ -75,50 +57,32 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
             'Status filter, OR-combined (default "not_done" = todo + in_progress, excluding done and cancelled). Virtual values expand in arrays: "not_done" adds todo + in_progress, "all" includes every status.',
           ),
         due: dateFilterSchema.describe("Due date (📅 / [due:: ]) bounds"),
-        scheduled: dateFilterSchema.describe(
-          "Scheduled date (⏳ / [scheduled:: ]) bounds",
-        ),
+        scheduled: dateFilterSchema.describe("Scheduled date (⏳ / [scheduled:: ]) bounds"),
         start: dateFilterSchema.describe("Start date (🛫 / [start:: ]) bounds"),
-        done: dateFilterSchema.describe(
-          "Done date (✅ / [completion:: ]) bounds",
-        ),
-        created: dateFilterSchema.describe(
-          "Created date (➕ / [created:: ]) bounds",
-        ),
-        cancelled: dateFilterSchema.describe(
-          "Cancelled date (❌ / [cancelled:: ]) bounds",
-        ),
+        done: dateFilterSchema.describe("Done date (✅ / [completion:: ]) bounds"),
+        created: dateFilterSchema.describe("Created date (➕ / [created:: ]) bounds"),
+        cancelled: dateFilterSchema.describe("Cancelled date (❌ / [cancelled:: ]) bounds"),
         priority: z
           .array(z.enum(["highest", "high", "medium", "low", "lowest", "none"]))
           .optional()
-          .describe(
-            'Priority levels, OR-combined; "none" selects tasks with no priority signifier',
-          ),
+          .describe('Priority levels, OR-combined; "none" selects tasks with no priority signifier'),
         folder: z
           .string()
           .min(1)
           .optional()
-          .describe(
-            'Restrict to a note-path prefix (e.g. "Code Projects/vault-cortex")',
-          ),
+          .describe('Restrict to a note-path prefix (e.g. "Code Projects/vault-cortex")'),
         tag: z
           .string()
           .min(1)
           .optional()
-          .describe(
-            'Inline task tag, bare name without "#"; parent tags match children',
-          ),
+          .describe('Inline task tag, bare name without "#"; parent tags match children'),
         heading: z
           .union([z.string().min(1), z.array(z.string().min(1)).min(1)])
           .optional()
           .describe(
             'Exact heading text or array of headings, OR-combined, case-sensitive (e.g. "Active" or ["Active", "Up Next"])',
           ),
-        path: z
-          .string()
-          .min(1)
-          .optional()
-          .describe('Restrict to one note (vault-relative path ending ".md")'),
+        path: z.string().min(1).optional().describe('Restrict to one note (vault-relative path ending ".md")'),
         top_level_only: z
           .boolean()
           .optional()
@@ -132,20 +96,9 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .min(1)
           .optional()
           .default(50)
-          .describe(
-            "Max results (default 50); total always reports the full match count",
-          ),
+          .describe("Max results (default 50); total always reports the full match count"),
         sort_by: z
-          .enum([
-            "due",
-            "scheduled",
-            "start",
-            "created",
-            "done",
-            "priority",
-            "note_mtime",
-            "position",
-          ])
+          .enum(["due", "scheduled", "start", "created", "done", "priority", "note_mtime", "position"])
           .optional()
           .default("due")
           .describe(
@@ -183,7 +136,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_LIST_TASKS,
-      })
+      });
       reqLogger.info("tool_call", {
         status,
         due,
@@ -201,7 +154,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
         limit,
         sortBy: sort_by,
         sortDirection: sort_direction,
-      })
+      });
       return safeHandler(
         reqLogger,
         async () =>
@@ -230,15 +183,15 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           reqLogger.info("tool_result", {
             resultCount: result.tasks.length,
             total: result.total,
-          })
+          });
           return JSON.stringify({
             total: result.total,
             tasks: result.tasks,
-          })
+          });
         },
-      )
+      );
     },
-  )
+  );
 
   // ── vault_create_task ──────────────────────────────────────────
 
@@ -295,13 +248,8 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
         path: z
           .string()
           .min(1)
-          .describe(
-            'Vault-relative path to the note (must end in ".md"). The note must already exist.',
-          ),
-        description: z
-          .string()
-          .min(1)
-          .describe("The task text (before metadata fields)."),
+          .describe('Vault-relative path to the note (must end in ".md"). The note must already exist.'),
+        description: z.string().min(1).describe("The task text (before metadata fields)."),
         block_id: z
           .string()
           .min(1)
@@ -339,9 +287,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
         priority: z
           .enum(["highest", "high", "medium", "low", "lowest"])
           .optional()
-          .describe(
-            "Priority signifier (🔺⏫🔼🔽⏬). Omit for normal priority — no signifier is written.",
-          ),
+          .describe("Priority signifier (🔺⏫🔼🔽⏬). Omit for normal priority — no signifier is written."),
         recurrence: z
           .string()
           .min(1)
@@ -359,30 +305,22 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
           .string()
           .min(1)
           .optional()
-          .describe(
-            "Deadline (📅), YYYY-MM-DD, calendar-validated. Omit when there is no deadline.",
-          ),
+          .describe("Deadline (📅), YYYY-MM-DD, calendar-validated. Omit when there is no deadline."),
         scheduled: z
           .string()
           .min(1)
           .optional()
-          .describe(
-            "Day the work is planned for (⏳), YYYY-MM-DD, calendar-validated.",
-          ),
+          .describe("Day the work is planned for (⏳), YYYY-MM-DD, calendar-validated."),
         start: z
           .string()
           .min(1)
           .optional()
-          .describe(
-            "Earliest day work can begin (🛫), YYYY-MM-DD, calendar-validated.",
-          ),
+          .describe("Earliest day work can begin (🛫), YYYY-MM-DD, calendar-validated."),
         task_id: z
           .string()
           .min(1)
           .optional()
-          .describe(
-            "Tasks plugin 🆔 identifier other tasks can name in depends_on.",
-          ),
+          .describe("Tasks plugin 🆔 identifier other tasks can name in depends_on."),
         depends_on: z
           .array(z.string().min(1))
           .min(1)
@@ -400,9 +338,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
         format: z
           .enum(["emoji", "dataview"])
           .optional()
-          .describe(
-            "Field format. Default: auto-detected from .obsidian/ config, falling back to emoji.",
-          ),
+          .describe("Field format. Default: auto-detected from .obsidian/ config, falling back to emoji."),
       },
     },
     async (
@@ -430,7 +366,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_CREATE_TASK,
-      })
+      });
       reqLogger.info("tool_call", {
         path,
         blockId: block_id,
@@ -448,7 +384,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
         dependsOn: depends_on,
         subtaskCount: subtasks?.length,
         format,
-      })
+      });
       return safeHandler(
         reqLogger,
         async () =>
@@ -482,12 +418,12 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
             blockId: result.block_id,
             heading: result.heading,
             changes: result.changes,
-          })
-          return JSON.stringify(result)
+          });
+          return JSON.stringify(result);
         },
-      )
+      );
     },
-  )
+  );
 
   // ── vault_update_task ───────────────────────────────────────────
 
@@ -555,12 +491,7 @@ Obsidian syntax: The Tasks plugin reads metadata off the END of a task line, so 
 
 Returns: JSON { path, line, description, block_id, heading, subtasks, next_occurrence, changes, advisories, on_completion_applied } — line is the final 1-based position (when on_completion_applied is "delete", it is the position the task occupied before removal); description is the current text; block_id and heading reflect the task after the update (block_id is omitted when the task has none, heading when the task sits above the first heading); subtasks lists each checklist item added by add_subtasks as { line, description } (omitted when none were added) — checklist items carry no block_id, so line is the handle for a follow-up update; next_occurrence is present only when a completion spawned a recurring task's next occurrence: { line, description, due?, scheduled?, start? } with only the dates the occurrence has — it carries no block_id, so line is its handle; changes lists every field applied as "field: before → after", with "(none)" for an absent value (for subtasks the two sides are checklist-item counts, and a spawn adds "next_occurrence: (none) → line N"); advisories (omitted when the line round-trips clean and no recurrence notice applies) lists one sentence per place the stored line parses back differently than this call set (see Obsidian syntax above) or per recurrence event that did not produce a next occurrence; on_completion_applied (present only when the effective on_completion was delete — pre-existing on the task or set in the same call — and it was transitioned to done) is always "delete".`,
       inputSchema: {
-        path: z
-          .string()
-          .min(1)
-          .describe(
-            'Vault-relative path to the note containing the task (must end in ".md")',
-          ),
+        path: z.string().min(1).describe('Vault-relative path to the note containing the task (must end in ".md")'),
         block_id: z
           .string()
           .min(1)
@@ -573,9 +504,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .int()
           .min(1)
           .optional()
-          .describe(
-            "1-based line number from vault_list_tasks. Fragile if the file changed since the query.",
-          ),
+          .describe("1-based line number from vault_list_tasks. Fragile if the file changed since the query."),
         status: z
           .enum(["todo", "in_progress", "done", "cancelled"])
           .optional()
@@ -609,32 +538,20 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .describe(
             "New task description text. Replaces the existing description; metadata fields and block_id are preserved.",
           ),
-        due: z
-          .string()
-          .min(1)
-          .nullable()
-          .optional()
-          .describe("Due date (YYYY-MM-DD) to set, or null to clear."),
+        due: z.string().min(1).nullable().optional().describe("Due date (YYYY-MM-DD) to set, or null to clear."),
         scheduled: z
           .string()
           .min(1)
           .nullable()
           .optional()
           .describe("Scheduled date (YYYY-MM-DD) to set, or null to clear."),
-        start: z
-          .string()
-          .min(1)
-          .nullable()
-          .optional()
-          .describe("Start date (YYYY-MM-DD) to set, or null to clear."),
+        start: z.string().min(1).nullable().optional().describe("Start date (YYYY-MM-DD) to set, or null to clear."),
         created: z
           .string()
           .min(1)
           .nullable()
           .optional()
-          .describe(
-            "Created date (YYYY-MM-DD) to set or clear. Typically auto-stamped; use for corrections.",
-          ),
+          .describe("Created date (YYYY-MM-DD) to set or clear. Typically auto-stamped; use for corrections."),
         task_id: z
           .string()
           .min(1)
@@ -646,9 +563,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .min(1)
           .nullable()
           .optional()
-          .describe(
-            "Tasks plugin ⛔ dependency IDs to set (non-empty), or null to clear.",
-          ),
+          .describe("Tasks plugin ⛔ dependency IDs to set (non-empty), or null to clear."),
         add_subtasks: z
           .array(z.string().min(1))
           .min(1)
@@ -712,7 +627,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_UPDATE_TASK,
-      })
+      });
       reqLogger.info("tool_call", {
         path,
         blockId: block_id,
@@ -732,7 +647,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
         heading,
         position,
         format,
-      })
+      });
       return safeHandler(
         reqLogger,
         async () =>
@@ -766,10 +681,10 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
             path: result.path,
             line: result.line,
             changes: result.changes,
-          })
-          return JSON.stringify(result)
+          });
+          return JSON.stringify(result);
         },
-      )
+      );
     },
-  )
-}
+  );
+};

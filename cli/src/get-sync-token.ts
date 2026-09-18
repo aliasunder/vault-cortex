@@ -1,34 +1,32 @@
-import { join, resolve } from "node:path"
+import { join, resolve } from "node:path";
 
-import type { Prompts } from "./prompts.js"
-import { patchEnvObsidianToken } from "./scaffold.js"
-import { expandTilde } from "./vault.js"
+import type { Prompts } from "./prompts.js";
+import { patchEnvObsidianToken } from "./scaffold.js";
+import { expandTilde } from "./vault.js";
 
 export type GetSyncTokenFlags = {
-  dir?: string
-}
+  dir?: string;
+};
 
 export type GetSyncTokenDeps = {
-  prompts: Prompts
-  fetchFn: typeof fetch
-}
+  prompts: Prompts;
+  fetchFn: typeof fetch;
+};
 
-const OBSIDIAN_SIGNIN_URL =
-  process.env.OBSIDIAN_SIGNIN_URL ?? "https://api.obsidian.md/user/signin"
-const SIGNIN_TIMEOUT_MS = 30_000
+const OBSIDIAN_SIGNIN_URL = process.env.OBSIDIAN_SIGNIN_URL ?? "https://api.obsidian.md/user/signin";
+const SIGNIN_TIMEOUT_MS = 30_000;
 
-const describeError = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error)
+const describeError = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 class ObsidianApiError extends Error {
   constructor(message: string) {
-    super(message)
-    this.name = "ObsidianApiError"
+    super(message);
+    this.name = "ObsidianApiError";
   }
 }
 
 const isJsonObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /**
  * Calls the Obsidian Sync signin API. Returns the parsed JSON on success,
@@ -51,73 +49,60 @@ const callSigninApi = async (
       mfa: params.mfa,
     }),
     signal: AbortSignal.timeout(SIGNIN_TIMEOUT_MS),
-  })
+  });
 
-  if (!response.ok) throw new Error(`HTTP Error ${response.status}`)
+  if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
 
   try {
-    const body = await response.json()
-    if (!isJsonObject(body)) throw new Error("not a JSON object")
-    if (typeof body.error === "string") throw new ObsidianApiError(body.error)
-    if (typeof body.token !== "string" || !body.token)
-      throw new Error("no token field")
+    const body = await response.json();
 
-    return body.token
+    if (!isJsonObject(body)) throw new Error("not a JSON object");
+    if (typeof body.error === "string") throw new ObsidianApiError(body.error);
+    if (typeof body.token !== "string" || !body.token) throw new Error("no token field");
+
+    return body.token;
   } catch (error) {
-    if (error instanceof ObsidianApiError) throw error
-    throw new Error(
-      `Unexpected response from Obsidian API (${describeError(error)})`,
-      { cause: error },
-    )
+    if (error instanceof ObsidianApiError) throw error;
+    throw new Error(`Unexpected response from Obsidian API (${describeError(error)})`, { cause: error });
   }
-}
+};
 
 /**
  * Warns the user about a signin failure with a message tailored to the
  * error type. Called by both the initial signin and MFA retry paths.
  */
-const warnSigninError = (
-  error: unknown,
-  prompts: Prompts,
-  isMfaRetry: boolean,
-): void => {
+const warnSigninError = (error: unknown, prompts: Prompts, isMfaRetry: boolean): void => {
   if (error instanceof Error && error.name === "TimeoutError") {
-    prompts.warn(
-      "Request timed out — check your internet connection and try again.",
-    )
-    return
+    prompts.warn("Request timed out — check your internet connection and try again.");
+    return;
   }
 
-  const isMfaError =
-    error instanceof ObsidianApiError && error.message.includes("2FA code")
-  const mfaHint =
-    isMfaRetry && isMfaError ? "\n  Check your 2FA code and try again." : ""
+  const isMfaError = error instanceof ObsidianApiError && error.message.includes("2FA code");
+  const mfaHint = isMfaRetry && isMfaError ? "\n  Check your 2FA code and try again." : "";
 
-  prompts.warn(`Could not sign in: ${describeError(error)}${mfaHint}`)
-}
+  prompts.warn(`Could not sign in: ${describeError(error)}${mfaHint}`);
+};
 
 /**
  * Signs in to the user's Obsidian account via the Sync API and returns
  * the auth token. Prompts for email, password, and MFA code (when 2FA
  * is enabled). Returns the token on success, undefined on any failure.
  */
-export const captureObsidianToken = async (
-  deps: GetSyncTokenDeps,
-): Promise<string | undefined> => {
-  const { prompts, fetchFn } = deps
+export const captureObsidianToken = async (deps: GetSyncTokenDeps): Promise<string | undefined> => {
+  const { prompts, fetchFn } = deps;
 
   const email = await prompts.text("Obsidian account email:", {
     placeholder: "you@example.com",
-  })
-  const password = await prompts.password("Password:")
+  });
+  const password = await prompts.password("Password:");
 
-  const spinner = prompts.spinner()
-  spinner.start("Signing in to Obsidian...")
+  const spinner = prompts.spinner();
+  spinner.start("Signing in to Obsidian...");
 
   try {
-    const token = await callSigninApi({ email, password, mfa: "" }, fetchFn)
-    spinner.stop(`Signed in as ${email}.`)
-    return token
+    const token = await callSigninApi({ email, password, mfa: "" }, fetchFn);
+    spinner.stop(`Signed in as ${email}.`);
+    return token;
   } catch (error) {
     // MFA required: the API returns an error containing "2FA code" — prompt
     // and retry. "2FA code is incorrect" is a wrong-code rejection, not a
@@ -125,75 +110,67 @@ export const captureObsidianToken = async (
     const needsMfa =
       error instanceof ObsidianApiError &&
       error.message.includes("2FA code") &&
-      !error.message.includes("2FA code is incorrect")
+      !error.message.includes("2FA code is incorrect");
 
     if (!needsMfa) {
-      spinner.stop("Sign-in failed.")
-      warnSigninError(error, prompts, false)
-      return undefined
+      spinner.stop("Sign-in failed.");
+      warnSigninError(error, prompts, false);
+      return undefined;
     }
 
-    spinner.stop("Two-factor authentication required.")
-    const mfaCode = await prompts.text("2FA code:")
+    spinner.stop("Two-factor authentication required.");
+    const mfaCode = await prompts.text("2FA code:");
 
-    spinner.start("Verifying...")
+    spinner.start("Verifying...");
     try {
-      const token = await callSigninApi(
-        { email, password, mfa: mfaCode },
-        fetchFn,
-      )
-      spinner.stop(`Signed in as ${email}.`)
-      return token
+      const token = await callSigninApi({ email, password, mfa: mfaCode }, fetchFn);
+      spinner.stop(`Signed in as ${email}.`);
+      return token;
     } catch (retryError) {
-      spinner.stop("Sign-in failed.")
-      warnSigninError(retryError, prompts, true)
-      return undefined
+      spinner.stop("Sign-in failed.");
+      warnSigninError(retryError, prompts, true);
+      return undefined;
     }
   }
-}
+};
 
 /**
  * Subcommand entry: generate an Obsidian Sync token via the Obsidian API.
  * Without --dir, prints the token to stdout.
  * With --dir, writes it directly to `<dir>/.env`.
  */
-export const runGetSyncToken = async (
-  flags: GetSyncTokenFlags,
-  deps: GetSyncTokenDeps,
-): Promise<number> => {
-  const { prompts } = deps
+export const runGetSyncToken = async (flags: GetSyncTokenFlags, deps: GetSyncTokenDeps): Promise<number> => {
+  const { prompts } = deps;
 
-  prompts.intro("vault-cortex get-sync-token")
+  prompts.intro("vault-cortex get-sync-token");
 
-  const token = await captureObsidianToken(deps)
+  const token = await captureObsidianToken(deps);
+
   if (!token) {
-    prompts.error("Could not capture the auth token.")
-    return 1
+    prompts.error("Could not capture the auth token.");
+    return 1;
   }
 
-  const envFilePath = flags.dir
-    ? join(resolve(expandTilde(flags.dir)), ".env")
-    : undefined
+  const envFilePath = flags.dir ? join(resolve(expandTilde(flags.dir)), ".env") : undefined;
 
   if (!envFilePath) {
-    prompts.log("Your OBSIDIAN_AUTH_TOKEN:")
-    prompts.print(`\n  ${token}\n`)
-    prompts.outro("Done.")
-    return 0
+    prompts.log("Your OBSIDIAN_AUTH_TOKEN:");
+    prompts.print(`\n  ${token}\n`);
+    prompts.outro("Done.");
+    return 0;
   }
 
-  const patched = patchEnvObsidianToken(envFilePath, token)
+  const patched = patchEnvObsidianToken(envFilePath, token);
+
   if (!patched) {
     prompts.error(
-      `Could not patch ${envFilePath} — the file is missing or has no ` +
-        "OBSIDIAN_AUTH_TOKEN line. Run init first.",
-    )
-    return 1
+      `Could not patch ${envFilePath} — the file is missing or has no ` + "OBSIDIAN_AUTH_TOKEN line. Run init first.",
+    );
+    return 1;
   }
   prompts.log(
-    `Token written to ${envFilePath}\n\n` +
-      `Start the server:\n  npx vault-cortex start --dir "${flags.dir}"`,
-  )
-  prompts.outro("Done.")
-  return 0
-}
+    `Token written to ${envFilePath}\n\n` + `Start the server:\n  npx vault-cortex start --dir "${flags.dir}"`,
+  );
+  prompts.outro("Done.");
+  return 0;
+};

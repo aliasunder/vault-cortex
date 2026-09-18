@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it } from "vitest";
 
-import { hasHiddenPathSegment } from "../has-hidden-path-segment.js"
+import { hasHiddenPathSegment } from "../has-hidden-path-segment.js";
 
 describe("hasHiddenPathSegment", () => {
   it.each([
@@ -14,6 +14,6 @@ describe("hasHiddenPathSegment", () => {
     ["dir./file", false],
     ["", false],
   ])("returns %s → %s", (relativePath, expected) => {
-    expect(hasHiddenPathSegment(relativePath)).toBe(expected)
-  })
-})
+    expect(hasHiddenPathSegment(relativePath)).toBe(expected);
+  });
+});

@@ -1,22 +1,22 @@
-import { DEFAULT_PORT, type Mode } from "./scaffold.js"
-import type { Prompts, SelectOption } from "./prompts.js"
+import { DEFAULT_PORT, type Mode } from "./scaffold.js";
+import type { Prompts, SelectOption } from "./prompts.js";
 
 type OptionalSettingBase = {
   /** The .env variable name — doubles as the chooser's option value. */
-  name: string
+  name: string;
   /** Human label shown in the settings chooser. */
-  label: string
+  label: string;
   /**
    * A toggle var this setting has no effect without. When that toggle is
    * currently off, the chooser hint says so — the user learns the dependency
    * before spending a prompt on an inert value.
    */
-  requiresToggle?: string
+  requiresToggle?: string;
   /** Only offered in remote-mode flows (absent = offered in both modes). */
-  remoteOnly?: true
+  remoteOnly?: true;
   /** Rejects a user-entered value — returns an error message, or undefined to accept. */
-  validate?: (value: string) => string | undefined
-}
+  validate?: (value: string) => string | undefined;
+};
 
 /**
  * One optional .env setting the guided flow can change. `kind` selects the
@@ -26,34 +26,34 @@ type OptionalSettingBase = {
  */
 type OptionalSetting =
   | (OptionalSettingBase & {
-      kind: "toggle"
-      question: string
+      kind: "toggle";
+      question: string;
       /** The server's default when the var is unset — seeds the confirm for
        *  an unset toggle. Omitted means enabled (the common case). */
-      defaultEnabled?: boolean
+      defaultEnabled?: boolean;
     })
   | (OptionalSettingBase & { kind: "port" })
   | (OptionalSettingBase & { kind: "timezone" })
   | (OptionalSettingBase & {
-      kind: "folder"
-      question: string
-      defaultValue: string
+      kind: "folder";
+      question: string;
+      defaultValue: string;
     })
   | (OptionalSettingBase & {
-      kind: "optionalText"
-      question: string
+      kind: "optionalText";
+      question: string;
       /** Ghost text while unset — no defaultValue because pre-filling would silently shadow the vault's own config. */
-      placeholder: string
+      placeholder: string;
     })
   | (OptionalSettingBase & {
-      kind: "choice"
-      question: string
-      choices: SelectOption[]
-      defaultValue: string
-    })
+      kind: "choice";
+      question: string;
+      choices: SelectOption[];
+      defaultValue: string;
+    });
 
 /** Matches Moment.js [...] literal escape groups, splitting format spans from literal content. */
-const MOMENT_BRACKET_ESCAPE = /\[([^\]]*)\]/g
+const MOMENT_BRACKET_ESCAPE = /\[([^\]]*)\]/g;
 
 // The curated prompt set — settings users most often want without reading
 // .env comments. Everything else stays documented-only in the generated
@@ -80,11 +80,9 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     question: "Vault folder for daily notes:",
     placeholder: "blank = use your vault's daily notes settings",
     validate: (value) => {
-      if (value.includes(".."))
-        return "Path traversal (..) is not allowed in folder names."
-      if (value.startsWith("/"))
-        return "Absolute paths are not allowed — use a vault-relative folder name."
-      return undefined
+      if (value.includes("..")) return "Path traversal (..) is not allowed in folder names.";
+      if (value.startsWith("/")) return "Absolute paths are not allowed — use a vault-relative folder name.";
+      return undefined;
     },
   },
   {
@@ -94,44 +92,37 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     question: "Filename date format for daily notes (e.g. YYYY-MM-DD):",
     placeholder: "blank = use your vault's daily notes settings",
     validate: (value) => {
-      if (value.includes(".."))
-        return "Date format must not contain path traversal (..)."
-      if (value.startsWith("/"))
-        return "Date format must not start with a path separator."
-      if (value.endsWith("/"))
-        return "Date format must not end with a path separator."
+      if (value.includes("..")) return "Date format must not contain path traversal (..).";
+      if (value.startsWith("/")) return "Date format must not start with a path separator.";
+      if (value.endsWith("/")) return "Date format must not end with a path separator.";
       // Moment format tokens are all letters — digits outside of [...]
       // bracket escapes are almost always a mistake.
-      const formatSegments = value.split(MOMENT_BRACKET_ESCAPE)
-      const hasDigitsInFormat = formatSegments.some(
-        (segment, index) => index % 2 === 0 && /\d/.test(segment),
-      )
+      const formatSegments = value.split(MOMENT_BRACKET_ESCAPE);
+      const hasDigitsInFormat = formatSegments.some((segment, index) => index % 2 === 0 && /\d/.test(segment));
+
       if (hasDigitsInFormat)
-        return "Date format should use Moment tokens (YYYY, MM, DD), not digits — wrap literal text in [...] brackets."
-      return undefined
+        return "Date format should use Moment tokens (YYYY, MM, DD), not digits — wrap literal text in [...] brackets.";
+      return undefined;
     },
   },
   {
     kind: "toggle",
     name: "FILE_TOOLS_ENABLED",
     label: "File tools",
-    question:
-      "Enable file tools (read images, PDFs, and other non-Markdown files)?",
+    question: "Enable file tools (read images, PDFs, and other non-Markdown files)?",
   },
   {
     kind: "toggle",
     name: "READONLY_MODE",
     label: "Read-only mode",
-    question:
-      "Run the server in read-only mode (hide all tools that change the vault)?",
+    question: "Run the server in read-only mode (hide all tools that change the vault)?",
     defaultEnabled: false,
   },
   {
     kind: "toggle",
     name: "EMBEDDING_ENABLED",
     label: "Semantic search",
-    question:
-      "Enable semantic search embeddings (richer search, slower first startup)?",
+    question: "Enable semantic search embeddings (richer search, slower first startup)?",
   },
   { kind: "port", name: "PORT", label: "Host port" },
   { kind: "timezone", name: "TZ", label: "Timezone" },
@@ -160,15 +151,13 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     defaultValue: "bidirectional",
     remoteOnly: true,
   },
-]
+];
 
 /** Matches the full active (uncommented) assignment line for a var. */
-const activeLinePattern = (name: string): RegExp =>
-  new RegExp(`^${name}=.*$`, "m")
+const activeLinePattern = (name: string): RegExp => new RegExp(`^${name}=.*$`, "m");
 
 /** Matches the full commented-out assignment line (`# VAR=...`) for a var. */
-const commentedLinePattern = (name: string): RegExp =>
-  new RegExp(`^# ${name}=.*$`, "m")
+const commentedLinePattern = (name: string): RegExp => new RegExp(`^# ${name}=.*$`, "m");
 
 /**
  * Reads a var's current value from .env content. A commented-out or missing
@@ -178,13 +167,10 @@ const commentedLinePattern = (name: string): RegExp =>
  * prompt seeding, and the PUBLIC_URL derivation must reason from the value
  * that actually takes effect.
  */
-export const readOptionalValue = (
-  envContent: string,
-  name: string,
-): string | undefined => {
-  const matches = [...envContent.matchAll(new RegExp(`^${name}=(.*)$`, "gm"))]
-  return matches.at(-1)?.[1].trim()
-}
+export const readOptionalValue = (envContent: string, name: string): string | undefined => {
+  const matches = [...envContent.matchAll(new RegExp(`^${name}=(.*)$`, "gm"))];
+  return matches.at(-1)?.[1].trim();
+};
 
 /**
  * Applies chosen values to .env content as a pure text transform: every
@@ -194,26 +180,21 @@ export const readOptionalValue = (
  * a var with no line at all (a .env predating the setting) is appended —
  * the chosen value must land in the file, never be silently dropped.
  */
-export const applyOptionalSettings = (
-  envContent: string,
-  overrides: Record<string, string>,
-): string =>
+export const applyOptionalSettings = (envContent: string, overrides: Record<string, string>): string =>
   Object.entries(overrides).reduce((content, [name, value]) => {
     // Fresh RegExp per use (the /g flag makes instances stateful via
     // lastIndex); function replacements avoid $-pattern interpretation in
     // values, same as patchEnvObsidianToken.
-    const everyActiveLine = new RegExp(`^${name}=.*$`, "gm")
+    const everyActiveLine = new RegExp(`^${name}=.*$`, "gm");
+
     if (activeLinePattern(name).test(content)) {
-      return content.replace(everyActiveLine, () => `${name}=${value}`)
+      return content.replace(everyActiveLine, () => `${name}=${value}`);
     }
     if (commentedLinePattern(name).test(content)) {
-      return content.replace(
-        commentedLinePattern(name),
-        () => `${name}=${value}`,
-      )
+      return content.replace(commentedLinePattern(name), () => `${name}=${value}`);
     }
-    return `${content.trimEnd()}\n\n${name}=${value}\n`
-  }, envContent)
+    return `${content.trimEnd()}\n\n${name}=${value}\n`;
+  }, envContent);
 
 /**
  * A PORT override moves the server, and the local quickstart derives
@@ -227,14 +208,15 @@ export const derivePublicUrlOverride = (
   envContent: string,
   overrides: Record<string, string>,
 ): Record<string, string> => {
-  const newPort = overrides.PORT
-  if (!newPort) return overrides
-  const currentPort =
-    readOptionalValue(envContent, "PORT") ?? String(DEFAULT_PORT)
-  const currentPublicUrl = readOptionalValue(envContent, "PUBLIC_URL")
-  if (currentPublicUrl !== `http://localhost:${currentPort}`) return overrides
-  return { ...overrides, PUBLIC_URL: `http://localhost:${newPort}` }
-}
+  const newPort = overrides.PORT;
+
+  if (!newPort) return overrides;
+  const currentPort = readOptionalValue(envContent, "PORT") ?? String(DEFAULT_PORT);
+  const currentPublicUrl = readOptionalValue(envContent, "PUBLIC_URL");
+
+  if (currentPublicUrl !== `http://localhost:${currentPort}`) return overrides;
+  return { ...overrides, PUBLIC_URL: `http://localhost:${newPort}` };
+};
 
 /**
  * True unless the .env value is an explicit "off" spelling — env-var's asBool
@@ -243,7 +225,7 @@ export const derivePublicUrlOverride = (
  * stated otherwise).
  */
 const isEnabledToggleValue = (value: string | undefined): boolean =>
-  !["false", "0"].includes((value ?? "").toLowerCase())
+  !["false", "0"].includes((value ?? "").toLowerCase());
 
 /**
  * Plain digits in the TCP port range. Number() coercion is not enough:
@@ -251,10 +233,10 @@ const isEnabledToggleValue = (value: string | undefined): boolean =>
  * would later fail to read back — silently falling to the default port.
  */
 const isValidPort = (value: string): boolean => {
-  if (!/^\d+$/.test(value)) return false
-  const port = Number(value)
-  return port >= 1 && port <= 65535
-}
+  if (!/^\d+$/.test(value)) return false;
+  const port = Number(value);
+  return port >= 1 && port <= 65535;
+};
 
 /**
  * The engine's own IANA zone validation: Intl.DateTimeFormat throws a
@@ -262,79 +244,72 @@ const isValidPort = (value: string): boolean => {
  */
 const isValidTimezone = (value: string): boolean => {
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value })
-    return true
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return true;
   } catch {
-    return false
+    return false;
   }
-}
+};
 
 /** Re-prompts until the answer is a valid port number. */
-const askPort = async (
-  currentValue: string | undefined,
-  prompts: Prompts,
-): Promise<string> => {
+const askPort = async (currentValue: string | undefined, prompts: Prompts): Promise<string> => {
   const answer = (
     await prompts.text("Host port for the server:", {
       defaultValue: currentValue ?? String(DEFAULT_PORT),
       placeholder: String(DEFAULT_PORT),
     })
-  ).trim()
-  if (isValidPort(answer)) return answer
-  prompts.error("PORT must be a whole number between 1 and 65535.")
-  return askPort(currentValue, prompts)
-}
+  ).trim();
+
+  if (isValidPort(answer)) return answer;
+  prompts.error("PORT must be a whole number between 1 and 65535.");
+  return askPort(currentValue, prompts);
+};
 
 /** Re-prompts until the answer is a zone the runtime recognizes. */
-const askTimezone = async (
-  currentValue: string | undefined,
-  prompts: Prompts,
-): Promise<string> => {
+const askTimezone = async (currentValue: string | undefined, prompts: Prompts): Promise<string> => {
   const answer = (
     await prompts.text("Your IANA timezone:", {
       defaultValue: currentValue,
       placeholder: "America/New_York",
     })
-  ).trim()
-  if (answer !== "" && isValidTimezone(answer)) return answer
-  prompts.error(
-    `"${answer}" is not a recognized IANA timezone (e.g. America/New_York, Europe/London).`,
-  )
-  return askTimezone(currentValue, prompts)
-}
+  ).trim();
+
+  if (answer !== "" && isValidTimezone(answer)) return answer;
+  prompts.error(`"${answer}" is not a recognized IANA timezone (e.g. America/New_York, Europe/London).`);
+  return askTimezone(currentValue, prompts);
+};
 
 /** Re-prompts until the answer is a non-empty folder name. */
 const askFolder = async (
   params: {
-    question: string
-    currentValue: string | undefined
-    defaultValue: string
+    question: string;
+    currentValue: string | undefined;
+    defaultValue: string;
   },
   prompts: Prompts,
 ): Promise<string> => {
-  const { question, currentValue, defaultValue } = params
+  const { question, currentValue, defaultValue } = params;
   const answer = (
     await prompts.text(question, {
       defaultValue: currentValue ?? defaultValue,
       placeholder: defaultValue,
     })
-  ).trim()
+  ).trim();
+
   if (answer !== "") {
     if (answer.includes("..")) {
-      prompts.error("Path traversal (..) is not allowed in folder names.")
-      return askFolder(params, prompts)
+      prompts.error("Path traversal (..) is not allowed in folder names.");
+      return askFolder(params, prompts);
     }
     if (answer.startsWith("/")) {
-      prompts.error(
-        "Absolute paths are not allowed — use a vault-relative folder name.",
-      )
-      return askFolder(params, prompts)
+      prompts.error("Absolute paths are not allowed — use a vault-relative folder name.");
+      return askFolder(params, prompts);
     }
-    return answer
+    return answer;
   }
-  prompts.error("The folder name can't be empty.")
-  return askFolder(params, prompts)
-}
+  prompts.error("The folder name can't be empty.");
+  return askFolder(params, prompts);
+};
 
 /**
  * Text prompt for a setting whose absence is meaningful — the server falls
@@ -345,32 +320,28 @@ const askFolder = async (
  */
 const askOptionalText = async (
   params: {
-    question: string
-    placeholder: string
-    currentValue: string | undefined
+    question: string;
+    placeholder: string;
+    currentValue: string | undefined;
   },
   prompts: Prompts,
 ): Promise<string | undefined> => {
-  const { question, placeholder, currentValue } = params
+  const { question, placeholder, currentValue } = params;
   const answer = (
     await prompts.text(question, {
       defaultValue: currentValue,
-      placeholder:
-        currentValue === undefined
-          ? placeholder
-          : "blank = keep the current value",
+      placeholder: currentValue === undefined ? placeholder : "blank = keep the current value",
     })
-  ).trim()
-  if (answer !== "" && answer !== currentValue) return answer
+  ).trim();
+
+  if (answer !== "" && answer !== currentValue) return answer;
   if (currentValue === undefined) {
-    prompts.log(
-      "Left unset — the server reads this setting from your vault's own config.",
-    )
-    return undefined
+    prompts.log("Left unset — the server reads this setting from your vault's own config.");
+    return undefined;
   }
-  prompts.log(`Kept the current value (${currentValue}).`)
-  return undefined
-}
+  prompts.log(`Kept the current value (${currentValue}).`);
+  return undefined;
+};
 
 /**
  * Routes a picked setting to its kind's prompt and returns the .env value —
@@ -380,7 +351,7 @@ const askSettingValue = async (
   params: { setting: OptionalSetting; currentValue: string | undefined },
   prompts: Prompts,
 ): Promise<string | undefined> => {
-  const { setting, currentValue } = params
+  const { setting, currentValue } = params;
   switch (setting.kind) {
     case "toggle": {
       // An unset or empty var means the server default applies — seed the
@@ -388,16 +359,14 @@ const askSettingValue = async (
       // heuristic (wrong for default-off toggles like READONLY_MODE).
       // Empty string matters: `READONLY_MODE=` in .env is read as unset
       // by Compose's `${VAR:-default}` and env-var's `.default()`.
-      const currentlyEnabled = !currentValue
-        ? (setting.defaultEnabled ?? true)
-        : isEnabledToggleValue(currentValue)
-      const enabled = await prompts.confirm(setting.question, currentlyEnabled)
-      return String(enabled)
+      const currentlyEnabled = !currentValue ? (setting.defaultEnabled ?? true) : isEnabledToggleValue(currentValue);
+      const enabled = await prompts.confirm(setting.question, currentlyEnabled);
+      return String(enabled);
     }
     case "port":
-      return askPort(currentValue, prompts)
+      return askPort(currentValue, prompts);
     case "timezone":
-      return askTimezone(currentValue, prompts)
+      return askTimezone(currentValue, prompts);
     case "folder":
       return askFolder(
         {
@@ -406,7 +375,7 @@ const askSettingValue = async (
           defaultValue: setting.defaultValue,
         },
         prompts,
-      )
+      );
     case "optionalText": {
       const value = await askOptionalText(
         {
@@ -415,24 +384,22 @@ const askSettingValue = async (
           currentValue,
         },
         prompts,
-      )
+      );
+
       if (value && setting.validate) {
-        const error = setting.validate(value)
+        const error = setting.validate(value);
+
         if (error) {
-          prompts.error(error)
-          return askSettingValue(params, prompts)
+          prompts.error(error);
+          return askSettingValue(params, prompts);
         }
       }
-      return value
+      return value;
     }
     case "choice":
-      return prompts.select(
-        setting.question,
-        setting.choices,
-        currentValue ?? setting.defaultValue,
-      )
+      return prompts.select(setting.question, setting.choices, currentValue ?? setting.defaultValue);
   }
-}
+};
 
 /**
  * The guided optional-settings flow shared by init and configure: one
@@ -444,43 +411,39 @@ export const askOptionalSettings = async (
   params: { mode: Mode; envContent: string },
   prompts: Prompts,
 ): Promise<Record<string, string>> => {
-  const { mode, envContent } = params
-  const offeredSettings = OPTIONAL_SETTINGS.filter(
-    (setting) => !setting.remoteOnly || mode === "remote",
-  )
+  const { mode, envContent } = params;
+  const offeredSettings = OPTIONAL_SETTINGS.filter((setting) => !setting.remoteOnly || mode === "remote");
   const chooserOptions = offeredSettings.map((setting) => {
-    const currentValue = readOptionalValue(envContent, setting.name)
-    const requiredToggle = OPTIONAL_SETTINGS.find(
-      (candidate) => candidate.name === setting.requiresToggle,
-    )
+    const currentValue = readOptionalValue(envContent, setting.name);
+    const requiredToggle = OPTIONAL_SETTINGS.find((candidate) => candidate.name === setting.requiresToggle);
     const dependencyNote =
-      requiredToggle &&
-      !isEnabledToggleValue(readOptionalValue(envContent, requiredToggle.name))
+      requiredToggle && !isEnabledToggleValue(readOptionalValue(envContent, requiredToggle.name))
         ? ` · not used while ${requiredToggle.label} is off`
-        : ""
+        : "";
     return {
       value: setting.name,
       label: setting.label,
       hint: `${setting.name} · currently ${currentValue || "not set"}${dependencyNote}`,
-    }
-  })
+    };
+  });
 
   const pickedNames = await prompts.multiselect(
     "Any optional settings to change? (press enter to skip)",
     chooserOptions,
-  )
+  );
 
   // Sequential prompting: answers are gathered one at a time in the curated
   // order, so the record builds up inside an honest loop. An undefined answer
   // (an optionalText prompt left blank) writes nothing.
-  const overrides: Record<string, string> = {}
+  const overrides: Record<string, string> = {};
   for (const setting of offeredSettings) {
-    if (!pickedNames.includes(setting.name)) continue
+    if (!pickedNames.includes(setting.name)) continue;
     const value = await askSettingValue(
       { setting, currentValue: readOptionalValue(envContent, setting.name) },
       prompts,
-    )
-    if (value !== undefined) overrides[setting.name] = value
+    );
+
+    if (value !== undefined) overrides[setting.name] = value;
   }
-  return overrides
-}
+  return overrides;
+};

@@ -1,42 +1,39 @@
 /** Integration test harness — boots a real server as a child process
  *  and connects an MCP SDK Client over HTTP. */
 
-import { spawn } from "node:child_process"
-import { mkdtemp, cp, rm } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
-import { createServer } from "node:net"
-import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
-import type { ChildProcess } from "node:child_process"
+import { spawn } from "node:child_process";
+import { mkdtemp, cp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { createServer } from "node:net";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { ChildProcess } from "node:child_process";
 
-const AUTH_TOKEN = "test-integration-token"
-const FIXTURE_VAULT = resolve(import.meta.dirname, "fixtures/vault")
-const SERVER_ENTRY = resolve(
-  import.meta.dirname,
-  "../../../src/vault-mcp/server.ts",
-)
+const AUTH_TOKEN = "test-integration-token";
+const FIXTURE_VAULT = resolve(import.meta.dirname, "fixtures/vault");
+const SERVER_ENTRY = resolve(import.meta.dirname, "../../../src/vault-mcp/server.ts");
 
 type ServerHandle = {
-  port: number
-  process: ChildProcess
-  vaultPath: string
-  dataDir: string
+  port: number;
+  process: ChildProcess;
+  vaultPath: string;
+  dataDir: string;
   /** Everything the server has logged to stdout so far — the structured
    *  JSON log stream, for asserting a log line's presence or absence. */
-  stdout: () => string
-  cleanup: () => Promise<void>
-}
+  stdout: () => string;
+  cleanup: () => Promise<void>;
+};
 
 type SpawnedServer = {
-  child: ChildProcess
-  vaultPath: string
-  dataDir: string
-  stdout: () => string
-  stderr: () => string
+  child: ChildProcess;
+  vaultPath: string;
+  dataDir: string;
+  stdout: () => string;
+  stderr: () => string;
   /** Resolves once this child logs its own "server started" line. */
-  started: Promise<void>
-}
+  started: Promise<void>;
+};
 
 /** Ask the OS for a currently free TCP port. Test files run in parallel and
  *  each boots its own servers, so a port drawn from a fixed random range can
@@ -44,26 +41,27 @@ type SpawnedServer = {
  *  does not repeat while the allocator cycles. */
 export const freePort = (): Promise<number> =>
   new Promise((resolve, reject) => {
-    const probe = createServer()
-    probe.unref()
-    probe.once("error", reject)
+    const probe = createServer();
+    probe.unref();
+    probe.once("error", reject);
     probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address()
+      const address = probe.address();
+
       if (!address || typeof address === "string") {
-        probe.close()
-        reject(new Error("port probe did not bind a TCP address"))
-        return
+        probe.close();
+        reject(new Error("port probe did not bind a TCP address"));
+        return;
       }
-      const { port } = address
+      const { port } = address;
       probe.close((closeError) => {
         if (closeError) {
-          reject(closeError)
-          return
+          reject(closeError);
+          return;
         }
-        resolve(port)
-      })
-    })
-  })
+        resolve(port);
+      });
+    });
+  });
 
 const buildServerEnv = (
   port: number,
@@ -82,41 +80,38 @@ const buildServerEnv = (
   HOME: process.env.HOME ?? "",
   NODE_ENV: "test",
   ...overrides,
-})
+});
 
 /** Copy the fixture vault to a tempdir and spawn the server process. */
-const spawnServerProcess = async (
-  port: number,
-  envOverrides: Record<string, string>,
-): Promise<SpawnedServer> => {
-  const vaultPath = await mkdtemp(join(tmpdir(), "vc-integ-vault-"))
-  await cp(FIXTURE_VAULT, vaultPath, { recursive: true })
+const spawnServerProcess = async (port: number, envOverrides: Record<string, string>): Promise<SpawnedServer> => {
+  const vaultPath = await mkdtemp(join(tmpdir(), "vc-integ-vault-"));
+  await cp(FIXTURE_VAULT, vaultPath, { recursive: true });
 
-  const dataDir = await mkdtemp(join(tmpdir(), "vc-integ-data-"))
-  const env = buildServerEnv(port, vaultPath, dataDir, envOverrides)
+  const dataDir = await mkdtemp(join(tmpdir(), "vc-integ-data-"));
+  const env = buildServerEnv(port, vaultPath, dataDir, envOverrides);
 
   const child = spawn("npx", ["tsx", SERVER_ENTRY], {
     env,
     stdio: ["ignore", "pipe", "pipe"],
-  })
+  });
 
-  let stderrBuf = ""
+  let stderrBuf = "";
   child.stderr?.on("data", (chunk: Buffer) => {
-    stderrBuf += chunk.toString()
-  })
+    stderrBuf += chunk.toString();
+  });
 
   // The server's structured "server started" log (stdout) is the only
   // readiness signal that proves THIS process bound the port. A /healthz
   // probe alone can be answered by any server already listening there —
   // if our child then dies with EADDRINUSE, tests silently run against a
   // sibling file's server with a different configuration.
-  let stdoutBuf = ""
+  let stdoutBuf = "";
   const started = new Promise<void>((resolve) => {
     child.stdout?.on("data", (chunk: Buffer) => {
-      stdoutBuf += chunk.toString()
-      if (stdoutBuf.includes('"message":"server started"')) resolve()
-    })
-  })
+      stdoutBuf += chunk.toString();
+      if (stdoutBuf.includes('"message":"server started"')) resolve();
+    });
+  });
 
   return {
     child,
@@ -125,145 +120,127 @@ const spawnServerProcess = async (
     stdout: () => stdoutBuf,
     stderr: () => stderrBuf,
     started,
-  }
-}
+  };
+};
 
 /** Signal the child and wait for it to close, escalating to SIGKILL after
  *  3 s. Temp directories are removed only after this resolves — `kill()`
  *  alone just sends the signal, and deleting files a live process still
  *  holds masks the real failure. */
-const terminateChild = async (
-  child: ChildProcess,
-  signal: "SIGTERM" | "SIGKILL",
-): Promise<void> => {
+const terminateChild = async (child: ChildProcess, signal: "SIGTERM" | "SIGKILL"): Promise<void> => {
   // A child killed by a signal has exitCode null but signalCode set —
   // both are terminal states where kill() is a no-op and "close" has
   // already fired (or will never fire), so waiting would hang for 3 s.
-  if (child.exitCode !== null || child.signalCode !== null) return
-  child.kill(signal)
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  child.kill(signal);
   await new Promise<void>((resolveClosed) => {
-    child.once("close", () => resolveClosed())
+    child.once("close", () => resolveClosed());
     setTimeout(() => {
-      child.kill("SIGKILL")
-      resolveClosed()
-    }, 3_000).unref()
-  })
-}
+      child.kill("SIGKILL");
+      resolveClosed();
+    }, 3_000).unref();
+  });
+};
 
 /** Boot the real server against a copy of the fixture vault. */
-export const startServer = async (
-  port: number,
-  envOverrides: Record<string, string> = {},
-): Promise<ServerHandle> => {
-  const { child, vaultPath, dataDir, stdout, stderr, started } =
-    await spawnServerProcess(port, envOverrides)
+export const startServer = async (port: number, envOverrides: Record<string, string> = {}): Promise<ServerHandle> => {
+  const { child, vaultPath, dataDir, stdout, stderr, started } = await spawnServerProcess(port, envOverrides);
 
   // Both watchdogs are detached once the boot races settle: a timer that
   // fires later, or the exit event that cleanup() itself triggers, would
   // otherwise reject a Promise nobody awaits any more (an unhandled
   // rejection in the test runner).
-  const earlyExit = Promise.withResolvers<never>()
+  const earlyExit = Promise.withResolvers<never>();
   const rejectOnExit = (code: number | null): void => {
-    earlyExit.reject(new Error(`Server exited early with code ${code}`))
-  }
-  child.once("exit", rejectOnExit)
-  const startTimeout = Promise.withResolvers<never>()
+    earlyExit.reject(new Error(`Server exited early with code ${code}`));
+  };
+  child.once("exit", rejectOnExit);
+  const startTimeout = Promise.withResolvers<never>();
   const startTimeoutTimer = setTimeout(() => {
-    startTimeout.reject(
-      new Error(
-        `Server on port ${port} did not log "server started" within 15000ms`,
-      ),
-    )
-  }, 15_000)
-  startTimeoutTimer.unref()
+    startTimeout.reject(new Error(`Server on port ${port} did not log "server started" within 15000ms`));
+  }, 15_000);
+  startTimeoutTimer.unref();
 
   try {
-    await Promise.race([started, earlyExit.promise, startTimeout.promise])
-    await Promise.race([pollHealthz(port, 15_000), earlyExit.promise])
+    await Promise.race([started, earlyExit.promise, startTimeout.promise]);
+    await Promise.race([pollHealthz(port, 15_000), earlyExit.promise]);
   } catch (err) {
-    await terminateChild(child, "SIGKILL")
-    await rm(vaultPath, { recursive: true, force: true })
-    await rm(dataDir, { recursive: true, force: true })
-    const reason = err instanceof Error ? err.message : String(err)
-    throw new Error(`${reason}\n\nServer stderr:\n${stderr()}`, { cause: err })
+    await terminateChild(child, "SIGKILL");
+    await rm(vaultPath, { recursive: true, force: true });
+    await rm(dataDir, { recursive: true, force: true });
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`${reason}\n\nServer stderr:\n${stderr()}`, { cause: err });
   } finally {
-    clearTimeout(startTimeoutTimer)
-    child.off("exit", rejectOnExit)
+    clearTimeout(startTimeoutTimer);
+    child.off("exit", rejectOnExit);
   }
 
   const cleanup = async (): Promise<void> => {
-    await terminateChild(child, "SIGTERM")
-    await rm(vaultPath, { recursive: true, force: true })
-    await rm(dataDir, { recursive: true, force: true })
-  }
+    await terminateChild(child, "SIGTERM");
+    await rm(vaultPath, { recursive: true, force: true });
+    await rm(dataDir, { recursive: true, force: true });
+  };
 
-  return { port, process: child, vaultPath, dataDir, stdout, cleanup }
-}
+  return { port, process: child, vaultPath, dataDir, stdout, cleanup };
+};
 
 /** Spawn server expecting it to fail — returns exit code and stderr. */
 export const startServerExpectingFailure = async (
   port: number,
   envOverrides: Record<string, string> = {},
 ): Promise<{ exitCode: number | null; stderr: string }> => {
-  const { child, vaultPath, dataDir, stderr } = await spawnServerProcess(
-    port,
-    envOverrides,
-  )
+  const { child, vaultPath, dataDir, stderr } = await spawnServerProcess(port, envOverrides);
 
   const exitCode = await new Promise<number | null>((res) => {
-    child.on("close", (code) => res(code))
+    child.on("close", (code) => res(code));
     setTimeout(() => {
-      child.kill("SIGKILL")
-      res(null)
-    }, 10_000).unref()
-  })
+      child.kill("SIGKILL");
+      res(null);
+    }, 10_000).unref();
+  });
 
-  await rm(vaultPath, { recursive: true, force: true })
-  await rm(dataDir, { recursive: true, force: true })
+  await rm(vaultPath, { recursive: true, force: true });
+  await rm(dataDir, { recursive: true, force: true });
 
-  return { exitCode, stderr: stderr() }
-}
+  return { exitCode, stderr: stderr() };
+};
 
 /** Connect an MCP SDK Client to the running server. */
 export const createTestClient = async (port: number): Promise<Client> => {
-  const transport = new StreamableHTTPClientTransport(
-    new URL(`http://127.0.0.1:${port}/mcp`),
-    {
-      requestInit: {
-        headers: { Authorization: `Bearer ${AUTH_TOKEN}` },
-      },
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+    requestInit: {
+      headers: { Authorization: `Bearer ${AUTH_TOKEN}` },
     },
-  )
-  const client = new Client({ name: "integration-test", version: "1.0.0" })
+  });
+  const client = new Client({ name: "integration-test", version: "1.0.0" });
   // SDK's StreamableHTTPClientTransport.sessionId is `string | undefined` but
   // the Transport interface declares `sessionId?: string` — incompatible under
   // exactOptionalPropertyTypes. Self-cleans when the SDK fixes the type.
   // @ts-expect-error — SDK type misalignment (sessionId optionality)
-  await client.connect(transport)
-  return client
-}
+  await client.connect(transport);
+  return client;
+};
 
 /** Sorted tool names from a connected client. */
 export const toolNames = async (client: Client): Promise<string[]> => {
-  const result = await client.listTools()
-  return result.tools.map((tool) => tool.name).sort()
-}
+  const result = await client.listTools();
+  return result.tools.map((tool) => tool.name).sort();
+};
 
 /** Sorted prompt names from a connected client. */
 export const promptNames = async (client: Client): Promise<string[]> => {
-  const result = await client.listPrompts()
-  return result.prompts.map((prompt) => prompt.name).sort()
-}
+  const result = await client.listPrompts();
+  return result.prompts.map((prompt) => prompt.name).sort();
+};
 
 // ── Shared tool-call helpers ────────────────────────────────────
 
-type SdkCallToolResult = Awaited<ReturnType<Client["callTool"]>>
+type SdkCallToolResult = Awaited<ReturnType<Client["callTool"]>>;
 
 /** Content-response branch of the SDK's CallToolResult union. */
-export type ToolResult = Extract<SdkCallToolResult, { content: unknown[] }>
+export type ToolResult = Extract<SdkCallToolResult, { content: unknown[] }>;
 
-const isContentResult = (result: SdkCallToolResult): result is ToolResult =>
-  Array.isArray(result.content)
+const isContentResult = (result: SdkCallToolResult): result is ToolResult => Array.isArray(result.content);
 
 /** Call a tool and return the content-based result. */
 export const callTool = async ({
@@ -271,35 +248,32 @@ export const callTool = async ({
   name,
   args = {},
 }: {
-  client: Client
-  name: string
-  args?: Record<string, unknown>
+  client: Client;
+  name: string;
+  args?: Record<string, unknown>;
 }): Promise<ToolResult> => {
-  const result = await client.callTool({ name, arguments: args })
+  const result = await client.callTool({ name, arguments: args });
+
   if (!isContentResult(result)) {
-    throw new Error(
-      "unexpected toolResult response — server returned no content array",
-    )
+    throw new Error("unexpected toolResult response — server returned no content array");
   }
-  return result
-}
+  return result;
+};
 
 /** Join all text blocks from a tool result into a single string. */
 export const textContent = (result: ToolResult): string =>
   result.content
     .filter((block) => block.type === "text")
     .map((block) => block.text)
-    .join("\n")
+    .join("\n");
 
 /** Send an MCP initialize request with optional auth, return the HTTP status. */
-export const mcpInitStatus = async (
-  port: number,
-  authHeader?: string,
-): Promise<number> => {
+export const mcpInitStatus = async (port: number, authHeader?: string): Promise<number> => {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-  }
-  if (authHeader) headers["Authorization"] = authHeader
+  };
+
+  if (authHeader) headers["Authorization"] = authHeader;
 
   const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
     method: "POST",
@@ -314,23 +288,22 @@ export const mcpInitStatus = async (
         clientInfo: { name: "test", version: "1.0.0" },
       },
     }),
-  })
-  return response.status
-}
+  });
+  return response.status;
+};
 
 const pollHealthz = async (port: number, timeoutMs: number): Promise<void> => {
-  const deadline = Date.now() + timeoutMs
-  const url = `http://127.0.0.1:${port}/healthz`
+  const deadline = Date.now() + timeoutMs;
+  const url = `http://127.0.0.1:${port}/healthz`;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(url)
-      if (response.ok) return
+      const response = await fetch(url);
+
+      if (response.ok) return;
     } catch {
       // Server not ready yet
     }
-    await new Promise((res) => setTimeout(res, 200))
+    await new Promise((res) => setTimeout(res, 200));
   }
-  throw new Error(
-    `Server on port ${port} did not become healthy within ${timeoutMs}ms`,
-  )
-}
+  throw new Error(`Server on port ${port} did not become healthy within ${timeoutMs}ms`);
+};

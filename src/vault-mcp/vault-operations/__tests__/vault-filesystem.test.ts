@@ -1,12 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-  onTestFinished,
-} from "vitest"
+import { describe, it, expect, beforeEach, afterEach, vi, onTestFinished } from "vitest";
 import {
   mkdtemp,
   rm,
@@ -20,25 +12,25 @@ import {
   utimes,
   rename,
   symlink,
-} from "node:fs/promises"
-import { basename, join } from "node:path"
-import { tmpdir } from "node:os"
-import { DateTime } from "luxon"
+} from "node:fs/promises";
+import { basename, join } from "node:path";
+import { tmpdir } from "node:os";
+import { DateTime } from "luxon";
 
 // Every node:fs/promises export becomes a pass-through spy — real behavior
 // everywhere, and a test can inject a one-shot competitor or failure at the
 // exact call the production code makes (the forced-collision and
 // rename-failure trash tests).
-vi.mock("node:fs/promises", { spy: true })
+vi.mock("node:fs/promises", { spy: true });
 import {
   vaultFs,
   atomicWriteFile,
   atomicWriteFileExclusive,
   pruneEmptyParents,
   resolveSafePath,
-} from "../vault-filesystem.js"
-import { parseNote } from "../../obsidian-markdown/frontmatter.js"
-import { logger } from "../../../logger.js"
+} from "../vault-filesystem.js";
+import { parseNote } from "../../obsidian-markdown/frontmatter.js";
+import { logger } from "../../../logger.js";
 
 const {
   readNote,
@@ -52,151 +44,129 @@ const {
   listAssets,
   readAsset,
   statAssets,
-} = vaultFs
+} = vaultFs;
 
-let vault: string
+let vault: string;
 
 beforeEach(async () => {
-  vault = await mkdtemp(join(tmpdir(), "vault-test-"))
-})
+  vault = await mkdtemp(join(tmpdir(), "vault-test-"));
+});
 
 afterEach(async () => {
-  await rm(vault, { recursive: true })
-})
+  await rm(vault, { recursive: true });
+});
 
 describe("atomicWriteFile", () => {
   it("writes the exact content to the target path", async () => {
-    const target = join(vault, "atomic.md")
-    await atomicWriteFile(
-      { filePath: target, content: "exact content\n" },
-      logger,
-    )
-    expect(await readFile(target, "utf8")).toBe("exact content\n")
-  })
+    const target = join(vault, "atomic.md");
+    await atomicWriteFile({ filePath: target, content: "exact content\n" }, logger);
+    expect(await readFile(target, "utf8")).toBe("exact content\n");
+  });
 
   it("leaves no .tmp staging file behind on success", async () => {
-    await atomicWriteFile(
-      { filePath: join(vault, "clean.md"), content: "body\n" },
-      logger,
-    )
-    const entries = await readdir(vault)
-    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
-  })
+    await atomicWriteFile({ filePath: join(vault, "clean.md"), content: "body\n" }, logger);
+    const entries = await readdir(vault);
+    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
 
   it("cleans up the staging file and rethrows when the rename fails", async () => {
     // A directory sitting at the target path makes the final rename fail with
     // EISDIR — after the temp file has already been staged — so this exercises
     // the catch-and-cleanup branch, not the initial writeFile.
-    const target = join(vault, "occupied")
-    await mkdir(target)
-    await expect(
-      atomicWriteFile({ filePath: target, content: "body\n" }, logger),
-    ).rejects.toThrow(/EISDIR/)
-    const entries = await readdir(vault)
-    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
-  })
+    const target = join(vault, "occupied");
+    await mkdir(target);
+    await expect(atomicWriteFile({ filePath: target, content: "body\n" }, logger)).rejects.toThrow(/EISDIR/);
+    const entries = await readdir(vault);
+    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
 
   it("logs the temp-file cleanup failure when both the rename and the cleanup fail", async () => {
-    const target = join(vault, "occupied")
-    await mkdir(target)
-    const warnSpy = vi.spyOn(logger, "warn")
-    onTestFinished(() => warnSpy.mockRestore())
+    const target = join(vault, "occupied");
+    await mkdir(target);
+    const warnSpy = vi.spyOn(logger, "warn");
+    onTestFinished(() => warnSpy.mockRestore());
     // The next rm call is the temp-file cleanup after the EISDIR rename
     vi.mocked(rm).mockImplementationOnce(async () => {
-      throw new Error("EPERM: injected cleanup failure")
-    })
+      throw new Error("EPERM: injected cleanup failure");
+    });
 
-    await expect(
-      atomicWriteFile({ filePath: target, content: "body\n" }, logger),
-    ).rejects.toThrow(/EISDIR/)
+    await expect(atomicWriteFile({ filePath: target, content: "body\n" }, logger)).rejects.toThrow(/EISDIR/);
 
     // The temp path carries a random UUID, so only its shape is assertable
-    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith("failed to remove temp file", {
       path: expect.stringMatching(/occupied\..+\.tmp$/),
       error: "[Error]: EPERM: injected cleanup failure",
-    })
-  })
-})
+    });
+  });
+});
 
 describe("atomicWriteFileExclusive", () => {
   it("writes the exact content to a new target path", async () => {
-    const target = join(vault, "created.md")
-    await atomicWriteFileExclusive(
-      { filePath: target, content: "fresh content\n" },
-      logger,
-    )
-    expect(await readFile(target, "utf8")).toBe("fresh content\n")
-  })
+    const target = join(vault, "created.md");
+    await atomicWriteFileExclusive({ filePath: target, content: "fresh content\n" }, logger);
+    expect(await readFile(target, "utf8")).toBe("fresh content\n");
+  });
 
   it("throws EEXIST and leaves existing content untouched when the target exists", async () => {
-    const target = join(vault, "taken.md")
-    await atomicWriteFile({ filePath: target, content: "original\n" }, logger)
+    const target = join(vault, "taken.md");
+    await atomicWriteFile({ filePath: target, content: "original\n" }, logger);
 
-    await expect(
-      atomicWriteFileExclusive(
-        { filePath: target, content: "overwrite\n" },
-        logger,
-      ),
-    ).rejects.toMatchObject({ code: "EEXIST" })
+    await expect(atomicWriteFileExclusive({ filePath: target, content: "overwrite\n" }, logger)).rejects.toMatchObject({
+      code: "EEXIST",
+    });
     // The no-clobber guard must not have modified the existing file.
-    expect(await readFile(target, "utf8")).toBe("original\n")
-  })
+    expect(await readFile(target, "utf8")).toBe("original\n");
+  });
 
   it("leaves no .tmp staging file behind on success", async () => {
-    await atomicWriteFileExclusive(
-      { filePath: join(vault, "clean.md"), content: "body\n" },
-      logger,
-    )
-    const entries = await readdir(vault)
-    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
-  })
+    await atomicWriteFileExclusive({ filePath: join(vault, "clean.md"), content: "body\n" }, logger);
+    const entries = await readdir(vault);
+    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
 
   it("leaves no .tmp staging file behind when the target already exists", async () => {
-    const target = join(vault, "exists.md")
-    await atomicWriteFile({ filePath: target, content: "original\n" }, logger)
-    await expect(
-      atomicWriteFileExclusive({ filePath: target, content: "body\n" }, logger),
-    ).rejects.toMatchObject({ code: "EEXIST" })
-    const entries = await readdir(vault)
-    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
-  })
+    const target = join(vault, "exists.md");
+    await atomicWriteFile({ filePath: target, content: "original\n" }, logger);
+    await expect(atomicWriteFileExclusive({ filePath: target, content: "body\n" }, logger)).rejects.toMatchObject({
+      code: "EEXIST",
+    });
+    const entries = await readdir(vault);
+    expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
 
   it("logs the temp-file cleanup failure when the claim fails and the cleanup fails", async () => {
-    const target = join(vault, "taken.md")
-    await atomicWriteFile({ filePath: target, content: "original\n" }, logger)
-    const warnSpy = vi.spyOn(logger, "warn")
-    onTestFinished(() => warnSpy.mockRestore())
+    const target = join(vault, "taken.md");
+    await atomicWriteFile({ filePath: target, content: "original\n" }, logger);
+    const warnSpy = vi.spyOn(logger, "warn");
+    onTestFinished(() => warnSpy.mockRestore());
     // The next rm call is the finally block's temp-file cleanup, reached
     // after link throws EEXIST on the occupied target
     vi.mocked(rm).mockImplementationOnce(async () => {
-      throw new Error("EPERM: injected cleanup failure")
-    })
+      throw new Error("EPERM: injected cleanup failure");
+    });
 
-    await expect(
-      atomicWriteFileExclusive(
-        { filePath: target, content: "overwrite\n" },
-        logger,
-      ),
-    ).rejects.toMatchObject({ code: "EEXIST" })
+    await expect(atomicWriteFileExclusive({ filePath: target, content: "overwrite\n" }, logger)).rejects.toMatchObject({
+      code: "EEXIST",
+    });
 
-    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith("failed to remove temp file", {
       path: expect.stringMatching(/taken\.md\..+\.tmp$/),
       error: "[Error]: EPERM: injected cleanup failure",
-    })
+    });
     // The intercepted cleanup genuinely left the staging file on disk, and
     // the occupied target survives untouched
-    const entries = await readdir(vault)
-    expect(entries.filter((name) => name.endsWith(".tmp"))).toHaveLength(1)
-    expect(await readFile(target, "utf8")).toBe("original\n")
-  })
+    const entries = await readdir(vault);
+    expect(entries.filter((name) => name.endsWith(".tmp"))).toHaveLength(1);
+    expect(await readFile(target, "utf8")).toBe("original\n");
+  });
 
   // Covers the rename fallback path taken on filesystems without hard-link
   // support (e.g. a Windows-drive Docker bind mount).
   describe("hardLinksSupported: false (rename strategy)", () => {
     it("writes the exact content to a new target path via rename", async () => {
-      const target = join(vault, "created.md")
+      const target = join(vault, "created.md");
       await atomicWriteFileExclusive(
         {
           filePath: target,
@@ -204,13 +174,13 @@ describe("atomicWriteFileExclusive", () => {
           hardLinksSupported: false,
         },
         logger,
-      )
-      expect(await readFile(target, "utf8")).toBe("fresh content\n")
-    })
+      );
+      expect(await readFile(target, "utf8")).toBe("fresh content\n");
+    });
 
     it("throws EEXIST and leaves existing content untouched when the target exists", async () => {
-      const target = join(vault, "taken.md")
-      await atomicWriteFile({ filePath: target, content: "original\n" }, logger)
+      const target = join(vault, "taken.md");
+      await atomicWriteFile({ filePath: target, content: "original\n" }, logger);
 
       await expect(
         atomicWriteFileExclusive(
@@ -221,10 +191,10 @@ describe("atomicWriteFileExclusive", () => {
           },
           logger,
         ),
-      ).rejects.toMatchObject({ code: "EEXIST" })
+      ).rejects.toMatchObject({ code: "EEXIST" });
       // The no-clobber guard must not have modified the existing file.
-      expect(await readFile(target, "utf8")).toBe("original\n")
-    })
+      expect(await readFile(target, "utf8")).toBe("original\n");
+    });
 
     it("leaves no .tmp staging file behind on success", async () => {
       await atomicWriteFileExclusive(
@@ -234,96 +204,78 @@ describe("atomicWriteFileExclusive", () => {
           hardLinksSupported: false,
         },
         logger,
-      )
-      const entries = await readdir(vault)
-      expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([])
-    })
+      );
+      const entries = await readdir(vault);
+      expect(entries.filter((name) => name.endsWith(".tmp"))).toEqual([]);
+    });
 
     it("logs the placeholder cleanup failure when both the swap and the cleanup fail", async () => {
-      const target = join(vault, "reserved.md")
-      const warnSpy = vi.spyOn(logger, "warn")
-      onTestFinished(() => warnSpy.mockRestore())
+      const target = join(vault, "reserved.md");
+      const warnSpy = vi.spyOn(logger, "warn");
+      onTestFinished(() => warnSpy.mockRestore());
       vi.mocked(rename).mockImplementationOnce(async () => {
-        throw new Error("EIO: injected swap failure")
-      })
+        throw new Error("EIO: injected swap failure");
+      });
       // The next rm call is the reservation-placeholder cleanup; the finally
       // block's temp-file rm runs unmocked afterward and succeeds
       vi.mocked(rm).mockImplementationOnce(async () => {
-        throw new Error("EPERM: injected cleanup failure")
-      })
+        throw new Error("EPERM: injected cleanup failure");
+      });
 
       await expect(
-        atomicWriteFileExclusive(
-          { filePath: target, content: "body\n", hardLinksSupported: false },
-          logger,
-        ),
-      ).rejects.toThrow("EIO: injected swap failure")
+        atomicWriteFileExclusive({ filePath: target, content: "body\n", hardLinksSupported: false }, logger),
+      ).rejects.toThrow("EIO: injected swap failure");
 
-      expect(warnSpy).toHaveBeenCalledTimes(1)
-      expect(warnSpy).toHaveBeenCalledWith(
-        "failed to remove reservation placeholder",
-        {
-          path: target,
-          error: "[Error]: EPERM: injected cleanup failure",
-        },
-      )
-    })
-  })
-})
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith("failed to remove reservation placeholder", {
+        path: target,
+        error: "[Error]: EPERM: injected cleanup failure",
+      });
+    });
+  });
+});
 
 describe("path traversal", () => {
   it("resolves a child entry when the vault is the filesystem root", () => {
-    expect(resolveSafePath("/", "note.md")).toBe("/note.md")
-  })
+    expect(resolveSafePath("/", "note.md")).toBe("/note.md");
+  });
 
   it("rejects the vault root because it does not name an entry", () => {
-    expect(() => resolveSafePath(vault, ".")).toThrow(
-      'path traversal blocked: "." resolves to the vault root',
-    )
-  })
+    expect(() => resolveSafePath(vault, ".")).toThrow('path traversal blocked: "." resolves to the vault root');
+  });
 
   // Paths carry .md so they clear the markdown-path guard and reach the
   // traversal check (the behavior under test).
-  it.each(["../escape.md", "../../etc/passwd.md", "foo/../../escape.md"])(
-    "readNote rejects %s",
-    async (path) => {
-      await expect(
-        readNote({ vaultPath: vault, path }, logger),
-      ).rejects.toThrow("path traversal blocked")
-    },
-  )
+  it.each(["../escape.md", "../../etc/passwd.md", "foo/../../escape.md"])("readNote rejects %s", async (path) => {
+    await expect(readNote({ vaultPath: vault, path }, logger)).rejects.toThrow("path traversal blocked");
+  });
 
-  it.each(["../escape.md", "../../etc/passwd.md", "foo/../../escape.md"])(
-    "deleteNote rejects %s",
-    async (path) => {
-      await expect(
-        deleteNote(
-          {
-            vaultPath: vault,
-            path,
-            protectedPaths: [],
-            pruneEmptyFolders: false,
-            trashOption: "system",
-          },
-          logger,
-        ),
-      ).rejects.toThrow("path traversal blocked")
-    },
-  )
-})
+  it.each(["../escape.md", "../../etc/passwd.md", "foo/../../escape.md"])("deleteNote rejects %s", async (path) => {
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path,
+          protectedPaths: [],
+          pruneEmptyFolders: false,
+          trashOption: "system",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("path traversal blocked");
+  });
+});
 
 describe("absolute paths", () => {
   it("readNote rejects an absolute container path", async () => {
-    await writeFile(join(vault, "note.md"), "content", "utf8")
-    await expect(
-      readNote({ vaultPath: vault, path: `${vault}/note.md` }, logger),
-    ).rejects.toThrow(
+    await writeFile(join(vault, "note.md"), "content", "utf8");
+    await expect(readNote({ vaultPath: vault, path: `${vault}/note.md` }, logger)).rejects.toThrow(
       `absolute path blocked: "${vault}/note.md" must be vault-relative`,
-    )
-  })
+    );
+  });
 
   it("deleteNote rejects an absolute container path and leaves the note in place", async () => {
-    await writeFile(join(vault, "note.md"), "content", "utf8")
+    await writeFile(join(vault, "note.md"), "content", "utf8");
     await expect(
       deleteNote(
         {
@@ -335,55 +287,47 @@ describe("absolute paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(
-      `absolute path blocked: "${vault}/note.md" must be vault-relative`,
-    )
-    expect(await readFile(join(vault, "note.md"), "utf8")).toBe("content")
-  })
-})
+    ).rejects.toThrow(`absolute path blocked: "${vault}/note.md" must be vault-relative`);
+    expect(await readFile(join(vault, "note.md"), "utf8")).toBe("content");
+  });
+});
 
 describe("markdown path requirement", () => {
   it("readNote rejects a path without the .md extension", async () => {
-    await expect(
-      readNote({ vaultPath: vault, path: "Projects/Plan" }, logger),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
-  })
+    await expect(readNote({ vaultPath: vault, path: "Projects/Plan" }, logger)).rejects.toThrow(
+      'path must end in ".md" (received "Projects/Plan")',
+    );
+  });
 
   it("readNoteOutline rejects a path without the .md extension", async () => {
-    await expect(
-      readNoteOutline({ vaultPath: vault, path: "Projects/Plan" }, logger),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
-  })
+    await expect(readNoteOutline({ vaultPath: vault, path: "Projects/Plan" }, logger)).rejects.toThrow(
+      'path must end in ".md" (received "Projects/Plan")',
+    );
+  });
 
   it("readNoteSection rejects a path without the .md extension", async () => {
-    await expect(
-      readNoteSection(
-        { vaultPath: vault, path: "Projects/Plan", heading: "Any" },
-        logger,
-      ),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
-  })
+    await expect(readNoteSection({ vaultPath: vault, path: "Projects/Plan", heading: "Any" }, logger)).rejects.toThrow(
+      'path must end in ".md" (received "Projects/Plan")',
+    );
+  });
 
   it("readNoteProperties rejects a path without the .md extension", async () => {
-    await expect(
-      readNoteProperties({ vaultPath: vault, path: "Projects/Plan" }, logger),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
-  })
+    await expect(readNoteProperties({ vaultPath: vault, path: "Projects/Plan" }, logger)).rejects.toThrow(
+      'path must end in ".md" (received "Projects/Plan")',
+    );
+  });
 
   it("writeNote rejects a path without the .md extension", async () => {
-    await expect(
-      writeNote({ vaultPath: vault, path: "Projects/Plan", body: "x" }, logger),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
-  })
+    await expect(writeNote({ vaultPath: vault, path: "Projects/Plan", body: "x" }, logger)).rejects.toThrow(
+      'path must end in ".md" (received "Projects/Plan")',
+    );
+  });
 
   it("updateProperties rejects a path without the .md extension", async () => {
     await expect(
-      updateProperties(
-        { vaultPath: vault, path: "Projects/Plan", properties: { a: 1 } },
-        logger,
-      ),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
-  })
+      updateProperties({ vaultPath: vault, path: "Projects/Plan", properties: { a: 1 } }, logger),
+    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")');
+  });
 
   it("deleteNote rejects a path without the .md extension", async () => {
     await expect(
@@ -397,48 +341,38 @@ describe("markdown path requirement", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")')
-  })
-})
+    ).rejects.toThrow('path must end in ".md" (received "Projects/Plan")');
+  });
+});
 
 describe("readNote", () => {
   it("reads an existing file", async () => {
-    await writeFile(join(vault, "test.md"), "hello world", "utf8")
-    const content = await readNote(
-      { vaultPath: vault, path: "test.md" },
-      logger,
-    )
-    expect(content).toBe("hello world")
-  })
+    await writeFile(join(vault, "test.md"), "hello world", "utf8");
+    const content = await readNote({ vaultPath: vault, path: "test.md" }, logger);
+    expect(content).toBe("hello world");
+  });
 
   it("reads a file with frontmatter", async () => {
-    const raw = "---\ntitle: Test\ntags: [a, b]\n---\n\n# Hello\n"
-    await writeFile(join(vault, "note.md"), raw, "utf8")
-    const content = await readNote(
-      { vaultPath: vault, path: "note.md" },
-      logger,
-    )
-    expect(content).toBe(raw)
-  })
+    const raw = "---\ntitle: Test\ntags: [a, b]\n---\n\n# Hello\n";
+    await writeFile(join(vault, "note.md"), raw, "utf8");
+    const content = await readNote({ vaultPath: vault, path: "note.md" }, logger);
+    expect(content).toBe(raw);
+  });
 
   it("throws on non-existent file", async () => {
-    await expect(
-      readNote({ vaultPath: vault, path: "missing.md" }, logger),
-    ).rejects.toThrow('note not found: "missing.md"')
-  })
-})
+    await expect(readNote({ vaultPath: vault, path: "missing.md" }, logger)).rejects.toThrow(
+      'note not found: "missing.md"',
+    );
+  });
+});
 
 describe("writeNote", () => {
   it("creates a note whose body opens with Multi Column plugin syntax", async () => {
-    const pluginBody =
-      "--- start-multi-column: ExampleRegion1\ncolumn text\n--- end-multi-column\n"
-    await writeNote(
-      { vaultPath: vault, path: "snippet.md", body: pluginBody },
-      logger,
-    )
-    const written = await readFile(join(vault, "snippet.md"), "utf8")
-    expect(written).toBe(pluginBody)
-  })
+    const pluginBody = "--- start-multi-column: ExampleRegion1\ncolumn text\n--- end-multi-column\n";
+    await writeNote({ vaultPath: vault, path: "snippet.md", body: pluginBody }, logger);
+    const written = await readFile(join(vault, "snippet.md"), "utf8");
+    expect(written).toBe(pluginBody);
+  });
 
   it("creates a new file with frontmatter", async () => {
     await writeNote(
@@ -449,36 +383,30 @@ describe("writeNote", () => {
         properties: { title: "New" },
       },
       logger,
-    )
-    const content = await readFile(join(vault, "new.md"), "utf8")
-    expect(content).toContain("title: New")
-    expect(content).toContain("# New")
-  })
+    );
+    const content = await readFile(join(vault, "new.md"), "utf8");
+    expect(content).toContain("title: New");
+    expect(content).toContain("# New");
+  });
 
   it("creates a new file without frontmatter", async () => {
-    await writeNote(
-      { vaultPath: vault, path: "bare.md", body: "Just body\n" },
-      logger,
-    )
-    const content = await readFile(join(vault, "bare.md"), "utf8")
-    expect(content).toContain("Just body")
-  })
+    await writeNote({ vaultPath: vault, path: "bare.md", body: "Just body\n" }, logger);
+    const content = await readFile(join(vault, "bare.md"), "utf8");
+    expect(content).toContain("Just body");
+  });
 
   it("creates parent directories", async () => {
-    await writeNote(
-      { vaultPath: vault, path: "deep/nested/note.md", body: "body\n" },
-      logger,
-    )
-    const content = await readFile(join(vault, "deep/nested/note.md"), "utf8")
-    expect(content).toContain("body")
-  })
+    await writeNote({ vaultPath: vault, path: "deep/nested/note.md", body: "body\n" }, logger);
+    const content = await readFile(join(vault, "deep/nested/note.md"), "utf8");
+    expect(content).toContain("body");
+  });
 
   it("preserves existing frontmatter when updating body only", async () => {
     await writeFile(
       join(vault, "existing.md"),
       "---\ntitle: Original\ndate: 2025-01-01\ncreated: 2026-05-13T20:00:00-04:00\n---\nold body\n",
       "utf8",
-    )
+    );
     await writeNote(
       {
         vaultPath: vault,
@@ -487,19 +415,13 @@ describe("writeNote", () => {
         overwrite: true,
       },
       logger,
-    )
-    const content = await readFile(join(vault, "existing.md"), "utf8")
-    expect(content).toBe(
-      "---\ntitle: Original\ndate: 2025-01-01\ncreated: 2026-05-13T20:00:00-04:00\n---\nnew body\n",
-    )
-  })
+    );
+    const content = await readFile(join(vault, "existing.md"), "utf8");
+    expect(content).toBe("---\ntitle: Original\ndate: 2025-01-01\ncreated: 2026-05-13T20:00:00-04:00\n---\nnew body\n");
+  });
 
   it("merges new frontmatter keys without destroying existing", async () => {
-    await writeFile(
-      join(vault, "merge.md"),
-      "---\ntitle: Keep\ntags: [a]\n---\nbody\n",
-      "utf8",
-    )
+    await writeFile(join(vault, "merge.md"), "---\ntitle: Keep\ntags: [a]\n---\nbody\n", "utf8");
     await writeNote(
       {
         vaultPath: vault,
@@ -509,18 +431,14 @@ describe("writeNote", () => {
         overwrite: true,
       },
       logger,
-    )
-    const content = await readFile(join(vault, "merge.md"), "utf8")
-    expect(content).toContain("title: Keep")
-    expect(content).toContain("status: active")
-  })
+    );
+    const content = await readFile(join(vault, "merge.md"), "utf8");
+    expect(content).toContain("title: Keep");
+    expect(content).toContain("status: active");
+  });
 
   it("removes keys set to null when merging into an existing note", async () => {
-    await writeFile(
-      join(vault, "merge.md"),
-      "---\ntitle: Keep\ndraft: true\n---\nold body\n",
-      "utf8",
-    )
+    await writeFile(join(vault, "merge.md"), "---\ntitle: Keep\ndraft: true\n---\nold body\n", "utf8");
     await writeNote(
       {
         vaultPath: vault,
@@ -530,10 +448,10 @@ describe("writeNote", () => {
         overwrite: true,
       },
       logger,
-    )
-    const content = await readFile(join(vault, "merge.md"), "utf8")
-    expect(content).toBe("---\ntitle: Keep\n---\nnew body\n")
-  })
+    );
+    const content = await readFile(join(vault, "merge.md"), "utf8");
+    expect(content).toBe("---\ntitle: Keep\n---\nnew body\n");
+  });
 
   it("does not serialize null properties when creating a new file", async () => {
     await writeNote(
@@ -544,29 +462,22 @@ describe("writeNote", () => {
         properties: { title: "Fresh", draft: null },
       },
       logger,
-    )
-    const content = await readFile(join(vault, "fresh.md"), "utf8")
-    expect(content).toBe("---\ntitle: Fresh\n---\nbody\n")
-  })
+    );
+    const content = await readFile(join(vault, "fresh.md"), "utf8");
+    expect(content).toBe("---\ntitle: Fresh\n---\nbody\n");
+  });
 
   it("rejects when the file already exists and overwrite is not set", async () => {
-    await writeFile(
-      join(vault, "guarded.md"),
-      "---\ntitle: Keep\n---\nold body\n",
-      "utf8",
-    )
+    await writeFile(join(vault, "guarded.md"), "---\ntitle: Keep\n---\nold body\n", "utf8");
     await expect(
-      writeNote(
-        { vaultPath: vault, path: "guarded.md", body: "clobber attempt\n" },
-        logger,
-      ),
-    ).rejects.toThrow('note already exists: "guarded.md"')
-    const content = await readFile(join(vault, "guarded.md"), "utf8")
-    expect(content).toBe("---\ntitle: Keep\n---\nold body\n")
-  })
+      writeNote({ vaultPath: vault, path: "guarded.md", body: "clobber attempt\n" }, logger),
+    ).rejects.toThrow('note already exists: "guarded.md"');
+    const content = await readFile(join(vault, "guarded.md"), "utf8");
+    expect(content).toBe("---\ntitle: Keep\n---\nold body\n");
+  });
 
   it("rejects when overwrite is explicitly false", async () => {
-    await writeFile(join(vault, "explicit.md"), "original\n", "utf8")
+    await writeFile(join(vault, "explicit.md"), "original\n", "utf8");
     await expect(
       writeNote(
         {
@@ -577,15 +488,11 @@ describe("writeNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('note already exists: "explicit.md"')
-  })
+    ).rejects.toThrow('note already exists: "explicit.md"');
+  });
 
   it("succeeds when overwrite is set and the file exists", async () => {
-    await writeFile(
-      join(vault, "replace.md"),
-      "---\ntitle: Old\n---\nold body\n",
-      "utf8",
-    )
+    await writeFile(join(vault, "replace.md"), "---\ntitle: Old\n---\nold body\n", "utf8");
     await writeNote(
       {
         vaultPath: vault,
@@ -594,10 +501,10 @@ describe("writeNote", () => {
         overwrite: true,
       },
       logger,
-    )
-    const content = await readFile(join(vault, "replace.md"), "utf8")
-    expect(content).toBe("---\ntitle: Old\n---\nnew body\n")
-  })
+    );
+    const content = await readFile(join(vault, "replace.md"), "utf8");
+    expect(content).toBe("---\ntitle: Old\n---\nnew body\n");
+  });
 
   it("creates a new file when overwrite is set but the file does not exist", async () => {
     await writeNote(
@@ -608,28 +515,23 @@ describe("writeNote", () => {
         overwrite: true,
       },
       logger,
-    )
-    const content = await readFile(join(vault, "fresh-overwrite.md"), "utf8")
-    expect(content).toBe("created\n")
-  })
+    );
+    const content = await readFile(join(vault, "fresh-overwrite.md"), "utf8");
+    expect(content).toBe("created\n");
+  });
 
   it("rejects body containing a control character", async () => {
-    await expect(
-      writeNote(
-        { vaultPath: vault, path: "bad.md", body: "hello\x00world" },
-        logger,
-      ),
-    ).rejects.toThrow(
+    await expect(writeNote({ vaultPath: vault, path: "bad.md", body: "hello\x00world" }, logger)).rejects.toThrow(
       "body contains a control character (U+0000 at position 5) — control characters other than tab, LF, and CR are not allowed",
-    )
-  })
-})
+    );
+  });
+});
 
-const DEFAULT_PROTECTED = ["About Me", "Daily Notes"]
+const DEFAULT_PROTECTED = ["About Me", "Daily Notes"];
 
 describe("deleteNote", () => {
   it("deletes an existing file", async () => {
-    await writeFile(join(vault, "delete-me.md"), "bye", "utf8")
+    await writeFile(join(vault, "delete-me.md"), "bye", "utf8");
     await deleteNote(
       {
         vaultPath: vault,
@@ -639,29 +541,24 @@ describe("deleteNote", () => {
         trashOption: "system",
       },
       logger,
-    )
-    await expect(readFile(join(vault, "delete-me.md"))).rejects.toThrow(
-      /ENOENT/,
-    )
-  })
+    );
+    await expect(readFile(join(vault, "delete-me.md"))).rejects.toThrow(/ENOENT/);
+  });
 
-  it.each(["About Me/Principles.md", "Daily Notes/2025-01-01.md"])(
-    "rejects protected path %s",
-    async (path) => {
-      await expect(
-        deleteNote(
-          {
-            vaultPath: vault,
-            path,
-            protectedPaths: DEFAULT_PROTECTED,
-            pruneEmptyFolders: false,
-            trashOption: "system",
-          },
-          logger,
-        ),
-      ).rejects.toThrow("cannot delete protected path")
-    },
-  )
+  it.each(["About Me/Principles.md", "Daily Notes/2025-01-01.md"])("rejects protected path %s", async (path) => {
+    await expect(
+      deleteNote(
+        {
+          vaultPath: vault,
+          path,
+          protectedPaths: DEFAULT_PROTECTED,
+          pruneEmptyFolders: false,
+          trashOption: "system",
+        },
+        logger,
+      ),
+    ).rejects.toThrow("cannot delete protected path");
+  });
 
   it.each(["About Me/Principles.md", "Daily Notes/2025-01-01.md"])(
     "protected-path rejection for %s is structural — no MCP tool name",
@@ -679,9 +576,9 @@ describe("deleteNote", () => {
         ),
       ).rejects.toMatchObject({
         message: `cannot delete protected path "${path}"`,
-      })
+      });
     },
-  )
+  );
 
   it("rejects custom protected paths", async () => {
     await expect(
@@ -695,11 +592,11 @@ describe("deleteNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("cannot delete protected path")
-  })
+    ).rejects.toThrow("cannot delete protected path");
+  });
 
   it("allows deletion when path is not in protected list", async () => {
-    await writeFile(join(vault, "ok.md"), "ok", "utf8")
+    await writeFile(join(vault, "ok.md"), "ok", "utf8");
     await deleteNote(
       {
         vaultPath: vault,
@@ -709,9 +606,9 @@ describe("deleteNote", () => {
         trashOption: "system",
       },
       logger,
-    )
-    await expect(readFile(join(vault, "ok.md"))).rejects.toThrow(/ENOENT/)
-  })
+    );
+    await expect(readFile(join(vault, "ok.md"))).rejects.toThrow(/ENOENT/);
+  });
 
   it("rejects a non-existent note with a vault-relative note-not-found error", async () => {
     await expect(
@@ -725,14 +622,14 @@ describe("deleteNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('note not found: "ghost.md"')
-  })
+    ).rejects.toThrow('note not found: "ghost.md"');
+  });
 
   it("rejects a traversal path that resolves into a protected folder", async () => {
     // "decoy/../About Me/..." does not literally start with "About Me/" but
     // resolves into it — the guard must normalize before the prefix check.
-    await mkdir(join(vault, "About Me"), { recursive: true })
-    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8")
+    await mkdir(join(vault, "About Me"), { recursive: true });
+    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8");
 
     await expect(
       deleteNote(
@@ -745,18 +642,16 @@ describe("deleteNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("cannot delete protected path")
+    ).rejects.toThrow("cannot delete protected path");
     // The protected file must survive — the guard prevented its deletion.
-    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
-      "protected",
-    )
-  })
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe("protected");
+  });
 
   it("rejects a backslash-separated path that resolves into a protected folder", async () => {
     // A Windows-style separator must not evade the protected-path check — the
     // guard normalizes "\\" to "/" before the prefix comparison.
-    await mkdir(join(vault, "About Me"), { recursive: true })
-    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8")
+    await mkdir(join(vault, "About Me"), { recursive: true });
+    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8");
 
     await expect(
       deleteNote(
@@ -769,17 +664,15 @@ describe("deleteNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("cannot delete protected path")
-    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
-      "protected",
-    )
-  })
+    ).rejects.toThrow("cannot delete protected path");
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe("protected");
+  });
 
   it("rejects an absolute container path into a protected folder", async () => {
     // Absolute inputs are rejected outright — the old bypass route into
     // protected folders never reaches the guard or the filesystem.
-    await mkdir(join(vault, "About Me"), { recursive: true })
-    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8")
+    await mkdir(join(vault, "About Me"), { recursive: true });
+    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8");
 
     await expect(
       deleteNote(
@@ -792,20 +685,16 @@ describe("deleteNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(
-      `absolute path blocked: "${vault}/About Me/Principles.md" must be vault-relative`,
-    )
-    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
-      "protected",
-    )
-  })
+    ).rejects.toThrow(`absolute path blocked: "${vault}/About Me/Principles.md" must be vault-relative`);
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe("protected");
+  });
 
   it("rejects a traversal path that escapes and re-enters the vault into a protected folder", async () => {
     // "../<vault dir>/About Me/..." leaves the root and comes back in under
     // the vault's own directory name — it resolves inside the vault, so the
     // traversal check passes, and only the canonical-form guard catches it.
-    await mkdir(join(vault, "About Me"), { recursive: true })
-    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8")
+    await mkdir(join(vault, "About Me"), { recursive: true });
+    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8");
 
     await expect(
       deleteNote(
@@ -818,18 +707,16 @@ describe("deleteNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('cannot delete protected path "About Me/Principles.md"')
-    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
-      "protected",
-    )
-  })
+    ).rejects.toThrow('cannot delete protected path "About Me/Principles.md"');
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe("protected");
+  });
 
   it("rejects a case-aliased spelling of a protected path", async () => {
     // On a case-insensitive filesystem (macOS/Windows bind mounts)
     // "about me/" names the same folder as "About Me/" — the guard's
     // comparison is case-folded so the alias cannot slip past it.
-    await mkdir(join(vault, "About Me"), { recursive: true })
-    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8")
+    await mkdir(join(vault, "About Me"), { recursive: true });
+    await writeFile(join(vault, "About Me/Principles.md"), "protected", "utf8");
 
     await expect(
       deleteNote(
@@ -842,22 +729,20 @@ describe("deleteNote", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('cannot delete protected path "about me/Principles.md"')
-    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe(
-      "protected",
-    )
-  })
+    ).rejects.toThrow('cannot delete protected path "about me/Principles.md"');
+    expect(await readFile(join(vault, "About Me/Principles.md"), "utf8")).toBe("protected");
+  });
 
   describe("empty-folder prune", () => {
     /** True when a folder still exists in the vault — used to assert pruning. */
     const folderExists = async (path: string): Promise<boolean> => {
       try {
-        await stat(join(vault, path))
-        return true
+        await stat(join(vault, path));
+        return true;
       } catch {
-        return false
+        return false;
       }
-    }
+    };
 
     const deleteWithPrune = (path: string) =>
       deleteNote(
@@ -869,11 +754,11 @@ describe("deleteNote", () => {
           trashOption: "system",
         },
         logger,
-      )
+      );
 
     it("leaves the parent folder in place when prune is off (Obsidian default)", async () => {
-      await mkdir(join(vault, "Folder"))
-      await writeFile(join(vault, "Folder/only.md"), "body", "utf8")
+      await mkdir(join(vault, "Folder"));
+      await writeFile(join(vault, "Folder/only.md"), "body", "utf8");
 
       const pruned = await deleteNote(
         {
@@ -884,97 +769,94 @@ describe("deleteNote", () => {
           trashOption: "system",
         },
         logger,
-      )
+      );
 
-      expect(await folderExists("Folder")).toBe(true)
-      expect(await folderExists("Folder/only.md")).toBe(false)
-      expect(pruned.prunedEmptyFolders).toBe(0)
-    })
+      expect(await folderExists("Folder")).toBe(true);
+      expect(await folderExists("Folder/only.md")).toBe(false);
+      expect(pruned.prunedEmptyFolders).toBe(0);
+    });
 
     it("removes the now-empty parent folder when prune is enabled", async () => {
-      await mkdir(join(vault, "Folder"))
-      await writeFile(join(vault, "Folder/only.md"), "body", "utf8")
+      await mkdir(join(vault, "Folder"));
+      await writeFile(join(vault, "Folder/only.md"), "body", "utf8");
 
-      const pruned = await deleteWithPrune("Folder/only.md")
+      const pruned = await deleteWithPrune("Folder/only.md");
 
-      expect(await folderExists("Folder")).toBe(false)
-      expect(pruned.prunedEmptyFolders).toBe(1)
-    })
+      expect(await folderExists("Folder")).toBe(false);
+      expect(pruned.prunedEmptyFolders).toBe(1);
+    });
 
     it("walks up removing multiple empty parents when prune is enabled", async () => {
-      await mkdir(join(vault, "A/B/C"), { recursive: true })
-      await writeFile(join(vault, "A/B/C/note.md"), "body", "utf8")
+      await mkdir(join(vault, "A/B/C"), { recursive: true });
+      await writeFile(join(vault, "A/B/C/note.md"), "body", "utf8");
 
-      const pruned = await deleteWithPrune("A/B/C/note.md")
+      const pruned = await deleteWithPrune("A/B/C/note.md");
 
-      expect(await folderExists("A/B/C")).toBe(false)
-      expect(await folderExists("A/B")).toBe(false)
-      expect(await folderExists("A")).toBe(false)
-      expect(pruned.prunedEmptyFolders).toBe(3)
-    })
+      expect(await folderExists("A/B/C")).toBe(false);
+      expect(await folderExists("A/B")).toBe(false);
+      expect(await folderExists("A")).toBe(false);
+      expect(pruned.prunedEmptyFolders).toBe(3);
+    });
 
     it("stops at the first non-empty parent", async () => {
-      await mkdir(join(vault, "A/B"), { recursive: true })
-      await writeFile(join(vault, "A/keep.md"), "keep", "utf8")
-      await writeFile(join(vault, "A/B/note.md"), "body", "utf8")
+      await mkdir(join(vault, "A/B"), { recursive: true });
+      await writeFile(join(vault, "A/keep.md"), "keep", "utf8");
+      await writeFile(join(vault, "A/B/note.md"), "body", "utf8");
 
-      const pruned = await deleteWithPrune("A/B/note.md")
+      const pruned = await deleteWithPrune("A/B/note.md");
 
-      expect(await folderExists("A/B")).toBe(false)
-      expect(await folderExists("A")).toBe(true)
-      expect(await folderExists("A/keep.md")).toBe(true)
-      expect(pruned.prunedEmptyFolders).toBe(1)
-    })
+      expect(await folderExists("A/B")).toBe(false);
+      expect(await folderExists("A")).toBe(true);
+      expect(await folderExists("A/keep.md")).toBe(true);
+      expect(pruned.prunedEmptyFolders).toBe(1);
+    });
 
     it("never removes the vault root", async () => {
-      await writeFile(join(vault, "root-note.md"), "body", "utf8")
+      await writeFile(join(vault, "root-note.md"), "body", "utf8");
 
-      const pruned = await deleteWithPrune("root-note.md")
+      const pruned = await deleteWithPrune("root-note.md");
 
-      expect(await folderExists("root-note.md")).toBe(false)
-      expect(await folderExists("")).toBe(true)
-      expect(pruned.prunedEmptyFolders).toBe(0)
-    })
+      expect(await folderExists("root-note.md")).toBe(false);
+      expect(await folderExists("")).toBe(true);
+      expect(pruned.prunedEmptyFolders).toBe(0);
+    });
 
     it("leaves a folder that still contains a hidden file", async () => {
-      await mkdir(join(vault, "Folder"))
-      await writeFile(join(vault, "Folder/note.md"), "body", "utf8")
-      await writeFile(join(vault, "Folder/.DS_Store"), "junk", "utf8")
+      await mkdir(join(vault, "Folder"));
+      await writeFile(join(vault, "Folder/note.md"), "body", "utf8");
+      await writeFile(join(vault, "Folder/.DS_Store"), "junk", "utf8");
 
-      const pruned = await deleteWithPrune("Folder/note.md")
+      const pruned = await deleteWithPrune("Folder/note.md");
 
       // The note must actually be gone, so the folder survives only because of
       // the hidden file — not because the delete silently no-op'd.
-      expect(await folderExists("Folder/note.md")).toBe(false)
-      expect(await folderExists("Folder")).toBe(true)
-      expect(await folderExists("Folder/.DS_Store")).toBe(true)
-      expect(pruned.prunedEmptyFolders).toBe(0)
-    })
+      expect(await folderExists("Folder/note.md")).toBe(false);
+      expect(await folderExists("Folder")).toBe(true);
+      expect(await folderExists("Folder/.DS_Store")).toBe(true);
+      expect(pruned.prunedEmptyFolders).toBe(0);
+    });
 
     it("logs a warning and returns 0 without throwing when a folder cannot be removed", async () => {
       // A plain file where a parent folder is expected makes readdir throw
       // ENOTDIR — a real filesystem failure (no mocking), exercising the catch.
-      await writeFile(join(vault, "NotADir"), "i am a file", "utf8")
-      const warnSpy = vi.spyOn(logger, "warn")
-      onTestFinished(() => warnSpy.mockRestore())
+      await writeFile(join(vault, "NotADir"), "i am a file", "utf8");
+      const warnSpy = vi.spyOn(logger, "warn");
+      onTestFinished(() => warnSpy.mockRestore());
 
-      const pruned = await pruneEmptyParents(
-        { vaultPath: vault, path: "NotADir/note.md" },
-        logger,
-      )
+      const pruned = await pruneEmptyParents({ vaultPath: vault, path: "NotADir/note.md" }, logger);
 
-      expect(pruned).toBe(0)
+      expect(pruned).toBe(0);
       expect(warnSpy).toHaveBeenCalledWith(
         "could not remove empty folder",
         expect.objectContaining({ folder: "NotADir" }),
-      )
-    })
-  })
-})
+      );
+    });
+  });
+});
 
 describe("deleteNote — trash behavior", () => {
   it('moves the note to .trash/ when trashOption is "local"', async () => {
-    await writeFile(join(vault, "trash-me.md"), "content", "utf8")
+    await writeFile(join(vault, "trash-me.md"), "content", "utf8");
 
     const result = await deleteNote(
       {
@@ -985,23 +867,20 @@ describe("deleteNote — trash behavior", () => {
         trashOption: "local",
       },
       logger,
-    )
+    );
 
-    expect(result.trashLocation).toBe(".trash/trash-me.md")
-    const trashedContent = await readFile(
-      join(vault, ".trash", "trash-me.md"),
-      "utf8",
-    )
-    expect(trashedContent).toBe("content")
-    await expect(stat(join(vault, "trash-me.md"))).rejects.toThrow(/ENOENT/)
-  })
+    expect(result.trashLocation).toBe(".trash/trash-me.md");
+    const trashedContent = await readFile(join(vault, ".trash", "trash-me.md"), "utf8");
+    expect(trashedContent).toBe("content");
+    await expect(stat(join(vault, "trash-me.md"))).rejects.toThrow(/ENOENT/);
+  });
 
   it("trashes a note named by a re-entrant traversal path at the canonical trash location", async () => {
     // The trash path is built from the vault-relative form — before the guard
     // canonicalized it, an aliased input baked its alias segments into the
     // ".trash/…" layout.
-    await mkdir(join(vault, "Notes"), { recursive: true })
-    await writeFile(join(vault, "Notes", "x.md"), "content", "utf8")
+    await mkdir(join(vault, "Notes"), { recursive: true });
+    await writeFile(join(vault, "Notes", "x.md"), "content", "utf8");
 
     const result = await deleteNote(
       {
@@ -1012,20 +891,17 @@ describe("deleteNote — trash behavior", () => {
         trashOption: "local",
       },
       logger,
-    )
+    );
 
-    expect(result.trashLocation).toBe(".trash/Notes/x.md")
-    const trashedContent = await readFile(
-      join(vault, ".trash", "Notes", "x.md"),
-      "utf8",
-    )
-    expect(trashedContent).toBe("content")
-    await expect(stat(join(vault, "Notes", "x.md"))).rejects.toThrow(/ENOENT/)
-  })
+    expect(result.trashLocation).toBe(".trash/Notes/x.md");
+    const trashedContent = await readFile(join(vault, ".trash", "Notes", "x.md"), "utf8");
+    expect(trashedContent).toBe("content");
+    await expect(stat(join(vault, "Notes", "x.md"))).rejects.toThrow(/ENOENT/);
+  });
 
   it("creates .trash/ subdirectories matching the source path", async () => {
-    await mkdir(join(vault, "Projects"), { recursive: true })
-    await writeFile(join(vault, "Projects", "deep.md"), "nested", "utf8")
+    await mkdir(join(vault, "Projects"), { recursive: true });
+    await writeFile(join(vault, "Projects", "deep.md"), "nested", "utf8");
 
     const result = await deleteNote(
       {
@@ -1036,20 +912,17 @@ describe("deleteNote — trash behavior", () => {
         trashOption: "local",
       },
       logger,
-    )
+    );
 
-    expect(result.trashLocation).toBe(".trash/Projects/deep.md")
-    const trashedContent = await readFile(
-      join(vault, ".trash", "Projects", "deep.md"),
-      "utf8",
-    )
-    expect(trashedContent).toBe("nested")
-  })
+    expect(result.trashLocation).toBe(".trash/Projects/deep.md");
+    const trashedContent = await readFile(join(vault, ".trash", "Projects", "deep.md"), "utf8");
+    expect(trashedContent).toBe("nested");
+  });
 
   it("appends a numeric suffix on name collision", async () => {
-    await mkdir(join(vault, ".trash"), { recursive: true })
-    await writeFile(join(vault, ".trash", "dup.md"), "first", "utf8")
-    await writeFile(join(vault, "dup.md"), "second", "utf8")
+    await mkdir(join(vault, ".trash"), { recursive: true });
+    await writeFile(join(vault, ".trash", "dup.md"), "first", "utf8");
+    await writeFile(join(vault, "dup.md"), "second", "utf8");
 
     const result = await deleteNote(
       {
@@ -1060,22 +933,19 @@ describe("deleteNote — trash behavior", () => {
         trashOption: "local",
       },
       logger,
-    )
+    );
 
-    expect(result.trashLocation).toBe(".trash/dup 1.md")
-    const trashedContent = await readFile(
-      join(vault, ".trash", "dup 1.md"),
-      "utf8",
-    )
-    expect(trashedContent).toBe("second")
-  })
+    expect(result.trashLocation).toBe(".trash/dup 1.md");
+    const trashedContent = await readFile(join(vault, ".trash", "dup 1.md"), "utf8");
+    expect(trashedContent).toBe("second");
+  });
 
   it("skips past multiple collisions to find a free suffix", async () => {
-    await mkdir(join(vault, ".trash"), { recursive: true })
-    await writeFile(join(vault, ".trash", "multi.md"), "v0", "utf8")
-    await writeFile(join(vault, ".trash", "multi 1.md"), "v1", "utf8")
-    await writeFile(join(vault, ".trash", "multi 2.md"), "v2", "utf8")
-    await writeFile(join(vault, "multi.md"), "current", "utf8")
+    await mkdir(join(vault, ".trash"), { recursive: true });
+    await writeFile(join(vault, ".trash", "multi.md"), "v0", "utf8");
+    await writeFile(join(vault, ".trash", "multi 1.md"), "v1", "utf8");
+    await writeFile(join(vault, ".trash", "multi 2.md"), "v2", "utf8");
+    await writeFile(join(vault, "multi.md"), "current", "utf8");
 
     const result = await deleteNote(
       {
@@ -1086,15 +956,15 @@ describe("deleteNote — trash behavior", () => {
         trashOption: "local",
       },
       logger,
-    )
+    );
 
-    expect(result.trashLocation).toBe(".trash/multi 3.md")
-  })
+    expect(result.trashLocation).toBe(".trash/multi 3.md");
+  });
 
   it('moves the note to .trash/ when trashOption is "system"', async () => {
     // "system" is Obsidian's default and what an absent setting reads as —
     // inside a container it maps to Obsidian's own .trash/ fallback.
-    await writeFile(join(vault, "sys.md"), "kept", "utf8")
+    await writeFile(join(vault, "sys.md"), "kept", "utf8");
 
     const result = await deleteNote(
       {
@@ -1105,25 +975,22 @@ describe("deleteNote — trash behavior", () => {
         trashOption: "system",
       },
       logger,
-    )
+    );
 
-    expect(result.trashLocation).toBe(".trash/sys.md")
-    const trashedContent = await readFile(
-      join(vault, ".trash", "sys.md"),
-      "utf8",
-    )
-    expect(trashedContent).toBe("kept")
-    await expect(stat(join(vault, "sys.md"))).rejects.toThrow(/ENOENT/)
-  })
+    expect(result.trashLocation).toBe(".trash/sys.md");
+    const trashedContent = await readFile(join(vault, ".trash", "sys.md"), "utf8");
+    expect(trashedContent).toBe("kept");
+    await expect(stat(join(vault, "sys.md"))).rejects.toThrow(/ENOENT/);
+  });
 
   it("reports the landed trash path to recordTrashEntry exactly once, suffixes included", async () => {
     // The recorded path must be where the file actually landed — a collision
     // shifts it to a suffixed name, and recording the original would make the
     // retention sweep act on someone else's trash copy.
-    await mkdir(join(vault, ".trash"), { recursive: true })
-    await writeFile(join(vault, ".trash", "rec.md"), "older copy", "utf8")
-    await writeFile(join(vault, "rec.md"), "fresh", "utf8")
-    const recordTrashEntry = vi.fn()
+    await mkdir(join(vault, ".trash"), { recursive: true });
+    await writeFile(join(vault, ".trash", "rec.md"), "older copy", "utf8");
+    await writeFile(join(vault, "rec.md"), "fresh", "utf8");
+    const recordTrashEntry = vi.fn();
 
     const result = await deleteNote(
       {
@@ -1135,23 +1002,23 @@ describe("deleteNote — trash behavior", () => {
         recordTrashEntry,
       },
       logger,
-    )
+    );
 
-    expect(result.trashLocation).toBe(".trash/rec 1.md")
-    expect(recordTrashEntry).toHaveBeenCalledTimes(1)
-    expect(recordTrashEntry).toHaveBeenCalledWith(".trash/rec 1.md")
-  })
+    expect(result.trashLocation).toBe(".trash/rec 1.md");
+    expect(recordTrashEntry).toHaveBeenCalledTimes(1);
+    expect(recordTrashEntry).toHaveBeenCalledWith(".trash/rec 1.md");
+  });
 
   it("contains a throwing recordTrashEntry — warns, and the delete still succeeds with the note intact in .trash/", async () => {
     // Recording is fail-open: the rename has already happened, so a throw
     // must not reach the claim-cleanup path, which would delete the moved
     // note itself. An unrecorded entry is simply never swept.
-    await writeFile(join(vault, "unrec.md"), "survives", "utf8")
-    const warnSpy = vi.spyOn(logger, "warn")
-    onTestFinished(() => warnSpy.mockRestore())
+    await writeFile(join(vault, "unrec.md"), "survives", "utf8");
+    const warnSpy = vi.spyOn(logger, "warn");
+    onTestFinished(() => warnSpy.mockRestore());
     const recordTrashEntry = vi.fn(() => {
-      throw new Error("db unavailable")
-    })
+      throw new Error("db unavailable");
+    });
 
     const result = await deleteNote(
       {
@@ -1163,27 +1030,24 @@ describe("deleteNote — trash behavior", () => {
         recordTrashEntry,
       },
       logger,
-    )
+    );
 
-    expect(result.trashLocation).toBe(".trash/unrec.md")
-    const trashedContent = await readFile(
-      join(vault, ".trash", "unrec.md"),
-      "utf8",
-    )
-    expect(trashedContent).toBe("survives")
-    expect(recordTrashEntry).toHaveBeenCalledTimes(1)
+    expect(result.trashLocation).toBe(".trash/unrec.md");
+    const trashedContent = await readFile(join(vault, ".trash", "unrec.md"), "utf8");
+    expect(trashedContent).toBe("survives");
+    expect(recordTrashEntry).toHaveBeenCalledTimes(1);
     expect(warnSpy).toHaveBeenCalledWith("failed to record trash entry", {
       path: ".trash/unrec.md",
       error: "[Error]: db unavailable",
-    })
-  })
+    });
+  });
 
   it("an unrecorded move reports the landed path to clearStaleTrashEntry", async () => {
     // A "local" (keep-forever) delete can land at a path a swept-or-emptied
     // system entry once occupied; clearing that stale row is what stops the
     // next sweep from unlinking the keep-forever copy.
-    await writeFile(join(vault, "keep.md"), "keep forever", "utf8")
-    const clearStaleTrashEntry = vi.fn()
+    await writeFile(join(vault, "keep.md"), "keep forever", "utf8");
+    const clearStaleTrashEntry = vi.fn();
 
     const result = await deleteNote(
       {
@@ -1195,19 +1059,19 @@ describe("deleteNote — trash behavior", () => {
         clearStaleTrashEntry,
       },
       logger,
-    )
+    );
 
-    expect(result.trashLocation).toBe(".trash/keep.md")
-    expect(clearStaleTrashEntry).toHaveBeenCalledTimes(1)
-    expect(clearStaleTrashEntry).toHaveBeenCalledWith(".trash/keep.md")
-  })
+    expect(result.trashLocation).toBe(".trash/keep.md");
+    expect(clearStaleTrashEntry).toHaveBeenCalledTimes(1);
+    expect(clearStaleTrashEntry).toHaveBeenCalledWith(".trash/keep.md");
+  });
 
   it("a recorded move never invokes clearStaleTrashEntry", async () => {
     // Recording replaces any stale row under the same key, so a second
     // clear would be a redundant write.
-    await writeFile(join(vault, "rec-only.md"), "recorded", "utf8")
-    const recordTrashEntry = vi.fn()
-    const clearStaleTrashEntry = vi.fn()
+    await writeFile(join(vault, "rec-only.md"), "recorded", "utf8");
+    const recordTrashEntry = vi.fn();
+    const clearStaleTrashEntry = vi.fn();
 
     await deleteNote(
       {
@@ -1220,22 +1084,22 @@ describe("deleteNote — trash behavior", () => {
         clearStaleTrashEntry,
       },
       logger,
-    )
+    );
 
-    expect(recordTrashEntry).toHaveBeenCalledTimes(1)
-    expect(clearStaleTrashEntry).not.toHaveBeenCalled()
-  })
+    expect(recordTrashEntry).toHaveBeenCalledTimes(1);
+    expect(clearStaleTrashEntry).not.toHaveBeenCalled();
+  });
 
   it("a throwing recordTrashEntry still clears the stale row for the landed path", async () => {
     // A failed record leaves any stale row in place — without the fallback
     // clear, the next sweep would unlink the just-trashed copy.
-    await writeFile(join(vault, "fallback.md"), "fresh", "utf8")
-    const warnSpy = vi.spyOn(logger, "warn")
-    onTestFinished(() => warnSpy.mockRestore())
+    await writeFile(join(vault, "fallback.md"), "fresh", "utf8");
+    const warnSpy = vi.spyOn(logger, "warn");
+    onTestFinished(() => warnSpy.mockRestore());
     const recordTrashEntry = vi.fn(() => {
-      throw new Error("db unavailable")
-    })
-    const clearStaleTrashEntry = vi.fn()
+      throw new Error("db unavailable");
+    });
+    const clearStaleTrashEntry = vi.fn();
 
     const result = await deleteNote(
       {
@@ -1248,19 +1112,19 @@ describe("deleteNote — trash behavior", () => {
         clearStaleTrashEntry,
       },
       logger,
-    )
+    );
 
-    expect(result.trashLocation).toBe(".trash/fallback.md")
-    expect(clearStaleTrashEntry).toHaveBeenCalledTimes(1)
-    expect(clearStaleTrashEntry).toHaveBeenCalledWith(".trash/fallback.md")
+    expect(result.trashLocation).toBe(".trash/fallback.md");
+    expect(clearStaleTrashEntry).toHaveBeenCalledTimes(1);
+    expect(clearStaleTrashEntry).toHaveBeenCalledWith(".trash/fallback.md");
     expect(warnSpy).toHaveBeenCalledWith("failed to record trash entry", {
       path: ".trash/fallback.md",
       error: "[Error]: db unavailable",
-    })
-  })
+    });
+  });
 
   it('permanently deletes when trashOption is "none"', async () => {
-    await writeFile(join(vault, "perm-none.md"), "gone", "utf8")
+    await writeFile(join(vault, "perm-none.md"), "gone", "utf8");
 
     const result = await deleteNote(
       {
@@ -1271,15 +1135,15 @@ describe("deleteNote — trash behavior", () => {
         trashOption: "none",
       },
       logger,
-    )
+    );
 
-    expect(result.trashLocation).toBeUndefined()
-    await expect(stat(join(vault, "perm-none.md"))).rejects.toThrow(/ENOENT/)
-  })
+    expect(result.trashLocation).toBeUndefined();
+    await expect(stat(join(vault, "perm-none.md"))).rejects.toThrow(/ENOENT/);
+  });
 
   it("prunes empty source parents after a trash move", async () => {
-    await mkdir(join(vault, "Empty", "Sub"), { recursive: true })
-    await writeFile(join(vault, "Empty", "Sub", "leaf.md"), "x", "utf8")
+    await mkdir(join(vault, "Empty", "Sub"), { recursive: true });
+    await writeFile(join(vault, "Empty", "Sub", "leaf.md"), "x", "utf8");
 
     const result = await deleteNote(
       {
@@ -1290,27 +1154,23 @@ describe("deleteNote — trash behavior", () => {
         trashOption: "local",
       },
       logger,
-    )
+    );
 
-    expect(result.trashLocation).toBe(".trash/Empty/Sub/leaf.md")
-    expect(result.prunedEmptyFolders).toBe(2)
-    await expect(stat(join(vault, "Empty"))).rejects.toThrow(/ENOENT/)
-  })
+    expect(result.trashLocation).toBe(".trash/Empty/Sub/leaf.md");
+    expect(result.prunedEmptyFolders).toBe(2);
+    await expect(stat(join(vault, "Empty"))).rejects.toThrow(/ENOENT/);
+  });
 
   it("rejects when 100 collisions exhaust the suffix space", async () => {
-    const trashDir = join(vault, ".trash")
-    await mkdir(trashDir, { recursive: true })
-    await writeFile(join(vault, "crowded.md"), "content", "utf8")
+    const trashDir = join(vault, ".trash");
+    await mkdir(trashDir, { recursive: true });
+    await writeFile(join(vault, "crowded.md"), "content", "utf8");
     // Seed the base name and suffixes 1–100 in .trash/
-    await writeFile(join(trashDir, "crowded.md"), "v0", "utf8")
+    await writeFile(join(trashDir, "crowded.md"), "v0", "utf8");
     const writes = Array.from({ length: 100 }, (_, index) => {
-      return writeFile(
-        join(trashDir, `crowded ${index + 1}.md`),
-        `v${index + 1}`,
-        "utf8",
-      )
-    })
-    await Promise.all(writes)
+      return writeFile(join(trashDir, `crowded ${index + 1}.md`), `v${index + 1}`, "utf8");
+    });
+    await Promise.all(writes);
 
     await expect(
       deleteNote(
@@ -1323,22 +1183,16 @@ describe("deleteNote — trash behavior", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(
-      'cannot move to trash "crowded.md" — 100 collisions in .trash/',
-    )
+    ).rejects.toThrow('cannot move to trash "crowded.md" — 100 collisions in .trash/');
 
     // Source file stays untouched — the move never happened
-    const content = await readFile(join(vault, "crowded.md"), "utf8")
-    expect(content).toBe("content")
-  })
+    const content = await readFile(join(vault, "crowded.md"), "utf8");
+    expect(content).toBe("content");
+  });
 
   it("protected path check fires before trash logic", async () => {
-    await mkdir(join(vault, "About Me"), { recursive: true })
-    await writeFile(
-      join(vault, "About Me", "Principles.md"),
-      "protected",
-      "utf8",
-    )
+    await mkdir(join(vault, "About Me"), { recursive: true });
+    await writeFile(join(vault, "About Me", "Principles.md"), "protected", "utf8");
 
     await expect(
       deleteNote(
@@ -1351,20 +1205,17 @@ describe("deleteNote — trash behavior", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("cannot delete protected path")
+    ).rejects.toThrow("cannot delete protected path");
 
-    const content = await readFile(
-      join(vault, "About Me", "Principles.md"),
-      "utf8",
-    )
-    expect(content).toBe("protected")
-  })
+    const content = await readFile(join(vault, "About Me", "Principles.md"), "utf8");
+    expect(content).toBe("protected");
+  });
 
   it("throws a vault-relative error when .trash/ mkdir fails and preserves the source note", async () => {
-    await mkdir(join(vault, "Projects"), { recursive: true })
-    await writeFile(join(vault, "Projects", "deep.md"), "keep me", "utf8")
-    await mkdir(join(vault, ".trash"), { recursive: true })
-    await writeFile(join(vault, ".trash", "Projects"), "blocker", "utf8")
+    await mkdir(join(vault, "Projects"), { recursive: true });
+    await writeFile(join(vault, "Projects", "deep.md"), "keep me", "utf8");
+    await mkdir(join(vault, ".trash"), { recursive: true });
+    await writeFile(join(vault, ".trash", "Projects"), "blocker", "utf8");
 
     await expect(
       deleteNote(
@@ -1377,15 +1228,15 @@ describe("deleteNote — trash behavior", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('cannot move to trash "Projects/deep.md"')
+    ).rejects.toThrow('cannot move to trash "Projects/deep.md"');
 
-    const content = await readFile(join(vault, "Projects", "deep.md"), "utf8")
-    expect(content).toBe("keep me")
-  })
+    const content = await readFile(join(vault, "Projects", "deep.md"), "utf8");
+    expect(content).toBe("keep me");
+  });
 
   it("advances past a directory occupying the trash target", async () => {
-    await mkdir(join(vault, ".trash", "dirocc.md"), { recursive: true })
-    await writeFile(join(vault, "dirocc.md"), "payload", "utf8")
+    await mkdir(join(vault, ".trash", "dirocc.md"), { recursive: true });
+    await writeFile(join(vault, "dirocc.md"), "payload", "utf8");
 
     const result = await deleteNote(
       {
@@ -1396,23 +1247,18 @@ describe("deleteNote — trash behavior", () => {
         trashOption: "local",
       },
       logger,
-    )
+    );
 
-    expect(result.trashLocation).toBe(".trash/dirocc 1.md")
-    expect(await readFile(join(vault, ".trash", "dirocc 1.md"), "utf8")).toBe(
-      "payload",
-    )
-    const occupantStat = await stat(join(vault, ".trash", "dirocc.md"))
-    expect(occupantStat.isDirectory()).toBe(true)
-  })
+    expect(result.trashLocation).toBe(".trash/dirocc 1.md");
+    expect(await readFile(join(vault, ".trash", "dirocc 1.md"), "utf8")).toBe("payload");
+    const occupantStat = await stat(join(vault, ".trash", "dirocc.md"));
+    expect(occupantStat.isDirectory()).toBe(true);
+  });
 
   it("advances past a dangling symlink occupying the trash target", async () => {
-    await mkdir(join(vault, ".trash"), { recursive: true })
-    await symlink(
-      join(vault, ".trash", "missing-target"),
-      join(vault, ".trash", "dang.md"),
-    )
-    await writeFile(join(vault, "dang.md"), "payload", "utf8")
+    await mkdir(join(vault, ".trash"), { recursive: true });
+    await symlink(join(vault, ".trash", "missing-target"), join(vault, ".trash", "dang.md"));
+    await writeFile(join(vault, "dang.md"), "payload", "utf8");
 
     const result = await deleteNote(
       {
@@ -1423,29 +1269,23 @@ describe("deleteNote — trash behavior", () => {
         trashOption: "local",
       },
       logger,
-    )
+    );
 
-    expect(result.trashLocation).toBe(".trash/dang 1.md")
-    expect(await readFile(join(vault, ".trash", "dang 1.md"), "utf8")).toBe(
-      "payload",
-    )
-    const occupantStat = await lstat(join(vault, ".trash", "dang.md"))
-    expect(occupantStat.isSymbolicLink()).toBe(true)
-  })
+    expect(result.trashLocation).toBe(".trash/dang 1.md");
+    expect(await readFile(join(vault, ".trash", "dang 1.md"), "utf8")).toBe("payload");
+    const occupantStat = await lstat(join(vault, ".trash", "dang.md"));
+    expect(occupantStat.isSymbolicLink()).toBe(true);
+  });
 
   it("uses suffix 100 when it is the only free name", async () => {
-    const trashDir = join(vault, ".trash")
-    await mkdir(trashDir, { recursive: true })
-    await writeFile(join(vault, "edge.md"), "payload", "utf8")
-    await writeFile(join(trashDir, "edge.md"), "v0", "utf8")
+    const trashDir = join(vault, ".trash");
+    await mkdir(trashDir, { recursive: true });
+    await writeFile(join(vault, "edge.md"), "payload", "utf8");
+    await writeFile(join(trashDir, "edge.md"), "v0", "utf8");
     const seeds = Array.from({ length: 99 }, (_, index) => {
-      return writeFile(
-        join(trashDir, `edge ${index + 1}.md`),
-        `v${index + 1}`,
-        "utf8",
-      )
-    })
-    await Promise.all(seeds)
+      return writeFile(join(trashDir, `edge ${index + 1}.md`), `v${index + 1}`, "utf8");
+    });
+    await Promise.all(seeds);
 
     const result = await deleteNote(
       {
@@ -1456,25 +1296,23 @@ describe("deleteNote — trash behavior", () => {
         trashOption: "local",
       },
       logger,
-    )
+    );
 
-    expect(result.trashLocation).toBe(".trash/edge 100.md")
-    expect(await readFile(join(trashDir, "edge 100.md"), "utf8")).toBe(
-      "payload",
-    )
-  })
+    expect(result.trashLocation).toBe(".trash/edge 100.md");
+    expect(await readFile(join(trashDir, "edge 100.md"), "utf8")).toBe("payload");
+  });
 
   it("preserves raw bytes, mode, and mtime through the trash move", async () => {
-    const sourcePath = join(vault, "bytes.md")
+    const sourcePath = join(vault, "bytes.md");
     // 0xff 0xfe is not valid UTF-8 — a text-based copy would re-encode it
-    const rawBytes = Buffer.from([0x68, 0x69, 0xff, 0xfe, 0x0a])
-    await writeFile(sourcePath, rawBytes)
-    await chmod(sourcePath, 0o640)
+    const rawBytes = Buffer.from([0x68, 0x69, 0xff, 0xfe, 0x0a]);
+    await writeFile(sourcePath, rawBytes);
+    await chmod(sourcePath, 0o640);
     // The mtime is pinned to 2020-01-02T03:04:05Z (epoch seconds) so the
     // test can assert it survives the move
-    const fixedTimeSeconds = 1_577_934_245
-    await utimes(sourcePath, fixedTimeSeconds, fixedTimeSeconds)
-    const sourceStat = await stat(sourcePath)
+    const fixedTimeSeconds = 1_577_934_245;
+    await utimes(sourcePath, fixedTimeSeconds, fixedTimeSeconds);
+    const sourceStat = await stat(sourcePath);
 
     const result = await deleteNote(
       {
@@ -1485,19 +1323,19 @@ describe("deleteNote — trash behavior", () => {
         trashOption: "local",
       },
       logger,
-    )
+    );
 
-    expect(result.trashLocation).toBe(".trash/bytes.md")
-    const trashedPath = join(vault, ".trash", "bytes.md")
-    expect(await readFile(trashedPath)).toEqual(rawBytes)
-    const trashedStat = await stat(trashedPath)
-    expect(trashedStat.mode).toBe(sourceStat.mode)
-    expect(trashedStat.mtimeMs).toBe(sourceStat.mtimeMs)
-  })
+    expect(result.trashLocation).toBe(".trash/bytes.md");
+    const trashedPath = join(vault, ".trash", "bytes.md");
+    expect(await readFile(trashedPath)).toEqual(rawBytes);
+    const trashedStat = await stat(trashedPath);
+    expect(trashedStat.mode).toBe(sourceStat.mode);
+    expect(trashedStat.mtimeMs).toBe(sourceStat.mtimeMs);
+  });
 
   it("moves a symlink note as a symlink, leaving its target untouched", async () => {
-    await writeFile(join(vault, "target.md"), "target content", "utf8")
-    await symlink(join(vault, "target.md"), join(vault, "linknote.md"))
+    await writeFile(join(vault, "target.md"), "target content", "utf8");
+    await symlink(join(vault, "target.md"), join(vault, "linknote.md"));
 
     const result = await deleteNote(
       {
@@ -1508,28 +1346,26 @@ describe("deleteNote — trash behavior", () => {
         trashOption: "local",
       },
       logger,
-    )
+    );
 
-    expect(result.trashLocation).toBe(".trash/linknote.md")
-    const movedStat = await lstat(join(vault, ".trash", "linknote.md"))
-    expect(movedStat.isSymbolicLink()).toBe(true)
-    expect(await readFile(join(vault, "target.md"), "utf8")).toBe(
-      "target content",
-    )
-  })
+    expect(result.trashLocation).toBe(".trash/linknote.md");
+    const movedStat = await lstat(join(vault, ".trash", "linknote.md"));
+    expect(movedStat.isSymbolicLink()).toBe(true);
+    expect(await readFile(join(vault, "target.md"), "utf8")).toBe("target content");
+  });
 
   it("does not overwrite a competitor that lands mid-operation — the claim, not a stale check, decides", async () => {
-    await mkdir(join(vault, ".trash"), { recursive: true })
-    await writeFile(join(vault, "raced.md"), "mine", "utf8")
+    await mkdir(join(vault, ".trash"), { recursive: true });
+    await writeFile(join(vault, "raced.md"), "mine", "utf8");
     // Plant the competitor between parent-directory creation and the claim.
     // A check-then-rename flow decides the base name is free before this
     // window, so restoring plain rename makes this test fail by overwriting
     // "competitor". The .trash/ directory already exists, so skipping the
     // real mkdir is a faithful no-op.
     vi.mocked(mkdir).mockImplementationOnce(async () => {
-      await writeFile(join(vault, ".trash", "raced.md"), "competitor", "utf8")
-      return undefined
-    })
+      await writeFile(join(vault, ".trash", "raced.md"), "competitor", "utf8");
+      return undefined;
+    });
 
     const result = await deleteNote(
       {
@@ -1540,27 +1376,23 @@ describe("deleteNote — trash behavior", () => {
         trashOption: "local",
       },
       logger,
-    )
+    );
 
     // The injection ran — without this the test could pass vacuously
-    expect(await readFile(join(vault, ".trash", "raced.md"), "utf8")).toBe(
-      "competitor",
-    )
-    expect(result.trashLocation).toBe(".trash/raced 1.md")
-    expect(await readFile(join(vault, ".trash", "raced 1.md"), "utf8")).toBe(
-      "mine",
-    )
-  })
+    expect(await readFile(join(vault, ".trash", "raced.md"), "utf8")).toBe("competitor");
+    expect(result.trashLocation).toBe(".trash/raced 1.md");
+    expect(await readFile(join(vault, ".trash", "raced 1.md"), "utf8")).toBe("mine");
+  });
 
   it("concurrent deletes contending for one trash name both land without loss", async () => {
-    await mkdir(join(vault, ".trash"), { recursive: true })
-    await writeFile(join(vault, ".trash", "dup.md"), "seed", "utf8")
+    await mkdir(join(vault, ".trash"), { recursive: true });
+    await writeFile(join(vault, ".trash", "dup.md"), "seed", "utf8");
     // Both deletes contend for ".trash/dup 1.md" — deleting "dup.md" finds
     // its base name occupied by the seed and advances to "dup 1.md", while
     // deleting "dup 1.md" targets that name directly. Whichever loses the
     // claim advances once more ("dup 2.md" or "dup 1 1.md").
-    await writeFile(join(vault, "dup.md"), "payload-a", "utf8")
-    await writeFile(join(vault, "dup 1.md"), "payload-b", "utf8")
+    await writeFile(join(vault, "dup.md"), "payload-a", "utf8");
+    await writeFile(join(vault, "dup 1.md"), "payload-b", "utf8");
 
     const [resultA, resultB] = await Promise.all([
       deleteNote(
@@ -1583,28 +1415,24 @@ describe("deleteNote — trash behavior", () => {
         },
         logger,
       ),
-    ])
+    ]);
 
     if (!resultA.trashLocation || !resultB.trashLocation) {
-      throw new Error("expected both deletes to report a trash location")
+      throw new Error("expected both deletes to report a trash location");
     }
-    expect(resultA.trashLocation).not.toBe(resultB.trashLocation)
-    expect(await readFile(join(vault, ".trash", "dup.md"), "utf8")).toBe("seed")
-    expect(await readFile(join(vault, resultA.trashLocation), "utf8")).toBe(
-      "payload-a",
-    )
-    expect(await readFile(join(vault, resultB.trashLocation), "utf8")).toBe(
-      "payload-b",
-    )
-  })
+    expect(resultA.trashLocation).not.toBe(resultB.trashLocation);
+    expect(await readFile(join(vault, ".trash", "dup.md"), "utf8")).toBe("seed");
+    expect(await readFile(join(vault, resultA.trashLocation), "utf8")).toBe("payload-a");
+    expect(await readFile(join(vault, resultB.trashLocation), "utf8")).toBe("payload-b");
+  });
 
   it("removes its claim placeholder and preserves the source when the rename fails", async () => {
-    await writeFile(join(vault, "renamefail.md"), "keep me", "utf8")
-    const warnSpy = vi.spyOn(logger, "warn")
-    onTestFinished(() => warnSpy.mockRestore())
+    await writeFile(join(vault, "renamefail.md"), "keep me", "utf8");
+    const warnSpy = vi.spyOn(logger, "warn");
+    onTestFinished(() => warnSpy.mockRestore());
     vi.mocked(rename).mockImplementationOnce(async () => {
-      throw new Error("EIO: injected rename failure")
-    })
+      throw new Error("EIO: injected rename failure");
+    });
 
     await expect(
       deleteNote(
@@ -1617,30 +1445,28 @@ describe("deleteNote — trash behavior", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('cannot move to trash "renamefail.md"')
+    ).rejects.toThrow('cannot move to trash "renamefail.md"');
 
     // The claim placeholder is gone — no 0-byte file occupies the name
-    await expect(stat(join(vault, ".trash", "renamefail.md"))).rejects.toThrow(
-      /ENOENT/,
-    )
-    expect(await readFile(join(vault, "renamefail.md"), "utf8")).toBe("keep me")
+    await expect(stat(join(vault, ".trash", "renamefail.md"))).rejects.toThrow(/ENOENT/);
+    expect(await readFile(join(vault, "renamefail.md"), "utf8")).toBe("keep me");
     expect(warnSpy).toHaveBeenCalledWith("failed to move to trash", {
       path: "renamefail.md",
       error: "[Error]: EIO: injected rename failure",
-    })
-  })
+    });
+  });
 
   it("logs the placeholder cleanup failure when both the rename and the cleanup fail", async () => {
-    await writeFile(join(vault, "cleanupfail.md"), "keep me", "utf8")
-    const warnSpy = vi.spyOn(logger, "warn")
-    onTestFinished(() => warnSpy.mockRestore())
+    await writeFile(join(vault, "cleanupfail.md"), "keep me", "utf8");
+    const warnSpy = vi.spyOn(logger, "warn");
+    onTestFinished(() => warnSpy.mockRestore());
     vi.mocked(rename).mockImplementationOnce(async () => {
-      throw new Error("EIO: injected rename failure")
-    })
+      throw new Error("EIO: injected rename failure");
+    });
     // The next rm call is the placeholder cleanup inside moveNoteToTrash
     vi.mocked(rm).mockImplementationOnce(async () => {
-      throw new Error("EPERM: injected cleanup failure")
-    })
+      throw new Error("EPERM: injected cleanup failure");
+    });
 
     await expect(
       deleteNote(
@@ -1653,34 +1479,32 @@ describe("deleteNote — trash behavior", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('cannot move to trash "cleanupfail.md"')
+    ).rejects.toThrow('cannot move to trash "cleanupfail.md"');
 
     // The failed cleanup is visible in the logs, and the placeholder it could
     // not remove genuinely survives — proof the injected rm was the cleanup
     expect(warnSpy).toHaveBeenCalledWith("failed to remove claim placeholder", {
       path: ".trash/cleanupfail.md",
       error: "[Error]: EPERM: injected cleanup failure",
-    })
+    });
     expect(warnSpy).toHaveBeenCalledWith("failed to move to trash", {
       path: "cleanupfail.md",
       error: "[Error]: EIO: injected rename failure",
-    })
-    expect((await stat(join(vault, ".trash", "cleanupfail.md"))).size).toBe(0)
-    expect(await readFile(join(vault, "cleanupfail.md"), "utf8")).toBe(
-      "keep me",
-    )
-  })
+    });
+    expect((await stat(join(vault, ".trash", "cleanupfail.md"))).size).toBe(0);
+    expect(await readFile(join(vault, "cleanupfail.md"), "utf8")).toBe("keep me");
+  });
 
   it("surfaces a vault-relative error and preserves the source when the claim fails for a non-EEXIST reason", async () => {
-    await writeFile(join(vault, "claimfail.md"), "keep me", "utf8")
-    const warnSpy = vi.spyOn(logger, "warn")
-    onTestFinished(() => warnSpy.mockRestore())
+    await writeFile(join(vault, "claimfail.md"), "keep me", "utf8");
+    const warnSpy = vi.spyOn(logger, "warn");
+    onTestFinished(() => warnSpy.mockRestore());
     // The next writeFile call is the claim's exclusive create inside
     // deleteNote — a non-EEXIST failure (e.g. EACCES on .trash/) must
     // rethrow, not read as occupancy and silently advance the suffix loop.
     vi.mocked(writeFile).mockImplementationOnce(async () => {
-      throw new Error("EACCES: injected claim failure")
-    })
+      throw new Error("EACCES: injected claim failure");
+    });
 
     await expect(
       deleteNote(
@@ -1693,249 +1517,200 @@ describe("deleteNote — trash behavior", () => {
         },
         logger,
       ),
-    ).rejects.toThrow('cannot move to trash "claimfail.md"')
+    ).rejects.toThrow('cannot move to trash "claimfail.md"');
 
     // The failed create left nothing behind, and no suffixed copy was made
-    expect(await readdir(join(vault, ".trash"))).toEqual([])
-    expect(await readFile(join(vault, "claimfail.md"), "utf8")).toBe("keep me")
+    expect(await readdir(join(vault, ".trash"))).toEqual([]);
+    expect(await readFile(join(vault, "claimfail.md"), "utf8")).toBe("keep me");
     expect(warnSpy).toHaveBeenCalledWith("failed to move to trash", {
       path: "claimfail.md",
       error: "[Error]: EACCES: injected claim failure",
-    })
-  })
-})
+    });
+  });
+});
 
 describe("listNotes", () => {
   beforeEach(async () => {
-    await mkdir(join(vault, "notes"), { recursive: true })
-    await mkdir(join(vault, ".obsidian"), { recursive: true })
-    await mkdir(join(vault, "notes/.hidden"), { recursive: true })
-    await writeFile(join(vault, "root.md"), "r", "utf8")
-    await writeFile(join(vault, "notes/a.md"), "a", "utf8")
-    await writeFile(join(vault, "notes/b.md"), "b", "utf8")
-    await writeFile(join(vault, "notes/data.json"), "{}", "utf8")
-    await writeFile(join(vault, ".obsidian/config.md"), "x", "utf8")
-    await writeFile(join(vault, "notes/.hidden/secret.md"), "s", "utf8")
-  })
+    await mkdir(join(vault, "notes"), { recursive: true });
+    await mkdir(join(vault, ".obsidian"), { recursive: true });
+    await mkdir(join(vault, "notes/.hidden"), { recursive: true });
+    await writeFile(join(vault, "root.md"), "r", "utf8");
+    await writeFile(join(vault, "notes/a.md"), "a", "utf8");
+    await writeFile(join(vault, "notes/b.md"), "b", "utf8");
+    await writeFile(join(vault, "notes/data.json"), "{}", "utf8");
+    await writeFile(join(vault, ".obsidian/config.md"), "x", "utf8");
+    await writeFile(join(vault, "notes/.hidden/secret.md"), "s", "utf8");
+  });
 
   it("lists all visible .md files recursively", async () => {
-    const files = await listNotes({ vaultPath: vault }, logger)
-    expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md"])
-  })
+    const files = await listNotes({ vaultPath: vault }, logger);
+    expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md"]);
+  });
 
   it("lists files under a specific folder", async () => {
-    const files = await listNotes({ vaultPath: vault, folder: "notes" }, logger)
-    expect(files).toEqual(["notes/a.md", "notes/b.md"])
-  })
+    const files = await listNotes({ vaultPath: vault, folder: "notes" }, logger);
+    expect(files).toEqual(["notes/a.md", "notes/b.md"]);
+  });
 
   it("skips hidden directories", async () => {
-    const files = await listNotes({ vaultPath: vault }, logger)
-    expect(files).not.toContain(".obsidian/config.md")
-    expect(files).not.toContain("notes/.hidden/secret.md")
-  })
+    const files = await listNotes({ vaultPath: vault }, logger);
+    expect(files).not.toContain(".obsidian/config.md");
+    expect(files).not.toContain("notes/.hidden/secret.md");
+  });
 
   it("skips non-.md files", async () => {
-    const files = await listNotes({ vaultPath: vault }, logger)
-    expect(files).not.toContain("notes/data.json")
-  })
+    const files = await listNotes({ vaultPath: vault }, logger);
+    expect(files).not.toContain("notes/data.json");
+  });
 
   it("applies glob filter", async () => {
-    const files = await listNotes(
-      { vaultPath: vault, glob: "notes/a*" },
-      logger,
-    )
-    expect(files).toEqual(["notes/a.md"])
-  })
+    const files = await listNotes({ vaultPath: vault, glob: "notes/a*" }, logger);
+    expect(files).toEqual(["notes/a.md"]);
+  });
 
   it("returns empty array for non-existent folder", async () => {
-    const files = await listNotes({ vaultPath: vault, folder: "nope" }, logger)
-    expect(files).toEqual([])
-  })
+    const files = await listNotes({ vaultPath: vault, folder: "nope" }, logger);
+    expect(files).toEqual([]);
+  });
 
   it("returns sorted results", async () => {
-    await writeFile(join(vault, "notes/z.md"), "z", "utf8")
-    const files = await listNotes({ vaultPath: vault, folder: "notes" }, logger)
-    expect(files).toEqual(["notes/a.md", "notes/b.md", "notes/z.md"])
-  })
+    await writeFile(join(vault, "notes/z.md"), "z", "utf8");
+    const files = await listNotes({ vaultPath: vault, folder: "notes" }, logger);
+    expect(files).toEqual(["notes/a.md", "notes/b.md", "notes/z.md"]);
+  });
 
   it("includes a symlinked .md file in the listing", async () => {
-    await symlink("notes/a.md", join(vault, "sym.md"))
-    const files = await listNotes({ vaultPath: vault }, logger)
-    expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md", "sym.md"])
-  })
+    await symlink("notes/a.md", join(vault, "sym.md"));
+    const files = await listNotes({ vaultPath: vault }, logger);
+    expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md", "sym.md"]);
+  });
 
   it("includes a symlink whose target is outside the vault root", async () => {
     // Obsidian supports symlinks to external files (e.g. repo files
     // symlinked into the vault for browsing) — vault-cortex follows suit
-    const outsideDir = await mkdtemp(join(tmpdir(), "vault-outside-"))
-    onTestFinished(async () => rm(outsideDir, { recursive: true }))
-    await writeFile(join(outsideDir, "external.md"), "external", "utf8")
-    await symlink(
-      join(outsideDir, "external.md"),
-      join(vault, "linked-external.md"),
-    )
+    const outsideDir = await mkdtemp(join(tmpdir(), "vault-outside-"));
+    onTestFinished(async () => rm(outsideDir, { recursive: true }));
+    await writeFile(join(outsideDir, "external.md"), "external", "utf8");
+    await symlink(join(outsideDir, "external.md"), join(vault, "linked-external.md"));
 
-    const files = await listNotes({ vaultPath: vault }, logger)
-    expect(files).toEqual([
-      "linked-external.md",
-      "notes/a.md",
-      "notes/b.md",
-      "root.md",
-    ])
-  })
+    const files = await listNotes({ vaultPath: vault }, logger);
+    expect(files).toEqual(["linked-external.md", "notes/a.md", "notes/b.md", "root.md"]);
+  });
 
   it("excludes a broken symlink without crashing", async () => {
     // A valid internal symlink proves symlinks are listed —
     // without it, the test passes trivially even if all symlinks are ignored
-    await symlink("notes/a.md", join(vault, "valid-link.md"))
-    await symlink("nonexistent/target.md", join(vault, "broken.md"))
-    const files = await listNotes({ vaultPath: vault }, logger)
-    expect(files).toEqual([
-      "notes/a.md",
-      "notes/b.md",
-      "root.md",
-      "valid-link.md",
-    ])
-  })
+    await symlink("notes/a.md", join(vault, "valid-link.md"));
+    await symlink("nonexistent/target.md", join(vault, "broken.md"));
+    const files = await listNotes({ vaultPath: vault }, logger);
+    expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md", "valid-link.md"]);
+  });
 
   it("excludes a symlink whose target is a directory, not a file", async () => {
     // A valid internal symlink proves symlinks are listed —
     // without it, the test passes trivially even if all symlinks are ignored
-    await symlink("notes/a.md", join(vault, "valid-link.md"))
-    await mkdir(join(vault, "realdir"), { recursive: true })
-    await symlink(join(vault, "realdir"), join(vault, "dirlink.md"))
-    const files = await listNotes({ vaultPath: vault }, logger)
-    expect(files).toEqual([
-      "notes/a.md",
-      "notes/b.md",
-      "root.md",
-      "valid-link.md",
-    ])
-  })
-})
+    await symlink("notes/a.md", join(vault, "valid-link.md"));
+    await mkdir(join(vault, "realdir"), { recursive: true });
+    await symlink(join(vault, "realdir"), join(vault, "dirlink.md"));
+    const files = await listNotes({ vaultPath: vault }, logger);
+    expect(files).toEqual(["notes/a.md", "notes/b.md", "root.md", "valid-link.md"]);
+  });
+});
 
 describe("listAssets", () => {
   beforeEach(async () => {
-    await mkdir(join(vault, "assets"), { recursive: true })
-    await mkdir(join(vault, ".obsidian"), { recursive: true })
-    await writeFile(join(vault, "assets/photo.png"), "img", "utf8")
-    await writeFile(join(vault, "assets/board.canvas"), "{}", "utf8")
-    await writeFile(join(vault, "root.md"), "r", "utf8")
-    await writeFile(join(vault, "notes.md"), "n", "utf8")
-    await writeFile(join(vault, ".obsidian/plugin.js"), "x", "utf8")
-    await writeFile(join(vault, ".DS_Store"), "x", "utf8")
-  })
+    await mkdir(join(vault, "assets"), { recursive: true });
+    await mkdir(join(vault, ".obsidian"), { recursive: true });
+    await writeFile(join(vault, "assets/photo.png"), "img", "utf8");
+    await writeFile(join(vault, "assets/board.canvas"), "{}", "utf8");
+    await writeFile(join(vault, "root.md"), "r", "utf8");
+    await writeFile(join(vault, "notes.md"), "n", "utf8");
+    await writeFile(join(vault, ".obsidian/plugin.js"), "x", "utf8");
+    await writeFile(join(vault, ".DS_Store"), "x", "utf8");
+  });
 
   it("lists non-.md files recursively, excluding notes", async () => {
-    const files = await listAssets({ vaultPath: vault }, logger)
-    expect(files).toEqual(["assets/board.canvas", "assets/photo.png"])
-  })
+    const files = await listAssets({ vaultPath: vault }, logger);
+    expect(files).toEqual(["assets/board.canvas", "assets/photo.png"]);
+  });
 
   it("skips hidden files and directories", async () => {
-    await writeFile(join(vault, "readme.txt"), "visible", "utf8")
-    const files = await listAssets({ vaultPath: vault }, logger)
+    await writeFile(join(vault, "readme.txt"), "visible", "utf8");
+    const files = await listAssets({ vaultPath: vault }, logger);
     // readme.txt is listed; .DS_Store and .obsidian/plugin.js (from
     // beforeEach) are excluded by the hidden-segment filter.
-    expect(files).toEqual([
-      "assets/board.canvas",
-      "assets/photo.png",
-      "readme.txt",
-    ])
-  })
+    expect(files).toEqual(["assets/board.canvas", "assets/photo.png", "readme.txt"]);
+  });
 
   it("scopes the listing to a folder, excluding assets outside it", async () => {
-    await writeFile(join(vault, "outside.txt"), "not in assets/", "utf8")
-    const files = await listAssets(
-      { vaultPath: vault, folder: "assets" },
-      logger,
-    )
-    expect(files).toEqual(["assets/board.canvas", "assets/photo.png"])
-  })
+    await writeFile(join(vault, "outside.txt"), "not in assets/", "utf8");
+    const files = await listAssets({ vaultPath: vault, folder: "assets" }, logger);
+    expect(files).toEqual(["assets/board.canvas", "assets/photo.png"]);
+  });
 
   it("includes a symlinked asset in the listing", async () => {
-    await symlink("assets/photo.png", join(vault, "linked.png"))
-    const files = await listAssets({ vaultPath: vault }, logger)
-    expect(files).toEqual([
-      "assets/board.canvas",
-      "assets/photo.png",
-      "linked.png",
-    ])
-  })
+    await symlink("assets/photo.png", join(vault, "linked.png"));
+    const files = await listAssets({ vaultPath: vault }, logger);
+    expect(files).toEqual(["assets/board.canvas", "assets/photo.png", "linked.png"]);
+  });
 
   it("returns an empty array when the vault has no assets", async () => {
-    await rm(join(vault, "assets"), { recursive: true })
-    const files = await listAssets({ vaultPath: vault }, logger)
-    expect(files).toEqual([])
-  })
-})
+    await rm(join(vault, "assets"), { recursive: true });
+    const files = await listAssets({ vaultPath: vault }, logger);
+    expect(files).toEqual([]);
+  });
+});
 
 describe("readNoteProperties", () => {
   it("returns parsed frontmatter as an object", async () => {
-    await writeFile(
-      join(vault, "test.md"),
-      "---\ntitle: Test\ntags: [a, b]\nstatus: active\n---\n\n# Body\n",
-      "utf8",
-    )
-    const properties = await readNoteProperties(
-      { vaultPath: vault, path: "test.md" },
-      logger,
-    )
+    await writeFile(join(vault, "test.md"), "---\ntitle: Test\ntags: [a, b]\nstatus: active\n---\n\n# Body\n", "utf8");
+    const properties = await readNoteProperties({ vaultPath: vault, path: "test.md" }, logger);
     expect(properties).toEqual({
       title: "Test",
       tags: ["a", "b"],
       status: "active",
-    })
-  })
+    });
+  });
 
   it("throws on non-existent file", async () => {
-    await expect(
-      readNoteProperties({ vaultPath: vault, path: "missing.md" }, logger),
-    ).rejects.toThrow("note not found")
-  })
+    await expect(readNoteProperties({ vaultPath: vault, path: "missing.md" }, logger)).rejects.toThrow(
+      "note not found",
+    );
+  });
 
   it("returns empty object for file with no frontmatter", async () => {
-    await writeFile(join(vault, "plain.md"), "# No frontmatter\n", "utf8")
-    const properties = await readNoteProperties(
-      { vaultPath: vault, path: "plain.md" },
-      logger,
-    )
-    expect(properties).toEqual({})
-  })
+    await writeFile(join(vault, "plain.md"), "# No frontmatter\n", "utf8");
+    const properties = await readNoteProperties({ vaultPath: vault, path: "plain.md" }, logger);
+    expect(properties).toEqual({});
+  });
 
   it("returns datetime properties as their original strings, not Dates", async () => {
     await writeFile(
       join(vault, "stamped.md"),
       "---\ndate: 2026-05-13\ncreated: 2026-05-13T20:00:00-04:00\n---\nbody\n",
       "utf8",
-    )
-    const properties = await readNoteProperties(
-      { vaultPath: vault, path: "stamped.md" },
-      logger,
-    )
-    expect(properties.created).toBe("2026-05-13T20:00:00-04:00")
-    expect(properties.date).toBe("2026-05-13")
-  })
+    );
+    const properties = await readNoteProperties({ vaultPath: vault, path: "stamped.md" }, logger);
+    expect(properties.created).toBe("2026-05-13T20:00:00-04:00");
+    expect(properties.date).toBe("2026-05-13");
+  });
 
   it("parses YAML arrays and nested values", async () => {
     await writeFile(
       join(vault, "nested.md"),
       '---\ntags:\n  - one\n  - two\nrelated:\n  - "[[Note A]]"\n---\nbody\n',
       "utf8",
-    )
-    const properties = await readNoteProperties(
-      { vaultPath: vault, path: "nested.md" },
-      logger,
-    )
-    expect(properties.tags).toEqual(["one", "two"])
-    expect(properties.related).toEqual(["[[Note A]]"])
-  })
-})
+    );
+    const properties = await readNoteProperties({ vaultPath: vault, path: "nested.md" }, logger);
+    expect(properties.tags).toEqual(["one", "two"]);
+    expect(properties.related).toEqual(["[[Note A]]"]);
+  });
+});
 
 describe("updateProperties", () => {
   it("prepends a properties block above Multi Column plugin syntax", async () => {
-    const pluginBody =
-      "--- start-multi-column: ExampleRegion1\ncolumn text\n--- end-multi-column\n"
-    await writeFile(join(vault, "snippet.md"), pluginBody, "utf8")
+    const pluginBody = "--- start-multi-column: ExampleRegion1\ncolumn text\n--- end-multi-column\n";
+    await writeFile(join(vault, "snippet.md"), pluginBody, "utf8");
     await updateProperties(
       {
         vaultPath: vault,
@@ -1943,36 +1718,23 @@ describe("updateProperties", () => {
         properties: { title: "Snippet" },
       },
       logger,
-    )
-    const written = await readFile(join(vault, "snippet.md"), "utf8")
-    expect(written).toBe("---\ntitle: Snippet\n---\n" + pluginBody)
-  })
+    );
+    const written = await readFile(join(vault, "snippet.md"), "utf8");
+    expect(written).toBe("---\ntitle: Snippet\n---\n" + pluginBody);
+  });
 
   it("preserves a body that opens with a horizontal rule", async () => {
     // The serializer must not re-parse the body — an HR-leading body read
     // back through gray-matter's string form is consumed as an unclosed
     // frontmatter fence and erased.
-    await writeFile(
-      join(vault, "rules.md"),
-      "---\ntitle: Original\n---\n---\nbody after rule\n",
-      "utf8",
-    )
-    await updateProperties(
-      { vaultPath: vault, path: "rules.md", properties: { status: "active" } },
-      logger,
-    )
-    const written = await readFile(join(vault, "rules.md"), "utf8")
-    expect(written).toBe(
-      "---\ntitle: Original\nstatus: active\n---\n---\nbody after rule\n",
-    )
-  })
+    await writeFile(join(vault, "rules.md"), "---\ntitle: Original\n---\n---\nbody after rule\n", "utf8");
+    await updateProperties({ vaultPath: vault, path: "rules.md", properties: { status: "active" } }, logger);
+    const written = await readFile(join(vault, "rules.md"), "utf8");
+    expect(written).toBe("---\ntitle: Original\nstatus: active\n---\n---\nbody after rule\n");
+  });
 
   it("merges new keys without changing body", async () => {
-    await writeFile(
-      join(vault, "test.md"),
-      "---\ntitle: Original\n---\nBody content\n",
-      "utf8",
-    )
+    await writeFile(join(vault, "test.md"), "---\ntitle: Original\n---\nBody content\n", "utf8");
     await updateProperties(
       {
         vaultPath: vault,
@@ -1980,20 +1742,16 @@ describe("updateProperties", () => {
         properties: { status: "active" },
       },
       logger,
-    )
-    const content = await readFile(join(vault, "test.md"), "utf8")
-    const parsed = parseNote(content)
-    expect(parsed.content.trim()).toBe("Body content")
-    expect(parsed.data.status).toBe("active")
-    expect(parsed.data.title).toBe("Original")
-  })
+    );
+    const content = await readFile(join(vault, "test.md"), "utf8");
+    const parsed = parseNote(content);
+    expect(parsed.content.trim()).toBe("Body content");
+    expect(parsed.data.status).toBe("active");
+    expect(parsed.data.title).toBe("Original");
+  });
 
   it("overwrites existing key values", async () => {
-    await writeFile(
-      join(vault, "test.md"),
-      "---\nstatus: draft\n---\nbody\n",
-      "utf8",
-    )
+    await writeFile(join(vault, "test.md"), "---\nstatus: draft\n---\nbody\n", "utf8");
     await updateProperties(
       {
         vaultPath: vault,
@@ -2001,18 +1759,14 @@ describe("updateProperties", () => {
         properties: { status: "published" },
       },
       logger,
-    )
-    const content = await readFile(join(vault, "test.md"), "utf8")
-    expect(content).toContain("status: published")
-    expect(content).not.toContain("status: draft")
-  })
+    );
+    const content = await readFile(join(vault, "test.md"), "utf8");
+    expect(content).toContain("status: published");
+    expect(content).not.toContain("status: draft");
+  });
 
   it("preserves unmentioned keys", async () => {
-    await writeFile(
-      join(vault, "test.md"),
-      "---\ntitle: Keep\ntags: [a, b]\n---\nbody\n",
-      "utf8",
-    )
+    await writeFile(join(vault, "test.md"), "---\ntitle: Keep\ntags: [a, b]\n---\nbody\n", "utf8");
     await updateProperties(
       {
         vaultPath: vault,
@@ -2020,20 +1774,20 @@ describe("updateProperties", () => {
         properties: { status: "active" },
       },
       logger,
-    )
-    const content = await readFile(join(vault, "test.md"), "utf8")
-    const parsed = parseNote(content)
-    expect(parsed.data.title).toBe("Keep")
-    expect(parsed.data.tags).toEqual(["a", "b"])
-    expect(parsed.data.status).toBe("active")
-  })
+    );
+    const content = await readFile(join(vault, "test.md"), "utf8");
+    const parsed = parseNote(content);
+    expect(parsed.data.title).toBe("Keep");
+    expect(parsed.data.tags).toEqual(["a", "b"]);
+    expect(parsed.data.status).toBe("active");
+  });
 
   it("keeps an untouched local-offset created datetime byte-identical", async () => {
     await writeFile(
       join(vault, "stamped.md"),
       "---\ntitle: Stamped\ncreated: 2026-05-13T20:00:00-04:00\n---\nbody\n",
       "utf8",
-    )
+    );
     await updateProperties(
       {
         vaultPath: vault,
@@ -2041,19 +1795,13 @@ describe("updateProperties", () => {
         properties: { status: "active" },
       },
       logger,
-    )
-    const content = await readFile(join(vault, "stamped.md"), "utf8")
-    expect(content).toBe(
-      "---\ntitle: Stamped\ncreated: 2026-05-13T20:00:00-04:00\nstatus: active\n---\nbody\n",
-    )
-  })
+    );
+    const content = await readFile(join(vault, "stamped.md"), "utf8");
+    expect(content).toBe("---\ntitle: Stamped\ncreated: 2026-05-13T20:00:00-04:00\nstatus: active\n---\nbody\n");
+  });
 
   it("deletes a key set to null", async () => {
-    await writeFile(
-      join(vault, "test.md"),
-      "---\ntitle: Keep\nstatus: draft\n---\nbody\n",
-      "utf8",
-    )
+    await writeFile(join(vault, "test.md"), "---\ntitle: Keep\nstatus: draft\n---\nbody\n", "utf8");
     await updateProperties(
       {
         vaultPath: vault,
@@ -2061,14 +1809,14 @@ describe("updateProperties", () => {
         properties: { status: null },
       },
       logger,
-    )
-    const content = await readFile(join(vault, "test.md"), "utf8")
-    expect(content).toBe("---\ntitle: Keep\n---\nbody\n")
-  })
+    );
+    const content = await readFile(join(vault, "test.md"), "utf8");
+    expect(content).toBe("---\ntitle: Keep\n---\nbody\n");
+  });
 
   it("treats null for a non-existent key as a no-op", async () => {
-    const original = "---\ntitle: Keep\n---\nbody\n"
-    await writeFile(join(vault, "test.md"), original, "utf8")
+    const original = "---\ntitle: Keep\n---\nbody\n";
+    await writeFile(join(vault, "test.md"), original, "utf8");
     await updateProperties(
       {
         vaultPath: vault,
@@ -2076,17 +1824,13 @@ describe("updateProperties", () => {
         properties: { ghost: null },
       },
       logger,
-    )
-    const content = await readFile(join(vault, "test.md"), "utf8")
-    expect(content).toBe(original)
-  })
+    );
+    const content = await readFile(join(vault, "test.md"), "utf8");
+    expect(content).toBe(original);
+  });
 
   it("deletes and sets keys in the same call", async () => {
-    await writeFile(
-      join(vault, "test.md"),
-      "---\nstatus: draft\ntitle: Keep\n---\nbody\n",
-      "utf8",
-    )
+    await writeFile(join(vault, "test.md"), "---\nstatus: draft\ntitle: Keep\n---\nbody\n", "utf8");
     await updateProperties(
       {
         vaultPath: vault,
@@ -2094,17 +1838,13 @@ describe("updateProperties", () => {
         properties: { status: null, priority: 1 },
       },
       logger,
-    )
-    const content = await readFile(join(vault, "test.md"), "utf8")
-    expect(content).toBe("---\ntitle: Keep\npriority: 1\n---\nbody\n")
-  })
+    );
+    const content = await readFile(join(vault, "test.md"), "utf8");
+    expect(content).toBe("---\ntitle: Keep\npriority: 1\n---\nbody\n");
+  });
 
   it("removes the frontmatter block entirely when the last key is deleted", async () => {
-    await writeFile(
-      join(vault, "test.md"),
-      "---\nstatus: draft\n---\nbody\n",
-      "utf8",
-    )
+    await writeFile(join(vault, "test.md"), "---\nstatus: draft\n---\nbody\n", "utf8");
     await updateProperties(
       {
         vaultPath: vault,
@@ -2112,17 +1852,13 @@ describe("updateProperties", () => {
         properties: { status: null },
       },
       logger,
-    )
-    const content = await readFile(join(vault, "test.md"), "utf8")
-    expect(content).toBe("body\n")
-  })
+    );
+    const content = await readFile(join(vault, "test.md"), "utf8");
+    expect(content).toBe("body\n");
+  });
 
   it("preserves an unmentioned pre-existing empty property", async () => {
-    await writeFile(
-      join(vault, "test.md"),
-      "---\ndue:\ntitle: Keep\n---\nbody\n",
-      "utf8",
-    )
+    await writeFile(join(vault, "test.md"), "---\ndue:\ntitle: Keep\n---\nbody\n", "utf8");
     await updateProperties(
       {
         vaultPath: vault,
@@ -2130,10 +1866,10 @@ describe("updateProperties", () => {
         properties: { status: "active" },
       },
       logger,
-    )
-    const content = await readFile(join(vault, "test.md"), "utf8")
-    expect(content).toBe("---\ndue:\ntitle: Keep\nstatus: active\n---\nbody\n")
-  })
+    );
+    const content = await readFile(join(vault, "test.md"), "utf8");
+    expect(content).toBe("---\ndue:\ntitle: Keep\nstatus: active\n---\nbody\n");
+  });
 
   it("throws on non-existent file", async () => {
     await expect(
@@ -2145,11 +1881,11 @@ describe("updateProperties", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("note not found")
-  })
+    ).rejects.toThrow("note not found");
+  });
 
   it("adds frontmatter block to file with no existing frontmatter", async () => {
-    await writeFile(join(vault, "plain.md"), "# Just a body\n", "utf8")
+    await writeFile(join(vault, "plain.md"), "# Just a body\n", "utf8");
     await updateProperties(
       {
         vaultPath: vault,
@@ -2157,11 +1893,11 @@ describe("updateProperties", () => {
         properties: { status: "active" },
       },
       logger,
-    )
-    const content = await readFile(join(vault, "plain.md"), "utf8")
-    expect(content).toContain("status: active")
-    expect(content).toContain("Just a body")
-  })
+    );
+    const content = await readFile(join(vault, "plain.md"), "utf8");
+    expect(content).toContain("status: active");
+    expect(content).toContain("Just a body");
+  });
 
   it("blocks path traversal", async () => {
     await expect(
@@ -2173,87 +1909,76 @@ describe("updateProperties", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("path traversal blocked")
-  })
-})
+    ).rejects.toThrow("path traversal blocked");
+  });
+});
 
 describe("write size logging", () => {
   it("writeNote logs beforeBytes 0 and afterBytes for a new file", async () => {
-    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
-    onTestFinished(() => infoSpy.mockRestore())
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {});
+    onTestFinished(() => infoSpy.mockRestore());
 
-    await writeNote({ vaultPath: vault, path: "n.md", body: "hello\n" }, logger)
-    const written = await readFile(join(vault, "n.md"), "utf8")
+    await writeNote({ vaultPath: vault, path: "n.md", body: "hello\n" }, logger);
+    const written = await readFile(join(vault, "n.md"), "utf8");
 
     expect(infoSpy).toHaveBeenCalledWith("wrote note", {
       path: "n.md",
       beforeBytes: 0,
       afterBytes: Buffer.byteLength(written, "utf8"),
-    })
-  })
+    });
+  });
 
   it("writeNote logs the prior file size as beforeBytes when overwriting", async () => {
-    const original = "---\ntitle: T\n---\nold body\n"
-    await writeFile(join(vault, "e.md"), original, "utf8")
-    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
-    onTestFinished(() => infoSpy.mockRestore())
+    const original = "---\ntitle: T\n---\nold body\n";
+    await writeFile(join(vault, "e.md"), original, "utf8");
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {});
+    onTestFinished(() => infoSpy.mockRestore());
 
-    await writeNote(
-      { vaultPath: vault, path: "e.md", body: "new\n", overwrite: true },
-      logger,
-    )
-    const written = await readFile(join(vault, "e.md"), "utf8")
+    await writeNote({ vaultPath: vault, path: "e.md", body: "new\n", overwrite: true }, logger);
+    const written = await readFile(join(vault, "e.md"), "utf8");
 
     expect(infoSpy).toHaveBeenCalledWith("wrote note", {
       path: "e.md",
       beforeBytes: Buffer.byteLength(original, "utf8"),
       afterBytes: Buffer.byteLength(written, "utf8"),
-    })
-  })
+    });
+  });
 
   it("updateProperties logs before/after byte counts", async () => {
-    const original = "---\ntitle: Original\n---\nBody content\n"
-    await writeFile(join(vault, "p.md"), original, "utf8")
-    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
-    onTestFinished(() => infoSpy.mockRestore())
+    const original = "---\ntitle: Original\n---\nBody content\n";
+    await writeFile(join(vault, "p.md"), original, "utf8");
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {});
+    onTestFinished(() => infoSpy.mockRestore());
 
-    await updateProperties(
-      { vaultPath: vault, path: "p.md", properties: { status: "active" } },
-      logger,
-    )
-    const written = await readFile(join(vault, "p.md"), "utf8")
+    await updateProperties({ vaultPath: vault, path: "p.md", properties: { status: "active" } }, logger);
+    const written = await readFile(join(vault, "p.md"), "utf8");
 
     expect(infoSpy).toHaveBeenCalledWith("updated properties", {
       path: "p.md",
       beforeBytes: Buffer.byteLength(original, "utf8"),
       afterBytes: Buffer.byteLength(written, "utf8"),
-    })
-  })
-})
+    });
+  });
+});
 
 describe("readNoteOutline", () => {
-  const getExpectedFileMetadata = async (
-    path: string,
-  ): Promise<{ bytes: number; modified: string }> => {
-    const fileStats = await stat(join(vault, path))
-    const modified = DateTime.fromMillis(Math.round(fileStats.mtimeMs)).toISO()
-    if (modified === null)
-      throw new Error(`invalid test mtime: ${fileStats.mtimeMs}`)
-    return { bytes: fileStats.size, modified }
-  }
+  const getExpectedFileMetadata = async (path: string): Promise<{ bytes: number; modified: string }> => {
+    const fileStats = await stat(join(vault, path));
+    const modified = DateTime.fromMillis(Math.round(fileStats.mtimeMs)).toISO();
+
+    if (modified === null) throw new Error(`invalid test mtime: ${fileStats.mtimeMs}`);
+    return { bytes: fileStats.size, modified };
+  };
 
   it("returns whole-file bytes and modified time", async () => {
-    const path = "metadata.md"
-    const body = "# Café\n\nrésumé\n"
-    const content = `---\ntitle: Café\n---\n${body}`
-    const modifiedAt = DateTime.fromISO("2026-09-17T14:30:00.000Z")
-    if (!modifiedAt.isValid) throw new Error("invalid test timestamp")
-    await writeFile(join(vault, path), content, "utf8")
-    await utimes(
-      join(vault, path),
-      modifiedAt.toSeconds(),
-      modifiedAt.toSeconds(),
-    )
+    const path = "metadata.md";
+    const body = "# Café\n\nrésumé\n";
+    const content = `---\ntitle: Café\n---\n${body}`;
+    const modifiedAt = DateTime.fromISO("2026-09-17T14:30:00.000Z");
+
+    if (!modifiedAt.isValid) throw new Error("invalid test timestamp");
+    await writeFile(join(vault, path), content, "utf8");
+    await utimes(join(vault, path), modifiedAt.toSeconds(), modifiedAt.toSeconds());
 
     expect(await readNoteOutline({ vaultPath: vault, path }, logger)).toEqual({
       bytes: Buffer.byteLength(content, "utf8"),
@@ -2265,17 +1990,14 @@ describe("readNoteOutline", () => {
           bytes: Buffer.byteLength(body, "utf8"),
         },
       ],
-    })
-  })
+    });
+  });
 
   it("returns each heading's level, text, and section byte size", async () => {
-    const body = "# Title\n\nIntro line.\n\n## Active\n\n- one\n- two\n"
-    await writeFile(join(vault, "outline.md"), body, "utf8")
+    const body = "# Title\n\nIntro line.\n\n## Active\n\n- one\n- two\n";
+    await writeFile(join(vault, "outline.md"), body, "utf8");
 
-    const outline = await readNoteOutline(
-      { vaultPath: vault, path: "outline.md" },
-      logger,
-    )
+    const outline = await readNoteOutline({ vaultPath: vault, path: "outline.md" }, logger);
 
     // "# Title" (H1) has no later H1, so its span includes the nested "## Active"
     // child — its byte size is the whole body. "## Active" is just its own span.
@@ -2290,27 +2012,23 @@ describe("readNoteOutline", () => {
           bytes: Buffer.byteLength("## Active\n\n- one\n- two\n", "utf8"),
         },
       ],
-    })
-  })
+    });
+  });
 
   it("returns the whole body as leading_content for a note with no headings", async () => {
-    await writeFile(join(vault, "flat.md"), "just prose, no headings\n", "utf8")
-    expect(
-      await readNoteOutline({ vaultPath: vault, path: "flat.md" }, logger),
-    ).toEqual({
+    await writeFile(join(vault, "flat.md"), "just prose, no headings\n", "utf8");
+    expect(await readNoteOutline({ vaultPath: vault, path: "flat.md" }, logger)).toEqual({
       ...(await getExpectedFileMetadata("flat.md")),
       leading_content: "just prose, no headings",
       headings: [],
-    })
-  })
+    });
+  });
 
   it("returns prose above the first heading as leading_content", async () => {
-    const body = "Intro prose.\nSecond line.\n\n## Section\n\nbody\n"
-    await writeFile(join(vault, "intro.md"), body, "utf8")
+    const body = "Intro prose.\nSecond line.\n\n## Section\n\nbody\n";
+    await writeFile(join(vault, "intro.md"), body, "utf8");
 
-    expect(
-      await readNoteOutline({ vaultPath: vault, path: "intro.md" }, logger),
-    ).toEqual({
+    expect(await readNoteOutline({ vaultPath: vault, path: "intro.md" }, logger)).toEqual({
       ...(await getExpectedFileMetadata("intro.md")),
       leading_content: "Intro prose.\nSecond line.",
       headings: [
@@ -2320,19 +2038,16 @@ describe("readNoteOutline", () => {
           bytes: Buffer.byteLength("## Section\n\nbody\n", "utf8"),
         },
       ],
-    })
-  })
+    });
+  });
 
   it("excludes the leading callout's own lines from leading_content", async () => {
-    const body =
-      "> [!info] Scope\n> the callout body\n\nProse after the callout.\n\n## Section\n"
-    await writeFile(join(vault, "both.md"), body, "utf8")
+    const body = "> [!info] Scope\n> the callout body\n\nProse after the callout.\n\n## Section\n";
+    await writeFile(join(vault, "both.md"), body, "utf8");
 
     // Whole-object equality is what proves the two fields are disjoint — a
     // not.toContain check would pass trivially on an empty leading_content.
-    expect(
-      await readNoteOutline({ vaultPath: vault, path: "both.md" }, logger),
-    ).toEqual({
+    expect(await readNoteOutline({ vaultPath: vault, path: "both.md" }, logger)).toEqual({
       ...(await getExpectedFileMetadata("both.md")),
       leading_callout: {
         type: "info",
@@ -2347,17 +2062,14 @@ describe("readNoteOutline", () => {
           bytes: Buffer.byteLength("## Section\n", "utf8"),
         },
       ],
-    })
-  })
+    });
+  });
 
   it("omits leading_content when the leading callout is the entire region", async () => {
-    const body = "> [!info] Scope\n> only this\n\n## Section\n"
-    await writeFile(join(vault, "calloutonly.md"), body, "utf8")
+    const body = "> [!info] Scope\n> only this\n\n## Section\n";
+    await writeFile(join(vault, "calloutonly.md"), body, "utf8");
 
-    const outline = await readNoteOutline(
-      { vaultPath: vault, path: "calloutonly.md" },
-      logger,
-    )
+    const outline = await readNoteOutline({ vaultPath: vault, path: "calloutonly.md" }, logger);
     expect(outline).toEqual({
       ...(await getExpectedFileMetadata("calloutonly.md")),
       leading_callout: { type: "info", title: "Scope", body: "only this" },
@@ -2368,44 +2080,35 @@ describe("readNoteOutline", () => {
           bytes: Buffer.byteLength("## Section\n", "utf8"),
         },
       ],
-    })
-    expect("leading_content" in outline).toBe(false)
-  })
+    });
+    expect("leading_content" in outline).toBe(false);
+  });
 
   it("keeps trailing blank blockquote lines out of leading_content", async () => {
     // The rendered callout body drops these lines, but they are still callout
     // lines on disk — if the span excluded them they would surface as raw "> ".
-    const body = "> [!info] Scope\n> content\n>\n>  \n\nProse.\n\n## S\n"
-    await writeFile(join(vault, "blankquote.md"), body, "utf8")
+    const body = "> [!info] Scope\n> content\n>\n>  \n\nProse.\n\n## S\n";
+    await writeFile(join(vault, "blankquote.md"), body, "utf8");
 
-    const outline = await readNoteOutline(
-      { vaultPath: vault, path: "blankquote.md" },
-      logger,
-    )
-    expect(outline.leading_content).toBe("Prose.")
-  })
+    const outline = await readNoteOutline({ vaultPath: vault, path: "blankquote.md" }, logger);
+    expect(outline.leading_content).toBe("Prose.");
+  });
 
   it("surfaces the second of two stacked callouts as leading_content", async () => {
     // parseLeadingCallout claims only the first callout, so the second is
     // ordinary leading content — intended, and the shape a no-heading prepend
     // of a callout produces.
-    const body = "> [!info] First\n> a\n\n> [!warning] Second\n> b\n\n## S\n"
-    await writeFile(join(vault, "stacked.md"), body, "utf8")
+    const body = "> [!info] First\n> a\n\n> [!warning] Second\n> b\n\n## S\n";
+    await writeFile(join(vault, "stacked.md"), body, "utf8");
 
-    const outline = await readNoteOutline(
-      { vaultPath: vault, path: "stacked.md" },
-      logger,
-    )
-    expect(outline.leading_content).toBe("> [!warning] Second\n> b")
-  })
+    const outline = await readNoteOutline({ vaultPath: vault, path: "stacked.md" }, logger);
+    expect(outline.leading_content).toBe("> [!warning] Second\n> b");
+  });
 
   it("omits leading_content when the region is blank only", async () => {
-    await writeFile(join(vault, "blank.md"), "\n\n## Section\n", "utf8")
+    await writeFile(join(vault, "blank.md"), "\n\n## Section\n", "utf8");
 
-    const outline = await readNoteOutline(
-      { vaultPath: vault, path: "blank.md" },
-      logger,
-    )
+    const outline = await readNoteOutline({ vaultPath: vault, path: "blank.md" }, logger);
     expect(outline).toEqual({
       ...(await getExpectedFileMetadata("blank.md")),
       headings: [
@@ -2415,80 +2118,62 @@ describe("readNoteOutline", () => {
           bytes: Buffer.byteLength("## Section\n", "utf8"),
         },
       ],
-    })
-    expect("leading_content" in outline).toBe(false)
-  })
+    });
+    expect("leading_content" in outline).toBe(false);
+  });
 
   it("keeps a fenced pseudo-heading inside leading_content", async () => {
     // A naive first-heading scan would cut the region mid-fence and emit an
     // unterminated code block; deriving the boundary from parseHeadings doesn't.
-    const body = "```md\n## Example\n```\n\nProse.\n\n## Real\n"
-    await writeFile(join(vault, "fenced.md"), body, "utf8")
+    const body = "```md\n## Example\n```\n\nProse.\n\n## Real\n";
+    await writeFile(join(vault, "fenced.md"), body, "utf8");
 
-    const outline = await readNoteOutline(
-      { vaultPath: vault, path: "fenced.md" },
-      logger,
-    )
-    expect(outline.leading_content).toBe("```md\n## Example\n```\n\nProse.")
-  })
+    const outline = await readNoteOutline({ vaultPath: vault, path: "fenced.md" }, logger);
+    expect(outline.leading_content).toBe("```md\n## Example\n```\n\nProse.");
+  });
 
   it("omits leading_content for a Kanban board whose only body is its settings block", async () => {
     // An empty board is all trailing `%%` comment — reporting it as leading
     // content would surface unrendered settings JSON as note text.
-    const body = "\n%% kanban:settings\n```json\n{}\n```\n%%\n"
-    await writeFile(join(vault, "board.md"), body, "utf8")
+    const body = "\n%% kanban:settings\n```json\n{}\n```\n%%\n";
+    await writeFile(join(vault, "board.md"), body, "utf8");
 
-    expect(
-      await readNoteOutline({ vaultPath: vault, path: "board.md" }, logger),
-    ).toEqual({ ...(await getExpectedFileMetadata("board.md")), headings: [] })
-  })
+    expect(await readNoteOutline({ vaultPath: vault, path: "board.md" }, logger)).toEqual({
+      ...(await getExpectedFileMetadata("board.md")),
+      headings: [],
+    });
+  });
 
   it("keeps a board's leading note out of its trailing settings block", async () => {
-    const body =
-      "Board notes.\n\n## Backlog\n\n- card\n\n%% kanban:settings\n```json\n{}\n```\n%%\n"
-    await writeFile(join(vault, "lanes.md"), body, "utf8")
+    const body = "Board notes.\n\n## Backlog\n\n- card\n\n%% kanban:settings\n```json\n{}\n```\n%%\n";
+    await writeFile(join(vault, "lanes.md"), body, "utf8");
 
-    const outline = await readNoteOutline(
-      { vaultPath: vault, path: "lanes.md" },
-      logger,
-    )
-    expect(outline.leading_content).toBe("Board notes.")
-  })
+    const outline = await readNoteOutline({ vaultPath: vault, path: "lanes.md" }, logger);
+    expect(outline.leading_content).toBe("Board notes.");
+  });
 
   it("normalizes CRLF line endings in leading_content", async () => {
-    await writeFile(
-      join(vault, "crlf.md"),
-      "Intro line.\r\nSecond.\r\n\r\n## S\r\n",
-      "utf8",
-    )
+    await writeFile(join(vault, "crlf.md"), "Intro line.\r\nSecond.\r\n\r\n## S\r\n", "utf8");
 
-    const outline = await readNoteOutline(
-      { vaultPath: vault, path: "crlf.md" },
-      logger,
-    )
-    expect(outline.leading_content).toBe("Intro line.\nSecond.")
-  })
+    const outline = await readNoteOutline({ vaultPath: vault, path: "crlf.md" }, logger);
+    expect(outline.leading_content).toBe("Intro line.\nSecond.");
+  });
 
   it("omits leading_content for a note with only frontmatter", async () => {
-    await writeFile(join(vault, "fmonly.md"), "---\ntitle: A\n---\n", "utf8")
+    await writeFile(join(vault, "fmonly.md"), "---\ntitle: A\n---\n", "utf8");
 
-    expect(
-      await readNoteOutline({ vaultPath: vault, path: "fmonly.md" }, logger),
-    ).toEqual({
+    expect(await readNoteOutline({ vaultPath: vault, path: "fmonly.md" }, logger)).toEqual({
       ...(await getExpectedFileMetadata("fmonly.md")),
       headings: [],
-    })
-  })
+    });
+  });
 
   it("surfaces a leading callout below the H1 alongside the headings", async () => {
     const body =
-      "# Me\n\n> [!info] Scope of this file\n> **Contains:** identity facts.\n> **Convention:** append newest first.\n\n## Identity\n\n- a\n"
-    await writeFile(join(vault, "scoped.md"), body, "utf8")
+      "# Me\n\n> [!info] Scope of this file\n> **Contains:** identity facts.\n> **Convention:** append newest first.\n\n## Identity\n\n- a\n";
+    await writeFile(join(vault, "scoped.md"), body, "utf8");
 
-    const outline = await readNoteOutline(
-      { vaultPath: vault, path: "scoped.md" },
-      logger,
-    )
+    const outline = await readNoteOutline({ vaultPath: vault, path: "scoped.md" }, logger);
 
     // Whole-object equality, so a spurious leading_content fails here too: when
     // the callout sits below an H1 that H1 is the first heading, leaving the
@@ -2508,16 +2193,13 @@ describe("readNoteOutline", () => {
           bytes: Buffer.byteLength("## Identity\n\n- a\n", "utf8"),
         },
       ],
-    })
-  })
+    });
+  });
 
   it("omits callout when the first body content is not a callout", async () => {
-    const body = "# Title\n\nIntro prose, not a callout.\n\n## Section\n"
-    await writeFile(join(vault, "nocallout.md"), body, "utf8")
-    const outline = await readNoteOutline(
-      { vaultPath: vault, path: "nocallout.md" },
-      logger,
-    )
+    const body = "# Title\n\nIntro prose, not a callout.\n\n## Section\n";
+    await writeFile(join(vault, "nocallout.md"), body, "utf8");
+    const outline = await readNoteOutline({ vaultPath: vault, path: "nocallout.md" }, logger);
     // The H1 is the first heading, so the intro prose lives inside its section
     // rather than above it — neither leading key applies.
     expect(outline).toEqual({
@@ -2530,139 +2212,100 @@ describe("readNoteOutline", () => {
           bytes: Buffer.byteLength("## Section\n", "utf8"),
         },
       ],
-    })
-    expect("leading_callout" in outline).toBe(false)
-    expect("leading_content" in outline).toBe(false)
-  })
+    });
+    expect("leading_callout" in outline).toBe(false);
+    expect("leading_content" in outline).toBe(false);
+  });
 
   it("excludes frontmatter from section line ranges", async () => {
     // The heading sits after a multi-line frontmatter block; bytes must be
     // computed on the body only, so a longer frontmatter doesn't change them.
-    const body = "## Only\n\nbody\n"
-    await writeFile(
-      join(vault, "fm.md"),
-      `---\ntitle: A\ntags:\n  - x\n  - y\n---\n${body}`,
-      "utf8",
-    )
-    const outline = await readNoteOutline(
-      { vaultPath: vault, path: "fm.md" },
-      logger,
-    )
+    const body = "## Only\n\nbody\n";
+    await writeFile(join(vault, "fm.md"), `---\ntitle: A\ntags:\n  - x\n  - y\n---\n${body}`, "utf8");
+    const outline = await readNoteOutline({ vaultPath: vault, path: "fm.md" }, logger);
     expect(outline).toEqual({
       ...(await getExpectedFileMetadata("fm.md")),
-      headings: [
-        { level: 2, text: "Only", bytes: Buffer.byteLength(body, "utf8") },
-      ],
-    })
-  })
+      headings: [{ level: 2, text: "Only", bytes: Buffer.byteLength(body, "utf8") }],
+    });
+  });
 
   it("throws note not found for a missing path", async () => {
-    await expect(
-      readNoteOutline({ vaultPath: vault, path: "missing.md" }, logger),
-    ).rejects.toThrow('note not found: "missing.md"')
-  })
-})
+    await expect(readNoteOutline({ vaultPath: vault, path: "missing.md" }, logger)).rejects.toThrow(
+      'note not found: "missing.md"',
+    );
+  });
+});
 
 describe("readNoteSection", () => {
-  const board =
-    "# Board\n\n## Active\n\n- [ ] task A\n\n## Done\n\n- [x] task B\n"
+  const board = "# Board\n\n## Active\n\n- [ ] task A\n\n## Done\n\n- [x] task B\n";
 
   beforeEach(async () => {
-    await writeFile(join(vault, "board.md"), board, "utf8")
-  })
+    await writeFile(join(vault, "board.md"), board, "utf8");
+  });
 
   it("returns the heading line plus its body, stopping at the next same-level heading", async () => {
-    const section = await readNoteSection(
-      { vaultPath: vault, path: "board.md", heading: "Active" },
-      logger,
-    )
-    expect(section).toBe("## Active\n\n- [ ] task A\n")
-  })
+    const section = await readNoteSection({ vaultPath: vault, path: "board.md", heading: "Active" }, logger);
+    expect(section).toBe("## Active\n\n- [ ] task A\n");
+  });
 
   it("includes child headings in a parent section", async () => {
-    const body =
-      "## Parent\n\nintro\n\n### Child\n\nchild body\n\n## Sibling\n\nx\n"
-    await writeFile(join(vault, "nested.md"), body, "utf8")
-    const section = await readNoteSection(
-      { vaultPath: vault, path: "nested.md", heading: "Parent" },
-      logger,
-    )
-    expect(section).toBe("## Parent\n\nintro\n\n### Child\n\nchild body\n")
-  })
+    const body = "## Parent\n\nintro\n\n### Child\n\nchild body\n\n## Sibling\n\nx\n";
+    await writeFile(join(vault, "nested.md"), body, "utf8");
+    const section = await readNoteSection({ vaultPath: vault, path: "nested.md", heading: "Parent" }, logger);
+    expect(section).toBe("## Parent\n\nintro\n\n### Child\n\nchild body\n");
+  });
 
   it("disambiguates duplicate headings via heading_level", async () => {
     // "Notes" appears as both an H2 and an H3; heading_level picks the H3.
-    const body = "## Notes\n\ntop notes\n\n## Other\n\n### Notes\n\nsub notes\n"
-    await writeFile(join(vault, "dup.md"), body, "utf8")
+    const body = "## Notes\n\ntop notes\n\n## Other\n\n### Notes\n\nsub notes\n";
+    await writeFile(join(vault, "dup.md"), body, "utf8");
     const section = await readNoteSection(
       { vaultPath: vault, path: "dup.md", heading: "Notes", headingLevel: 3 },
       logger,
-    )
-    expect(section).toBe("### Notes\n\nsub notes\n")
-  })
+    );
+    expect(section).toBe("### Notes\n\nsub notes\n");
+  });
 
   it("excludes a trailing Kanban %% settings block from the last section", async () => {
-    const withSettings =
-      "## Active\n\n- [ ] task\n\n%% kanban:settings\n```\n{}\n```\n%%\n"
-    await writeFile(join(vault, "kanban.md"), withSettings, "utf8")
-    const section = await readNoteSection(
-      { vaultPath: vault, path: "kanban.md", heading: "Active" },
-      logger,
-    )
+    const withSettings = "## Active\n\n- [ ] task\n\n%% kanban:settings\n```\n{}\n```\n%%\n";
+    await writeFile(join(vault, "kanban.md"), withSettings, "utf8");
+    const section = await readNoteSection({ vaultPath: vault, path: "kanban.md", heading: "Active" }, logger);
     // The blank line before the %% block is absorbed too — no dangling blank.
-    expect(section).toBe("## Active\n\n- [ ] task")
-  })
+    expect(section).toBe("## Active\n\n- [ ] task");
+  });
 
   it("throws and lists available headings when the heading is not found", async () => {
-    await expect(
-      readNoteSection(
-        { vaultPath: vault, path: "board.md", heading: "Missing" },
-        logger,
-      ),
-    ).rejects.toThrow(
+    await expect(readNoteSection({ vaultPath: vault, path: "board.md", heading: "Missing" }, logger)).rejects.toThrow(
       'heading not found: "Missing". Available headings: # Board, ## Active, ## Done',
-    )
-  })
+    );
+  });
 
   it("throws ambiguous when two headings share text and level", async () => {
-    const body = "## Dup\n\na\n\n## Dup\n\nb\n"
-    await writeFile(join(vault, "amb.md"), body, "utf8")
-    await expect(
-      readNoteSection(
-        { vaultPath: vault, path: "amb.md", heading: "Dup" },
-        logger,
-      ),
-    ).rejects.toThrow('ambiguous heading: "Dup"')
-  })
+    const body = "## Dup\n\na\n\n## Dup\n\nb\n";
+    await writeFile(join(vault, "amb.md"), body, "utf8");
+    await expect(readNoteSection({ vaultPath: vault, path: "amb.md", heading: "Dup" }, logger)).rejects.toThrow(
+      'ambiguous heading: "Dup"',
+    );
+  });
 
   it("throws note not found for a missing path", async () => {
-    await expect(
-      readNoteSection(
-        { vaultPath: vault, path: "missing.md", heading: "Active" },
-        logger,
-      ),
-    ).rejects.toThrow('note not found: "missing.md"')
-  })
+    await expect(readNoteSection({ vaultPath: vault, path: "missing.md", heading: "Active" }, logger)).rejects.toThrow(
+      'note not found: "missing.md"',
+    );
+  });
 
   it("throws heading cannot be empty for an empty heading", async () => {
-    await expect(
-      readNoteSection(
-        { vaultPath: vault, path: "board.md", heading: "" },
-        logger,
-      ),
-    ).rejects.toThrow("heading cannot be empty")
-  })
-})
+    await expect(readNoteSection({ vaultPath: vault, path: "board.md", heading: "" }, logger)).rejects.toThrow(
+      "heading cannot be empty",
+    );
+  });
+});
 
 // ── Concurrent writes ─────────────────────────────────────────
 
 describe("concurrent writes (exclusive lock)", () => {
   it("rejects the second write when two writeNote calls target the same file", async () => {
-    await writeFile(
-      join(vault, "race.md"),
-      "---\ntitle: Race\n---\n\nBody.\n",
-      "utf8",
-    )
+    await writeFile(join(vault, "race.md"), "---\ntitle: Race\n---\n\nBody.\n", "utf8");
 
     // Promise.allSettled preserves input order; withExclusiveFileLock throws
     // synchronously, so the first call acquires the lock and the second rejects.
@@ -2687,9 +2330,9 @@ describe("concurrent writes (exclusive lock)", () => {
         },
         logger,
       ),
-    ])
+    ]);
 
-    expect(first.status).toBe("fulfilled")
+    expect(first.status).toBe("fulfilled");
     expect(second).toEqual(
       expect.objectContaining({
         status: "rejected",
@@ -2697,15 +2340,11 @@ describe("concurrent writes (exclusive lock)", () => {
           message: "concurrent write in progress",
         }),
       }),
-    )
-  })
+    );
+  });
 
   it("rejects the second write when two updateProperties calls target the same note", async () => {
-    await writeFile(
-      join(vault, "props.md"),
-      "---\ntitle: Props\n---\n\nBody.\n",
-      "utf8",
-    )
+    await writeFile(join(vault, "props.md"), "---\ntitle: Props\n---\n\nBody.\n", "utf8");
 
     const [first, second] = await Promise.allSettled([
       vaultFs.updateProperties(
@@ -2724,9 +2363,9 @@ describe("concurrent writes (exclusive lock)", () => {
         },
         logger,
       ),
-    ])
+    ]);
 
-    expect(first.status).toBe("fulfilled")
+    expect(first.status).toBe("fulfilled");
     expect(second).toEqual(
       expect.objectContaining({
         status: "rejected",
@@ -2734,11 +2373,11 @@ describe("concurrent writes (exclusive lock)", () => {
           message: "concurrent write in progress",
         }),
       }),
-    )
-  })
+    );
+  });
 
   it("rejects the second delete when two deleteNote calls target the same note", async () => {
-    await writeFile(join(vault, "doomed.md"), "body\n", "utf8")
+    await writeFile(join(vault, "doomed.md"), "body\n", "utf8");
 
     // The lock — not the unlink — must reject the loser. The second call
     // fails with the concurrent-write message, not the ENOENT a second
@@ -2764,9 +2403,9 @@ describe("concurrent writes (exclusive lock)", () => {
         },
         logger,
       ),
-    ])
+    ]);
 
-    expect(first.status).toBe("fulfilled")
+    expect(first.status).toBe("fulfilled");
     expect(second).toEqual(
       expect.objectContaining({
         status: "rejected",
@@ -2774,16 +2413,14 @@ describe("concurrent writes (exclusive lock)", () => {
           message: "concurrent write in progress",
         }),
       }),
-    )
+    );
     // Assert ENOENT specifically — it proves the first delete removed the
     // file, not that the read failed for some unrelated reason.
-    await expect(readFile(join(vault, "doomed.md"), "utf8")).rejects.toThrow(
-      /ENOENT/,
-    )
-  })
+    await expect(readFile(join(vault, "doomed.md"), "utf8")).rejects.toThrow(/ENOENT/);
+  });
 
   it("rejects a delete while a write is in flight on the same note", async () => {
-    await writeFile(join(vault, "contested.md"), "original\n", "utf8")
+    await writeFile(join(vault, "contested.md"), "original\n", "utf8");
 
     // Without the delete lock this interleaving resurrects the note — the
     // write reads the file, the delete unlinks it, and the write's
@@ -2808,9 +2445,9 @@ describe("concurrent writes (exclusive lock)", () => {
         },
         logger,
       ),
-    ])
+    ]);
 
-    expect(write.status).toBe("fulfilled")
+    expect(write.status).toBe("fulfilled");
     expect(del).toEqual(
       expect.objectContaining({
         status: "rejected",
@@ -2818,15 +2455,13 @@ describe("concurrent writes (exclusive lock)", () => {
           message: "concurrent write in progress",
         }),
       }),
-    )
+    );
     // The write landed and the note survived.
-    expect(
-      parseNote(await readFile(join(vault, "contested.md"), "utf8")).content,
-    ).toBe("updated\n")
-  })
+    expect(parseNote(await readFile(join(vault, "contested.md"), "utf8")).content).toBe("updated\n");
+  });
 
   it("rejects a write while a delete is in flight on the same note", async () => {
-    await writeFile(join(vault, "vanishing.md"), "original\n", "utf8")
+    await writeFile(join(vault, "vanishing.md"), "original\n", "utf8");
 
     const [del, write] = await Promise.allSettled([
       deleteNote(
@@ -2848,9 +2483,9 @@ describe("concurrent writes (exclusive lock)", () => {
         },
         logger,
       ),
-    ])
+    ]);
 
-    expect(del.status).toBe("fulfilled")
+    expect(del.status).toBe("fulfilled");
     expect(write).toEqual(
       expect.objectContaining({
         status: "rejected",
@@ -2858,16 +2493,14 @@ describe("concurrent writes (exclusive lock)", () => {
           message: "concurrent write in progress",
         }),
       }),
-    )
+    );
     // The delete won — the note stays deleted (ENOENT specifically, so an
     // unrelated read failure can't stand in for "the note is gone").
-    await expect(readFile(join(vault, "vanishing.md"), "utf8")).rejects.toThrow(
-      /ENOENT/,
-    )
-  })
+    await expect(readFile(join(vault, "vanishing.md"), "utf8")).rejects.toThrow(/ENOENT/);
+  });
 
   it("releases the lock after a delete so the path can be recreated", async () => {
-    await writeFile(join(vault, "reborn.md"), "first life\n", "utf8")
+    await writeFile(join(vault, "reborn.md"), "first life\n", "utf8");
 
     await deleteNote(
       {
@@ -2878,96 +2511,70 @@ describe("concurrent writes (exclusive lock)", () => {
         trashOption: "system",
       },
       logger,
-    )
+    );
     // The delete actually removed the file — the recreate below isn't just
     // overwriting a note the delete never touched.
-    await expect(readFile(join(vault, "reborn.md"), "utf8")).rejects.toThrow(
-      /ENOENT/,
-    )
+    await expect(readFile(join(vault, "reborn.md"), "utf8")).rejects.toThrow(/ENOENT/);
 
-    await writeNote(
-      { vaultPath: vault, path: "reborn.md", body: "second life" },
-      logger,
-    )
-    expect(
-      parseNote(await readFile(join(vault, "reborn.md"), "utf8")).content,
-    ).toBe("second life\n")
-  })
-})
+    await writeNote({ vaultPath: vault, path: "reborn.md", body: "second life" }, logger);
+    expect(parseNote(await readFile(join(vault, "reborn.md"), "utf8")).content).toBe("second life\n");
+  });
+});
 
 describe("readAsset", () => {
   it("reads a binary file whole with its byte count and lowercased extension", async () => {
-    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff])
-    await writeFile(join(vault, "photo.PNG"), bytes)
-    const asset = await readAsset(
-      { vaultPath: vault, path: "photo.PNG", maxBytes: 1024 },
-      logger,
-    )
-    expect(asset.buffer.equals(bytes)).toBe(true)
-    expect(asset.bytes).toBe(6)
-    expect(asset.extension).toBe(".png")
-  })
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff]);
+    await writeFile(join(vault, "photo.PNG"), bytes);
+    const asset = await readAsset({ vaultPath: vault, path: "photo.PNG", maxBytes: 1024 }, logger);
+    expect(asset.buffer.equals(bytes)).toBe(true);
+    expect(asset.bytes).toBe(6);
+    expect(asset.extension).toBe(".png");
+  });
 
   it("rejects a .md path as not a file", async () => {
-    await writeFile(join(vault, "note.md"), "# note", "utf8")
-    await expect(
-      readAsset({ vaultPath: vault, path: "note.md", maxBytes: 1024 }, logger),
-    ).rejects.toThrow('not a file: "note.md" is a markdown note')
-  })
+    await writeFile(join(vault, "note.md"), "# note", "utf8");
+    await expect(readAsset({ vaultPath: vault, path: "note.md", maxBytes: 1024 }, logger)).rejects.toThrow(
+      'not a file: "note.md" is a markdown note',
+    );
+  });
 
   it("blocks path traversal out of the vault", async () => {
-    await expect(
-      readAsset(
-        { vaultPath: vault, path: "../outside.png", maxBytes: 1024 },
-        logger,
-      ),
-    ).rejects.toThrow(
+    await expect(readAsset({ vaultPath: vault, path: "../outside.png", maxBytes: 1024 }, logger)).rejects.toThrow(
       'path traversal blocked: "../outside.png" escapes vault root',
-    )
-  })
+    );
+  });
 
   it("rejects a missing file as file not found", async () => {
-    await expect(
-      readAsset(
-        { vaultPath: vault, path: "ghost.png", maxBytes: 1024 },
-        logger,
-      ),
-    ).rejects.toThrow('file not found: "ghost.png"')
-  })
+    await expect(readAsset({ vaultPath: vault, path: "ghost.png", maxBytes: 1024 }, logger)).rejects.toThrow(
+      'file not found: "ghost.png"',
+    );
+  });
 
   it("rejects a file over the byte cap before reading it", async () => {
-    await writeFile(join(vault, "big.bin"), "12345678901", "utf8")
-    await expect(
-      readAsset({ vaultPath: vault, path: "big.bin", maxBytes: 10 }, logger),
-    ).rejects.toThrow(
+    await writeFile(join(vault, "big.bin"), "12345678901", "utf8");
+    await expect(readAsset({ vaultPath: vault, path: "big.bin", maxBytes: 10 }, logger)).rejects.toThrow(
       'file too large: "big.bin" is 11 bytes (cap 10 bytes — raise MAX_FILE_BYTES to read larger files)',
-    )
-  })
-})
+    );
+  });
+});
 
 describe("statAssets", () => {
   it("returns each path's byte size in input order", async () => {
-    await writeFile(join(vault, "a.png"), "12345", "utf8")
-    await writeFile(join(vault, "b.canvas"), "12", "utf8")
-    const statted = await statAssets(
-      { vaultPath: vault, paths: ["a.png", "b.canvas"] },
-      logger,
-    )
+    await writeFile(join(vault, "a.png"), "12345", "utf8");
+    await writeFile(join(vault, "b.canvas"), "12", "utf8");
+    const statted = await statAssets({ vaultPath: vault, paths: ["a.png", "b.canvas"] }, logger);
     expect(statted).toEqual([
       { path: "a.png", bytes: 5 },
       { path: "b.canvas", bytes: 2 },
-    ])
-  })
+    ]);
+  });
 
   it("drops a path that vanished instead of throwing", async () => {
-    await writeFile(join(vault, "kept.png"), "1234", "utf8")
-    const statted = await statAssets(
-      { vaultPath: vault, paths: ["kept.png", "vanished.png"] },
-      logger,
-    )
-    expect(statted).toEqual([{ path: "kept.png", bytes: 4 }])
-  })
-})
+    await writeFile(join(vault, "kept.png"), "1234", "utf8");
+    const statted = await statAssets({ vaultPath: vault, paths: ["kept.png", "vanished.png"] }, logger);
+    expect(statted).toEqual([{ path: "kept.png", bytes: 4 }]);
+  });
+});
 
 describe("hidden paths", () => {
   // Fixtures are created ON DISK so that if the guard were removed, every
@@ -2976,60 +2583,46 @@ describe("hidden paths", () => {
   const createHiddenFixtures = async () => {
     await mkdir(join(vault, ".obsidian", "plugins", "some-plugin"), {
       recursive: true,
-    })
+    });
     await writeFile(
       join(vault, ".obsidian", "plugins", "some-plugin", "data.json"),
       '{"apiKey":"fake-fixture-secret"}',
       "utf8",
-    )
-    await mkdir(join(vault, ".trash"), { recursive: true })
-    await writeFile(join(vault, ".trash", "secret.md"), "# Secret\n", "utf8")
-  }
+    );
+    await mkdir(join(vault, ".trash"), { recursive: true });
+    await writeFile(join(vault, ".trash", "secret.md"), "# Secret\n", "utf8");
+  };
 
   it("readNote rejects a note inside a hidden folder", async () => {
-    await createHiddenFixtures()
-    await expect(
-      readNote({ vaultPath: vault, path: ".trash/secret.md" }, logger),
-    ).rejects.toThrow(
+    await createHiddenFixtures();
+    await expect(readNote({ vaultPath: vault, path: ".trash/secret.md" }, logger)).rejects.toThrow(
       'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
-    )
-  })
+    );
+  });
 
   it("readNoteOutline rejects a note inside a hidden folder", async () => {
-    await createHiddenFixtures()
-    await expect(
-      readNoteOutline({ vaultPath: vault, path: ".trash/secret.md" }, logger),
-    ).rejects.toThrow(
+    await createHiddenFixtures();
+    await expect(readNoteOutline({ vaultPath: vault, path: ".trash/secret.md" }, logger)).rejects.toThrow(
       'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
-    )
-  })
+    );
+  });
 
   it("readNoteSection rejects a note inside a hidden folder", async () => {
-    await createHiddenFixtures()
+    await createHiddenFixtures();
     await expect(
-      readNoteSection(
-        { vaultPath: vault, path: ".trash/secret.md", heading: "Secret" },
-        logger,
-      ),
-    ).rejects.toThrow(
-      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
-    )
-  })
+      readNoteSection({ vaultPath: vault, path: ".trash/secret.md", heading: "Secret" }, logger),
+    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder');
+  });
 
   it("readNoteProperties rejects a note inside a hidden folder", async () => {
-    await createHiddenFixtures()
-    await expect(
-      readNoteProperties(
-        { vaultPath: vault, path: ".trash/secret.md" },
-        logger,
-      ),
-    ).rejects.toThrow(
+    await createHiddenFixtures();
+    await expect(readNoteProperties({ vaultPath: vault, path: ".trash/secret.md" }, logger)).rejects.toThrow(
       'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
-    )
-  })
+    );
+  });
 
   it("readAsset rejects a plugin data file inside .obsidian", async () => {
-    await createHiddenFixtures()
+    await createHiddenFixtures();
     await expect(
       readAsset(
         {
@@ -3039,38 +2632,26 @@ describe("hidden paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(
-      'hidden path blocked: ".obsidian/plugins/some-plugin/data.json" targets a hidden file or folder',
-    )
-  })
+    ).rejects.toThrow('hidden path blocked: ".obsidian/plugins/some-plugin/data.json" targets a hidden file or folder');
+  });
 
   it("writeNote rejects a hidden path and creates nothing on disk", async () => {
-    await expect(
-      writeNote(
-        { vaultPath: vault, path: ".secret/new.md", body: "# New\n" },
-        logger,
-      ),
-    ).rejects.toThrow(
+    await expect(writeNote({ vaultPath: vault, path: ".secret/new.md", body: "# New\n" }, logger)).rejects.toThrow(
       'hidden path blocked: ".secret/new.md" targets a hidden file or folder',
-    )
-    const entries = await readdir(vault)
-    expect(entries).not.toContain(".secret")
-  })
+    );
+    const entries = await readdir(vault);
+    expect(entries).not.toContain(".secret");
+  });
 
   it("updateProperties rejects a note inside a hidden folder", async () => {
-    await createHiddenFixtures()
+    await createHiddenFixtures();
     await expect(
-      updateProperties(
-        { vaultPath: vault, path: ".trash/secret.md", properties: { a: 1 } },
-        logger,
-      ),
-    ).rejects.toThrow(
-      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
-    )
-  })
+      updateProperties({ vaultPath: vault, path: ".trash/secret.md", properties: { a: 1 } }, logger),
+    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder');
+  });
 
   it("deleteNote rejects a note inside a hidden folder and leaves it on disk", async () => {
-    await createHiddenFixtures()
+    await createHiddenFixtures();
     await expect(
       deleteNote(
         {
@@ -3082,34 +2663,26 @@ describe("hidden paths", () => {
         },
         logger,
       ),
-    ).rejects.toThrow(
-      'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
-    )
-    expect(await readFile(join(vault, ".trash", "secret.md"), "utf8")).toBe(
-      "# Secret\n",
-    )
-  })
+    ).rejects.toThrow('hidden path blocked: ".trash/secret.md" targets a hidden file or folder');
+    expect(await readFile(join(vault, ".trash", "secret.md"), "utf8")).toBe("# Secret\n");
+  });
 
   it("listNotes rejects an explicitly hidden folder", async () => {
-    await createHiddenFixtures()
-    await expect(
-      listNotes({ vaultPath: vault, folder: ".obsidian" }, logger),
-    ).rejects.toThrow(
+    await createHiddenFixtures();
+    await expect(listNotes({ vaultPath: vault, folder: ".obsidian" }, logger)).rejects.toThrow(
       'hidden path blocked: ".obsidian" targets a hidden file or folder',
-    )
-  })
+    );
+  });
 
   it("listAssets rejects an explicitly hidden folder", async () => {
-    await createHiddenFixtures()
-    await expect(
-      listAssets({ vaultPath: vault, folder: ".obsidian" }, logger),
-    ).rejects.toThrow(
+    await createHiddenFixtures();
+    await expect(listAssets({ vaultPath: vault, folder: ".obsidian" }, logger)).rejects.toThrow(
       'hidden path blocked: ".obsidian" targets a hidden file or folder',
-    )
-  })
+    );
+  });
 
   it("rejects a traversal-normalized path that lands in a hidden folder", async () => {
-    await createHiddenFixtures()
+    await createHiddenFixtures();
     await expect(
       readAsset(
         {
@@ -3121,30 +2694,20 @@ describe("hidden paths", () => {
       ),
     ).rejects.toThrow(
       'hidden path blocked: "notes/../.obsidian/plugins/some-plugin/data.json" targets a hidden file or folder',
-    )
-  })
+    );
+  });
 
   it("accepts a './'-prefixed path to a visible note", async () => {
-    await mkdir(join(vault, "notes"), { recursive: true })
-    await writeFile(join(vault, "notes", "plan.md"), "# Plan\n", "utf8")
-    const note = await readNote(
-      { vaultPath: vault, path: "notes/./plan.md" },
-      logger,
-    )
-    expect(note).toBe("# Plan\n")
-  })
+    await mkdir(join(vault, "notes"), { recursive: true });
+    await writeFile(join(vault, "notes", "plan.md"), "# Plan\n", "utf8");
+    const note = await readNote({ vaultPath: vault, path: "notes/./plan.md" }, logger);
+    expect(note).toBe("# Plan\n");
+  });
 
   it("accepts an interior-dot folder name as visible", async () => {
-    await mkdir(join(vault, "notes", "version.2"), { recursive: true })
-    await writeFile(
-      join(vault, "notes", "version.2", "file.md"),
-      "# V2\n",
-      "utf8",
-    )
-    const note = await readNote(
-      { vaultPath: vault, path: "notes/version.2/file.md" },
-      logger,
-    )
-    expect(note).toBe("# V2\n")
-  })
-})
+    await mkdir(join(vault, "notes", "version.2"), { recursive: true });
+    await writeFile(join(vault, "notes", "version.2", "file.md"), "# V2\n", "utf8");
+    const note = await readNote({ vaultPath: vault, path: "notes/version.2/file.md" }, logger);
+    expect(note).toBe("# V2\n");
+  });
+});

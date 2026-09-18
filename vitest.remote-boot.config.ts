@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config"
+import { defineConfig } from "vitest/config";
 
 // Remote-boot tier: boots the built `:remote` Docker image with a stubbed
 // Sync client. Excluded from `npm test` (needs Docker). Locally
@@ -14,4 +14,4 @@ export default defineConfig({
     fileParallelism: false,
     include: ["src/__tests__/docker/**/*.test.ts"],
   },
-})
+});

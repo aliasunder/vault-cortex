@@ -1,23 +1,23 @@
 /** Shared bearer-token auth utilities — used by both the Lambda authorizer and Express middleware. */
 
-import { timingSafeEqual } from "node:crypto"
-import type { Request } from "express"
+import { timingSafeEqual } from "node:crypto";
+import type { Request } from "express";
 
 /** Constant-time string comparison. Compares against itself on length mismatch to avoid timing leaks. */
 export const safeEqual = (a: string, b: string): boolean => {
-  const aBuf = Buffer.from(a, "utf8")
-  const bBuf = Buffer.from(b, "utf8")
+  const aBuf = Buffer.from(a, "utf8");
+  const bBuf = Buffer.from(b, "utf8");
+
   if (aBuf.length !== bBuf.length) {
-    timingSafeEqual(aBuf, aBuf) // burn the same CPU time to prevent length-based timing leaks
-    return false
+    timingSafeEqual(aBuf, aBuf); // burn the same CPU time to prevent length-based timing leaks
+    return false;
   }
-  return timingSafeEqual(aBuf, bBuf)
-}
+  return timingSafeEqual(aBuf, bBuf);
+};
 
 /** Coerces multi-value Express headers (string[]) to a single string. */
-export const headerAsString = (
-  value: string | string[] | undefined,
-): string | undefined => (Array.isArray(value) ? value[0] : value)
+export const headerAsString = (value: string | string[] | undefined): string | undefined =>
+  Array.isArray(value) ? value[0] : value;
 
 /**
  * An RFC 8707 resource identifier in the canonical form the MCP spec
@@ -28,22 +28,21 @@ export const headerAsString = (
  * https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization#canonical-server-uri
  */
 export const canonicalResourceUri = (resource: URL): string => {
-  const pathWithoutTrailingSlash = resource.pathname.replace(/\/+$/, "")
-  return `${resource.origin}${pathWithoutTrailingSlash}`
-}
+  const pathWithoutTrailingSlash = resource.pathname.replace(/\/+$/, "");
+  return `${resource.origin}${pathWithoutTrailingSlash}`;
+};
 
 /** The MCP endpoint's URL, derived from a deployment's public URL. Resolved
  *  as an absolute path, so a path prefix on the public URL is not carried
  *  over. */
-export const mcpResourceUrl = (serverUrl: URL): URL =>
-  new URL("/mcp", serverUrl)
+export const mcpResourceUrl = (serverUrl: URL): URL => new URL("/mcp", serverUrl);
 
 export type TokenBinding = {
   /** The `iss` claim: the issuer URL as the metadata advertises it. */
-  issuer: string
+  issuer: string;
   /** The `aud` claim: the MCP endpoint's canonical resource URI. */
-  audience: string
-}
+  audience: string;
+};
 
 /**
  * The claims that tie an access token to one deployment. Express mints
@@ -53,17 +52,17 @@ export type TokenBinding = {
 export const tokenBindingForServer = (serverUrl: URL): TokenBinding => ({
   issuer: serverUrl.href,
   audience: canonicalResourceUri(mcpResourceUrl(serverUrl)),
-})
+});
 
 /** Extracts the token from an `Authorization: Bearer <token>` header. Case-insensitive prefix. */
 export const parseBearer = (header: string | undefined): string | null => {
-  if (!header) return null
-  const match = /^Bearer\s+(.+)$/i.exec(header.trim())
-  return match?.[1]?.trim() || null
-}
+  if (!header) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(header.trim());
+  return match?.[1]?.trim() || null;
+};
 
 /** Bare or quoted `for=` value; capture stops at `"`, `;`, or `,`. */
-const FORWARDED_FOR_CLIENT = /for="?([^";,]+)"?/i
+const FORWARDED_FOR_CLIENT = /for="?([^";,]+)"?/i;
 
 /**
  * RFC 7239 §6 node value: a bracketed IPv6 address (`[2001:db8::17]`) or
@@ -74,7 +73,7 @@ const FORWARDED_FOR_CLIENT = /for="?([^";,]+)"?/i
  * The regex is the floor here: `URL.parse` keeps the brackets on an IPv6
  * hostname.
  */
-const FORWARDED_NODE = /^(?:\[(?<ipv6>[^\]]+)\]|(?<ipv4>[^:]+))(?::[^:]*)?$/
+const FORWARDED_NODE = /^(?:\[(?<ipv6>[^\]]+)\]|(?<ipv4>[^:]+))(?::[^:]*)?$/;
 
 /**
  * The address part of an RFC 7239 node: brackets and port stripped, so an
@@ -82,14 +81,15 @@ const FORWARDED_NODE = /^(?:\[(?<ipv6>[^\]]+)\]|(?<ipv4>[^:]+))(?::[^:]*)?$/
  * does. A value that is not a well-formed node is returned unchanged.
  */
 const forwardedNodeAddress = (forValue: string): string => {
-  const node = FORWARDED_NODE.exec(forValue)?.groups
-  if (!node) return forValue
+  const node = FORWARDED_NODE.exec(forValue)?.groups;
+
+  if (!node) return forValue;
   // "[2001:db8::17]:4711" → "2001:db8::17"
-  if (node.ipv6) return node.ipv6
+  if (node.ipv6) return node.ipv6;
   // "203.0.113.7:4711" → "203.0.113.7"
-  if (node.ipv4) return node.ipv4
-  return forValue
-}
+  if (node.ipv4) return node.ipv4;
+  return forValue;
+};
 
 /**
  * The client's `for=` value in an RFC 7239 Forwarded header, counting
@@ -107,24 +107,18 @@ const forwardedNodeAddress = (forValue: string): string => {
  * shorter than `hops` yields its first element — the same rule Express
  * applies to X-Forwarded-For when every hop is trusted.
  */
-const forwardedClientIpBehindHops = ({
-  forwarded,
-  hops,
-}: {
-  forwarded: string
-  hops: number
-}): string | undefined => {
+const forwardedClientIpBehindHops = ({ forwarded, hops }: { forwarded: string; hops: number }): string | undefined => {
   const forValues = forwarded
     .split(",")
     .map((element) => FORWARDED_FOR_CLIENT.exec(element)?.[1])
     .filter((forValue) => forValue !== undefined)
-    .map(forwardedNodeAddress)
+    .map(forwardedNodeAddress);
   // hops=1 is the last element, hops=2 the one before it, and so on; a
   // chain shorter than hops clamps to the first element.
-  const clientIndexFromStart = forValues.length - hops
-  const clientIndex = Math.max(0, clientIndexFromStart)
-  return forValues[clientIndex]
-}
+  const clientIndexFromStart = forValues.length - hops;
+  const clientIndex = Math.max(0, clientIndexFromStart);
+  return forValues[clientIndex];
+};
 
 /**
  * Real client IP for logging and rate limiting.
@@ -141,26 +135,23 @@ const forwardedClientIpBehindHops = ({
  * - `2` — a CDN fronts the proxy; the peer is the CDN and the client is
  *   the element before it.
  */
-export const extractClientIp = (
-  req: Pick<Request, "headers" | "ip">,
-  trustForwardedHops: number,
-): string => {
+export const extractClientIp = (req: Pick<Request, "headers" | "ip">, trustForwardedHops: number): string => {
   if (trustForwardedHops > 0) {
     // Node's HTTP parser joins duplicate header lines into one string, but
     // middleware or custom stacks can deliver an array instead — join
     // explicitly so the element count spans every line, never just the
     // first.
-    const forwardedHeader = req.headers["forwarded"]
-    const forwarded = Array.isArray(forwardedHeader)
-      ? forwardedHeader.join(", ")
-      : forwardedHeader
+    const forwardedHeader = req.headers["forwarded"];
+    const forwarded = Array.isArray(forwardedHeader) ? forwardedHeader.join(", ") : forwardedHeader;
+
     if (forwarded) {
       const clientIp = forwardedClientIpBehindHops({
         forwarded,
         hops: trustForwardedHops,
-      })
-      if (clientIp) return clientIp
+      });
+
+      if (clientIp) return clientIp;
     }
   }
-  return req.ip ?? "unknown"
-}
+  return req.ip ?? "unknown";
+};

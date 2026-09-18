@@ -1,36 +1,29 @@
 /** OAuth HTTP routes — SDK auth router + consent form handler. */
 
-import express, { Router } from "express"
-import type { NextFunction, Request, Response } from "express"
-import {
-  createOAuthMetadata,
-  mcpAuthRouter,
-} from "@modelcontextprotocol/sdk/server/auth/router.js"
-import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/metadata.js"
-import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
-import {
-  extractClientIp,
-  safeEqual,
-  tokenBindingForServer,
-} from "../../auth.js"
-import { renderConsentPage } from "./consent-page.js"
-import { DEFAULT_SCOPE, type OAuthProvider } from "./oauth-provider.js"
-import type { Logger } from "../../logger.js"
+import express, { Router } from "express";
+import type { NextFunction, Request, Response } from "express";
+import { createOAuthMetadata, mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
+import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/metadata.js";
+import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { extractClientIp, safeEqual, tokenBindingForServer } from "../../auth.js";
+import { renderConsentPage } from "./consent-page.js";
+import { DEFAULT_SCOPE, type OAuthProvider } from "./oauth-provider.js";
+import type { Logger } from "../../logger.js";
 
 type OAuthRoutesOptions = {
-  authToken: string
-  serverUrl: URL
-  oauthProvider: OAuthProvider
-  serviceDocumentationUrl: string
+  authToken: string;
+  serverUrl: URL;
+  oauthProvider: OAuthProvider;
+  serviceDocumentationUrl: string;
   /** How many trailing `for=` elements of the RFC 7239 Forwarded header
    *  (https://www.rfc-editor.org/rfc/rfc7239) were written by trusted
    *  proxies. With a value of N, the client IP used for rate limiting and
    *  logs is the Nth element from the end of that list; 0 ignores the
    *  header. The value comes from TRUST_FORWARDED_HOPS. Keep it at 0 unless
    *  a known edge proxy (API Gateway) writes or appends the header. */
-  trustForwardedHops: number
-  logger: Logger
-}
+  trustForwardedHops: number;
+  logger: Logger;
+};
 
 export const createOAuthRoutes = ({
   authToken,
@@ -40,10 +33,9 @@ export const createOAuthRoutes = ({
   trustForwardedHops,
   logger,
 }: OAuthRoutesOptions): Router => {
-  const routeLogger = logger.child({ component: "oauth-routes" })
-  const { provider, getPendingRequest, approveRequest, deletePendingRequest } =
-    oauthProvider
-  const router = Router()
+  const routeLogger = logger.child({ component: "oauth-routes" });
+  const { provider, getPendingRequest, approveRequest, deletePendingRequest } = oauthProvider;
+  const router = Router();
 
   // 5 req/min per client IP on each flow endpoint (/authorize, /token,
   // /register, /revoke — each mounts its own limiter), far tighter than
@@ -65,24 +57,17 @@ export const createOAuthRoutes = ({
     // The default handler sends the 429 silently — log the offender, then
     // send the SDK's per-endpoint message unchanged. The query string is
     // stripped from the logged path (authorize carries client_id/state).
-    handler: (
-      req: Request,
-      res: Response,
-      _next: NextFunction,
-      options: { statusCode: number; message: unknown },
-    ) => {
-      const requestPath =
-        URL.parse(req.originalUrl, "http://localhost")?.pathname ??
-        req.originalUrl
+    handler: (req: Request, res: Response, _next: NextFunction, options: { statusCode: number; message: unknown }) => {
+      const requestPath = URL.parse(req.originalUrl, "http://localhost")?.pathname ?? req.originalUrl;
       routeLogger.warn("oauth_rate_limited", {
         clientIp: extractClientIp(req, trustForwardedHops),
         path: requestPath,
-      })
-      res.status(options.statusCode).send(options.message)
+      });
+      res.status(options.statusCode).send(options.message);
     },
-  }
+  };
 
-  const scopesSupported = [DEFAULT_SCOPE]
+  const scopesSupported = [DEFAULT_SCOPE];
 
   // A second, path-suffixed metadata mount, separate from the SDK's root
   // document:
@@ -97,17 +82,14 @@ export const createOAuthRoutes = ({
 
   // The same derivation the provider mints tokens from, so metadata and
   // tokens can't disagree.
-  const { issuer, audience } = tokenBindingForServer(serverUrl)
+  const { issuer, audience } = tokenBindingForServer(serverUrl);
   const mcpResourceMetadata: OAuthProtectedResourceMetadata = {
     resource: audience,
     authorization_servers: [issuer],
     scopes_supported: scopesSupported,
     resource_documentation: new URL(serviceDocumentationUrl).href,
-  }
-  router.use(
-    "/.well-known/oauth-protected-resource/mcp",
-    metadataHandler(mcpResourceMetadata),
-  )
+  };
+  router.use("/.well-known/oauth-protected-resource/mcp", metadataHandler(mcpResourceMetadata));
 
   // The SDK includes public-client auth, but our registrations require a secret.
   router.use(
@@ -122,7 +104,7 @@ export const createOAuthRoutes = ({
       token_endpoint_auth_methods_supported: ["client_secret_post"],
       revocation_endpoint_auth_methods_supported: ["client_secret_post"],
     }),
-  )
+  );
 
   // SDK-managed OAuth routes — /.well-known/*, /authorize, /token, /register, /revoke
   router.use(
@@ -136,87 +118,77 @@ export const createOAuthRoutes = ({
       revocationOptions: { rateLimit },
       tokenOptions: { rateLimit },
     }),
-  )
+  );
 
   // Consent form submission (unauthenticated — part of authorize flow)
-  router.post(
-    "/oauth/decide",
-    express.urlencoded({ extended: false }),
-    (req: Request, res: Response) => {
-      const body: Record<string, unknown> = req.body
-      const { request_id, token, action } = body
-      const hasStringFields =
-        typeof request_id === "string" &&
-        typeof token === "string" &&
-        typeof action === "string"
-      if (!hasStringFields) {
-        res.status(400).send("Invalid form submission.")
-        return
-      }
-      const clientIp = extractClientIp(req, trustForwardedHops)
-      const pending = getPendingRequest(
-        request_id,
-        routeLogger.child({ clientIp, requestId: request_id }),
-      )
+  router.post("/oauth/decide", express.urlencoded({ extended: false }), (req: Request, res: Response) => {
+    const body: Record<string, unknown> = req.body;
+    const { request_id, token, action } = body;
+    const hasStringFields = typeof request_id === "string" && typeof token === "string" && typeof action === "string";
 
-      if (!pending) {
-        routeLogger.warn("oauth_consent_expired", {
-          clientIp,
-          requestId: request_id,
-        })
-        res.status(400).send("Authorization request expired or invalid.")
-        return
-      }
+    if (!hasStringFields) {
+      res.status(400).send("Invalid form submission.");
+      return;
+    }
+    const clientIp = extractClientIp(req, trustForwardedHops);
+    const pending = getPendingRequest(request_id, routeLogger.child({ clientIp, requestId: request_id }));
 
-      const clientId = pending.client.client_id
-      const consentLogger = routeLogger.child({
+    if (!pending) {
+      routeLogger.warn("oauth_consent_expired", {
         clientIp,
         requestId: request_id,
-        clientId,
-      })
+      });
+      res.status(400).send("Authorization request expired or invalid.");
+      return;
+    }
 
-      if (action !== "approve") {
-        consentLogger.info("oauth_consent_denied_by_user")
-        deletePendingRequest(request_id)
-        const redirectUrl = new URL(pending.params.redirectUri)
-        redirectUrl.searchParams.set("error", "access_denied")
-        if (pending.params.state)
-          redirectUrl.searchParams.set("state", pending.params.state)
-        res.redirect(redirectUrl.toString())
-        return
-      }
+    const clientId = pending.client.client_id;
+    const consentLogger = routeLogger.child({
+      clientIp,
+      requestId: request_id,
+      clientId,
+    });
 
-      // Tolerate whitespace introduced when the token is copied from a
-      // terminal: a 64-character token wraps across lines in a narrow
-      // terminal, and selecting it captures the wrap as an embedded
-      // newline (plus possible leading/trailing spaces). A valid
-      // MCP_AUTH_TOKEN never contains whitespace, so stripping it is safe
-      // and keeps the consent flow forgiving — mirroring the trim()
-      // already applied to bearer-header auth in parseBearer().
-      const submittedToken = token?.replace(/\s+/g, "") ?? ""
-      if (!submittedToken || !safeEqual(submittedToken, authToken)) {
-        consentLogger.warn("oauth_consent_bad_token")
-        res.type("html").send(
-          renderConsentPage({
-            clientName: pending.client.client_name ?? pending.client.client_id,
-            clientId,
-            scopes: pending.params.scopes ?? [],
-            requestId: request_id,
-            error: "Invalid token. Please try again.",
-          }),
-        )
-        return
-      }
+    if (action !== "approve") {
+      consentLogger.info("oauth_consent_denied_by_user");
+      deletePendingRequest(request_id);
+      const redirectUrl = new URL(pending.params.redirectUri);
+      redirectUrl.searchParams.set("error", "access_denied");
+      if (pending.params.state) redirectUrl.searchParams.set("state", pending.params.state);
+      res.redirect(redirectUrl.toString());
+      return;
+    }
 
-      const code = approveRequest(request_id, consentLogger)
-      consentLogger.info("oauth_consent_completed")
-      const redirectUrl = new URL(pending.params.redirectUri)
-      redirectUrl.searchParams.set("code", code)
-      if (pending.params.state)
-        redirectUrl.searchParams.set("state", pending.params.state)
-      res.redirect(redirectUrl.toString())
-    },
-  )
+    // Tolerate whitespace introduced when the token is copied from a
+    // terminal: a 64-character token wraps across lines in a narrow
+    // terminal, and selecting it captures the wrap as an embedded
+    // newline (plus possible leading/trailing spaces). A valid
+    // MCP_AUTH_TOKEN never contains whitespace, so stripping it is safe
+    // and keeps the consent flow forgiving — mirroring the trim()
+    // already applied to bearer-header auth in parseBearer().
+    const submittedToken = token?.replace(/\s+/g, "") ?? "";
 
-  return router
-}
+    if (!submittedToken || !safeEqual(submittedToken, authToken)) {
+      consentLogger.warn("oauth_consent_bad_token");
+      res.type("html").send(
+        renderConsentPage({
+          clientName: pending.client.client_name ?? pending.client.client_id,
+          clientId,
+          scopes: pending.params.scopes ?? [],
+          requestId: request_id,
+          error: "Invalid token. Please try again.",
+        }),
+      );
+      return;
+    }
+
+    const code = approveRequest(request_id, consentLogger);
+    consentLogger.info("oauth_consent_completed");
+    const redirectUrl = new URL(pending.params.redirectUri);
+    redirectUrl.searchParams.set("code", code);
+    if (pending.params.state) redirectUrl.searchParams.set("state", pending.params.state);
+    res.redirect(redirectUrl.toString());
+  });
+
+  return router;
+};

@@ -1,67 +1,57 @@
-import { describe, it, expect, vi, onTestFinished } from "vitest"
-import { loadConfig } from "../config.js"
-import { logger } from "../../logger.js"
+import { describe, it, expect, vi, onTestFinished } from "vitest";
+import { loadConfig } from "../config.js";
+import { logger } from "../../logger.js";
 
-const EMPTY_ENV: Record<string, string | undefined> = {}
+const EMPTY_ENV: Record<string, string | undefined> = {};
 
 describe("loadConfig", () => {
   describe("defaults", () => {
     it("memoryDir defaults to About Me", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.memoryDir).toBe("About Me")
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.memoryDir).toBe("About Me");
+    });
 
     it("protectedPathsOverride is null when PROTECTED_PATHS is unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.protectedPathsOverride).toBeNull()
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.protectedPathsOverride).toBeNull();
+    });
 
     it("orphanExcludeFolders defaults to Daily Notes, Templates, About Me", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.orphanExcludeFolders).toEqual([
-        "Daily Notes",
-        "Templates",
-        "About Me",
-      ])
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.orphanExcludeFolders).toEqual(["Daily Notes", "Templates", "About Me"]);
+    });
 
     it("serviceDocumentationUrl defaults to the GitHub repo", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.serviceDocumentationUrl).toBe(
-        "https://github.com/aliasunder/vault-cortex",
-      )
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.serviceDocumentationUrl).toBe("https://github.com/aliasunder/vault-cortex");
+    });
 
     it("windowsBindMount defaults to false", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.windowsBindMount).toBe(false)
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.windowsBindMount).toBe(false);
+    });
 
     it("memoryEnabled defaults to true", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.memoryEnabled).toBe(true)
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.memoryEnabled).toBe(true);
+    });
 
     it("returns a frozen (immutable) config object", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(Object.isFrozen(config)).toBe(true)
-    })
-  })
+      const config = loadConfig(EMPTY_ENV);
+      expect(Object.isFrozen(config)).toBe(true);
+    });
+  });
 
   describe("MEMORY_DIR", () => {
     it("uses the provided value", () => {
-      const config = loadConfig({ MEMORY_DIR: "Profile" })
-      expect(config.memoryDir).toBe("Profile")
-    })
+      const config = loadConfig({ MEMORY_DIR: "Profile" });
+      expect(config.memoryDir).toBe("Profile");
+    });
 
     it("cascades into orphanExcludeFolders when ORPHAN_EXCLUDE_FOLDERS is not set", () => {
-      const config = loadConfig({ MEMORY_DIR: "Profile" })
-      expect(config.orphanExcludeFolders).toEqual([
-        "Daily Notes",
-        "Templates",
-        "Profile",
-      ])
-    })
+      const config = loadConfig({ MEMORY_DIR: "Profile" });
+      expect(config.orphanExcludeFolders).toEqual(["Daily Notes", "Templates", "Profile"]);
+    });
 
     it.each([
       { name: "trims whitespace", input: "  Profile  ", expected: "Profile" },
@@ -86,9 +76,9 @@ describe("loadConfig", () => {
         expected: "About Me",
       },
     ])("$name", ({ input, expected }) => {
-      const config = loadConfig({ MEMORY_DIR: input })
-      expect(config.memoryDir).toBe(expected)
-    })
+      const config = loadConfig({ MEMORY_DIR: input });
+      expect(config.memoryDir).toBe(expected);
+    });
 
     it.each([
       {
@@ -102,663 +92,607 @@ describe("loadConfig", () => {
         message: "absolute paths",
       },
     ])("$name", ({ input, message }) => {
-      expect(() => loadConfig({ MEMORY_DIR: input })).toThrow(message)
-    })
+      expect(() => loadConfig({ MEMORY_DIR: input })).toThrow(message);
+    });
 
     it("accepts folder names with spaces", () => {
-      const config = loadConfig({ MEMORY_DIR: "My Profile" })
-      expect(config.memoryDir).toBe("My Profile")
-    })
+      const config = loadConfig({ MEMORY_DIR: "My Profile" });
+      expect(config.memoryDir).toBe("My Profile");
+    });
 
     it("accepts nested folder paths", () => {
-      const config = loadConfig({ MEMORY_DIR: "My Vault/Memory" })
-      expect(config.memoryDir).toBe("My Vault/Memory")
-    })
-  })
+      const config = loadConfig({ MEMORY_DIR: "My Vault/Memory" });
+      expect(config.memoryDir).toBe("My Vault/Memory");
+    });
+  });
 
   describe("DAILY_NOTES_FOLDER", () => {
     it("defaults to undefined when unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.dailyNotesFolder).toBeUndefined()
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.dailyNotesFolder).toBeUndefined();
+    });
 
     it.each([
       { name: "treats empty string as unset", input: "" },
       { name: "treats blank whitespace as unset", input: "   " },
     ])("$name", ({ input }) => {
-      const config = loadConfig({ DAILY_NOTES_FOLDER: input })
-      expect(config.dailyNotesFolder).toBeUndefined()
-    })
+      const config = loadConfig({ DAILY_NOTES_FOLDER: input });
+      expect(config.dailyNotesFolder).toBeUndefined();
+    });
 
     it("uses the provided value", () => {
-      const config = loadConfig({ DAILY_NOTES_FOLDER: "Journal" })
-      expect(config.dailyNotesFolder).toBe("Journal")
-    })
+      const config = loadConfig({ DAILY_NOTES_FOLDER: "Journal" });
+      expect(config.dailyNotesFolder).toBe("Journal");
+    });
 
     it("cascades into orphanExcludeFolders when ORPHAN_EXCLUDE_FOLDERS is not set", () => {
-      const config = loadConfig({ DAILY_NOTES_FOLDER: "Journal" })
-      expect(config.orphanExcludeFolders).toEqual([
-        "Journal",
-        "Templates",
-        "About Me",
-      ])
-    })
+      const config = loadConfig({ DAILY_NOTES_FOLDER: "Journal" });
+      expect(config.orphanExcludeFolders).toEqual(["Journal", "Templates", "About Me"]);
+    });
 
     it("keeps the explicit PROTECTED_PATHS list when DAILY_NOTES_FOLDER is set", () => {
       const config = loadConfig({
         DAILY_NOTES_FOLDER: "Journal",
         PROTECTED_PATHS: "Secrets,Archive",
-      })
-      expect(config.protectedPathsOverride).toEqual(["Secrets", "Archive"])
-    })
+      });
+      expect(config.protectedPathsOverride).toEqual(["Secrets", "Archive"]);
+    });
 
     it("accepts nested folder paths", () => {
-      const config = loadConfig({ DAILY_NOTES_FOLDER: "Journal/Daily" })
-      expect(config.dailyNotesFolder).toBe("Journal/Daily")
-    })
+      const config = loadConfig({ DAILY_NOTES_FOLDER: "Journal/Daily" });
+      expect(config.dailyNotesFolder).toBe("Journal/Daily");
+    });
 
     it("trims whitespace and strips trailing slashes", () => {
-      const config = loadConfig({ DAILY_NOTES_FOLDER: "  Journal/  " })
-      expect(config.dailyNotesFolder).toBe("Journal")
-    })
+      const config = loadConfig({ DAILY_NOTES_FOLDER: "  Journal/  " });
+      expect(config.dailyNotesFolder).toBe("Journal");
+    });
 
     it("rejects path traversal", () => {
-      expect(() => loadConfig({ DAILY_NOTES_FOLDER: "../escape" })).toThrow(
-        "path traversal (..) not allowed",
-      )
-    })
+      expect(() => loadConfig({ DAILY_NOTES_FOLDER: "../escape" })).toThrow("path traversal (..) not allowed");
+    });
 
     it("rejects absolute paths", () => {
-      expect(() => loadConfig({ DAILY_NOTES_FOLDER: "/etc/notes" })).toThrow(
-        "absolute paths not allowed",
-      )
-    })
-  })
+      expect(() => loadConfig({ DAILY_NOTES_FOLDER: "/etc/notes" })).toThrow("absolute paths not allowed");
+    });
+  });
 
   describe("DAILY_NOTES_FORMAT", () => {
     it("defaults to undefined when unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.dailyNotesFormat).toBeUndefined()
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.dailyNotesFormat).toBeUndefined();
+    });
 
     it.each([
       { name: "treats empty string as unset", input: "" },
       { name: "treats blank whitespace as unset", input: "   " },
     ])("$name", ({ input }) => {
-      const config = loadConfig({ DAILY_NOTES_FORMAT: input })
-      expect(config.dailyNotesFormat).toBeUndefined()
-    })
+      const config = loadConfig({ DAILY_NOTES_FORMAT: input });
+      expect(config.dailyNotesFormat).toBeUndefined();
+    });
 
     it("preserves the raw moment format string (no Luxon conversion)", () => {
-      const config = loadConfig({ DAILY_NOTES_FORMAT: "DD-MM-YYYY" })
-      expect(config.dailyNotesFormat).toBe("DD-MM-YYYY")
-    })
+      const config = loadConfig({ DAILY_NOTES_FORMAT: "DD-MM-YYYY" });
+      expect(config.dailyNotesFormat).toBe("DD-MM-YYYY");
+    });
 
     it("accepts a nested-folder format (YYYY/MM/DD)", () => {
-      const config = loadConfig({ DAILY_NOTES_FORMAT: "YYYY/MM/DD" })
-      expect(config.dailyNotesFormat).toBe("YYYY/MM/DD")
-    })
+      const config = loadConfig({ DAILY_NOTES_FORMAT: "YYYY/MM/DD" });
+      expect(config.dailyNotesFormat).toBe("YYYY/MM/DD");
+    });
 
     it("accepts a format with a [literal] escape", () => {
-      const config = loadConfig({ DAILY_NOTES_FORMAT: "YYYY-MM-DD [Daily]" })
-      expect(config.dailyNotesFormat).toBe("YYYY-MM-DD [Daily]")
-    })
+      const config = loadConfig({ DAILY_NOTES_FORMAT: "YYYY-MM-DD [Daily]" });
+      expect(config.dailyNotesFormat).toBe("YYYY-MM-DD [Daily]");
+    });
 
     it("rejects raw path traversal", () => {
       expect(() => loadConfig({ DAILY_NOTES_FORMAT: "../YYYY" })).toThrow(
         'env-var: "DAILY_NOTES_FORMAT" must not contain path traversal (..)',
-      )
-    })
+      );
+    });
 
     it("rejects a format that renders to path traversal ([.][.])", () => {
       expect(() => loadConfig({ DAILY_NOTES_FORMAT: "[.][.]" })).toThrow(
         'env-var: "DAILY_NOTES_FORMAT" must not contain path traversal (..)',
-      )
-    })
+      );
+    });
 
     it("rejects a leading path separator", () => {
       expect(() => loadConfig({ DAILY_NOTES_FORMAT: "/YYYY-MM-DD" })).toThrow(
         'env-var: "DAILY_NOTES_FORMAT" must not start with a path separator',
-      )
-    })
+      );
+    });
 
     it("rejects a format that renders to a leading path separator ([/]YYYY)", () => {
       expect(() => loadConfig({ DAILY_NOTES_FORMAT: "[/]YYYY" })).toThrow(
         'env-var: "DAILY_NOTES_FORMAT" must not start with a path separator',
-      )
-    })
+      );
+    });
 
     it("rejects a trailing path separator", () => {
       expect(() => loadConfig({ DAILY_NOTES_FORMAT: "YYYY/MM/DD/" })).toThrow(
         'env-var: "DAILY_NOTES_FORMAT" must not end with a path separator',
-      )
-    })
+      );
+    });
 
     it("rejects a format that renders to a trailing path separator (YYYY[/])", () => {
       expect(() => loadConfig({ DAILY_NOTES_FORMAT: "YYYY[/]" })).toThrow(
         'env-var: "DAILY_NOTES_FORMAT" must not end with a path separator',
-      )
-    })
+      );
+    });
 
     it("rejects a format that renders to an empty filename", () => {
       expect(() => loadConfig({ DAILY_NOTES_FORMAT: "[ ]" })).toThrow(
         'env-var: "DAILY_NOTES_FORMAT" renders to an empty filename',
-      )
-    })
+      );
+    });
 
     it("accepts a Do format and warns about unsupported token", () => {
-      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
-      onTestFinished(() => warnSpy.mockRestore())
-      const config = loadConfig({ DAILY_NOTES_FORMAT: "MMMM Do, YYYY" })
-      expect(config.dailyNotesFormat).toBe("MMMM Do, YYYY")
-      expect(warnSpy).toHaveBeenCalledTimes(1)
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining("unsupported token(s): Do"),
-      )
-    })
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+      onTestFinished(() => warnSpy.mockRestore());
+      const config = loadConfig({ DAILY_NOTES_FORMAT: "MMMM Do, YYYY" });
+      expect(config.dailyNotesFormat).toBe("MMMM Do, YYYY");
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("unsupported token(s): Do"));
+    });
 
     it("accepts a dd format and warns about unsupported token", () => {
-      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
-      onTestFinished(() => warnSpy.mockRestore())
-      const config = loadConfig({ DAILY_NOTES_FORMAT: "YYYY-MM-DD dd" })
-      expect(config.dailyNotesFormat).toBe("YYYY-MM-DD dd")
-      expect(warnSpy).toHaveBeenCalledTimes(1)
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining("unsupported token(s): dd"),
-      )
-    })
-  })
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+      onTestFinished(() => warnSpy.mockRestore());
+      const config = loadConfig({ DAILY_NOTES_FORMAT: "YYYY-MM-DD dd" });
+      expect(config.dailyNotesFormat).toBe("YYYY-MM-DD dd");
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("unsupported token(s): dd"));
+    });
+  });
 
   describe("PROTECTED_PATHS (comma-separated)", () => {
     it("stores the user's list as the override", () => {
-      const config = loadConfig({ PROTECTED_PATHS: "Secrets,Archive" })
-      expect(config.protectedPathsOverride).toEqual(["Secrets", "Archive"])
-    })
+      const config = loadConfig({ PROTECTED_PATHS: "Secrets,Archive" });
+      expect(config.protectedPathsOverride).toEqual(["Secrets", "Archive"]);
+    });
 
     it("does not add MEMORY_DIR to an explicit list", () => {
       const config = loadConfig({
         MEMORY_DIR: "Profile",
         PROTECTED_PATHS: "Secrets,Archive",
-      })
-      expect(config.protectedPathsOverride).toEqual(["Secrets", "Archive"])
-    })
+      });
+      expect(config.protectedPathsOverride).toEqual(["Secrets", "Archive"]);
+    });
 
     it("trims whitespace around entries", () => {
       const config = loadConfig({
         PROTECTED_PATHS: " Secrets , Archive ",
-      })
-      expect(config.protectedPathsOverride).toEqual(["Secrets", "Archive"])
-    })
+      });
+      expect(config.protectedPathsOverride).toEqual(["Secrets", "Archive"]);
+    });
 
     it("filters out empty entries from trailing commas", () => {
       const config = loadConfig({
         PROTECTED_PATHS: "Secrets,Archive,",
-      })
-      expect(config.protectedPathsOverride).toEqual(["Secrets", "Archive"])
-    })
+      });
+      expect(config.protectedPathsOverride).toEqual(["Secrets", "Archive"]);
+    });
 
     it("treats a whitespace-only value as unset", () => {
-      const config = loadConfig({ PROTECTED_PATHS: "   " })
-      expect(config.protectedPathsOverride).toBeNull()
-    })
+      const config = loadConfig({ PROTECTED_PATHS: "   " });
+      expect(config.protectedPathsOverride).toBeNull();
+    });
 
     it("validates each entry", () => {
-      expect(() =>
-        loadConfig({ PROTECTED_PATHS: "Secrets,../escape" }),
-      ).toThrow("path traversal")
-    })
-  })
+      expect(() => loadConfig({ PROTECTED_PATHS: "Secrets,../escape" })).toThrow("path traversal");
+    });
+  });
 
   describe("ORPHAN_EXCLUDE_FOLDERS (comma-separated)", () => {
     it("overrides the default entirely", () => {
       const config = loadConfig({
         ORPHAN_EXCLUDE_FOLDERS: "Archive,Scratch",
-      })
-      expect(config.orphanExcludeFolders).toEqual(["Archive", "Scratch"])
-    })
+      });
+      expect(config.orphanExcludeFolders).toEqual(["Archive", "Scratch"]);
+    });
 
     it("does not include MEMORY_DIR when explicitly set", () => {
       const config = loadConfig({
         MEMORY_DIR: "Profile",
         ORPHAN_EXCLUDE_FOLDERS: "Archive,Scratch",
-      })
-      expect(config.orphanExcludeFolders).toEqual(["Archive", "Scratch"])
-      expect(config.orphanExcludeFolders).not.toContain("Profile")
-    })
+      });
+      expect(config.orphanExcludeFolders).toEqual(["Archive", "Scratch"]);
+      expect(config.orphanExcludeFolders).not.toContain("Profile");
+    });
 
     it("validates each entry", () => {
-      expect(() => loadConfig({ ORPHAN_EXCLUDE_FOLDERS: "/absolute" })).toThrow(
-        "absolute paths",
-      )
-    })
-  })
+      expect(() => loadConfig({ ORPHAN_EXCLUDE_FOLDERS: "/absolute" })).toThrow("absolute paths");
+    });
+  });
 
   describe("SERVICE_DOCUMENTATION_URL", () => {
     it("uses the provided URL", () => {
       const config = loadConfig({
         SERVICE_DOCUMENTATION_URL: "https://github.com/myuser/my-fork",
-      })
-      expect(config.serviceDocumentationUrl).toBe(
-        "https://github.com/myuser/my-fork",
-      )
-    })
+      });
+      expect(config.serviceDocumentationUrl).toBe("https://github.com/myuser/my-fork");
+    });
 
     it("rejects invalid URLs", () => {
-      expect(() =>
-        loadConfig({ SERVICE_DOCUMENTATION_URL: "not-a-url" }),
-      ).toThrow("Invalid URL")
-    })
-  })
+      expect(() => loadConfig({ SERVICE_DOCUMENTATION_URL: "not-a-url" })).toThrow("Invalid URL");
+    });
+  });
 
   describe("WINDOWS_MODE", () => {
     it("defaults to false when unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.windowsBindMount).toBe(false)
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.windowsBindMount).toBe(false);
+    });
 
     it("is true when set to 'true'", () => {
-      const config = loadConfig({ WINDOWS_MODE: "true" })
-      expect(config.windowsBindMount).toBe(true)
-    })
+      const config = loadConfig({ WINDOWS_MODE: "true" });
+      expect(config.windowsBindMount).toBe(true);
+    });
 
     it("is false when set to 'false'", () => {
-      const config = loadConfig({ WINDOWS_MODE: "false" })
-      expect(config.windowsBindMount).toBe(false)
-    })
+      const config = loadConfig({ WINDOWS_MODE: "false" });
+      expect(config.windowsBindMount).toBe(false);
+    });
 
     it("rejects a non-boolean value (fails fast at startup)", () => {
-      expect(() => loadConfig({ WINDOWS_MODE: "yes" })).toThrow(/WINDOWS_MODE/)
-    })
-  })
+      expect(() => loadConfig({ WINDOWS_MODE: "yes" })).toThrow(/WINDOWS_MODE/);
+    });
+  });
 
   describe("RERANK_MODE", () => {
     it("defaults to 'blended' when unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.rerankMode).toBe("blended")
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.rerankMode).toBe("blended");
+    });
 
     it("accepts 'none'", () => {
-      const config = loadConfig({ RERANK_MODE: "none" })
-      expect(config.rerankMode).toBe("none")
-    })
+      const config = loadConfig({ RERANK_MODE: "none" });
+      expect(config.rerankMode).toBe("none");
+    });
 
     it("accepts 'blended'", () => {
-      const config = loadConfig({ RERANK_MODE: "blended" })
-      expect(config.rerankMode).toBe("blended")
-    })
+      const config = loadConfig({ RERANK_MODE: "blended" });
+      expect(config.rerankMode).toBe("blended");
+    });
 
     it("rejects an invalid value", () => {
-      expect(() => loadConfig({ RERANK_MODE: "aggressive" })).toThrow(
-        /Invalid option/,
-      )
-    })
-  })
+      expect(() => loadConfig({ RERANK_MODE: "aggressive" })).toThrow(/Invalid option/);
+    });
+  });
 
   describe("EMBEDDING_ENABLED", () => {
     it("defaults to true when unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.embeddingEnabled).toBe(true)
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.embeddingEnabled).toBe(true);
+    });
 
     it("is true when set to 'true'", () => {
-      const config = loadConfig({ EMBEDDING_ENABLED: "true" })
-      expect(config.embeddingEnabled).toBe(true)
-    })
+      const config = loadConfig({ EMBEDDING_ENABLED: "true" });
+      expect(config.embeddingEnabled).toBe(true);
+    });
 
     it("is false when set to 'false'", () => {
-      const config = loadConfig({ EMBEDDING_ENABLED: "false" })
-      expect(config.embeddingEnabled).toBe(false)
-    })
+      const config = loadConfig({ EMBEDDING_ENABLED: "false" });
+      expect(config.embeddingEnabled).toBe(false);
+    });
 
     it("rejects a non-boolean value", () => {
-      expect(() => loadConfig({ EMBEDDING_ENABLED: "yes" })).toThrow(
-        /EMBEDDING_ENABLED/,
-      )
-    })
-  })
+      expect(() => loadConfig({ EMBEDDING_ENABLED: "yes" })).toThrow(/EMBEDDING_ENABLED/);
+    });
+  });
 
   describe("MEMORY_ENABLED", () => {
     it("defaults to true when unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.memoryEnabled).toBe(true)
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.memoryEnabled).toBe(true);
+    });
 
     it("is true when set to 'true'", () => {
-      const config = loadConfig({ MEMORY_ENABLED: "true" })
-      expect(config.memoryEnabled).toBe(true)
-    })
+      const config = loadConfig({ MEMORY_ENABLED: "true" });
+      expect(config.memoryEnabled).toBe(true);
+    });
 
     it("is false when set to 'false'", () => {
-      const config = loadConfig({ MEMORY_ENABLED: "false" })
-      expect(config.memoryEnabled).toBe(false)
-    })
+      const config = loadConfig({ MEMORY_ENABLED: "false" });
+      expect(config.memoryEnabled).toBe(false);
+    });
 
     it("rejects a non-boolean value", () => {
-      expect(() => loadConfig({ MEMORY_ENABLED: "yes" })).toThrow(
-        /MEMORY_ENABLED/,
-      )
-    })
+      expect(() => loadConfig({ MEMORY_ENABLED: "yes" })).toThrow(/MEMORY_ENABLED/);
+    });
 
     it("still parses MEMORY_DIR when disabled", () => {
       const config = loadConfig({
         MEMORY_ENABLED: "false",
         MEMORY_DIR: "Profile",
-      })
-      expect(config.memoryEnabled).toBe(false)
-      expect(config.memoryDir).toBe("Profile")
-    })
-  })
+      });
+      expect(config.memoryEnabled).toBe(false);
+      expect(config.memoryDir).toBe("Profile");
+    });
+  });
 
   describe("FILE_TOOLS_ENABLED", () => {
     it("defaults to true when unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.fileToolsEnabled).toBe(true)
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.fileToolsEnabled).toBe(true);
+    });
 
     it("is true when set to 'true'", () => {
-      const config = loadConfig({ FILE_TOOLS_ENABLED: "true" })
-      expect(config.fileToolsEnabled).toBe(true)
-    })
+      const config = loadConfig({ FILE_TOOLS_ENABLED: "true" });
+      expect(config.fileToolsEnabled).toBe(true);
+    });
 
     it("is false when set to 'false'", () => {
-      const config = loadConfig({ FILE_TOOLS_ENABLED: "false" })
-      expect(config.fileToolsEnabled).toBe(false)
-    })
+      const config = loadConfig({ FILE_TOOLS_ENABLED: "false" });
+      expect(config.fileToolsEnabled).toBe(false);
+    });
 
     it("rejects a non-boolean value", () => {
-      expect(() => loadConfig({ FILE_TOOLS_ENABLED: "yes" })).toThrow(
-        /FILE_TOOLS_ENABLED/,
-      )
-    })
+      expect(() => loadConfig({ FILE_TOOLS_ENABLED: "yes" })).toThrow(/FILE_TOOLS_ENABLED/);
+    });
 
     it("still parses MAX_FILE_BYTES when disabled", () => {
       const config = loadConfig({
         FILE_TOOLS_ENABLED: "false",
         MAX_FILE_BYTES: "10485760",
-      })
-      expect(config.fileToolsEnabled).toBe(false)
-      expect(config.maxFileBytes).toBe(10_485_760)
-    })
+      });
+      expect(config.fileToolsEnabled).toBe(false);
+      expect(config.maxFileBytes).toBe(10_485_760);
+    });
 
     it("still parses MAX_IMAGE_OUTPUT_BYTES when disabled", () => {
       const config = loadConfig({
         FILE_TOOLS_ENABLED: "false",
         MAX_IMAGE_OUTPUT_BYTES: "65536",
-      })
-      expect(config.fileToolsEnabled).toBe(false)
-      expect(config.maxImageOutputBytes).toBe(65_536)
-    })
-  })
+      });
+      expect(config.fileToolsEnabled).toBe(false);
+      expect(config.maxImageOutputBytes).toBe(65_536);
+    });
+  });
 
   describe("READONLY_MODE", () => {
     it("defaults to false when unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.readOnlyMode).toBe(false)
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.readOnlyMode).toBe(false);
+    });
 
     it("is true when set to 'true'", () => {
-      const config = loadConfig({ READONLY_MODE: "true" })
-      expect(config.readOnlyMode).toBe(true)
-    })
+      const config = loadConfig({ READONLY_MODE: "true" });
+      expect(config.readOnlyMode).toBe(true);
+    });
 
     it("is false when set to 'false'", () => {
-      const config = loadConfig({ READONLY_MODE: "false" })
-      expect(config.readOnlyMode).toBe(false)
-    })
+      const config = loadConfig({ READONLY_MODE: "false" });
+      expect(config.readOnlyMode).toBe(false);
+    });
 
     it("rejects a non-boolean value", () => {
-      expect(() => loadConfig({ READONLY_MODE: "yes" })).toThrow(
-        /READONLY_MODE/,
-      )
-    })
+      expect(() => loadConfig({ READONLY_MODE: "yes" })).toThrow(/READONLY_MODE/);
+    });
 
     it("composes with MEMORY_ENABLED — both flags parse independently", () => {
       const config = loadConfig({
         READONLY_MODE: "true",
         MEMORY_ENABLED: "false",
-      })
-      expect(config.readOnlyMode).toBe(true)
-      expect(config.memoryEnabled).toBe(false)
-    })
-  })
+      });
+      expect(config.readOnlyMode).toBe(true);
+      expect(config.memoryEnabled).toBe(false);
+    });
+  });
 
   describe("DISABLED_TOOLS (comma-separated)", () => {
     it("defaults to an empty set when unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.disabledTools.size).toBe(0)
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.disabledTools.size).toBe(0);
+    });
 
     it("is an empty set when set to an empty string", () => {
-      const config = loadConfig({ DISABLED_TOOLS: "" })
-      expect(config.disabledTools.size).toBe(0)
-    })
+      const config = loadConfig({ DISABLED_TOOLS: "" });
+      expect(config.disabledTools.size).toBe(0);
+    });
 
     it("parses a single tool name", () => {
-      const config = loadConfig({ DISABLED_TOOLS: "vault_write_note" })
-      expect([...config.disabledTools]).toEqual(["vault_write_note"])
-    })
+      const config = loadConfig({ DISABLED_TOOLS: "vault_write_note" });
+      expect([...config.disabledTools]).toEqual(["vault_write_note"]);
+    });
 
     it("parses multiple tool names and trims whitespace around each", () => {
       const config = loadConfig({
         DISABLED_TOOLS: "vault_write_note, vault_delete_note ,vault_move_note",
-      })
+      });
       expect([...config.disabledTools].toSorted()).toEqual([
         "vault_delete_note",
         "vault_move_note",
         "vault_write_note",
-      ])
-    })
+      ]);
+    });
 
     it("drops empty entries from trailing or doubled commas", () => {
-      const config = loadConfig({ DISABLED_TOOLS: "vault_write_note,," })
-      expect([...config.disabledTools]).toEqual(["vault_write_note"])
-    })
+      const config = loadConfig({ DISABLED_TOOLS: "vault_write_note,," });
+      expect([...config.disabledTools]).toEqual(["vault_write_note"]);
+    });
 
     it("deduplicates repeated names", () => {
       const config = loadConfig({
         DISABLED_TOOLS: "vault_write_note,vault_write_note",
-      })
-      expect([...config.disabledTools]).toEqual(["vault_write_note"])
-    })
+      });
+      expect([...config.disabledTools]).toEqual(["vault_write_note"]);
+    });
 
     it("rejects an unknown tool name, naming the offender", () => {
       expect(() => loadConfig({ DISABLED_TOOLS: "vault_wrote_note" })).toThrow(
         'env-var: "DISABLED_TOOLS" contains an unknown tool name: "vault_wrote_note"',
-      )
-    })
+      );
+    });
 
     it("rejects an unknown name even when valid names surround it", () => {
       expect(() =>
         loadConfig({
           DISABLED_TOOLS: "vault_write_note,not_a_tool,vault_delete_note",
         }),
-      ).toThrow(
-        'env-var: "DISABLED_TOOLS" contains an unknown tool name: "not_a_tool"',
-      )
-    })
-  })
+      ).toThrow('env-var: "DISABLED_TOOLS" contains an unknown tool name: "not_a_tool"');
+    });
+  });
 
   describe("MAX_FILE_BYTES", () => {
     it("defaults to 50 MiB (52428800) when unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.maxFileBytes).toBe(52_428_800)
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.maxFileBytes).toBe(52_428_800);
+    });
 
     it("accepts a custom positive integer", () => {
-      const config = loadConfig({ MAX_FILE_BYTES: "10485760" })
-      expect(config.maxFileBytes).toBe(10_485_760)
-    })
+      const config = loadConfig({ MAX_FILE_BYTES: "10485760" });
+      expect(config.maxFileBytes).toBe(10_485_760);
+    });
 
     it("rejects a non-integer value", () => {
-      expect(() => loadConfig({ MAX_FILE_BYTES: "abc" })).toThrow(
-        /MAX_FILE_BYTES/,
-      )
-    })
+      expect(() => loadConfig({ MAX_FILE_BYTES: "abc" })).toThrow(/MAX_FILE_BYTES/);
+    });
 
     it.each(["0", "-1", "1.5"])("rejects non-positive-integer %s", (value) => {
-      expect(() => loadConfig({ MAX_FILE_BYTES: value })).toThrow(
-        /MAX_FILE_BYTES/,
-      )
-    })
-  })
+      expect(() => loadConfig({ MAX_FILE_BYTES: value })).toThrow(/MAX_FILE_BYTES/);
+    });
+  });
 
   describe("MAX_IMAGE_OUTPUT_BYTES", () => {
     it("defaults to 48 KiB (49152) when unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.maxImageOutputBytes).toBe(49_152)
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.maxImageOutputBytes).toBe(49_152);
+    });
 
     it("accepts a custom positive integer", () => {
-      const config = loadConfig({ MAX_IMAGE_OUTPUT_BYTES: "65536" })
-      expect(config.maxImageOutputBytes).toBe(65_536)
-    })
+      const config = loadConfig({ MAX_IMAGE_OUTPUT_BYTES: "65536" });
+      expect(config.maxImageOutputBytes).toBe(65_536);
+    });
 
     it("rejects a non-integer value", () => {
-      expect(() => loadConfig({ MAX_IMAGE_OUTPUT_BYTES: "nope" })).toThrow(
-        /MAX_IMAGE_OUTPUT_BYTES/,
-      )
-    })
+      expect(() => loadConfig({ MAX_IMAGE_OUTPUT_BYTES: "nope" })).toThrow(/MAX_IMAGE_OUTPUT_BYTES/);
+    });
 
     it.each(["0", "-1", "1.5"])("rejects non-positive-integer %s", (value) => {
-      expect(() => loadConfig({ MAX_IMAGE_OUTPUT_BYTES: value })).toThrow(
-        /MAX_IMAGE_OUTPUT_BYTES/,
-      )
-    })
-  })
+      expect(() => loadConfig({ MAX_IMAGE_OUTPUT_BYTES: value })).toThrow(/MAX_IMAGE_OUTPUT_BYTES/);
+    });
+  });
 
   describe("MAX_PDF_RENDER_PAGES", () => {
     it("defaults to 5 when unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.maxPdfRenderPages).toBe(5)
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.maxPdfRenderPages).toBe(5);
+    });
 
     it("accepts a custom positive integer", () => {
-      const config = loadConfig({ MAX_PDF_RENDER_PAGES: "10" })
-      expect(config.maxPdfRenderPages).toBe(10)
-    })
+      const config = loadConfig({ MAX_PDF_RENDER_PAGES: "10" });
+      expect(config.maxPdfRenderPages).toBe(10);
+    });
 
     it("rejects a non-integer value", () => {
-      expect(() => loadConfig({ MAX_PDF_RENDER_PAGES: "abc" })).toThrow(
-        /MAX_PDF_RENDER_PAGES/,
-      )
-    })
+      expect(() => loadConfig({ MAX_PDF_RENDER_PAGES: "abc" })).toThrow(/MAX_PDF_RENDER_PAGES/);
+    });
 
     it.each(["0", "-1", "1.5"])("rejects non-positive-integer %s", (value) => {
-      expect(() => loadConfig({ MAX_PDF_RENDER_PAGES: value })).toThrow(
-        /MAX_PDF_RENDER_PAGES/,
-      )
-    })
-  })
+      expect(() => loadConfig({ MAX_PDF_RENDER_PAGES: value })).toThrow(/MAX_PDF_RENDER_PAGES/);
+    });
+  });
 
   describe("TRASH_RETENTION_DAYS", () => {
     it("defaults to 30 when unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.trashRetentionDays).toBe(30)
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.trashRetentionDays).toBe(30);
+    });
 
     it("accepts a custom positive integer", () => {
-      const config = loadConfig({ TRASH_RETENTION_DAYS: "7" })
-      expect(config.trashRetentionDays).toBe(7)
-    })
+      const config = loadConfig({ TRASH_RETENTION_DAYS: "7" });
+      expect(config.trashRetentionDays).toBe(7);
+    });
 
     it('maps the "none" sentinel to null (keep forever)', () => {
-      const config = loadConfig({ TRASH_RETENTION_DAYS: "none" })
-      expect(config.trashRetentionDays).toBeNull()
-    })
+      const config = loadConfig({ TRASH_RETENTION_DAYS: "none" });
+      expect(config.trashRetentionDays).toBeNull();
+    });
 
     it("rejects a non-integer value", () => {
-      expect(() => loadConfig({ TRASH_RETENTION_DAYS: "soon" })).toThrow(
-        /TRASH_RETENTION_DAYS/,
-      )
-    })
+      expect(() => loadConfig({ TRASH_RETENTION_DAYS: "soon" })).toThrow(/TRASH_RETENTION_DAYS/);
+    });
 
     it.each(["0", "-1", "1.5"])("rejects non-positive-integer %s", (value) => {
-      expect(() => loadConfig({ TRASH_RETENTION_DAYS: value })).toThrow(
-        /TRASH_RETENTION_DAYS/,
-      )
-    })
-  })
+      expect(() => loadConfig({ TRASH_RETENTION_DAYS: value })).toThrow(/TRASH_RETENTION_DAYS/);
+    });
+  });
 
   describe("TRUST_PROXY_HOPS", () => {
     it("defaults to 0 when unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.trustProxyHops).toBe(0)
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.trustProxyHops).toBe(0);
+    });
 
     it("accepts a custom non-negative integer", () => {
-      const config = loadConfig({ TRUST_PROXY_HOPS: "2" })
-      expect(config.trustProxyHops).toBe(2)
-    })
+      const config = loadConfig({ TRUST_PROXY_HOPS: "2" });
+      expect(config.trustProxyHops).toBe(2);
+    });
 
     it("rejects a non-integer value", () => {
-      expect(() => loadConfig({ TRUST_PROXY_HOPS: "abc" })).toThrow(
-        /TRUST_PROXY_HOPS/,
-      )
-    })
+      expect(() => loadConfig({ TRUST_PROXY_HOPS: "abc" })).toThrow(/TRUST_PROXY_HOPS/);
+    });
 
     it.each(["-1", "1.5"])("rejects invalid hop count %s", (value) => {
-      expect(() => loadConfig({ TRUST_PROXY_HOPS: value })).toThrow(
-        /TRUST_PROXY_HOPS/,
-      )
-    })
-  })
+      expect(() => loadConfig({ TRUST_PROXY_HOPS: value })).toThrow(/TRUST_PROXY_HOPS/);
+    });
+  });
 
   describe("TRUST_FORWARDED_HOPS", () => {
     it("defaults to 0 (Forwarded header ignored) when unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.trustForwardedHops).toBe(0)
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.trustForwardedHops).toBe(0);
+    });
 
     it.each(["0", "1", "2"])("accepts hop count %s", (value) => {
-      const config = loadConfig({ TRUST_FORWARDED_HOPS: value })
-      expect(config.trustForwardedHops).toBe(Number(value))
-    })
+      const config = loadConfig({ TRUST_FORWARDED_HOPS: value });
+      expect(config.trustForwardedHops).toBe(Number(value));
+    });
 
     it("rejects a non-integer value", () => {
-      expect(() => loadConfig({ TRUST_FORWARDED_HOPS: "abc" })).toThrow(
-        /TRUST_FORWARDED_HOPS/,
-      )
-    })
+      expect(() => loadConfig({ TRUST_FORWARDED_HOPS: "abc" })).toThrow(/TRUST_FORWARDED_HOPS/);
+    });
 
     it.each(["-1", "1.5"])("rejects hop count %s", (value) => {
-      expect(() => loadConfig({ TRUST_FORWARDED_HOPS: value })).toThrow(
-        /TRUST_FORWARDED_HOPS/,
-      )
-    })
+      expect(() => loadConfig({ TRUST_FORWARDED_HOPS: value })).toThrow(/TRUST_FORWARDED_HOPS/);
+    });
 
     it("warns when the removed TRUST_FORWARDED_HEADER is still set", () => {
-      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
-      onTestFinished(() => warnSpy.mockRestore())
-      const config = loadConfig({ TRUST_FORWARDED_HEADER: "true" })
-      expect(config.trustForwardedHops).toBe(0)
-      expect(warnSpy).toHaveBeenCalledTimes(1)
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+      onTestFinished(() => warnSpy.mockRestore());
+      const config = loadConfig({ TRUST_FORWARDED_HEADER: "true" });
+      expect(config.trustForwardedHops).toBe(0);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
       expect(warnSpy).toHaveBeenCalledWith(
         "TRUST_FORWARDED_HEADER is no longer read — set TRUST_FORWARDED_HOPS instead (0 ignores the Forwarded header, 1 trusts the proxy that writes it)",
-      )
-    })
+      );
+    });
 
     it("does not warn when TRUST_FORWARDED_HEADER is unset", () => {
-      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
-      onTestFinished(() => warnSpy.mockRestore())
-      loadConfig({ TRUST_FORWARDED_HOPS: "1" })
-      expect(warnSpy).not.toHaveBeenCalled()
-    })
-  })
+      const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {});
+      onTestFinished(() => warnSpy.mockRestore());
+      loadConfig({ TRUST_FORWARDED_HOPS: "1" });
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+  });
 
   describe("obsidianSyncEnabled", () => {
     it("defaults to false when OBSIDIAN_SYNC is unset", () => {
-      const config = loadConfig(EMPTY_ENV)
-      expect(config.obsidianSyncEnabled).toBe(false)
-    })
+      const config = loadConfig(EMPTY_ENV);
+      expect(config.obsidianSyncEnabled).toBe(false);
+    });
 
     it("is true when OBSIDIAN_SYNC is true", () => {
-      const config = loadConfig({ OBSIDIAN_SYNC: "true" })
-      expect(config.obsidianSyncEnabled).toBe(true)
-    })
+      const config = loadConfig({ OBSIDIAN_SYNC: "true" });
+      expect(config.obsidianSyncEnabled).toBe(true);
+    });
 
     it("is false when OBSIDIAN_SYNC is false", () => {
-      const config = loadConfig({ OBSIDIAN_SYNC: "false" })
-      expect(config.obsidianSyncEnabled).toBe(false)
-    })
-  })
-})
+      const config = loadConfig({ OBSIDIAN_SYNC: "false" });
+      expect(config.obsidianSyncEnabled).toBe(false);
+    });
+  });
+});

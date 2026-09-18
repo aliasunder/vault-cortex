@@ -470,9 +470,9 @@ root logger (src/logger.ts)
 All data-layer functions use named params + required logger:
 
 ```typescript
-vaultFs.readNote({ vaultPath, path }, reqLogger)
-memoryStore.getMemory({ vaultPath, file, section }, reqLogger)
-search.fullTextSearch({ query, filters }, reqLogger)
+vaultFs.readNote({ vaultPath, path }, reqLogger);
+memoryStore.getMemory({ vaultPath, file, section }, reqLogger);
+search.fullTextSearch({ query, filters }, reqLogger);
 ```
 
 **Log levels:**

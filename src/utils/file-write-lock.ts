@@ -22,14 +22,14 @@
  *  so two spellings of the same file mutually exclude on the filesystems
  *  where they ARE the same file (macOS/Windows bind mounts). */
 
-import { resolve } from "node:path"
-import { caseFoldPath } from "./case-fold-path.js"
+import { resolve } from "node:path";
+import { caseFoldPath } from "./case-fold-path.js";
 
 // The map holds one promise per file path — that file's most recent write.
 // An entry is removed once the file's writes settle and no later write is
 // queued (see forgetIfStillTail), so the map only holds files with a write
 // in flight.
-const fileWriteLocks = new Map<string, Promise<unknown>>()
+const fileWriteLocks = new Map<string, Promise<unknown>>();
 
 /** The key is case-folded on every platform.
  *
@@ -39,19 +39,19 @@ const fileWriteLocks = new Map<string, Promise<unknown>>()
  *    disk, and genuinely distinct case-colliding files at worst hit a
  *    spurious fail-fast rejection or a harmless queue */
 const lockKeyForPath = (filePath: string): string => {
-  return caseFoldPath(resolve(filePath))
-}
+  return caseFoldPath(resolve(filePath));
+};
 
 /** Removes the map entry once the write settles, but only if no later write
  *  has queued behind it — the settled write is still the tail. */
 const cleanupAfterWrite = (key: string, thisWrite: Promise<unknown>): void => {
   const forgetIfStillTail = (): void => {
     if (fileWriteLocks.get(key) === thisWrite) {
-      fileWriteLocks.delete(key)
+      fileWriteLocks.delete(key);
     }
-  }
-  void thisWrite.then(forgetIfStillTail, forgetIfStillTail)
-}
+  };
+  void thisWrite.then(forgetIfStillTail, forgetIfStillTail);
+};
 
 /** Serializing lock — queues `operation` behind the previous write to the
  *  same file so concurrent operations run one-at-a-time. Passing `operation`
@@ -62,17 +62,14 @@ const cleanupAfterWrite = (key: string, thisWrite: Promise<unknown>): void => {
  *  the operation behind the previous promise without itself awaiting the
  *  chain — awaiting would make the caller wait for the entire chain, not
  *  just its own operation. */
-export const withFileLock = <T>(
-  filePath: string,
-  operation: () => Promise<T>,
-): Promise<T> => {
-  const key = lockKeyForPath(filePath)
-  const previousWrite = fileWriteLocks.get(key) ?? Promise.resolve()
-  const thisWrite = previousWrite.then(operation, operation)
-  fileWriteLocks.set(key, thisWrite)
-  cleanupAfterWrite(key, thisWrite)
-  return thisWrite
-}
+export const withFileLock = <T>(filePath: string, operation: () => Promise<T>): Promise<T> => {
+  const key = lockKeyForPath(filePath);
+  const previousWrite = fileWriteLocks.get(key) ?? Promise.resolve();
+  const thisWrite = previousWrite.then(operation, operation);
+  fileWriteLocks.set(key, thisWrite);
+  cleanupAfterWrite(key, thisWrite);
+  return thisWrite;
+};
 
 /** Fail-fast lock over a set of files — rejects immediately when a write is
  *  already in progress on any of them, without locking the rest, so a partial
@@ -84,28 +81,27 @@ export const withExclusiveMultiFileLock = <T>(
   filePaths: readonly string[],
   operation: () => Promise<T>,
 ): Promise<T> => {
-  const keys = [...new Set(filePaths.map(lockKeyForPath))]
-  const anyFileBusy = keys.some((key) => fileWriteLocks.has(key))
+  const keys = [...new Set(filePaths.map(lockKeyForPath))];
+  const anyFileBusy = keys.some((key) => fileWriteLocks.has(key));
+
   if (anyFileBusy) {
-    throw new Error("concurrent write in progress")
+    throw new Error("concurrent write in progress");
   }
   // Deferring the operation to a microtask lets every key register first —
   // otherwise the operation's synchronous prefix could observe its own paths
   // as still unlocked and re-enter another lock helper on them.
-  const thisWrite = Promise.resolve().then(operation)
+  const thisWrite = Promise.resolve().then(operation);
   for (const key of keys) {
-    fileWriteLocks.set(key, thisWrite)
-    cleanupAfterWrite(key, thisWrite)
+    fileWriteLocks.set(key, thisWrite);
+    cleanupAfterWrite(key, thisWrite);
   }
-  return thisWrite
-}
+  return thisWrite;
+};
 
 /** Fail-fast lock — rejects immediately when a write is already in progress
  *  on the same file rather than queuing behind it. This prevents a write
  *  planned against stale state from silently executing after the in-flight
  *  write changes the file. The caller should re-read the file and retry.
  *  This is the single-file case of withExclusiveMultiFileLock. */
-export const withExclusiveFileLock = <T>(
-  filePath: string,
-  operation: () => Promise<T>,
-): Promise<T> => withExclusiveMultiFileLock([filePath], operation)
+export const withExclusiveFileLock = <T>(filePath: string, operation: () => Promise<T>): Promise<T> =>
+  withExclusiveMultiFileLock([filePath], operation);

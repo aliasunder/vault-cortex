@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest"
-import { normalizeScores, blendScores } from "../reranker.js"
-import { logger } from "../../../logger.js"
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { normalizeScores, blendScores } from "../reranker.js";
+import { logger } from "../../../logger.js";
 
 // ── Mock for cross-encoder factory tests ──────────────────────
 
@@ -11,13 +11,13 @@ import { logger } from "../../../logger.js"
 const mockTokenizer = vi.fn().mockReturnValue({
   input_ids: { data: [1, 2, 3] },
   attention_mask: { data: [1, 1, 1] },
-})
+});
 
 const mockModel = vi.fn().mockImplementation(() =>
   Promise.resolve({
     logits: { data: [0.95] },
   }),
-)
+);
 
 vi.mock("@huggingface/transformers", () => ({
   pipeline: vi.fn().mockResolvedValue(vi.fn()),
@@ -27,39 +27,39 @@ vi.mock("@huggingface/transformers", () => ({
   AutoModelForSequenceClassification: {
     from_pretrained: vi.fn().mockResolvedValue(mockModel),
   },
-}))
+}));
 
 describe("normalizeScores", () => {
   it("normalizes a range to [0, 1]", () => {
-    const result = normalizeScores([1, 3, 5])
-    expect(result).toEqual([0, 0.5, 1])
-  })
+    const result = normalizeScores([1, 3, 5]);
+    expect(result).toEqual([0, 0.5, 1]);
+  });
 
   it("returns all 0.5 when all scores are identical", () => {
-    const result = normalizeScores([7, 7, 7])
-    expect(result).toEqual([0.5, 0.5, 0.5])
-  })
+    const result = normalizeScores([7, 7, 7]);
+    expect(result).toEqual([0.5, 0.5, 0.5]);
+  });
 
   it("returns [0.5] for a single element", () => {
-    const result = normalizeScores([42])
-    expect(result).toEqual([0.5])
-  })
+    const result = normalizeScores([42]);
+    expect(result).toEqual([0.5]);
+  });
 
   it("returns empty array for empty input", () => {
-    const result = normalizeScores([])
-    expect(result).toEqual([])
-  })
+    const result = normalizeScores([]);
+    expect(result).toEqual([]);
+  });
 
   it("handles negative scores", () => {
-    const result = normalizeScores([-10, 0, 10])
-    expect(result).toEqual([0, 0.5, 1])
-  })
+    const result = normalizeScores([-10, 0, 10]);
+    expect(result).toEqual([0, 0.5, 1]);
+  });
 
   it("normalizes two-element range", () => {
-    const result = normalizeScores([0, 100])
-    expect(result).toEqual([0, 1])
-  })
-})
+    const result = normalizeScores([0, 100]);
+    expect(result).toEqual([0, 1]);
+  });
+});
 
 describe("blendScores", () => {
   const scenarios = [
@@ -155,149 +155,131 @@ describe("blendScores", () => {
         Number((0.125).toPrecision(4)),
       ],
     },
-  ]
+  ];
 
-  it.each(scenarios)(
-    "$name",
-    ({ rrfScores, rerankScores, rrfRanks, expected }) => {
-      const result = blendScores({ rrfScores, rerankScores, rrfRanks })
-      expect(result).toEqual(expected)
-    },
-  )
+  it.each(scenarios)("$name", ({ rrfScores, rerankScores, rrfRanks, expected }) => {
+    const result = blendScores({ rrfScores, rerankScores, rrfRanks });
+    expect(result).toEqual(expected);
+  });
 
   it("returns empty array for empty inputs", () => {
     const result = blendScores({
       rrfScores: [],
       rerankScores: [],
       rrfRanks: [],
-    })
-    expect(result).toEqual([])
-  })
-})
+    });
+    expect(result).toEqual([]);
+  });
+});
 
 // ── Cross-encoder factory tests ───────────────────────────────
 
 describe("createReranker", () => {
   beforeEach(() => {
-    vi.clearAllMocks()
-  })
+    vi.clearAllMocks();
+  });
 
   const loadReranker = async () => {
-    const { createReranker } = await import("../reranker.js")
-    return createReranker(logger)
-  }
+    const { createReranker } = await import("../reranker.js");
+    return createReranker(logger);
+  };
 
   describe("rerankPairs", () => {
     it("returns one score per document", async () => {
-      const reranker = await loadReranker()
-      const scores = await reranker.rerankPairs("query", [
-        "doc1",
-        "doc2",
-        "doc3",
-      ])
+      const reranker = await loadReranker();
+      const scores = await reranker.rerankPairs("query", ["doc1", "doc2", "doc3"]);
 
-      expect(scores).toHaveLength(3)
-      scores.forEach((score) => expect(typeof score).toBe("number"))
-    })
+      expect(scores).toHaveLength(3);
+      scores.forEach((score) => expect(typeof score).toBe("number"));
+    });
 
     it("returns the logit value from the model output", async () => {
-      const reranker = await loadReranker()
-      const scores = await reranker.rerankPairs("query", ["document"])
+      const reranker = await loadReranker();
+      const scores = await reranker.rerankPairs("query", ["document"]);
 
-      expect(scores).toEqual([0.95])
-    })
+      expect(scores).toEqual([0.95]);
+    });
 
     it("returns empty array for empty documents", async () => {
-      const reranker = await loadReranker()
-      const scores = await reranker.rerankPairs("query", [])
+      const reranker = await loadReranker();
+      const scores = await reranker.rerankPairs("query", []);
 
-      expect(scores).toEqual([])
-    })
+      expect(scores).toEqual([]);
+    });
 
     it("logs model load time on first call", async () => {
-      const infoSpy = vi.spyOn(logger, "info")
-      const reranker = await loadReranker()
-      await reranker.rerankPairs("query", ["doc"])
+      const infoSpy = vi.spyOn(logger, "info");
+      const reranker = await loadReranker();
+      await reranker.rerankPairs("query", ["doc"]);
 
       expect(infoSpy).toHaveBeenCalledWith(
         "reranker model loaded",
         expect.objectContaining({ model: "Xenova/ms-marco-MiniLM-L-6-v2" }),
-      )
-      infoSpy.mockRestore()
-    })
+      );
+      infoSpy.mockRestore();
+    });
 
     it("passes query and document as text_pair to the tokenizer", async () => {
-      const reranker = await loadReranker()
-      await reranker.rerankPairs("search query", ["relevant document"])
+      const reranker = await loadReranker();
+      await reranker.rerankPairs("search query", ["relevant document"]);
 
       expect(mockTokenizer).toHaveBeenCalledWith("search query", {
         text_pair: "relevant document",
         padding: true,
         truncation: true,
-      })
-    })
+      });
+    });
 
     it("pins ONNX to single-threaded execution to prevent CPU saturation", async () => {
-      const transformers = await import("@huggingface/transformers")
-      const mockedAutoModel = vi.mocked(
-        transformers.AutoModelForSequenceClassification,
-      )
+      const transformers = await import("@huggingface/transformers");
+      const mockedAutoModel = vi.mocked(transformers.AutoModelForSequenceClassification);
 
-      const reranker = await loadReranker()
-      await reranker.rerankPairs("trigger load", ["doc"])
+      const reranker = await loadReranker();
+      await reranker.rerankPairs("trigger load", ["doc"]);
 
-      expect(mockedAutoModel.from_pretrained).toHaveBeenCalledWith(
-        "Xenova/ms-marco-MiniLM-L-6-v2",
-        {
-          dtype: "q8",
-          session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
-        },
-      )
-    })
+      expect(mockedAutoModel.from_pretrained).toHaveBeenCalledWith("Xenova/ms-marco-MiniLM-L-6-v2", {
+        dtype: "q8",
+        session_options: { intraOpNumThreads: 1, interOpNumThreads: 1 },
+      });
+    });
 
     it("retries after a model load failure", async () => {
-      const transformers = await import("@huggingface/transformers")
-      const mockedAutoModel = vi.mocked(
-        transformers.AutoModelForSequenceClassification,
-      )
-      mockedAutoModel.from_pretrained.mockRejectedValueOnce(
-        new Error("download failed"),
-      )
+      const transformers = await import("@huggingface/transformers");
+      const mockedAutoModel = vi.mocked(transformers.AutoModelForSequenceClassification);
+      mockedAutoModel.from_pretrained.mockRejectedValueOnce(new Error("download failed"));
 
-      const warnSpy = vi.spyOn(logger, "warn")
-      const reranker = await loadReranker()
+      const warnSpy = vi.spyOn(logger, "warn");
+      const reranker = await loadReranker();
 
-      await expect(reranker.rerankPairs("q", ["d"])).rejects.toThrow(
-        "download failed",
-      )
+      await expect(reranker.rerankPairs("q", ["d"])).rejects.toThrow("download failed");
       expect(warnSpy).toHaveBeenCalledWith(
         "reranker model failed to load",
         expect.objectContaining({ model: "Xenova/ms-marco-MiniLM-L-6-v2" }),
-      )
+      );
 
       // modelLoading was reset in the catch block, allowing retry.
       // The mock reverts to its default (success), proving retry works.
-      const scores = await reranker.rerankPairs("retry", ["doc"])
-      expect(scores).toHaveLength(1)
+      const scores = await reranker.rerankPairs("retry", ["doc"]);
+      expect(scores).toHaveLength(1);
 
-      warnSpy.mockRestore()
-    })
+      warnSpy.mockRestore();
+    });
 
     it("scores each document independently", async () => {
       // Make the model return different scores per call to verify
       // each document is scored separately
-      let callCount = 0
+      let callCount = 0;
       mockModel.mockImplementation(() => {
-        callCount++
-        return Promise.resolve({ logits: { data: [callCount * 0.1] } })
-      })
+        callCount++;
+        return Promise.resolve({ logits: { data: [callCount * 0.1] } });
+      });
 
-      const reranker = await loadReranker()
-      const scores = await reranker.rerankPairs("query", ["a", "b", "c"])
+      const reranker = await loadReranker();
+      const scores = await reranker.rerankPairs("query", ["a", "b", "c"]);
 
-      expect(scores).toHaveLength(3)
-      expect(scores[0]).not.toBe(scores[1])
-      expect(scores[1]).not.toBe(scores[2])
-    })
-  })
-})
+      expect(scores).toHaveLength(3);
+      expect(scores[0]).not.toBe(scores[1]);
+      expect(scores[1]).not.toBe(scores[2]);
+    });
+  });
+});

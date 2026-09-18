@@ -26,4 +26,4 @@ export const stripMarkdownSyntax = (text: string): string =>
     // Callout markers: > [!type] Title → Title
     .replace(/^>\s*\[![^\]]*\]\s*/gm, "")
     // Block quotes: > text → text
-    .replace(/^>\s?/gm, "")
+    .replace(/^>\s?/gm, "");

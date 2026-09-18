@@ -1,19 +1,13 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { describe, expect, it, onTestFinished, vi } from "vitest"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
-import { runInit, validatePublicUrl } from "../init.js"
-import { pollHealth } from "../docker.js"
-import { buildDockerNotInstalledMessage } from "../messages.js"
+import { runInit, validatePublicUrl } from "../init.js";
+import { pollHealth } from "../docker.js";
+import { buildDockerNotInstalledMessage } from "../messages.js";
 
-vi.mock("../docker.js", { spy: true })
+vi.mock("../docker.js", { spy: true });
 import {
   createScriptedPrompts,
   dockerDaemonOnly,
@@ -21,16 +15,15 @@ import {
   dockerNotInstalled,
   dockerReady,
   fetchNever,
-} from "./command-stubs.js"
+} from "./command-stubs.js";
 
 const makeVault = (): string => {
-  const vaultDir = mkdtempSync(join(tmpdir(), "vault-cli-vault-"))
-  mkdirSync(join(vaultDir, ".obsidian"))
-  return vaultDir
-}
+  const vaultDir = mkdtempSync(join(tmpdir(), "vault-cli-vault-"));
+  mkdirSync(join(vaultDir, ".obsidian"));
+  return vaultDir;
+};
 
-const makeTargetDir = (): string =>
-  join(mkdtempSync(join(tmpdir(), "vault-cli-target-")), "out")
+const makeTargetDir = (): string => join(mkdtempSync(join(tmpdir(), "vault-cli-target-")), "out");
 
 describe("runInit flag validation", () => {
   const invalidFlagScenarios = [
@@ -42,35 +35,34 @@ describe("runInit flag validation", () => {
     {
       name: "--yes with --mode remote exits 1 (remote needs interactive prompts)",
       flags: { yes: true, mode: "remote", vaultPath: "/tmp" },
-      expectedError:
-        "--yes only supports local mode — remote setup needs interactive token prompts.",
+      expectedError: "--yes only supports local mode — remote setup needs interactive token prompts.",
     },
     {
       name: "an unknown --mode exits 1",
       flags: { mode: "cloud" },
       expectedError: 'Unknown mode "cloud" — expected "local" or "remote".',
     },
-  ]
+  ];
 
   it.each(invalidFlagScenarios)("$name", async ({ flags, expectedError }) => {
-    const scripted = createScriptedPrompts([])
+    const scripted = createScriptedPrompts([]);
 
     const exitCode = await runInit(flags, {
       prompts: scripted.prompts,
       docker: dockerDown,
       fetchFn: fetchNever,
-    })
+    });
 
-    expect(exitCode).toBe(1)
-    expect(scripted.errors).toEqual([expectedError])
-  })
-})
+    expect(exitCode).toBe(1);
+    expect(scripted.errors).toEqual([expectedError]);
+  });
+});
 
 describe("runInit --yes (non-interactive local)", () => {
   it("scaffolds .env without any prompts", async () => {
-    const vaultDir = makeVault()
-    const targetDir = makeTargetDir()
-    const scripted = createScriptedPrompts([])
+    const vaultDir = makeVault();
+    const targetDir = makeTargetDir();
+    const scripted = createScriptedPrompts([]);
 
     const exitCode = await runInit(
       { yes: true, vaultPath: vaultDir, dir: targetDir },
@@ -79,21 +71,21 @@ describe("runInit --yes (non-interactive local)", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    expect(scripted.asked).toEqual([])
-    expect(existsSync(join(targetDir, "docker-compose.yml"))).toBe(false)
-    const envContent = readFileSync(join(targetDir, ".env"), "utf8")
-    expect(envContent).toMatch(/^MCP_AUTH_TOKEN=[0-9a-f]{64}$/m)
-    expect(envContent).toContain(`VAULT_PATH=${vaultDir}\n`)
+    expect(exitCode).toBe(0);
+    expect(scripted.asked).toEqual([]);
+    expect(existsSync(join(targetDir, "docker-compose.yml"))).toBe(false);
+    const envContent = readFileSync(join(targetDir, ".env"), "utf8");
+    expect(envContent).toMatch(/^MCP_AUTH_TOKEN=[0-9a-f]{64}$/m);
+    expect(envContent).toContain(`VAULT_PATH=${vaultDir}\n`);
     expect(scripted.prints[0]).toContain(
       "Adjust optional settings (memory layer and folder, daily notes\nfolder and format, file tools, semantic search, port, timezone):",
-    )
-  })
+    );
+  });
 
   it("exits 1 when --vault-path does not exist", async () => {
-    const scripted = createScriptedPrompts([])
+    const scripted = createScriptedPrompts([]);
 
     const exitCode = await runInit(
       {
@@ -106,20 +98,18 @@ describe("runInit --yes (non-interactive local)", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(1)
-    expect(scripted.errors).toEqual([
-      `Path does not exist: ${join(tmpdir(), "vault-cli-no-such-vault")}`,
-    ])
-  })
+    expect(exitCode).toBe(1);
+    expect(scripted.errors).toEqual([`Path does not exist: ${join(tmpdir(), "vault-cli-no-such-vault")}`]);
+  });
 
   it("exits 1 on a differing existing .env and leaves it untouched", async () => {
-    const vaultDir = makeVault()
-    const targetDir = makeTargetDir()
-    mkdirSync(targetDir, { recursive: true })
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
-    const scripted = createScriptedPrompts([])
+    const vaultDir = makeVault();
+    const targetDir = makeTargetDir();
+    mkdirSync(targetDir, { recursive: true });
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n");
+    const scripted = createScriptedPrompts([]);
 
     const exitCode = await runInit(
       { yes: true, vaultPath: vaultDir, dir: targetDir },
@@ -128,23 +118,19 @@ describe("runInit --yes (non-interactive local)", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(1)
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
-      "MCP_AUTH_TOKEN=existing\n",
-    )
-    expect(scripted.errors).toEqual([
-      "Existing files differ (.env) — refusing to overwrite in --yes mode.",
-    ])
-  })
-})
+    expect(exitCode).toBe(1);
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=existing\n");
+    expect(scripted.errors).toEqual(["Existing files differ (.env) — refusing to overwrite in --yes mode."]);
+  });
+});
 
 describe("local connect message client routing", () => {
   it("routes Claude Code to claude mcp add and Claude Desktop to the mcp-remote bridge", async () => {
-    const vaultDir = makeVault()
-    const targetDir = makeTargetDir()
-    const scripted = createScriptedPrompts([])
+    const vaultDir = makeVault();
+    const targetDir = makeTargetDir();
+    const scripted = createScriptedPrompts([]);
 
     const exitCode = await runInit(
       { yes: true, vaultPath: vaultDir, dir: targetDir },
@@ -153,26 +139,24 @@ describe("local connect message client routing", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    const connectMessage = scripted.prints[0]
+    expect(exitCode).toBe(0);
+    const connectMessage = scripted.prints[0];
     expect(connectMessage).toContain(
       "claude mcp add --scope user --transport http vault-cortex http://localhost:8000/mcp",
-    )
-    expect(connectMessage).toContain(
-      '"mcp-remote", "http://localhost:8000/mcp"',
-    )
-    expect(connectMessage).toContain("only accepts https URLs")
+    );
+    expect(connectMessage).toContain('"mcp-remote", "http://localhost:8000/mcp"');
+    expect(connectMessage).toContain("only accepts https URLs");
     // Claude Desktop must not be grouped with the add-as-remote-server flow —
     // its connector dialog rejects http URLs.
-    expect(connectMessage).not.toContain("OAuth clients (Claude Desktop")
-  })
+    expect(connectMessage).not.toContain("OAuth clients (Claude Desktop");
+  });
 
   it("prints the generated auth token alone on its own line for clean copying", async () => {
-    const vaultDir = makeVault()
-    const targetDir = makeTargetDir()
-    const scripted = createScriptedPrompts([])
+    const vaultDir = makeVault();
+    const targetDir = makeTargetDir();
+    const scripted = createScriptedPrompts([]);
 
     const exitCode = await runInit(
       { yes: true, vaultPath: vaultDir, dir: targetDir },
@@ -181,31 +165,29 @@ describe("local connect message client routing", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    const token = /MCP_AUTH_TOKEN=(.+)/.exec(
-      readFileSync(join(targetDir, ".env"), "utf8"),
-    )?.[1]
-    expect(token).toMatch(/^[0-9a-f]{64}$/)
-    const connectMessage = scripted.prints[0]
+    expect(exitCode).toBe(0);
+    const token = /MCP_AUTH_TOKEN=(.+)/.exec(readFileSync(join(targetDir, ".env"), "utf8"))?.[1];
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    const connectMessage = scripted.prints[0];
     // The token must be on a line by itself (so a line-select grabs only it),
     // not inline after the "Auth token:" label.
-    expect(connectMessage.split("\n")).toContain(`  ${token}`)
-    expect(connectMessage).not.toContain(`Auth token: ${token}`)
-  })
-})
+    expect(connectMessage.split("\n")).toContain(`  ${token}`);
+    expect(connectMessage).not.toContain(`Auth token: ${token}`);
+  });
+});
 
 describe("target directory tilde expansion", () => {
   it("expands a leading ~ in --dir to the home directory instead of a literal ~ folder", async () => {
-    const vaultDir = makeVault()
-    const fakeHome = mkdtempSync(join(tmpdir(), "vault-cli-home-"))
-    const originalHome = process.env.HOME
-    process.env.HOME = fakeHome
+    const vaultDir = makeVault();
+    const fakeHome = mkdtempSync(join(tmpdir(), "vault-cli-home-"));
+    const originalHome = process.env.HOME;
+    process.env.HOME = fakeHome;
     onTestFinished(() => {
-      process.env.HOME = originalHome
-    })
-    const scripted = createScriptedPrompts([])
+      process.env.HOME = originalHome;
+    });
+    const scripted = createScriptedPrompts([]);
 
     const exitCode = await runInit(
       { yes: true, vaultPath: vaultDir, dir: "~/vault-cortex" },
@@ -214,14 +196,14 @@ describe("target directory tilde expansion", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
+    expect(exitCode).toBe(0);
     // Files land under the expanded home, not a literal "~" directory.
-    expect(existsSync(join(fakeHome, "vault-cortex", ".env"))).toBe(true)
-    expect(existsSync(join(process.cwd(), "~"))).toBe(false)
-  })
-})
+    expect(existsSync(join(fakeHome, "vault-cortex", ".env"))).toBe(true);
+    expect(existsSync(join(process.cwd(), "~"))).toBe(false);
+  });
+});
 
 describe("remote connect message https routing", () => {
   const runRemoteInit = async (publicUrl: string) => {
@@ -231,7 +213,7 @@ describe("remote connect message https routing", () => {
       false, // don't generate the token now (declined auto-capture)
       false, // no encryption
       [], // no optional settings
-    ])
+    ]);
 
     const exitCode = await runInit(
       { mode: "remote", dir: makeTargetDir() },
@@ -240,48 +222,47 @@ describe("remote connect message https routing", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    const connectMessage = scripted.prints.find((message) =>
-      message.includes("Connect your MCP client"),
-    )
-    if (!connectMessage) throw new Error("connect message was not printed")
-    return connectMessage
-  }
+    expect(exitCode).toBe(0);
+    const connectMessage = scripted.prints.find((message) => message.includes("Connect your MCP client"));
+
+    if (!connectMessage) throw new Error("connect message was not printed");
+    return connectMessage;
+  };
 
   it("warns and offers claude mcp add when PUBLIC_URL is http", async () => {
-    const connectMessage = await runRemoteInit("http://203.0.113.10:8000")
+    const connectMessage = await runRemoteInit("http://203.0.113.10:8000");
 
-    expect(connectMessage).toContain("only accept https URLs")
+    expect(connectMessage).toContain("only accept https URLs");
     expect(connectMessage).toContain(
       "claude mcp add --scope user --transport http vault-cortex http://203.0.113.10:8000/mcp",
-    )
-  })
+    );
+  });
 
   it("omits the http warning when PUBLIC_URL is https", async () => {
-    const connectMessage = await runRemoteInit("https://vault.example.com")
+    const connectMessage = await runRemoteInit("https://vault.example.com");
 
     // The Claude Code walkthrough is shared by every variant, so the command
     // is present; what https omits is the http-only "set up HTTPS" caveat.
-    expect(connectMessage).toContain("claude mcp add")
-    expect(connectMessage).not.toContain("only accept https URLs")
-    expect(connectMessage).not.toContain("set up HTTPS")
-    expect(connectMessage).toContain("Reachable over https")
-  })
+    expect(connectMessage).toContain("claude mcp add");
+    expect(connectMessage).not.toContain("only accept https URLs");
+    expect(connectMessage).not.toContain("set up HTTPS");
+    expect(connectMessage).toContain("Reachable over https");
+  });
 
   it("routes an uppercase HTTPS:// scheme to the https guidance", async () => {
     // PUBLIC_URL is stored as typed, so the https detection must be
     // case-insensitive — HTTPS:// is valid and must not fall to http guidance.
-    const connectMessage = await runRemoteInit("HTTPS://vault.example.com")
+    const connectMessage = await runRemoteInit("HTTPS://vault.example.com");
 
-    expect(connectMessage).toContain("Reachable over https")
-    expect(connectMessage).not.toContain("only accept https URLs")
-    expect(connectMessage).not.toContain("set up HTTPS")
-  })
+    expect(connectMessage).toContain("Reachable over https");
+    expect(connectMessage).not.toContain("only accept https URLs");
+    expect(connectMessage).not.toContain("set up HTTPS");
+  });
 
   it("rejects a trailing /mcp on PUBLIC_URL and re-prompts for the base origin", async () => {
-    const targetDir = makeTargetDir()
+    const targetDir = makeTargetDir();
     const scripted = createScriptedPrompts([
       "https://vault.example.com/mcp", // re-included the /mcp path — rejected
       "https://vault.example.com", // base origin — accepted on re-prompt
@@ -289,7 +270,7 @@ describe("remote connect message https routing", () => {
       false, // don't generate the token now (declined auto-capture)
       false, // no encryption
       [], // no optional settings
-    ])
+    ]);
 
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
@@ -298,30 +279,28 @@ describe("remote connect message https routing", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    expect(scripted.errors).toHaveLength(1)
-    expect(scripted.errors[0]).toContain("Leave /mcp off PUBLIC_URL")
+    expect(exitCode).toBe(0);
+    expect(scripted.errors).toHaveLength(1);
+    expect(scripted.errors[0]).toContain("Leave /mcp off PUBLIC_URL");
     // The accepted base origin is stored verbatim — not silently rewritten —
     // and the connect URL appends /mcp exactly once.
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
-      "PUBLIC_URL=https://vault.example.com\n",
-    )
-    const connectMessage = scripted.prints[0]
-    expect(connectMessage).toContain("https://vault.example.com/mcp")
-    expect(connectMessage).not.toContain("https://vault.example.com/mcp/mcp")
-  })
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain("PUBLIC_URL=https://vault.example.com\n");
+    const connectMessage = scripted.prints[0];
+    expect(connectMessage).toContain("https://vault.example.com/mcp");
+    expect(connectMessage).not.toContain("https://vault.example.com/mcp/mcp");
+  });
 
   it("trims a trailing slash on PUBLIC_URL so the connect URL is not //mcp", async () => {
-    const targetDir = makeTargetDir()
+    const targetDir = makeTargetDir();
     const scripted = createScriptedPrompts([
       "https://vault.example.com/", // trailing slash — trimmed, not rejected
       "MyVault",
       false, // don't generate the token now (declined auto-capture)
       false, // no encryption
       [], // no optional settings
-    ])
+    ]);
 
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
@@ -330,26 +309,24 @@ describe("remote connect message https routing", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    expect(scripted.errors).toHaveLength(0)
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
-      "PUBLIC_URL=https://vault.example.com\n",
-    )
-    expect(scripted.prints[0]).toContain("https://vault.example.com/mcp")
-    expect(scripted.prints[0]).not.toContain("https://vault.example.com//mcp")
-  })
+    expect(exitCode).toBe(0);
+    expect(scripted.errors).toHaveLength(0);
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain("PUBLIC_URL=https://vault.example.com\n");
+    expect(scripted.prints[0]).toContain("https://vault.example.com/mcp");
+    expect(scripted.prints[0]).not.toContain("https://vault.example.com//mcp");
+  });
 
   it("prints the generated auth token alone on its own line for clean copying", async () => {
-    const targetDir = makeTargetDir()
+    const targetDir = makeTargetDir();
     const scripted = createScriptedPrompts([
       "https://vault.example.com",
       "MyVault",
       false, // don't generate the token now (declined auto-capture)
       false, // no encryption
       [], // no optional settings
-    ])
+    ]);
 
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
@@ -358,30 +335,28 @@ describe("remote connect message https routing", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    const token = /MCP_AUTH_TOKEN=(.+)/.exec(
-      readFileSync(join(targetDir, ".env"), "utf8"),
-    )?.[1]
-    expect(token).toMatch(/^[0-9a-f]{64}$/)
-    const connectMessage = scripted.prints[0]
+    expect(exitCode).toBe(0);
+    const token = /MCP_AUTH_TOKEN=(.+)/.exec(readFileSync(join(targetDir, ".env"), "utf8"))?.[1];
+    expect(token).toMatch(/^[0-9a-f]{64}$/);
+    const connectMessage = scripted.prints[0];
     // The token must be on a line by itself (so a line-select grabs only it),
     // not trailing the "Auth token:" label or buried in the OAuth paragraph.
-    expect(connectMessage.split("\n")).toContain(`  ${token}`)
-    expect(connectMessage).not.toContain(`Auth token: ${token}`)
-  })
-})
+    expect(connectMessage.split("\n")).toContain(`  ${token}`);
+    expect(connectMessage).not.toContain(`Auth token: ${token}`);
+  });
+});
 
 describe("runInit interactive local flow", () => {
   it("defaults the mode select to local", async () => {
-    const vaultDir = makeVault()
+    const vaultDir = makeVault();
     const scripted = createScriptedPrompts([
       "local",
       vaultDir,
       makeTargetDir(),
       [], // no optional settings
-    ])
+    ]);
 
     await runInit(
       {},
@@ -390,7 +365,7 @@ describe("runInit interactive local flow", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
     expect(scripted.selectCalls).toEqual([
       {
@@ -409,20 +384,20 @@ describe("runInit interactive local flow", () => {
         ],
         initialValue: "local",
       },
-    ])
-  })
+    ]);
+  });
 
   it("re-prompts when the vault path does not exist, then succeeds", async () => {
-    const vaultDir = makeVault()
-    const targetDir = makeTargetDir()
-    const missingPath = join(tmpdir(), "vault-cli-no-such-vault")
+    const vaultDir = makeVault();
+    const targetDir = makeTargetDir();
+    const missingPath = join(tmpdir(), "vault-cli-no-such-vault");
     const scripted = createScriptedPrompts([
       "local",
       missingPath,
       vaultDir,
       targetDir,
       [], // no optional settings
-    ])
+    ]);
 
     const exitCode = await runInit(
       {},
@@ -431,24 +406,22 @@ describe("runInit interactive local flow", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    expect(scripted.errors).toEqual([`Path does not exist: ${missingPath}`])
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
-      `VAULT_PATH=${vaultDir}\n`,
-    )
-  })
+    expect(exitCode).toBe(0);
+    expect(scripted.errors).toEqual([`Path does not exist: ${missingPath}`]);
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(`VAULT_PATH=${vaultDir}\n`);
+  });
 
   it("warns and skips the start offer when Docker is installed but the daemon is down", async () => {
-    const vaultDir = makeVault()
-    const targetDir = makeTargetDir()
+    const vaultDir = makeVault();
+    const targetDir = makeTargetDir();
     const scripted = createScriptedPrompts([
       "local",
       vaultDir,
       targetDir,
       [], // no optional settings
-    ])
+    ]);
     const exitCode = await runInit(
       {},
       {
@@ -456,25 +429,25 @@ describe("runInit interactive local flow", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    expect(scripted.asked).not.toContain("Start the server now?")
-    expect(scripted.warnings).toHaveLength(1)
-    expect(scripted.warnings[0]).toContain("Container runtime not running")
-  })
+    expect(exitCode).toBe(0);
+    expect(scripted.asked).not.toContain("Start the server now?");
+    expect(scripted.warnings).toHaveLength(1);
+    expect(scripted.warnings[0]).toContain("Container runtime not running");
+  });
 
   // Message content per platform is pinned test-owned in messages.test.ts —
   // this asserts the not-installed state routes to the install guidance.
   it("warns with install guidance and skips the start offer when Docker is not installed", async () => {
-    const vaultDir = makeVault()
-    const targetDir = makeTargetDir()
+    const vaultDir = makeVault();
+    const targetDir = makeTargetDir();
     const scripted = createScriptedPrompts([
       "local",
       vaultDir,
       targetDir,
       [], // no optional settings
-    ])
+    ]);
     const exitCode = await runInit(
       {},
       {
@@ -482,27 +455,27 @@ describe("runInit interactive local flow", () => {
         docker: dockerNotInstalled,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    expect(scripted.asked).not.toContain("Start the server now?")
+    expect(exitCode).toBe(0);
+    expect(scripted.asked).not.toContain("Start the server now?");
     expect(scripted.warnings).toEqual([
       buildDockerNotInstalledMessage({
         nextStep: `\nThen start the server with:\n  npx vault-cortex@latest start --dir "${targetDir}"`,
       }),
-    ])
-  })
+    ]);
+  });
 
   it("asks for confirmation on a folder without .obsidian and proceeds on yes", async () => {
-    const plainDir = mkdtempSync(join(tmpdir(), "vault-cli-plain-"))
-    const targetDir = makeTargetDir()
+    const plainDir = mkdtempSync(join(tmpdir(), "vault-cli-plain-"));
+    const targetDir = makeTargetDir();
     const scripted = createScriptedPrompts([
       "local",
       plainDir,
       true, // use the non-Obsidian folder anyway
       targetDir,
       [], // no optional settings
-    ])
+    ]);
 
     const exitCode = await runInit(
       {},
@@ -511,26 +484,24 @@ describe("runInit interactive local flow", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    expect(scripted.asked[2]).toContain("Use it anyway?")
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
-      `VAULT_PATH=${plainDir}\n`,
-    )
-  })
-})
+    expect(exitCode).toBe(0);
+    expect(scripted.asked[2]).toContain("Use it anyway?");
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(`VAULT_PATH=${plainDir}\n`);
+  });
+});
 
 describe("runInit remote flow", () => {
   it("leaves OBSIDIAN_AUTH_TOKEN blank when auto-capture is declined", async () => {
-    const targetDir = makeTargetDir()
+    const targetDir = makeTargetDir();
     const scripted = createScriptedPrompts([
       "https://vault.example.com/", // public URL (trailing slash trimmed)
       "MyVault", // vault name
       false, // don't generate the token now (declined auto-capture)
       false, // no end-to-end encryption
       [], // no optional settings
-    ])
+    ]);
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
       {
@@ -538,36 +509,36 @@ describe("runInit remote flow", () => {
         docker: dockerDaemonOnly,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
+    expect(exitCode).toBe(0);
     expect(scripted.asked).toEqual([
       "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
       "Exact name of your Obsidian vault (case-sensitive):",
       "Generate the token now?",
       "Does your vault use end-to-end encryption?",
       "Any optional settings to change? (press enter to skip)",
-    ])
-    expect(existsSync(join(targetDir, "docker-compose.yml"))).toBe(false)
-    const envContent = readFileSync(join(targetDir, ".env"), "utf8")
-    expect(envContent).toContain("PUBLIC_URL=https://vault.example.com\n")
-    expect(envContent).toContain("VAULT_NAME=MyVault\n")
-    expect(envContent).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
+    ]);
+    expect(existsSync(join(targetDir, "docker-compose.yml"))).toBe(false);
+    const envContent = readFileSync(join(targetDir, ".env"), "utf8");
+    expect(envContent).toContain("PUBLIC_URL=https://vault.example.com\n");
+    expect(envContent).toContain("VAULT_NAME=MyVault\n");
+    expect(envContent).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m);
     expect(scripted.logs).toContain(
       "No token yet — run this later to add it to your .env:\n" +
         `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
-    )
-  })
+    );
+  });
 
   it("always offers token generation even without Docker", async () => {
-    const targetDir = makeTargetDir()
+    const targetDir = makeTargetDir();
     const scripted = createScriptedPrompts([
       "https://vault.example.com", // public URL
       "MyVault", // vault name
       false, // don't generate the token now (declined auto-capture)
       false, // no end-to-end encryption
       [], // no optional settings
-    ])
+    ]);
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
       {
@@ -575,27 +546,27 @@ describe("runInit remote flow", () => {
         docker: dockerNotInstalled,
         fetchFn: fetchNever,
       },
-    )
+    );
 
     // Token generation is always offered (uses the API, not Docker). With a
     // blank token (capture declined), no start offer is shown.
-    expect(exitCode).toBe(0)
+    expect(exitCode).toBe(0);
     expect(scripted.asked).toEqual([
       "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
       "Exact name of your Obsidian vault (case-sensitive):",
       "Generate the token now?",
       "Does your vault use end-to-end encryption?",
       "Any optional settings to change? (press enter to skip)",
-    ])
-    expect(scripted.asked).toContain("Generate the token now?")
-  })
+    ]);
+    expect(scripted.asked).toContain("Generate the token now?");
+  });
 
   it("probes the public URL after a confirmed start and reports success", async () => {
-    const targetDir = makeTargetDir()
-    const fetchedUrls: string[] = []
+    const targetDir = makeTargetDir();
+    const fetchedUrls: string[] = [];
     const fetchRecorder: typeof fetch = async (input) => {
-      const url = String(input)
-      fetchedUrls.push(url)
+      const url = String(input);
+      fetchedUrls.push(url);
       // Signin API call succeeds; health/probe calls succeed
       if (url.includes("api.obsidian.md")) {
         return new Response(
@@ -605,10 +576,10 @@ describe("runInit remote flow", () => {
             email: "user@example.com",
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
-        )
+        );
       }
-      return new Response(null, { status: 200 })
-    }
+      return new Response(null, { status: 200 });
+    };
     const scripted = createScriptedPrompts([
       "https://vault.example.com", // public URL
       "MyVault", // vault name
@@ -618,7 +589,7 @@ describe("runInit remote flow", () => {
       false, // no end-to-end encryption
       [], // no optional settings
       true, // start the server now
-    ])
+    ]);
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
       {
@@ -626,25 +597,25 @@ describe("runInit remote flow", () => {
         docker: dockerReady,
         fetchFn: fetchRecorder,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
+    expect(exitCode).toBe(0);
     // Signin first (auto-capture), then health poll, then public URL probe.
     expect(fetchedUrls).toEqual([
       "https://api.obsidian.md/user/signin",
       "http://127.0.0.1:8000/healthz",
       "https://vault.example.com/healthz",
-    ])
-  })
+    ]);
+  });
 
   it("keeps a successful start at exit 0 when the public URL does not answer", async () => {
-    const targetDir = makeTargetDir()
-    const fetchedUrls: string[] = []
+    const targetDir = makeTargetDir();
+    const fetchedUrls: string[] = [];
     // Localhost (the container check) answers; the public URL is unreachable
     // — the state every remote init is in before HTTPS/ingress is set up.
     const fetchPublicUrlDownWithSignin: typeof fetch = async (input) => {
-      const requestUrl = String(input)
-      fetchedUrls.push(requestUrl)
+      const requestUrl = String(input);
+      fetchedUrls.push(requestUrl);
       if (requestUrl.includes("api.obsidian.md")) {
         return new Response(
           JSON.stringify({
@@ -653,12 +624,11 @@ describe("runInit remote flow", () => {
             email: "user@example.com",
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
-        )
+        );
       }
-      if (requestUrl.includes("127.0.0.1"))
-        return new Response(null, { status: 200 })
-      throw new Error("ECONNREFUSED")
-    }
+      if (requestUrl.includes("127.0.0.1")) return new Response(null, { status: 200 });
+      throw new Error("ECONNREFUSED");
+    };
     const scripted = createScriptedPrompts([
       "https://vault.example.com", // public URL
       "MyVault", // vault name
@@ -668,7 +638,7 @@ describe("runInit remote flow", () => {
       false, // no end-to-end encryption
       [], // no optional settings
       true, // start the server now
-    ])
+    ]);
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
       {
@@ -676,12 +646,12 @@ describe("runInit remote flow", () => {
         docker: dockerReady,
         fetchFn: fetchPublicUrlDownWithSignin,
       },
-    )
+    );
 
     // Exit 0 with the probe provably fired — the probe is informational,
     // never a gate — and the connect message still reports the running server.
-    expect(exitCode).toBe(0)
-    expect(fetchedUrls).toContain("https://vault.example.com/healthz")
+    expect(exitCode).toBe(0);
+    expect(fetchedUrls).toContain("https://vault.example.com/healthz");
     // Signin spinner from auto-capture, then container health, then URL probe.
     expect(scripted.spinnerMessages).toEqual([
       "start: Signing in to Obsidian...",
@@ -690,19 +660,19 @@ describe("runInit remote flow", () => {
       "stop: Server is up — health check passed.",
       "start: Checking the public URL (https://vault.example.com/healthz)",
       "stop: No answer from https://vault.example.com/healthz yet.",
-    ])
+    ]);
     expect(scripted.warnings).toEqual([
       "The server is up, but its public URL didn't answer from this machine.\n" +
         "That's expected until HTTPS (or direct port) access is set up — and\n" +
         "some networks keep a server from reaching its own public address even\n" +
         "when other devices can. Once access is set up, check from any device:\n" +
         "  curl https://vault.example.com/healthz",
-    ])
-    expect(scripted.prints[0]).toContain("The server is running.")
-  })
+    ]);
+    expect(scripted.prints[0]).toContain("The server is running.");
+  });
 
   it("fills OBSIDIAN_AUTH_TOKEN from auto-capture when accepted", async () => {
-    const targetDir = makeTargetDir()
+    const targetDir = makeTargetDir();
     const scripted = createScriptedPrompts([
       "https://vault.example.com",
       "MyVault",
@@ -712,7 +682,7 @@ describe("runInit remote flow", () => {
       false, // no end-to-end encryption
       [], // no optional settings
       false, // don't start the server
-    ])
+    ]);
     const fetchSigninSuccess: typeof fetch = async () =>
       new Response(
         JSON.stringify({
@@ -721,7 +691,7 @@ describe("runInit remote flow", () => {
           email: "user@example.com",
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
-      )
+      );
 
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
@@ -730,26 +700,24 @@ describe("runInit remote flow", () => {
         docker: dockerDaemonOnly,
         fetchFn: fetchSigninSuccess,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    const envContent = readFileSync(join(targetDir, ".env"), "utf8")
+    expect(exitCode).toBe(0);
+    const envContent = readFileSync(join(targetDir, ".env"), "utf8");
     // Exact line match — a substring check would also pass for a commented
     // or prefixed entry (e.g. "# OBSIDIAN_AUTH_TOKEN=captured-token").
-    expect(envContent.split("\n")).toContain(
-      "OBSIDIAN_AUTH_TOKEN=captured-token",
-    )
-  })
+    expect(envContent.split("\n")).toContain("OBSIDIAN_AUTH_TOKEN=captured-token");
+  });
 
   it("skips the start offer when the sync token was left blank", async () => {
-    const targetDir = makeTargetDir()
+    const targetDir = makeTargetDir();
     const scripted = createScriptedPrompts([
       "http://203.0.113.10:8000",
       "MyVault",
       false, // don't generate the token now (declined auto-capture)
       false, // no encryption
       [], // no optional settings
-    ])
+    ]);
 
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
@@ -758,22 +726,20 @@ describe("runInit remote flow", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    expect(scripted.asked).not.toContain("Start the server now?")
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(
-      /^OBSIDIAN_AUTH_TOKEN=$/m,
-    )
-  })
+    expect(exitCode).toBe(0);
+    expect(scripted.asked).not.toContain("Start the server now?");
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m);
+  });
 
   it("preserves existing token and offers start when capture is declined on re-init", async () => {
-    const targetDir = makeTargetDir()
-    mkdirSync(targetDir, { recursive: true })
+    const targetDir = makeTargetDir();
+    mkdirSync(targetDir, { recursive: true });
     writeFileSync(
       join(targetDir, ".env"),
       "MCP_AUTH_TOKEN=old\nOBSIDIAN_AUTH_TOKEN=existing-token\nPUBLIC_URL=https://vault.example.com\nVAULT_NAME=MyVault\n",
-    )
+    );
     const scripted = createScriptedPrompts([
       true, // re-run setup
       "https://vault.example.com",
@@ -783,7 +749,7 @@ describe("runInit remote flow", () => {
       [], // no optional settings
       true, // overwrite .env (content differs due to new MCP_AUTH_TOKEN)
       false, // don't start the server
-    ])
+    ]);
 
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
@@ -792,17 +758,17 @@ describe("runInit remote flow", () => {
         docker: dockerDaemonOnly,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    expect(scripted.asked).toContain("Start the server now?")
-    expect(scripted.logs).not.toContain(expect.stringContaining("No token yet"))
-    const envContent = readFileSync(join(targetDir, ".env"), "utf8")
-    expect(envContent).toMatch(/^OBSIDIAN_AUTH_TOKEN=existing-token$/m)
-  })
+    expect(exitCode).toBe(0);
+    expect(scripted.asked).toContain("Start the server now?");
+    expect(scripted.logs).not.toContain(expect.stringContaining("No token yet"));
+    const envContent = readFileSync(join(targetDir, ".env"), "utf8");
+    expect(envContent).toMatch(/^OBSIDIAN_AUTH_TOKEN=existing-token$/m);
+  });
 
   it("asks the config dir first, then the mode-specific inputs", async () => {
-    const configDir = makeTargetDir()
+    const configDir = makeTargetDir();
     const scripted = createScriptedPrompts([
       configDir, // config dir — prompted, not passed as a flag
       "https://vault.example.com", // public URL
@@ -810,7 +776,7 @@ describe("runInit remote flow", () => {
       false, // don't generate the token now (declined auto-capture)
       false, // no encryption
       [], // no optional settings
-    ])
+    ]);
 
     const exitCode = await runInit(
       { mode: "remote" },
@@ -819,9 +785,9 @@ describe("runInit remote flow", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
+    expect(exitCode).toBe(0);
     expect(scripted.asked).toEqual([
       "Where should I put the config files?",
       "Public base URL clients will use to reach this server (no /mcp — it's added for you):",
@@ -829,19 +795,19 @@ describe("runInit remote flow", () => {
       "Generate the token now?",
       "Does your vault use end-to-end encryption?",
       "Any optional settings to change? (press enter to skip)",
-    ])
-    expect(existsSync(join(configDir, ".env"))).toBe(true)
-  })
-})
+    ]);
+    expect(existsSync(join(configDir, ".env"))).toBe(true);
+  });
+});
 
 describe("runInit re-init guard", () => {
   it("backs out of remote init before any mode-specific question when the dir already holds a deployment", async () => {
-    const targetDir = makeTargetDir()
-    mkdirSync(targetDir, { recursive: true })
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const targetDir = makeTargetDir();
+    mkdirSync(targetDir, { recursive: true });
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n");
     const scripted = createScriptedPrompts([
       false, // existing deployment found — do not re-run setup (default)
-    ])
+    ]);
 
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
@@ -850,39 +816,37 @@ describe("runInit re-init guard", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
+    expect(exitCode).toBe(0);
     // The guard must fire before the first mode-specific question — the
     // confirm is the only prompt the whole run asked.
-    expect(scripted.asked).toEqual(["Re-run setup for this directory anyway?"])
+    expect(scripted.asked).toEqual(["Re-run setup for this directory anyway?"]);
     expect(scripted.confirmCalls).toEqual([
       {
         message: "Re-run setup for this directory anyway?",
         initialValue: false,
       },
-    ])
+    ]);
     expect(scripted.logs).toEqual([
       `Found an existing deployment in ${targetDir}.`,
       `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`,
-    ])
-    expect(scripted.outros).toEqual(["Done."])
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
-      "MCP_AUTH_TOKEN=existing\n",
-    )
-  })
+    ]);
+    expect(scripted.outros).toEqual(["Done."]);
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=existing\n");
+  });
 
   it("backs out of local init after the dir prompt when it already holds a deployment", async () => {
-    const vaultDir = makeVault()
-    const targetDir = makeTargetDir()
-    mkdirSync(targetDir, { recursive: true })
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const vaultDir = makeVault();
+    const targetDir = makeTargetDir();
+    mkdirSync(targetDir, { recursive: true });
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n");
     const scripted = createScriptedPrompts([
       "local",
       vaultDir,
       targetDir,
       false, // existing deployment found — do not re-run setup (default)
-    ])
+    ]);
 
     const exitCode = await runInit(
       {},
@@ -891,26 +855,24 @@ describe("runInit re-init guard", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
+    expect(exitCode).toBe(0);
     // The guard fires on the dir answer — no settings or start questions follow.
     expect(scripted.asked).toEqual([
       "How do you want to run Vault Cortex?",
       "Path to your Obsidian vault:",
       "Where should I put the config files?",
       "Re-run setup for this directory anyway?",
-    ])
+    ]);
     expect(scripted.logs).toEqual([
       `Found an existing deployment in ${targetDir}.`,
       `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`,
-    ])
-    expect(scripted.outros).toEqual(["Done."])
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
-      "MCP_AUTH_TOKEN=existing\n",
-    )
-  })
-})
+    ]);
+    expect(scripted.outros).toEqual(["Done."]);
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=existing\n");
+  });
+});
 
 describe("runInit with a kept existing .env", () => {
   const keepEnvAnswers = (vaultDir: string, targetDir: string) => [
@@ -920,14 +882,14 @@ describe("runInit with a kept existing .env", () => {
     true, // existing deployment found — re-run setup anyway
     [], // settings chooser — consented re-runs get the full setup
     false, // .env differs — keep the existing file
-  ]
+  ];
 
   it("points the connect message at the existing token instead of the unwritten one", async () => {
-    const vaultDir = makeVault()
-    const targetDir = makeTargetDir()
-    mkdirSync(targetDir, { recursive: true })
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
-    const scripted = createScriptedPrompts(keepEnvAnswers(vaultDir, targetDir))
+    const vaultDir = makeVault();
+    const targetDir = makeTargetDir();
+    mkdirSync(targetDir, { recursive: true });
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n");
+    const scripted = createScriptedPrompts(keepEnvAnswers(vaultDir, targetDir));
 
     const exitCode = await runInit(
       {},
@@ -936,37 +898,30 @@ describe("runInit with a kept existing .env", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    expect(scripted.prints).toHaveLength(1)
-    expect(scripted.prints[0]).toContain(
-      `use the existing MCP_AUTH_TOKEN in ${targetDir}/.env`,
-    )
+    expect(exitCode).toBe(0);
+    expect(scripted.prints).toHaveLength(1);
+    expect(scripted.prints[0]).toContain(`use the existing MCP_AUTH_TOKEN in ${targetDir}/.env`);
     // The freshly generated (never saved) token must not appear anywhere.
-    expect(scripted.prints[0]).not.toMatch(/[0-9a-f]{64}/)
-    expect(scripted.logs).not.toContain(
-      "Generated MCP auth token (saved to .env).",
-    )
-  })
+    expect(scripted.prints[0]).not.toMatch(/[0-9a-f]{64}/);
+    expect(scripted.logs).not.toContain("Generated MCP auth token (saved to .env).");
+  });
 
   it("polls health and prints URLs on the PORT from the .env on disk", async () => {
-    const vaultDir = makeVault()
-    const targetDir = makeTargetDir()
-    mkdirSync(targetDir, { recursive: true })
-    writeFileSync(
-      join(targetDir, ".env"),
-      "MCP_AUTH_TOKEN=existing\nPORT=9000\n",
-    )
+    const vaultDir = makeVault();
+    const targetDir = makeTargetDir();
+    mkdirSync(targetDir, { recursive: true });
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\nPORT=9000\n");
     const scripted = createScriptedPrompts([
       ...keepEnvAnswers(vaultDir, targetDir),
       true, // start the server now
-    ])
-    const fetchedUrls: string[] = []
+    ]);
+    const fetchedUrls: string[] = [];
     const fetchRecorder: typeof fetch = async (url) => {
-      fetchedUrls.push(String(url))
-      return new Response(null, { status: 200 })
-    }
+      fetchedUrls.push(String(url));
+      return new Response(null, { status: 200 });
+    };
 
     const exitCode = await runInit(
       {},
@@ -975,25 +930,25 @@ describe("runInit with a kept existing .env", () => {
         docker: dockerReady,
         fetchFn: fetchRecorder,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    expect(fetchedUrls).toEqual(["http://127.0.0.1:9000/healthz"])
-    expect(scripted.prints[0]).toContain("http://localhost:9000/mcp")
-  })
-})
+    expect(exitCode).toBe(0);
+    expect(fetchedUrls).toEqual(["http://127.0.0.1:9000/healthz"]);
+    expect(scripted.prints[0]).toContain("http://localhost:9000/mcp");
+  });
+});
 
 describe("runInit --vault-path flag in interactive mode", () => {
   it("surfaces an invalid flag path before falling back to the prompt", async () => {
-    const vaultDir = makeVault()
-    const targetDir = makeTargetDir()
-    const missingPath = join(tmpdir(), "vault-cli-no-such-vault")
+    const vaultDir = makeVault();
+    const targetDir = makeTargetDir();
+    const missingPath = join(tmpdir(), "vault-cli-no-such-vault");
     const scripted = createScriptedPrompts([
       "local",
       vaultDir,
       targetDir,
       [], // no optional settings
-    ])
+    ]);
 
     const exitCode = await runInit(
       { vaultPath: missingPath },
@@ -1002,19 +957,17 @@ describe("runInit --vault-path flag in interactive mode", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    expect(scripted.errors).toEqual([
-      `--vault-path: Path does not exist: ${missingPath}`,
-    ])
-    expect(scripted.asked).toContain("Path to your Obsidian vault:")
-  })
-})
+    expect(exitCode).toBe(0);
+    expect(scripted.errors).toEqual([`--vault-path: Path does not exist: ${missingPath}`]);
+    expect(scripted.asked).toContain("Path to your Obsidian vault:");
+  });
+});
 
 describe("runInit remote encryption password", () => {
   it("collects the vault password via the masked password prompt", async () => {
-    const targetDir = makeTargetDir()
+    const targetDir = makeTargetDir();
     const scripted = createScriptedPrompts([
       "https://vault.example.com",
       "MyVault",
@@ -1022,7 +975,7 @@ describe("runInit remote encryption password", () => {
       true, // vault uses end-to-end encryption
       "hunter2", // password (masked prompt)
       [], // no optional settings
-    ])
+    ]);
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
       {
@@ -1030,20 +983,18 @@ describe("runInit remote encryption password", () => {
         docker: dockerDaemonOnly,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    expect(scripted.asked).toContain("Vault encryption password:")
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
-      "VAULT_PASSWORD=hunter2\n",
-    )
-  })
-})
+    expect(exitCode).toBe(0);
+    expect(scripted.asked).toContain("Vault encryption password:");
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain("VAULT_PASSWORD=hunter2\n");
+  });
+});
 
 describe("runInit remote with a kept existing .env", () => {
   it("probes and displays the persisted PUBLIC_URL, not the prompted one", async () => {
-    const targetDir = makeTargetDir()
-    mkdirSync(targetDir, { recursive: true })
+    const targetDir = makeTargetDir();
+    mkdirSync(targetDir, { recursive: true });
     // The kept file is what the server reads — its URL must win over the
     // prompt for both the probe and the connect message (mirrors PORT).
     writeFileSync(
@@ -1052,11 +1003,11 @@ describe("runInit remote with a kept existing .env", () => {
         "OBSIDIAN_AUTH_TOKEN=persisted-tok\n" +
         "VAULT_NAME=MyVault\n" +
         "PUBLIC_URL=https://persisted.example.com\n",
-    )
-    const fetchedUrls: string[] = []
+    );
+    const fetchedUrls: string[] = [];
     const fetchRecorder: typeof fetch = async (input) => {
-      const requestUrl = String(input)
-      fetchedUrls.push(requestUrl)
+      const requestUrl = String(input);
+      fetchedUrls.push(requestUrl);
       if (requestUrl.includes("api.obsidian.md")) {
         return new Response(
           JSON.stringify({
@@ -1065,10 +1016,10 @@ describe("runInit remote with a kept existing .env", () => {
             email: "user@example.com",
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
-        )
+        );
       }
-      return new Response(null, { status: 200 })
-    }
+      return new Response(null, { status: 200 });
+    };
     const scripted = createScriptedPrompts([
       true, // existing deployment found — re-run setup anyway
       "https://prompted.example.com", // public URL prompt — differs from disk
@@ -1080,7 +1031,7 @@ describe("runInit remote with a kept existing .env", () => {
       [], // settings chooser — consented re-runs get the full setup
       false, // .env differs — keep the existing file
       true, // start the server now
-    ])
+    ]);
 
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
@@ -1089,28 +1040,28 @@ describe("runInit remote with a kept existing .env", () => {
         docker: dockerReady,
         fetchFn: fetchRecorder,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
+    expect(exitCode).toBe(0);
     // The signin URL is first (auto-capture), then health + public URL probe.
     expect(fetchedUrls).toEqual([
       "https://api.obsidian.md/user/signin",
       "http://127.0.0.1:8000/healthz",
       "https://persisted.example.com/healthz",
-    ])
-    expect(scripted.prints[0]).toContain("https://persisted.example.com/mcp")
-    expect(scripted.prints[0]).not.toContain("prompted.example.com")
-  })
-})
+    ]);
+    expect(scripted.prints[0]).toContain("https://persisted.example.com/mcp");
+    expect(scripted.prints[0]).not.toContain("prompted.example.com");
+  });
+});
 
 describe("runInit sync-token auto-capture fallback", () => {
   it("logs get-sync-token guidance when capture fails", async () => {
-    const targetDir = makeTargetDir()
+    const targetDir = makeTargetDir();
     const fetchSigninError: typeof fetch = async () =>
       new Response(JSON.stringify({ error: "Invalid email or password" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      })
+      });
     const scripted = createScriptedPrompts([
       "https://vault.example.com",
       "MyVault",
@@ -1119,7 +1070,7 @@ describe("runInit sync-token auto-capture fallback", () => {
       "bad-password", // password
       false, // no encryption
       [], // no optional settings
-    ])
+    ]);
     await runInit(
       { mode: "remote", dir: targetDir },
       {
@@ -1127,25 +1078,21 @@ describe("runInit sync-token auto-capture fallback", () => {
         docker: dockerDaemonOnly,
         fetchFn: fetchSigninError,
       },
-    )
+    );
 
-    expect(scripted.warnings[0]).toBe(
-      "Could not sign in: Invalid email or password",
-    )
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(
-      /^OBSIDIAN_AUTH_TOKEN=$/m,
-    )
+    expect(scripted.warnings[0]).toBe("Could not sign in: Invalid email or password");
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m);
     expect(scripted.logs).toContain(
       "No token yet — run this later to add it to your .env:\n" +
         `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
-    )
-  })
-})
+    );
+  });
+});
 
 describe("runInit guided optional settings", () => {
   it("applies picked settings to the written .env (toggle off + port change)", async () => {
-    const vaultDir = makeVault()
-    const targetDir = makeTargetDir()
+    const vaultDir = makeVault();
+    const targetDir = makeTargetDir();
     const scripted = createScriptedPrompts([
       "local",
       vaultDir,
@@ -1153,7 +1100,7 @@ describe("runInit guided optional settings", () => {
       ["MEMORY_ENABLED", "PORT"], // picked in the chooser
       false, // disable the memory layer
       "9000", // host port
-    ])
+    ]);
 
     const exitCode = await runInit(
       {},
@@ -1162,33 +1109,27 @@ describe("runInit guided optional settings", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    const envLines = readFileSync(join(targetDir, ".env"), "utf8").split("\n")
-    expect(envLines).toContain("MEMORY_ENABLED=false")
+    expect(exitCode).toBe(0);
+    const envLines = readFileSync(join(targetDir, ".env"), "utf8").split("\n");
+    expect(envLines).toContain("MEMORY_ENABLED=false");
     // The default line must be replaced, not left behind next to an append.
-    expect(envLines).not.toContain("MEMORY_ENABLED=true")
-    expect(envLines).toContain("PORT=9000")
+    expect(envLines).not.toContain("MEMORY_ENABLED=true");
+    expect(envLines).toContain("PORT=9000");
     // The derived PUBLIC_URL (the OAuth issuer) follows the port change —
     // otherwise discovery metadata would point at a dead port.
-    expect(envLines).toContain("PUBLIC_URL=http://localhost:9000")
-    expect(envLines).not.toContain("PUBLIC_URL=http://localhost:8000")
+    expect(envLines).toContain("PUBLIC_URL=http://localhost:9000");
+    expect(envLines).not.toContain("PUBLIC_URL=http://localhost:8000");
     // The connect message reads PORT from the .env on disk, so the chosen
     // port must flow through to the printed URLs.
-    expect(scripted.prints[0]).toContain("http://localhost:9000/mcp")
-  })
+    expect(scripted.prints[0]).toContain("http://localhost:9000/mcp");
+  });
 
   it("uncomments the TZ line when the timezone is picked", async () => {
-    const vaultDir = makeVault()
-    const targetDir = makeTargetDir()
-    const scripted = createScriptedPrompts([
-      "local",
-      vaultDir,
-      targetDir,
-      ["TZ"],
-      "America/Toronto",
-    ])
+    const vaultDir = makeVault();
+    const targetDir = makeTargetDir();
+    const scripted = createScriptedPrompts(["local", vaultDir, targetDir, ["TZ"], "America/Toronto"]);
 
     const exitCode = await runInit(
       {},
@@ -1197,17 +1138,17 @@ describe("runInit guided optional settings", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    const envLines = readFileSync(join(targetDir, ".env"), "utf8").split("\n")
-    expect(envLines).toContain("TZ=America/Toronto")
-    expect(envLines).not.toContain("# TZ=America/New_York")
-  })
+    expect(exitCode).toBe(0);
+    const envLines = readFileSync(join(targetDir, ".env"), "utf8").split("\n");
+    expect(envLines).toContain("TZ=America/Toronto");
+    expect(envLines).not.toContain("# TZ=America/New_York");
+  });
 
   it("re-prompts on an invalid port until a valid one is given", async () => {
-    const vaultDir = makeVault()
-    const targetDir = makeTargetDir()
+    const vaultDir = makeVault();
+    const targetDir = makeTargetDir();
     const scripted = createScriptedPrompts([
       "local",
       vaultDir,
@@ -1216,7 +1157,7 @@ describe("runInit guided optional settings", () => {
       "not-a-port", // rejected
       "70000", // out of range — rejected
       "9000", // accepted
-    ])
+    ]);
 
     const exitCode = await runInit(
       {},
@@ -1225,23 +1166,21 @@ describe("runInit guided optional settings", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
+    expect(exitCode).toBe(0);
     expect(scripted.errors).toEqual([
       "PORT must be a whole number between 1 and 65535.",
       "PORT must be a whole number between 1 and 65535.",
-    ])
-    expect(readFileSync(join(targetDir, ".env"), "utf8").split("\n")).toContain(
-      "PORT=9000",
-    )
-  })
+    ]);
+    expect(readFileSync(join(targetDir, ".env"), "utf8").split("\n")).toContain("PORT=9000");
+  });
 
   it("offers the settings chooser on a consented re-init over an existing .env", async () => {
-    const vaultDir = makeVault()
-    const targetDir = makeTargetDir()
-    mkdirSync(targetDir, { recursive: true })
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const vaultDir = makeVault();
+    const targetDir = makeTargetDir();
+    mkdirSync(targetDir, { recursive: true });
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n");
     const scripted = createScriptedPrompts([
       "local",
       vaultDir,
@@ -1249,7 +1188,7 @@ describe("runInit guided optional settings", () => {
       true, // existing deployment found — re-run setup anyway
       [], // settings chooser — offered because the re-run was consented
       false, // .env differs — keep the existing file
-    ])
+    ]);
 
     const exitCode = await runInit(
       {},
@@ -1258,9 +1197,9 @@ describe("runInit guided optional settings", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
+    expect(exitCode).toBe(0);
     // "Yes, re-run setup" means the full setup — the chooser included, in
     // its usual position, with no extra questions around it.
     expect(scripted.asked).toEqual([
@@ -1270,19 +1209,17 @@ describe("runInit guided optional settings", () => {
       "Re-run setup for this directory anyway?",
       "Any optional settings to change? (press enter to skip)",
       ".env already exists and differs — overwrite?",
-    ])
+    ]);
     // Keeping at the conflict prompt still protects the file (the write
     // report states the discard); no configure-pointer log remains.
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
-      "MCP_AUTH_TOKEN=existing\n",
-    )
-  })
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=existing\n");
+  });
 
   it("applies chooser answers when a consented re-init overwrites the existing .env", async () => {
-    const vaultDir = makeVault()
-    const targetDir = makeTargetDir()
-    mkdirSync(targetDir, { recursive: true })
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n")
+    const vaultDir = makeVault();
+    const targetDir = makeTargetDir();
+    mkdirSync(targetDir, { recursive: true });
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\n");
     const scripted = createScriptedPrompts([
       "local",
       vaultDir,
@@ -1291,7 +1228,7 @@ describe("runInit guided optional settings", () => {
       ["TZ"], // pick the timezone setting in the chooser
       "America/Toronto", // its value
       true, // .env differs — overwrite with the regenerated file
-    ])
+    ]);
 
     const exitCode = await runInit(
       {},
@@ -1300,19 +1237,19 @@ describe("runInit guided optional settings", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
-    const envContent = readFileSync(join(targetDir, ".env"), "utf8")
+    expect(exitCode).toBe(0);
+    const envContent = readFileSync(join(targetDir, ".env"), "utf8");
     // The chooser's answer landed in the overwritten file as a live line
     // (line-exact: a commented-out `# TZ=...` must not pass) — the
     // motivation for offering the chooser on consented re-inits.
-    expect(envContent.split("\n")).toContain("TZ=America/Toronto")
-    expect(envContent).not.toContain("MCP_AUTH_TOKEN=existing")
-  })
+    expect(envContent.split("\n")).toContain("TZ=America/Toronto");
+    expect(envContent).not.toContain("MCP_AUTH_TOKEN=existing");
+  });
 
   it("writes the chosen SYNC_MODE in the remote flow", async () => {
-    const targetDir = makeTargetDir()
+    const targetDir = makeTargetDir();
     const scripted = createScriptedPrompts([
       "https://vault.example.com",
       "MyVault",
@@ -1320,7 +1257,7 @@ describe("runInit guided optional settings", () => {
       false, // no encryption
       ["SYNC_MODE"],
       "pull-only",
-    ])
+    ]);
 
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
@@ -1329,38 +1266,34 @@ describe("runInit guided optional settings", () => {
         docker: dockerDown,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
+    expect(exitCode).toBe(0);
     // --mode remote skips the mode select, so this is the flow's only select.
     // The option list itself is pinned in optional-settings.test.ts.
-    const selectsAsked = scripted.selectCalls.map(
-      ({ message, initialValue }) => ({ message, initialValue }),
-    )
+    const selectsAsked = scripted.selectCalls.map(({ message, initialValue }) => ({ message, initialValue }));
     expect(selectsAsked).toEqual([
       {
         message: "Obsidian Sync direction:",
         initialValue: "bidirectional",
       },
-    ])
-    expect(readFileSync(join(targetDir, ".env"), "utf8").split("\n")).toContain(
-      "SYNC_MODE=pull-only",
-    )
-  })
-})
+    ]);
+    expect(readFileSync(join(targetDir, ".env"), "utf8").split("\n")).toContain("SYNC_MODE=pull-only");
+  });
+});
 
 describe("runInit health-timeout returns starting status", () => {
   it("shows 'starting in the background' when the local health check times out", async () => {
-    vi.mocked(pollHealth).mockResolvedValueOnce(false)
-    const vaultDir = makeVault()
-    const targetDir = makeTargetDir()
+    vi.mocked(pollHealth).mockResolvedValueOnce(false);
+    const vaultDir = makeVault();
+    const targetDir = makeTargetDir();
     const scripted = createScriptedPrompts([
       "local",
       vaultDir,
       targetDir,
       [], // no optional settings
       true, // start the server now
-    ])
+    ]);
 
     const exitCode = await runInit(
       {},
@@ -1369,20 +1302,21 @@ describe("runInit health-timeout returns starting status", () => {
         docker: dockerReady,
         fetchFn: fetchNever,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
+    expect(exitCode).toBe(0);
     // The connect message must show the "starting" copy, not "Start the server:".
-    expect(scripted.prints[0]).toContain("starting in the background")
-    expect(scripted.prints[0]).not.toContain("Start the server:")
-  })
+    expect(scripted.prints[0]).toContain("starting in the background");
+    expect(scripted.prints[0]).not.toContain("Start the server:");
+  });
 
   it("skips the public URL probe when the remote health check times out", async () => {
-    vi.mocked(pollHealth).mockResolvedValueOnce(false)
-    const targetDir = makeTargetDir()
-    const fetchedUrls: string[] = []
+    vi.mocked(pollHealth).mockResolvedValueOnce(false);
+    const targetDir = makeTargetDir();
+    const fetchedUrls: string[] = [];
     const fetchWithSignin: typeof fetch = async (input) => {
-      const requestUrl = String(input)
+      const requestUrl = String(input);
+
       if (requestUrl.includes("api.obsidian.md")) {
         return new Response(
           JSON.stringify({
@@ -1391,11 +1325,11 @@ describe("runInit health-timeout returns starting status", () => {
             email: "user@example.com",
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
-        )
+        );
       }
-      fetchedUrls.push(requestUrl)
-      return new Response(null, { status: 200 })
-    }
+      fetchedUrls.push(requestUrl);
+      return new Response(null, { status: 200 });
+    };
     const scripted = createScriptedPrompts([
       "https://vault.example.com", // public URL
       "MyVault", // vault name
@@ -1405,7 +1339,7 @@ describe("runInit health-timeout returns starting status", () => {
       false, // no end-to-end encryption
       [], // no optional settings
       true, // start the server now
-    ])
+    ]);
 
     const exitCode = await runInit(
       { mode: "remote", dir: targetDir },
@@ -1414,130 +1348,124 @@ describe("runInit health-timeout returns starting status", () => {
         docker: dockerReady,
         fetchFn: fetchWithSignin,
       },
-    )
+    );
 
-    expect(exitCode).toBe(0)
+    expect(exitCode).toBe(0);
     // pollHealth was mocked — the public URL probe only runs for "running",
     // not "starting", so no non-signin URLs were fetched.
-    expect(fetchedUrls).toEqual([])
+    expect(fetchedUrls).toEqual([]);
     // The connect message must show "starting", not the running or not-started copy.
-    expect(scripted.prints[0]).toContain("starting in the background")
-    expect(scripted.prints[0]).not.toContain("Start the server:")
-    expect(scripted.prints[0]).not.toContain("The server is running.")
-  })
-})
+    expect(scripted.prints[0]).toContain("starting in the background");
+    expect(scripted.prints[0]).not.toContain("Start the server:");
+    expect(scripted.prints[0]).not.toContain("The server is running.");
+  });
+});
 
 describe("validatePublicUrl", () => {
   it("accepts a valid https URL", () => {
     expect(validatePublicUrl("https://vault.example.com")).toEqual({
       kind: "ok",
       url: "https://vault.example.com",
-    })
-  })
+    });
+  });
 
   it("accepts a valid http URL with port", () => {
     expect(validatePublicUrl("http://203.0.113.10:8000")).toEqual({
       kind: "ok",
       url: "http://203.0.113.10:8000",
-    })
-  })
+    });
+  });
 
   it("strips a trailing slash", () => {
     expect(validatePublicUrl("https://vault.example.com/")).toEqual({
       kind: "ok",
       url: "https://vault.example.com",
-    })
-  })
+    });
+  });
 
   it("rejects a URL with username and password", () => {
     expect(validatePublicUrl("https://user:pass@vault.example.com")).toEqual({
       kind: "error",
       message: "PUBLIC_URL must not contain credentials (user:password@).",
-    })
-  })
+    });
+  });
 
   it("rejects a URL with username only", () => {
     expect(validatePublicUrl("https://user@vault.example.com")).toEqual({
       kind: "error",
       message: "PUBLIC_URL must not contain credentials (user:password@).",
-    })
-  })
+    });
+  });
 
   it("rejects a URL with password only", () => {
     expect(validatePublicUrl("https://:pass@vault.example.com")).toEqual({
       kind: "error",
       message: "PUBLIC_URL must not contain credentials (user:password@).",
-    })
-  })
+    });
+  });
 
   it("rejects a non-http URL", () => {
     expect(validatePublicUrl("ws://vault.example.com")).toEqual({
       kind: "error",
-      message:
-        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
-    })
-  })
+      message: "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
+    });
+  });
 
   it("rejects a URL with a trailing /mcp path", () => {
     expect(validatePublicUrl("https://vault.example.com/mcp")).toEqual({
       kind: "error",
       message:
         "Leave /mcp off PUBLIC_URL — it's the base URL and the server adds /mcp itself (e.g. https://vault.example.com).",
-    })
-  })
+    });
+  });
 
   it("rejects invalid syntax", () => {
     expect(validatePublicUrl("not-a-url")).toEqual({
       kind: "error",
-      message:
-        "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
-    })
-  })
+      message: "PUBLIC_URL must be a full http:// or https:// URL (e.g. https://vault.example.com).",
+    });
+  });
 
   it("rejects a URL with a query string", () => {
     expect(validatePublicUrl("https://vault.example.com/?tab=2")).toEqual({
       kind: "error",
-      message:
-        "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
-    })
-  })
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    });
+  });
 
   it("rejects a URL with a hash fragment", () => {
     expect(validatePublicUrl("https://vault.example.com/#section")).toEqual({
       kind: "error",
-      message:
-        "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
-    })
-  })
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    });
+  });
 
   it("rejects a bare trailing query delimiter", () => {
     expect(validatePublicUrl("https://vault.example.com/?")).toEqual({
       kind: "error",
-      message:
-        "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
-    })
-  })
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    });
+  });
 
   it("rejects a bare trailing hash delimiter", () => {
     expect(validatePublicUrl("https://vault.example.com/#")).toEqual({
       kind: "error",
-      message:
-        "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
-    })
-  })
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+    });
+  });
 
   it("rejects a URL with a path prefix", () => {
     expect(validatePublicUrl("https://vault.example.com/vault/")).toEqual({
       kind: "error",
       message:
         "PUBLIC_URL must be a bare origin — no path (e.g. https://vault.example.com, not https://vault.example.com/vault/).",
-    })
-  })
+    });
+  });
 
   it("accepts a bare origin with redundant trailing slashes", () => {
     expect(validatePublicUrl("https://vault.example.com//")).toEqual({
       kind: "ok",
       url: "https://vault.example.com",
-    })
-  })
-})
+    });
+  });
+});

@@ -1,23 +1,23 @@
-import { describe, it, expect, vi, onTestFinished } from "vitest"
-import { rm, writeFile, mkdir, readFile, stat, rename } from "node:fs/promises"
-import { mkdtempSync } from "node:fs"
-import { basename, join, dirname } from "node:path"
-import { tmpdir } from "node:os"
-import { noteMover } from "../note-mover.js"
-import { vaultFs, atomicWriteFile } from "../vault-filesystem.js"
-import { vaultPatcher } from "../vault-patcher.js"
-import { withExclusiveFileLock } from "../../../utils/file-write-lock.js"
-import { fileExists, statOrNull } from "../../../utils/fs.js"
-import type { Logger } from "../../../logger.js"
+import { describe, it, expect, vi, onTestFinished } from "vitest";
+import { rm, writeFile, mkdir, readFile, stat, rename } from "node:fs/promises";
+import { mkdtempSync } from "node:fs";
+import { basename, join, dirname } from "node:path";
+import { tmpdir } from "node:os";
+import { noteMover } from "../note-mover.js";
+import { vaultFs, atomicWriteFile } from "../vault-filesystem.js";
+import { vaultPatcher } from "../vault-patcher.js";
+import { withExclusiveFileLock } from "../../../utils/file-write-lock.js";
+import { fileExists, statOrNull } from "../../../utils/fs.js";
+import type { Logger } from "../../../logger.js";
 
 // The modules are spy-wrapped so single tests can shape the aliased-path
 // disk probes and fail specific rename/write calls while every other call
 // keeps the real implementation.
-vi.mock("../../../utils/fs.js", { spy: true })
-vi.mock("node:fs/promises", { spy: true })
-vi.mock("../vault-filesystem.js", { spy: true })
+vi.mock("../../../utils/fs.js", { spy: true });
+vi.mock("node:fs/promises", { spy: true });
+vi.mock("../vault-filesystem.js", { spy: true });
 
-const PROTECTED = ["About Me", "Daily Notes"] as const
+const PROTECTED = ["About Me", "Daily Notes"] as const;
 
 /** A Logger whose methods are spies, so a test can assert on its log calls
  *  (vi.mocked(logger.info)…) without touching the shared logger singleton.
@@ -29,50 +29,49 @@ const createLoggerMock = (): Logger => {
     warn: vi.fn(),
     error: vi.fn(),
     child: vi.fn(),
-  }
-  vi.mocked(mock.child).mockReturnValue(mock)
-  return mock
-}
+  };
+  vi.mocked(mock.child).mockReturnValue(mock);
+  return mock;
+};
 
 /** Creates an isolated temp vault for a single test — removed automatically when
  *  the test finishes — plus a per-test logger mock and helpers bound to them. Each
  *  test calls this for its own vault, so there is no shared mutable state. */
 const setupVault = () => {
-  const vault = mkdtempSync(join(tmpdir(), "note-mover-test-"))
-  onTestFinished(() => rm(vault, { recursive: true, force: true }))
-  const logger = createLoggerMock()
+  const vault = mkdtempSync(join(tmpdir(), "note-mover-test-"));
+  onTestFinished(() => rm(vault, { recursive: true, force: true }));
+  const logger = createLoggerMock();
 
   const writeFixture = async (path: string, content: string): Promise<void> => {
-    const fullPath = join(vault, path)
-    await mkdir(dirname(fullPath), { recursive: true })
-    await writeFile(fullPath, content, "utf8")
-  }
+    const fullPath = join(vault, path);
+    await mkdir(dirname(fullPath), { recursive: true });
+    await writeFile(fullPath, content, "utf8");
+  };
 
-  const readNote = (path: string): Promise<string> =>
-    readFile(join(vault, path), "utf8")
+  const readNote = (path: string): Promise<string> => readFile(join(vault, path), "utf8");
 
   const noteExists = async (path: string): Promise<boolean> => {
     try {
-      await stat(join(vault, path))
-      return true
+      await stat(join(vault, path));
+      return true;
     } catch {
-      return false
+      return false;
     }
-  }
+  };
 
   /** True when a folder still exists in the vault — used to assert pruning. */
-  const folderExists = (path: string): Promise<boolean> => noteExists(path)
+  const folderExists = (path: string): Promise<boolean> => noteExists(path);
 
   /** Moves a note, snapshotting the pre-move path lists the way the tool does.
    *  Named params mirror noteMover.moveNote so call sites are self-describing;
    *  vault plumbing and the defaults (no backlink sources, no pruning, no
    *  Windows mode) are filled in here. */
   const moveNote = async (params: {
-    oldPath: string
-    newPath: string
-    backlinkSources?: string[]
-    pruneEmptyFolders?: boolean
-    windowsBindMount?: boolean
+    oldPath: string;
+    newPath: string;
+    backlinkSources?: string[];
+    pruneEmptyFolders?: boolean;
+    windowsBindMount?: boolean;
   }) =>
     noteMover.moveNote(
       {
@@ -87,7 +86,7 @@ const setupVault = () => {
         windowsBindMount: params.windowsBindMount ?? false,
       },
       logger,
-    )
+    );
 
   return {
     vault,
@@ -97,167 +96,165 @@ const setupVault = () => {
     noteExists,
     folderExists,
     moveNote,
-  }
-}
+  };
+};
 
 describe("moveNote — file relocation", () => {
   it("writes the note at the new path and removes the old one", async () => {
-    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
-    await writeFixture("Inbox/Draft.md", "Just a body.\n")
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault();
+    await writeFixture("Inbox/Draft.md", "Just a body.\n");
 
-    await moveNote({ oldPath: "Inbox/Draft.md", newPath: "Inbox/Spec.md" })
+    await moveNote({ oldPath: "Inbox/Draft.md", newPath: "Inbox/Spec.md" });
 
-    expect(await noteExists("Inbox/Draft.md")).toBe(false)
-    expect(await readNote("Inbox/Spec.md")).toBe("Just a body.\n")
-  })
+    expect(await noteExists("Inbox/Draft.md")).toBe(false);
+    expect(await readNote("Inbox/Spec.md")).toBe("Just a body.\n");
+  });
 
   it("creates destination parent folders that do not yet exist", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Inbox/Draft.md", "Body.\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Inbox/Draft.md", "Body.\n");
 
     await moveNote({
       oldPath: "Inbox/Draft.md",
       newPath: "Projects/Specs/Draft.md",
-    })
+    });
 
-    expect(await readNote("Projects/Specs/Draft.md")).toBe("Body.\n")
-  })
+    expect(await readNote("Projects/Specs/Draft.md")).toBe("Body.\n");
+  });
 
   it("returns the full move summary for a move with no backlinks", async () => {
-    const { writeFixture, moveNote } = setupVault()
-    await writeFixture("Inbox/Draft.md", "Body.\n")
+    const { writeFixture, moveNote } = setupVault();
+    await writeFixture("Inbox/Draft.md", "Body.\n");
 
     const result = await moveNote({
       oldPath: "Inbox/Draft.md",
       newPath: "Done/Draft.md",
-    })
+    });
 
     expect(result).toEqual({
       moved_to: "Done/Draft.md",
       links_updated: 0,
       updated_notes: [],
       pruned_empty_folders: 0,
-    })
-  })
-})
+    });
+  });
+});
 
 describe("moveNote — link rewriting forms", () => {
   it("rewrites a bare wikilink on rename", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "See [[Foo]] for details.\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", "See [[Foo]] for details.\n");
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
-    expect(await readNote("Hub.md")).toBe("See [[Bar]] for details.\n")
+    expect(await readNote("Hub.md")).toBe("See [[Bar]] for details.\n");
     expect(result).toEqual({
       moved_to: "Bar.md",
       links_updated: 1,
       updated_notes: ["Hub.md"],
       pruned_empty_folders: 0,
-    })
-  })
+    });
+  });
 
   it("leaves a bare wikilink untouched on a folder move when the short name stays unambiguous", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "See [[Foo]] for details.\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", "See [[Foo]] for details.\n");
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Archive/Foo.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
-    expect(await readNote("Hub.md")).toBe("See [[Foo]] for details.\n")
+    expect(await readNote("Hub.md")).toBe("See [[Foo]] for details.\n");
     expect(result).toEqual({
       moved_to: "Archive/Foo.md",
       links_updated: 0,
       updated_notes: [],
       pruned_empty_folders: 0,
-    })
-  })
+    });
+  });
 
   it("rewrites a full vault-path wikilink to the new path", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Projects/Foo.md", "content\n")
-    await writeFixture("Hub.md", "See [[Projects/Foo]] here.\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Projects/Foo.md", "content\n");
+    await writeFixture("Hub.md", "See [[Projects/Foo]] here.\n");
 
     await moveNote({
       oldPath: "Projects/Foo.md",
       newPath: "Archive/Foo.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
-    expect(await readNote("Hub.md")).toBe("See [[Archive/Foo]] here.\n")
-  })
+    expect(await readNote("Hub.md")).toBe("See [[Archive/Foo]] here.\n");
+  });
 
   it("preserves an alias when rewriting a wikilink", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "See [[Foo|the foo note]].\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", "See [[Foo|the foo note]].\n");
 
     await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
-    expect(await readNote("Hub.md")).toBe("See [[Bar|the foo note]].\n")
-  })
+    expect(await readNote("Hub.md")).toBe("See [[Bar|the foo note]].\n");
+  });
 
   it("preserves a heading anchor when rewriting a wikilink", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "Jump to [[Foo#Setup]].\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", "Jump to [[Foo#Setup]].\n");
 
     await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
-    expect(await readNote("Hub.md")).toBe("Jump to [[Bar#Setup]].\n")
-  })
+    expect(await readNote("Hub.md")).toBe("Jump to [[Bar#Setup]].\n");
+  });
 
   it("preserves the embed marker when rewriting an embed", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "![[Foo]]\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", "![[Foo]]\n");
 
     await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
-    expect(await readNote("Hub.md")).toBe("![[Bar]]\n")
-  })
+    expect(await readNote("Hub.md")).toBe("![[Bar]]\n");
+  });
 
   it("rewrites a markdown link, preserving its text and re-encoding spaces", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Old Note.md", "content\n")
-    await writeFixture("Hub.md", "Read the [summary](Old%20Note.md) now.\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Old Note.md", "content\n");
+    await writeFixture("Hub.md", "Read the [summary](Old%20Note.md) now.\n");
 
     await moveNote({
       oldPath: "Old Note.md",
       newPath: "New Note.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
-    expect(await readNote("Hub.md")).toBe(
-      "Read the [summary](New%20Note.md) now.\n",
-    )
-  })
+    expect(await readNote("Hub.md")).toBe("Read the [summary](New%20Note.md) now.\n");
+  });
 
   it("percent-encodes reserved characters in a rewritten markdown link", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Old.md", "content\n")
-    await writeFixture("Hub.md", "Read the [summary](Old.md) now.\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Old.md", "content\n");
+    await writeFixture("Hub.md", "Read the [summary](Old.md) now.\n");
 
     // Reserved characters in the new name (space, parens) must be encoded so the
     // markdown link can't be broken by a literal ")".
@@ -265,825 +262,743 @@ describe("moveNote — link rewriting forms", () => {
       oldPath: "Old.md",
       newPath: "New (Draft).md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
-    expect(await readNote("Hub.md")).toBe(
-      "Read the [summary](New%20%28Draft%29.md) now.\n",
-    )
-  })
+    expect(await readNote("Hub.md")).toBe("Read the [summary](New%20%28Draft%29.md) now.\n");
+  });
 
   it("leaves a markdown asset link untouched while rewriting a note link beside it", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Old.md", "content\n")
-    await writeFixture(
-      "Hub.md",
-      "See [doc](report.pdf) and [summary](Old.md).\n",
-    )
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Old.md", "content\n");
+    await writeFixture("Hub.md", "See [doc](report.pdf) and [summary](Old.md).\n");
 
     const result = await moveNote({
       oldPath: "Old.md",
       newPath: "New.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
-    expect(await readNote("Hub.md")).toBe(
-      "See [doc](report.pdf) and [summary](New.md).\n",
-    )
-    expect(result.links_updated).toBe(1)
-  })
+    expect(await readNote("Hub.md")).toBe("See [doc](report.pdf) and [summary](New.md).\n");
+    expect(result.links_updated).toBe(1);
+  });
 
   it("leaves the moved note's own relative markdown asset link untouched while rewriting its relative note link", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("A/Sibling.md", "sibling\n")
-    await writeFixture(
-      "B/Draft.md",
-      "![img](../assets/photo.png) and [sib](../A/Sibling.md).\n",
-    )
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("A/Sibling.md", "sibling\n");
+    await writeFixture("B/Draft.md", "![img](../assets/photo.png) and [sib](../A/Sibling.md).\n");
 
     const result = await moveNote({
       oldPath: "B/Draft.md",
       newPath: "C/Deep/Draft.md",
-    })
+    });
 
     // The relative note link is rewritten to keep resolving from the new
     // folder; the relative asset link stays unchanged because no asset file
     // exists in this fixture — the link is unresolved, so moveNote leaves
     // it alone.
-    expect(await readNote("C/Deep/Draft.md")).toBe(
-      "![img](../assets/photo.png) and [sib](../../A/Sibling.md).\n",
-    )
-    expect(result.links_updated).toBe(1)
-  })
+    expect(await readNote("C/Deep/Draft.md")).toBe("![img](../assets/photo.png) and [sib](../../A/Sibling.md).\n");
+    expect(result.links_updated).toBe(1);
+  });
 
   it("rewrites a wikilink stored in a frontmatter property", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", '---\nrelated:\n  - "[[Foo]]"\n---\nBody\n')
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", '---\nrelated:\n  - "[[Foo]]"\n---\nBody\n');
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
-    expect(await readNote("Hub.md")).toBe(
-      '---\nrelated:\n  - "[[Bar]]"\n---\nBody\n',
-    )
-    expect(result.links_updated).toBe(1)
-  })
+    expect(await readNote("Hub.md")).toBe('---\nrelated:\n  - "[[Bar]]"\n---\nBody\n');
+    expect(result.links_updated).toBe(1);
+  });
 
   it("rewrites a wikilink with an escaped pipe in a table cell", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    const table = [
-      "| Link | Topic |",
-      "| --- | --- |",
-      "| [[Foo\\|display]] | A topic |",
-    ].join("\n")
-    await writeFixture("Hub.md", `${table}\n`)
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    const table = ["| Link | Topic |", "| --- | --- |", "| [[Foo\\|display]] | A topic |"].join("\n");
+    await writeFixture("Hub.md", `${table}\n`);
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
-    const expected = [
-      "| Link | Topic |",
-      "| --- | --- |",
-      "| [[Bar\\|display]] | A topic |",
-    ].join("\n")
-    expect(await readNote("Hub.md")).toBe(`${expected}\n`)
-    expect(result.links_updated).toBe(1)
-  })
+    const expected = ["| Link | Topic |", "| --- | --- |", "| [[Bar\\|display]] | A topic |"].join("\n");
+    expect(await readNote("Hub.md")).toBe(`${expected}\n`);
+    expect(result.links_updated).toBe(1);
+  });
 
   it("rewrites multiple escaped pipe wikilinks in a single table", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
     const table = [
       "| Link | Topic |",
       "| --- | --- |",
       "| [[Foo\\|first]] | Row 1 |",
       "| [[Foo\\|second]] | Row 2 |",
-    ].join("\n")
-    await writeFixture("Hub.md", `${table}\n`)
+    ].join("\n");
+    await writeFixture("Hub.md", `${table}\n`);
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
     const expected = [
       "| Link | Topic |",
       "| --- | --- |",
       "| [[Bar\\|first]] | Row 1 |",
       "| [[Bar\\|second]] | Row 2 |",
-    ].join("\n")
-    expect(await readNote("Hub.md")).toBe(`${expected}\n`)
-    expect(result.links_updated).toBe(2)
-  })
+    ].join("\n");
+    expect(await readNote("Hub.md")).toBe(`${expected}\n`);
+    expect(result.links_updated).toBe(2);
+  });
 
   it("preserves an escaped pipe in a non-table context", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "See [[Foo\\|display text]].\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", "See [[Foo\\|display text]].\n");
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
-    expect(await readNote("Hub.md")).toBe("See [[Bar\\|display text]].\n")
-    expect(result.links_updated).toBe(1)
-  })
+    expect(await readNote("Hub.md")).toBe("See [[Bar\\|display text]].\n");
+    expect(result.links_updated).toBe(1);
+  });
 
   it("preserves a heading anchor adjacent to an escaped pipe during rewrite", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    const table = [
-      "| Link | Topic |",
-      "| --- | --- |",
-      "| [[Foo#Setup\\|link]] | A topic |",
-    ].join("\n")
-    await writeFixture("Hub.md", `${table}\n`)
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    const table = ["| Link | Topic |", "| --- | --- |", "| [[Foo#Setup\\|link]] | A topic |"].join("\n");
+    await writeFixture("Hub.md", `${table}\n`);
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
-    const expected = [
-      "| Link | Topic |",
-      "| --- | --- |",
-      "| [[Bar#Setup\\|link]] | A topic |",
-    ].join("\n")
-    expect(await readNote("Hub.md")).toBe(`${expected}\n`)
-    expect(result.links_updated).toBe(1)
-  })
+    const expected = ["| Link | Topic |", "| --- | --- |", "| [[Bar#Setup\\|link]] | A topic |"].join("\n");
+    expect(await readNote("Hub.md")).toBe(`${expected}\n`);
+    expect(result.links_updated).toBe(1);
+  });
 
   it("rewrites a source-relative wikilink in another folder", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("B/Target.md", "content\n")
-    await writeFixture("A/Note.md", "Up and over to [[../B/Target]].\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("B/Target.md", "content\n");
+    await writeFixture("A/Note.md", "Up and over to [[../B/Target]].\n");
 
     await moveNote({
       oldPath: "B/Target.md",
       newPath: "B/Renamed.md",
       backlinkSources: ["A/Note.md"],
-    })
+    });
 
-    expect(await readNote("A/Note.md")).toBe(
-      "Up and over to [[../B/Renamed]].\n",
-    )
-  })
+    expect(await readNote("A/Note.md")).toBe("Up and over to [[../B/Renamed]].\n");
+  });
 
   it("rewrites the moved note's own relative link so it still resolves from the new folder", async () => {
-    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
-    await writeFixture("A/Sibling.md", "sibling\n")
-    await writeFixture("B/Target.md", "Points to [[../A/Sibling]].\n")
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault();
+    await writeFixture("A/Sibling.md", "sibling\n");
+    await writeFixture("B/Target.md", "Points to [[../A/Sibling]].\n");
 
     const result = await moveNote({
       oldPath: "B/Target.md",
       newPath: "C/Deep/Target.md",
-    })
+    });
 
-    expect(await noteExists("B/Target.md")).toBe(false)
-    expect(await readNote("C/Deep/Target.md")).toBe(
-      "Points to [[../../A/Sibling]].\n",
-    )
+    expect(await noteExists("B/Target.md")).toBe(false);
+    expect(await readNote("C/Deep/Target.md")).toBe("Points to [[../../A/Sibling]].\n");
     expect(result).toEqual({
       moved_to: "C/Deep/Target.md",
       links_updated: 1,
       updated_notes: [],
       pruned_empty_folders: 0,
-    })
-  })
+    });
+  });
 
   it("upgrades a bare wikilink to a full path when the new basename is no longer unique", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Common.md", "the other common\n")
-    await writeFixture("Inbox/Special.md", "content\n")
-    await writeFixture("Hub.md", "See [[Special]].\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Common.md", "the other common\n");
+    await writeFixture("Inbox/Special.md", "content\n");
+    await writeFixture("Hub.md", "See [[Special]].\n");
 
     await moveNote({
       oldPath: "Inbox/Special.md",
       newPath: "Archive/Common.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
     // A bare [[Common]] would resolve to the root Common.md, so the rewrite must
     // use the full path to keep pointing at the moved note.
-    expect(await readNote("Hub.md")).toBe("See [[Archive/Common]].\n")
-  })
-})
+    expect(await readNote("Hub.md")).toBe("See [[Archive/Common]].\n");
+  });
+});
 
 describe("moveNote — selectivity (must-not-rewrite cases)", () => {
   it("rewrites only the link to the moved note, leaving unrelated links intact", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Keep.md", "keep\n")
-    await writeFixture("Hub.md", "Both [[Foo]] and [[Keep]] matter.\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Keep.md", "keep\n");
+    await writeFixture("Hub.md", "Both [[Foo]] and [[Keep]] matter.\n");
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
-    expect(await readNote("Hub.md")).toBe("Both [[Bar]] and [[Keep]] matter.\n")
-    expect(result.links_updated).toBe(1)
-  })
+    expect(await readNote("Hub.md")).toBe("Both [[Bar]] and [[Keep]] matter.\n");
+    expect(result.links_updated).toBe(1);
+  });
 
   it("does not rewrite a link inside a fenced code block", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    const body = "Real link [[Foo]].\n\n```\nExample: [[Foo]] in code\n```\n"
-    await writeFixture("Hub.md", body)
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    const body = "Real link [[Foo]].\n\n```\nExample: [[Foo]] in code\n```\n";
+    await writeFixture("Hub.md", body);
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
-    expect(await readNote("Hub.md")).toBe(
-      "Real link [[Bar]].\n\n```\nExample: [[Foo]] in code\n```\n",
-    )
-    expect(result.links_updated).toBe(1)
-  })
+    expect(await readNote("Hub.md")).toBe("Real link [[Bar]].\n\n```\nExample: [[Foo]] in code\n```\n");
+    expect(result.links_updated).toBe(1);
+  });
 
   it("does not rewrite a link inside an inline code span", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "Use `[[Foo]]` syntax to link [[Foo]].\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", "Use `[[Foo]]` syntax to link [[Foo]].\n");
 
     await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
-    expect(await readNote("Hub.md")).toBe(
-      "Use `[[Foo]]` syntax to link [[Bar]].\n",
-    )
-  })
+    expect(await readNote("Hub.md")).toBe("Use `[[Foo]]` syntax to link [[Bar]].\n");
+  });
 
   it("rewrites only the moved note's escaped pipe link, leaving other escaped pipe links intact", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Other.md", "other\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Other.md", "other\n");
     const table = [
       "| Link | Topic |",
       "| --- | --- |",
       "| [[Foo\\|display]] | Moved |",
       "| [[Other\\|label]] | Stays |",
-    ].join("\n")
-    await writeFixture("Hub.md", `${table}\n`)
+    ].join("\n");
+    await writeFixture("Hub.md", `${table}\n`);
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
     const expected = [
       "| Link | Topic |",
       "| --- | --- |",
       "| [[Bar\\|display]] | Moved |",
       "| [[Other\\|label]] | Stays |",
-    ].join("\n")
-    expect(await readNote("Hub.md")).toBe(`${expected}\n`)
-    expect(result.links_updated).toBe(1)
-  })
+    ].join("\n");
+    expect(await readNote("Hub.md")).toBe(`${expected}\n`);
+    expect(result.links_updated).toBe(1);
+  });
 
   it("does not touch a backlink source whose only escaped pipe link points elsewhere", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("NotMoved.md", "other\n")
-    const table = [
-      "| Link | Topic |",
-      "| --- | --- |",
-      "| [[NotMoved\\|alias]] | A topic |",
-    ].join("\n")
-    const original = `${table}\n`
-    await writeFixture("Hub.md", original)
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("NotMoved.md", "other\n");
+    const table = ["| Link | Topic |", "| --- | --- |", "| [[NotMoved\\|alias]] | A topic |"].join("\n");
+    const original = `${table}\n`;
+    await writeFixture("Hub.md", original);
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
-    expect(await readNote("Hub.md")).toBe(original)
-    expect(result.links_updated).toBe(0)
-    expect(result.updated_notes).toEqual([])
-  })
+    expect(await readNote("Hub.md")).toBe(original);
+    expect(result.links_updated).toBe(0);
+    expect(result.updated_notes).toEqual([]);
+  });
 
   it("does not rewrite a same-named link that resolves to a different note, even when passed as a candidate", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Deep/Foo.md", "the moved note\n")
-    await writeFixture("Near/Foo.md", "a different foo\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Deep/Foo.md", "the moved note\n");
+    await writeFixture("Near/Foo.md", "a different foo\n");
     // [[Foo]] here resolves to Near/Foo.md (same folder), not the moved Deep/Foo.md.
-    await writeFixture("Near/Note.md", "Local [[Foo]].\n")
+    await writeFixture("Near/Note.md", "Local [[Foo]].\n");
 
     const result = await moveNote({
       oldPath: "Deep/Foo.md",
       newPath: "Deep/Bar.md",
       backlinkSources: ["Near/Note.md"],
-    })
+    });
 
-    expect(await readNote("Near/Note.md")).toBe("Local [[Foo]].\n")
+    expect(await readNote("Near/Note.md")).toBe("Local [[Foo]].\n");
     expect(result).toEqual({
       moved_to: "Deep/Bar.md",
       links_updated: 0,
       updated_notes: [],
       pruned_empty_folders: 0,
-    })
-  })
-})
+    });
+  });
+});
 
 describe("moveNote — asset link rewriting", () => {
   it("rewrites a relative wikilink embed to an asset when the note moves deeper", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("assets/photo.png", "img")
-    await writeFixture("Notes/Note.md", "Image: ![[../assets/photo.png]]\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("assets/photo.png", "img");
+    await writeFixture("Notes/Note.md", "Image: ![[../assets/photo.png]]\n");
 
     const result = await moveNote({
       oldPath: "Notes/Note.md",
       newPath: "Notes/Sub/Note.md",
-    })
+    });
 
-    expect(await readNote("Notes/Sub/Note.md")).toBe(
-      "Image: ![[../../assets/photo.png]]\n",
-    )
-    expect(result.links_updated).toBe(1)
-  })
+    expect(await readNote("Notes/Sub/Note.md")).toBe("Image: ![[../../assets/photo.png]]\n");
+    expect(result.links_updated).toBe(1);
+  });
 
   it("rewrites a relative markdown link to an asset when the note moves deeper", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("assets/photo.png", "img")
-    await writeFixture("Notes/Note.md", "![img](../assets/photo.png)\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("assets/photo.png", "img");
+    await writeFixture("Notes/Note.md", "![img](../assets/photo.png)\n");
 
     const result = await moveNote({
       oldPath: "Notes/Note.md",
       newPath: "Notes/Sub/Note.md",
-    })
+    });
 
-    expect(await readNote("Notes/Sub/Note.md")).toBe(
-      "![img](../../assets/photo.png)\n",
-    )
-    expect(result.links_updated).toBe(1)
-  })
+    expect(await readNote("Notes/Sub/Note.md")).toBe("![img](../../assets/photo.png)\n");
+    expect(result.links_updated).toBe(1);
+  });
 
   it("leaves a basename-form asset embed untouched — it still resolves after the move", async () => {
-    const { writeFixture, moveNote, readNote, noteExists } = setupVault()
-    await writeFixture("assets/photo.png", "img")
-    await writeFixture("Notes/Note.md", "Image: ![[photo.png]]\n")
+    const { writeFixture, moveNote, readNote, noteExists } = setupVault();
+    await writeFixture("assets/photo.png", "img");
+    await writeFixture("Notes/Note.md", "Image: ![[photo.png]]\n");
 
     const result = await moveNote({
       oldPath: "Notes/Note.md",
       newPath: "Archive/Deep/Note.md",
-    })
+    });
 
     // The note provably moved, so the unchanged content is a deliberate
     // leave-alone, not a silent no-op.
-    expect(await noteExists("Notes/Note.md")).toBe(false)
-    expect(await readNote("Archive/Deep/Note.md")).toBe(
-      "Image: ![[photo.png]]\n",
-    )
-    expect(result.links_updated).toBe(0)
-  })
+    expect(await noteExists("Notes/Note.md")).toBe(false);
+    expect(await readNote("Archive/Deep/Note.md")).toBe("Image: ![[photo.png]]\n");
+    expect(result.links_updated).toBe(0);
+  });
 
   it("leaves a vault-absolute asset link untouched", async () => {
-    const { writeFixture, moveNote, readNote, noteExists } = setupVault()
-    await writeFixture("assets/photo.png", "img")
-    await writeFixture("Notes/Note.md", "Image: ![[assets/photo.png]]\n")
+    const { writeFixture, moveNote, readNote, noteExists } = setupVault();
+    await writeFixture("assets/photo.png", "img");
+    await writeFixture("Notes/Note.md", "Image: ![[assets/photo.png]]\n");
 
     const result = await moveNote({
       oldPath: "Notes/Note.md",
       newPath: "Archive/Deep/Note.md",
-    })
+    });
 
-    expect(await noteExists("Notes/Note.md")).toBe(false)
-    expect(await readNote("Archive/Deep/Note.md")).toBe(
-      "Image: ![[assets/photo.png]]\n",
-    )
-    expect(result.links_updated).toBe(0)
-  })
+    expect(await noteExists("Notes/Note.md")).toBe(false);
+    expect(await readNote("Archive/Deep/Note.md")).toBe("Image: ![[assets/photo.png]]\n");
+    expect(result.links_updated).toBe(0);
+  });
 
   it("rewrites a backlink source's note links but leaves its asset links byte-identical", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("assets/photo.png", "img")
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture(
-      "Docs/Hub.md",
-      "Links [[Foo]].\nImage: ![[../assets/photo.png]]\n",
-    )
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("assets/photo.png", "img");
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Docs/Hub.md", "Links [[Foo]].\nImage: ![[../assets/photo.png]]\n");
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Docs/Hub.md"],
-    })
+    });
 
     // The source note itself didn't move, so its relative asset link still
     // resolves — only the link to the moved note is rewritten.
-    expect(await readNote("Docs/Hub.md")).toBe(
-      "Links [[Bar]].\nImage: ![[../assets/photo.png]]\n",
-    )
-    expect(result.links_updated).toBe(1)
-  })
+    expect(await readNote("Docs/Hub.md")).toBe("Links [[Bar]].\nImage: ![[../assets/photo.png]]\n");
+    expect(result.links_updated).toBe(1);
+  });
 
   it("rewrites a stem-form asset embed, preserving the extensionless form", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("boards/Trip Route.canvas", "{}")
-    await writeFixture("Notes/Note.md", "Route: ![[../boards/Trip Route]]\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("boards/Trip Route.canvas", "{}");
+    await writeFixture("Notes/Note.md", "Route: ![[../boards/Trip Route]]\n");
 
     const result = await moveNote({
       oldPath: "Notes/Note.md",
       newPath: "Notes/Sub/Note.md",
-    })
+    });
 
-    expect(await readNote("Notes/Sub/Note.md")).toBe(
-      "Route: ![[../../boards/Trip Route]]\n",
-    )
-    expect(result.links_updated).toBe(1)
-  })
+    expect(await readNote("Notes/Sub/Note.md")).toBe("Route: ![[../../boards/Trip Route]]\n");
+    expect(result.links_updated).toBe(1);
+  });
 
   it("resolves a multi-dot asset target to its full-filename file via the stem family", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
+    const { writeFixture, moveNote, readNote } = setupVault();
     // Only photo.png.canvas exists — ![[../assets/photo.png]] has no
     // full-filename match, so the stem family resolves it (mirroring the
     // indexer's resolveNonMarkdownFile).
-    await writeFixture("assets/photo.png.canvas", "{}")
-    await writeFixture("Notes/Note.md", "Image: ![[../assets/photo.png]]\n")
+    await writeFixture("assets/photo.png.canvas", "{}");
+    await writeFixture("Notes/Note.md", "Image: ![[../assets/photo.png]]\n");
 
     const result = await moveNote({
       oldPath: "Notes/Note.md",
       newPath: "Notes/Sub/Note.md",
-    })
+    });
 
-    expect(await readNote("Notes/Sub/Note.md")).toBe(
-      "Image: ![[../../assets/photo.png]]\n",
-    )
-    expect(result.links_updated).toBe(1)
-  })
+    expect(await readNote("Notes/Sub/Note.md")).toBe("Image: ![[../../assets/photo.png]]\n");
+    expect(result.links_updated).toBe(1);
+  });
 
   it("rewrites an extensionless markdown link to a note, preserving the extensionless form", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
+    const { writeFixture, moveNote, readNote } = setupVault();
     // "a/Target.md" defeats the basename fallback (shorter than
     // deep/x/Target.md), so the link must be rewritten to keep pointing at
     // the deep note — before this fix it was left to break.
-    await writeFixture("a/Target.md", "decoy\n")
-    await writeFixture("deep/x/Target.md", "content\n")
-    await writeFixture("deep/x/Note.md", "See [text](Target).\n")
+    await writeFixture("a/Target.md", "decoy\n");
+    await writeFixture("deep/x/Target.md", "content\n");
+    await writeFixture("deep/x/Note.md", "See [text](Target).\n");
 
     const result = await moveNote({
       oldPath: "deep/x/Note.md",
       newPath: "deep/y/Note.md",
-    })
+    });
 
-    expect(await readNote("deep/y/Note.md")).toBe("See [text](../x/Target).\n")
-    expect(result.links_updated).toBe(1)
-  })
+    expect(await readNote("deep/y/Note.md")).toBe("See [text](../x/Target).\n");
+    expect(result.links_updated).toBe(1);
+  });
 
   it("resolves a bare target to the note over a same-named asset", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("assets/icon.md", "note\n")
-    await writeFixture("assets/icon.png", "img")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("assets/icon.md", "note\n");
+    await writeFixture("assets/icon.png", "img");
     // "other/icon.md" defeats the basename fallback, forcing a rewrite — had
     // [[../assets/icon]] stem-matched the asset instead, it would still
     // resolve after the move and stay byte-identical.
-    await writeFixture("other/icon.md", "decoy\n")
-    await writeFixture("Notes/Note.md", "Link: [[../assets/icon]]\n")
+    await writeFixture("other/icon.md", "decoy\n");
+    await writeFixture("Notes/Note.md", "Link: [[../assets/icon]]\n");
 
     const result = await moveNote({
       oldPath: "Notes/Note.md",
       newPath: "Notes/Sub/Note.md",
-    })
+    });
 
-    expect(await readNote("Notes/Sub/Note.md")).toBe(
-      "Link: [[../../assets/icon]]\n",
-    )
-    expect(result.links_updated).toBe(1)
-  })
+    expect(await readNote("Notes/Sub/Note.md")).toBe("Link: [[../../assets/icon]]\n");
+    expect(result.links_updated).toBe(1);
+  });
 
   it("resolves an explicit-extension target to the asset over a same-named note", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("assets/icon.md", "note\n")
-    await writeFixture("assets/icon.png", "img")
-    await writeFixture("Notes/Note.md", "Asset: ![[../assets/icon.png]]\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("assets/icon.md", "note\n");
+    await writeFixture("assets/icon.png", "img");
+    await writeFixture("Notes/Note.md", "Asset: ![[../assets/icon.png]]\n");
 
     const result = await moveNote({
       oldPath: "Notes/Note.md",
       newPath: "Notes/Sub/Note.md",
-    })
+    });
 
-    expect(await readNote("Notes/Sub/Note.md")).toBe(
-      "Asset: ![[../../assets/icon.png]]\n",
-    )
-    expect(result.links_updated).toBe(1)
-  })
+    expect(await readNote("Notes/Sub/Note.md")).toBe("Asset: ![[../../assets/icon.png]]\n");
+    expect(result.links_updated).toBe(1);
+  });
 
   it("keeps a basename asset embed pointing at the same file when a shorter same-named asset exists elsewhere", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
+    const { writeFixture, moveNote, readNote } = setupVault();
     // "a/photo.png" is the shorter suffix match, but the link resolved via
     // the relative tier to "other/photo.png" — the rewrite must not switch
     // files.
-    await writeFixture("a/photo.png", "img-a")
-    await writeFixture("other/photo.png", "img-other")
-    await writeFixture("other/Note.md", "Image: ![[photo.png]]\n")
+    await writeFixture("a/photo.png", "img-a");
+    await writeFixture("other/photo.png", "img-other");
+    await writeFixture("other/Note.md", "Image: ![[photo.png]]\n");
 
     const result = await moveNote({
       oldPath: "other/Note.md",
       newPath: "z/Note.md",
-    })
+    });
 
-    expect(await readNote("z/Note.md")).toBe("Image: ![[../other/photo.png]]\n")
-    expect(result.links_updated).toBe(1)
-  })
+    expect(await readNote("z/Note.md")).toBe("Image: ![[../other/photo.png]]\n");
+    expect(result.links_updated).toBe(1);
+  });
 
   it("rewrites an asset embed stored in a frontmatter property", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("assets/photo.png", "img")
-    await writeFixture(
-      "Notes/Note.md",
-      '---\nbanner: "![[../assets/photo.png]]"\n---\nBody\n',
-    )
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("assets/photo.png", "img");
+    await writeFixture("Notes/Note.md", '---\nbanner: "![[../assets/photo.png]]"\n---\nBody\n');
 
     const result = await moveNote({
       oldPath: "Notes/Note.md",
       newPath: "Notes/Sub/Note.md",
-    })
+    });
 
-    expect(await readNote("Notes/Sub/Note.md")).toBe(
-      '---\nbanner: "![[../../assets/photo.png]]"\n---\nBody\n',
-    )
-    expect(result.links_updated).toBe(1)
-  })
-})
+    expect(await readNote("Notes/Sub/Note.md")).toBe('---\nbanner: "![[../../assets/photo.png]]"\n---\nBody\n');
+    expect(result.links_updated).toBe(1);
+  });
+});
 
 describe("moveNote — counts and summary", () => {
   it("counts every rewritten occurrence and lists changed notes sorted", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Beta.md", "[[Foo]] and again [[Foo|alias]].\n")
-    await writeFixture("Alpha.md", "Single [[Foo]].\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Beta.md", "[[Foo]] and again [[Foo|alias]].\n");
+    await writeFixture("Alpha.md", "Single [[Foo]].\n");
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Beta.md", "Alpha.md"],
-    })
+    });
 
-    expect(await readNote("Beta.md")).toBe("[[Bar]] and again [[Bar|alias]].\n")
-    expect(await readNote("Alpha.md")).toBe("Single [[Bar]].\n")
+    expect(await readNote("Beta.md")).toBe("[[Bar]] and again [[Bar|alias]].\n");
+    expect(await readNote("Alpha.md")).toBe("Single [[Bar]].\n");
     expect(result).toEqual({
       moved_to: "Bar.md",
       links_updated: 3,
       updated_notes: ["Alpha.md", "Beta.md"],
       pruned_empty_folders: 0,
-    })
-  })
+    });
+  });
 
   it("rewrites every source when there are more than one batch of them", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
     // 25 sources span three batches of 10, exercising the batch-boundary
     // logic.
     const sources = Array.from({ length: 25 }, (_unused, index) => {
-      const padded = String(index).padStart(2, "0")
-      return `src-${padded}.md`
-    })
-    await Promise.all(
-      sources.map((source) => writeFixture(source, "Link to [[Foo]].\n")),
-    )
+      const padded = String(index).padStart(2, "0");
+      return `src-${padded}.md`;
+    });
+    await Promise.all(sources.map((source) => writeFixture(source, "Link to [[Foo]].\n")));
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: sources,
-    })
+    });
 
-    const allRewritten = await Promise.all(
-      sources.map((source) => readNote(source)),
-    )
-    expect(allRewritten).toEqual(
-      Array.from({ length: sources.length }, () => "Link to [[Bar]].\n"),
-    )
+    const allRewritten = await Promise.all(sources.map((source) => readNote(source)));
+    expect(allRewritten).toEqual(Array.from({ length: sources.length }, () => "Link to [[Bar]].\n"));
     expect(result).toEqual({
       moved_to: "Bar.md",
       links_updated: 25,
       updated_notes: [...sources].sort(),
       pruned_empty_folders: 0,
-    })
-  })
-})
+    });
+  });
+});
 
 describe("moveNote — guards", () => {
   it("throws when the destination already exists", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Bar.md", "occupied\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Bar.md", "occupied\n");
 
-    await expect(
-      moveNote({ oldPath: "Foo.md", newPath: "Bar.md" }),
-    ).rejects.toThrow('destination exists: "Bar.md"')
+    await expect(moveNote({ oldPath: "Foo.md", newPath: "Bar.md" })).rejects.toThrow('destination exists: "Bar.md"');
     // The existing destination is left untouched.
-    expect(await readNote("Bar.md")).toBe("occupied\n")
-    expect(await readNote("Foo.md")).toBe("content\n")
-  })
+    expect(await readNote("Bar.md")).toBe("occupied\n");
+    expect(await readNote("Foo.md")).toBe("content\n");
+  });
 
   it("throws when the source note does not exist", async () => {
-    const { moveNote } = setupVault()
-    await expect(
-      moveNote({ oldPath: "Missing.md", newPath: "Bar.md" }),
-    ).rejects.toThrow('note not found: "Missing.md"')
-  })
+    const { moveNote } = setupVault();
+    await expect(moveNote({ oldPath: "Missing.md", newPath: "Bar.md" })).rejects.toThrow(
+      'note not found: "Missing.md"',
+    );
+  });
 
   it("throws when the source is under a protected path", async () => {
-    const { writeFixture, moveNote, noteExists } = setupVault()
-    await writeFixture("About Me/Me.md", "memory\n")
+    const { writeFixture, moveNote, noteExists } = setupVault();
+    await writeFixture("About Me/Me.md", "memory\n");
 
-    await expect(
-      moveNote({ oldPath: "About Me/Me.md", newPath: "Bar.md" }),
-    ).rejects.toThrow('cannot move protected path "About Me/Me.md"')
-    expect(await noteExists("About Me/Me.md")).toBe(true)
-  })
+    await expect(moveNote({ oldPath: "About Me/Me.md", newPath: "Bar.md" })).rejects.toThrow(
+      'cannot move protected path "About Me/Me.md"',
+    );
+    expect(await noteExists("About Me/Me.md")).toBe(true);
+  });
 
   it("throws when the destination is under a protected path", async () => {
-    const { writeFixture, moveNote, noteExists } = setupVault()
-    await writeFixture("Foo.md", "content\n")
+    const { writeFixture, moveNote, noteExists } = setupVault();
+    await writeFixture("Foo.md", "content\n");
 
-    await expect(
-      moveNote({ oldPath: "Foo.md", newPath: "About Me/Foo.md" }),
-    ).rejects.toThrow('cannot move into protected path "About Me/Foo.md"')
-    expect(await noteExists("Foo.md")).toBe(true)
-  })
+    await expect(moveNote({ oldPath: "Foo.md", newPath: "About Me/Foo.md" })).rejects.toThrow(
+      'cannot move into protected path "About Me/Foo.md"',
+    );
+    expect(await noteExists("Foo.md")).toBe(true);
+  });
 
   it("refuses a destination that reaches a protected path through .. segments", async () => {
-    const { writeFixture, moveNote, noteExists } = setupVault()
-    await writeFixture("Foo.md", "content\n")
+    const { writeFixture, moveNote, noteExists } = setupVault();
+    await writeFixture("Foo.md", "content\n");
 
     // Normalizes to "Daily Notes/Foo.md", which must not slip past the guard.
-    await expect(
-      moveNote({ oldPath: "Foo.md", newPath: "Inbox/../Daily Notes/Foo.md" }),
-    ).rejects.toThrow('cannot move into protected path "Daily Notes/Foo.md"')
-    expect(await noteExists("Foo.md")).toBe(true)
-    expect(await noteExists("Daily Notes/Foo.md")).toBe(false)
-  })
+    await expect(moveNote({ oldPath: "Foo.md", newPath: "Inbox/../Daily Notes/Foo.md" })).rejects.toThrow(
+      'cannot move into protected path "Daily Notes/Foo.md"',
+    );
+    expect(await noteExists("Foo.md")).toBe(true);
+    expect(await noteExists("Daily Notes/Foo.md")).toBe(false);
+  });
 
   it("rejects an absolute container path as the source", async () => {
     // Absolute inputs are rejected outright — the old bypass route into
     // protected folders never reaches a guard or the filesystem.
-    const { vault, writeFixture, moveNote, noteExists } = setupVault()
-    await writeFixture("About Me/Me.md", "memory\n")
+    const { vault, writeFixture, moveNote, noteExists } = setupVault();
+    await writeFixture("About Me/Me.md", "memory\n");
 
-    await expect(
-      moveNote({ oldPath: `${vault}/About Me/Me.md`, newPath: "Bar.md" }),
-    ).rejects.toThrow(
+    await expect(moveNote({ oldPath: `${vault}/About Me/Me.md`, newPath: "Bar.md" })).rejects.toThrow(
       `absolute path blocked: "${vault}/About Me/Me.md" must be vault-relative`,
-    )
-    expect(await noteExists("About Me/Me.md")).toBe(true)
-    expect(await noteExists("Bar.md")).toBe(false)
-  })
+    );
+    expect(await noteExists("About Me/Me.md")).toBe(true);
+    expect(await noteExists("Bar.md")).toBe(false);
+  });
 
   it("rejects an absolute container path as the destination", async () => {
-    const { vault, writeFixture, moveNote, noteExists } = setupVault()
-    await writeFixture("Foo.md", "content\n")
+    const { vault, writeFixture, moveNote, noteExists } = setupVault();
+    await writeFixture("Foo.md", "content\n");
 
-    await expect(
-      moveNote({ oldPath: "Foo.md", newPath: `${vault}/About Me/Foo.md` }),
-    ).rejects.toThrow(
+    await expect(moveNote({ oldPath: "Foo.md", newPath: `${vault}/About Me/Foo.md` })).rejects.toThrow(
       `absolute path blocked: "${vault}/About Me/Foo.md" must be vault-relative`,
-    )
-    expect(await noteExists("Foo.md")).toBe(true)
-    expect(await noteExists("About Me/Foo.md")).toBe(false)
-  })
+    );
+    expect(await noteExists("Foo.md")).toBe(true);
+    expect(await noteExists("About Me/Foo.md")).toBe(false);
+  });
 
   it("refuses a source that escapes and re-enters the vault into a protected folder", async () => {
-    const { vault, writeFixture, moveNote, noteExists } = setupVault()
-    await writeFixture("About Me/Me.md", "memory\n")
+    const { vault, writeFixture, moveNote, noteExists } = setupVault();
+    await writeFixture("About Me/Me.md", "memory\n");
 
     await expect(
       moveNote({
         oldPath: join("..", basename(vault), "About Me/Me.md"),
         newPath: "Bar.md",
       }),
-    ).rejects.toThrow('cannot move protected path "About Me/Me.md"')
-    expect(await noteExists("About Me/Me.md")).toBe(true)
-  })
+    ).rejects.toThrow('cannot move protected path "About Me/Me.md"');
+    expect(await noteExists("About Me/Me.md")).toBe(true);
+  });
 
   it("refuses a case-aliased spelling of a protected source", async () => {
     // On a case-insensitive filesystem "about me/" names the same folder as
     // "About Me/" — the guard's comparison is case-folded so the alias cannot
     // slip past it.
-    const { writeFixture, moveNote, noteExists } = setupVault()
-    await writeFixture("About Me/Me.md", "memory\n")
+    const { writeFixture, moveNote, noteExists } = setupVault();
+    await writeFixture("About Me/Me.md", "memory\n");
 
-    await expect(
-      moveNote({ oldPath: "about me/Me.md", newPath: "Bar.md" }),
-    ).rejects.toThrow('cannot move protected path "about me/Me.md"')
-    expect(await noteExists("About Me/Me.md")).toBe(true)
-  })
+    await expect(moveNote({ oldPath: "about me/Me.md", newPath: "Bar.md" })).rejects.toThrow(
+      'cannot move protected path "about me/Me.md"',
+    );
+    expect(await noteExists("About Me/Me.md")).toBe(true);
+  });
 
   it("throws when source and destination are identical", async () => {
-    const { writeFixture, moveNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
+    const { writeFixture, moveNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
 
-    await expect(
-      moveNote({ oldPath: "Foo.md", newPath: "Foo.md" }),
-    ).rejects.toThrow("source and destination are the same path")
-  })
+    await expect(moveNote({ oldPath: "Foo.md", newPath: "Foo.md" })).rejects.toThrow(
+      "source and destination are the same path",
+    );
+  });
 
   it("recognizes a traversal and a plain spelling of the same note as the same path", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
 
-    await expect(
-      moveNote({ oldPath: "Inbox/../Foo.md", newPath: "Foo.md" }),
-    ).rejects.toThrow("source and destination are the same path")
-    expect(await readNote("Foo.md")).toBe("content\n")
-  })
+    await expect(moveNote({ oldPath: "Inbox/../Foo.md", newPath: "Foo.md" })).rejects.toThrow(
+      "source and destination are the same path",
+    );
+    expect(await readNote("Foo.md")).toBe("content\n");
+  });
 
   it("moves a case-aliased old path via the on-disk spelling and rewrites backlinks", async (testContext) => {
     // This test is only meaningful where the filesystem resolves case-aliased
     // paths to the same file (macOS/Windows bind mounts) — the sibling test
     // below covers the case-sensitive branch, so exactly one of the two runs
     // per platform.
-    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
-    await writeFixture("Projects/todo.md", "content\n")
-    if (!(await noteExists("projects/todo.md"))) testContext.skip()
-    await writeFixture("Hub.md", "Links [[todo]].\n")
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault();
+    await writeFixture("Projects/todo.md", "content\n");
+    if (!(await noteExists("projects/todo.md"))) testContext.skip();
+    await writeFixture("Hub.md", "Links [[todo]].\n");
 
     const result = await moveNote({
       oldPath: "projects/todo.md",
       newPath: "Archive/done.md",
-    })
+    });
 
     expect(result).toEqual({
       moved_to: "Archive/done.md",
       links_updated: 1,
       updated_notes: ["Hub.md"],
       pruned_empty_folders: 0,
-    })
-    expect(await noteExists("Projects/todo.md")).toBe(false)
-    expect(await readNote("Archive/done.md")).toBe("content\n")
-    expect(await readNote("Hub.md")).toBe("Links [[done]].\n")
-  })
+    });
+    expect(await noteExists("Projects/todo.md")).toBe(false);
+    expect(await readNote("Archive/done.md")).toBe("content\n");
+    expect(await readNote("Hub.md")).toBe("Links [[done]].\n");
+  });
 
   it("refuses a case-aliased old path when the filesystem is case-sensitive", async (testContext) => {
     // On a case-sensitive filesystem the aliased spelling names a file that
     // does not exist, so nothing may be moved — the inverse platform branch
     // of the sibling test above.
-    const { writeFixture, moveNote, noteExists } = setupVault()
-    await writeFixture("Projects/todo.md", "content\n")
-    if (await noteExists("projects/todo.md")) testContext.skip()
+    const { writeFixture, moveNote, noteExists } = setupVault();
+    await writeFixture("Projects/todo.md", "content\n");
+    if (await noteExists("projects/todo.md")) testContext.skip();
 
-    await expect(
-      moveNote({ oldPath: "projects/todo.md", newPath: "Archive/done.md" }),
-    ).rejects.toThrow('note not found: "projects/todo.md"')
-    expect(await noteExists("Projects/todo.md")).toBe(true)
-  })
+    await expect(moveNote({ oldPath: "projects/todo.md", newPath: "Archive/done.md" })).rejects.toThrow(
+      'note not found: "projects/todo.md"',
+    );
+    expect(await noteExists("Projects/todo.md")).toBe(true);
+  });
 
   it("reconciles a case-aliased old path to the index's spelling on any host", async () => {
     // The stat probe is redirected to the real spelling for the aliased path,
     // so the index-reconciliation branch runs on every host — CI's
     // case-sensitive filesystem would otherwise never execute it. The
     // platform-gated pair above covers the real-filesystem behavior.
-    const { vault, writeFixture, moveNote, noteExists, readNote } = setupVault()
-    await writeFixture("Projects/todo.md", "content\n")
-    await writeFixture("Hub.md", "Links [[todo]].\n")
+    const { vault, writeFixture, moveNote, noteExists, readNote } = setupVault();
+    await writeFixture("Projects/todo.md", "content\n");
+    await writeFixture("Hub.md", "Links [[todo]].\n");
 
-    const actualFs = await vi.importActual<
-      typeof import("../../../utils/fs.js")
-    >("../../../utils/fs.js")
-    const aliasedFullPath = join(vault, "projects/todo.md")
-    const realFullPath = join(vault, "Projects/todo.md")
+    const actualFs = await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js");
+    const aliasedFullPath = join(vault, "projects/todo.md");
+    const realFullPath = join(vault, "Projects/todo.md");
     vi.mocked(statOrNull).mockImplementation((path) => {
-      if (path === aliasedFullPath) return actualFs.statOrNull(realFullPath)
-      return actualFs.statOrNull(path)
-    })
-    onTestFinished(() => vi.mocked(statOrNull).mockRestore())
+      if (path === aliasedFullPath) return actualFs.statOrNull(realFullPath);
+      return actualFs.statOrNull(path);
+    });
+    onTestFinished(() => vi.mocked(statOrNull).mockRestore());
 
     const result = await moveNote({
       oldPath: "projects/todo.md",
       newPath: "Archive/done.md",
-    })
+    });
 
     expect(result).toEqual({
       moved_to: "Archive/done.md",
       links_updated: 1,
       updated_notes: ["Hub.md"],
       pruned_empty_folders: 0,
-    })
-    expect(await noteExists("Projects/todo.md")).toBe(false)
-    expect(await readNote("Archive/done.md")).toBe("content\n")
-    expect(await readNote("Hub.md")).toBe("Links [[done]].\n")
-  })
+    });
+    expect(await noteExists("Projects/todo.md")).toBe(false);
+    expect(await readNote("Archive/done.md")).toBe("content\n");
+    expect(await readNote("Hub.md")).toBe("Links [[done]].\n");
+  });
 
   it("does not substitute a case-variant sibling that is a different file", async () => {
     // Simulates a case-sensitive vault holding two case-distinct files where
@@ -1091,168 +1006,152 @@ describe("moveNote — guards", () => {
     // but different inode for the input, and its existence check stays false.
     // The reconciliation must decline, because matching by folded name alone
     // would move and unlink the sibling, the wrong user-visible note.
-    const { vault, writeFixture, moveNote, noteExists, readNote } = setupVault()
-    await writeFixture("Projects/todo.md", "sibling content\n")
-    await writeFixture("Hub.md", "Links [[todo]].\n")
+    const { vault, writeFixture, moveNote, noteExists, readNote } = setupVault();
+    await writeFixture("Projects/todo.md", "sibling content\n");
+    await writeFixture("Hub.md", "Links [[todo]].\n");
 
-    const actualFs = await vi.importActual<
-      typeof import("../../../utils/fs.js")
-    >("../../../utils/fs.js")
-    const aliasedFullPath = join(vault, "projects/todo.md")
-    const distinctFilePath = join(vault, "Hub.md")
+    const actualFs = await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js");
+    const aliasedFullPath = join(vault, "projects/todo.md");
+    const distinctFilePath = join(vault, "Hub.md");
     vi.mocked(statOrNull).mockImplementation((path) => {
-      if (path === aliasedFullPath) return actualFs.statOrNull(distinctFilePath)
-      return actualFs.statOrNull(path)
-    })
+      if (path === aliasedFullPath) return actualFs.statOrNull(distinctFilePath);
+      return actualFs.statOrNull(path);
+    });
     vi.mocked(fileExists).mockImplementation((path) => {
-      if (path === aliasedFullPath) return Promise.resolve(false)
-      return actualFs.fileExists(path)
-    })
+      if (path === aliasedFullPath) return Promise.resolve(false);
+      return actualFs.fileExists(path);
+    });
     onTestFinished(() => {
-      vi.mocked(statOrNull).mockRestore()
-      vi.mocked(fileExists).mockRestore()
-    })
+      vi.mocked(statOrNull).mockRestore();
+      vi.mocked(fileExists).mockRestore();
+    });
 
-    await expect(
-      moveNote({ oldPath: "projects/todo.md", newPath: "Archive/done.md" }),
-    ).rejects.toThrow('note not found: "projects/todo.md"')
-    expect(await readNote("Projects/todo.md")).toBe("sibling content\n")
-    expect(await noteExists("Archive/done.md")).toBe(false)
-  })
+    await expect(moveNote({ oldPath: "projects/todo.md", newPath: "Archive/done.md" })).rejects.toThrow(
+      'note not found: "projects/todo.md"',
+    );
+    expect(await readNote("Projects/todo.md")).toBe("sibling content\n");
+    expect(await noteExists("Archive/done.md")).toBe(false);
+  });
 
   /** Redirects the stat probe for the lowercase spelling to the real file,
    *  putting the move on the case-only rename branch on every host. */
   const forceCaseOnlyRenameDetection = (vault: string): void => {
-    const lowercaseFullPath = join(vault, "foo.md")
-    const realFullPath = join(vault, "Foo.md")
+    const lowercaseFullPath = join(vault, "foo.md");
+    const realFullPath = join(vault, "Foo.md");
     vi.mocked(statOrNull).mockImplementation(async (path) => {
-      const actualFs = await vi.importActual<
-        typeof import("../../../utils/fs.js")
-      >("../../../utils/fs.js")
-      if (path === lowercaseFullPath) return actualFs.statOrNull(realFullPath)
-      return actualFs.statOrNull(path)
-    })
-    onTestFinished(() => vi.mocked(statOrNull).mockRestore())
-  }
+      const actualFs = await vi.importActual<typeof import("../../../utils/fs.js")>("../../../utils/fs.js");
+
+      if (path === lowercaseFullPath) return actualFs.statOrNull(realFullPath);
+      return actualFs.statOrNull(path);
+    });
+    onTestFinished(() => vi.mocked(statOrNull).mockRestore());
+  };
 
   it("performs a case-only rename and rewrites links to the new casing", async () => {
     // The stat probe reports the same inode for both spellings, as a
     // case-insensitive filesystem would; on a case-sensitive filesystem the
     // real rename behaves as an ordinary move, so the assertions hold on
     // both hosts.
-    const { vault, writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "Self [[Foo]].\n")
-    await writeFixture("Hub.md", "Links [[Foo]].\n")
-    forceCaseOnlyRenameDetection(vault)
+    const { vault, writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "Self [[Foo]].\n");
+    await writeFixture("Hub.md", "Links [[Foo]].\n");
+    forceCaseOnlyRenameDetection(vault);
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "foo.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
     expect(result).toEqual({
       moved_to: "foo.md",
       links_updated: 2,
       updated_notes: ["Hub.md"],
       pruned_empty_folders: 0,
-    })
-    expect(await readNote("foo.md")).toBe("Self [[foo]].\n")
-    expect(await readNote("Hub.md")).toBe("Links [[foo]].\n")
-  })
+    });
+    expect(await readNote("foo.md")).toBe("Self [[foo]].\n");
+    expect(await readNote("Hub.md")).toBe("Links [[foo]].\n");
+  });
 
   it("moves between case-variant names when the filesystem treats them as distinct files", async (testContext) => {
     // Runs only where the filesystem is case-sensitive — the pair are then
     // two real paths, the same-file probe declines, and the move proceeds as
     // an ordinary move.
-    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    if (await noteExists("foo.md")) testContext.skip()
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    if (await noteExists("foo.md")) testContext.skip();
 
-    const result = await moveNote({ oldPath: "Foo.md", newPath: "foo.md" })
+    const result = await moveNote({ oldPath: "Foo.md", newPath: "foo.md" });
 
-    expect(result.moved_to).toBe("foo.md")
-    expect(await noteExists("Foo.md")).toBe(false)
-    expect(await readNote("foo.md")).toBe("content\n")
-  })
+    expect(result.moved_to).toBe("foo.md");
+    expect(await noteExists("Foo.md")).toBe(false);
+    expect(await readNote("foo.md")).toBe("content\n");
+  });
 
   it("aborts a case-only rename when the filesystem rename fails", async () => {
-    const { vault, writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    forceCaseOnlyRenameDetection(vault)
+    const { vault, writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    forceCaseOnlyRenameDetection(vault);
 
-    const oldFullPath = join(vault, "Foo.md")
-    const newFullPath = join(vault, "foo.md")
+    const oldFullPath = join(vault, "Foo.md");
+    const newFullPath = join(vault, "foo.md");
     vi.mocked(rename).mockImplementation(async (source, destination) => {
       if (source === oldFullPath && destination === newFullPath) {
-        throw new Error("EACCES: permission denied")
+        throw new Error("EACCES: permission denied");
       }
-      const actualFsPromises =
-        await vi.importActual<typeof import("node:fs/promises")>(
-          "node:fs/promises",
-        )
-      return actualFsPromises.rename(source, destination)
-    })
-    onTestFinished(() => vi.mocked(rename).mockRestore())
+      const actualFsPromises = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises");
+      return actualFsPromises.rename(source, destination);
+    });
+    onTestFinished(() => vi.mocked(rename).mockRestore());
 
-    await expect(
-      moveNote({ oldPath: "Foo.md", newPath: "foo.md" }),
-    ).rejects.toThrow(
+    await expect(moveNote({ oldPath: "Foo.md", newPath: "foo.md" })).rejects.toThrow(
       'move aborted: could not rename to "foo.md". Nothing was written.',
-    )
-    expect(await readNote("Foo.md")).toBe("content\n")
-  })
+    );
+    expect(await readNote("Foo.md")).toBe("content\n");
+  });
 
   it("reports the renamed-but-stale-links state when the post-rename write fails", async () => {
-    const { vault, writeFixture, moveNote, readNote } = setupVault()
+    const { vault, writeFixture, moveNote, readNote } = setupVault();
     // The self-link makes the post-rename content write happen.
-    await writeFixture("Foo.md", "Self [[Foo]].\n")
-    forceCaseOnlyRenameDetection(vault)
+    await writeFixture("Foo.md", "Self [[Foo]].\n");
+    forceCaseOnlyRenameDetection(vault);
 
-    const newFullPath = join(vault, "foo.md")
-    vi.mocked(atomicWriteFile).mockImplementation(
-      async (writeParams, writeLogger) => {
-        if (writeParams.filePath === newFullPath) {
-          throw new Error("ENOSPC: no space left")
-        }
-        const actualVaultFilesystem = await vi.importActual<
-          typeof import("../vault-filesystem.js")
-        >("../vault-filesystem.js")
-        return actualVaultFilesystem.atomicWriteFile(writeParams, writeLogger)
-      },
-    )
-    onTestFinished(() => vi.mocked(atomicWriteFile).mockRestore())
+    const newFullPath = join(vault, "foo.md");
+    vi.mocked(atomicWriteFile).mockImplementation(async (writeParams, writeLogger) => {
+      if (writeParams.filePath === newFullPath) {
+        throw new Error("ENOSPC: no space left");
+      }
+      const actualVaultFilesystem =
+        await vi.importActual<typeof import("../vault-filesystem.js")>("../vault-filesystem.js");
+      return actualVaultFilesystem.atomicWriteFile(writeParams, writeLogger);
+    });
+    onTestFinished(() => vi.mocked(atomicWriteFile).mockRestore());
 
-    await expect(
-      moveNote({ oldPath: "Foo.md", newPath: "foo.md" }),
-    ).rejects.toThrow(
+    await expect(moveNote({ oldPath: "Foo.md", newPath: "foo.md" })).rejects.toThrow(
       'move incomplete: renamed to "foo.md" but its own links still use the old casing. Edit the note to update them.',
-    )
+    );
     // The rename itself went through — the note lives at the new spelling
     // with its original content.
-    expect(await readNote("foo.md")).toBe("Self [[Foo]].\n")
-  })
+    expect(await readNote("foo.md")).toBe("Self [[Foo]].\n");
+  });
 
   it("names the already-renamed state when a backlink write fails after a case-only rename", async () => {
-    const { vault, writeFixture, moveNote, readNote } = setupVault()
+    const { vault, writeFixture, moveNote, readNote } = setupVault();
     // No self-link, so the only atomicWriteFile call is the backlink source.
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "Links [[Foo]].\n")
-    forceCaseOnlyRenameDetection(vault)
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", "Links [[Foo]].\n");
+    forceCaseOnlyRenameDetection(vault);
 
-    const hubFullPath = join(vault, "Hub.md")
-    vi.mocked(atomicWriteFile).mockImplementation(
-      async (writeParams, writeLogger) => {
-        if (writeParams.filePath === hubFullPath) {
-          throw new Error("ENOSPC: no space left")
-        }
-        const actualVaultFilesystem = await vi.importActual<
-          typeof import("../vault-filesystem.js")
-        >("../vault-filesystem.js")
-        return actualVaultFilesystem.atomicWriteFile(writeParams, writeLogger)
-      },
-    )
-    onTestFinished(() => vi.mocked(atomicWriteFile).mockRestore())
+    const hubFullPath = join(vault, "Hub.md");
+    vi.mocked(atomicWriteFile).mockImplementation(async (writeParams, writeLogger) => {
+      if (writeParams.filePath === hubFullPath) {
+        throw new Error("ENOSPC: no space left");
+      }
+      const actualVaultFilesystem =
+        await vi.importActual<typeof import("../vault-filesystem.js")>("../vault-filesystem.js");
+      return actualVaultFilesystem.atomicWriteFile(writeParams, writeLogger);
+    });
+    onTestFinished(() => vi.mocked(atomicWriteFile).mockRestore());
 
     await expect(
       moveNote({
@@ -1264,35 +1163,33 @@ describe("moveNote — guards", () => {
       'move incomplete: failed updating "Hub.md" (0/1 sources written). ' +
         'The note was already renamed to "foo.md"; update the remaining ' +
         "links directly.",
-    )
-    expect(await readNote("foo.md")).toBe("content\n")
-    expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n")
-  })
+    );
+    expect(await readNote("foo.md")).toBe("content\n");
+    expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n");
+  });
 
   it("throws when a path does not end in .md", async () => {
-    const { writeFixture, moveNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
+    const { writeFixture, moveNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
 
-    await expect(
-      moveNote({ oldPath: "Foo.md", newPath: "Bar.txt" }),
-    ).rejects.toThrow('path must end in ".md" (received "Bar.txt")')
-  })
+    await expect(moveNote({ oldPath: "Foo.md", newPath: "Bar.txt" })).rejects.toThrow(
+      'path must end in ".md" (received "Bar.txt")',
+    );
+  });
 
   it("throws when a path escapes the vault root", async () => {
-    const { writeFixture, moveNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
+    const { writeFixture, moveNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
 
-    await expect(
-      moveNote({ oldPath: "Foo.md", newPath: "../escape.md" }),
-    ).rejects.toThrow("path traversal blocked")
-  })
-})
+    await expect(moveNote({ oldPath: "Foo.md", newPath: "../escape.md" })).rejects.toThrow("path traversal blocked");
+  });
+});
 
 describe("moveNote — failure safety", () => {
   it("aborts without writing anything when a backlink source cannot be read", async () => {
-    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "Links [[Foo]].\n")
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", "Links [[Foo]].\n");
 
     // "Ghost.md" is listed as a backlink source (as a stale index row might be)
     // but has no file on disk, so its preflight read fails. The preflight must
@@ -1303,19 +1200,17 @@ describe("moveNote — failure safety", () => {
         newPath: "Bar.md",
         backlinkSources: ["Hub.md", "Ghost.md"],
       }),
-    ).rejects.toThrow(
-      'move aborted: could not read backlink source "Ghost.md". Nothing was written.',
-    )
+    ).rejects.toThrow('move aborted: could not read backlink source "Ghost.md". Nothing was written.');
 
-    expect(await noteExists("Foo.md")).toBe(true)
-    expect(await noteExists("Bar.md")).toBe(false)
-    expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n")
-  })
+    expect(await noteExists("Foo.md")).toBe(true);
+    expect(await noteExists("Bar.md")).toBe(false);
+    expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n");
+  });
 
   it("aborts without writing anything when a backlink source path cannot be resolved", async () => {
-    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "Links [[Foo]].\n")
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", "Links [[Foo]].\n");
 
     // "../escape.md" fails path resolution (traversal out of the vault), which
     // the move checks upfront while building its lock set — a resolve-specific
@@ -1326,18 +1221,16 @@ describe("moveNote — failure safety", () => {
         newPath: "Bar.md",
         backlinkSources: ["Hub.md", "../escape.md"],
       }),
-    ).rejects.toThrow(
-      'move aborted: could not resolve backlink source "../escape.md". Nothing was written.',
-    )
+    ).rejects.toThrow('move aborted: could not resolve backlink source "../escape.md". Nothing was written.');
 
-    expect(await noteExists("Foo.md")).toBe(true)
-    expect(await noteExists("Bar.md")).toBe(false)
-    expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n")
-  })
+    expect(await noteExists("Foo.md")).toBe(true);
+    expect(await noteExists("Bar.md")).toBe(false);
+    expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n");
+  });
 
   it("logs the resolution failure distinctly from a read failure", async () => {
-    const { writeFixture, moveNote, logger } = setupVault()
-    await writeFixture("Foo.md", "content\n")
+    const { writeFixture, moveNote, logger } = setupVault();
+    await writeFixture("Foo.md", "content\n");
 
     await expect(
       moveNote({
@@ -1345,9 +1238,7 @@ describe("moveNote — failure safety", () => {
         newPath: "Bar.md",
         backlinkSources: ["../escape.md"],
       }),
-    ).rejects.toThrow(
-      'move aborted: could not resolve backlink source "../escape.md". Nothing was written.',
-    )
+    ).rejects.toThrow('move aborted: could not resolve backlink source "../escape.md". Nothing was written.');
 
     expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
       "note move aborted: could not resolve a backlink source path",
@@ -1356,13 +1247,13 @@ describe("moveNote — failure safety", () => {
         from: "Foo.md",
         to: "Bar.md",
       }),
-    )
-  })
+    );
+  });
 
   it("logs the offending source and destination when a rewrite aborts the move", async () => {
-    const { writeFixture, moveNote, logger } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "Links [[Foo]].\n")
+    const { writeFixture, moveNote, logger } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", "Links [[Foo]].\n");
 
     await expect(
       moveNote({
@@ -1370,9 +1261,7 @@ describe("moveNote — failure safety", () => {
         newPath: "Bar.md",
         backlinkSources: ["Hub.md", "Ghost.md"],
       }),
-    ).rejects.toThrow(
-      'move aborted: could not read backlink source "Ghost.md". Nothing was written.',
-    )
+    ).rejects.toThrow('move aborted: could not read backlink source "Ghost.md". Nothing was written.');
 
     expect(vi.mocked(logger.error)).toHaveBeenCalledWith(
       "note move aborted: could not read/plan a backlink source",
@@ -1381,19 +1270,19 @@ describe("moveNote — failure safety", () => {
         from: "Foo.md",
         to: "Bar.md",
       }),
-    )
-  })
+    );
+  });
 
   it("logs a completion summary with the success and failure counts", async () => {
-    const { writeFixture, moveNote, logger } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "Links [[Foo]].\n")
+    const { writeFixture, moveNote, logger } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", "Links [[Foo]].\n");
 
     await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
 
     expect(vi.mocked(logger.info)).toHaveBeenCalledWith("note move complete", {
       from: "Foo.md",
@@ -1402,110 +1291,110 @@ describe("moveNote — failure safety", () => {
       sources_updated: 1,
       sources_failed: 0,
       pruned_empty_folders: 0,
-    })
-  })
-})
+    });
+  });
+});
 
 describe("moveNote — empty-folder prune", () => {
   it("leaves the source folder in place when prune is off (Obsidian default)", async () => {
-    const { writeFixture, moveNote, folderExists, noteExists } = setupVault()
-    await writeFixture("Inbox/draft.md", "body\n")
+    const { writeFixture, moveNote, folderExists, noteExists } = setupVault();
+    await writeFixture("Inbox/draft.md", "body\n");
 
     const result = await moveNote({
       oldPath: "Inbox/draft.md",
       newPath: "Projects/draft.md",
-    })
+    });
 
-    expect(await noteExists("Inbox/draft.md")).toBe(false)
-    expect(await noteExists("Projects/draft.md")).toBe(true)
-    expect(await folderExists("Inbox")).toBe(true)
-    expect(result.pruned_empty_folders).toBe(0)
-  })
+    expect(await noteExists("Inbox/draft.md")).toBe(false);
+    expect(await noteExists("Projects/draft.md")).toBe(true);
+    expect(await folderExists("Inbox")).toBe(true);
+    expect(result.pruned_empty_folders).toBe(0);
+  });
 
   it("removes the source folder when its last note is moved out and prune is on", async () => {
-    const { writeFixture, moveNote, folderExists, noteExists } = setupVault()
-    await writeFixture("Inbox/draft.md", "body\n")
+    const { writeFixture, moveNote, folderExists, noteExists } = setupVault();
+    await writeFixture("Inbox/draft.md", "body\n");
 
     const result = await moveNote({
       oldPath: "Inbox/draft.md",
       newPath: "Projects/draft.md",
       pruneEmptyFolders: true,
-    })
+    });
 
-    expect(await folderExists("Inbox")).toBe(false)
-    expect(await noteExists("Projects/draft.md")).toBe(true)
-    expect(result.pruned_empty_folders).toBe(1)
-  })
+    expect(await folderExists("Inbox")).toBe(false);
+    expect(await noteExists("Projects/draft.md")).toBe(true);
+    expect(result.pruned_empty_folders).toBe(1);
+  });
 
   it("walks up removing nested empty source parents", async () => {
-    const { writeFixture, moveNote, folderExists, noteExists } = setupVault()
-    await writeFixture("A/B/note.md", "body\n")
+    const { writeFixture, moveNote, folderExists, noteExists } = setupVault();
+    await writeFixture("A/B/note.md", "body\n");
 
     const result = await moveNote({
       oldPath: "A/B/note.md",
       newPath: "Dest/note.md",
       pruneEmptyFolders: true,
-    })
+    });
 
-    expect(await noteExists("A/B/note.md")).toBe(false)
-    expect(await noteExists("Dest/note.md")).toBe(true)
-    expect(await folderExists("A/B")).toBe(false)
-    expect(await folderExists("A")).toBe(false)
-    expect(result.pruned_empty_folders).toBe(2)
-  })
+    expect(await noteExists("A/B/note.md")).toBe(false);
+    expect(await noteExists("Dest/note.md")).toBe(true);
+    expect(await folderExists("A/B")).toBe(false);
+    expect(await folderExists("A")).toBe(false);
+    expect(result.pruned_empty_folders).toBe(2);
+  });
 
   it("leaves the source folder when another note remains", async () => {
-    const { writeFixture, moveNote, folderExists, noteExists } = setupVault()
-    await writeFixture("Inbox/keep.md", "keep\n")
-    await writeFixture("Inbox/move.md", "move\n")
+    const { writeFixture, moveNote, folderExists, noteExists } = setupVault();
+    await writeFixture("Inbox/keep.md", "keep\n");
+    await writeFixture("Inbox/move.md", "move\n");
 
     const result = await moveNote({
       oldPath: "Inbox/move.md",
       newPath: "Projects/move.md",
       pruneEmptyFolders: true,
-    })
+    });
 
     // The move must actually happen, so Inbox survives only because keep.md
     // remains — not because the move silently no-op'd.
-    expect(await noteExists("Inbox/move.md")).toBe(false)
-    expect(await noteExists("Projects/move.md")).toBe(true)
-    expect(await folderExists("Inbox")).toBe(true)
-    expect(await noteExists("Inbox/keep.md")).toBe(true)
-    expect(result.pruned_empty_folders).toBe(0)
-  })
+    expect(await noteExists("Inbox/move.md")).toBe(false);
+    expect(await noteExists("Projects/move.md")).toBe(true);
+    expect(await folderExists("Inbox")).toBe(true);
+    expect(await noteExists("Inbox/keep.md")).toBe(true);
+    expect(result.pruned_empty_folders).toBe(0);
+  });
 
   it("does not prune on an in-place rename within the same folder", async () => {
-    const { writeFixture, moveNote, folderExists, noteExists } = setupVault()
-    await writeFixture("Notes/old.md", "body\n")
+    const { writeFixture, moveNote, folderExists, noteExists } = setupVault();
+    await writeFixture("Notes/old.md", "body\n");
 
     const result = await moveNote({
       oldPath: "Notes/old.md",
       newPath: "Notes/new.md",
       pruneEmptyFolders: true,
-    })
+    });
 
-    expect(await noteExists("Notes/old.md")).toBe(false)
-    expect(await folderExists("Notes")).toBe(true)
-    expect(await noteExists("Notes/new.md")).toBe(true)
-    expect(result.pruned_empty_folders).toBe(0)
-  })
+    expect(await noteExists("Notes/old.md")).toBe(false);
+    expect(await folderExists("Notes")).toBe(true);
+    expect(await noteExists("Notes/new.md")).toBe(true);
+    expect(result.pruned_empty_folders).toBe(0);
+  });
 
   it("does not prune when moving into a subfolder of the source", async () => {
-    const { writeFixture, moveNote, folderExists, noteExists } = setupVault()
-    await writeFixture("Parent/note.md", "body\n")
+    const { writeFixture, moveNote, folderExists, noteExists } = setupVault();
+    await writeFixture("Parent/note.md", "body\n");
 
     const result = await moveNote({
       oldPath: "Parent/note.md",
       newPath: "Parent/Sub/note.md",
       pruneEmptyFolders: true,
-    })
+    });
 
-    expect(await noteExists("Parent/note.md")).toBe(false)
-    expect(await folderExists("Parent")).toBe(true)
-    expect(await noteExists("Parent/Sub/note.md")).toBe(true)
-    expect(result.pruned_empty_folders).toBe(0)
-  })
-})
+    expect(await noteExists("Parent/note.md")).toBe(false);
+    expect(await folderExists("Parent")).toBe(true);
+    expect(await noteExists("Parent/Sub/note.md")).toBe(true);
+    expect(result.pruned_empty_folders).toBe(0);
+  });
+});
 
 // windowsBindMount routes the destination write through rename instead of a
 // hard link (unsupported on a Windows-drive Docker bind mount). These cover the
@@ -1513,33 +1402,33 @@ describe("moveNote — empty-folder prune", () => {
 // guard itself is unit-tested in vault-filesystem.test.ts.
 describe("moveNote — Windows mode (rename-based exclusive write)", () => {
   it("moves the note and rewrites backlinks in Windows mode", async () => {
-    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "See [[Foo]] for details.\n")
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", "See [[Foo]] for details.\n");
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
       windowsBindMount: true,
-    })
+    });
 
     // Assert the move actually happened — not a silent no-op — on both ends.
-    expect(await noteExists("Foo.md")).toBe(false)
-    expect(await readNote("Bar.md")).toBe("content\n")
-    expect(await readNote("Hub.md")).toBe("See [[Bar]] for details.\n")
+    expect(await noteExists("Foo.md")).toBe(false);
+    expect(await readNote("Bar.md")).toBe("content\n");
+    expect(await readNote("Hub.md")).toBe("See [[Bar]] for details.\n");
     expect(result).toEqual({
       moved_to: "Bar.md",
       links_updated: 1,
       updated_notes: ["Hub.md"],
       pruned_empty_folders: 0,
-    })
-  })
+    });
+  });
 
   it("refuses an existing destination in Windows mode", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Bar.md", "occupied\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Bar.md", "occupied\n");
 
     await expect(
       moveNote({
@@ -1547,16 +1436,15 @@ describe("moveNote — Windows mode (rename-based exclusive write)", () => {
         newPath: "Bar.md",
         windowsBindMount: true,
       }),
-    ).rejects.toThrow('destination exists: "Bar.md"')
+    ).rejects.toThrow('destination exists: "Bar.md"');
     // Both notes are untouched — the failed move wrote nothing.
-    expect(await readNote("Bar.md")).toBe("occupied\n")
-    expect(await readNote("Foo.md")).toBe("content\n")
-  })
-})
+    expect(await readNote("Bar.md")).toBe("occupied\n");
+    expect(await readNote("Foo.md")).toBe("content\n");
+  });
+});
 
 describe("moveNote — concurrent write locking", () => {
-  const delay = (ms: number): Promise<void> =>
-    new Promise((resolve) => setTimeout(resolve, ms))
+  const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
   /** Invokes moveNote WITHOUT awaiting it. The multi-file lock is acquired
    *  synchronously before moveNote's first await, so the locks are already
@@ -1565,13 +1453,13 @@ describe("moveNote — concurrent write locking", () => {
    *  async) function, because an async wrapper would flatten the returned
    *  promise. */
   const startMove = (params: {
-    vault: string
-    logger: Logger
-    oldPath: string
-    newPath: string
-    backlinkSources: string[]
-    allNotePaths: string[]
-    allAssetPaths?: string[]
+    vault: string;
+    logger: Logger;
+    oldPath: string;
+    newPath: string;
+    backlinkSources: string[];
+    allNotePaths: string[];
+    allAssetPaths?: string[];
   }): ReturnType<typeof noteMover.moveNote> => {
     const movePromise = noteMover.moveNote(
       {
@@ -1586,21 +1474,21 @@ describe("moveNote — concurrent write locking", () => {
         windowsBindMount: false,
       },
       params.logger,
-    )
+    );
     // Settle the move during cleanup so an assertion failing between start
     // and await can't leave an unhandled rejection or an in-flight move
     // behind the test.
     onTestFinished(async () => {
-      await movePromise.catch(() => {})
-    })
-    return movePromise
-  }
+      await movePromise.catch(() => {});
+    });
+    return movePromise;
+  };
 
   it("rejects a concurrent patch to a backlink source while a move is in flight", async () => {
-    const { vault, logger, writeFixture, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "Links [[Foo]].\n")
-    const allNotePaths = await vaultFs.listNotes({ vaultPath: vault }, logger)
+    const { vault, logger, writeFixture, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", "Links [[Foo]].\n");
+    const allNotePaths = await vaultFs.listNotes({ vaultPath: vault }, logger);
 
     const movePromise = startMove({
       vault,
@@ -1609,7 +1497,7 @@ describe("moveNote — concurrent write locking", () => {
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
       allNotePaths,
-    })
+    });
 
     // The move already holds Hub.md's lock, so the patch must fail fast
     // instead of racing the move's read-then-write and losing its edit.
@@ -1623,18 +1511,18 @@ describe("moveNote — concurrent write locking", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("concurrent write in progress")
+    ).rejects.toThrow("concurrent write in progress");
 
     // The move itself completes untouched by the rejected patch.
-    const result = await movePromise
-    expect(result.moved_to).toBe("Bar.md")
-    expect(await readNote("Hub.md")).toBe("Links [[Bar]].\n")
-  })
+    const result = await movePromise;
+    expect(result.moved_to).toBe("Bar.md");
+    expect(await readNote("Hub.md")).toBe("Links [[Bar]].\n");
+  });
 
   it("rejects a concurrent write to the destination while a move is in flight", async () => {
-    const { vault, logger, writeFixture, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    const allNotePaths = await vaultFs.listNotes({ vaultPath: vault }, logger)
+    const { vault, logger, writeFixture, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    const allNotePaths = await vaultFs.listNotes({ vaultPath: vault }, logger);
 
     const movePromise = startMove({
       vault,
@@ -1643,23 +1531,20 @@ describe("moveNote — concurrent write locking", () => {
       newPath: "Bar.md",
       backlinkSources: [],
       allNotePaths,
-    })
+    });
 
-    await expect(
-      vaultFs.writeNote(
-        { vaultPath: vault, path: "Bar.md", body: "squatter" },
-        logger,
-      ),
-    ).rejects.toThrow("concurrent write in progress")
+    await expect(vaultFs.writeNote({ vaultPath: vault, path: "Bar.md", body: "squatter" }, logger)).rejects.toThrow(
+      "concurrent write in progress",
+    );
 
-    await movePromise
-    expect(await readNote("Bar.md")).toBe("content\n")
-  })
+    await movePromise;
+    expect(await readNote("Bar.md")).toBe("content\n");
+  });
 
   it("rejects a concurrent delete of the note being moved", async () => {
-    const { vault, logger, writeFixture, noteExists } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    const allNotePaths = await vaultFs.listNotes({ vaultPath: vault }, logger)
+    const { vault, logger, writeFixture, noteExists } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    const allNotePaths = await vaultFs.listNotes({ vaultPath: vault }, logger);
 
     const movePromise = startMove({
       vault,
@@ -1668,7 +1553,7 @@ describe("moveNote — concurrent write locking", () => {
       newPath: "Bar.md",
       backlinkSources: [],
       allNotePaths,
-    })
+    });
 
     await expect(
       vaultFs.deleteNote(
@@ -1681,16 +1566,16 @@ describe("moveNote — concurrent write locking", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("concurrent write in progress")
+    ).rejects.toThrow("concurrent write in progress");
 
-    await movePromise
-    expect(await noteExists("Bar.md")).toBe(true)
-  })
+    await movePromise;
+    expect(await noteExists("Bar.md")).toBe(true);
+  });
 
   it("rejects a second move of the same note while one is in flight", async () => {
-    const { vault, logger, writeFixture, noteExists } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    const allNotePaths = await vaultFs.listNotes({ vaultPath: vault }, logger)
+    const { vault, logger, writeFixture, noteExists } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    const allNotePaths = await vaultFs.listNotes({ vaultPath: vault }, logger);
 
     const firstMove = startMove({
       vault,
@@ -1699,7 +1584,7 @@ describe("moveNote — concurrent write locking", () => {
       newPath: "Bar.md",
       backlinkSources: [],
       allNotePaths,
-    })
+    });
     const secondMove = startMove({
       vault,
       logger,
@@ -1707,28 +1592,25 @@ describe("moveNote — concurrent write locking", () => {
       newPath: "Baz.md",
       backlinkSources: [],
       allNotePaths,
-    })
+    });
 
-    await expect(secondMove).rejects.toThrow("concurrent write in progress")
+    await expect(secondMove).rejects.toThrow("concurrent write in progress");
 
-    await firstMove
-    expect(await noteExists("Bar.md")).toBe(true)
-    expect(await noteExists("Baz.md")).toBe(false)
-  })
+    await firstMove;
+    expect(await noteExists("Bar.md")).toBe(true);
+    expect(await noteExists("Baz.md")).toBe(false);
+  });
 
   it("rejects the move when a write is already in flight on a backlink source", async () => {
-    const { vault, logger, writeFixture, noteExists, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "Links [[Foo]].\n")
-    const allNotePaths = await vaultFs.listNotes({ vaultPath: vault }, logger)
+    const { vault, logger, writeFixture, noteExists, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", "Links [[Foo]].\n");
+    const allNotePaths = await vaultFs.listNotes({ vaultPath: vault }, logger);
 
     // Simulate an in-flight single-file write on the backlink source.
-    const holdHubLock = withExclusiveFileLock(
-      join(vault, "Hub.md"),
-      async () => {
-        await delay(50)
-      },
-    )
+    const holdHubLock = withExclusiveFileLock(join(vault, "Hub.md"), async () => {
+      await delay(50);
+    });
 
     const movePromise = startMove({
       vault,
@@ -1737,37 +1619,33 @@ describe("moveNote — concurrent write locking", () => {
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
       allNotePaths,
-    })
-    await expect(movePromise).rejects.toThrow("concurrent write in progress")
+    });
+    await expect(movePromise).rejects.toThrow("concurrent write in progress");
 
     // Fail-fast means fail-clean — nothing was moved or rewritten.
-    await holdHubLock
-    expect(await noteExists("Foo.md")).toBe(true)
-    expect(await noteExists("Bar.md")).toBe(false)
-    expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n")
-  })
+    await holdHubLock;
+    expect(await noteExists("Foo.md")).toBe(true);
+    expect(await noteExists("Bar.md")).toBe(false);
+    expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n");
+  });
 
   it("releases every lock when the move completes", async () => {
-    const { vault, logger, writeFixture, moveNote, noteExists, readNote } =
-      setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "Links [[Foo]].\n")
+    const { vault, logger, writeFixture, moveNote, noteExists, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", "Links [[Foo]].\n");
 
     await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md"],
-    })
+    });
     // The move actually ran — the release assertions below aren't passing
     // because nothing was ever locked.
-    expect(await noteExists("Foo.md")).toBe(false)
+    expect(await noteExists("Foo.md")).toBe(false);
 
     // Every path the move locked (old path, destination, backlink source)
     // accepts writes again.
-    await vaultFs.writeNote(
-      { vaultPath: vault, path: "Foo.md", body: "recreated after move" },
-      logger,
-    )
+    await vaultFs.writeNote({ vaultPath: vault, path: "Foo.md", body: "recreated after move" }, logger);
     await vaultFs.writeNote(
       {
         vaultPath: vault,
@@ -1776,7 +1654,7 @@ describe("moveNote — concurrent write locking", () => {
         overwrite: true,
       },
       logger,
-    )
+    );
     await vaultFs.writeNote(
       {
         vaultPath: vault,
@@ -1785,17 +1663,17 @@ describe("moveNote — concurrent write locking", () => {
         overwrite: true,
       },
       logger,
-    )
-    expect(await readNote("Foo.md")).toBe("recreated after move\n")
-    expect(await readNote("Hub.md")).toBe("rewritten after move\n")
-    expect(await readNote("Bar.md")).toBe("updated after move\n")
-  })
+    );
+    expect(await readNote("Foo.md")).toBe("recreated after move\n");
+    expect(await readNote("Hub.md")).toBe("rewritten after move\n");
+    expect(await readNote("Bar.md")).toBe("updated after move\n");
+  });
 
   it("releases every lock when the move fails", async () => {
-    const { vault, logger, writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Bar.md", "occupied\n")
-    await writeFixture("Hub.md", "Links [[Foo]].\n")
+    const { vault, logger, writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Bar.md", "occupied\n");
+    await writeFixture("Hub.md", "Links [[Foo]].\n");
 
     // The move fails inside the lock, after acquisition — the existence
     // check runs within the locked span.
@@ -1805,7 +1683,7 @@ describe("moveNote — concurrent write locking", () => {
         newPath: "Bar.md",
         backlinkSources: ["Hub.md"],
       }),
-    ).rejects.toThrow('destination exists: "Bar.md"')
+    ).rejects.toThrow('destination exists: "Bar.md"');
 
     // Every path the failed move locked (old path, destination, backlink
     // source) accepts writes again.
@@ -1817,7 +1695,7 @@ describe("moveNote — concurrent write locking", () => {
         overwrite: true,
       },
       logger,
-    )
+    );
     await vaultFs.writeNote(
       {
         vaultPath: vault,
@@ -1826,7 +1704,7 @@ describe("moveNote — concurrent write locking", () => {
         overwrite: true,
       },
       logger,
-    )
+    );
     await vaultFs.writeNote(
       {
         vaultPath: vault,
@@ -1835,18 +1713,18 @@ describe("moveNote — concurrent write locking", () => {
         overwrite: true,
       },
       logger,
-    )
-    expect(await readNote("Foo.md")).toBe("written after failed move\n")
-    expect(await readNote("Bar.md")).toBe("destination writable\n")
-    expect(await readNote("Hub.md")).toBe("also writable\n")
-  })
-})
+    );
+    expect(await readNote("Foo.md")).toBe("written after failed move\n");
+    expect(await readNote("Bar.md")).toBe("destination writable\n");
+    expect(await readNote("Hub.md")).toBe("also writable\n");
+  });
+});
 
 describe("moveNote — backlink source hygiene", () => {
   it("rewrites a backlink source once when it is listed under duplicate and alias spellings", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "Links [[Foo]].\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "content\n");
+    await writeFixture("Hub.md", "Links [[Foo]].\n");
 
     // "Hub.md", "./Hub.md", and a second "Hub.md" all resolve to one file —
     // it must get exactly one rewrite plan, not three.
@@ -1854,71 +1732,67 @@ describe("moveNote — backlink source hygiene", () => {
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Hub.md", "./Hub.md", "Hub.md"],
-    })
+    });
 
-    expect(await readNote("Hub.md")).toBe("Links [[Bar]].\n")
+    expect(await readNote("Hub.md")).toBe("Links [[Bar]].\n");
     expect(result).toEqual({
       moved_to: "Bar.md",
       links_updated: 1,
       updated_notes: ["Hub.md"],
       pruned_empty_folders: 0,
-    })
-  })
+    });
+  });
 
   it("excludes an alias spelling of the moved note from the backlink sources", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
+    const { writeFixture, moveNote, readNote } = setupVault();
     // A self-link makes the difference observable — as the moved note it is
     // rewritten once (counted in links_updated); if "./Foo.md" slipped past
     // the old-path filter it would also get a backlink-source rewrite plan,
     // inflating links_updated to 2 and listing "./Foo.md" in updated_notes.
-    await writeFixture("Foo.md", "See [[Foo]].\n")
+    await writeFixture("Foo.md", "See [[Foo]].\n");
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["./Foo.md"],
-    })
+    });
 
-    expect(await readNote("Bar.md")).toBe("See [[Bar]].\n")
+    expect(await readNote("Bar.md")).toBe("See [[Bar]].\n");
     expect(result).toEqual({
       moved_to: "Bar.md",
       links_updated: 1,
       updated_notes: [],
       pruned_empty_folders: 0,
-    })
-  })
-})
+    });
+  });
+});
 
 describe("moveNote — hidden paths", () => {
   it("rejects a hidden old_path", async () => {
-    const { writeFixture, moveNote } = setupVault()
+    const { writeFixture, moveNote } = setupVault();
     // The note exists on disk so a removed guard would let the move succeed.
-    await writeFixture(".trash/secret.md", "# Secret\n")
-    await expect(
-      moveNote({ oldPath: ".trash/secret.md", newPath: "Rescued.md" }),
-    ).rejects.toThrow(
+    await writeFixture(".trash/secret.md", "# Secret\n");
+    await expect(moveNote({ oldPath: ".trash/secret.md", newPath: "Rescued.md" })).rejects.toThrow(
       'hidden path blocked: ".trash/secret.md" targets a hidden file or folder',
-    )
-  })
+    );
+  });
 
   it("rejects a hidden new_path and leaves the source note in place", async () => {
-    const { writeFixture, moveNote, noteExists, readNote } = setupVault()
-    await writeFixture("Visible.md", "# Visible\n")
-    await expect(
-      moveNote({ oldPath: "Visible.md", newPath: ".obsidian/hidden.md" }),
-    ).rejects.toThrow(
+    const { writeFixture, moveNote, noteExists, readNote } = setupVault();
+    await writeFixture("Visible.md", "# Visible\n");
+    await expect(moveNote({ oldPath: "Visible.md", newPath: ".obsidian/hidden.md" })).rejects.toThrow(
       'hidden path blocked: ".obsidian/hidden.md" targets a hidden file or folder',
-    )
-    expect(await noteExists("Visible.md")).toBe(true)
-    expect(await readNote("Visible.md")).toBe("# Visible\n")
-  })
-})
+    );
+    expect(await noteExists("Visible.md")).toBe(true);
+    expect(await readNote("Visible.md")).toBe("# Visible\n");
+  });
+});
 
 describe("moveNote — filesystem backlink verification", () => {
   it("discovers and rewrites a backlink the index missed", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "# Foo\n")
-    await writeFixture("Linker.md", "See [[Foo]] for details.\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "# Foo\n");
+    await writeFixture("Linker.md", "See [[Foo]] for details.\n");
 
     // Pass empty backlinkSources — simulates a stale index that hasn't
     // indexed Linker.md's link yet. The filesystem scan should find it.
@@ -1929,53 +1803,48 @@ describe("moveNote — filesystem backlink verification", () => {
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: [],
-    })
+    });
 
     expect(result).toEqual({
       moved_to: "Bar.md",
       links_updated: 1,
       updated_notes: ["Linker.md"],
       pruned_empty_folders: 0,
-    })
-    expect(await readNote("Linker.md")).toBe("See [[Bar]] for details.\n")
-  })
+    });
+    expect(await readNote("Linker.md")).toBe("See [[Bar]] for details.\n");
+  });
 
   it("discovers backlinks in frontmatter the index missed", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "# Foo\n")
-    await writeFixture(
-      "Related.md",
-      '---\nrelated:\n  - "[[Foo]]"\n---\nBody.\n',
-    )
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("Foo.md", "# Foo\n");
+    await writeFixture("Related.md", '---\nrelated:\n  - "[[Foo]]"\n---\nBody.\n');
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Renamed.md",
       backlinkSources: [],
-    })
+    });
 
     expect(result).toEqual({
       moved_to: "Renamed.md",
       links_updated: 1,
       updated_notes: ["Related.md"],
       pruned_empty_folders: 0,
-    })
-    expect(await readNote("Related.md")).toBe(
-      '---\nrelated:\n  - "[[Renamed]]"\n---\nBody.\n',
-    )
-  })
+    });
+    expect(await readNote("Related.md")).toBe('---\nrelated:\n  - "[[Renamed]]"\n---\nBody.\n');
+  });
 
   it("does not false-positive on notes containing the basename as prose", async () => {
-    const { writeFixture, moveNote, logger } = setupVault()
-    await writeFixture("Foo.md", "# Foo\n")
+    const { writeFixture, moveNote, logger } = setupVault();
+    await writeFixture("Foo.md", "# Foo\n");
     // The fixture contains "Foo" as prose text, not as a link.
-    await writeFixture("Prose.md", "The Foo concept is clear.\n")
+    await writeFixture("Prose.md", "The Foo concept is clear.\n");
 
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: [],
-    })
+    });
 
     // Prose.md passes the pre-filter (contains "Foo") but should NOT be
     // identified as a backlink source because "Foo" is prose, not a link.
@@ -1985,7 +1854,7 @@ describe("moveNote — filesystem backlink verification", () => {
       links_updated: 0,
       updated_notes: [],
       pruned_empty_folders: 0,
-    })
+    });
     // The retry log must NOT have fired with Prose.md — a scan that
     // false-positives on prose would still produce the same result (the
     // preflight finds no links, planned rewrite is filtered out), so the
@@ -1995,13 +1864,13 @@ describe("moveNote — filesystem backlink verification", () => {
       expect.objectContaining({
         additionalSources: expect.arrayContaining(["Prose.md"]),
       }),
-    )
-  })
+    );
+  });
 
   it("skips unreadable notes during the scan without aborting", async () => {
-    const { vault, writeFixture, readNote, logger } = setupVault()
-    await writeFixture("Foo.md", "# Foo\n")
-    await writeFixture("Good.md", "Link: [[Foo]]\n")
+    const { vault, writeFixture, readNote, logger } = setupVault();
+    await writeFixture("Foo.md", "# Foo\n");
+    await writeFixture("Good.md", "Link: [[Foo]]\n");
 
     // Call moveNote directly with allNotePaths including "Ghost.md" — a path
     // that doesn't exist on disk. The filesystem scan will try to read it,
@@ -2019,7 +1888,7 @@ describe("moveNote — filesystem backlink verification", () => {
         windowsBindMount: false,
       },
       logger,
-    )
+    );
 
     // Good.md should still be discovered and rewritten
     expect(result).toEqual({
@@ -2027,36 +1896,36 @@ describe("moveNote — filesystem backlink verification", () => {
       links_updated: 1,
       updated_notes: ["Good.md"],
       pruned_empty_folders: 0,
-    })
-    expect(await readNote("Good.md")).toBe("Link: [[Bar]]\n")
+    });
+    expect(await readNote("Good.md")).toBe("Link: [[Bar]]\n");
     // The ghost note should have been logged as a warning
     expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
       "backlink scan: skipping unreadable note",
       expect.objectContaining({ path: "Ghost.md" }),
-    )
-  })
+    );
+  });
 
   it("handles index-known and filesystem-discovered sources together", async () => {
-    const { writeFixture, moveNote, readNote, logger } = setupVault()
-    await writeFixture("Foo.md", "# Foo\n")
-    await writeFixture("Known.md", "Index knows: [[Foo]]\n")
-    await writeFixture("Unknown.md", "Index missed: [[Foo]]\n")
+    const { writeFixture, moveNote, readNote, logger } = setupVault();
+    await writeFixture("Foo.md", "# Foo\n");
+    await writeFixture("Known.md", "Index knows: [[Foo]]\n");
+    await writeFixture("Unknown.md", "Index missed: [[Foo]]\n");
 
     // Known.md is in backlinkSources (from the index); Unknown.md is not
     const result = await moveNote({
       oldPath: "Foo.md",
       newPath: "Bar.md",
       backlinkSources: ["Known.md"],
-    })
+    });
 
     expect(result).toEqual({
       moved_to: "Bar.md",
       links_updated: 2,
       updated_notes: ["Known.md", "Unknown.md"],
       pruned_empty_folders: 0,
-    })
-    expect(await readNote("Known.md")).toBe("Index knows: [[Bar]]\n")
-    expect(await readNote("Unknown.md")).toBe("Index missed: [[Bar]]\n")
+    });
+    expect(await readNote("Known.md")).toBe("Index knows: [[Bar]]\n");
+    expect(await readNote("Unknown.md")).toBe("Index missed: [[Bar]]\n");
     // The retry loop fires because Unknown.md was not in backlinkSources
     expect(vi.mocked(logger.info)).toHaveBeenCalledWith(
       "backlink verification discovered sources the index missed",
@@ -2065,54 +1934,52 @@ describe("moveNote — filesystem backlink verification", () => {
         to: "Bar.md",
         additionalSources: ["Unknown.md"],
       }),
-    )
-  })
+    );
+  });
 
   it("discovers a markdown-link backlink via percent-encoded pre-filter", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("My Note.md", "# My Note\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("My Note.md", "# My Note\n");
     // The link carries a percent-encoded space — the raw content contains
     // "My%20Note" but not "My Note" as a contiguous substring in the URL part.
     // The pre-filter's encodedStem check catches this.
-    await writeFixture("Linker.md", "See [here](My%20Note.md) for info.\n")
+    await writeFixture("Linker.md", "See [here](My%20Note.md) for info.\n");
 
     const result = await moveNote({
       oldPath: "My Note.md",
       newPath: "Renamed Note.md",
       backlinkSources: [],
-    })
+    });
 
     expect(result).toEqual({
       moved_to: "Renamed Note.md",
       links_updated: 1,
       updated_notes: ["Linker.md"],
       pruned_empty_folders: 0,
-    })
-    expect(await readNote("Linker.md")).toBe(
-      "See [here](Renamed%20Note.md) for info.\n",
-    )
-  })
+    });
+    expect(await readNote("Linker.md")).toBe("See [here](Renamed%20Note.md) for info.\n");
+  });
 
   it("discovers a markdown-link backlink whose target uses %28/%29 encoding", async () => {
-    const { writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("New (Draft).md", "# Draft\n")
+    const { writeFixture, moveNote, readNote } = setupVault();
+    await writeFixture("New (Draft).md", "# Draft\n");
     // The rewriter's encodeMarkdownLinkPath encodes parentheses as %28/%29,
     // so the raw content holds neither "New (Draft)" nor "New%20(Draft)".
     // The pre-filter's parenEncodedStem check catches this.
-    await writeFixture("Hub.md", "See [x](New%20%28Draft%29.md).\n")
+    await writeFixture("Hub.md", "See [x](New%20%28Draft%29.md).\n");
 
     const result = await moveNote({
       oldPath: "New (Draft).md",
       newPath: "Finished.md",
       backlinkSources: [],
-    })
+    });
 
     expect(result).toEqual({
       moved_to: "Finished.md",
       links_updated: 1,
       updated_notes: ["Hub.md"],
       pruned_empty_folders: 0,
-    })
-    expect(await readNote("Hub.md")).toBe("See [x](Finished.md).\n")
-  })
-})
+    });
+    expect(await readNote("Hub.md")).toBe("See [x](Finished.md).\n");
+  });
+});

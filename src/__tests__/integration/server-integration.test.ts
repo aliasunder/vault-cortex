@@ -1,20 +1,12 @@
 /** End-to-end integration tests — every tool and prompt called over real
  *  HTTP transport against a real server with a real vault on disk. */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeAll,
-  afterAll,
-  onTestFinished,
-  vi,
-} from "vitest"
-import { DateTime } from "luxon"
-import { stat, writeFile } from "node:fs/promises"
-import { join } from "node:path"
-import Database from "better-sqlite3"
-import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest";
+import { DateTime } from "luxon";
+import { stat, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import Database from "better-sqlite3";
+import type { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
   startServer,
   startServerExpectingFailure,
@@ -25,45 +17,41 @@ import {
   mcpInitStatus,
   callTool,
   textContent,
-} from "./test-harness.js"
+} from "./test-harness.js";
 
-vi.setConfig({ testTimeout: 15_000 })
+vi.setConfig({ testTimeout: 15_000 });
 
 /** Extract joined text from a prompt result's messages. */
 const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string =>
-  result.messages
-    .map((message) =>
-      message.content.type === "text" ? message.content.text : "",
-    )
-    .join("\n")
+  result.messages.map((message) => (message.content.type === "text" ? message.content.text : "")).join("\n");
 
 // ── Default config (33 tools, 3 prompts) ──────────────────────
 
 describe("default config", () => {
-  let client: Client
-  let cleanup: (() => Promise<void>) | undefined
-  let port: number
-  let vaultPath: string
+  let client: Client;
+  let cleanup: (() => Promise<void>) | undefined;
+  let port: number;
+  let vaultPath: string;
 
   beforeAll(async () => {
-    port = await freePort()
-    const server = await startServer(port)
-    cleanup = server.cleanup
-    vaultPath = server.vaultPath
-    client = await createTestClient(server.port)
-  }, 30_000)
+    port = await freePort();
+    const server = await startServer(port);
+    cleanup = server.cleanup;
+    vaultPath = server.vaultPath;
+    client = await createTestClient(server.port);
+  }, 30_000);
 
   afterAll(async () => {
     try {
-      if (client) await client.close()
+      if (client) await client.close();
     } finally {
-      if (cleanup) await cleanup()
+      if (cleanup) await cleanup();
     }
-  })
+  });
 
   describe("surface", () => {
     it("lists 33 tools", async () => {
-      const names = await toolNames(client)
+      const names = await toolNames(client);
       expect(names).toEqual([
         "vault_create_task",
         "vault_delete_memory",
@@ -98,19 +86,15 @@ describe("default config", () => {
         "vault_update_properties",
         "vault_update_task",
         "vault_write_note",
-      ])
-    })
+      ]);
+    });
 
     it("lists 3 prompts", async () => {
-      const names = await promptNames(client)
-      expect(names).toHaveLength(3)
-      expect(names).toEqual([
-        "daily-review",
-        "memory-review",
-        "vault-orientation",
-      ])
-    })
-  })
+      const names = await promptNames(client);
+      expect(names).toHaveLength(3);
+      expect(names).toEqual(["daily-review", "memory-review", "vault-orientation"]);
+    });
+  });
 
   describe("vault-crud read tools", () => {
     it("vault_read_note — full content", async () => {
@@ -118,31 +102,28 @@ describe("default config", () => {
         client,
         name: "vault_read_note",
         args: { path: "Projects/alpha.md" },
-      })
-      expect(result.isError).not.toBe(true)
+      });
+      expect(result.isError).not.toBe(true);
       expect(textContent(result)).toBe(
         '---\ntitle: Project Alpha\ntype: project\ntags:\n  - project\n  - active\nstatus: active\nrelated:\n  - "[[Projects/beta]]"\ncreated: 2026-01-10T10:00:00-05:00\n---\n\n# Project Alpha\n\nThis is a test project for integration testing.\n\n## Tasks\n\n- [ ] First task for Alpha ➕ 2026-01-10 📅 2026-02-20 ^alpha-task-1\n- [x] Completed task ➕ 2026-01-05 ✅ 2026-01-08 ^alpha-done-1\n- [ ] Second task ⏫ ➕ 2026-01-12 ^alpha-task-2\n\n## Notes\n\nSome notes about the project. Links to [[Projects/beta]] and [[About Me/Preferences]].\n',
-      )
-    })
+      );
+    });
 
     it("vault_read_note — outline mode", async () => {
       const result = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Projects/alpha.md", outline: true },
-      })
-      expect(result.isError).not.toBe(true)
-      const outline = JSON.parse(textContent(result))
+      });
+      expect(result.isError).not.toBe(true);
+      const outline = JSON.parse(textContent(result));
+
       if (typeof outline.modified !== "string") {
-        throw new Error("outline modified timestamp is missing")
+        throw new Error("outline modified timestamp is missing");
       }
-      expect(outline.modified).toMatch(
-        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}(?:Z|[+-]\d{2}:\d{2})$/,
-      )
-      const fixtureStats = await stat(join(vaultPath, "Projects/alpha.md"))
-      expect(DateTime.fromISO(outline.modified).toMillis()).toBe(
-        Math.round(fixtureStats.mtimeMs),
-      )
+      expect(outline.modified).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}(?:Z|[+-]\d{2}:\d{2})$/);
+      const fixtureStats = await stat(join(vaultPath, "Projects/alpha.md"));
+      expect(DateTime.fromISO(outline.modified).toMillis()).toBe(Math.round(fixtureStats.mtimeMs));
       expect(outline).toEqual({
         bytes: 518,
         modified: outline.modified,
@@ -151,28 +132,28 @@ describe("default config", () => {
           { level: 2, text: "Tasks", bytes: 198 },
           { level: 2, text: "Notes", bytes: 97 },
         ],
-      })
-    })
+      });
+    });
 
     it("vault_read_note — heading mode", async () => {
       const result = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Projects/alpha.md", heading: "Tasks" },
-      })
-      expect(result.isError).not.toBe(true)
+      });
+      expect(result.isError).not.toBe(true);
       expect(textContent(result)).toBe(
         "## Tasks\n\n- [ ] First task for Alpha ➕ 2026-01-10 📅 2026-02-20 ^alpha-task-1\n- [x] Completed task ➕ 2026-01-05 ✅ 2026-01-08 ^alpha-done-1\n- [ ] Second task ⏫ ➕ 2026-01-12 ^alpha-task-2\n",
-      )
-    })
+      );
+    });
 
     it("vault_read_note — properties_only", async () => {
       const result = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Projects/alpha.md", properties_only: true },
-      })
-      expect(result.isError).not.toBe(true)
+      });
+      expect(result.isError).not.toBe(true);
       expect(JSON.parse(textContent(result))).toEqual({
         title: "Project Alpha",
         type: "project",
@@ -180,34 +161,34 @@ describe("default config", () => {
         status: "active",
         related: ["[[Projects/beta]]"],
         created: "2026-01-10T10:00:00-05:00",
-      })
-    })
+      });
+    });
 
     it("vault_list_notes", async () => {
-      const result = await callTool({ client, name: "vault_list_notes" })
-      expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("Projects/alpha.md")
-      expect(text).toContain("Projects/beta.md")
-      expect(text).toContain("Orphan Note.md")
+      const result = await callTool({ client, name: "vault_list_notes" });
+      expect(result.isError).not.toBe(true);
+      const text = textContent(result);
+      expect(text).toContain("Projects/alpha.md");
+      expect(text).toContain("Projects/beta.md");
+      expect(text).toContain("Orphan Note.md");
       // The Multi Column fixture opens with `--- start-multi-column:` —
       // its presence proves the server booted without crashing on a note
       // whose first line gray-matter alone would reject (issue #485)
-      expect(text).toContain("Multi Column Template.md")
-    })
+      expect(text).toContain("Multi Column Template.md");
+    });
 
     it("vault_list_notes — folder filter", async () => {
       const result = await callTool({
         client,
         name: "vault_list_notes",
         args: { folder: "Projects" },
-      })
-      expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("Projects/alpha.md")
-      expect(text).not.toContain("Orphan Note.md")
-    })
-  })
+      });
+      expect(result.isError).not.toBe(true);
+      const text = textContent(result);
+      expect(text).toContain("Projects/alpha.md");
+      expect(text).not.toContain("Orphan Note.md");
+    });
+  });
 
   describe("search tools", () => {
     it("vault_search", async () => {
@@ -215,150 +196,150 @@ describe("default config", () => {
         client,
         name: "vault_search",
         args: { query: "integration testing" },
-      })
-      expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("Projects/alpha.md")
-    })
+      });
+      expect(result.isError).not.toBe(true);
+      expect(textContent(result)).toContain("Projects/alpha.md");
+    });
 
     it("vault_search_by_tag", async () => {
       const result = await callTool({
         client,
         name: "vault_search_by_tag",
         args: { tag: "project" },
-      })
-      expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("Projects/alpha.md")
-    })
+      });
+      expect(result.isError).not.toBe(true);
+      expect(textContent(result)).toContain("Projects/alpha.md");
+    });
 
     it("vault_list_tags", async () => {
-      const result = await callTool({ client, name: "vault_list_tags" })
-      expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("project")
-      expect(text).toContain("active")
-      expect(text).toContain("test")
-    })
+      const result = await callTool({ client, name: "vault_list_tags" });
+      expect(result.isError).not.toBe(true);
+      const text = textContent(result);
+      expect(text).toContain("project");
+      expect(text).toContain("active");
+      expect(text).toContain("test");
+    });
 
     it("vault_recent_notes", async () => {
-      const result = await callTool({ client, name: "vault_recent_notes" })
-      expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("Projects/alpha.md")
-    })
+      const result = await callTool({ client, name: "vault_recent_notes" });
+      expect(result.isError).not.toBe(true);
+      expect(textContent(result)).toContain("Projects/alpha.md");
+    });
 
     it("vault_search_by_folder", async () => {
       const result = await callTool({
         client,
         name: "vault_search_by_folder",
         args: { folder: "Projects" },
-      })
-      expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("Projects/alpha.md")
-    })
+      });
+      expect(result.isError).not.toBe(true);
+      expect(textContent(result)).toContain("Projects/alpha.md");
+    });
 
     it("vault_list_property_keys", async () => {
       const result = await callTool({
         client,
         name: "vault_list_property_keys",
-      })
-      expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("status")
-      expect(text).toContain("type")
-      expect(text).toContain("tags")
-    })
+      });
+      expect(result.isError).not.toBe(true);
+      const text = textContent(result);
+      expect(text).toContain("status");
+      expect(text).toContain("type");
+      expect(text).toContain("tags");
+    });
 
     it("vault_list_property_values", async () => {
       const result = await callTool({
         client,
         name: "vault_list_property_values",
         args: { key: "status" },
-      })
-      expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("active")
-      expect(text).toContain("planning")
-    })
+      });
+      expect(result.isError).not.toBe(true);
+      const text = textContent(result);
+      expect(text).toContain("active");
+      expect(text).toContain("planning");
+    });
 
     it("vault_search_by_property", async () => {
       const result = await callTool({
         client,
         name: "vault_search_by_property",
         args: { key: "status", value: "active" },
-      })
-      expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("Projects/alpha.md")
-    })
+      });
+      expect(result.isError).not.toBe(true);
+      expect(textContent(result)).toContain("Projects/alpha.md");
+    });
 
     it("vault_get_backlinks", async () => {
       const result = await callTool({
         client,
         name: "vault_get_backlinks",
         args: { path: "Projects/beta.md" },
-      })
-      expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("Projects/alpha.md")
-    })
+      });
+      expect(result.isError).not.toBe(true);
+      expect(textContent(result)).toContain("Projects/alpha.md");
+    });
 
     it("vault_get_outgoing_links", async () => {
       const result = await callTool({
         client,
         name: "vault_get_outgoing_links",
         args: { path: "Projects/alpha.md" },
-      })
-      expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("Projects/beta.md")
-      expect(text).toContain("About Me/Preferences.md")
-    })
+      });
+      expect(result.isError).not.toBe(true);
+      const text = textContent(result);
+      expect(text).toContain("Projects/beta.md");
+      expect(text).toContain("About Me/Preferences.md");
+    });
 
     it("vault_find_orphans", async () => {
-      const result = await callTool({ client, name: "vault_find_orphans" })
-      expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("Orphan Note")
-    })
-  })
+      const result = await callTool({ client, name: "vault_find_orphans" });
+      expect(result.isError).not.toBe(true);
+      expect(textContent(result)).toContain("Orphan Note");
+    });
+  });
 
   describe("memory tools", () => {
     it("vault_list_memory_files", async () => {
       const result = await callTool({
         client,
         name: "vault_list_memory_files",
-      })
-      expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("Preferences")
-    })
+      });
+      expect(result.isError).not.toBe(true);
+      expect(textContent(result)).toContain("Preferences");
+    });
 
     it("vault_get_memory — all", async () => {
-      const result = await callTool({ client, name: "vault_get_memory" })
-      expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("dark mode")
-      expect(text).toContain("Vim keybindings")
-      expect(text).toContain("Font size 14px")
-    })
+      const result = await callTool({ client, name: "vault_get_memory" });
+      expect(result.isError).not.toBe(true);
+      const text = textContent(result);
+      expect(text).toContain("dark mode");
+      expect(text).toContain("Vim keybindings");
+      expect(text).toContain("Font size 14px");
+    });
 
     it("vault_get_memory — file + section", async () => {
       const result = await callTool({
         client,
         name: "vault_get_memory",
         args: { file: "Preferences", section: "Editor settings" },
-      })
-      expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("Vim keybindings")
-    })
+      });
+      expect(result.isError).not.toBe(true);
+      expect(textContent(result)).toContain("Vim keybindings");
+    });
 
     it("vault_memory_recall", async () => {
       const result = await callTool({
         client,
         name: "vault_memory_recall",
         args: { query: "dark mode" },
-      })
-      expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("dark mode")
-    })
+      });
+      expect(result.isError).not.toBe(true);
+      expect(textContent(result)).toContain("dark mode");
+    });
 
     it("vault_update_memory + vault_delete_memory cycle", async () => {
-      const testDate = "2026-01-15"
+      const testDate = "2026-01-15";
       const updateResult = await callTool({
         client,
         name: "vault_update_memory",
@@ -368,18 +349,16 @@ describe("default config", () => {
           entry: "Integration test entry — SDK Client",
           options: { date: testDate },
         },
-      })
-      expect(updateResult.isError).not.toBe(true)
+      });
+      expect(updateResult.isError).not.toBe(true);
 
       // Verify the entry was added
       const verifyResult = await callTool({
         client,
         name: "vault_get_memory",
         args: { file: "Preferences", section: "Editor settings" },
-      })
-      expect(textContent(verifyResult)).toContain(
-        "Integration test entry — SDK Client",
-      )
+      });
+      expect(textContent(verifyResult)).toContain("Integration test entry — SDK Client");
 
       const deleteResult = await callTool({
         client,
@@ -390,29 +369,27 @@ describe("default config", () => {
           date: testDate,
           entry: "Integration test entry — SDK Client",
         },
-      })
-      expect(deleteResult.isError).not.toBe(true)
+      });
+      expect(deleteResult.isError).not.toBe(true);
 
       // Verify the entry was removed
       const afterDelete = await callTool({
         client,
         name: "vault_get_memory",
         args: { file: "Preferences", section: "Editor settings" },
-      })
-      expect(textContent(afterDelete)).not.toContain(
-        "Integration test entry — SDK Client",
-      )
-    })
-  })
+      });
+      expect(textContent(afterDelete)).not.toContain("Integration test entry — SDK Client");
+    });
+  });
 
   describe("task tools", () => {
     it("vault_list_tasks", async () => {
-      const result = await callTool({ client, name: "vault_list_tasks" })
-      expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("alpha-task-1")
-      expect(text).toContain("alpha-task-2")
-    })
+      const result = await callTool({ client, name: "vault_list_tasks" });
+      expect(result.isError).not.toBe(true);
+      const text = textContent(result);
+      expect(text).toContain("alpha-task-1");
+      expect(text).toContain("alpha-task-2");
+    });
 
     it("vault_create_task — creates a card and verifies via readback", async () => {
       const createResult = await callTool({
@@ -425,9 +402,9 @@ describe("default config", () => {
           heading: "Tasks",
           priority: "medium",
         },
-      })
-      expect(createResult.isError).not.toBe(true)
-      const createJson = JSON.parse(textContent(createResult))
+      });
+      expect(createResult.isError).not.toBe(true);
+      const createJson = JSON.parse(textContent(createResult));
       // Non-Kanban note: default position is bottom of the Tasks section
       expect(createJson).toEqual({
         path: "Projects/alpha.md",
@@ -435,23 +412,20 @@ describe("default config", () => {
         description: "Integration test task",
         block_id: "integ-test-task",
         heading: "Tasks",
-        changes: [
-          `created: (none) → ${DateTime.now().toISODate()}`,
-          "priority: (none) → medium",
-        ],
-      })
+        changes: [`created: (none) → ${DateTime.now().toISODate()}`, "priority: (none) → medium"],
+      });
 
       // Verify the created task is in the file via vault_read_note
       const readback = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Projects/alpha.md", heading: "Tasks" },
-      })
-      const readbackText = textContent(readback)
-      expect(readbackText).toContain("Integration test task")
-      expect(readbackText).toContain("^integ-test-task")
-      expect(readbackText).toContain("🔼")
-    })
+      });
+      const readbackText = textContent(readback);
+      expect(readbackText).toContain("Integration test task");
+      expect(readbackText).toContain("^integ-test-task");
+      expect(readbackText).toContain("🔼");
+    });
 
     it("vault_list_tasks — top_level_only excludes sub-tasks", async () => {
       const allResult = await callTool({
@@ -462,10 +436,10 @@ describe("default config", () => {
           status: "all",
           sort_by: "position",
         },
-      })
-      const allJson = JSON.parse(textContent(allResult))
+      });
+      const allJson = JSON.parse(textContent(allResult));
       // board.md fixture: 3 cards + 2 checklist items under the in-progress card
-      expect(allJson.total).toBe(5)
+      expect(allJson.total).toBe(5);
 
       const topOnlyResult = await callTool({
         client,
@@ -476,28 +450,22 @@ describe("default config", () => {
           sort_by: "position",
           top_level_only: true,
         },
-      })
-      const topOnlyJson = JSON.parse(textContent(topOnlyResult))
+      });
+      const topOnlyJson = JSON.parse(textContent(topOnlyResult));
 
-      expect(topOnlyJson.total).toBe(3)
+      expect(topOnlyJson.total).toBe(3);
       expect(
-        topOnlyJson.tasks.map(
-          (task: {
-            description: string
-            depth: number
-            is_kanban_task: boolean
-          }) => ({
-            description: task.description,
-            depth: task.depth,
-            is_kanban_task: task.is_kanban_task,
-          }),
-        ),
+        topOnlyJson.tasks.map((task: { description: string; depth: number; is_kanban_task: boolean }) => ({
+          description: task.description,
+          depth: task.depth,
+          is_kanban_task: task.is_kanban_task,
+        })),
       ).toEqual([
         { description: "In-progress feature", depth: 0, is_kanban_task: true },
         { description: "Planned work", depth: 0, is_kanban_task: true },
         { description: "Shipped item", depth: 0, is_kanban_task: true },
-      ])
-    })
+      ]);
+    });
 
     it("vault_list_tasks — subtask_progress reports checklist progress on every entry", async () => {
       const result = await callTool({
@@ -509,22 +477,18 @@ describe("default config", () => {
           sort_by: "position",
           top_level_only: true,
         },
-      })
-      expect(result.isError).not.toBe(true)
-      const json = JSON.parse(textContent(result))
+      });
+      expect(result.isError).not.toBe(true);
+      const json = JSON.parse(textContent(result));
 
       // board.md fixture: the in-progress card has one done + one todo
       // checklist item; the other cards have no checklist, so the
       // serialized entries carry no subtask_progress key at all.
       expect(
-        json.tasks.map(
-          (task: { block_id: string; subtask_progress: unknown }) => ({
-            block_id: task.block_id,
-            ...("subtask_progress" in task
-              ? { subtask_progress: task.subtask_progress }
-              : {}),
-          }),
-        ),
+        json.tasks.map((task: { block_id: string; subtask_progress: unknown }) => ({
+          block_id: task.block_id,
+          ...("subtask_progress" in task ? { subtask_progress: task.subtask_progress } : {}),
+        })),
       ).toEqual([
         {
           block_id: "board-active-1",
@@ -532,8 +496,8 @@ describe("default config", () => {
         },
         { block_id: "board-next-1" },
         { block_id: "board-done-1" },
-      ])
-    })
+      ]);
+    });
 
     it("vault_update_task — description edit preserves metadata", async () => {
       const result = await callTool({
@@ -544,9 +508,9 @@ describe("default config", () => {
           block_id: "alpha-task-2",
           description: "Renamed second task",
         },
-      })
-      expect(result.isError).not.toBe(true)
-      const json = JSON.parse(textContent(result))
+      });
+      expect(result.isError).not.toBe(true);
+      const json = JSON.parse(textContent(result));
       // Line 21: the vault_create_task case above appended to the bottom
       // of the Tasks section, so this task's line is unchanged.
       expect(json).toEqual({
@@ -556,8 +520,8 @@ describe("default config", () => {
         block_id: "alpha-task-2",
         heading: "Tasks",
         changes: ["description: Second task → Renamed second task"],
-      })
-    })
+      });
+    });
 
     it("vault_update_task — verify priority applied", async () => {
       const result = await callTool({
@@ -568,22 +532,22 @@ describe("default config", () => {
           block_id: "alpha-task-1",
           priority: "high",
         },
-      })
-      expect(result.isError).not.toBe(true)
+      });
+      expect(result.isError).not.toBe(true);
 
       // Re-read the task section and verify the priority landed on the right line
       const readback = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Projects/alpha.md", heading: "Tasks" },
-      })
-      expect(textContent(readback)).toMatch(/First task for Alpha.*⏫/)
-    })
+      });
+      expect(textContent(readback)).toMatch(/First task for Alpha.*⏫/);
+    });
 
     it("vault_update_task — completing a recurring task spawns the next occurrence", async () => {
       // The server stamps ✅ with its own clock; bracketing the write pins
       // the stamp to the write's day even across a midnight boundary.
-      const dateBeforeWrite = DateTime.now().toISODate()
+      const dateBeforeWrite = DateTime.now().toISODate();
       const result = await callTool({
         client,
         name: "vault_update_task",
@@ -592,10 +556,10 @@ describe("default config", () => {
           block_id: "water-plants",
           status: "done",
         },
-      })
-      const dateAfterWrite = DateTime.now().toISODate()
-      expect(result.isError).not.toBe(true)
-      const json = JSON.parse(textContent(result))
+      });
+      const dateAfterWrite = DateTime.now().toISODate();
+      expect(result.isError).not.toBe(true);
+      const json = JSON.parse(textContent(result));
       expect(json).toEqual({
         path: "Projects/recurring.md",
         line: 8,
@@ -608,23 +572,21 @@ describe("default config", () => {
           due: "2026-01-12",
         },
         changes: ["status: todo → done", "next_occurrence: (none) → line 7"],
-      })
+      });
 
       const readback = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Projects/recurring.md", heading: "Habits" },
-      })
+      });
       // The ✅ date the server stamped, captured from the readback.
-      const STAMPED_DONE_DATE_RE = /✅ (\d{4}-\d{2}-\d{2})/
-      const completionDate = STAMPED_DONE_DATE_RE.exec(
-        textContent(readback),
-      )?.[1]
-      expect([dateBeforeWrite, dateAfterWrite]).toContain(completionDate)
+      const STAMPED_DONE_DATE_RE = /✅ (\d{4}-\d{2}-\d{2})/;
+      const completionDate = STAMPED_DONE_DATE_RE.exec(textContent(readback))?.[1];
+      expect([dateBeforeWrite, dateAfterWrite]).toContain(completionDate);
       expect(textContent(readback)).toBe(
         `## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ ${completionDate} ^water-plants\n- [ ] Temp task 🏁 delete ➕ 2026-01-01 ^temp-task\n`,
-      )
-    })
+      );
+    });
 
     it("vault_update_task — set on_completion and verify it persists", async () => {
       const setResult = await callTool({
@@ -635,9 +597,9 @@ describe("default config", () => {
           block_id: "temp-task",
           on_completion: "keep",
         },
-      })
-      expect(setResult.isError).not.toBe(true)
-      const setJson = JSON.parse(textContent(setResult))
+      });
+      expect(setResult.isError).not.toBe(true);
+      const setJson = JSON.parse(textContent(setResult));
       expect(setJson).toEqual({
         path: "Projects/recurring.md",
         line: 9,
@@ -645,14 +607,14 @@ describe("default config", () => {
         block_id: "temp-task",
         heading: "Habits",
         changes: ["on_completion: delete → keep"],
-      })
+      });
 
       const setReadback = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Projects/recurring.md", heading: "Habits" },
-      })
-      expect(textContent(setReadback)).toContain("🏁 keep")
+      });
+      expect(textContent(setReadback)).toContain("🏁 keep");
 
       const clearResult = await callTool({
         client,
@@ -662,9 +624,9 @@ describe("default config", () => {
           block_id: "temp-task",
           on_completion: null,
         },
-      })
-      expect(clearResult.isError).not.toBe(true)
-      const clearJson = JSON.parse(textContent(clearResult))
+      });
+      expect(clearResult.isError).not.toBe(true);
+      const clearJson = JSON.parse(textContent(clearResult));
       expect(clearJson).toEqual({
         path: "Projects/recurring.md",
         line: 9,
@@ -672,11 +634,11 @@ describe("default config", () => {
         block_id: "temp-task",
         heading: "Habits",
         changes: ["on_completion: keep → (none)"],
-      })
-    })
+      });
+    });
 
     it("vault_create_task — on_completion appears in the created line", async () => {
-      const todayDate = DateTime.now().toISODate()
+      const todayDate = DateTime.now().toISODate();
       const result = await callTool({
         client,
         name: "vault_create_task",
@@ -687,34 +649,29 @@ describe("default config", () => {
           heading: "Habits",
           on_completion: "delete",
         },
-      })
-      expect(result.isError).not.toBe(true)
-      const json = JSON.parse(textContent(result))
+      });
+      expect(result.isError).not.toBe(true);
+      const json = JSON.parse(textContent(result));
       expect(json).toEqual({
         path: "Projects/recurring.md",
         line: 10,
         description: "Disposable task",
         block_id: "disposable",
         heading: "Habits",
-        changes: [
-          `created: (none) → ${todayDate}`,
-          "on_completion: (none) → delete",
-        ],
-      })
+        changes: [`created: (none) → ${todayDate}`, "on_completion: (none) → delete"],
+      });
 
       const readback = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Projects/recurring.md", heading: "Habits" },
-      })
+      });
       // The section carries tasks mutated by prior integration tests in
       // the same server boot (the ✅ date from the recurrence test is not
       // available here), so only the created task's line is asserted.
-      expect(textContent(readback)).toContain(
-        `🏁 delete ➕ ${todayDate} ^disposable`,
-      )
-    })
-  })
+      expect(textContent(readback)).toContain(`🏁 delete ➕ ${todayDate} ^disposable`);
+    });
+  });
 
   describe("daily note tool", () => {
     it("vault_get_daily_note", async () => {
@@ -722,11 +679,11 @@ describe("default config", () => {
         client,
         name: "vault_get_daily_note",
         args: { date: "2026-01-15" },
-      })
-      expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("integration test results")
-    })
-  })
+      });
+      expect(result.isError).not.toBe(true);
+      expect(textContent(result)).toContain("integration test results");
+    });
+  });
 
   describe("write chain", () => {
     it("write → patch → replace → delete_span → replace_span → insert_at_anchor → update_properties → move → delete", async () => {
@@ -738,14 +695,14 @@ describe("default config", () => {
           path: "Scratch/test-write.md",
           body: "# Test Write\n\nCreated by integration test.\n\nRemovable line.",
         },
-      })
-      expect(writeResult.isError).not.toBe(true)
+      });
+      expect(writeResult.isError).not.toBe(true);
       const afterWrite = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Scratch/test-write.md" },
-      })
-      expect(textContent(afterWrite)).toContain("Created by integration test.")
+      });
+      expect(textContent(afterWrite)).toContain("Created by integration test.");
 
       // patch
       const patchResult = await callTool({
@@ -756,14 +713,14 @@ describe("default config", () => {
           operation: "append",
           content: "\nAppended line.",
         },
-      })
-      expect(patchResult.isError).not.toBe(true)
+      });
+      expect(patchResult.isError).not.toBe(true);
       const afterPatch = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Scratch/test-write.md" },
-      })
-      expect(textContent(afterPatch)).toContain("Appended line.")
+      });
+      expect(textContent(afterPatch)).toContain("Appended line.");
 
       // replace — verify the replacement happened
       const replaceResult = await callTool({
@@ -774,15 +731,15 @@ describe("default config", () => {
           old_text: "Appended line.",
           new_text: "Replaced line.",
         },
-      })
-      expect(replaceResult.isError).not.toBe(true)
+      });
+      expect(replaceResult.isError).not.toBe(true);
       const afterReplace = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Scratch/test-write.md" },
-      })
-      expect(textContent(afterReplace)).toContain("Replaced line.")
-      expect(textContent(afterReplace)).not.toContain("Appended line.")
+      });
+      expect(textContent(afterReplace)).toContain("Replaced line.");
+      expect(textContent(afterReplace)).not.toContain("Appended line.");
 
       // delete_span — verify the line was removed
       const deleteSpanResult = await callTool({
@@ -792,15 +749,15 @@ describe("default config", () => {
           path: "Scratch/test-write.md",
           start_anchor: "Removable line",
         },
-      })
-      expect(deleteSpanResult.isError).not.toBe(true)
+      });
+      expect(deleteSpanResult.isError).not.toBe(true);
       const afterSpan = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Scratch/test-write.md" },
-      })
-      expect(textContent(afterSpan)).not.toContain("Removable line")
-      expect(textContent(afterSpan)).toContain("Replaced line.")
+      });
+      expect(textContent(afterSpan)).not.toContain("Removable line");
+      expect(textContent(afterSpan)).toContain("Replaced line.");
 
       // replace_span — verify anchor-based replacement
       const replaceSpanResult = await callTool({
@@ -811,15 +768,15 @@ describe("default config", () => {
           start_anchor: "Replaced line",
           content: "Span-replaced line.",
         },
-      })
-      expect(replaceSpanResult.isError).not.toBe(true)
+      });
+      expect(replaceSpanResult.isError).not.toBe(true);
       const afterReplaceSpan = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Scratch/test-write.md" },
-      })
-      expect(textContent(afterReplaceSpan)).toContain("Span-replaced line.")
-      expect(textContent(afterReplaceSpan)).not.toContain("Replaced line.")
+      });
+      expect(textContent(afterReplaceSpan)).toContain("Span-replaced line.");
+      expect(textContent(afterReplaceSpan)).not.toContain("Replaced line.");
 
       // insert_at_anchor — verify anchor-based insertion
       const insertResult = await callTool({
@@ -831,15 +788,15 @@ describe("default config", () => {
           position: "after",
           content: "Inserted line.",
         },
-      })
-      expect(insertResult.isError).not.toBe(true)
+      });
+      expect(insertResult.isError).not.toBe(true);
       const afterInsert = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Scratch/test-write.md" },
-      })
-      expect(textContent(afterInsert)).toContain("Inserted line.")
-      expect(textContent(afterInsert)).toContain("Span-replaced line.")
+      });
+      expect(textContent(afterInsert)).toContain("Inserted line.");
+      expect(textContent(afterInsert)).toContain("Span-replaced line.");
 
       // update_properties — verify frontmatter merged
       const propsResult = await callTool({
@@ -849,14 +806,14 @@ describe("default config", () => {
           path: "Scratch/test-write.md",
           properties: { tags: ["test"], type: "scratch" },
         },
-      })
-      expect(propsResult.isError).not.toBe(true)
+      });
+      expect(propsResult.isError).not.toBe(true);
       const afterProps = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Scratch/test-write.md", properties_only: true },
-      })
-      expect(textContent(afterProps)).toContain("scratch")
+      });
+      expect(textContent(afterProps)).toContain("scratch");
 
       // move
       const moveResult = await callTool({
@@ -866,20 +823,20 @@ describe("default config", () => {
           old_path: "Scratch/test-write.md",
           new_path: "Scratch/test-moved.md",
         },
-      })
-      expect(moveResult.isError).not.toBe(true)
+      });
+      expect(moveResult.isError).not.toBe(true);
       const afterMoveOld = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Scratch/test-write.md" },
-      })
-      expect(afterMoveOld.isError).toBe(true)
+      });
+      expect(afterMoveOld.isError).toBe(true);
       const afterMoveNew = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Scratch/test-moved.md" },
-      })
-      expect(textContent(afterMoveNew)).toContain("Span-replaced line.")
+      });
+      expect(textContent(afterMoveNew)).toContain("Span-replaced line.");
 
       // delete — the fixture vault sets trashOption "local", so the note
       // moves to .trash/ rather than being unlinked; assert that outcome
@@ -888,19 +845,17 @@ describe("default config", () => {
         client,
         name: "vault_delete_note",
         args: { path: "Scratch/test-moved.md" },
-      })
-      expect(deleteResult.isError).not.toBe(true)
-      expect(textContent(deleteResult)).toBe(
-        "Moved Scratch/test-moved.md to trash (.trash/Scratch/test-moved.md)",
-      )
+      });
+      expect(deleteResult.isError).not.toBe(true);
+      expect(textContent(deleteResult)).toBe("Moved Scratch/test-moved.md to trash (.trash/Scratch/test-moved.md)");
       const afterDelete = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Scratch/test-moved.md" },
-      })
-      expect(afterDelete.isError).toBe(true)
-    })
-  })
+      });
+      expect(afterDelete.isError).toBe(true);
+    });
+  });
 
   describe("trash on delete", () => {
     it("moves to .trash/ when trashOption is local and reports the trash location", async () => {
@@ -908,139 +863,135 @@ describe("default config", () => {
         client,
         name: "vault_write_note",
         args: { path: "Scratch/trash-test.md", body: "trash me" },
-      })
+      });
 
       const deleteResult = await callTool({
         client,
         name: "vault_delete_note",
         args: { path: "Scratch/trash-test.md" },
-      })
+      });
 
-      expect(deleteResult.isError).not.toBe(true)
-      expect(textContent(deleteResult)).toBe(
-        "Moved Scratch/trash-test.md to trash (.trash/Scratch/trash-test.md)",
-      )
+      expect(deleteResult.isError).not.toBe(true);
+      expect(textContent(deleteResult)).toBe("Moved Scratch/trash-test.md to trash (.trash/Scratch/trash-test.md)");
 
       const afterDelete = await callTool({
         client,
         name: "vault_read_note",
         args: { path: "Scratch/trash-test.md" },
-      })
-      expect(afterDelete.isError).toBe(true)
-    })
-  })
+      });
+      expect(afterDelete.isError).toBe(true);
+    });
+  });
 
   describe("asset tools", () => {
     it("vault_list_files", async () => {
-      const result = await callTool({ client, name: "vault_list_files" })
-      expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("test-data.txt")
-      expect(text).toContain("Boards/test.canvas")
-    })
+      const result = await callTool({ client, name: "vault_list_files" });
+      expect(result.isError).not.toBe(true);
+      const text = textContent(result);
+      expect(text).toContain("test-data.txt");
+      expect(text).toContain("Boards/test.canvas");
+    });
 
     it("vault_read_file — text", async () => {
       const result = await callTool({
         client,
         name: "vault_read_file",
         args: { path: "test-data.txt" },
-      })
-      expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("plain text file")
-    })
+      });
+      expect(result.isError).not.toBe(true);
+      expect(textContent(result)).toContain("plain text file");
+    });
 
     it("vault_read_file — canvas", async () => {
       const result = await callTool({
         client,
         name: "vault_read_file",
         args: { path: "Boards/test.canvas" },
-      })
-      expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("Node A")
-    })
+      });
+      expect(result.isError).not.toBe(true);
+      expect(textContent(result)).toContain("Node A");
+    });
 
     it("vault_read_file — canvas raw mode", async () => {
       const result = await callTool({
         client,
         name: "vault_read_file",
         args: { path: "Boards/test.canvas", raw: true },
-      })
-      expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain('"type": "text"')
-      expect(text).toContain('"fromNode": "1"')
-    })
+      });
+      expect(result.isError).not.toBe(true);
+      const text = textContent(result);
+      expect(text).toContain('"type": "text"');
+      expect(text).toContain('"fromNode": "1"');
+    });
 
     it("vault_read_file — text with line paging", async () => {
       const result = await callTool({
         client,
         name: "vault_read_file",
         args: { path: "test-data.txt", start_line: 2, limit: 1 },
-      })
-      expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("Line 2")
-      expect(text).not.toContain("plain text file")
-    })
-  })
+      });
+      expect(result.isError).not.toBe(true);
+      const text = textContent(result);
+      expect(text).toContain("Line 2");
+      expect(text).not.toContain("plain text file");
+    });
+  });
 
   describe("prompts", () => {
     it("vault-orientation — assembles live vault data", async () => {
-      const result = await client.getPrompt({ name: "vault-orientation" })
-      expect(promptText(result)).toContain("Projects/alpha.md")
-    })
+      const result = await client.getPrompt({ name: "vault-orientation" });
+      expect(promptText(result)).toContain("Projects/alpha.md");
+    });
 
     it("memory-review — includes memory content", async () => {
       const result = await client.getPrompt({
         name: "memory-review",
         arguments: {},
-      })
-      expect(promptText(result)).toContain("Preferences")
-    })
+      });
+      expect(promptText(result)).toContain("Preferences");
+    });
 
     it("daily-review — includes daily note content", async () => {
       const result = await client.getPrompt({
         name: "daily-review",
         arguments: { date: "2026-01-15" },
-      })
-      expect(promptText(result)).toContain("integration test results")
-    })
-  })
+      });
+      expect(promptText(result)).toContain("integration test results");
+    });
+  });
 
   describe("auth", () => {
     it("missing Authorization header is rejected", async () => {
-      const status = await mcpInitStatus(port)
-      expect(status).toBe(401)
-    })
+      const status = await mcpInitStatus(port);
+      expect(status).toBe(401);
+    });
 
     it("invalid token is rejected", async () => {
-      const status = await mcpInitStatus(port, "Bearer wrong-token")
-      expect(status).toBe(401)
-    })
-  })
+      const status = await mcpInitStatus(port, "Bearer wrong-token");
+      expect(status).toBe(401);
+    });
+  });
 
   describe("/setup route", () => {
     it("serves the already-configured page so setup-guide links do not 404", async () => {
-      const response = await fetch(`http://127.0.0.1:${port}/setup`)
+      const response = await fetch(`http://127.0.0.1:${port}/setup`);
 
-      expect(response.status).toBe(200)
-      expect(response.headers.get("content-type")).toContain("text/html")
-      const html = await response.text()
-      expect(html).toContain("<h1>Already set up</h1>")
-      expect(html).toContain(
-        "This server is set up and running — there is nothing to do on this page.",
-      )
-    })
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/html");
+      const html = await response.text();
+      expect(html).toContain("<h1>Already set up</h1>");
+      expect(html).toContain("This server is set up and running — there is nothing to do on this page.");
+    });
 
     it("does not redirect a browser GET on the root once configured — that behavior belongs to setup mode only", async () => {
       const response = await fetch(`http://127.0.0.1:${port}/`, {
         headers: { accept: "text/html,application/xhtml+xml" },
         redirect: "manual",
-      })
+      });
 
-      expect(response.status).toBe(404)
-    })
-  })
+      expect(response.status).toBe(404);
+    });
+  });
 
   describe("OAuth rate limiting", () => {
     const register = (forwardedIp: string) =>
@@ -1057,41 +1008,41 @@ describe("default config", () => {
           response_types: ["code"],
           token_endpoint_auth_method: "none",
         }),
-      })
+      });
 
     // With the Forwarded header untrusted (the default), a distinct spoofed
     // value per request must NOT mint a fresh rate-limit bucket — all six
     // share the socket peer's bucket.
     it("spoofed Forwarded headers do not bypass the /register rate limit", async () => {
       for (let i = 1; i <= 5; i++) {
-        const response = await register(`198.51.100.${i}`)
-        expect(response.status).toBe(201)
+        const response = await register(`198.51.100.${i}`);
+        expect(response.status).toBe(201);
       }
-      const sixth = await register("198.51.100.6")
-      expect(sixth.status).toBe(429)
-    })
-  })
-})
+      const sixth = await register("198.51.100.6");
+      expect(sixth.status).toBe(429);
+    });
+  });
+});
 
 // ── X-Forwarded-For rate limiting (default proxy trust) ────────
 
 describe("X-Forwarded-For rate limiting (default proxy trust)", () => {
-  let cleanup: (() => Promise<void>) | undefined
-  let port: number
+  let cleanup: (() => Promise<void>) | undefined;
+  let port: number;
 
   beforeAll(async () => {
-    port = await freePort()
+    port = await freePort();
     // Dedicated default-config server: the limiter's in-memory store is
     // per-process and blocked hits count, so the default-config describe's
     // Forwarded test leaves its shared 5-req bucket exhausted inside the
     // 60s window — running this test there would 429 on the first request.
-    const server = await startServer(port)
-    cleanup = server.cleanup
-  }, 30_000)
+    const server = await startServer(port);
+    cleanup = server.cleanup;
+  }, 30_000);
 
   afterAll(async () => {
-    if (cleanup) await cleanup()
-  })
+    if (cleanup) await cleanup();
+  });
 
   const register = (xffIp: string) =>
     fetch(`http://127.0.0.1:${port}/register`, {
@@ -1107,7 +1058,7 @@ describe("X-Forwarded-For rate limiting (default proxy trust)", () => {
         response_types: ["code"],
         token_endpoint_auth_method: "none",
       }),
-    })
+    });
 
   // X-Forwarded-For is the other spoofable channel: with TRUST_PROXY_HOPS=0
   // (the default), a client-supplied X-Forwarded-For must not shift the
@@ -1115,29 +1066,29 @@ describe("X-Forwarded-For rate limiting (default proxy trust)", () => {
   // silently.
   it("spoofed X-Forwarded-For headers do not bypass the /register rate limit", async () => {
     for (let i = 1; i <= 5; i++) {
-      const response = await register(`198.51.100.${i}`)
-      expect(response.status).toBe(201)
+      const response = await register(`198.51.100.${i}`);
+      expect(response.status).toBe(201);
     }
-    const sixth = await register("198.51.100.6")
-    expect(sixth.status).toBe(429)
-  })
-})
+    const sixth = await register("198.51.100.6");
+    expect(sixth.status).toBe(429);
+  });
+});
 
 // ── TRUST_PROXY_HOPS=1 ─────────────────────────────────────────
 
 describe("TRUST_PROXY_HOPS=1", () => {
-  let cleanup: (() => Promise<void>) | undefined
-  let port: number
+  let cleanup: (() => Promise<void>) | undefined;
+  let port: number;
 
   beforeAll(async () => {
-    port = await freePort()
-    const server = await startServer(port, { TRUST_PROXY_HOPS: "1" })
-    cleanup = server.cleanup
-  }, 30_000)
+    port = await freePort();
+    const server = await startServer(port, { TRUST_PROXY_HOPS: "1" });
+    cleanup = server.cleanup;
+  }, 30_000);
 
   afterAll(async () => {
-    if (cleanup) await cleanup()
-  })
+    if (cleanup) await cleanup();
+  });
 
   const register = (xffIp: string) =>
     fetch(`http://127.0.0.1:${port}/register`, {
@@ -1153,7 +1104,7 @@ describe("TRUST_PROXY_HOPS=1", () => {
         response_types: ["code"],
         token_endpoint_auth_method: "none",
       }),
-    })
+    });
 
   // Positive wiring proof for `app.set("trust proxy", config.trustProxyHops)`:
   // with one trusted hop the XFF-derived IP is the bucket key, so exhausting
@@ -1162,31 +1113,31 @@ describe("TRUST_PROXY_HOPS=1", () => {
   // peer's bucket and the second client's request would 429.
   it("buckets the /register rate limit by the X-Forwarded-For client IP", async () => {
     for (let i = 1; i <= 5; i++) {
-      const response = await register("203.0.113.50")
-      expect(response.status).toBe(201)
+      const response = await register("203.0.113.50");
+      expect(response.status).toBe(201);
     }
-    const sixth = await register("203.0.113.50")
-    expect(sixth.status).toBe(429)
-    const otherClient = await register("203.0.113.51")
-    expect(otherClient.status).toBe(201)
-  })
-})
+    const sixth = await register("203.0.113.50");
+    expect(sixth.status).toBe(429);
+    const otherClient = await register("203.0.113.51");
+    expect(otherClient.status).toBe(201);
+  });
+});
 
 // ── TRUST_FORWARDED_HOPS=1 ─────────────────────────────────────
 
 describe("TRUST_FORWARDED_HOPS=1", () => {
-  let cleanup: (() => Promise<void>) | undefined
-  let port: number
+  let cleanup: (() => Promise<void>) | undefined;
+  let port: number;
 
   beforeAll(async () => {
-    port = await freePort()
-    const server = await startServer(port, { TRUST_FORWARDED_HOPS: "1" })
-    cleanup = server.cleanup
-  }, 30_000)
+    port = await freePort();
+    const server = await startServer(port, { TRUST_FORWARDED_HOPS: "1" });
+    cleanup = server.cleanup;
+  }, 30_000);
 
   afterAll(async () => {
-    if (cleanup) await cleanup()
-  })
+    if (cleanup) await cleanup();
+  });
 
   const register = (forwardedIp: string) =>
     fetch(`http://127.0.0.1:${port}/register`, {
@@ -1202,18 +1153,18 @@ describe("TRUST_FORWARDED_HOPS=1", () => {
         response_types: ["code"],
         token_endpoint_auth_method: "none",
       }),
-    })
+    });
 
   it("buckets the /register rate limit by the Forwarded client IP", async () => {
     for (let i = 0; i < 5; i++) {
-      const response = await register("198.51.100.1")
-      expect(response.status).toBe(201)
+      const response = await register("198.51.100.1");
+      expect(response.status).toBe(201);
     }
-    const sixthSameClient = await register("198.51.100.1")
-    expect(sixthSameClient.status).toBe(429)
-    const firstOtherClient = await register("198.51.100.2")
-    expect(firstOtherClient.status).toBe(201)
-  })
+    const sixthSameClient = await register("198.51.100.1");
+    expect(sixthSameClient.status).toBe(429);
+    const firstOtherClient = await register("198.51.100.2");
+    expect(firstOtherClient.status).toBe(201);
+  });
 
   // An edge proxy that appends (as API Gateway does) leaves any
   // client-supplied prefix ahead of its own claim — the bucket key must be
@@ -1233,35 +1184,35 @@ describe("TRUST_FORWARDED_HOPS=1", () => {
           response_types: ["code"],
           token_endpoint_auth_method: "none",
         }),
-      })
-      expect(response.status).toBe(201)
+      });
+      expect(response.status).toBe(201);
     }
     // If the prefix (203.0.113.99) were the key, this plain request would
     // open a fresh bucket instead of joining 198.51.100.4's exhausted one.
-    const sixth = await register("198.51.100.4")
-    expect(sixth.status).toBe(429)
-  })
-})
+    const sixth = await register("198.51.100.4");
+    expect(sixth.status).toBe(429);
+  });
+});
 
 // ── TRUST_FORWARDED_HOPS=2 ─────────────────────────────────────
 
 // A CDN in front of the header-writing proxy makes the last for= the
 // CDN's address; the client is the element before it.
 describe("TRUST_FORWARDED_HOPS=2", () => {
-  let cleanup: (() => Promise<void>) | undefined
-  let port: number
+  let cleanup: (() => Promise<void>) | undefined;
+  let port: number;
 
   beforeAll(async () => {
-    port = await freePort()
+    port = await freePort();
     const server = await startServer(port, {
       TRUST_FORWARDED_HOPS: "2",
-    })
-    cleanup = server.cleanup
-  }, 30_000)
+    });
+    cleanup = server.cleanup;
+  }, 30_000);
 
   afterAll(async () => {
-    if (cleanup) await cleanup()
-  })
+    if (cleanup) await cleanup();
+  });
 
   const register = (forwarded: string) =>
     fetch(`http://127.0.0.1:${port}/register`, {
@@ -1274,152 +1225,144 @@ describe("TRUST_FORWARDED_HOPS=2", () => {
         response_types: ["code"],
         token_endpoint_auth_method: "none",
       }),
-    })
+    });
 
   it("buckets the /register rate limit by the for= element before the last", async () => {
     for (let i = 0; i < 5; i++) {
-      const response = await register("for=198.51.100.1, for=172.69.0.1")
-      expect(response.status).toBe(201)
+      const response = await register("for=198.51.100.1, for=172.69.0.1");
+      expect(response.status).toBe(201);
     }
     // Same client behind a different CDN edge — same bucket.
-    const sixthSameClient = await register("for=198.51.100.1, for=172.69.0.2")
-    expect(sixthSameClient.status).toBe(429)
+    const sixthSameClient = await register("for=198.51.100.1, for=172.69.0.2");
+    expect(sixthSameClient.status).toBe(429);
     // Different client behind the same CDN edge — fresh bucket.
-    const firstOtherClient = await register("for=198.51.100.2, for=172.69.0.1")
-    expect(firstOtherClient.status).toBe(201)
-  })
+    const firstOtherClient = await register("for=198.51.100.2, for=172.69.0.1");
+    expect(firstOtherClient.status).toBe(201);
+  });
 
   it("ignores a client-supplied prefix ahead of the two trusted elements", async () => {
     for (let i = 0; i < 5; i++) {
-      const response = await register(
-        "for=203.0.113.99, for=198.51.100.4, for=172.69.0.1",
-      )
-      expect(response.status).toBe(201)
+      const response = await register("for=203.0.113.99, for=198.51.100.4, for=172.69.0.1");
+      expect(response.status).toBe(201);
     }
     // The exhausted bucket is keyed on 198.51.100.4 alone: neither the
     // prefix (203.0.113.99) nor the CDN element (172.69.0.1) is part of
     // the key, so a different prefix and a different CDN edge both land
     // in it.
-    const sixth = await register("for=198.51.100.4, for=172.69.0.1")
-    expect(sixth.status).toBe(429)
-    const otherPrefixAndEdge = await register(
-      "for=203.0.113.77, for=198.51.100.4, for=172.69.0.2",
-    )
-    expect(otherPrefixAndEdge.status).toBe(429)
-    const prefixAsClient = await register("for=203.0.113.99, for=172.69.0.1")
-    expect(prefixAsClient.status).toBe(201)
-  })
-})
+    const sixth = await register("for=198.51.100.4, for=172.69.0.1");
+    expect(sixth.status).toBe(429);
+    const otherPrefixAndEdge = await register("for=203.0.113.77, for=198.51.100.4, for=172.69.0.2");
+    expect(otherPrefixAndEdge.status).toBe(429);
+    const prefixAsClient = await register("for=203.0.113.99, for=172.69.0.1");
+    expect(prefixAsClient.status).toBe(201);
+  });
+});
 
 // ── READONLY_MODE (20 tools, 2 prompts) ───────────────────────
 
 describe("READONLY_MODE=true", () => {
-  let client: Client
-  let cleanup: (() => Promise<void>) | undefined
+  let client: Client;
+  let cleanup: (() => Promise<void>) | undefined;
 
   beforeAll(async () => {
     const server = await startServer(await freePort(), {
       READONLY_MODE: "true",
-    })
-    cleanup = server.cleanup
-    client = await createTestClient(server.port)
-  }, 30_000)
+    });
+    cleanup = server.cleanup;
+    client = await createTestClient(server.port);
+  }, 30_000);
 
   afterAll(async () => {
     try {
-      if (client) await client.close()
+      if (client) await client.close();
     } finally {
-      if (cleanup) await cleanup()
+      if (cleanup) await cleanup();
     }
-  })
+  });
 
   it("lists 20 tools", async () => {
-    const names = await toolNames(client)
-    expect(names).toHaveLength(20)
-    expect(names).not.toContain("vault_write_note")
-    expect(names).not.toContain("vault_patch_note")
-    expect(names).not.toContain("vault_replace_in_note")
-    expect(names).not.toContain("vault_delete_span")
-    expect(names).not.toContain("vault_replace_span")
-    expect(names).not.toContain("vault_insert_at_anchor")
-    expect(names).not.toContain("vault_delete_note")
-    expect(names).not.toContain("vault_move_note")
-    expect(names).not.toContain("vault_update_properties")
-    expect(names).not.toContain("vault_update_memory")
-    expect(names).not.toContain("vault_delete_memory")
-    expect(names).not.toContain("vault_update_task")
-    expect(names).toContain("vault_search")
-  })
+    const names = await toolNames(client);
+    expect(names).toHaveLength(20);
+    expect(names).not.toContain("vault_write_note");
+    expect(names).not.toContain("vault_patch_note");
+    expect(names).not.toContain("vault_replace_in_note");
+    expect(names).not.toContain("vault_delete_span");
+    expect(names).not.toContain("vault_replace_span");
+    expect(names).not.toContain("vault_insert_at_anchor");
+    expect(names).not.toContain("vault_delete_note");
+    expect(names).not.toContain("vault_move_note");
+    expect(names).not.toContain("vault_update_properties");
+    expect(names).not.toContain("vault_update_memory");
+    expect(names).not.toContain("vault_delete_memory");
+    expect(names).not.toContain("vault_update_task");
+    expect(names).toContain("vault_search");
+  });
 
   it("lists 2 prompts — no memory-review", async () => {
-    const names = await promptNames(client)
-    expect(names).toHaveLength(2)
-    expect(names).toEqual(["daily-review", "vault-orientation"])
-  })
+    const names = await promptNames(client);
+    expect(names).toHaveLength(2);
+    expect(names).toEqual(["daily-review", "vault-orientation"]);
+  });
 
   it("read tools work", async () => {
     const result = await callTool({
       client,
       name: "vault_read_note",
       args: { path: "Projects/alpha.md" },
-    })
-    expect(result.isError).not.toBe(true)
-    expect(textContent(result)).toContain("Project Alpha")
-  })
+    });
+    expect(result.isError).not.toBe(true);
+    expect(textContent(result)).toContain("Project Alpha");
+  });
 
   it("search works", async () => {
     const result = await callTool({
       client,
       name: "vault_search",
       args: { query: "project" },
-    })
-    expect(result.isError).not.toBe(true)
-    expect(textContent(result)).toContain("Projects/alpha.md")
-  })
-})
+    });
+    expect(result.isError).not.toBe(true);
+    expect(textContent(result)).toContain("Projects/alpha.md");
+  });
+});
 
 // ── DISABLED_TOOLS (selective, 30 tools) ──────────────────────
 
 describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory", () => {
-  let client: Client
-  let cleanup: (() => Promise<void>) | undefined
+  let client: Client;
+  let cleanup: (() => Promise<void>) | undefined;
 
   beforeAll(async () => {
     const server = await startServer(await freePort(), {
       DISABLED_TOOLS: "vault_delete_note,vault_move_note,vault_delete_memory",
-    })
-    cleanup = server.cleanup
-    client = await createTestClient(server.port)
-  }, 30_000)
+    });
+    cleanup = server.cleanup;
+    client = await createTestClient(server.port);
+  }, 30_000);
 
   afterAll(async () => {
     try {
-      if (client) await client.close()
+      if (client) await client.close();
     } finally {
-      if (cleanup) await cleanup()
+      if (cleanup) await cleanup();
     }
-  })
+  });
 
   it("lists 30 tools with expected survivors", async () => {
-    const names = await toolNames(client)
-    expect(names).toHaveLength(30)
-    expect(names).not.toContain("vault_delete_note")
-    expect(names).not.toContain("vault_move_note")
-    expect(names).not.toContain("vault_delete_memory")
-    expect(names).toContain("vault_write_note")
-    expect(names).toContain("vault_read_note")
-    expect(names).toContain("vault_update_task")
-  })
+    const names = await toolNames(client);
+    expect(names).toHaveLength(30);
+    expect(names).not.toContain("vault_delete_note");
+    expect(names).not.toContain("vault_move_note");
+    expect(names).not.toContain("vault_delete_memory");
+    expect(names).toContain("vault_write_note");
+    expect(names).toContain("vault_read_note");
+    expect(names).toContain("vault_update_task");
+  });
 
   it("all 3 prompts present", async () => {
-    const names = await promptNames(client)
-    expect(names).toHaveLength(3)
-    expect(names).toEqual([
-      "daily-review",
-      "memory-review",
-      "vault-orientation",
-    ])
-  })
+    const names = await promptNames(client);
+    expect(names).toHaveLength(3);
+    expect(names).toEqual(["daily-review", "memory-review", "vault-orientation"]);
+  });
 
   it("surviving write tools work", async () => {
     const result = await callTool({
@@ -1429,224 +1372,211 @@ describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory",
         path: "Scratch/disabled-test.md",
         body: "# Test\n\nWritten during DISABLED_TOOLS test.",
       },
-    })
-    expect(result.isError).not.toBe(true)
+    });
+    expect(result.isError).not.toBe(true);
 
     // Verify the write took effect
     const readback = await callTool({
       client,
       name: "vault_read_note",
       args: { path: "Scratch/disabled-test.md" },
-    })
-    expect(textContent(readback)).toContain("DISABLED_TOOLS test")
-  })
-})
+    });
+    expect(textContent(readback)).toContain("DISABLED_TOOLS test");
+  });
+});
 
 // ── DISABLED_TOOLS=vault_update_memory (prompt dependency) ────
 
 describe("DISABLED_TOOLS=vault_update_memory", () => {
-  let client: Client
-  let cleanup: (() => Promise<void>) | undefined
+  let client: Client;
+  let cleanup: (() => Promise<void>) | undefined;
 
   beforeAll(async () => {
     const server = await startServer(await freePort(), {
       DISABLED_TOOLS: "vault_update_memory",
-    })
-    cleanup = server.cleanup
-    client = await createTestClient(server.port)
-  }, 30_000)
+    });
+    cleanup = server.cleanup;
+    client = await createTestClient(server.port);
+  }, 30_000);
 
   afterAll(async () => {
     try {
-      if (client) await client.close()
+      if (client) await client.close();
     } finally {
-      if (cleanup) await cleanup()
+      if (cleanup) await cleanup();
     }
-  })
+  });
 
   it("lists 32 tools", async () => {
-    const names = await toolNames(client)
-    expect(names).toHaveLength(32)
-    expect(names).not.toContain("vault_update_memory")
-    expect(names).toContain("vault_get_memory")
-  })
+    const names = await toolNames(client);
+    expect(names).toHaveLength(32);
+    expect(names).not.toContain("vault_update_memory");
+    expect(names).toContain("vault_get_memory");
+  });
 
   it("memory-review prompt hidden", async () => {
-    const names = await promptNames(client)
-    expect(names).toHaveLength(2)
-    expect(names).toEqual(["daily-review", "vault-orientation"])
-  })
-})
+    const names = await promptNames(client);
+    expect(names).toHaveLength(2);
+    expect(names).toEqual(["daily-review", "vault-orientation"]);
+  });
+});
 
 // ── MEMORY_ENABLED=false (28 tools, 2 prompts) ───────────────
 
 describe("MEMORY_ENABLED=false", () => {
-  let client: Client
-  let cleanup: (() => Promise<void>) | undefined
+  let client: Client;
+  let cleanup: (() => Promise<void>) | undefined;
 
   beforeAll(async () => {
     const server = await startServer(await freePort(), {
       MEMORY_ENABLED: "false",
-    })
-    cleanup = server.cleanup
-    client = await createTestClient(server.port)
-  }, 30_000)
+    });
+    cleanup = server.cleanup;
+    client = await createTestClient(server.port);
+  }, 30_000);
 
   afterAll(async () => {
     try {
-      if (client) await client.close()
+      if (client) await client.close();
     } finally {
-      if (cleanup) await cleanup()
+      if (cleanup) await cleanup();
     }
-  })
+  });
 
   it("lists 28 tools — no memory group", async () => {
-    const names = await toolNames(client)
-    expect(names).toHaveLength(28)
-    expect(names).not.toContain("vault_get_memory")
-    expect(names).not.toContain("vault_list_memory_files")
-    expect(names).not.toContain("vault_memory_recall")
-    expect(names).not.toContain("vault_update_memory")
-    expect(names).not.toContain("vault_delete_memory")
-  })
+    const names = await toolNames(client);
+    expect(names).toHaveLength(28);
+    expect(names).not.toContain("vault_get_memory");
+    expect(names).not.toContain("vault_list_memory_files");
+    expect(names).not.toContain("vault_memory_recall");
+    expect(names).not.toContain("vault_update_memory");
+    expect(names).not.toContain("vault_delete_memory");
+  });
 
   it("memory-review prompt hidden", async () => {
-    const names = await promptNames(client)
-    expect(names).toHaveLength(2)
-    expect(names).toEqual(["daily-review", "vault-orientation"])
-  })
-})
+    const names = await promptNames(client);
+    expect(names).toHaveLength(2);
+    expect(names).toEqual(["daily-review", "vault-orientation"]);
+  });
+});
 
 // ── FILE_TOOLS_ENABLED=false (31 tools) ──────────────────────
 
 describe("FILE_TOOLS_ENABLED=false", () => {
-  let client: Client
-  let cleanup: (() => Promise<void>) | undefined
+  let client: Client;
+  let cleanup: (() => Promise<void>) | undefined;
 
   beforeAll(async () => {
     const server = await startServer(await freePort(), {
       FILE_TOOLS_ENABLED: "false",
-    })
-    cleanup = server.cleanup
-    client = await createTestClient(server.port)
-  }, 30_000)
+    });
+    cleanup = server.cleanup;
+    client = await createTestClient(server.port);
+  }, 30_000);
 
   afterAll(async () => {
     try {
-      if (client) await client.close()
+      if (client) await client.close();
     } finally {
-      if (cleanup) await cleanup()
+      if (cleanup) await cleanup();
     }
-  })
+  });
 
   it("lists 31 tools — no asset tools", async () => {
-    const names = await toolNames(client)
-    expect(names).toHaveLength(31)
-    expect(names).not.toContain("vault_read_file")
-    expect(names).not.toContain("vault_list_files")
-    expect(names).toContain("vault_read_note")
-  })
+    const names = await toolNames(client);
+    expect(names).toHaveLength(31);
+    expect(names).not.toContain("vault_read_file");
+    expect(names).not.toContain("vault_list_files");
+    expect(names).toContain("vault_read_note");
+  });
 
   it("all 3 prompts present", async () => {
-    const names = await promptNames(client)
-    expect(names).toHaveLength(3)
-    expect(names).toEqual([
-      "daily-review",
-      "memory-review",
-      "vault-orientation",
-    ])
-  })
-})
+    const names = await promptNames(client);
+    expect(names).toHaveLength(3);
+    expect(names).toEqual(["daily-review", "memory-review", "vault-orientation"]);
+  });
+});
 
 // ── Boot rejection ───────────────────────────────────────────
 
 describe("DAILY_NOTES_FORMAT with unsupported token", () => {
-  let client: Client
-  let cleanup: (() => Promise<void>) | undefined
+  let client: Client;
+  let cleanup: (() => Promise<void>) | undefined;
 
   beforeAll(async () => {
-    const port = await freePort()
+    const port = await freePort();
     const server = await startServer(port, {
       DAILY_NOTES_FORMAT: "MMMM Do, YYYY",
-    })
-    cleanup = server.cleanup
-    client = await createTestClient(server.port)
-  }, 30_000)
+    });
+    cleanup = server.cleanup;
+    client = await createTestClient(server.port);
+  }, 30_000);
 
   afterAll(async () => {
     try {
-      if (client) await client.close()
+      if (client) await client.close();
     } finally {
-      if (cleanup) await cleanup()
+      if (cleanup) await cleanup();
     }
-  })
+  });
 
   it("server starts despite unsupported token in format", async () => {
-    const names = await toolNames(client)
-    expect(names).toContain("vault_get_daily_note")
-  })
+    const names = await toolNames(client);
+    expect(names).toContain("vault_get_daily_note");
+  });
 
   it("vault_get_daily_note returns a tool error for unsupported Do token", async () => {
     const result = await callTool({
       client,
       name: "vault_get_daily_note",
       args: { date: "2026-01-15" },
-    })
-    expect(result.isError).toBe(true)
-    expect(textContent(result)).toContain("unsupported token(s): Do")
-  })
-})
+    });
+    expect(result.isError).toBe(true);
+    expect(textContent(result)).toContain("unsupported token(s): Do");
+  });
+});
 
 describe("boot rejection", () => {
   it("unknown DISABLED_TOOLS name exits with error", async () => {
-    const { exitCode, stderr } = await startServerExpectingFailure(
-      await freePort(),
-      { DISABLED_TOOLS: "vault_fake_tool" },
-    )
-    expect(exitCode).toBe(1)
-    expect(stderr).toContain("vault_fake_tool")
-  }, 15_000)
+    const { exitCode, stderr } = await startServerExpectingFailure(await freePort(), {
+      DISABLED_TOOLS: "vault_fake_tool",
+    });
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("vault_fake_tool");
+  }, 15_000);
 
   it.each(["/vault*path", "/vault?path", "/vault[path]"])(
     "VAULT_PATH=%s with glob characters exits with error",
     async (vaultPath) => {
-      const { exitCode, stderr } = await startServerExpectingFailure(
-        await freePort(),
-        { VAULT_PATH: vaultPath },
-      )
-      expect(exitCode).toBe(1)
-      expect(stderr).toContain(
-        "VAULT_PATH must not contain glob characters (*, ?, [)",
-      )
+      const { exitCode, stderr } = await startServerExpectingFailure(await freePort(), { VAULT_PATH: vaultPath });
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("VAULT_PATH must not contain glob characters (*, ?, [)");
     },
     15_000,
-  )
+  );
 
   it("PUBLIC_URL with embedded credentials exits with error", async () => {
-    const { exitCode, stderr } = await startServerExpectingFailure(
-      await freePort(),
-      { PUBLIC_URL: "https://user:fake-secret@127.0.0.1" },
-    )
-    expect(exitCode).toBe(1)
-    expect(stderr).toContain(
-      "PUBLIC_URL must not contain credentials (user:password@)",
-    )
-  }, 15_000)
+    const { exitCode, stderr } = await startServerExpectingFailure(await freePort(), {
+      PUBLIC_URL: "https://user:fake-secret@127.0.0.1",
+    });
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain("PUBLIC_URL must not contain credentials (user:password@)");
+  }, 15_000);
 
   // Express 5 hands bind failures to the listen callback instead of
   // throwing; without the check the second server would log "server
   // started" and idle while the first one keeps answering the port.
   it("exits with error when the port is already in use", async () => {
-    const port = await freePort()
-    const occupant = await startServer(port)
-    onTestFinished(() => occupant.cleanup())
+    const port = await freePort();
+    const occupant = await startServer(port);
+    onTestFinished(() => occupant.cleanup());
 
-    const { exitCode, stderr } = await startServerExpectingFailure(port, {})
-    expect(exitCode).toBe(1)
-    expect(stderr).toContain('"message":"server failed to listen"')
-    expect(stderr).toContain("EADDRINUSE")
-  }, 30_000)
-})
+    const { exitCode, stderr } = await startServerExpectingFailure(port, {});
+    expect(exitCode).toBe(1);
+    expect(stderr).toContain('"message":"server failed to listen"');
+    expect(stderr).toContain("EADDRINUSE");
+  }, 30_000);
+});
 
 // ── Trash retention: the system default, the local option, and sync ───
 //
@@ -1657,106 +1587,94 @@ describe("boot rejection", () => {
 /** Every trash_entries row in a server's index DB, read directly from the
  *  data dir the harness created (WAL mode allows a concurrent reader). */
 const readTrashEntryRows = (dataDir: string): string[] => {
-  const db = new Database(join(dataDir, "search.db"), { readonly: true })
+  const db = new Database(join(dataDir, "search.db"), { readonly: true });
   try {
     return db
-      .prepare<[], { trash_path: string }>(
-        "SELECT trash_path FROM trash_entries ORDER BY trash_path",
-      )
+      .prepare<[], { trash_path: string }>("SELECT trash_path FROM trash_entries ORDER BY trash_path")
       .all()
-      .map((row) => row.trash_path)
+      .map((row) => row.trash_path);
   } finally {
-    db.close()
+    db.close();
   }
-}
+};
 
 describe("trash retention over real HTTP", () => {
   it("a delete under the system default lands in .trash/ and records a trash entry", async () => {
-    const server = await startServer(await freePort())
-    onTestFinished(() => server.cleanup())
+    const server = await startServer(await freePort());
+    onTestFinished(() => server.cleanup());
     // The shared fixture pins trashOption "local"; blanking the config makes
     // the absent key read as "system" (Obsidian's default). Rewritten before
     // any delete so no "local" read has been cached.
-    await writeFile(
-      join(server.vaultPath, ".obsidian", "app.json"),
-      "{}",
-      "utf8",
-    )
-    const client = await createTestClient(server.port)
-    onTestFinished(() => client.close())
+    await writeFile(join(server.vaultPath, ".obsidian", "app.json"), "{}", "utf8");
+    const client = await createTestClient(server.port);
+    onTestFinished(() => client.close());
 
     await callTool({
       client,
       name: "vault_write_note",
       args: { path: "Scratch/system-trash.md", body: "kept for 30 days" },
-    })
+    });
     const deleteResult = await callTool({
       client,
       name: "vault_delete_note",
       args: { path: "Scratch/system-trash.md" },
-    })
+    });
 
-    expect(deleteResult.isError).not.toBe(true)
-    expect(textContent(deleteResult)).toBe(
-      "Moved Scratch/system-trash.md to trash (.trash/Scratch/system-trash.md)",
-    )
-    expect(readTrashEntryRows(server.dataDir)).toEqual([
-      ".trash/Scratch/system-trash.md",
-    ])
-  }, 30_000)
+    expect(deleteResult.isError).not.toBe(true);
+    expect(textContent(deleteResult)).toBe("Moved Scratch/system-trash.md to trash (.trash/Scratch/system-trash.md)");
+    expect(readTrashEntryRows(server.dataDir)).toEqual([".trash/Scratch/system-trash.md"]);
+  }, 30_000);
 
   it("a delete under the explicit local option records no trash entry", async () => {
     // "local" means Obsidian's own keep-forever trash — the retention sweep
     // must never learn about these moves.
-    const server = await startServer(await freePort())
-    onTestFinished(() => server.cleanup())
-    const client = await createTestClient(server.port)
-    onTestFinished(() => client.close())
+    const server = await startServer(await freePort());
+    onTestFinished(() => server.cleanup());
+    const client = await createTestClient(server.port);
+    onTestFinished(() => client.close());
 
     await callTool({
       client,
       name: "vault_write_note",
       args: { path: "Scratch/local-trash.md", body: "kept forever" },
-    })
+    });
     const deleteResult = await callTool({
       client,
       name: "vault_delete_note",
       args: { path: "Scratch/local-trash.md" },
-    })
+    });
 
-    expect(deleteResult.isError).not.toBe(true)
-    expect(textContent(deleteResult)).toBe(
-      "Moved Scratch/local-trash.md to trash (.trash/Scratch/local-trash.md)",
-    )
-    expect(readTrashEntryRows(server.dataDir)).toEqual([])
-  }, 30_000)
+    expect(deleteResult.isError).not.toBe(true);
+    expect(textContent(deleteResult)).toBe("Moved Scratch/local-trash.md to trash (.trash/Scratch/local-trash.md)");
+    expect(readTrashEntryRows(server.dataDir)).toEqual([]);
+  }, 30_000);
 
   it("a sync-mode delete permanently removes the note and records no trash entry", async () => {
     // The sync bypass maps to "none" — a server-side .trash/ would never
     // sync back to the user, and the sweep never runs on sync deploys.
     const server = await startServer(await freePort(), {
       OBSIDIAN_SYNC: "true",
-    })
-    onTestFinished(() => server.cleanup())
-    const client = await createTestClient(server.port)
-    onTestFinished(() => client.close())
+    });
+    onTestFinished(() => server.cleanup());
+    const client = await createTestClient(server.port);
+    onTestFinished(() => client.close());
 
     await callTool({
       client,
       name: "vault_write_note",
       args: { path: "Scratch/sync-delete.md", body: "gone for good" },
-    })
+    });
     const deleteResult = await callTool({
       client,
       name: "vault_delete_note",
       args: { path: "Scratch/sync-delete.md" },
-    })
+    });
 
-    expect(deleteResult.isError).not.toBe(true)
-    expect(textContent(deleteResult)).toBe("Deleted Scratch/sync-delete.md")
-    expect(readTrashEntryRows(server.dataDir)).toEqual([])
-  }, 30_000)
-})
+    expect(deleteResult.isError).not.toBe(true);
+    expect(textContent(deleteResult)).toBe("Deleted Scratch/sync-delete.md");
+    expect(readTrashEntryRows(server.dataDir)).toEqual([]);
+  }, 30_000);
+});
 
 // ── Trash retention sweep gating ───────────────────────────────
 //
@@ -1768,17 +1686,17 @@ describe("trash retention over real HTTP", () => {
 
 /** The startup sweep's completion log, as it appears in the server's
  *  structured stdout stream. */
-const SWEEP_LOG_MARKER = '"message":"trash retention sweep complete"'
+const SWEEP_LOG_MARKER = '"message":"trash retention sweep complete"';
 
 describe("trash retention sweep gating", () => {
   it("the startup sweep runs under the default config", async () => {
-    const server = await startServer(await freePort())
-    onTestFinished(() => server.cleanup())
+    const server = await startServer(await freePort());
+    onTestFinished(() => server.cleanup());
 
     await vi.waitFor(() => {
-      expect(server.stdout()).toContain(SWEEP_LOG_MARKER)
-    })
-  }, 30_000)
+      expect(server.stdout()).toContain(SWEEP_LOG_MARKER);
+    });
+  }, 30_000);
 
   it.each([
     ["READONLY_MODE=true", { READONLY_MODE: "true" }],
@@ -1787,16 +1705,16 @@ describe("trash retention sweep gating", () => {
   ])(
     "the sweep never starts under %s",
     async (_config, envOverrides) => {
-      const server = await startServer(await freePort(), envOverrides)
-      onTestFinished(() => server.cleanup())
-      const client = await createTestClient(server.port)
-      onTestFinished(() => client.close())
+      const server = await startServer(await freePort(), envOverrides);
+      onTestFinished(() => server.cleanup());
+      const client = await createTestClient(server.port);
+      onTestFinished(() => client.close());
 
       // A full HTTP round-trip proves the boot sequence — where an enabled
       // sweep logs its completion line — has long since finished.
-      await toolNames(client)
-      expect(server.stdout()).not.toContain(SWEEP_LOG_MARKER)
+      await toolNames(client);
+      expect(server.stdout()).not.toContain(SWEEP_LOG_MARKER);
     },
     30_000,
-  )
-})
+  );
+});

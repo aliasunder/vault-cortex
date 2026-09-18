@@ -1,13 +1,7 @@
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-import { describe, expect, it } from "vitest"
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
 
 import {
   buildFilesToWrite,
@@ -19,28 +13,22 @@ import {
   readEnvVaultPath,
   stripEnvQuotedValues,
   writeFiles,
-} from "../scaffold.js"
+} from "../scaffold.js";
 
-const neverOverwrite = async (): Promise<boolean> => false
-const alwaysOverwrite = async (): Promise<boolean> => true
+const neverOverwrite = async (): Promise<boolean> => false;
+const alwaysOverwrite = async (): Promise<boolean> => true;
 
 describe("buildFilesToWrite", () => {
   it("returns only the .env file with owner-only permissions", () => {
-    const files = buildFilesToWrite("MCP_AUTH_TOKEN=abc\n")
+    const files = buildFilesToWrite("MCP_AUTH_TOKEN=abc\n");
 
-    expect(files).toEqual([
-      { name: ".env", content: "MCP_AUTH_TOKEN=abc\n", mode: 0o600 },
-    ])
-  })
-})
+    expect(files).toEqual([{ name: ".env", content: "MCP_AUTH_TOKEN=abc\n", mode: 0o600 }]);
+  });
+});
 
 describe("writeFiles", () => {
   it("creates the target directory and writes all files", async () => {
-    const targetDir = join(
-      mkdtempSync(join(tmpdir(), "vault-cli-")),
-      "nested",
-      "vault-cortex",
-    )
+    const targetDir = join(mkdtempSync(join(tmpdir(), "vault-cli-")), "nested", "vault-cortex");
 
     const results = await writeFiles(
       {
@@ -48,20 +36,18 @@ describe("writeFiles", () => {
         files: [{ name: ".env", content: "MCP_AUTH_TOKEN=abc\n" }],
       },
       neverOverwrite,
-    )
+    );
 
-    expect(results).toEqual([{ name: ".env", status: "created" }])
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
-      "MCP_AUTH_TOKEN=abc\n",
-    )
-  })
+    expect(results).toEqual([{ name: ".env", status: "created" }]);
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=abc\n");
+  });
 
   it("skips an existing identical file without consulting the conflict resolver", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc\n")
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc\n");
     const failingResolver = async (): Promise<boolean> => {
-      throw new Error("resolver must not be called for identical content")
-    }
+      throw new Error("resolver must not be called for identical content");
+    };
 
     const results = await writeFiles(
       {
@@ -69,14 +55,14 @@ describe("writeFiles", () => {
         files: [{ name: ".env", content: "MCP_AUTH_TOKEN=abc\n" }],
       },
       failingResolver,
-    )
+    );
 
-    expect(results).toEqual([{ name: ".env", status: "unchanged" }])
-  })
+    expect(results).toEqual([{ name: ".env", status: "unchanged" }]);
+  });
 
   it("keeps a differing existing file untouched when the resolver declines", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=old\n")
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=old\n");
 
     const results = await writeFiles(
       {
@@ -84,17 +70,15 @@ describe("writeFiles", () => {
         files: [{ name: ".env", content: "MCP_AUTH_TOKEN=new\n" }],
       },
       neverOverwrite,
-    )
+    );
 
-    expect(results).toEqual([{ name: ".env", status: "kept" }])
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
-      "MCP_AUTH_TOKEN=old\n",
-    )
-  })
+    expect(results).toEqual([{ name: ".env", status: "kept" }]);
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=old\n");
+  });
 
   it("overwrites a differing existing file when the resolver approves", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=old\n")
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=old\n");
 
     const results = await writeFiles(
       {
@@ -102,17 +86,15 @@ describe("writeFiles", () => {
         files: [{ name: ".env", content: "MCP_AUTH_TOKEN=new\n" }],
       },
       alwaysOverwrite,
-    )
+    );
 
-    expect(results).toEqual([{ name: ".env", status: "overwritten" }])
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
-      "MCP_AUTH_TOKEN=new\n",
-    )
-  })
+    expect(results).toEqual([{ name: ".env", status: "overwritten" }]);
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=new\n");
+  });
 
   it("resolves conflicts per file — keeps one and creates another in the same run", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=old\n")
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=old\n");
 
     const results = await writeFiles(
       {
@@ -123,250 +105,217 @@ describe("writeFiles", () => {
         ],
       },
       neverOverwrite,
-    )
+    );
 
     expect(results).toEqual([
       { name: "extra.txt", status: "created" },
       { name: ".env", status: "kept" },
-    ])
-    expect(existsSync(join(targetDir, "extra.txt"))).toBe(true)
-  })
-})
+    ]);
+    expect(existsSync(join(targetDir, "extra.txt"))).toBe(true);
+  });
+});
 
 describe("readEnvPort", () => {
   it("returns the default 8000 when no .env exists", () => {
-    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
+    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env");
 
-    expect(readEnvPort(missingPath)).toBe(8000)
-  })
+    expect(readEnvPort(missingPath)).toBe(8000);
+  });
 
   it("returns the default 8000 when PORT is only present as a comment", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\n# PORT=9000\n")
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\n# PORT=9000\n");
 
-    expect(readEnvPort(envPath)).toBe(8000)
-  })
+    expect(readEnvPort(envPath)).toBe(8000);
+  });
 
   it("returns an uncommented PORT override", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPORT=9000\n")
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPORT=9000\n");
 
-    expect(readEnvPort(envPath)).toBe(9000)
-  })
+    expect(readEnvPort(envPath)).toBe(9000);
+  });
 
   it("strips surrounding double quotes from the port value", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nPORT="9000"\n')
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nPORT="9000"\n');
 
-    expect(readEnvPort(envPath)).toBe(9000)
-  })
-})
+    expect(readEnvPort(envPath)).toBe(9000);
+  });
+});
 
 describe("readEnvVaultPath", () => {
   it("returns undefined when no .env exists", () => {
-    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
+    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env");
 
-    expect(readEnvVaultPath(missingPath)).toBeUndefined()
-  })
+    expect(readEnvVaultPath(missingPath)).toBeUndefined();
+  });
 
   it("returns undefined when VAULT_PATH is only a comment", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\n# VAULT_PATH=/vault\n")
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\n# VAULT_PATH=/vault\n");
 
-    expect(readEnvVaultPath(envPath)).toBeUndefined()
-  })
+    expect(readEnvVaultPath(envPath)).toBeUndefined();
+  });
 
   it("returns the vault path from an uncommented line", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/home/user/MyVault\n",
-    )
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/home/user/MyVault\n");
 
-    expect(readEnvVaultPath(envPath)).toBe("/home/user/MyVault")
-  })
+    expect(readEnvVaultPath(envPath)).toBe("/home/user/MyVault");
+  });
 
   it("handles paths with spaces", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/Users/me/My Vault\n",
-    )
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/Users/me/My Vault\n");
 
-    expect(readEnvVaultPath(envPath)).toBe("/Users/me/My Vault")
-  })
+    expect(readEnvVaultPath(envPath)).toBe("/Users/me/My Vault");
+  });
 
   it("strips surrounding double quotes from the value", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      'MCP_AUTH_TOKEN=abc\nVAULT_PATH="/Users/me/My Vault"\n',
-    )
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nVAULT_PATH="/Users/me/My Vault"\n');
 
-    expect(readEnvVaultPath(envPath)).toBe("/Users/me/My Vault")
-  })
+    expect(readEnvVaultPath(envPath)).toBe("/Users/me/My Vault");
+  });
 
   it("strips surrounding single quotes from the value", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nVAULT_PATH='/Users/me/My Vault'\n",
-    )
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_PATH='/Users/me/My Vault'\n");
 
-    expect(readEnvVaultPath(envPath)).toBe("/Users/me/My Vault")
-  })
-})
+    expect(readEnvVaultPath(envPath)).toBe("/Users/me/My Vault");
+  });
+});
 
 describe("readEnvPublicUrl", () => {
   it("returns the value of an uncommented PUBLIC_URL line", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com\n",
-    )
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com\n");
 
-    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
-  })
+    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com");
+  });
 
   it("strips trailing slashes so consumers can append paths cleanly", () => {
     // A hand-edited `https://host/` must not become `https://host//mcp` in
     // the connect message — mirror askPublicUrl's prompt-side normalization.
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com/\n",
-    )
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com/\n");
 
-    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
-  })
+    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com");
+  });
 
   it("strips a run of trailing slashes, not just one", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com///\n",
-    )
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com///\n");
 
-    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
-  })
+    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com");
+  });
 
   it("returns undefined when no .env exists", () => {
-    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
+    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env");
 
-    expect(readEnvPublicUrl(missingPath)).toBeUndefined()
-  })
+    expect(readEnvPublicUrl(missingPath)).toBeUndefined();
+  });
 
   it("returns undefined when PUBLIC_URL is only a comment", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\n# PUBLIC_URL=https://x\n")
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\n# PUBLIC_URL=https://x\n");
 
-    expect(readEnvPublicUrl(envPath)).toBeUndefined()
-  })
+    expect(readEnvPublicUrl(envPath)).toBeUndefined();
+  });
 
   it("returns undefined for an empty PUBLIC_URL= line", () => {
     // Contrast with hasEnvPublicUrl, which deliberately matches the empty
     // line for old-compose detection — the value reader must not.
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=\n")
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=\n");
 
-    expect(readEnvPublicUrl(envPath)).toBeUndefined()
-  })
+    expect(readEnvPublicUrl(envPath)).toBeUndefined();
+  });
 
   it("returns undefined for a whitespace-only PUBLIC_URL= line", () => {
     // The regex matches the spaces; the trim must not leak "" past the
     // non-empty contract.
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=   \n")
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=   \n");
 
-    expect(readEnvPublicUrl(envPath)).toBeUndefined()
-  })
+    expect(readEnvPublicUrl(envPath)).toBeUndefined();
+  });
 
   it("strips surrounding double quotes from the value", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      'MCP_AUTH_TOKEN=abc\nPUBLIC_URL="https://vault.example.com"\n',
-    )
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nPUBLIC_URL="https://vault.example.com"\n');
 
-    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
-  })
+    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com");
+  });
 
   it("strips quotes then trailing slashes", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      'MCP_AUTH_TOKEN=abc\nPUBLIC_URL="https://vault.example.com/"\n',
-    )
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nPUBLIC_URL="https://vault.example.com/"\n');
 
-    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
-  })
-})
+    expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com");
+  });
+});
 
 describe("detectMode", () => {
   it("returns undefined when no .env exists", () => {
-    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
+    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env");
 
-    expect(detectMode(missingPath)).toBeUndefined()
-  })
+    expect(detectMode(missingPath)).toBeUndefined();
+  });
 
   it("returns local when OBSIDIAN_AUTH_TOKEN is absent", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/home/user/MyVault\n",
-    )
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/home/user/MyVault\n");
 
-    expect(detectMode(envPath)).toBe("local")
-  })
+    expect(detectMode(envPath)).toBe("local");
+  });
 
   it("returns local when OBSIDIAN_AUTH_TOKEN is only a comment", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\n# OBSIDIAN_AUTH_TOKEN=token\n")
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\n# OBSIDIAN_AUTH_TOKEN=token\n");
 
-    expect(detectMode(envPath)).toBe("local")
-  })
+    expect(detectMode(envPath)).toBe("local");
+  });
 
   it("returns remote when OBSIDIAN_AUTH_TOKEN is present and uncommented", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=token123\nVAULT_NAME=MyVault\n",
-    )
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=token123\nVAULT_NAME=MyVault\n");
 
-    expect(detectMode(envPath)).toBe("remote")
-  })
+    expect(detectMode(envPath)).toBe("remote");
+  });
 
   it("returns remote even when OBSIDIAN_AUTH_TOKEN is empty (deferred fill-in)", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=\n")
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=\n");
 
-    expect(detectMode(envPath)).toBe("remote")
-  })
-})
+    expect(detectMode(envPath)).toBe("remote");
+  });
+});
 
 describe("writeFiles permissions", () => {
   it("creates .env owner-only (0600) via the file mode", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
 
     await writeFiles(
       {
@@ -374,16 +323,16 @@ describe("writeFiles permissions", () => {
         files: [{ name: ".env", content: "MCP_AUTH_TOKEN=abc\n", mode: 0o600 }],
       },
       neverOverwrite,
-    )
+    );
 
-    const fileMode = statSync(join(targetDir, ".env")).mode & 0o777
-    expect(fileMode).toBe(0o600)
-  })
+    const fileMode = statSync(join(targetDir, ".env")).mode & 0o777;
+    expect(fileMode).toBe(0o600);
+  });
 
   it("tightens permissions when overwriting an existing wider-mode file", async () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o644 })
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=old\n", { mode: 0o644 });
 
     await writeFiles(
       {
@@ -391,219 +340,190 @@ describe("writeFiles permissions", () => {
         files: [{ name: ".env", content: "MCP_AUTH_TOKEN=new\n", mode: 0o600 }],
       },
       alwaysOverwrite,
-    )
+    );
 
-    const fileMode = statSync(envPath).mode & 0o777
-    expect(fileMode).toBe(0o600)
-  })
-})
+    const fileMode = statSync(envPath).mode & 0o777;
+    expect(fileMode).toBe(0o600);
+  });
+});
 
 describe("patchEnvObsidianToken", () => {
   it("replaces an existing token value", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old-token\nVAULT_NAME=MyVault\n",
-    )
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old-token\nVAULT_NAME=MyVault\n");
 
-    const result = patchEnvObsidianToken(envPath, "new-token")
+    const result = patchEnvObsidianToken(envPath, "new-token");
 
-    expect(result).toBe(true)
+    expect(result).toBe(true);
     expect(readFileSync(envPath, "utf8")).toBe(
       "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=new-token\nVAULT_NAME=MyVault\n",
-    )
-  })
+    );
+  });
 
   it("replaces an empty token value", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "OBSIDIAN_AUTH_TOKEN=\n")
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "OBSIDIAN_AUTH_TOKEN=\n");
 
-    const result = patchEnvObsidianToken(envPath, "filled-in")
+    const result = patchEnvObsidianToken(envPath, "filled-in");
 
-    expect(result).toBe(true)
-    expect(readFileSync(envPath, "utf8")).toBe(
-      "OBSIDIAN_AUTH_TOKEN=filled-in\n",
-    )
-  })
+    expect(result).toBe(true);
+    expect(readFileSync(envPath, "utf8")).toBe("OBSIDIAN_AUTH_TOKEN=filled-in\n");
+  });
 
   it("returns false when the file does not exist", () => {
-    const result = patchEnvObsidianToken(
-      join(tmpdir(), "vault-cli-no-such-file", ".env"),
-      "token",
-    )
+    const result = patchEnvObsidianToken(join(tmpdir(), "vault-cli-no-such-file", ".env"), "token");
 
-    expect(result).toBe(false)
-  })
+    expect(result).toBe(false);
+  });
 
   it("returns false when the file has no OBSIDIAN_AUTH_TOKEN line", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/vault\n")
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/vault\n");
 
-    const result = patchEnvObsidianToken(envPath, "token")
+    const result = patchEnvObsidianToken(envPath, "token");
 
-    expect(result).toBe(false)
-    expect(readFileSync(envPath, "utf8")).toBe(
-      "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/vault\n",
-    )
-  })
+    expect(result).toBe(false);
+    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=abc\nVAULT_PATH=/vault\n");
+  });
 
   it("writes tokens containing $ patterns literally (no regex interpolation)", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "OBSIDIAN_AUTH_TOKEN=old-token\n")
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "OBSIDIAN_AUTH_TOKEN=old-token\n");
 
-    const result = patchEnvObsidianToken(envPath, "abc$&def$$1$'end")
+    const result = patchEnvObsidianToken(envPath, "abc$&def$$1$'end");
 
-    expect(result).toBe(true)
-    expect(readFileSync(envPath, "utf8")).toBe(
-      "OBSIDIAN_AUTH_TOKEN=abc$&def$$1$'end\n",
-    )
-  })
+    expect(result).toBe(true);
+    expect(readFileSync(envPath, "utf8")).toBe("OBSIDIAN_AUTH_TOKEN=abc$&def$$1$'end\n");
+  });
 
   it("preserves surrounding content when patching", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"))
-    const envPath = join(targetDir, ".env")
-    const original =
-      "# Comment\nMCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old\nVAULT_NAME=Test\n# Footer\n"
-    writeFileSync(envPath, original)
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-patch-"));
+    const envPath = join(targetDir, ".env");
+    const original = "# Comment\nMCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=old\nVAULT_NAME=Test\n# Footer\n";
+    writeFileSync(envPath, original);
 
-    patchEnvObsidianToken(envPath, "new")
+    patchEnvObsidianToken(envPath, "new");
 
     expect(readFileSync(envPath, "utf8")).toBe(
       "# Comment\nMCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=new\nVAULT_NAME=Test\n# Footer\n",
-    )
-  })
-})
+    );
+  });
+});
 
 describe("readEnvObsidianToken", () => {
   it("returns undefined when the file does not exist", () => {
-    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
+    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env");
 
-    expect(readEnvObsidianToken(missingPath)).toBeUndefined()
-  })
+    expect(readEnvObsidianToken(missingPath)).toBeUndefined();
+  });
 
   it("returns the token value from an existing .env", () => {
-    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=my-token\nVAULT_NAME=Test\n",
-    )
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=my-token\nVAULT_NAME=Test\n");
 
-    expect(readEnvObsidianToken(envPath)).toBe("my-token")
-  })
+    expect(readEnvObsidianToken(envPath)).toBe("my-token");
+  });
 
   it("returns undefined when the line exists but the value is empty", () => {
-    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=\nVAULT_NAME=Test\n",
-    )
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=\nVAULT_NAME=Test\n");
 
-    expect(readEnvObsidianToken(envPath)).toBeUndefined()
-  })
+    expect(readEnvObsidianToken(envPath)).toBeUndefined();
+  });
 
   it("returns undefined when the file has no OBSIDIAN_AUTH_TOKEN line", () => {
-    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
-    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_NAME=Test\n")
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_NAME=Test\n");
 
-    expect(readEnvObsidianToken(envPath)).toBeUndefined()
-  })
+    expect(readEnvObsidianToken(envPath)).toBeUndefined();
+  });
 
   it("trims whitespace from the token value", () => {
-    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
-    writeFileSync(envPath, "OBSIDIAN_AUTH_TOKEN=  spaced-token  \n")
+    const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env");
+    writeFileSync(envPath, "OBSIDIAN_AUTH_TOKEN=  spaced-token  \n");
 
-    expect(readEnvObsidianToken(envPath)).toBe("spaced-token")
-  })
-})
+    expect(readEnvObsidianToken(envPath)).toBe("spaced-token");
+  });
+});
 
 describe("stripEnvQuotedValues", () => {
   it("returns false when the file does not exist", () => {
-    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env")
+    const missingPath = join(tmpdir(), "vault-cli-no-such-env", ".env");
 
-    expect(stripEnvQuotedValues(missingPath)).toBe(false)
-  })
+    expect(stripEnvQuotedValues(missingPath)).toBe(false);
+  });
 
   it("returns false when no values are quoted", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
-    const envPath = join(targetDir, ".env")
-    const content = "MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n"
-    writeFileSync(envPath, content)
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"));
+    const envPath = join(targetDir, ".env");
+    const content = "MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n";
+    writeFileSync(envPath, content);
 
-    expect(stripEnvQuotedValues(envPath)).toBe(false)
-    expect(readFileSync(envPath, "utf8")).toBe(content)
-  })
+    expect(stripEnvQuotedValues(envPath)).toBe(false);
+    expect(readFileSync(envPath, "utf8")).toBe(content);
+  });
 
   it("strips double quotes from values and writes the file", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nVAULT_NAME="My Vault"\n')
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nVAULT_NAME="My Vault"\n');
 
-    expect(stripEnvQuotedValues(envPath)).toBe(true)
-    expect(readFileSync(envPath, "utf8")).toBe(
-      "MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n",
-    )
-  })
+    expect(stripEnvQuotedValues(envPath)).toBe(true);
+    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n");
+  });
 
   it("strips single quotes from values", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_NAME='My Vault'\n")
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_NAME='My Vault'\n");
 
-    expect(stripEnvQuotedValues(envPath)).toBe(true)
-    expect(readFileSync(envPath, "utf8")).toBe(
-      "MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n",
-    )
-  })
+    expect(stripEnvQuotedValues(envPath)).toBe(true);
+    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n");
+  });
 
   it("strips quotes from multiple values in one pass", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      'VAULT_NAME="My Vault"\nSYNC_EXCLUDED_FOLDERS="Folder A,Folder B"\n',
-    )
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, 'VAULT_NAME="My Vault"\nSYNC_EXCLUDED_FOLDERS="Folder A,Folder B"\n');
 
-    expect(stripEnvQuotedValues(envPath)).toBe(true)
-    expect(readFileSync(envPath, "utf8")).toBe(
-      "VAULT_NAME=My Vault\nSYNC_EXCLUDED_FOLDERS=Folder A,Folder B\n",
-    )
-  })
+    expect(stripEnvQuotedValues(envPath)).toBe(true);
+    expect(readFileSync(envPath, "utf8")).toBe("VAULT_NAME=My Vault\nSYNC_EXCLUDED_FOLDERS=Folder A,Folder B\n");
+  });
 
   it("preserves comments and unquoted values", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
-    const envPath = join(targetDir, ".env")
-    const content =
-      '# Comment\nMCP_AUTH_TOKEN=abc\nVAULT_NAME="My Vault"\nPORT=8000\n# Footer\n'
-    writeFileSync(envPath, content)
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"));
+    const envPath = join(targetDir, ".env");
+    const content = '# Comment\nMCP_AUTH_TOKEN=abc\nVAULT_NAME="My Vault"\nPORT=8000\n# Footer\n';
+    writeFileSync(envPath, content);
 
-    stripEnvQuotedValues(envPath)
+    stripEnvQuotedValues(envPath);
 
     expect(readFileSync(envPath, "utf8")).toBe(
       "# Comment\nMCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\nPORT=8000\n# Footer\n",
-    )
-  })
+    );
+  });
 
   it("does not strip mismatched quotes", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
-    const envPath = join(targetDir, ".env")
-    const content = "VAULT_NAME=\"My Vault'\n"
-    writeFileSync(envPath, content)
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"));
+    const envPath = join(targetDir, ".env");
+    const content = "VAULT_NAME=\"My Vault'\n";
+    writeFileSync(envPath, content);
 
-    expect(stripEnvQuotedValues(envPath)).toBe(false)
-    expect(readFileSync(envPath, "utf8")).toBe(content)
-  })
+    expect(stripEnvQuotedValues(envPath)).toBe(false);
+    expect(readFileSync(envPath, "utf8")).toBe(content);
+  });
 
   it("preserves inner quotes of a different type", () => {
-    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
-    const envPath = join(targetDir, ".env")
-    writeFileSync(envPath, "VAULT_NAME=\"My 'Cool' Vault\"\n")
+    const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"));
+    const envPath = join(targetDir, ".env");
+    writeFileSync(envPath, "VAULT_NAME=\"My 'Cool' Vault\"\n");
 
-    stripEnvQuotedValues(envPath)
+    stripEnvQuotedValues(envPath);
 
-    expect(readFileSync(envPath, "utf8")).toBe("VAULT_NAME=My 'Cool' Vault\n")
-  })
-})
+    expect(readFileSync(envPath, "utf8")).toBe("VAULT_NAME=My 'Cool' Vault\n");
+  });
+});

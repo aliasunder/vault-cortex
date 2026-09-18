@@ -6,19 +6,17 @@
 //
 // Usage: npm run generate:dockerhub-readme
 
-import { readFileSync, writeFileSync } from "node:fs"
-import { fileURLToPath } from "node:url"
+import { readFileSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-const repoRoot = new URL("..", import.meta.url)
+const repoRoot = new URL("..", import.meta.url);
 
-const resolvePath = (repoRelative: string): string =>
-  fileURLToPath(new URL(repoRelative, repoRoot))
+const resolvePath = (repoRelative: string): string => fileURLToPath(new URL(repoRelative, repoRoot));
 
-const GITHUB_REPO = "https://github.com/aliasunder/vault-cortex"
-const GITHUB_RAW =
-  "https://raw.githubusercontent.com/aliasunder/vault-cortex/main"
+const GITHUB_REPO = "https://github.com/aliasunder/vault-cortex";
+const GITHUB_RAW = "https://raw.githubusercontent.com/aliasunder/vault-cortex/main";
 
-const HEADER = `<!-- AUTO-GENERATED from README.md — do not edit manually. Run: npm run generate:dockerhub-readme -->\n`
+const HEADER = `<!-- AUTO-GENERATED from README.md — do not edit manually. Run: npm run generate:dockerhub-readme -->\n`;
 
 const NOTICE = [
   "",
@@ -26,7 +24,7 @@ const NOTICE = [
   ">",
   "> This is an abbreviated version for Docker Hub. See the full README for quick-start guides, authentication details, and development instructions.",
   "",
-]
+];
 
 const QUICKSTART_REDIRECT = [
   "",
@@ -34,7 +32,7 @@ const QUICKSTART_REDIRECT = [
   "",
   `See the [full Quick Start guide](${GITHUB_REPO}#quick-start) for local setup (2 minutes with Docker), one-click hosting on Render or Railway, remote deployment with Obsidian Sync, and MCP client configuration.`,
   "",
-]
+];
 
 const LICENSE_REPLACEMENT = [
   "",
@@ -42,7 +40,7 @@ const LICENSE_REPLACEMENT = [
   "",
   `[MIT](${GITHUB_REPO}/blob/main/LICENSE) — see the full [License section](${GITHUB_REPO}#license) for details on bundled components.`,
   "",
-]
+];
 
 const EXCLUDED_H2 = new Set([
   "Quick Start",
@@ -58,207 +56,192 @@ const EXCLUDED_H2 = new Set([
   "Security",
   "Roadmap",
   "Acknowledgments",
-])
+]);
 
-const REPLACED_H2 = new Set(["License"])
+const REPLACED_H2 = new Set(["License"]);
 
 // Sections where we keep only the heading, intro sentence, and tables — strip
 // verbose paragraphs that add bulk without adding Docker Hub value
-const COMPACT_H2 = new Set([
-  "Properties",
-  "Configuration",
-  "Deployment Options",
-])
+const COMPACT_H2 = new Set(["Properties", "Configuration", "Deployment Options"]);
 
 // Directories that need /tree/ instead of /blob/ in GitHub links
-const DIRECTORY_PATHS = [
-  "deploy/local/",
-  "deploy/remote/",
-  "deploy/render/",
-  "deploy/railway/",
-  "templates/memory/",
-]
+const DIRECTORY_PATHS = ["deploy/local/", "deploy/remote/", "deploy/render/", "deploy/railway/", "templates/memory/"];
 
 const rewriteUrls = (line: string): string => {
-  let result = line
+  let result = line;
 
-  result = result.replace(/src="\.\/assets\//g, `src="${GITHUB_RAW}/assets/`)
+  result = result.replace(/src="\.\/assets\//g, `src="${GITHUB_RAW}/assets/`);
 
-  result = result.replace(/\]\(\.\/assets\//g, `](${GITHUB_RAW}/assets/`)
+  result = result.replace(/\]\(\.\/assets\//g, `](${GITHUB_RAW}/assets/`);
 
   for (const dir of DIRECTORY_PATHS) {
     result = result.replace(
       new RegExp(`\\]\\(\\./${dir.replace("/", "\\/")}`, "g"),
       `](${GITHUB_REPO}/tree/main/${dir}`,
-    )
+    );
   }
 
-  result = result.replace(/\]\(\.\//g, `](${GITHUB_REPO}/blob/main/`)
+  result = result.replace(/\]\(\.\//g, `](${GITHUB_REPO}/blob/main/`);
 
-  result = result.replace(/\]\(#/g, `](${GITHUB_REPO}#`)
+  result = result.replace(/\]\(#/g, `](${GITHUB_REPO}#`);
 
-  return result
-}
+  return result;
+};
 
 /** Collapses markdown table padding — renders identically but saves
  *  hundreds of bytes per row against Docker Hub's 25000-byte cap. Divider
  *  rows compress too (still valid markdown). Assumes no escaped pipes
  *  (\|) in cells — the README's tables have none. */
 const compressTableRow = (line: string): string => {
-  if (!line.startsWith("|")) return line
-  const cells = line.split("|").map((cell) => cell.trim())
-  return cells.join(" | ").trim()
-}
+  if (!line.startsWith("|")) return line;
+  const cells = line.split("|").map((cell) => cell.trim());
+  return cells.join(" | ").trim();
+};
 
-const isContentsLine = (line: string): boolean =>
-  line.startsWith("**Contents**") || line.startsWith("**Contents** —")
+const isContentsLine = (line: string): boolean => line.startsWith("**Contents**") || line.startsWith("**Contents** —");
 
-const parseHeading = (
-  line: string,
-): { level: number; text: string } | undefined => {
-  const match = line.match(/^(#{2,3})\s+(.+)$/)
-  if (!match?.[1] || !match[2]) return undefined
-  return { level: match[1].length, text: match[2] }
-}
+const parseHeading = (line: string): { level: number; text: string } | undefined => {
+  const match = line.match(/^(#{2,3})\s+(.+)$/);
+
+  if (!match?.[1] || !match[2]) return undefined;
+  return { level: match[1].length, text: match[2] };
+};
 
 const generate = (): void => {
-  const readme = readFileSync(resolvePath("README.md"), "utf-8")
-  const lines = readme.split("\n")
-  const output: string[] = [HEADER]
+  const readme = readFileSync(resolvePath("README.md"), "utf-8");
+  const lines = readme.split("\n");
+  const output: string[] = [HEADER];
 
-  let insideFence = false
-  let insideDetails = false
-  let skipSection = false
-  let skipLevel = 0
-  let insertedNotice = false
-  let compactSection = false
-  let compactTableDone = false
+  let insideFence = false;
+  let insideDetails = false;
+  let skipSection = false;
+  let skipLevel = 0;
+  let insertedNotice = false;
+  let compactSection = false;
+  let compactTableDone = false;
 
   for (const line of lines) {
     if (line.startsWith("```")) {
       if (!insideFence) {
-        insideFence = true
-        continue
+        insideFence = true;
+        continue;
       }
-      insideFence = false
-      continue
+      insideFence = false;
+      continue;
     }
-    if (insideFence) continue
+    if (insideFence) continue;
 
     if (line.trim() === "<details>") {
-      insideDetails = true
-      continue
+      insideDetails = true;
+      continue;
     }
     if (line.trim() === "</details>") {
-      insideDetails = false
-      continue
+      insideDetails = false;
+      continue;
     }
-    if (insideDetails) continue
+    if (insideDetails) continue;
 
-    if (isContentsLine(line)) continue
+    if (isContentsLine(line)) continue;
 
-    const heading = parseHeading(line)
+    const heading = parseHeading(line);
+
     if (heading) {
       if (heading.level === 2) {
         if (EXCLUDED_H2.has(heading.text)) {
-          skipSection = true
-          skipLevel = 2
+          skipSection = true;
+          skipLevel = 2;
           if (heading.text === "Quick Start") {
-            output.push(...QUICKSTART_REDIRECT)
+            output.push(...QUICKSTART_REDIRECT);
           }
-          continue
+          continue;
         }
 
         if (REPLACED_H2.has(heading.text)) {
-          skipSection = true
-          skipLevel = 2
-          output.push(...LICENSE_REPLACEMENT)
-          continue
+          skipSection = true;
+          skipLevel = 2;
+          output.push(...LICENSE_REPLACEMENT);
+          continue;
         }
 
-        skipSection = false
-        skipLevel = 0
-        compactSection = COMPACT_H2.has(heading.text)
-        compactTableDone = false
+        skipSection = false;
+        skipLevel = 0;
+        compactSection = COMPACT_H2.has(heading.text);
+        compactTableDone = false;
       } else if (heading.level === 3) {
-        if (skipSection && skipLevel === 2) continue
+        if (skipSection && skipLevel === 2) continue;
         // Compact sections keep only the heading, intro, and tables — an H3
         // subsection's prose is already dropped below, so dropping the
         // heading too avoids publishing an empty section title.
-        if (compactSection) continue
+        if (compactSection) continue;
       }
     }
 
     if (skipSection) {
       if (heading && heading.level <= skipLevel) {
-        skipSection = false
-        skipLevel = 0
+        skipSection = false;
+        skipLevel = 0;
       } else {
-        continue
+        continue;
       }
     }
 
     // In compact sections, keep heading + intro + tables, drop post-table prose
     if (compactSection && !heading) {
-      const isTableRow = line.startsWith("|")
+      const isTableRow = line.startsWith("|");
+
       if (isTableRow) {
-        compactTableDone = false
+        compactTableDone = false;
       } else if (compactTableDone) {
-        continue
+        continue;
       } else if (line.trim() !== "") {
-        const lastTableIdx = output.findLastIndex((outputLine) =>
-          outputLine.startsWith("|"),
-        )
-        const lastHeadingIdx = output.findLastIndex(
-          (outputLine) => parseHeading(outputLine) !== undefined,
-        )
+        const lastTableIdx = output.findLastIndex((outputLine) => outputLine.startsWith("|"));
+        const lastHeadingIdx = output.findLastIndex((outputLine) => parseHeading(outputLine) !== undefined);
+
         if (lastTableIdx > lastHeadingIdx) {
-          compactTableDone = true
-          continue
+          compactTableDone = true;
+          continue;
         }
       }
     }
 
     if (!insertedNotice && line.trim() === "</div>") {
-      output.push(rewriteUrls(line))
-      output.push(...NOTICE)
-      insertedNotice = true
-      continue
+      output.push(rewriteUrls(line));
+      output.push(...NOTICE);
+      insertedNotice = true;
+      continue;
     }
 
-    output.push(compressTableRow(rewriteUrls(line)))
+    output.push(compressTableRow(rewriteUrls(line)));
   }
 
   // Collapse runs of 3+ blank lines to 2
-  const collapsed: string[] = []
-  let blankRun = 0
+  const collapsed: string[] = [];
+  let blankRun = 0;
   for (const line of output) {
     if (line.trim() === "") {
-      blankRun++
-      if (blankRun > 2) continue
+      blankRun++;
+      if (blankRun > 2) continue;
     } else {
-      blankRun = 0
+      blankRun = 0;
     }
-    collapsed.push(line)
+    collapsed.push(line);
   }
 
   // Trim trailing blanks, ensure single newline at end
   while (collapsed.length > 0 && collapsed.at(-1)?.trim() === "") {
-    collapsed.pop()
+    collapsed.pop();
   }
-  collapsed.push("")
+  collapsed.push("");
 
-  const content = collapsed.join("\n")
-  const byteCount = Buffer.byteLength(content, "utf-8")
+  const content = collapsed.join("\n");
+  const byteCount = Buffer.byteLength(content, "utf-8");
 
-  writeFileSync(resolvePath("DOCKERHUB.md"), content, "utf-8")
+  writeFileSync(resolvePath("DOCKERHUB.md"), content, "utf-8");
 
-  console.log(`generated DOCKERHUB.md (${byteCount} bytes)`)
+  console.log(`generated DOCKERHUB.md (${byteCount} bytes)`);
   if (byteCount > 24_000) {
-    console.warn(
-      `warning: output is ${byteCount} bytes — Docker Hub truncates at 25000`,
-    )
+    console.warn(`warning: output is ${byteCount} bytes — Docker Hub truncates at 25000`);
   }
-}
+};
 
-generate()
+generate();

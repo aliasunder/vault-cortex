@@ -6,4 +6,4 @@
  *  normalization form. Folded values are for comparison only and never touch
  *  disk. */
 export const caseFoldPath = (path: string): string =>
-  path.normalize("NFC").toUpperCase().toLowerCase().normalize("NFC")
+  path.normalize("NFC").toUpperCase().toLowerCase().normalize("NFC");
