@@ -981,6 +981,29 @@ describe("task errors", () => {
     expectToolError(result, "cannot move a sub-task to a heading")
   })
 
+  it("vault_update_task — cannot reposition a sub-task", async () => {
+    await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/board.md",
+        description: "Sub for position test",
+        block_id: "sub-pos-test",
+        parent_block_id: "board-active-1",
+      },
+    })
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/board.md",
+        block_id: "sub-pos-test",
+        position: 1,
+      },
+    })
+    expectToolError(result, "cannot reposition a sub-task")
+  })
+
   it("vault_create_task — description must be a single line", async () => {
     const result = await callTool({
       client,

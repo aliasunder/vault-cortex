@@ -707,6 +707,59 @@ describe("default config", () => {
       // available here), so only the created task's line is asserted.
       expect(textContent(readback)).toContain(`🏁 delete ➕ ${todayDate} ^disposable`)
     })
+
+    it("vault_create_task — integer position inserts at the specified slot", async () => {
+      const createResult = await callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "Projects/board.md",
+          description: "Position test card",
+          block_id: "pos-test",
+          heading: "Active",
+          position: 1,
+        },
+      })
+      expect(createResult.isError).not.toBe(true)
+      const createJson = JSON.parse(textContent(createResult))
+      expect(createJson.heading).toBe("Active")
+
+      const readback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/board.md", heading: "Active" },
+      })
+      const activeText = textContent(readback)
+      const posTestIndex = activeText.indexOf("Position test card")
+      const inProgressIndex = activeText.indexOf("In-progress feature")
+      expect(posTestIndex).toBeGreaterThan(-1)
+      expect(posTestIndex).toBeLessThan(inProgressIndex)
+    })
+
+    it("vault_update_task — same-lane reorder via position", async () => {
+      const reorderResult = await callTool({
+        client,
+        name: "vault_update_task",
+        args: {
+          path: "Projects/board.md",
+          block_id: "pos-test",
+          position: 2,
+        },
+      })
+      expect(reorderResult.isError).not.toBe(true)
+      const reorderJson = JSON.parse(textContent(reorderResult))
+      expect(reorderJson.changes).toEqual(["position: 1 → 2"])
+
+      const readback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/board.md", heading: "Active" },
+      })
+      const activeText = textContent(readback)
+      const posTestIndex = activeText.indexOf("Position test card")
+      const inProgressIndex = activeText.indexOf("In-progress feature")
+      expect(inProgressIndex).toBeLessThan(posTestIndex)
+    })
   })
 
   describe("daily note tool", () => {
