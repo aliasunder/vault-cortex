@@ -18,7 +18,7 @@ import { tasks } from "../obsidian-markdown/tasks.js"
 import type { TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
 import { contentHash, type Embedder } from "./embedder.js"
 import type { Reranker } from "./reranker.js"
-import { buildChunkMetadataPrefix, chunkNoteContent } from "./chunker.js"
+import { buildChunkMetadataPrefix, chunkContent } from "./chunker.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
 import { describeError } from "../../utils/describe-error.js"
@@ -1549,9 +1549,9 @@ export const createSearchIndex = (
           tags: coerceToArray(parsed.data.tags),
         })
       : null
-    const chunks = chunkNoteContent(noteTitle, parsed.content, {
+    const chunks = chunkContent(noteTitle, parsed.content, {
       metadataPrefix,
-      notePath,
+      sourcePath: notePath,
     })
 
     // Load existing hashes for content-hash gating
@@ -1708,9 +1708,9 @@ export const createSearchIndex = (
       return 0
     }
 
-    // chunkNoteContent handles file content too — notePath extracts folder
+    // chunkContent handles file content too — sourcePath extracts folder
     // segments for the TOC chunk's disambiguation line.
-    const chunks = chunkNoteContent(params.title, params.content, { notePath: params.filePath })
+    const chunks = chunkContent(params.title, params.content, { sourcePath: params.filePath })
 
     const existingHashes = new Map(
       selectFileChunkHashesStmt

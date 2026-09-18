@@ -2,7 +2,7 @@
  *  the embedding model's context window (512 tokens for bge-small-en-v1.5).
  *
  *  Algorithm (every prefix counts against the chunk budget — see
- *  chunkNoteContent):
+ *  chunkContent):
  *  1. Strip markdown syntax (via plaintext.ts)
  *  2. Short notes (< CHUNK_THRESHOLD_TOKENS) → single chunk, unless a
  *     metadata prefix lowers the budget below the body's token count
@@ -258,16 +258,16 @@ const buildTableOfContentsText = (
  *  would push body tail content out of view. Short notes (< threshold)
  *  without a metadata prefix stay byte-identical to the historical behavior
  *  so their content hashes don't churn on upgrade. */
-export const chunkNoteContent = (
+export const chunkContent = (
   noteTitle: string,
   bodyContent: string,
-  options?: { metadataPrefix?: string | null | undefined; notePath?: string | undefined },
+  options?: { metadataPrefix?: string | null | undefined; sourcePath?: string | undefined },
 ): NoteChunk[] => {
   const metadataPrefix = options?.metadataPrefix
 
   // Folder segments feed only the TOC chunk's first line — the vault-relative
   // path minus the filename (POSIX separators in all deployment paths).
-  const folderSegments = options?.notePath ? options.notePath.split("/").slice(0, -1) : []
+  const folderSegments = options?.sourcePath ? options.sourcePath.split("/").slice(0, -1) : []
   const basePrefix = metadataPrefix ? `${noteTitle}\n${metadataPrefix}` : noteTitle
 
   const strippedBody = stripMarkdownSyntax(bodyContent)
