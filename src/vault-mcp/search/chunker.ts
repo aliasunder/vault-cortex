@@ -1,18 +1,24 @@
 /** Heading-aware chunking for embedding. Splits a note into chunks sized for
  *  the embedding model's context window (512 tokens for bge-small-en-v1.5).
  *
- *  Algorithm (a metadata prefix, when configured, lowers the chunk budget
- *  by its own token cost — see chunkNoteContent):
+ *  Algorithm (every prefix counts against the chunk budget — see
+ *  chunkNoteContent):
  *  1. Strip markdown syntax (via plaintext.ts)
  *  2. Short notes (< CHUNK_THRESHOLD_TOKENS) → single chunk, unless a
  *     metadata prefix lowers the budget below the body's token count
- *  3. Longer notes → split at heading boundaries (via parseHeadings)
- *  4. Tiny sections (< MIN_CHUNK_TOKENS) → merged with adjacent
- *  5. Sections over the budget (MAX_CHUNK_TOKENS, minus the prefix cost
- *     when one is configured) → sub-split at paragraph boundaries
- *  6. Every chunk is prefixed with the note title for embedding context */
+ *  3. Longer notes → split into disjoint per-heading sections (via
+ *     parseHeadings): each heading owns only the lines above its first
+ *     child heading, and each fragment is prefixed with the note title
+ *     plus a `Section:` line naming the heading's ancestor path
+ *  4. A heading with no own-body content emits nothing — its words live
+ *     in every descendant fragment's Section line
+ *  5. Sections over their budget → sub-split at paragraph boundaries,
+ *     with a sub-MIN trailing fragment merged backward into its
+ *     predecessor
+ *  6. A split that yields no fragments at all falls back to one
+ *     whole-body chunk so the note never leaves the vector index */
 
-import { parseHeadings } from "../obsidian-markdown/headings.js"
+import { parseHeadings, type HeadingInfo } from "../obsidian-markdown/headings.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { stripMarkdownSyntax } from "../obsidian-markdown/plaintext.js"
 
@@ -77,13 +83,40 @@ const splitLargeText = (text: string, maxChunkTokens: number): string[] => {
   })
 }
 
-/** Prefix each text fragment with the chunk prefix (title, optionally
- *  followed by a metadata line) and assign sequential indices. */
+/** splitLargeText, then merge a sub-MIN trailing fragment backward into its
+ *  predecessor. A slight budget overflow beats emitting a tail fragment too
+ *  small to embed meaningfully. Deliberately trailing-only: an intermediate
+ *  fragment can also fall under MIN (a tiny paragraph pushed alone when the
+ *  next paragraph exceeds the budget), but it keeps its full chunk prefix,
+ *  so it stays retrievable rather than context-free. */
+const splitWithTrailingMerge = (text: string, maxChunkTokens: number): string[] => {
+  const fragments = splitLargeText(text, maxChunkTokens)
+
+  if (fragments.length < 2) return fragments
+
+  const trailingFragment = fragments.at(-1)
+  const precedingFragment = fragments.at(-2)
+
+  if (!trailingFragment || !precedingFragment) return fragments
+  if (approximateTokenCount(trailingFragment) >= MIN_CHUNK_TOKENS) return fragments
+
+  return [...fragments.slice(0, -2), `${precedingFragment}\n\n${trailingFragment}`]
+}
+
+/** Prefix each text fragment with the chunk prefix and assign sequential
+ *  indices. */
 const toChunks = (fragments: string[], chunkPrefix: string): NoteChunk[] => {
   return fragments.map((fragment, index) => ({
     index,
     text: `${chunkPrefix}\n\n${fragment}`.trim(),
   }))
+}
+
+/** Chunk budget after subtracting the prefix's own token cost, floored at
+ *  MIN_CHUNK_TOKENS so a pathological prefix (huge tag list, deep heading
+ *  nesting) cannot shrink the budget to nothing. */
+const budgetAfterPrefix = (chunkPrefix: string): number => {
+  return Math.max(MAX_CHUNK_TOKENS - approximateTokenCount(chunkPrefix), MIN_CHUNK_TOKENS)
 }
 
 /** One human-readable line naming the note's frontmatter type and tags, for
@@ -99,101 +132,138 @@ export const buildChunkMetadataPrefix = (params: {
   return parts.length > 0 ? parts.join(" ") : null
 }
 
+/** A heading's disjoint slice of the note: the lines it owns (up to its
+ *  first child heading) plus the ancestor-chain path that names it. */
+type SectionSpan = Readonly<{
+  headingPath: readonly string[]
+  startLine: number
+  endLine: number
+}>
+
+/** Walk headings in document order, tracking the ancestor chain, and give
+ *  each heading only its OWN body — the lines above the next heading of any
+ *  level. parseHeadings' bodyEndLine spans to the next same-or-higher
+ *  heading (read-side semantics), so slicing on it would embed a child
+ *  section's text twice: once in its own chunk and once in the parent's. */
+const collectSectionSpans = (headings: readonly HeadingInfo[]): SectionSpan[] => {
+  const sectionSpans: SectionSpan[] = []
+  const ancestorStack: { text: string; level: number }[] = []
+
+  headings.forEach((heading, headingIndex) => {
+    while ((ancestorStack.at(-1)?.level ?? 0) >= heading.level) {
+      ancestorStack.pop()
+    }
+
+    // Empty-text segments (a bare `##` line) carry no vocabulary — skip them.
+    const headingPath = [...ancestorStack.map((ancestor) => ancestor.text), heading.text].filter(
+      (segment) => segment.trim() !== "",
+    )
+
+    // The last heading's own body runs to its bodyEndLine, which already
+    // stops before any trailing `%% %%` comment block.
+    const ownBodyEndLine = headings[headingIndex + 1]?.startLine ?? heading.bodyEndLine
+
+    sectionSpans.push({
+      headingPath,
+      startLine: heading.bodyStartLine,
+      endLine: ownBodyEndLine,
+    })
+    ancestorStack.push({ text: heading.text, level: heading.level })
+  })
+
+  return sectionSpans
+}
+
 /** Split a note into chunks for embedding. Short notes become a single chunk;
- *  longer notes split at heading boundaries, with oversized sections further
- *  split at paragraph boundaries. Each chunk is prefixed with the note title
- *  and, when `metadataPrefix` is given, a metadata line below it.
+ *  longer notes split into disjoint per-heading sections, each fragment
+ *  prefixed with the note title, a `Section:` line naming the heading's
+ *  ancestor path, and — when `metadataPrefix` is given — a metadata line.
  *
- *  With a metadata prefix, the whole prefix counts against the chunk token
- *  budget — the embedding and reranker windows truncate at 512 model tokens,
- *  so an unbudgeted prefix would push body tail content out of view. Without
- *  one, sizing stays byte-identical to the historical behavior so existing
- *  content hashes don't churn. */
+ *  Every prefix counts against the chunk token budget — the embedding and
+ *  reranker windows truncate at 512 model tokens, so an unbudgeted prefix
+ *  would push body tail content out of view. Short notes (< threshold)
+ *  without a metadata prefix stay byte-identical to the historical behavior
+ *  so their content hashes don't churn on upgrade. */
 export const chunkNoteContent = (
   noteTitle: string,
   bodyContent: string,
   options?: { metadataPrefix?: string | null | undefined },
 ): NoteChunk[] => {
   const metadataPrefix = options?.metadataPrefix
-  const chunkPrefix = metadataPrefix ? `${noteTitle}\n${metadataPrefix}` : noteTitle
-  // Floor at MIN_CHUNK_TOKENS so a pathological tag list cannot shrink the
-  // budget to nothing. The CHUNK_THRESHOLD_TOKENS gate below stays
-  // body-token-based, so a large prefix can drive this budget far under the
-  // threshold that routed a note to the single-chunk path — that note then
-  // splits into many near-floor fragments.
-  const maxChunkTokens = metadataPrefix
-    ? Math.max(MAX_CHUNK_TOKENS - approximateTokenCount(chunkPrefix), MIN_CHUNK_TOKENS)
-    : MAX_CHUNK_TOKENS
+  const basePrefix = metadataPrefix ? `${noteTitle}\n${metadataPrefix}` : noteTitle
 
   const strippedBody = stripMarkdownSyntax(bodyContent)
-  const tokenCount = approximateTokenCount(strippedBody)
+  const bodyTokenCount = approximateTokenCount(strippedBody)
 
-  if (tokenCount < CHUNK_THRESHOLD_TOKENS) {
+  if (bodyTokenCount < CHUNK_THRESHOLD_TOKENS) {
     // Only a metadata prefix tightens the single-chunk ceiling — without
     // one, short-note behavior (and its content hashes) stays historical.
-    const exceedsBudgetWithPrefix = Boolean(metadataPrefix) && tokenCount > maxChunkTokens
+    const exceedsBudgetWithPrefix =
+      Boolean(metadataPrefix) && bodyTokenCount > budgetAfterPrefix(basePrefix)
 
     if (!exceedsBudgetWithPrefix) {
-      return toChunks([strippedBody], chunkPrefix)
+      return toChunks([strippedBody], basePrefix)
     }
-    return toChunks(splitLargeText(strippedBody, maxChunkTokens), chunkPrefix)
+    return toChunks(splitWithTrailingMerge(strippedBody, budgetAfterPrefix(basePrefix)), basePrefix)
   }
 
   const bodyLines = splitIntoLines(bodyContent)
   const headings = parseHeadings(bodyLines)
 
-  // No headings — split at paragraph boundaries if oversized
+  // No headings — split at paragraph boundaries
   if (headings.length === 0) {
-    return toChunks(splitLargeText(strippedBody, maxChunkTokens), chunkPrefix)
+    return toChunks(splitWithTrailingMerge(strippedBody, budgetAfterPrefix(basePrefix)), basePrefix)
   }
 
-  // Content before the first heading (preamble)
   const firstHeading = headings[0]
 
   // noUncheckedIndexedAccess: length > 0 guarantees this, but TS
   // doesn't narrow array index access from a prior length check.
   if (!firstHeading) {
-    return toChunks(splitLargeText(strippedBody, maxChunkTokens), chunkPrefix)
+    return toChunks(splitWithTrailingMerge(strippedBody, budgetAfterPrefix(basePrefix)), basePrefix)
   }
+
+  // Preamble (content above the first heading) has no owning section, so it
+  // keeps the base prefix (no Section line) and emits standalone at any size.
   const preambleLines = bodyLines.slice(0, firstHeading.startLine)
   const preambleText = stripMarkdownSyntax(preambleLines.join("\n")).trim()
+  const preambleFragments = preambleText
+    ? splitWithTrailingMerge(preambleText, budgetAfterPrefix(basePrefix)).map(
+        (fragment) => `${basePrefix}\n\n${fragment}`,
+      )
+    : []
 
-  const rawSections: string[] = []
+  const sectionFragments = collectSectionSpans(headings).flatMap((sectionSpan) => {
+    const ownBodyText = stripMarkdownSyntax(
+      bodyLines.slice(sectionSpan.startLine, sectionSpan.endLine).join("\n"),
+    ).trim()
 
-  if (preambleText && approximateTokenCount(preambleText) >= MIN_CHUNK_TOKENS) {
-    rawSections.push(preambleText)
-  }
+    // A heading with no own-body content emits nothing — a heading-only
+    // fragment is too small to embed meaningfully, and any descendant
+    // fragment already carries the heading's words in its Section line.
+    // A childless empty heading drops out of the vector index entirely;
+    // the FTS leg still indexes the full note text.
+    if (!ownBodyText) return []
 
-  // Merges undersized sections with the next until the combined text is
-  // large enough to stand as its own chunk
-  let pendingText =
-    preambleText && approximateTokenCount(preambleText) < MIN_CHUNK_TOKENS ? preambleText : ""
+    const sectionLine =
+      sectionSpan.headingPath.length > 0 ? `Section: ${sectionSpan.headingPath.join(" > ")}` : null
+    const sectionPrefix = [noteTitle, sectionLine, metadataPrefix].filter(Boolean).join("\n")
 
-  for (const heading of headings) {
-    const sectionLines = bodyLines.slice(heading.startLine, heading.bodyEndLine)
-    const sectionText = stripMarkdownSyntax(sectionLines.join("\n")).trim()
-
-    if (approximateTokenCount(sectionText) < MIN_CHUNK_TOKENS && pendingText) {
-      pendingText = `${pendingText}\n\n${sectionText}`
-    } else {
-      if (pendingText && approximateTokenCount(pendingText) >= MIN_CHUNK_TOKENS) {
-        rawSections.push(pendingText)
-        pendingText = ""
-      }
-      pendingText = pendingText ? `${pendingText}\n\n${sectionText}` : sectionText
-    }
-  }
-
-  if (pendingText) {
-    rawSections.push(pendingText)
-  }
-
-  // Split oversized sections at paragraph boundaries, then prefix all chunks
-  const allFragments = rawSections.flatMap((section) => {
-    return splitLargeText(section, maxChunkTokens)
+    return splitWithTrailingMerge(ownBodyText, budgetAfterPrefix(sectionPrefix)).map(
+      (fragment) => `${sectionPrefix}\n\n${fragment}`,
+    )
   })
 
-  return allFragments.length > 0
-    ? toChunks(allFragments, chunkPrefix)
-    : toChunks([strippedBody], chunkPrefix)
+  const prefixedFragments = [...preambleFragments, ...sectionFragments]
+
+  // A note whose split yields nothing (all-heading pathology) keeps the
+  // whole-body fallback so it never silently leaves the vector index.
+  if (prefixedFragments.length === 0) {
+    return toChunks([strippedBody], basePrefix)
+  }
+
+  return prefixedFragments.map((fragmentText, index) => ({
+    index,
+    text: fragmentText.trim(),
+  }))
 }
