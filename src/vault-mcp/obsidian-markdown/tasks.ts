@@ -472,12 +472,11 @@ const findBodyStartLine = (lines: readonly string[]): number => {
   return closingIndex === -1 ? 0 : closingIndex + 1
 }
 
-/** Extracts every task line from raw note content (frontmatter included — it
- *  is skipped here so reported line numbers stay file-relative). Lines inside
- *  fenced code blocks and `%% %%` comment blocks are excluded via the shared
- *  fence and comment state machines. Each task carries the text of the nearest
- *  heading above it (its Kanban lane on a board), or null before the first
- *  heading. */
+/** Extracts task lines from raw note content (frontmatter included — it
+ *  is skipped here so reported line numbers stay file-relative). Excluded:
+ *  fenced code blocks, `%% %%` comment blocks, and checkboxes the status
+ *  registry classifies as NON_TASK. Each task carries the nearest heading
+ *  above it (its Kanban lane on a board), or null before the first heading. */
 /** One open task on the extraction indent stack: its structural indent and
  *  1-based file line. */
 type IndentEntry = {
