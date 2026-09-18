@@ -4,6 +4,7 @@ import type Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
+import { compareByCodeUnits } from "../../utils/compare-code-units.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { sanitizeFtsQuery, sanitizeFtsQueryAnyTerm } from "./fts-query.js"
 import { computeRrfScores } from "./rrf.js"
@@ -480,13 +481,6 @@ const tryRerankMemoryCandidates = async (
   }
 }
 
-/** Code-unit comparison — localeCompare would order ties differently
- *  across deployments depending on the runtime's locale. */
-const compareByCodeUnits = (left: string, right: string): number => {
-  if (left < right) return -1
-  return Number(left > right)
-}
-
 /** Ascending chronological order for the final evidence set: lexicographic
  *  ISO date (chronological for YYYY-MM-DD), then file and document position
  *  for same-date determinism — same-date entries have no knowable order. */
@@ -567,15 +561,18 @@ export const memoryRecall = async (
   const matchesFileFilter = (row: MemoryEntryRow): boolean =>
     params.file === undefined || row.file === params.file
 
-  // Lexical leg: ALL matches, no limit — implicit AND keeps multi-word
-  // queries tight, and a lexical hit on a short entry is strong evidence.
-  const ftsRows = memory.ftsSearchStmt.all(sanitizeFtsQuery(params.query)).filter(matchesFileFilter)
-
   // Vector leg: generous KNN, file-filtered after the join (over-fetch is
   // safe at this corpus size; vec0 post-MATCH WHERE semantics are not).
   const vectorRows = (await memoryVectorSearch(memory, params.query, logger)).filter(
     matchesFileFilter,
   )
+
+  // Lexical leg: ALL matches, no limit — implicit AND keeps multi-word
+  // queries tight, and a lexical hit on a short entry is strong evidence.
+  // Read after the vector leg's await so both legs observe one index state —
+  // a write landing during the embed would otherwise give the same entry two
+  // fusion keys (its entry_index shifts) and it would be returned twice.
+  const ftsRows = memory.ftsSearchStmt.all(sanitizeFtsQuery(params.query)).filter(matchesFileFilter)
 
   // No vectors available — keep every lexical match, FTS-rank ordered. When
   // the all-terms leg is empty, degrade to any-term matching before returning

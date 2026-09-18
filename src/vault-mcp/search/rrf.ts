@@ -1,5 +1,7 @@
 // ── Reciprocal Rank Fusion ─────────────────────────────────────
 
+import { compareByCodeUnits } from "../../utils/compare-code-units.js"
+
 /** Reciprocal Rank Fusion (RRF) — merges N independently ranked result
  *  lists into a single relevance score per unique identifier.
  *
@@ -54,9 +56,7 @@ export const computeRrfScores = (params: {
   return [...scoresByIdentifier.entries()]
     .toSorted(([identifierA, scoreA], [identifierB, scoreB]) => {
       if (scoreA !== scoreB) return scoreB - scoreA
-      // Code-unit comparison — localeCompare would order ties differently
-      // across deployments depending on the runtime's locale.
-      return identifierA < identifierB ? -1 : Number(identifierA > identifierB)
+      return compareByCodeUnits(identifierA, identifierB)
     })
     .map(([identifier, score]) => ({
       identifier,

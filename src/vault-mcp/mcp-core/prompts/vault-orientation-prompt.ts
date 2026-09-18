@@ -4,6 +4,7 @@ import { createMemoryStore, type MemoryFileOutline } from "../../vault-operation
 import { vaultFs } from "../../vault-operations/vault-filesystem.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import { describeError } from "../../../utils/describe-error.js"
+import { compareByCodeUnits } from "../../../utils/compare-code-units.js"
 import type { ToolName } from "../tool-registry.js"
 import { type PromptRegistrationContext, textResult, formatNoteLine } from "./prompt-helpers.js"
 
@@ -35,16 +36,9 @@ const deriveFolderCounts = (paths: readonly string[]): FolderCount[] => {
       counts.set(folder, (counts.get(folder) ?? 0) + 1)
     }
   }
-  return (
-    [...counts.entries()]
-      .map(([name, count]) => ({ name, count }))
-      // Code-unit comparison — localeCompare would order the listing
-      // differently across deployments depending on the runtime's locale.
-      .toSorted((folderA, folderB) => {
-        if (folderA.name < folderB.name) return -1
-        return Number(folderA.name > folderB.name)
-      })
-  )
+  return [...counts.entries()]
+    .map(([name, count]) => ({ name, count }))
+    .toSorted((folderA, folderB) => compareByCodeUnits(folderA.name, folderB.name))
 }
 
 /** Formats a single property key with its adoption rate, sample values, and

@@ -3,6 +3,7 @@
 import type Database from "better-sqlite3"
 import type { Logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
+import { compareByCodeUnits } from "../../utils/compare-code-units.js"
 import { sanitizeFtsQuery } from "./fts-query.js"
 import { computeRrfScores } from "./rrf.js"
 import { blendScores } from "./reranker.js"
@@ -297,9 +298,7 @@ const tryRerank = async (params: {
         if (resultA.score !== resultB.score) {
           return resultB.score - resultA.score
         }
-        // Code-unit comparison — localeCompare would order ties differently
-        // across deployments depending on the runtime's locale.
-        return resultA.path < resultB.path ? -1 : Number(resultA.path > resultB.path)
+        return compareByCodeUnits(resultA.path, resultB.path)
       }),
     }
   } catch (error) {
