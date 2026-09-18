@@ -120,6 +120,23 @@ describe("readTaskFormatConfig", () => {
     )
   })
 
+  it("resolves intra-config duplicate symbols with last-wins (custom over core)", async () => {
+    resetTaskFormatConfigCache()
+    const vault = await createVault()
+    await writePluginConfig(vault, {
+      statusSettings: {
+        coreStatuses: [{ symbol: "!", name: "Urgent", nextStatusSymbol: "x", type: "TODO" }],
+        customStatuses: [
+          { symbol: "!", name: "Important", nextStatusSymbol: " ", type: "IN_PROGRESS" },
+        ],
+      },
+    })
+
+    const config = await readTaskFormatConfig(vault)
+
+    expect(config.statusRegistry.get("!")).toBe("in_progress")
+  })
+
   it("ignores the legacy pre-type status format", async () => {
     resetTaskFormatConfigCache()
     const vault = await createVault()
