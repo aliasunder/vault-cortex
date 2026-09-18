@@ -932,8 +932,9 @@ const appendSubtasks = ({
     const statusChar = charMatch?.[1]
     return !statusChar || tasks.statusForChar(statusChar, statusRegistry) !== "non_task"
   }
-  const firstChildTask = childLines.find(isIndexedTask)
-  const directChildIndent = firstChildTask ? tasks.getTaskIndent(firstChildTask) : parentIndent + 1
+  const indexedChildIndents = childLines.filter(isIndexedTask).map(tasks.getTaskIndent)
+  const directChildIndent =
+    indexedChildIndents.length > 0 ? Math.min(...indexedChildIndents) : parentIndent + 1
 
   const existingSubtaskCount = childLines.filter((blockLine) => {
     if (!isIndexedTask(blockLine)) return false
@@ -1414,8 +1415,9 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
     ]
 
     const subtaskIndent = `${indent}  `
+    const subtaskTodoChar = tasks.charForStatus("todo", formatConfig.statusRegistry)
     const subtaskLines = (subtasks ?? []).map(
-      (subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`,
+      (subtaskText) => `${subtaskIndent}- [${subtaskTodoChar}] ${subtaskText}`,
     )
     const changes =
       subtaskLines.length > 0

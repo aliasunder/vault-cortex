@@ -5977,4 +5977,61 @@ title: Tasks
       )
     })
   })
+
+  describe("fenced/comment task guard", () => {
+    it("updateTask rejects a task inside a fenced code block", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Example task ^example\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`,
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          { vaultPath: vault, path: "tasks.md", blockId: "example", status: "done" },
+          logger,
+        ),
+      ).rejects.toThrow("is inside a fenced code block or comment")
+    })
+
+    it("createTask rejects a parent inside a fenced code block", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Fenced parent ^fenced\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`,
+      )
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Child",
+            blockId: "child",
+            parentBlockId: "fenced",
+          },
+          logger,
+        ),
+      ).rejects.toThrow("is inside a fenced code block or comment")
+    })
+
+    it("allows updating a task outside the fence", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Example ^example\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        { vaultPath: vault, path: "tasks.md", blockId: "real", status: "done" },
+        logger,
+      )
+
+      expect(result.description).toBe("Real task")
+      expect(result.changes).toEqual(["status: todo → done"])
+    })
+  })
 })
