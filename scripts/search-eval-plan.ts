@@ -107,6 +107,21 @@ type EvalRunPlan = {
   indexReused: boolean
 }
 
+/** Parses a --file-leg-weight value, throwing unless it is a finite number
+ *  >= 0. Blank and whitespace-only values are rejected explicitly because
+ *  Number() coerces them to 0, which would silently disable the file legs;
+ *  an actual 0 is valid and does exactly that on purpose. */
+const parseFileLegWeight = (rawWeight: string): number => {
+  const weight = Number(rawWeight)
+  const weightIsValid =
+    rawWeight.trim() !== "" && Number.isFinite(weight) && weight >= 0
+
+  if (!weightIsValid) {
+    throw new Error("--file-leg-weight must be a finite number >= 0")
+  }
+  return weight
+}
+
 /** Validates the CLI arguments and decides snapshot/index reuse from the
  *  work directory's current state, before anything opens the index
  *  database — createSearchIndex creates the file, so a later existence
@@ -129,23 +144,14 @@ export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
     return limit
   })
 
-  // An empty string (--file-leg-weight= with an unset shell variable) must
-  // reject like any other non-number, not silently fall back to the default.
+  // An absent flag means the server default applies; a present flag must
+  // parse cleanly, so a blank value (--file-leg-weight= with an unset shell
+  // variable) rejects instead of silently falling back.
   const rawFileLegWeight = cliArgs["file-leg-weight"]
   const fileLegWeight =
-    rawFileLegWeight === undefined ? undefined : Number(rawFileLegWeight)
-  // Strict undefined check — 0 is a valid weight (removes the file legs).
-  // Number.isFinite rejects NaN and Infinity (an Infinity weight passes
-  // a bare >= 0 and turns every file contribution into Infinity), and the
-  // trim catches whitespace-only values, which Number() coerces to 0 —
-  // a silently disabled file leg instead of a rejection.
-  const fileLegWeightInvalid =
-    (rawFileLegWeight !== undefined && rawFileLegWeight.trim() === "") ||
-    (fileLegWeight !== undefined &&
-      !(Number.isFinite(fileLegWeight) && fileLegWeight >= 0))
-  if (fileLegWeightInvalid) {
-    throw new Error("--file-leg-weight must be a finite number >= 0")
-  }
+    rawFileLegWeight === undefined
+      ? undefined
+      : parseFileLegWeight(rawFileLegWeight)
 
   // A reused index over a freshly copied snapshot would score a corpus the
   // index never saw — the two reuse flags only make sense together.
