@@ -2865,6 +2865,44 @@ describe("forward reference resolution", () => {
     const backlinks = index.getBacklinks({ path: "Areas/Health/later.md" }, logger)
     expect(backlinks).toEqual([{ path: "Areas/Work/early.md", title: "early", bytes: 100 }])
   })
+
+  it("keeps a ../ forward reference unresolved past a same-basename note in another folder", () => {
+    // A ../ target resolves only through the relative tier (exact membership of
+    // the path computed from the link's source), so a same-basename note
+    // elsewhere must neither capture the link nor evict it from the unresolved
+    // set before the intended target exists.
+    index.upsertNote(
+      {
+        filePath: "Areas/Work/early.md",
+        rawContent: "# Early\n\nLinks to [[../Health/later]].\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Health/later.md",
+        rawContent: "# Decoy\n\nBody.\n",
+        fileStat: testStat(1500),
+      },
+      logger,
+    )
+    // The decoy's write swept the unresolved set; the link must not have
+    // attached to it.
+    expect(index.getBacklinks({ path: "Health/later.md" }, logger)).toHaveLength(0)
+
+    index.upsertNote(
+      {
+        filePath: "Areas/Health/later.md",
+        rawContent: "# Later\n\nBody.\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    const backlinks = index.getBacklinks({ path: "Areas/Health/later.md" }, logger)
+    expect(backlinks).toEqual([{ path: "Areas/Work/early.md", title: "early", bytes: 100 }])
+    expect(index.getBacklinks({ path: "Health/later.md" }, logger)).toHaveLength(0)
+  })
 })
 
 describe("frontmatter links in the graph", () => {
