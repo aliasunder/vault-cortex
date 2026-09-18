@@ -245,6 +245,7 @@ Errors:
 - "note not found" — path does not exist
 - "heading required for Kanban boards" — kanban-plugin note without heading
 - "heading "X" not found; available: ..." — no heading matches; the error lists the note's headings
+- "cannot place at position N under "X" — the heading appears N times" — integer position on a note with duplicate heading names; rename one section to make it unique
 - "parent task not found" — parent_block_id or parent_line doesn't resolve to a task (message names the blockId or line tried)
 - "parentBlockId and parentLine are mutually exclusive" — both parent_block_id and parent_line were passed; drop one
 - "parent and heading are mutually exclusive" — a parent (parent_block_id or parent_line) and heading were both passed; drop one

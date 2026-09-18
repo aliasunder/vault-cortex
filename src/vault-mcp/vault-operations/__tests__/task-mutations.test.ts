@@ -3071,6 +3071,29 @@ kanban-plugin: board
         )
       })
 
+      it("integer position stops at an ATX child heading", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n\n### In Progress\n\n- [ ] Beta ^beta\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            description: "Charlie",
+            blockId: "charlie",
+            heading: "Active",
+            position: 2,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Charlie ➕ ${today()} ^charlie\n\n### In Progress\n\n- [ ] Beta ^beta\n`,
+        )
+      })
+
       it("integer position stops at a setext child heading", async () => {
         const vault = await createVault()
         const note = `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n\nSub\n---\n\n- [ ] Beta ^beta\n`

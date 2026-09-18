@@ -558,6 +558,15 @@ const resolveNewTaskPlacement = ({
       const availableHeadings = headings.map((headingInfo) => headingInfo.text).join(", ")
       throw new Error(`heading "${heading}" not found; available: ${availableHeadings}`)
     }
+    if (typeof position === "number") {
+      const matchCount = headings.filter((headingInfo) => headingInfo.text === heading).length
+
+      if (matchCount > 1) {
+        throw new Error(
+          `cannot place at position ${position} under "${heading}" — the heading appears ${matchCount} times; rename one section to make it unique`,
+        )
+      }
+    }
     // Integer positions bypass the Kanban default-resolution path
     const resolvedPosition =
       typeof position === "number"
@@ -731,8 +740,10 @@ const moveTaskBlock = ({
     // shifts can produce a different index for the same card slot.
     if (before === after) return { lines, taskLineIndex, changes: [] }
     changes.push(formatChange({ field: "position", before, after }))
-  } else if (typeof position === "number" && currentHeading) {
-    const before = beforePosition ?? positionOfTaskInLane(lines, currentHeading, taskLineIndex)
+  } else if (typeof position === "number") {
+    const before = currentHeading
+      ? (beforePosition ?? positionOfTaskInLane(lines, currentHeading, taskLineIndex))
+      : null
     const after = headingInResult ? positionOfTaskInLane(resultLines, headingInResult, insertAt) : 1
     changes.push(formatChange({ field: "position", before, after }))
   }
