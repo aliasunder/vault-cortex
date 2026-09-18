@@ -773,13 +773,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         let scanFence: OpenFence = null
         let scanCommentOpen = false
 
-        for (
-          let offsetIndex = 0;
-          offsetIndex < bodyLines.length;
-          offsetIndex++
-        ) {
-          const bodyLine = bodyLines[offsetIndex]
-
+        for (const [offsetIndex, bodyLine] of bodyLines.entries()) {
           if (!bodyLine) continue
 
           const fenceResult: ReturnType<typeof advanceFence> | null =
