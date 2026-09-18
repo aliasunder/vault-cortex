@@ -502,6 +502,8 @@ Errors:
 - "at least one mutation" — no change params provided
 - "cannot move a sub-task to a heading" — explicit heading on a task nested under another task (depth > 0${whenToolEnabledText("vault_list_tasks", " in vault_list_tasks")})
 - "cannot reposition a sub-task" — explicit position on a sub-task (sub-tasks move with their parent)
+- "cannot reorder a task that sits above the first heading" — position without a heading on a task before the first section heading
+- "cannot reorder within "X" — the heading appears N times" — same-lane reorder on a card whose heading name is duplicated in the note; rename one section to make it unique
 - "heading "X" not found; available: ..." — target heading doesn't exist; the error lists the note's headings
 - "multiple done lanes detected" — status "done" on a Kanban board with more than one **Complete**-marked lane; pass heading to pick the lane
 - "no done lane detected" — status "done" on a Kanban board with no **Complete** marker and no "Done" heading; pass heading explicitly

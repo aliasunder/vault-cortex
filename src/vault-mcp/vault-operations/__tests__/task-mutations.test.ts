@@ -3044,7 +3044,7 @@ kanban-plugin: board
             logger,
           ),
         ).rejects.toThrow(
-          `cannot reorder within "Tasks" — the heading appears 2 times; pass a heading to disambiguate`,
+          `cannot reorder within "Tasks" — the heading appears 2 times; rename one section to make it unique`,
         )
       })
 
@@ -3069,6 +3069,33 @@ kanban-plugin: board
         expect(content).toBe(
           `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n- [ ] Charlie ➕ ${today()} ^charlie\n\nSome trailing notes about the lane.\n\n## Done\n`,
         )
+      })
+
+      it("spawn + position reports pre-spawn before-position", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-05 ^water\n- [ ] Read for 30 min ^read\n\n## Done\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            blockId: "water",
+            status: "done",
+            position: 3,
+          },
+          logger,
+        )
+
+        // The spawn inserts a new occurrence above the completed task,
+        // pushing it from position 1 → 2 in the post-spawn lane.
+        // before-position 1 proves the count comes from the pre-spawn lane
+        // (2 cards); linesWithSpawn would report 2.
+        expect(result.changes).toEqual([
+          "status: todo → done",
+          "position: 1 → 3",
+          expect.stringMatching(/^next_occurrence: \(none\) → line \d+$/),
+        ])
       })
 
       it("status=done auto-move + position=bottom → bottom of done lane", async () => {

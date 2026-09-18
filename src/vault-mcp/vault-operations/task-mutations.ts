@@ -678,7 +678,7 @@ const moveTaskBlock = ({
 
   if (matchingHeadings.length > 1 && isSameLane) {
     throw new Error(
-      `cannot reorder within "${targetLane}" — the heading appears ${matchingHeadings.length} times; pass a heading to disambiguate`,
+      `cannot reorder within "${targetLane}" — the heading appears ${matchingHeadings.length} times; rename one section to make it unique`,
     )
   }
 
@@ -701,6 +701,12 @@ const moveTaskBlock = ({
 
   const resultLines = linesWithoutBlock.toSpliced(insertAt, 0, ...taskBlock)
 
+  // The insertion shifts headings below insertAt — re-parse so
+  // positionOfTaskInLane sees the correct bodyEndLine.
+  const headingInResult = parseHeadings(resultLines).findLast(
+    (heading) => heading.startLine <= insertAt,
+  )
+
   const changes: string[] = []
 
   if (!isSameLane) {
@@ -708,11 +714,11 @@ const moveTaskBlock = ({
   }
   if (isSameLane) {
     const before = beforePosition ?? positionOfTaskInLane(lines, targetHeading, taskLineIndex)
-    const after = positionOfTaskInLane(resultLines, headingAfterRemoval, insertAt)
+    const after = headingInResult ? positionOfTaskInLane(resultLines, headingInResult, insertAt) : 1
     changes.push(formatChange({ field: "position", before, after }))
   } else if (typeof position === "number" && currentHeading) {
     const before = beforePosition ?? positionOfTaskInLane(lines, currentHeading, taskLineIndex)
-    const after = positionOfTaskInLane(resultLines, headingAfterRemoval, insertAt)
+    const after = headingInResult ? positionOfTaskInLane(resultLines, headingInResult, insertAt) : 1
     changes.push(formatChange({ field: "position", before, after }))
   }
 
@@ -1812,11 +1818,12 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     //   3. Same-lane reorder — position without a heading or auto-done
     //      resolves the card's current heading so it stays in place.
     const autoDoneLane = !targetHeadingParam && status === "done" && isKanbanBoard && !isSubtask
-    // Path 3: look up the card's current heading for a position-only reorder
+    // Path 3: look up the card's current heading for a position-only reorder.
+    // Kept as a HeadingInfo (not .text) so an empty-named heading is not
+    // misread as "above all headings."
     const currentHeadingForReorder =
       !targetHeadingParam && !autoDoneLane && position
         ? headingsAfterSpawn.findLast((heading) => heading.startLine < completedIndexAfterSpawn)
-            ?.text
         : undefined
 
     if (!targetHeadingParam && !autoDoneLane && position && !currentHeadingForReorder) {
@@ -1835,7 +1842,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
 
     const targetLane = autoDoneLane
       ? detectDoneLane(linesWithSpawn, headingsAfterSpawn)
-      : (targetHeadingParam ?? currentHeadingForReorder)
+      : (targetHeadingParam ?? currentHeadingForReorder?.text)
     const noMoveChanges: string[] = []
     const moved = targetLane
       ? moveTaskBlock({
