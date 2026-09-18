@@ -226,6 +226,37 @@ describe("chunkNoteContent", () => {
   })
 
   describe("table of contents chunk", () => {
+    it("prepends the note's folder segments to the TOC title line, leaving section chunks bare", () => {
+      const laneWords = generateLabeledTokens(600, "lane").split(" ")
+      const body = `## Active\n${laneWords.join(" ")}`
+
+      const chunks = chunkNoteContent("TASKS", body, {
+        notePath: "Code Projects/my-repo/TASKS.md",
+      })
+
+      // Folder segments reach only the TOC line — boards sharing standard
+      // lane names emit distinct TOC chunks instead of byte-identical ones.
+      // Active's 600 tokens split 447 + 153 against its 3-token prefix budget
+      expect(chunks).toEqual([
+        { index: 0, text: "Code Projects > my-repo > TASKS\n\nActive" },
+        { index: 1, text: `TASKS\nSection: Active\n\n${laneWords.slice(0, 447).join(" ")}` },
+        { index: 2, text: `TASKS\nSection: Active\n\n${laneWords.slice(447).join(" ")}` },
+      ])
+    })
+
+    it("keeps the bare title on the TOC line for a root-level note path", () => {
+      const laneWords = generateLabeledTokens(600, "lane").split(" ")
+      const body = `## Active\n${laneWords.join(" ")}`
+
+      const chunks = chunkNoteContent("TASKS", body, { notePath: "TASKS.md" })
+
+      expect(chunks).toEqual([
+        { index: 0, text: "TASKS\n\nActive" },
+        { index: 1, text: `TASKS\nSection: Active\n\n${laneWords.slice(0, 447).join(" ")}` },
+        { index: 2, text: `TASKS\nSection: Active\n\n${laneWords.slice(447).join(" ")}` },
+      ])
+    })
+
     it("omits empty-text headings from the TOC name list", () => {
       const bareSectionContent = generateLabeledTokens(300, "bare")
       const namedSectionContent = generateLabeledTokens(300, "named")

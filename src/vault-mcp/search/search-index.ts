@@ -1551,6 +1551,7 @@ export const createSearchIndex = (
       : null
     const chunks = chunkNoteContent(noteTitle, parsed.content, {
       metadataPrefix,
+      notePath,
     })
 
     // Load existing hashes for content-hash gating
@@ -1707,7 +1708,7 @@ export const createSearchIndex = (
       return 0
     }
 
-    const chunks = chunkNoteContent(params.title, params.content)
+    const chunks = chunkNoteContent(params.title, params.content, { notePath: params.filePath })
 
     const existingHashes = new Map(
       selectFileChunkHashesStmt

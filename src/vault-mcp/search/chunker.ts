@@ -182,10 +182,17 @@ const collectSectionSpans = (headings: readonly HeadingInfo[]): SectionSpan[] =>
  *  queries ("what should I work on next") are structurally won by short
  *  chunks — a long chunk's extra tokens dilute its similarity average — so
  *  each split note gets one short chunk of its own, carrying the names of
- *  all its sections, populated or empty. Null when no heading has text. */
+ *  all its sections, populated or empty. Null when no heading has text.
+ *
+ *  The first line prepends the note's folder segments to the title
+ *  (`Projects > my-repo > TASKS`). Same-named notes with the same headings
+ *  (Kanban boards sharing standard lanes) would otherwise emit byte-identical
+ *  TOC chunks and tie at identical distance, leaving their relative rank to
+ *  an arbitrary tie-break. */
 const buildTableOfContentsText = (
   noteTitle: string,
   headings: readonly HeadingInfo[],
+  folderSegments: readonly string[],
 ): string | null => {
   const headingNames = headings
     .map((heading) => heading.text.trim())
@@ -193,9 +200,11 @@ const buildTableOfContentsText = (
 
   if (headingNames.length === 0) return null
 
+  const titleLine = [...folderSegments, noteTitle].join(" > ")
+
   // A single short chunk is the point — splitting an oversized name list
   // into more chunks would defeat it, so the list truncates at the budget.
-  const headingNameBudget = MAX_CHUNK_TOKENS - approximateTokenCount(noteTitle)
+  const headingNameBudget = MAX_CHUNK_TOKENS - approximateTokenCount(titleLine)
   const budgetedHeadingNames: string[] = []
   // Cumulative token total threads through the loop sequentially.
   let tokensUsed = 0
@@ -209,7 +218,7 @@ const buildTableOfContentsText = (
 
   if (budgetedHeadingNames.length === 0) return null
 
-  return `${noteTitle}\n\n${budgetedHeadingNames.join("\n")}`
+  return `${titleLine}\n\n${budgetedHeadingNames.join("\n")}`
 }
 
 /** Split a note into chunks for embedding. Short notes become a single chunk;
@@ -226,9 +235,13 @@ const buildTableOfContentsText = (
 export const chunkNoteContent = (
   noteTitle: string,
   bodyContent: string,
-  options?: { metadataPrefix?: string | null | undefined },
+  options?: { metadataPrefix?: string | null | undefined; notePath?: string | undefined },
 ): NoteChunk[] => {
   const metadataPrefix = options?.metadataPrefix
+
+  // Folder segments feed only the TOC chunk's first line — the vault-relative
+  // path minus the filename (POSIX separators in all deployment paths).
+  const folderSegments = options?.notePath ? options.notePath.split("/").slice(0, -1) : []
   const basePrefix = metadataPrefix ? `${noteTitle}\n${metadataPrefix}` : noteTitle
 
   const strippedBody = stripMarkdownSyntax(bodyContent)
@@ -297,7 +310,7 @@ export const chunkNoteContent = (
   // would dominate the token average, and notes of one type (e.g. Kanban
   // boards) would all share an identical Type/Tags line, collapsing exactly
   // the note-vs-note discrimination this chunk exists to provide.
-  const tableOfContentsText = buildTableOfContentsText(noteTitle, headings)
+  const tableOfContentsText = buildTableOfContentsText(noteTitle, headings, folderSegments)
   const tableOfContentsFragments = tableOfContentsText ? [tableOfContentsText] : []
 
   const prefixedFragments = [...tableOfContentsFragments, ...preambleFragments, ...sectionFragments]
