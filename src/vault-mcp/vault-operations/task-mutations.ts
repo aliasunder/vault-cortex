@@ -1847,21 +1847,24 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       ? detectDoneLane(linesWithSpawn, headingsAfterSpawn)
       : (targetHeadingParam ?? currentHeadingForReorder?.text)
     const noMoveChanges: string[] = []
-    const moved = targetLane
-      ? moveTaskBlock({
-          lines: linesWithSpawn,
-          taskLineIndex: completedIndexAfterSpawn,
-          targetLane,
-          headings: headingsAfterSpawn,
-          ...(position && { position }),
-          ...(beforePositionInLane && { beforePosition: beforePositionInLane }),
-        })
-      : {
-          lines: linesWithSpawn,
-          taskLineIndex: completedIndexAfterSpawn,
-          changes: noMoveChanges,
-          movedBlockLength: undefined,
-        }
+    // Gate on presence, not truthiness — an empty-string heading text
+    // ("## ") is a valid lane name and must trigger the move.
+    const moved =
+      targetLane !== undefined
+        ? moveTaskBlock({
+            lines: linesWithSpawn,
+            taskLineIndex: completedIndexAfterSpawn,
+            targetLane,
+            headings: headingsAfterSpawn,
+            ...(position && { position }),
+            ...(beforePositionInLane && { beforePosition: beforePositionInLane }),
+          })
+        : {
+            lines: linesWithSpawn,
+            taskLineIndex: completedIndexAfterSpawn,
+            changes: noMoveChanges,
+            movedBlockLength: undefined,
+          }
 
     // Checklist items go after every parent-line edit and the move, so they
     // land under the card's final position.
