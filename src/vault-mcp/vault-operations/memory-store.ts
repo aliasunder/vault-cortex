@@ -1108,13 +1108,24 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         const matchOffset = matchIndex - match.bodyStartLine
         const matchPosition = genuineEntryOffsets.indexOf(matchOffset)
         const nextEntryOffset = genuineEntryOffsets[matchPosition + 1]
-        const spanEnd =
+        const rawSpanEnd =
           nextEntryOffset !== undefined
             ? match.bodyStartLine + nextEntryOffset
             : match.bodyEndLine
+
+        // Trim trailing blank lines from the span — they separate sections
+        // or entries visually and don't belong to the deleted entry.
+        let trimmedSpanEnd = rawSpanEnd
+
+        while (
+          trimmedSpanEnd > matchIndex + 1 &&
+          lines[trimmedSpanEnd - 1]?.trim() === ""
+        ) {
+          trimmedSpanEnd--
+        }
         const updatedLines = [
           ...lines.slice(0, matchIndex),
-          ...lines.slice(spanEnd),
+          ...lines.slice(trimmedSpanEnd),
         ]
 
         const newContent = updatedLines.join("\n")
