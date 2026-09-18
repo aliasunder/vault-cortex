@@ -341,15 +341,15 @@ Four design choices shape the query surface:
 
 - **Field ordering is guaranteed** — description → priority → 🔁 recurrence → 🏁 onCompletion → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id.
 - **Always `[ ]`** — creating a task is not starting it.
-- **Placement** — a heading (required on Kanban boards), a parent task (for sub-tasks; mutually exclusive with a heading), or end-of-body.
+- **Placement** — a heading (required on Kanban boards), a parent task (for sub-tasks; mutually exclusive with a heading), or end-of-body. Within a heading, `position` selects the slot: `"top"`, `"bottom"`, or a 1-based integer for exact placement among the lane's top-level cards.
 
-`vault_update_task` applies status, priority, recurrence, on_completion, description, dates, task_id, depends_on, block_id assignment, heading moves, and sub-task additions in one atomic read-modify-write under one exclusive file lock:
+`vault_update_task` applies status, priority, recurrence, on_completion, description, dates, task_id, depends_on, block_id assignment, heading moves, position reordering, and sub-task additions in one atomic read-modify-write under one exclusive file lock:
 
 - **Mutations compose** — every field passed is applied in the same write cycle; clearing a field is always an explicit `null`.
 - **Line splitting follows the parser** — the description is everything before the metadata tail, and a signifier only opens the tail when everything after it parses as fields (a priority emoji used as prose stays in the description). Description edits, priority changes, and the returned `description` all use that boundary.
 - **Status** — toggles the checkbox character and stamps or strips done/cancelled dates. `status: "done"` on a top-level Kanban task without an explicit `heading` auto-detects the done lane. Completing a recurring task (🔁) spawns the next occurrence — dates advanced per the rule, block link/id/dependencies cleared — adjacent to the completed line (above by default, below with the plugin's `recurrenceOnNextLine` setting); the spawn stays in the source lane. A task with `🏁 delete` / `[onCompletion:: delete]` is removed from the file on completion instead of moving to done; when combined with recurrence, the spawn is written first and the completed line is then deleted.
 - **Dates** — set or clear due, scheduled, start, and created at their position in the field ordering.
-- **Heading moves** — `heading` moves the task and its indented sub-items to another section; on a Kanban board that is a lane move, but any note with headings works. A sub-task (depth > 0) never moves: an explicit `heading` is rejected, and `status: "done"` changes its checkbox in place.
+- **Heading moves and position** — `heading` moves the task and its indented sub-items to another section; on a Kanban board that is a lane move, but any note with headings works. `position` (`"top"`, `"bottom"`, or a 1-based integer) selects where within the target heading the card lands; without a `heading`, it triggers a same-lane reorder. A sub-task (depth > 0) never moves or reorders: an explicit `heading` or `position` is rejected, and `status: "done"` changes its checkbox in place.
 - **`add_subtasks`** — appends checklist items under the task's existing ones.
 
 ## MCP Prompts
