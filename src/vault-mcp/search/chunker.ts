@@ -6,16 +6,19 @@
  *  1. Strip markdown syntax (via plaintext.ts)
  *  2. Short notes (< CHUNK_THRESHOLD_TOKENS) → single chunk, unless a
  *     metadata prefix lowers the budget below the body's token count
- *  3. Longer notes → split into disjoint per-heading sections (via
- *     parseHeadings): each heading owns only the lines above its first
- *     child heading, and each fragment is prefixed with the note title
- *     plus a `Section:` line naming the heading's ancestor path
- *  4. A heading with no own-body content emits nothing — its words live
- *     in every descendant fragment's Section line
+ *  3. Longer notes → two views per note (via parseHeadings): each
+ *     top-level heading owns its FULL subtree (the aggregate view), and
+ *     each deeper heading owns only the lines above the next heading of
+ *     any level (the disjoint leaf view). Every fragment is prefixed
+ *     with the note title plus a `Section:` line naming the heading's
+ *     ancestor path — except a singleton top-level heading's aggregate,
+ *     which keeps the plain title prefix (see collectSectionSpans)
+ *  4. A heading whose span has no content emits nothing — its words live
+ *     in every descendant fragment's Section line and in the TOC chunk
  *  5. Each split note with named headings also emits one table-of-contents
  *     chunk (folder segments + title, then heading names in document
  *     order) — the note's one deliberately short chunk
- *  6. Sections over their budget → sub-split at paragraph boundaries,
+ *  6. Spans over their budget → sub-split at paragraph boundaries,
  *     with a sub-MIN trailing fragment merged backward into its
  *     predecessor
  *  7. A split that yields no fragments at all falls back to one
@@ -135,8 +138,9 @@ export const buildChunkMetadataPrefix = (params: {
   return parts.length > 0 ? parts.join(" ") : null
 }
 
-/** A heading's disjoint slice of the note: the lines it owns (up to its
- *  first child heading) plus the ancestor-chain path that names it. */
+/** A heading's slice of the note (full subtree for top-level headings,
+ *  own body for deeper ones — see collectSectionSpans) plus the
+ *  ancestor-chain path that names it. */
 type SectionSpan = Readonly<{
   headingPath: readonly string[]
   startLine: number
@@ -144,11 +148,27 @@ type SectionSpan = Readonly<{
 }>
 
 /** Walk headings in document order, tracking the ancestor chain, and give
- *  each heading only its OWN body — the lines above the next heading of any
- *  level. parseHeadings' bodyEndLine spans to the next same-or-higher
- *  heading (read-side semantics), so slicing on it would embed a child
- *  section's text twice: once in its own chunk and once in the parent's. */
+ *  each heading its slice of the note in one of two views:
+ *
+ *  - A top-level heading (the note's shallowest level) owns its FULL
+ *    subtree — parseHeadings' read-side bodyEndLine. Sub-splitting that
+ *    stream at paragraph boundaries produces content-anchored chunks
+ *    (a table, a run of adjacent entries) that carry queries whose
+ *    vocabulary spreads across child sections; heading-anchored chunks
+ *    alone lose those queries. Child text therefore embeds twice — once
+ *    here, once in its own chunk — a measured, deliberate overlap.
+ *  - A deeper heading owns only the lines above the next heading of any
+ *    level, so the leaf view stays disjoint and path-attributed.
+ *
+ *  A singleton top-level heading (the common `# Title` wrapper) spans the
+ *  whole note, so its aggregate keeps the plain title prefix — an empty
+ *  path here means no Section line. The heading's words stay findable in
+ *  the TOC chunk and in descendants' Section lines. */
 const collectSectionSpans = (headings: readonly HeadingInfo[]): SectionSpan[] => {
+  const topLevel = Math.min(...headings.map((heading) => heading.level))
+  const topLevelHeadingCount = headings.filter((heading) => heading.level === topLevel).length
+  const hasSingletonWrapper = topLevelHeadingCount === 1
+
   const sectionSpans: SectionSpan[] = []
   const ancestorStack: { text: string; level: number }[] = []
 
@@ -166,10 +186,11 @@ const collectSectionSpans = (headings: readonly HeadingInfo[]): SectionSpan[] =>
     // stops before any trailing `%% %%` comment block.
     const ownBodyEndLine = headings[headingIndex + 1]?.startLine ?? heading.bodyEndLine
 
+    const isTopLevelHeading = heading.level === topLevel
     sectionSpans.push({
-      headingPath,
+      headingPath: isTopLevelHeading && hasSingletonWrapper ? [] : headingPath,
       startLine: heading.bodyStartLine,
-      endLine: ownBodyEndLine,
+      endLine: isTopLevelHeading ? heading.bodyEndLine : ownBodyEndLine,
     })
     ancestorStack.push({ text: heading.text, level: heading.level })
   })
@@ -222,7 +243,8 @@ const buildTableOfContentsText = (
 }
 
 /** Split a note into chunks for embedding. Short notes become a single chunk;
- *  longer notes split into disjoint per-heading sections, each fragment
+ *  longer notes split into per-heading sections in two views (top-level
+ *  aggregates + disjoint leaves — see collectSectionSpans), each fragment
  *  prefixed with the note title, a `Section:` line naming the heading's
  *  ancestor path, and — when `metadataPrefix` is given — a metadata line,
  *  plus one table-of-contents chunk naming the note's headings.
@@ -286,22 +308,22 @@ export const chunkNoteContent = (
     : []
 
   const sectionFragments = collectSectionSpans(headings).flatMap((sectionSpan) => {
-    const ownBodyText = stripMarkdownSyntax(
+    const sectionSpanText = stripMarkdownSyntax(
       bodyLines.slice(sectionSpan.startLine, sectionSpan.endLine).join("\n"),
     ).trim()
 
-    // A heading with no own-body content emits nothing — a heading-only
+    // A heading whose span has no content emits nothing — a heading-only
     // fragment is too small to embed meaningfully, and any descendant
     // fragment already carries the heading's words in its Section line.
     // A childless empty heading drops out of the vector index entirely;
     // the FTS leg still indexes the full note text.
-    if (!ownBodyText) return []
+    if (!sectionSpanText) return []
 
     const sectionLine =
       sectionSpan.headingPath.length > 0 ? `Section: ${sectionSpan.headingPath.join(" > ")}` : null
     const sectionPrefix = [noteTitle, sectionLine, metadataPrefix].filter(Boolean).join("\n")
 
-    return splitWithTrailingMerge(ownBodyText, budgetAfterPrefix(sectionPrefix)).map(
+    return splitWithTrailingMerge(sectionSpanText, budgetAfterPrefix(sectionPrefix)).map(
       (fragment) => `${sectionPrefix}\n\n${fragment}`,
     )
   })
