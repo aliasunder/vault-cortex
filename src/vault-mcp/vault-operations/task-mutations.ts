@@ -313,9 +313,6 @@ const readNoteContent = async ({
   }
 }
 
-/** ATX heading H1–H6: 0-3 leading spaces, 1-6 `#`, then space/tab or EOL. */
-const ATX_HEADING_RE = /^ {0,3}#{1,6}(?:[ \t]|$)/
-
 /** Collects contiguous sub-items below a task line — lines with deeper
  *  indentation than the task itself. Returns the exclusive end index
  *  (the first line that is NOT a sub-item). */
@@ -432,6 +429,12 @@ const headingInsertIndexAtPosition = ({
   const sectionStart = taskInsertIndexUnderHeading({ lines, heading })
   const sectionEnd = heading.bodyEndLine
 
+  // Cards under child headings belong to those headings, not this lane.
+  const firstChildStart = parseHeadings(lines).find((childHeading) => {
+    return childHeading.startLine >= heading.bodyStartLine && childHeading.startLine < sectionEnd
+  })?.startLine
+  const walkEnd = firstChildStart ?? sectionEnd
+
   const cardStartIndices: number[] = []
   // Variable-length jumps through the section: each card's sub-item block
   // is skipped via findTaskBlockEnd, so the step size varies per iteration.
@@ -441,12 +444,8 @@ const headingInsertIndexAtPosition = ({
   let walkIndex = sectionStart
   let lastCardBlockEnd = -1
 
-  while (walkIndex < sectionEnd) {
+  while (walkIndex < walkEnd) {
     const line = lines[walkIndex]
-
-    // A child heading starts a nested section whose cards belong to the
-    // child, not the parent lane — stop counting here.
-    if (line && ATX_HEADING_RE.test(line)) break
 
     if (!line?.trim() || !tasks.isTaskLine(line)) {
       walkIndex++
@@ -458,10 +457,14 @@ const headingInsertIndexAtPosition = ({
     walkIndex = blockEnd
   }
 
-  return (
-    cardStartIndices[position - 1] ??
-    (lastCardBlockEnd >= 0 ? lastCardBlockEnd : taskAppendIndexUnderHeading({ lines, heading }))
-  )
+  // An overshoot lands after the last card when cards exist, before the
+  // first child heading when the lane's own level has none, and at the
+  // lane's insert slot otherwise.
+  const overshootFallback =
+    lastCardBlockEnd >= 0
+      ? lastCardBlockEnd
+      : (firstChildStart ?? taskInsertIndexUnderHeading({ lines, heading }))
+  return cardStartIndices[position - 1] ?? overshootFallback
 }
 
 const headingInsertIndex = ({
@@ -701,9 +704,7 @@ const moveTaskBlock = ({
     position: resolvedPosition,
   })
 
-  // After removing the block, lines below it shift up by the block's
-  // length — so insertAt (in the post-removal array) equalling the
-  // original taskLineIndex means the card would land back where it was.
+  // An unchanged raw index means the card is already at the target slot.
   if (isSameLane && insertAt === taskLineIndex) return { lines, taskLineIndex, changes: [] }
 
   const resultLines = linesWithoutBlock.toSpliced(insertAt, 0, ...taskBlock)
@@ -722,6 +723,10 @@ const moveTaskBlock = ({
   if (isSameLane) {
     const before = beforePosition ?? positionOfTaskInLane(lines, targetHeading, taskLineIndex)
     const after = headingInResult ? positionOfTaskInLane(resultLines, headingInResult, insertAt) : 1
+
+    // The raw-index guard above catches most no-ops, but blank-line
+    // shifts can produce a different index for the same card slot.
+    if (before === after) return { lines, taskLineIndex, changes: [] }
     changes.push(formatChange({ field: "position", before, after }))
   } else if (typeof position === "number" && currentHeading) {
     const before = beforePosition ?? positionOfTaskInLane(lines, currentHeading, taskLineIndex)
@@ -749,15 +754,18 @@ const positionOfTaskInLane = (
   const sectionStart = heading.bodyStartLine
   const sectionEnd = heading.bodyEndLine
 
+  const firstChildStart = parseHeadings(lines).find((childHeading) => {
+    return childHeading.startLine >= sectionStart && childHeading.startLine < sectionEnd
+  })?.startLine
+  const walkEnd = firstChildStart ?? sectionEnd
+
   // Each card's sub-items are skipped via findTaskBlockEnd, so the
   // step size varies per iteration — both counters must be mutable.
   let walkIndex = sectionStart
   let cardPosition = 0
 
-  while (walkIndex < sectionEnd) {
+  while (walkIndex < walkEnd) {
     const line = lines[walkIndex]
-
-    if (line && ATX_HEADING_RE.test(line)) break
 
     if (!line?.trim() || !tasks.isTaskLine(line)) {
       walkIndex++
