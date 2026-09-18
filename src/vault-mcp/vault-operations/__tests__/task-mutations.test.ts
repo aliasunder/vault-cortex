@@ -5837,6 +5837,7 @@ title: Tasks
 
     it("updateTask rejects a NON_TASK checkbox by block_id", async () => {
       resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
       const vault = await createVault()
       await writePluginConfig(vault, NON_TASK_CONFIG)
       await writeTestNote(
@@ -5855,6 +5856,7 @@ title: Tasks
 
     it("updateTask rejects a NON_TASK checkbox by line number", async () => {
       resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
       const vault = await createVault()
       await writePluginConfig(vault, NON_TASK_CONFIG)
       await writeTestNote(
@@ -5873,6 +5875,7 @@ title: Tasks
 
     it("createTask rejects a NON_TASK parent by block_id", async () => {
       resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
       const vault = await createVault()
       await writePluginConfig(vault, NON_TASK_CONFIG)
       await writeTestNote(
@@ -5897,6 +5900,7 @@ title: Tasks
 
     it("createTask rejects a NON_TASK parent by line number", async () => {
       resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
       const vault = await createVault()
       await writePluginConfig(vault, NON_TASK_CONFIG)
       await writeTestNote(
@@ -5921,6 +5925,7 @@ title: Tasks
 
     it("allows updating a normal task when NON_TASK statuses exist", async () => {
       resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
       const vault = await createVault()
       await writePluginConfig(vault, NON_TASK_CONFIG)
       await writeTestNote(
