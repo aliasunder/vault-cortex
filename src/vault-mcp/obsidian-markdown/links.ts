@@ -340,6 +340,12 @@ const getExtension = (filePath: string): string => {
  *  emoji or other non-BMP characters). */
 const codePointLength = (path: string): number => [...path].length
 
+/** Folds ASCII letters to lowercase — SQLite's LIKE folding, which touches
+ *  A-Z only. A full toLowerCase would also fold non-ASCII letters and
+ *  diverge from the SQL suffix tiers this fold exists to mirror. */
+const foldAsciiCase = (path: string): string =>
+  path.replace(/[A-Z]/g, (letter) => letter.toLowerCase())
+
 /** Picks the winner among same-tier resolution matches: the shortest path,
  *  with a byte-order tiebreak for determinism — the same total order as the
  *  SQL resolver's ORDER BY length(path), path LIMIT 1 (code-point length,
@@ -374,8 +380,9 @@ const shortestOf = (paths: string[]): string | null => {
  *  with-extension target can stem-match a different file. Family ordering
  *  makes the full-filename match win, while the stem tiers stay the fallback
  *  so [[photo.png]] with only photo.png.canvas in the vault still resolves —
- *  mirroring Obsidian's stem matching. Extensionless targets fall through the
- *  full-filename family unmatched (stored paths always carry an extension). */
+ *  mirroring Obsidian's stem matching. An extensionless target passes through
+ *  the full-filename family too, matching only when an extensionless file
+ *  (LICENSE, Dockerfile) shares its exact path. */
 const resolveAsset = (params: {
   target: string
   allAssetPaths: readonly string[]
@@ -394,8 +401,14 @@ const resolveAsset = (params: {
     return relativeTarget
   }
 
+  // The suffix tiers fold ASCII case because their SQL twins compare with
+  // LIKE, which is ASCII-case-insensitive; the exact tiers stay
+  // case-sensitive because their twins compare with =.
+  const foldedTargetSuffix = foldAsciiCase(`/${target}`)
   const fullPathSuffixMatch = shortestOf(
-    allAssetPaths.filter((assetPath) => assetPath.endsWith(`/${target}`)),
+    allAssetPaths.filter((assetPath) =>
+      foldAsciiCase(assetPath).endsWith(foldedTargetSuffix),
+    ),
   )
   if (fullPathSuffixMatch) return fullPathSuffixMatch
 
@@ -421,7 +434,7 @@ const resolveAsset = (params: {
   if (target.includes("/")) {
     return shortestOf(
       allAssetPaths.filter((assetPath) =>
-        stripExtension(assetPath).endsWith(`/${target}`),
+        foldAsciiCase(stripExtension(assetPath)).endsWith(foldedTargetSuffix),
       ),
     )
   }

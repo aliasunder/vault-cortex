@@ -763,6 +763,30 @@ describe("resolveAsset", () => {
     "app/views/Inventory.base",
   ]
 
+  it("folds ASCII case in the path-suffix tier, matching the SQL twin's LIKE", () => {
+    // The indexer's suffix statements compare with LIKE (ASCII-case-
+    // insensitive), so the array resolver must fold too or the two
+    // resolvers pick different files for one target.
+    expect(
+      links.resolveAsset({
+        target: "sunset.png",
+        allAssetPaths: ["photos/Sunset.png"],
+      }),
+    ).toBe("photos/Sunset.png")
+  })
+
+  it("keeps the exact-path tier case-sensitive, matching the SQL twin's =", () => {
+    // A full-path target with different casing misses the case-sensitive
+    // exact tier, and the suffix tier's leading "/" can never match a path
+    // from the vault root — null on both resolvers.
+    expect(
+      links.resolveAsset({
+        target: "photos/sunset.png",
+        allAssetPaths: ["photos/Sunset.png"],
+      }),
+    ).toBeNull()
+  })
+
   it("resolves an exact path with extension", () => {
     expect(
       links.resolveAsset({ target: "assets/photo.png", allAssetPaths }),
