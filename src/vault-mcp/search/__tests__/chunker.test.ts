@@ -331,12 +331,27 @@ describe("chunkContent", () => {
       const chunks = chunkContent("Report", body, { sourcePath: "assets/papers/Report.pdf" })
 
       // Extracted PDF and canvas text flows through the same chunker — the
-      // file path's folder segments land on the TOC line and the filename
-      // (extension included) is dropped
+      // file path's folder segments land on the TOC line, and a non-markdown
+      // source keeps its full filename there so a same-stem note (Report.md)
+      // cannot emit an identical TOC chunk
       expect(chunks).toEqual([
         { index: 0, text: `Report\nSection: Introduction\n\n${introSection}` },
         { index: 1, text: `Report\nSection: Methods\n\n${methodsSection}` },
-        { index: 2, text: "assets > papers > Report\n\nIntroduction\nMethods" },
+        { index: 2, text: "assets > papers > Report.pdf\n\nIntroduction\nMethods" },
+      ])
+    })
+
+    it("strips markdown from heading names in Section lines and the TOC", () => {
+      const reviewContent = generateLabeledTokens(300, "review")
+      const decisionsContent = generateLabeledTokens(300, "decisions")
+      const body = `## [[Target|Quarterly review]]\n${reviewContent}\n\n## **Key decisions**\n${decisionsContent}`
+
+      const chunks = chunkContent("Note", body)
+
+      expect(chunks).toEqual([
+        { index: 0, text: `Note\nSection: Quarterly review\n\n${reviewContent}` },
+        { index: 1, text: `Note\nSection: Key decisions\n\n${decisionsContent}` },
+        { index: 2, text: "Note\n\nQuarterly review\nKey decisions" },
       ])
     })
 

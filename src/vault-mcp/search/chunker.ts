@@ -174,9 +174,13 @@ const collectSectionSpans = (headings: readonly HeadingInfo[]): SectionSpan[] =>
       ancestorStack.pop()
     }
 
+    // Wikilinks and emphasis markers in heading text would inject raw [[ / **
+    // tokens into Section lines and the TOC — strip to plain text once here.
+    const headingText = stripMarkdownSyntax(heading.text).trim()
+
     // Empty-text segments (a bare `##` line) carry no vocabulary — skip them.
-    const headingPath = [...ancestorStack.map((ancestor) => ancestor.text), heading.text].filter(
-      (segment) => segment.trim() !== "",
+    const headingPath = [...ancestorStack.map((ancestor) => ancestor.text), headingText].filter(
+      (segment) => segment !== "",
     )
 
     // The next heading's startLine gives the disjoint boundary (own body
@@ -191,7 +195,7 @@ const collectSectionSpans = (headings: readonly HeadingInfo[]): SectionSpan[] =>
       startLine: heading.bodyStartLine,
       endLine: isTopLevelHeading ? heading.bodyEndLine : ownBodyEndLine,
     })
-    ancestorStack.push({ text: heading.text, level: heading.level })
+    ancestorStack.push({ text: headingText, level: heading.level })
   })
 
   return sectionSpans
@@ -214,8 +218,10 @@ const buildTableOfContentsText = (
   headings: readonly HeadingInfo[],
   folderSegments: readonly string[],
 ): string | null => {
+  // Stripped like the Section lines — raw wikilink/emphasis markers would
+  // pollute the short chunk's vocabulary.
   const headingNames = headings
-    .map((heading) => heading.text.trim())
+    .map((heading) => stripMarkdownSyntax(heading.text).trim())
     .filter((headingName) => headingName !== "")
 
   if (headingNames.length === 0) return null
@@ -267,6 +273,13 @@ export const chunkContent = (
   // Folder segments feed only the TOC chunk's first line — the vault-relative
   // path minus the filename (POSIX separators in all deployment paths).
   const folderSegments = options?.sourcePath ? options.sourcePath.split("/").slice(0, -1) : []
+
+  // A non-markdown source keeps its full filename on the TOC title line —
+  // a file and a same-stem note in one folder (Report.pdf beside Report.md)
+  // would otherwise emit byte-identical TOC chunks and tie arbitrarily.
+  const sourceFileName = options?.sourcePath?.split("/").at(-1)
+  const tocTitle = sourceFileName && !sourceFileName.endsWith(".md") ? sourceFileName : noteTitle
+
   const basePrefix = metadataPrefix ? `${noteTitle}\n${metadataPrefix}` : noteTitle
 
   const strippedBody = stripMarkdownSyntax(bodyContent)
@@ -335,7 +348,7 @@ export const chunkContent = (
   // would dominate the token average, and notes of one type (e.g. Kanban
   // boards) would all share an identical Type/Tags line, collapsing exactly
   // the note-vs-note discrimination this chunk exists to provide.
-  const tableOfContentsText = buildTableOfContentsText(noteTitle, headings, folderSegments)
+  const tableOfContentsText = buildTableOfContentsText(tocTitle, headings, folderSegments)
   const tableOfContentsFragments = tableOfContentsText ? [tableOfContentsText] : []
 
   // The TOC is emitted LAST: the reranker scores FTS-only candidates on
