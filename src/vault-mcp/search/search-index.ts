@@ -18,7 +18,7 @@ import { tasks } from "../obsidian-markdown/tasks.js"
 import type { TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
 import { contentHash, type Embedder } from "./embedder.js"
 import type { Reranker } from "./reranker.js"
-import { buildChunkMetadataPrefix, chunkNoteContent } from "./chunker.js"
+import { buildChunkMetadataPrefix, chunkContent } from "./chunker.js"
 import { extractPdfText } from "../obsidian-markdown/pdf.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
 import { describeError } from "../../utils/describe-error.js"
@@ -1486,12 +1486,16 @@ export const createSearchIndex = (
       // Re-resolve links still stored as raw text now that this note exists.
       // Re-run resolveLink with each link's own source so every form upgrades
       // uniformly — basename, full path, and source-relative ("../") — covering
-      // Obsidian's "link first, create the note later" workflow.
+      // Obsidian's "link first, create the note later" workflow. Each standing
+      // unresolved link already failed against every other indexed path, so it
+      // can only newly resolve to this note — resolving against [note.path]
+      // alone gives the same answer without an O(unresolved × notes) sweep
+      // on every write.
       const unresolvedLinks = selectUnresolvedLinksStmt.all()
       for (const link of unresolvedLinks) {
         const resolved = links.resolve({
           target: link.target,
-          allPaths: pathList,
+          allPaths: [note.path],
           sourcePath: link.source,
         })
 
@@ -1549,8 +1553,11 @@ export const createSearchIndex = (
           tags: coerceToArray(parsed.data.tags),
         })
       : null
-    const chunks = chunkNoteContent(noteTitle, parsed.content, {
+    const chunks = chunkContent({
+      noteTitle,
+      bodyContent: parsed.content,
       metadataPrefix,
+      sourcePath: notePath,
     })
 
     // Load existing hashes for content-hash gating
@@ -1707,7 +1714,13 @@ export const createSearchIndex = (
       return 0
     }
 
-    const chunks = chunkNoteContent(params.title, params.content)
+    // chunkContent handles file content too — sourcePath extracts folder
+    // segments for the TOC chunk's disambiguation line.
+    const chunks = chunkContent({
+      noteTitle: params.title,
+      bodyContent: params.content,
+      sourcePath: params.filePath,
+    })
 
     const existingHashes = new Map(
       selectFileChunkHashesStmt
