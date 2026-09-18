@@ -246,7 +246,7 @@ Errors:
 - "heading required for Kanban boards" — kanban-plugin note without heading
 - "heading "X" not found; available: ..." — no heading matches; the error lists the note's headings
 - "cannot place at position N under "X" — the heading appears N times" — integer position on a note with duplicate heading names; rename one section to make it unique
-- "parent task not found" — parent_block_id or parent_line doesn't resolve to a task (message names the blockId or line tried)
+- "parent task not found" — parent_block_id or parent_line doesn't resolve to a task (message names the blockId or line tried); also thrown when the line is inside a fenced code block or comment
 - "checkbox '[c]' is a NON_TASK status" — the parent task's checkbox char is typed NON_TASK in the Tasks plugin's status registry; NON_TASK checkboxes are excluded from the task system
 - "parentBlockId and parentLine are mutually exclusive" — both parent_block_id and parent_line were passed; drop one
 - "parent and heading are mutually exclusive" — a parent (parent_block_id or parent_line) and heading were both passed; drop one
@@ -499,8 +499,8 @@ Parameters:
 Errors:
 - "note not found" — path does not exist
 - "exactly one of blockId or line is required" / "blockId and line are mutually exclusive" — pass exactly one of block_id or line
-- "blockId ... not found" — no task line in the note ends with ^block_id
-- "no task at line N" — line doesn't contain a task checkbox
+- "blockId ... not found" — no task line in the note ends with ^block_id; also thrown when the line is inside a fenced code block or comment
+- "no task at line N" — line doesn't contain a task checkbox; also thrown when the line is inside a fenced code block or comment
 - "checkbox '[c]' is a NON_TASK status" — the task's checkbox char is typed NON_TASK in the Tasks plugin's status registry; NON_TASK checkboxes are excluded from the task system and cannot be mutated
 - "at least one mutation" — no change params provided
 - "cannot move a sub-task to a heading" — explicit heading on a task nested under another task (depth > 0${whenToolEnabledText("vault_list_tasks", " in vault_list_tasks")})
