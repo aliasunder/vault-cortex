@@ -316,10 +316,10 @@ export const fullTextSearch = (
 /** Vector-leg window size. The KNN binds k at 2× this value and the slice
  *  keeps this many lowest-distance rows, so the window's size is this
  *  constant while boundary ties order by the statement's secondary keys.
- *  ≈30% of today's ~350-entry corpus — an arc member outside its own topic's
- *  top 100 with zero lexical overlap is, for practical purposes, unrelated
- *  text, and the cross-encoder can't rescue what it never scores. sqlite-vec
- *  brute-forces the doubled fetch in ~1ms at this size. */
+ *  An entry outside a topic's top 100 with zero lexical overlap is, for
+ *  practical purposes, unrelated text, and the cross-encoder can't rescue
+ *  what it never scores. sqlite-vec brute-forces the doubled fetch in ~1ms
+ *  at memory-layer scale. */
 const MEMORY_VECTOR_CANDIDATE_LIMIT = 100
 
 /** Latency safety valve on the cross-encoder pass (~10ms/pair, so ~1–2s at
@@ -353,8 +353,8 @@ const MEMORY_RECALL_RELATIVE_RATIO = 0.1
  *  is the documented cost of running without the reranker. */
 const MEMORY_RECALL_DISTANCE_MARGIN = 0.15
 
-/** Default limit — ≈15% of today's corpus (~2.5k tokens), comfortably
- *  holding any realistic evolution arc. */
+/** Default limit — ~2.5k tokens of returned entries, comfortably holding
+ *  any realistic evolution arc. */
 const DEFAULT_MEMORY_RECALL_LIMIT = 50
 
 /** One recall candidate: the hydrated row, how it was found, and its scores.
@@ -571,7 +571,7 @@ export const memoryRecall = async (
     params.file === undefined || row.file === params.file
 
   // Vector leg: generous KNN, file-filtered after the join (over-fetch is
-  // safe at this corpus size; vec0 post-MATCH WHERE semantics are not).
+  // safe at memory-layer scale; vec0 post-MATCH WHERE semantics are not).
   const vectorRows = (await memoryVectorSearch(memory, params.query, logger)).filter(
     matchesFileFilter,
   )
