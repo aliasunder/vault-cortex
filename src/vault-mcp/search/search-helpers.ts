@@ -4,6 +4,7 @@ import { posix } from "node:path"
 import { DateTime } from "luxon"
 import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
+import { foldAsciiCase } from "../obsidian-markdown/links.js"
 import type {
   NoteRow,
   NoteMetadata,
@@ -74,12 +75,6 @@ const parseLeadingCalloutJson = (json: string): LeadingCallout => {
 /** Strips trailing slashes so folder paths produce clean LIKE patterns
  *  (e.g. `"Projects/"` → `"Projects"`, avoiding `Projects//%`). */
 export const stripTrailingSlashes = (folder: string): string => folder.replace(/\/+$/, "")
-
-/** Folds only A–Z, exactly as SQLite's default LIKE does — so the TypeScript
- *  mirror below can never disagree with the SQL predicate on a non-ASCII
- *  folder name. */
-const foldAsciiCase = (value: string): string =>
-  value.replace(/[A-Z]/g, (character) => character.toLowerCase())
 
 /** TypeScript mirror of the `path LIKE 'folder/%'` predicate the SQL legs
  *  apply — segment-boundary (so "Docs" never matches "Docs2/") and

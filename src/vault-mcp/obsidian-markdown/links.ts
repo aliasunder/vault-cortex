@@ -346,8 +346,10 @@ const codePointLength = (path: string): number => [...path].length
 
 /** Folds ASCII letters to lowercase — SQLite's LIKE folding, which touches
  *  A-Z only. A full toLowerCase would also fold non-ASCII letters and
- *  diverge from the SQL suffix tiers this fold exists to mirror. */
-const foldAsciiCase = (path: string): string =>
+ *  diverge from the LIKE predicates this fold exists to mirror. Exported so
+ *  every LIKE mirror (the asset suffix tiers here, the folder predicate in
+ *  search) folds by one rule. */
+export const foldAsciiCase = (path: string): string =>
   path.replace(/[A-Z]/g, (letter) => letter.toLowerCase())
 
 /** Picks the winner among same-tier resolution matches: the shortest path,

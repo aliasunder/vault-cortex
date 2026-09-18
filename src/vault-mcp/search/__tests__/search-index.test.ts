@@ -434,31 +434,25 @@ describe("equal-score tie-breaking in retrieval legs", () => {
 
   it("orders tied-distance note vector hits by path regardless of insertion order", async () => {
     const tieIndex = createSearchIndex(":memory:", createUniformEmbedder())
-    // vec0 returns tied distances in reverse insertion order, so inserting
-    // aaa.md first means the unfixed order is zzz.md first.
-    tieIndex.upsertNote(
-      {
-        filePath: "aaa.md",
-        rawContent: IDENTICAL_NOTE,
-        fileStat: testStat(1000),
-      },
-      logger,
-    )
-    await tieIndex.embedNote({ notePath: "aaa.md", rawContent: IDENTICAL_NOTE }, logger)
-    tieIndex.upsertNote(
-      {
-        filePath: "zzz.md",
-        rawContent: IDENTICAL_NOTE,
-        fileStat: testStat(1000),
-      },
-      logger,
-    )
-    await tieIndex.embedNote({ notePath: "zzz.md", rawContent: IDENTICAL_NOTE }, logger)
+    // Insertion order (mmm, zzz, aaa) differs from both path order and its
+    // reverse, so the asserted order can come only from the secondary sort
+    // keys — whichever way a vec0 build returns tied distances.
+    for (const notePath of ["mmm.md", "zzz.md", "aaa.md"]) {
+      tieIndex.upsertNote(
+        {
+          filePath: notePath,
+          rawContent: IDENTICAL_NOTE,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+    }
 
     // "orca" shares no stems with the note content, so the FTS leg is empty
     // and the ranking comes from the vector leg's tied distances alone.
     const { results } = await tieIndex.hybridSearch({ query: "orca" }, logger)
-    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "mmm.md", "zzz.md"])
   })
 
   it("orders tied-distance file vector hits by path regardless of insertion order", async () => {
@@ -466,43 +460,37 @@ describe("equal-score tie-breaking in retrieval legs", () => {
       fileToolsEnabled: true,
     })
     const identicalFileContent = "walrus habitat survey notes"
-    // vec0 returns tied distances in reverse insertion order, so inserting
-    // aaa.txt first means the unfixed order is zzz.txt first.
-    tieIndex.upsertNonMdFile("aaa.txt", 100)
-    tieIndex.upsertFileContent(
-      {
-        filePath: "aaa.txt",
-        rawContent: identicalFileContent,
-        fileStat: testStat(1000, 100),
-      },
-      logger,
-    )
-    await tieIndex.embedFileContent({ filePath: "aaa.txt" }, logger)
-    tieIndex.upsertNonMdFile("zzz.txt", 100)
-    tieIndex.upsertFileContent(
-      {
-        filePath: "zzz.txt",
-        rawContent: identicalFileContent,
-        fileStat: testStat(1000, 100),
-      },
-      logger,
-    )
-    await tieIndex.embedFileContent({ filePath: "zzz.txt" }, logger)
+    // Insertion order (mmm, zzz, aaa) differs from both path order and its
+    // reverse, so the asserted order can come only from the secondary sort
+    // keys — whichever way a vec0 build returns tied distances.
+    for (const filePath of ["mmm.txt", "zzz.txt", "aaa.txt"]) {
+      tieIndex.upsertNonMdFile(filePath, 100)
+      tieIndex.upsertFileContent(
+        {
+          filePath,
+          rawContent: identicalFileContent,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await tieIndex.embedFileContent({ filePath }, logger)
+    }
 
     // "orca" shares no stems with the file content, so the FTS legs are
     // empty and the ranking comes from the file vector leg's tied distances.
     const { results } = await tieIndex.hybridSearch({ query: "orca" }, logger)
-    expect(results.map((result) => result.path)).toEqual(["aaa.txt", "zzz.txt"])
+    expect(results.map((result) => result.path)).toEqual(["aaa.txt", "mmm.txt", "zzz.txt"])
   })
 
   it("orders tied-distance note vector hits by path under a folder filter", async () => {
     const tieIndex = createSearchIndex(":memory:", createUniformEmbedder())
-    // docs/aaa.md inserted first (vec0 returns ties in reverse insertion
-    // order), plus an equally-tied note outside the folder. Hybrid-search
-    // re-filters note hits post-SQL, so the outside seed would be dropped
-    // under either KNN statement — this pins the in-folder statement's
-    // ordering keys, not which statement ran.
-    for (const notePath of ["docs/aaa.md", "docs/zzz.md", "other/out.md"]) {
+    // In-folder insertion order (mmm, zzz, aaa) differs from both path order
+    // and its reverse, so the asserted order can come only from the secondary
+    // sort keys — whichever way a vec0 build returns tied distances. The
+    // equally-tied note outside the folder is dropped by hybrid-search's
+    // post-SQL note filter under either KNN statement — this pins the
+    // in-folder statement's ordering keys, not which statement ran.
+    for (const notePath of ["docs/mmm.md", "docs/zzz.md", "other/out.md", "docs/aaa.md"]) {
       tieIndex.upsertNote(
         {
           filePath: notePath,
@@ -518,7 +506,11 @@ describe("equal-score tie-breaking in retrieval legs", () => {
       { query: "orca", filters: { folder: "docs" } },
       logger,
     )
-    expect(results.map((result) => result.path)).toEqual(["docs/aaa.md", "docs/zzz.md"])
+    expect(results.map((result) => result.path)).toEqual([
+      "docs/aaa.md",
+      "docs/mmm.md",
+      "docs/zzz.md",
+    ])
   })
 
   it("orders tied-distance file vector hits by path under a folder filter", async () => {
@@ -526,7 +518,10 @@ describe("equal-score tie-breaking in retrieval legs", () => {
       fileToolsEnabled: true,
     })
     const identicalFileContent = "walrus habitat survey notes"
-    for (const filePath of ["docs/aaa.txt", "docs/zzz.txt", "other/out.txt"]) {
+    // Same three-way seeding as the note test above — file legs scope to the
+    // folder in SQL alone, so the outside seed here genuinely proves the
+    // in-folder statement ran.
+    for (const filePath of ["docs/mmm.txt", "docs/zzz.txt", "other/out.txt", "docs/aaa.txt"]) {
       tieIndex.upsertNonMdFile(filePath, 100)
       tieIndex.upsertFileContent(
         {
@@ -543,7 +538,11 @@ describe("equal-score tie-breaking in retrieval legs", () => {
       { query: "orca", filters: { folder: "docs" } },
       logger,
     )
-    expect(results.map((result) => result.path)).toEqual(["docs/aaa.txt", "docs/zzz.txt"])
+    expect(results.map((result) => result.path)).toEqual([
+      "docs/aaa.txt",
+      "docs/mmm.txt",
+      "docs/zzz.txt",
+    ])
   })
 })
 

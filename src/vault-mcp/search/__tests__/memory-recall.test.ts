@@ -386,15 +386,17 @@ describe("memoryRecall", () => {
 
   it("ranks tied-distance vector hits by file, not insertion order", async () => {
     const identicalEntry = "- **2026-07-02**: Pacing beats crunch every time."
-    // Both entries embed to the same topic vector, so the KNN leg ties on
-    // distance; "recovery rhythm" shares no stems with the entry text, so
-    // the FTS leg is empty and the tie-break decides the limit cut. vec0
-    // returns tied distances in reverse insertion order, so Aaa is upserted
-    // first to make the unfixed order Zzz first.
+    // All three entries embed to the same topic vector, so the KNN leg ties
+    // on distance; "recovery rhythm" shares no stems with the entry text, so
+    // the FTS leg is empty and the tie-break decides the limit cut. Aaa is
+    // upserted in the middle so neither insertion order nor its reverse puts
+    // it first — only the (file, entry_index) sort keys can, whichever way a
+    // vec0 build returns tied distances.
     const index = await createRecallIndex({
       files: {
-        Aaa: `# Aaa\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
         Zzz: `# Zzz\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+        Aaa: `# Aaa\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+        Mmm: `# Mmm\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
       },
     })
 
