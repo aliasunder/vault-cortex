@@ -1097,15 +1097,24 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
           : [],
       )
 
-        // Remove the single matched line, preserving everything before and after it
+        // Remove the matched entry's full span (bullet + continuation lines),
+        // not just the bullet — leaving continuations would fold them into the
+        // preceding entry's text.
         const matchIndex = matchingIndices[0]
 
         if (matchIndex === undefined) {
           throw new Error("expected at least one matching index")
         }
+        const matchOffset = matchIndex - match.bodyStartLine
+        const matchPosition = genuineEntryOffsets.indexOf(matchOffset)
+        const nextEntryOffset = genuineEntryOffsets[matchPosition + 1]
+        const spanEnd =
+          nextEntryOffset !== undefined
+            ? match.bodyStartLine + nextEntryOffset
+            : match.bodyEndLine
         const updatedLines = [
           ...lines.slice(0, matchIndex),
-          ...lines.slice(matchIndex + 1),
+          ...lines.slice(spanEnd),
         ]
 
         const newContent = updatedLines.join("\n")

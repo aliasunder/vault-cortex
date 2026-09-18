@@ -1585,6 +1585,52 @@ title: Dupe
     )
   })
 
+  it("removes a multi-line entry's continuation lines along with its bullet", async () => {
+    const multiLineDeleteFixture = `---
+title: MultiDel
+type: profile
+created: 2026-01-01T00:00:00-05:00
+---
+
+# MultiDel
+
+## Notes (newest first)
+- **2026-06-15**: Entry before
+- **2026-06-14**: Target entry
+  continuation line one
+  continuation line two
+- **2026-06-13**: Entry after
+`
+    await writeFile(
+      join(vault, "About Me/MultiDel.md"),
+      multiLineDeleteFixture,
+      "utf8",
+    )
+
+    await deleteMemory(
+      {
+        vaultPath: vault,
+        file: "MultiDel",
+        section: "Notes",
+        date: "2026-06-14",
+        entry: "Target entry",
+      },
+      logger,
+    )
+
+    const section = await getMemory(
+      { vaultPath: vault, file: "MultiDel", section: "Notes" },
+      logger,
+    )
+
+    // The bullet and both continuation lines are gone; neighboring entries intact.
+    expect(section).toBe(
+      ["- **2026-06-15**: Entry before", "- **2026-06-13**: Entry after"].join(
+        "\n",
+      ),
+    )
+  })
+
   it("does not match a fenced line when deleting an entry", async () => {
     const fencedDeleteFixture = `---
 title: FencedDelete
