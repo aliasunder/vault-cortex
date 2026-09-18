@@ -1,15 +1,7 @@
 /** End-to-end integration tests — every tool and prompt called over real
  *  HTTP transport against a real server with a real vault on disk. */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeAll,
-  afterAll,
-  onTestFinished,
-  vi,
-} from "vitest"
+import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
 import { DateTime } from "luxon"
 import { stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
@@ -32,9 +24,7 @@ vi.setConfig({ testTimeout: 15_000 })
 /** Extract joined text from a prompt result's messages. */
 const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string =>
   result.messages
-    .map((message) =>
-      message.content.type === "text" ? message.content.text : "",
-    )
+    .map((message) => (message.content.type === "text" ? message.content.text : ""))
     .join("\n")
 
 // ── Default config (33 tools, 3 prompts) ──────────────────────
@@ -104,11 +94,7 @@ describe("default config", () => {
     it("lists 3 prompts", async () => {
       const names = await promptNames(client)
       expect(names).toHaveLength(3)
-      expect(names).toEqual([
-        "daily-review",
-        "memory-review",
-        "vault-orientation",
-      ])
+      expect(names).toEqual(["daily-review", "memory-review", "vault-orientation"])
     })
   })
 
@@ -133,6 +119,7 @@ describe("default config", () => {
       })
       expect(result.isError).not.toBe(true)
       const outline = JSON.parse(textContent(result))
+
       if (typeof outline.modified !== "string") {
         throw new Error("outline modified timestamp is missing")
       }
@@ -140,9 +127,7 @@ describe("default config", () => {
         /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}(?:Z|[+-]\d{2}:\d{2})$/,
       )
       const fixtureStats = await stat(join(vaultPath, "Projects/alpha.md"))
-      expect(DateTime.fromISO(outline.modified).toMillis()).toBe(
-        Math.round(fixtureStats.mtimeMs),
-      )
+      expect(DateTime.fromISO(outline.modified).toMillis()).toBe(Math.round(fixtureStats.mtimeMs))
       expect(outline).toEqual({
         bytes: 518,
         modified: outline.modified,
@@ -377,9 +362,7 @@ describe("default config", () => {
         name: "vault_get_memory",
         args: { file: "Preferences", section: "Editor settings" },
       })
-      expect(textContent(verifyResult)).toContain(
-        "Integration test entry — SDK Client",
-      )
+      expect(textContent(verifyResult)).toContain("Integration test entry — SDK Client")
 
       const deleteResult = await callTool({
         client,
@@ -399,9 +382,7 @@ describe("default config", () => {
         name: "vault_get_memory",
         args: { file: "Preferences", section: "Editor settings" },
       })
-      expect(textContent(afterDelete)).not.toContain(
-        "Integration test entry — SDK Client",
-      )
+      expect(textContent(afterDelete)).not.toContain("Integration test entry — SDK Client")
     })
   })
 
@@ -435,10 +416,7 @@ describe("default config", () => {
         description: "Integration test task",
         block_id: "integ-test-task",
         heading: "Tasks",
-        changes: [
-          `created: (none) → ${DateTime.now().toISODate()}`,
-          "priority: (none) → medium",
-        ],
+        changes: [`created: (none) → ${DateTime.now().toISODate()}`, "priority: (none) → medium"],
       })
 
       // Verify the created task is in the file via vault_read_note
@@ -482,11 +460,7 @@ describe("default config", () => {
       expect(topOnlyJson.total).toBe(3)
       expect(
         topOnlyJson.tasks.map(
-          (task: {
-            description: string
-            depth: number
-            is_kanban_task: boolean
-          }) => ({
+          (task: { description: string; depth: number; is_kanban_task: boolean }) => ({
             description: task.description,
             depth: task.depth,
             is_kanban_task: task.is_kanban_task,
@@ -517,14 +491,10 @@ describe("default config", () => {
       // checklist item; the other cards have no checklist, so the
       // serialized entries carry no subtask_progress key at all.
       expect(
-        json.tasks.map(
-          (task: { block_id: string; subtask_progress: unknown }) => ({
-            block_id: task.block_id,
-            ...("subtask_progress" in task
-              ? { subtask_progress: task.subtask_progress }
-              : {}),
-          }),
-        ),
+        json.tasks.map((task: { block_id: string; subtask_progress: unknown }) => ({
+          block_id: task.block_id,
+          ...("subtask_progress" in task ? { subtask_progress: task.subtask_progress } : {}),
+        })),
       ).toEqual([
         {
           block_id: "board-active-1",
@@ -617,9 +587,7 @@ describe("default config", () => {
       })
       // The ✅ date the server stamped, captured from the readback.
       const STAMPED_DONE_DATE_RE = /✅ (\d{4}-\d{2}-\d{2})/
-      const completionDate = STAMPED_DONE_DATE_RE.exec(
-        textContent(readback),
-      )?.[1]
+      const completionDate = STAMPED_DONE_DATE_RE.exec(textContent(readback))?.[1]
       expect([dateBeforeWrite, dateAfterWrite]).toContain(completionDate)
       expect(textContent(readback)).toBe(
         `## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ ${completionDate} ^water-plants\n- [ ] Temp task 🏁 delete ➕ 2026-01-01 ^temp-task\n`,
@@ -696,10 +664,7 @@ describe("default config", () => {
         description: "Disposable task",
         block_id: "disposable",
         heading: "Habits",
-        changes: [
-          `created: (none) → ${todayDate}`,
-          "on_completion: (none) → delete",
-        ],
+        changes: [`created: (none) → ${todayDate}`, "on_completion: (none) → delete"],
       })
 
       const readback = await callTool({
@@ -710,9 +675,7 @@ describe("default config", () => {
       // The section carries tasks mutated by prior integration tests in
       // the same server boot (the ✅ date from the recurrence test is not
       // available here), so only the created task's line is asserted.
-      expect(textContent(readback)).toContain(
-        `🏁 delete ➕ ${todayDate} ^disposable`,
-      )
+      expect(textContent(readback)).toContain(`🏁 delete ➕ ${todayDate} ^disposable`)
     })
   })
 
@@ -1291,9 +1254,7 @@ describe("TRUST_FORWARDED_HOPS=2", () => {
 
   it("ignores a client-supplied prefix ahead of the two trusted elements", async () => {
     for (let i = 0; i < 5; i++) {
-      const response = await register(
-        "for=203.0.113.99, for=198.51.100.4, for=172.69.0.1",
-      )
+      const response = await register("for=203.0.113.99, for=198.51.100.4, for=172.69.0.1")
       expect(response.status).toBe(201)
     }
     // The exhausted bucket is keyed on 198.51.100.4 alone: neither the
@@ -1302,9 +1263,7 @@ describe("TRUST_FORWARDED_HOPS=2", () => {
     // in it.
     const sixth = await register("for=198.51.100.4, for=172.69.0.1")
     expect(sixth.status).toBe(429)
-    const otherPrefixAndEdge = await register(
-      "for=203.0.113.77, for=198.51.100.4, for=172.69.0.2",
-    )
+    const otherPrefixAndEdge = await register("for=203.0.113.77, for=198.51.100.4, for=172.69.0.2")
     expect(otherPrefixAndEdge.status).toBe(429)
     const prefixAsClient = await register("for=203.0.113.99, for=172.69.0.1")
     expect(prefixAsClient.status).toBe(201)
@@ -1414,11 +1373,7 @@ describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory",
   it("all 3 prompts present", async () => {
     const names = await promptNames(client)
     expect(names).toHaveLength(3)
-    expect(names).toEqual([
-      "daily-review",
-      "memory-review",
-      "vault-orientation",
-    ])
+    expect(names).toEqual(["daily-review", "memory-review", "vault-orientation"])
   })
 
   it("surviving write tools work", async () => {
@@ -1550,11 +1505,7 @@ describe("FILE_TOOLS_ENABLED=false", () => {
   it("all 3 prompts present", async () => {
     const names = await promptNames(client)
     expect(names).toHaveLength(3)
-    expect(names).toEqual([
-      "daily-review",
-      "memory-review",
-      "vault-orientation",
-    ])
+    expect(names).toEqual(["daily-review", "memory-review", "vault-orientation"])
   })
 })
 
@@ -1599,10 +1550,9 @@ describe("DAILY_NOTES_FORMAT with unsupported token", () => {
 
 describe("boot rejection", () => {
   it("unknown DISABLED_TOOLS name exits with error", async () => {
-    const { exitCode, stderr } = await startServerExpectingFailure(
-      await freePort(),
-      { DISABLED_TOOLS: "vault_fake_tool" },
-    )
+    const { exitCode, stderr } = await startServerExpectingFailure(await freePort(), {
+      DISABLED_TOOLS: "vault_fake_tool",
+    })
     expect(exitCode).toBe(1)
     expect(stderr).toContain("vault_fake_tool")
   }, 15_000)
@@ -1610,27 +1560,21 @@ describe("boot rejection", () => {
   it.each(["/vault*path", "/vault?path", "/vault[path]"])(
     "VAULT_PATH=%s with glob characters exits with error",
     async (vaultPath) => {
-      const { exitCode, stderr } = await startServerExpectingFailure(
-        await freePort(),
-        { VAULT_PATH: vaultPath },
-      )
+      const { exitCode, stderr } = await startServerExpectingFailure(await freePort(), {
+        VAULT_PATH: vaultPath,
+      })
       expect(exitCode).toBe(1)
-      expect(stderr).toContain(
-        "VAULT_PATH must not contain glob characters (*, ?, [)",
-      )
+      expect(stderr).toContain("VAULT_PATH must not contain glob characters (*, ?, [)")
     },
     15_000,
   )
 
   it("PUBLIC_URL with embedded credentials exits with error", async () => {
-    const { exitCode, stderr } = await startServerExpectingFailure(
-      await freePort(),
-      { PUBLIC_URL: "https://user:fake-secret@127.0.0.1" },
-    )
+    const { exitCode, stderr } = await startServerExpectingFailure(await freePort(), {
+      PUBLIC_URL: "https://user:fake-secret@127.0.0.1",
+    })
     expect(exitCode).toBe(1)
-    expect(stderr).toContain(
-      "PUBLIC_URL must not contain credentials (user:password@)",
-    )
+    expect(stderr).toContain("PUBLIC_URL must not contain credentials (user:password@)")
   }, 15_000)
 
   // Express 5 hands bind failures to the listen callback instead of
@@ -1677,11 +1621,7 @@ describe("trash retention over real HTTP", () => {
     // The shared fixture pins trashOption "local"; blanking the config makes
     // the absent key read as "system" (Obsidian's default). Rewritten before
     // any delete so no "local" read has been cached.
-    await writeFile(
-      join(server.vaultPath, ".obsidian", "app.json"),
-      "{}",
-      "utf8",
-    )
+    await writeFile(join(server.vaultPath, ".obsidian", "app.json"), "{}", "utf8")
     const client = await createTestClient(server.port)
     onTestFinished(() => client.close())
 
@@ -1700,9 +1640,7 @@ describe("trash retention over real HTTP", () => {
     expect(textContent(deleteResult)).toBe(
       "Moved Scratch/system-trash.md to trash (.trash/Scratch/system-trash.md)",
     )
-    expect(readTrashEntryRows(server.dataDir)).toEqual([
-      ".trash/Scratch/system-trash.md",
-    ])
+    expect(readTrashEntryRows(server.dataDir)).toEqual([".trash/Scratch/system-trash.md"])
   }, 30_000)
 
   it("a delete under the explicit local option records no trash entry", async () => {

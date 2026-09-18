@@ -186,10 +186,7 @@ describe("parseMemoryEntries", () => {
   })
 
   it("keeps a calendar-invalid date verbatim", () => {
-    const lines = [
-      "## Section",
-      "- **2026-13-45**: Impossible date, kept as-is.",
-    ]
+    const lines = ["## Section", "- **2026-13-45**: Impossible date, kept as-is."]
     expect(parseMemoryEntries(lines)).toEqual([
       {
         section: "Section",
@@ -244,10 +241,7 @@ describe("parseMemoryEntries", () => {
   })
 
   it("returns no entries for a file without H2 sections", () => {
-    const lines = [
-      "# Only a Title",
-      "- **2026-01-01**: Dated bullet outside any H2 section.",
-    ]
+    const lines = ["# Only a Title", "- **2026-01-01**: Dated bullet outside any H2 section."]
     expect(parseMemoryEntries(lines)).toEqual([])
   })
 

@@ -105,9 +105,7 @@ describe("buildLocalConnectMessage", () => {
       tokenWritten: false,
     })
 
-    expect(message).toContain(
-      `use the existing MCP_AUTH_TOKEN in ${localDefaults.targetDir}/.env`,
-    )
+    expect(message).toContain(`use the existing MCP_AUTH_TOKEN in ${localDefaults.targetDir}/.env`)
   })
 
   it("includes the targetDir in the settings paragraph", () => {
@@ -119,9 +117,7 @@ describe("buildLocalConnectMessage", () => {
   it("links Full docs to the repo front page, not a deep blob URL", () => {
     const message = buildLocalConnectMessage(localDefaults)
 
-    expect(message).toContain(
-      "Full docs: https://github.com/aliasunder/vault-cortex\n",
-    )
+    expect(message).toContain("Full docs: https://github.com/aliasunder/vault-cortex\n")
     expect(message).not.toContain("blob/main/deploy/local/README.md")
   })
 
@@ -129,9 +125,7 @@ describe("buildLocalConnectMessage", () => {
     const message = buildLocalConnectMessage(localDefaults)
 
     expect(message).toContain("Update to the latest release:")
-    expect(message).toContain(
-      `npx vault-cortex@latest upgrade --dir "${localDefaults.targetDir}"`,
-    )
+    expect(message).toContain(`npx vault-cortex@latest upgrade --dir "${localDefaults.targetDir}"`)
   })
 
   it("includes the OAuth connect walkthrough", () => {
@@ -325,18 +319,14 @@ describe("buildRemoteConnectMessage", () => {
       tokenWritten: false,
     })
 
-    expect(message).toContain(
-      `use the existing MCP_AUTH_TOKEN in ${remoteDefaults.targetDir}/.env`,
-    )
+    expect(message).toContain(`use the existing MCP_AUTH_TOKEN in ${remoteDefaults.targetDir}/.env`)
   })
 
   it("includes the image update command with the targetDir", () => {
     const message = buildRemoteConnectMessage(remoteDefaults)
 
     expect(message).toContain("Update to the latest release:")
-    expect(message).toContain(
-      `npx vault-cortex@latest upgrade --dir "${remoteDefaults.targetDir}"`,
-    )
+    expect(message).toContain(`npx vault-cortex@latest upgrade --dir "${remoteDefaults.targetDir}"`)
   })
 
   it("includes the remote docs link", () => {
@@ -394,9 +384,7 @@ describe("buildDaemonNotRunningMessage", () => {
 
 describe("buildDockerNotInstalledMessage", () => {
   it("points macOS at the Docker Desktop docs", () => {
-    expect(
-      buildDockerNotInstalledMessage({ nextStep: "", platform: "darwin" }),
-    ).toBe(
+    expect(buildDockerNotInstalledMessage({ nextStep: "", platform: "darwin" })).toBe(
       "No container runtime found — the server runs in Docker, so you need\n" +
         "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
         "Install Docker Desktop: https://docs.docker.com/get-docker/",
@@ -404,9 +392,7 @@ describe("buildDockerNotInstalledMessage", () => {
   })
 
   it("points Linux at the Docker Engine install docs", () => {
-    expect(
-      buildDockerNotInstalledMessage({ nextStep: "", platform: "linux" }),
-    ).toBe(
+    expect(buildDockerNotInstalledMessage({ nextStep: "", platform: "linux" })).toBe(
       "No container runtime found — the server runs in Docker, so you need\n" +
         "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
         "Install Docker Engine: https://docs.docker.com/engine/install/",
@@ -414,9 +400,7 @@ describe("buildDockerNotInstalledMessage", () => {
   })
 
   it("points Windows at the Docker Desktop docs", () => {
-    expect(
-      buildDockerNotInstalledMessage({ nextStep: "", platform: "win32" }),
-    ).toBe(
+    expect(buildDockerNotInstalledMessage({ nextStep: "", platform: "win32" })).toBe(
       "No container runtime found — the server runs in Docker, so you need\n" +
         "Docker or a Docker-compatible runtime (OrbStack, Colima, Podman).\n" +
         "Install Docker Desktop: https://docs.docker.com/get-docker/",

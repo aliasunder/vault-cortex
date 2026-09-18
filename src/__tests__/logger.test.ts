@@ -1,22 +1,10 @@
 import { describe, it, expect, onTestFinished, vi } from "vitest"
-import {
-  mkdtempSync,
-  rmSync,
-  readFileSync,
-  writeFileSync,
-  readdirSync,
-  existsSync,
-} from "node:fs"
+import { mkdtempSync, rmSync, readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { DateTime, Settings } from "luxon"
 import { findSourceMap } from "node:module"
-import {
-  createFileSinkExtension,
-  pruneOldLogFiles,
-  logger,
-  resolveLogDir,
-} from "../logger.js"
+import { createFileSinkExtension, pruneOldLogFiles, logger, resolveLogDir } from "../logger.js"
 
 vi.mock("node:module", { spy: true })
 
@@ -139,19 +127,10 @@ describe("createFileSinkExtension", () => {
     const files = readdirSync(logDir)
       .filter((filename) => filename.endsWith(".log"))
       .sort()
-    expect(files).toEqual([
-      "vault-mcp-2026-01-15.log",
-      "vault-mcp-2026-01-16.log",
-    ])
+    expect(files).toEqual(["vault-mcp-2026-01-15.log", "vault-mcp-2026-01-16.log"])
 
-    const day1Content = readFileSync(
-      join(logDir, "vault-mcp-2026-01-15.log"),
-      "utf8",
-    )
-    const day2Content = readFileSync(
-      join(logDir, "vault-mcp-2026-01-16.log"),
-      "utf8",
-    )
+    const day1Content = readFileSync(join(logDir, "vault-mcp-2026-01-15.log"), "utf8")
+    const day2Content = readFileSync(join(logDir, "vault-mcp-2026-01-16.log"), "utf8")
     const day1Line = JSON.parse(day1Content.trim())
     const day2Line = JSON.parse(day2Content.trim())
     expect(day1Line.message).toBe("day1")
@@ -209,10 +188,7 @@ describe("pruneOldLogFiles", () => {
     pruneOldLogFiles(logDir, 30)
 
     const remaining = readdirSync(logDir).sort()
-    expect(remaining).toEqual([
-      `vault-mcp-${yesterday}.log`,
-      `vault-mcp-${today}.log`,
-    ])
+    expect(remaining).toEqual([`vault-mcp-${yesterday}.log`, `vault-mcp-${today}.log`])
   })
 
   it("keeps 90 days of log files when no retention is configured", () => {
@@ -245,17 +221,13 @@ describe("source location resolution", () => {
   /** Captures JSON log lines emitted to stdout while the spy is active. */
   const captureEmittedLines = (): (() => Record<string, unknown>[]) => {
     const writtenChunks: string[] = []
-    const stdoutSpy = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation((chunk) => {
-        writtenChunks.push(String(chunk))
-        return true
-      })
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      writtenChunks.push(String(chunk))
+      return true
+    })
     onTestFinished(() => stdoutSpy.mockRestore())
     return () =>
-      writtenChunks
-        .filter((chunk) => chunk.startsWith("{"))
-        .map((chunk) => JSON.parse(chunk))
+      writtenChunks.filter((chunk) => chunk.startsWith("{")).map((chunk) => JSON.parse(chunk))
   }
 
   it("emits a source field with a .ts extension when source maps are available", () => {
@@ -341,6 +313,7 @@ describe("source location resolution", () => {
     logger.debug("debug message")
 
     const debugLines = emittedLines()
+
     if (debugLines.length > 0) {
       expect(debugLines[0]).not.toHaveProperty("source")
     }
@@ -352,17 +325,13 @@ describe("logger child lazy props", () => {
    *  Non-JSON stdout writes (test-runner output) are filtered out. */
   const captureEmittedLines = (): (() => Record<string, unknown>[]) => {
     const writtenChunks: string[] = []
-    const stdoutSpy = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation((chunk) => {
-        writtenChunks.push(String(chunk))
-        return true
-      })
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      writtenChunks.push(String(chunk))
+      return true
+    })
     onTestFinished(() => stdoutSpy.mockRestore())
     return () =>
-      writtenChunks
-        .filter((chunk) => chunk.startsWith("{"))
-        .map((chunk) => JSON.parse(chunk))
+      writtenChunks.filter((chunk) => chunk.startsWith("{")).map((chunk) => JSON.parse(chunk))
   }
 
   it("resolves a function-valued prop at emit time, not at child creation", () => {

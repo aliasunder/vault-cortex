@@ -3,10 +3,7 @@
 import { z } from "zod"
 import envVar from "env-var"
 import { DateTime } from "luxon"
-import {
-  momentToLuxonFormat,
-  findUnsupportedTokens,
-} from "./obsidian-markdown/moment-format.js"
+import { momentToLuxonFormat, findUnsupportedTokens } from "./obsidian-markdown/moment-format.js"
 import { logger } from "../logger.js"
 import { isToolName } from "./mcp-core/tool-registry.js"
 import type { ToolName } from "./mcp-core/tool-registry.js"
@@ -24,10 +21,7 @@ const vaultFolderName = z
     z
       .string()
       .refine((value) => value.length > 0, "folder name cannot be blank")
-      .refine(
-        (value) => !value.includes(".."),
-        "path traversal (..) not allowed",
-      )
+      .refine((value) => !value.includes(".."), "path traversal (..) not allowed")
       .refine((value) => !value.startsWith("/"), "absolute paths not allowed"),
   )
 
@@ -49,30 +43,22 @@ const parseVaultFolderList = (raw: string): string[] =>
  *  separators, empty) are rejected. Warns when the format contains
  *  unsupported tokens. Returns the raw moment string unchanged. */
 const validateDailyNotesFormat = (momentFormat: string): string => {
-  const renderedProbe = DateTime.fromISO("2026-01-31").toFormat(
-    momentToLuxonFormat(momentFormat),
-  )
+  const renderedProbe = DateTime.fromISO("2026-01-31").toFormat(momentToLuxonFormat(momentFormat))
+
   if (renderedProbe.trim().length === 0) {
-    throw new Error(
-      `env-var: "DAILY_NOTES_FORMAT" renders to an empty filename`,
-    )
+    throw new Error(`env-var: "DAILY_NOTES_FORMAT" renders to an empty filename`)
   }
   if (momentFormat.includes("..") || renderedProbe.includes("..")) {
-    throw new Error(
-      `env-var: "DAILY_NOTES_FORMAT" must not contain path traversal (..)`,
-    )
+    throw new Error(`env-var: "DAILY_NOTES_FORMAT" must not contain path traversal (..)`)
   }
   if (momentFormat.startsWith("/") || renderedProbe.startsWith("/")) {
-    throw new Error(
-      `env-var: "DAILY_NOTES_FORMAT" must not start with a path separator`,
-    )
+    throw new Error(`env-var: "DAILY_NOTES_FORMAT" must not start with a path separator`)
   }
   if (momentFormat.endsWith("/") || renderedProbe.endsWith("/")) {
-    throw new Error(
-      `env-var: "DAILY_NOTES_FORMAT" must not end with a path separator`,
-    )
+    throw new Error(`env-var: "DAILY_NOTES_FORMAT" must not end with a path separator`)
   }
   const unsupportedTokens = findUnsupportedTokens(momentFormat)
+
   if (unsupportedTokens.length > 0) {
     logger.warn(
       `DAILY_NOTES_FORMAT contains unsupported token(s): ${unsupportedTokens.join(", ")} — daily note lookups will fail; vault_get_daily_note will return an error until the format is changed`,
@@ -181,13 +167,9 @@ export type VaultConfig = Readonly<{
 
 /** Loads and validates config from env vars. Pass a custom env record
  *  for testing — defaults to process.env when omitted. */
-export const loadConfig = (
-  env: Record<string, string | undefined> = process.env,
-): VaultConfig => {
+export const loadConfig = (env: Record<string, string | undefined> = process.env): VaultConfig => {
   const memoryDirRaw = env.MEMORY_DIR?.trim()
-  const memoryDir = memoryDirRaw
-    ? vaultFolderName.parse(memoryDirRaw)
-    : "About Me"
+  const memoryDir = memoryDirRaw ? vaultFolderName.parse(memoryDirRaw) : "About Me"
 
   const dailyNotesFolderRaw = env.DAILY_NOTES_FOLDER?.trim()
   const dailyNotesFolder = dailyNotesFolderRaw
@@ -200,9 +182,7 @@ export const loadConfig = (
     : undefined
 
   const protectedPathsRaw = env.PROTECTED_PATHS?.trim()
-  const protectedPathsOverride = protectedPathsRaw
-    ? parseVaultFolderList(protectedPathsRaw)
-    : null
+  const protectedPathsOverride = protectedPathsRaw ? parseVaultFolderList(protectedPathsRaw) : null
 
   // The orphan default tracks the env-configured daily notes folder only
   // (the vault's daily-notes.json can't cascade here — config load is
@@ -219,36 +199,20 @@ export const loadConfig = (
     : "https://github.com/aliasunder/vault-cortex"
 
   // env-var's .asBool() parses true/false/1/0 and fails fast on anything else.
-  const memoryEnabled = envVar
-    .from(env)
-    .get("MEMORY_ENABLED")
-    .default("true")
-    .asBool()
+  const memoryEnabled = envVar.from(env).get("MEMORY_ENABLED").default("true").asBool()
 
-  const fileToolsEnabled = envVar
-    .from(env)
-    .get("FILE_TOOLS_ENABLED")
-    .default("true")
-    .asBool()
+  const fileToolsEnabled = envVar.from(env).get("FILE_TOOLS_ENABLED").default("true").asBool()
 
-  const readOnlyMode = envVar
-    .from(env)
-    .get("READONLY_MODE")
-    .default("false")
-    .asBool()
+  const readOnlyMode = envVar.from(env).get("READONLY_MODE").default("false").asBool()
 
   // Unknown names are rejected at boot: a typo that silently disabled
   // nothing would leave the operator believing a tool is off when it isn't.
   const disabledToolsRaw = env.DISABLED_TOOLS?.trim()
-  const disabledToolEntries = disabledToolsRaw
-    ? splitCommaSeparatedValues(disabledToolsRaw)
-    : []
+  const disabledToolEntries = disabledToolsRaw ? splitCommaSeparatedValues(disabledToolsRaw) : []
   const disabledTools: ReadonlySet<ToolName> = new Set(
     disabledToolEntries.map((toolName) => {
       if (!isToolName(toolName)) {
-        throw new Error(
-          `env-var: "DISABLED_TOOLS" contains an unknown tool name: "${toolName}"`,
-        )
+        throw new Error(`env-var: "DISABLED_TOOLS" contains an unknown tool name: "${toolName}"`)
       }
       return toolName
     }),
@@ -257,27 +221,15 @@ export const loadConfig = (
   // Default 0: req.ip is the socket peer, so an injected X-Forwarded-For
   // can't shift a client into a fresh rate-limit bucket. A deployment
   // behind proxies opts into one hop per proxy it controls.
-  const trustProxyHops = envVar
-    .from(env)
-    .get("TRUST_PROXY_HOPS")
-    .default("0")
-    .asIntPositive()
+  const trustProxyHops = envVar.from(env).get("TRUST_PROXY_HOPS").default("0").asIntPositive()
 
-  const embeddingEnabled = envVar
-    .from(env)
-    .get("EMBEDDING_ENABLED")
-    .default("true")
-    .asBool()
+  const embeddingEnabled = envVar.from(env).get("EMBEDDING_ENABLED").default("true").asBool()
 
   const rerankMode = z
     .enum(["none", "blended"])
     .parse(envVar.from(env).get("RERANK_MODE").default("blended").asString())
 
-  const windowsBindMount = envVar
-    .from(env)
-    .get("WINDOWS_MODE")
-    .default("false")
-    .asBool()
+  const windowsBindMount = envVar.from(env).get("WINDOWS_MODE").default("false").asBool()
 
   // env-var's asIntPositive admits 0, but a zero byte cap would make every
   // file read fail at runtime — reject it at startup instead.
@@ -298,11 +250,7 @@ export const loadConfig = (
   // MCP output cap with headroom for the metadata text block.
   const maxImageOutputBytes = requireNonZero(
     "MAX_IMAGE_OUTPUT_BYTES",
-    envVar
-      .from(env)
-      .get("MAX_IMAGE_OUTPUT_BYTES")
-      .default("49152")
-      .asIntPositive(),
+    envVar.from(env).get("MAX_IMAGE_OUTPUT_BYTES").default("49152").asIntPositive(),
   )
 
   const maxPdfRenderPages = requireNonZero(
@@ -319,11 +267,7 @@ export const loadConfig = (
       ? null
       : requireNonZero(
           "TRASH_RETENTION_DAYS",
-          envVar
-            .from(env)
-            .get("TRASH_RETENTION_DAYS")
-            .default("30")
-            .asIntPositive(),
+          envVar.from(env).get("TRASH_RETENTION_DAYS").default("30").asIntPositive(),
         )
 
   // Default 0 (header ignored): without a proxy that writes the Forwarded
@@ -364,10 +308,6 @@ export const loadConfig = (
     maxImageOutputBytes,
     maxPdfRenderPages,
     trashRetentionDays,
-    obsidianSyncEnabled: envVar
-      .from(env)
-      .get("OBSIDIAN_SYNC")
-      .default("false")
-      .asBool(),
+    obsidianSyncEnabled: envVar.from(env).get("OBSIDIAN_SYNC").default("false").asBool(),
   })
 }

@@ -21,9 +21,7 @@ const buildPayload = (overrides: Partial<JwtPayload> = {}): JwtPayload => ({
 /** Signs any claims object — `signJwt` only accepts the bound payload shape,
  *  and the pre-binding tokens under test are missing `aud`. */
 const signClaims = (claims: object, secret: string): string => {
-  const header = Buffer.from(
-    JSON.stringify({ alg: "HS256", typ: "JWT" }),
-  ).toString("base64url")
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
   const body = Buffer.from(JSON.stringify(claims)).toString("base64url")
   const sig = createHmac("sha256", secret)
     .update(`${header}.${body}`)
@@ -75,9 +73,7 @@ describe("signJwt", () => {
     const payload = buildPayload({ sub: "alice", scope: "vault read" })
     const token = signJwt(payload, SECRET)
     const [, body] = token.split(".") as [string, string]
-    const decoded = JSON.parse(
-      Buffer.from(body, "base64url").toString(),
-    ) as JwtPayload
+    const decoded = JSON.parse(Buffer.from(body, "base64url").toString()) as JwtPayload
     expect(decoded).toEqual(payload)
   })
 })
@@ -104,9 +100,9 @@ describe("verifyJwt", () => {
   it("returns null when the payload has been tampered with", () => {
     const token = signJwt(buildPayload(), SECRET)
     const [header, , sig] = token.split(".") as [string, string, string]
-    const tamperedBody = Buffer.from(
-      JSON.stringify(buildPayload({ scope: "admin" })),
-    ).toString("base64url")
+    const tamperedBody = Buffer.from(JSON.stringify(buildPayload({ scope: "admin" }))).toString(
+      "base64url",
+    )
     expect(verify(`${header}.${tamperedBody}.${sig}`, SECRET)).toBeNull()
   })
 
@@ -125,9 +121,7 @@ describe("verifyJwt", () => {
   })
 
   it("returns null when the payload body is not valid JSON", () => {
-    const header = Buffer.from(
-      JSON.stringify({ alg: "HS256", typ: "JWT" }),
-    ).toString("base64url")
+    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
     const garbageBody = Buffer.from("not-json").toString("base64url")
     const sig = createHmac("sha256", SECRET)
       .update(`${header}.${garbageBody}`)
@@ -143,12 +137,8 @@ describe("verifyJwt", () => {
   })
 
   it("returns null for a payload missing required fields", () => {
-    const header = Buffer.from(
-      JSON.stringify({ alg: "HS256", typ: "JWT" }),
-    ).toString("base64url")
-    const body = Buffer.from(JSON.stringify({ foo: "bar" })).toString(
-      "base64url",
-    )
+    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
+    const body = Buffer.from(JSON.stringify({ foo: "bar" })).toString("base64url")
     const sig = createHmac("sha256", SECRET)
       .update(`${header}.${body}`)
       .digest()
@@ -157,9 +147,7 @@ describe("verifyJwt", () => {
   })
 
   it("returns null when exp is a string instead of number", () => {
-    const header = Buffer.from(
-      JSON.stringify({ alg: "HS256", typ: "JWT" }),
-    ).toString("base64url")
+    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
     const body = Buffer.from(
       JSON.stringify({
         sub: "x",
@@ -195,9 +183,7 @@ describe("verifyJwt", () => {
   })
 
   it("returns null for a payload without an audience", () => {
-    const header = Buffer.from(
-      JSON.stringify({ alg: "HS256", typ: "JWT" }),
-    ).toString("base64url")
+    const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
     const body = Buffer.from(
       JSON.stringify({
         sub: "x",
@@ -249,9 +235,7 @@ describe("verifyJwt", () => {
     const [header, body, sig] = token.split(".") as [string, string, string]
     const flipped = Buffer.from(sig, "base64url")
     flipped[0] = flipped[0]! ^ 0xff
-    expect(
-      verify(`${header}.${body}.${flipped.toString("base64url")}`, SECRET),
-    ).toBeNull()
+    expect(verify(`${header}.${body}.${flipped.toString("base64url")}`, SECRET)).toBeNull()
   })
 })
 

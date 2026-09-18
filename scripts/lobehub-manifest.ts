@@ -28,9 +28,7 @@ const GITHUB_OWNER = "aliasunder"
 
 /** Absolute path of the manifest `lhm plugin publish` reads. Generated, not
  *  committed — `npm run publish:lobehub` regenerates it before every publish. */
-export const LOBEHUB_MANIFEST_PATH = fileURLToPath(
-  new URL("../lhm.plugin.json", import.meta.url),
-)
+export const LOBEHUB_MANIFEST_PATH = fileURLToPath(new URL("../lhm.plugin.json", import.meta.url))
 
 type ManifestTool = {
   name: string
@@ -92,16 +90,12 @@ const connectToRegisteredServer = async (): Promise<Client> => {
   registerTools(registrationContext)
   registerPrompts(registrationContext)
 
-  const [clientTransport, serverTransport] =
-    InMemoryTransport.createLinkedPair()
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
   const client = new Client({
     name: "lobehub-manifest-builder",
     version: packageJson.version,
   })
-  await Promise.all([
-    server.connect(serverTransport),
-    client.connect(clientTransport),
-  ])
+  await Promise.all([server.connect(serverTransport), client.connect(clientTransport)])
   return client
 }
 
@@ -122,14 +116,9 @@ const assertSinglePage = (listName: string, nextCursor?: string): void => {
  * sets one — an absent description is a registration bug, and failing the build
  * beats publishing a listing entry the marketplace renders blank.
  */
-const requireDescription = (
-  description: string | undefined,
-  subject: string,
-): string => {
+const requireDescription = (description: string | undefined, subject: string): string => {
   if (!description) {
-    throw new Error(
-      `${subject} has no description; every tool and prompt must declare one`,
-    )
+    throw new Error(`${subject} has no description; every tool and prompt must declare one`)
   }
   return description
 }
@@ -149,10 +138,7 @@ const toManifestTool = (tool: Tool): ManifestTool => {
 const toManifestPrompt = (prompt: Prompt): ManifestPrompt => {
   return {
     name: prompt.name,
-    description: requireDescription(
-      prompt.description,
-      `prompt "${prompt.name}"`,
-    ),
+    description: requireDescription(prompt.description, `prompt "${prompt.name}"`),
   }
 }
 

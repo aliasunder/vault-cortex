@@ -44,10 +44,7 @@ export type JudgmentQuery = z.infer<typeof judgmentQuerySchema>
  *  case-folded like the snapshot exclusions, so a hand-typed "docs"
  *  matches an on-disk "Docs/"; the cost is that paths differing only in
  *  case both credit on a case-sensitive vault. */
-const matchesExpectedPath = (
-  judgmentQuery: JudgmentQuery,
-  path: string,
-): boolean => {
+const matchesExpectedPath = (judgmentQuery: JudgmentQuery, path: string): boolean => {
   const foldedPath = caseFoldPath(path)
   const foldedExpectedPaths = judgmentQuery.expected_any?.map(caseFoldPath)
 
@@ -59,9 +56,7 @@ const matchesExpectedPath = (
 
   // Trailing slash means this is a folder-membership test: paths inside the
   // folder match, but the folder path itself never does.
-  const folderPrefix = expectedPrefix.endsWith("/")
-    ? expectedPrefix
-    : `${expectedPrefix}/`
+  const folderPrefix = expectedPrefix.endsWith("/") ? expectedPrefix : `${expectedPrefix}/`
   return foldedPath.startsWith(caseFoldPath(folderPrefix))
 }
 
@@ -83,9 +78,7 @@ export const countUnexpectedFilesInWindow = (
   windowSize: number,
 ): number => {
   return results.slice(0, windowSize).filter((result) => {
-    return (
-      result.kind === "file" && !matchesExpectedPath(judgmentQuery, result.path)
-    )
+    return result.kind === "file" && !matchesExpectedPath(judgmentQuery, result.path)
   }).length
 }
 
@@ -116,8 +109,7 @@ type EvalRunPlan = {
  *  an actual 0 is valid and does exactly that on purpose. */
 const parseFileLegWeight = (rawWeight: string): number => {
   const weight = Number(rawWeight)
-  const weightIsValid =
-    rawWeight.trim() !== "" && Number.isFinite(weight) && weight >= 0
+  const weightIsValid = rawWeight.trim() !== "" && Number.isFinite(weight) && weight >= 0
 
   if (!weightIsValid) {
     throw new Error("--file-leg-weight must be a finite number >= 0")
@@ -131,18 +123,14 @@ const parseFileLegWeight = (rawWeight: string): number => {
  *  check would always report true. Throws on any invalid combination. */
 export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
   if (!cliArgs.judgment) {
-    throw new Error(
-      "--judgment <path> is required (a local judgment JSON — see the file header)",
-    )
+    throw new Error("--judgment <path> is required (a local judgment JSON — see the file header)")
   }
 
   const limits = cliArgs.limits.split(",").map((limitText) => {
     const limit = Number(limitText.trim())
 
     if (!Number.isInteger(limit) || limit < 1) {
-      throw new Error(
-        `--limits entries must be positive integers: ${limitText}`,
-      )
+      throw new Error(`--limits entries must be positive integers: ${limitText}`)
     }
     return limit
   })
@@ -152,9 +140,7 @@ export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
   // variable) rejects instead of silently falling back.
   const rawFileLegWeight = cliArgs["file-leg-weight"]
   const fileLegWeight =
-    rawFileLegWeight === undefined
-      ? undefined
-      : parseFileLegWeight(rawFileLegWeight)
+    rawFileLegWeight === undefined ? undefined : parseFileLegWeight(rawFileLegWeight)
 
   // A reused index over a freshly copied snapshot would score a corpus the
   // index never saw — the two reuse flags only make sense together.
@@ -162,8 +148,7 @@ export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
     throw new Error("--reuse-index requires --reuse-snapshot")
   }
 
-  const workDir =
-    cliArgs["work-dir"] ?? join(tmpdir(), "vault-cortex-search-eval")
+  const workDir = cliArgs["work-dir"] ?? join(tmpdir(), "vault-cortex-search-eval")
   const snapshotDir = join(workDir, "vault-snapshot")
   // Enrichment changes every note chunk's text, so it gets its own index
   // file — the plain index stays reusable for weight sweeps.
@@ -174,8 +159,7 @@ export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
 
   // Only a directory the harness created may be adopted — an operator's own
   // vault-snapshot folder must not silently become the scored corpus.
-  const snapshotReused =
-    cliArgs["reuse-snapshot"] && isHarnessSnapshot(snapshotDir)
+  const snapshotReused = cliArgs["reuse-snapshot"] && isHarnessSnapshot(snapshotDir)
 
   // An index can only be reused over the snapshot it was built from — when
   // the snapshot is absent (or not harness-created) it gets rebuilt this

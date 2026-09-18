@@ -7,6 +7,7 @@ export const assertPathHasExtension = (
   extension: string | readonly string[],
 ): void => {
   const extensions = typeof extension === "string" ? [extension] : extension
+
   if (extensions.some((ext) => path.endsWith(ext))) return
   const extensionList = extensions.map((ext) => `"${ext}"`).join(" or ")
   throw new Error(`path must end in ${extensionList} (received "${path}")`)

@@ -15,10 +15,7 @@ import {
   linesBeforeFirstHeading,
   type HeadingInfo,
 } from "../obsidian-markdown/headings.js"
-import {
-  splitIntoLines,
-  trimBlankEdgeLines,
-} from "../obsidian-markdown/lines.js"
+import { splitIntoLines, trimBlankEdgeLines } from "../obsidian-markdown/lines.js"
 import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
@@ -59,15 +56,11 @@ type PatchNoteResult = Readonly<{
  *  excludes CR, so a CRLF-authored `## New\r` would otherwise read as ordinary
  *  text and report nothing. Detection only — callers insert the caller's own
  *  lines verbatim, line endings untouched. */
-const leadingHeadingOfContent = (
-  contentLines: readonly string[],
-): HeadingInfo | null => {
+const leadingHeadingOfContent = (contentLines: readonly string[]): HeadingInfo | null => {
   const normalizedLines = contentLines.map((line) =>
     line.endsWith("\r") ? line.slice(0, -1) : line,
   )
-  const firstContentLineIndex = normalizedLines.findIndex(
-    (line) => line.trim() !== "",
-  )
+  const firstContentLineIndex = normalizedLines.findIndex((line) => line.trim() !== "")
   return (
     parseHeadings(normalizedLines).find(
       (contentHeading) => contentHeading.startLine === firstContentLineIndex,
@@ -80,20 +73,15 @@ const leadingHeadingOfContent = (
  *  sits there (the common, safe case) — including when the note's very first
  *  line is a heading, where a prepended heading of any level terminates at it
  *  and displaces nothing. */
-const findDisplacedLeadingContent = (
-  lines: readonly string[],
-): DisplacedLeadingContent | null => {
+const findDisplacedLeadingContent = (lines: readonly string[]): DisplacedLeadingContent | null => {
   const headings = parseHeadings(lines)
-  const regionLines = trimBlankEdgeLines(
-    linesBeforeFirstHeading(lines, headings),
-  )
+  const regionLines = trimBlankEdgeLines(linesBeforeFirstHeading(lines, headings))
+
   if (regionLines.length === 0) return null
   const firstHeading = headings[0]
   return {
     bytes: Buffer.byteLength(regionLines.join("\n"), "utf8"),
-    firstHeading: firstHeading
-      ? { text: firstHeading.text, level: firstHeading.level }
-      : null,
+    firstHeading: firstHeading ? { text: firstHeading.text, level: firstHeading.level } : null,
   }
 }
 
@@ -184,8 +172,7 @@ const truncateForMessage = (text: string): string =>
 
 /** Collapses runs of 3+ newlines down to one blank line, so removing content
  *  doesn't leave a visible multi-line gap. */
-const collapseBlankRuns = (body: string): string =>
-  body.replace(/\n{3,}/g, "\n\n")
+const collapseBlankRuns = (body: string): string => body.replace(/\n{3,}/g, "\n\n")
 
 /** Resolves an anchor substring to the single body line that contains it,
  *  searching at or after `fromLine`. The match must be unique by default:
@@ -208,6 +195,7 @@ const resolveAnchorLine = (params: {
   )
   // The end anchor is searched only at or after the start line; its errors say so.
   const regionSuffix = role === "end" ? " at or after the start anchor" : ""
+
   if (matchingLineIndices.length === 0) {
     throw new Error(
       `${anchorLabel} not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`,
@@ -219,6 +207,7 @@ const resolveAnchorLine = (params: {
     )
   }
   const matchedIndex = matchingLineIndices[0]
+
   if (matchedIndex === undefined) {
     throw new Error(
       `${anchorLabel} not found in "${path}"${regionSuffix}: "${truncateForMessage(anchor)}"`,
@@ -246,6 +235,7 @@ const resolveSpanLines = (params: {
     path,
     role: "start",
   })
+
   if (endAnchor === undefined) {
     return { startLine, endLine: startLine }
   }
@@ -275,15 +265,11 @@ const patchNote = async (
   },
   logger: Logger,
 ): Promise<PatchNoteResult> => {
-  const { path, operation, content, heading, headingLevel, includeChildren } =
-    params
+  const { path, operation, content, heading, headingLevel, includeChildren } = params
   assertNoControlCharacters(content, "content")
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
-    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
-      params.vaultPath,
-      path,
-    )
+    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(params.vaultPath, path)
     const contentLines = content.split("\n")
 
     // File-level operation (no heading target)
@@ -300,22 +286,14 @@ const patchNote = async (
       // Detection runs on the pre-patch lines — afterwards the note's first
       // heading is the inserted one.
       const insertsLeadingHeading =
-        operation === "prepend" &&
-        leadingHeadingOfContent(contentLines) !== null
+        operation === "prepend" && leadingHeadingOfContent(contentLines) !== null
       const displacedLeadingContent = insertsLeadingHeading
         ? findDisplacedLeadingContent(lines)
         : null
 
       const updatedLines =
-        operation === "append"
-          ? [...lines, ...contentLines]
-          : [...contentLines, ...lines]
-      const afterBytes = await writePatchedNote(
-        fullPath,
-        data,
-        updatedLines,
-        logger,
-      )
+        operation === "append" ? [...lines, ...contentLines] : [...contentLines, ...lines]
+      const afterBytes = await writePatchedNote(fullPath, data, updatedLines, logger)
       logger.info("patched note", {
         path,
         operation,
@@ -343,6 +321,7 @@ const patchNote = async (
       leadingContentHeading !== null &&
       leadingContentHeading.level === target.level &&
       leadingContentHeading.text === target.text
+
     if (contentRepeatsTargetHeading) {
       throw new Error(
         `content begins with the heading "${targetDesc}", which would duplicate it — ` +
@@ -355,32 +334,21 @@ const patchNote = async (
     if (operation === "replace" && !includeChildren) {
       const childHeadings = headings.filter(
         (candidate) =>
-          candidate.startLine >= target.bodyStartLine &&
-          candidate.startLine < target.bodyEndLine,
+          candidate.startLine >= target.bodyStartLine && candidate.startLine < target.bodyEndLine,
       )
+
       if (childHeadings.length > 0) {
         const childList = childHeadings.map((child) => child.text).join(", ")
-        const noun =
-          childHeadings.length === 1 ? "child heading" : "child headings"
+        const noun = childHeadings.length === 1 ? "child heading" : "child headings"
         throw new Error(
           `section "${targetDesc}" has ${childHeadings.length} ${noun} (${childList})`,
         )
       }
     }
 
-    const updatedLines = applySectionOperation(
-      lines,
-      contentLines,
-      target,
-      operation,
-    )
+    const updatedLines = applySectionOperation(lines, contentLines, target, operation)
 
-    const afterBytes = await writePatchedNote(
-      fullPath,
-      data,
-      updatedLines,
-      logger,
-    )
+    const afterBytes = await writePatchedNote(fullPath, data, updatedLines, logger)
     logger.info("patched note", {
       path,
       operation,
@@ -415,17 +383,12 @@ const replaceInNote = async (
 
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
-    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
-      params.vaultPath,
-      path,
-    )
+    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(params.vaultPath, path)
 
     const body = lines.join("\n")
 
     if (!body.includes(oldText)) {
-      throw new Error(
-        `text not found in "${path}": "${truncateForMessage(oldText)}"`,
-      )
+      throw new Error(`text not found in "${path}": "${truncateForMessage(oldText)}"`)
     }
 
     const idx = body.indexOf(oldText)
@@ -436,22 +399,15 @@ const replaceInNote = async (
         }
       : {
           count: 1,
-          updatedBody:
-            body.slice(0, idx) + newText + body.slice(idx + oldText.length),
+          updatedBody: body.slice(0, idx) + newText + body.slice(idx + oldText.length),
         }
 
     // When deleting text (newText is empty), collapse runs of 3+ blank
     // lines down to 1 blank line so removals don't leave visible gaps.
-    const normalizedBody =
-      newText.length === 0 ? collapseBlankRuns(updatedBody) : updatedBody
+    const normalizedBody = newText.length === 0 ? collapseBlankRuns(updatedBody) : updatedBody
 
     const updatedLines = normalizedBody.split("\n")
-    const afterBytes = await writePatchedNote(
-      fullPath,
-      data,
-      updatedLines,
-      logger,
-    )
+    const afterBytes = await writePatchedNote(fullPath, data, updatedLines, logger)
     logger.info("replaced in note", { path, count, beforeBytes, afterBytes })
     return {
       message: `Replaced ${count} occurrence${count > 1 ? "s" : ""} in ${path}`,
@@ -489,10 +445,7 @@ const deleteSpan = async (
 
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
-    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
-      params.vaultPath,
-      path,
-    )
+    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(params.vaultPath, path)
 
     const { startLine, endLine } = resolveSpanLines({
       lines,
@@ -505,12 +458,7 @@ const deleteSpan = async (
     const removedLines = lines.slice(startLine, endLine + 1)
     const remainingLines = lines.toSpliced(startLine, removedLines.length)
     const normalizedBody = collapseBlankRuns(remainingLines.join("\n"))
-    const afterBytes = await writePatchedNote(
-      fullPath,
-      data,
-      normalizedBody.split("\n"),
-      logger,
-    )
+    const afterBytes = await writePatchedNote(fullPath, data, normalizedBody.split("\n"), logger)
 
     logger.info("deleted span", {
       path,
@@ -554,10 +502,7 @@ const replaceSpan = async (
 
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
-    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
-      params.vaultPath,
-      path,
-    )
+    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(params.vaultPath, path)
 
     const { startLine, endLine } = resolveSpanLines({
       lines,
@@ -569,18 +514,9 @@ const replaceSpan = async (
 
     const replacedLineCount = endLine - startLine + 1
     const contentLines = content.split("\n")
-    const updatedLines = lines.toSpliced(
-      startLine,
-      replacedLineCount,
-      ...contentLines,
-    )
+    const updatedLines = lines.toSpliced(startLine, replacedLineCount, ...contentLines)
     const normalizedBody = collapseBlankRuns(updatedLines.join("\n"))
-    const afterBytes = await writePatchedNote(
-      fullPath,
-      data,
-      normalizedBody.split("\n"),
-      logger,
-    )
+    const afterBytes = await writePatchedNote(fullPath, data, normalizedBody.split("\n"), logger)
 
     logger.info("replaced span", {
       path,
@@ -623,10 +559,7 @@ const insertAtAnchor = async (
 
   const lockPath = resolveSafePath(params.vaultPath, path)
   return withExclusiveFileLock(lockPath, async () => {
-    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(
-      params.vaultPath,
-      path,
-    )
+    const { fullPath, data, lines, beforeBytes } = await readNoteForPatch(params.vaultPath, path)
 
     const anchorLine = resolveAnchorLine({
       lines,
@@ -640,12 +573,7 @@ const insertAtAnchor = async (
     const insertIndex = position === "before" ? anchorLine : anchorLine + 1
     const updatedLines = lines.toSpliced(insertIndex, 0, ...contentLines)
 
-    const afterBytes = await writePatchedNote(
-      fullPath,
-      data,
-      updatedLines,
-      logger,
-    )
+    const afterBytes = await writePatchedNote(fullPath, data, updatedLines, logger)
 
     logger.info("inserted at anchor", {
       path,

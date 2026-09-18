@@ -37,8 +37,7 @@ const startSetupServer = (): void => {
   // The Sync client's credential file. obsidian-headless resolves its config
   // home the same way: XDG_CONFIG_HOME, else $HOME/.config.
   const configHome =
-    env.get("XDG_CONFIG_HOME").asString() ||
-    join(env.get("HOME").required().asString(), ".config")
+    env.get("XDG_CONFIG_HOME").asString() || join(env.get("HOME").required().asString(), ".config")
   const tokenFilePath = join(configHome, "obsidian-headless", "auth_token")
   // Override exists for the boot tests, which point it at a stub inside the
   // container; the production value is the default.
@@ -48,8 +47,7 @@ const startSetupServer = (): void => {
     .asUrlString()
   const vaultName = env.get("VAULT_NAME").default("").asString().trim()
   const vaultPassword = env.get("VAULT_PASSWORD").asString() || undefined
-  const savedLoginRejected =
-    env.get("SETUP_REASON").default("").asString() === "login-failed"
+  const savedLoginRejected = env.get("SETUP_REASON").default("").asString() === "login-failed"
   const hostingPlatform = detectHostingPlatform()
 
   const setupUrl = publicUrl ? new URL("/setup", publicUrl).href : "/setup"
@@ -88,8 +86,8 @@ const startSetupServer = (): void => {
   // or application/json) still get the machine-readable 503.
   app.use((req: Request, res: Response) => {
     const acceptHeader = req.headers.accept ?? ""
-    const browserGet =
-      req.method === "GET" && /\btext\/html\b/.test(acceptHeader)
+    const browserGet = req.method === "GET" && /\btext\/html\b/.test(acceptHeader)
+
     if (browserGet) {
       res.redirect(302, setupUrl)
       return
@@ -104,8 +102,7 @@ const startSetupServer = (): void => {
       error: describeError(err),
       stack: err.stack,
     })
-    if (!res.headersSent)
-      res.status(500).json({ error: "internal server error" })
+    if (!res.headersSent) res.status(500).json({ error: "internal server error" })
   })
 
   // Express 5 reports a bind failure (EADDRINUSE, EACCES) through the

@@ -78,9 +78,7 @@ describe("runConfigure with nothing picked", () => {
     expect(exitCode).toBe(0)
     expect(readFileSync(envFilePath, "utf8")).toBe(LOCAL_ENV_CONTENT)
     expect(scripted.logs).toEqual(["No changes to apply."])
-    expect(scripted.asked).toEqual([
-      "Any optional settings to change? (press enter to skip)",
-    ])
+    expect(scripted.asked).toEqual(["Any optional settings to change? (press enter to skip)"])
   })
 })
 
@@ -102,9 +100,7 @@ describe("runConfigure with picked settings", () => {
     expect(readFileSync(envFilePath, "utf8")).toBe(
       LOCAL_ENV_CONTENT.replace("MEMORY_ENABLED=true", "MEMORY_ENABLED=false"),
     )
-    expect(scripted.logs).toEqual([
-      `Updated MEMORY_ENABLED in ${targetDir}/.env.`,
-    ])
+    expect(scripted.logs).toEqual([`Updated MEMORY_ENABLED in ${targetDir}/.env.`])
     expect(scripted.warnings).toEqual([
       `Container runtime not running — settings saved.\nApply the new settings with: npx vault-cortex@latest restart --dir "${targetDir}"`,
     ])
@@ -247,9 +243,7 @@ describe("runConfigure with picked settings", () => {
     expect(readFileSync(envFilePath, "utf8")).toBe(
       `${LOCAL_ENV_CONTENT}DAILY_NOTES_FOLDER=Planner\n`,
     )
-    expect(scripted.logs).toEqual([
-      `Updated DAILY_NOTES_FOLDER in ${targetDir}/.env.`,
-    ])
+    expect(scripted.logs).toEqual([`Updated DAILY_NOTES_FOLDER in ${targetDir}/.env.`])
   })
 
   it("uncomments the template's daily notes folder line on a typed value", async () => {
@@ -309,10 +303,7 @@ describe("runConfigure with picked settings", () => {
 
     expect(exitCode).toBe(0)
     expect(readFileSync(envFilePath, "utf8")).toBe(envWithDailyNotes)
-    expect(scripted.logs).toEqual([
-      "Kept the current value (Journal).",
-      "No changes to apply.",
-    ])
+    expect(scripted.logs).toEqual(["Kept the current value (Journal).", "No changes to apply."])
     expect(scripted.warnings).toEqual([])
   })
 
@@ -385,8 +376,7 @@ describe("runConfigure with picked settings", () => {
     const targetDir = makeTempTargetDir()
     writeLocalEnv(targetDir)
     const { docker } = createRecordingDocker()
-    const fetchFail: typeof fetch = async () =>
-      new Response(null, { status: 500 })
+    const fetchFail: typeof fetch = async () => new Response(null, { status: 500 })
     const scripted = createScriptedPrompts([
       ["MEMORY_ENABLED"],
       false, // disable the memory layer

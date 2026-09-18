@@ -130,12 +130,7 @@ describe("parseLeadingCallout", () => {
   })
 
   it("collects only the first of two stacked callouts", () => {
-    const lines = [
-      "> [!info] First",
-      "> first body",
-      "> [!warning] Second",
-      "> second body",
-    ]
+    const lines = ["> [!info] First", "> first body", "> [!warning] Second", "> second body"]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "info",
       title: "First",
@@ -167,12 +162,7 @@ describe("parseLeadingCallout", () => {
   })
 
   it("stops the body at the first non-blockquote line", () => {
-    const lines = [
-      "> [!info] Scope",
-      "> kept",
-      "plain text ends the callout",
-      "> not part of it",
-    ]
+    const lines = ["> [!info] Scope", "> kept", "plain text ends the callout", "> not part of it"]
     expect(parseLeadingCallout(lines)).toEqual({
       type: "info",
       title: "Scope",
@@ -199,10 +189,7 @@ describe("parseLeadingCallout", () => {
 
   it("handles CRLF line endings without leaking carriage returns", () => {
     // A CRLF file split on "\n" leaves a trailing "\r" on every line.
-    const lines =
-      "# Me\r\n> [!info] Scope\r\n> line one\r\n> line two\r\n\r\n## H\r".split(
-        "\n",
-      )
+    const lines = "# Me\r\n> [!info] Scope\r\n> line one\r\n> line two\r\n\r\n## H\r".split("\n")
     const leadingCallout = parseLeadingCallout(lines)
     expect(leadingCallout).toEqual({
       type: "info",
@@ -256,14 +243,7 @@ describe("parseLeadingCalloutSpan", () => {
   })
 
   it("ends the span before a stacked sibling callout", () => {
-    const lines = [
-      "> [!info] First",
-      "> a",
-      "> [!warning] Second",
-      "> b",
-      "",
-      "## S",
-    ]
+    const lines = ["> [!info] First", "> a", "> [!warning] Second", "> b", "", "## S"]
     expect(parseLeadingCalloutSpan(lines)).toEqual({
       callout: { type: "info", title: "First", body: "a" },
       startLine: 0,
@@ -274,10 +254,7 @@ describe("parseLeadingCalloutSpan", () => {
   })
 
   it("indexes the caller's own array when lines carry CRLF", () => {
-    const lines =
-      "# Me\r\n> [!info] Scope\r\n> line one\r\n> line two\r\n\r\n## H\r".split(
-        "\n",
-      )
+    const lines = "# Me\r\n> [!info] Scope\r\n> line one\r\n> line two\r\n\r\n## H\r".split("\n")
     expect(parseLeadingCalloutSpan(lines)).toEqual({
       callout: { type: "info", title: "Scope", body: "line one\nline two" },
       startLine: 1,

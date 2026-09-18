@@ -14,9 +14,7 @@ export type SupportedEncryptionVersion = 0 | 2 | 3
  *  below it that is still unsupported (version 1) does not. */
 export const NEWEST_SUPPORTED_ENCRYPTION_VERSION = 3
 
-export const isSupportedEncryptionVersion = (
-  value: unknown,
-): value is SupportedEncryptionVersion =>
+export const isSupportedEncryptionVersion = (value: unknown): value is SupportedEncryptionVersion =>
   value === 0 || value === 2 || value === 3
 
 const KEY_LENGTH_BYTES = 32
@@ -30,10 +28,7 @@ const SCRYPT_MAX_MEMORY_BYTES = 128 * SCRYPT_COST * SCRYPT_BLOCK_SIZE * 2
 
 const HKDF_INFO = "ObsidianKeyHash"
 
-const deriveVaultKey = async (
-  password: string,
-  salt: string,
-): Promise<Buffer> => {
+const deriveVaultKey = async (password: string, salt: string): Promise<Buffer> => {
   // The client normalizes both inputs, so a password typed with combining
   // characters derives the same key as its precomposed form.
   return new Promise((resolve, reject) => {
@@ -68,6 +63,7 @@ export const deriveVaultKeyHash = async ({
   encryptionVersion: SupportedEncryptionVersion
 }): Promise<string> => {
   const key = await deriveVaultKey(password, salt)
+
   if (encryptionVersion === 0) {
     return createHash("sha256").update(key).digest("hex")
   }

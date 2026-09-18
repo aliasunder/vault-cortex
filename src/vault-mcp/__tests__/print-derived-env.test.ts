@@ -13,10 +13,7 @@ import { describe, expect, it } from "vitest"
  * case can't be contaminated by the developer's shell.
  */
 
-const SCRIPT_PATH = resolve(
-  __dirname,
-  "../../../rootfs/etc/s6-overlay/scripts/print-derived-env",
-)
+const SCRIPT_PATH = resolve(__dirname, "../../../rootfs/etc/s6-overlay/scripts/print-derived-env")
 
 type PrinterRun = {
   status: number | null
@@ -83,16 +80,7 @@ describe("print-derived-env — storage layout", () => {
     )
   })
 
-  it.each([
-    "/",
-    "//",
-    "/.",
-    "/..",
-    "/persist/..",
-    "/persist/./x",
-    "persist",
-    "./persist",
-  ])(
+  it.each(["/", "//", "/.", "/..", "/persist/..", "/persist/./x", "persist", "./persist"])(
     "rejects STORAGE_ROOT=%s instead of deriving paths outside a mount",
     (storageRoot) => {
       const run = runPrinter({ STORAGE_ROOT: storageRoot })
@@ -192,22 +180,17 @@ describe("print-derived-env — PUBLIC_URL", () => {
   it.each([
     ["RENDER_EXTERNAL_URL", "https://x.onrender.com", "https://x.onrender.com"],
     ["RAILWAY_PUBLIC_DOMAIN", "x.up.railway.app", "https://x.up.railway.app"],
-  ])(
-    "derives PUBLIC_URL from %s",
-    (platformVar, platformValue, expectedUrl) => {
-      const run = runPrinter({
-        VAULT_PATH: "/vault",
-        INDEX_DB_PATH: "/data/index.db",
-        [platformVar]: platformValue,
-      })
+  ])("derives PUBLIC_URL from %s", (platformVar, platformValue, expectedUrl) => {
+    const run = runPrinter({
+      VAULT_PATH: "/vault",
+      INDEX_DB_PATH: "/data/index.db",
+      [platformVar]: platformValue,
+    })
 
-      expect(run.status).toBe(0)
-      expect(run.stdout).toBe(`PUBLIC_URL=${expectedUrl}\n`)
-      expect(run.stderr).toBe(
-        `[vault-cortex] PUBLIC_URL derived from ${platformVar}\n`,
-      )
-    },
-  )
+    expect(run.status).toBe(0)
+    expect(run.stdout).toBe(`PUBLIC_URL=${expectedUrl}\n`)
+    expect(run.stderr).toBe(`[vault-cortex] PUBLIC_URL derived from ${platformVar}\n`)
+  })
 
   it("prefers RENDER_EXTERNAL_URL over RAILWAY_PUBLIC_DOMAIN", () => {
     const run = runPrinter({
@@ -218,9 +201,7 @@ describe("print-derived-env — PUBLIC_URL", () => {
     })
 
     expect(run.stdout).toBe("PUBLIC_URL=https://x.onrender.com\n")
-    expect(run.stderr).toBe(
-      "[vault-cortex] PUBLIC_URL derived from RENDER_EXTERNAL_URL\n",
-    )
+    expect(run.stderr).toBe("[vault-cortex] PUBLIC_URL derived from RENDER_EXTERNAL_URL\n")
   })
 
   it("never overrides an explicit PUBLIC_URL", () => {
@@ -255,8 +236,6 @@ describe("print-derived-env — PUBLIC_URL", () => {
     })
 
     expect(run.stdout).toBe("PUBLIC_URL=https://x.up.railway.app\n")
-    expect(run.stderr).toBe(
-      "[vault-cortex] PUBLIC_URL derived from RAILWAY_PUBLIC_DOMAIN\n",
-    )
+    expect(run.stderr).toBe("[vault-cortex] PUBLIC_URL derived from RAILWAY_PUBLIC_DOMAIN\n")
   })
 })

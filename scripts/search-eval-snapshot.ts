@@ -1,13 +1,6 @@
 // ── Eval vault snapshot ────────────────────────────────────────
 
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs"
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join, relative, resolve, sep } from "node:path"
 import { z } from "zod"
 import { caseFoldPath } from "../src/utils/case-fold-path.js"
@@ -30,15 +23,10 @@ type SnapshotProvenance = z.infer<typeof snapshotProvenanceSchema>
 /** True when the directory exists and carries the harness marker — the only
  *  directories the harness may delete, or adopt via --reuse-snapshot. */
 export const isHarnessSnapshot = (snapshotDir: string): boolean => {
-  return (
-    existsSync(snapshotDir) && existsSync(join(snapshotDir, SNAPSHOT_MARKER))
-  )
+  return existsSync(snapshotDir) && existsSync(join(snapshotDir, SNAPSHOT_MARKER))
 }
 
-const sameStringSet = (
-  left: readonly string[],
-  right: readonly string[],
-): boolean => {
+const sameStringSet = (left: readonly string[], right: readonly string[]): boolean => {
   return JSON.stringify(left.toSorted()) === JSON.stringify(right.toSorted())
 }
 
@@ -59,11 +47,13 @@ export const snapshotMatchesProvenance = (
   expected: SnapshotProvenance,
 ): boolean => {
   const markerPath = join(snapshotDir, SNAPSHOT_MARKER)
+
   if (!existsSync(markerPath)) return false
 
   const parsedMarker = snapshotProvenanceSchema.safeParse(
     parseJsonOrNull(readFileSync(markerPath, "utf8")),
   )
+
   if (!parsedMarker.success) return false
 
   const recorded = parsedMarker.data
@@ -98,6 +88,7 @@ export const createVaultSnapshot = (params: {
 
   const isForeignDirectory =
     existsSync(params.snapshotDir) && !isHarnessSnapshot(params.snapshotDir)
+
   if (isForeignDirectory) {
     throw new Error(
       `${params.snapshotDir} exists but is not a harness snapshot — remove it or choose another --work-dir`,
@@ -116,9 +107,11 @@ export const createVaultSnapshot = (params: {
     filter: (source) => {
       const absoluteSource = resolve(source)
       const relativeFromRoot = relative(vaultRoot, absoluteSource)
+
       if (hasHiddenPathSegment(relativeFromRoot)) return false
 
       const foldedSource = caseFoldPath(absoluteSource)
+
       if (excludedExactPaths.has(foldedSource)) return false
       return !excludedPrefixes.some((prefix) => {
         return foldedSource.startsWith(prefix)
@@ -130,8 +123,5 @@ export const createVaultSnapshot = (params: {
     excludePaths: [...params.excludePaths],
     excludePrefixes: [...params.excludePrefixes],
   }
-  writeFileSync(
-    join(params.snapshotDir, SNAPSHOT_MARKER),
-    JSON.stringify(provenance),
-  )
+  writeFileSync(join(params.snapshotDir, SNAPSHOT_MARKER), JSON.stringify(provenance))
 }

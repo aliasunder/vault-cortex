@@ -17,8 +17,7 @@ describe("consent page reveal toggle", () => {
 
   it("wires the reveal button to the token input's id", () => {
     const html = renderConsentPage(baseParams)
-    const tokenIdMatch =
-      /<input type="password" id="([^"]+)" name="token"/.exec(html)
+    const tokenIdMatch = /<input type="password" id="([^"]+)" name="token"/.exec(html)
     const onclickMatch = /class="reveal"[^>]*onclick="([^"]+)"/.exec(html)
     expect(tokenIdMatch).not.toBeNull()
     expect(onclickMatch).not.toBeNull()

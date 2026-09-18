@@ -76,17 +76,16 @@ describe("memory-review handler", () => {
     expect(text).toMatch(/append-with-dates/i)
     expect(text).toMatch(/never delete an entry just for being old/i)
     // Explicitly instructs against the supersession misreading.
-    expect(text).toMatch(
-      /do \*?\*?not\*?\*? treat a newer entry as.*(overriding|superseding)/i,
-    )
+    expect(text).toMatch(/do \*?\*?not\*?\*? treat a newer entry as.*(overriding|superseding)/i)
     // No "prune stale entries" directive.
     expect(text.toLowerCase()).not.toContain("stale")
   })
 
   it("completes file names by prefix (case-insensitive)", async () => {
     const { calls } = await setupVault()
-    const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1]
-      .argsSchema as { file: unknown }
+    const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].argsSchema as {
+      file: unknown
+    }
     const complete = getCompleter(argsSchema.file as never) as unknown as (
       value: string,
       context?: unknown,
@@ -136,9 +135,7 @@ describe("memory-review handler", () => {
 
     const calls: RegisterPromptCall[] = []
     const server = {
-      registerPrompt: vi.fn((...args: unknown[]) =>
-        calls.push(args as RegisterPromptCall),
-      ),
+      registerPrompt: vi.fn((...args: unknown[]) => calls.push(args as RegisterPromptCall)),
     }
     registerPrompts({
       server: server as unknown as McpServer,
@@ -167,10 +164,7 @@ describe("memory-review handler", () => {
     // Strip the vault-content wrapper (opening through closing tag) to isolate
     // instruction text — a raw </vault-content> in instructions would create the
     // same LLM-visible ambiguity an attacker injection does.
-    const instructionText = text.replace(
-      /<vault-content[^>]*>[\s\S]*?<\/vault-content>/g,
-      "",
-    )
+    const instructionText = text.replace(/<vault-content[^>]*>[\s\S]*?<\/vault-content>/g, "")
     expect(instructionText).not.toContain("</vault-content>")
   })
 
@@ -249,8 +243,9 @@ describe("memory-review error degradation", () => {
     })
     await writeFile(join(vault, "About Me"), "not a directory", "utf8")
     const calls = registerWithSearch(vault, {} as SearchIndex)
-    const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1]
-      .argsSchema as { file: unknown }
+    const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].argsSchema as {
+      file: unknown
+    }
     const complete = getCompleter(argsSchema.file as never) as unknown as (
       value: string,
       context?: unknown,
@@ -305,22 +300,17 @@ describe("memory-review logging", () => {
       await rm(vault, { recursive: true, force: true })
     })
     await writeFile(join(vault, "About Me"), "not a directory", "utf8")
-    const calls = registerWithSearch(
-      vault,
-      {} as SearchIndex,
-      recordingLogger(logs),
-    )
-    const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1]
-      .argsSchema as { file: unknown }
+    const calls = registerWithSearch(vault, {} as SearchIndex, recordingLogger(logs))
+    const argsSchema = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].argsSchema as {
+      file: unknown
+    }
     const complete = getCompleter(argsSchema.file as never) as unknown as (
       value: string,
       context?: unknown,
     ) => Promise<string[]>
 
     await complete("", {})
-    const warn = logs.find(
-      (call) => call.message === "prompt_completion_failed",
-    )
+    const warn = logs.find((call) => call.message === "prompt_completion_failed")
     expect(warn?.level).toBe("warn")
     expect(warn?.data.prompt).toBe("memory-review")
   })
@@ -456,8 +446,7 @@ describe("memory-review description under DISABLED_TOOLS=vault_delete_memory", (
     const { calls } = await setupVault({
       config: loadConfig({ DISABLED_TOOLS: "vault_delete_memory" }),
     })
-    const description = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1]
-      .description
+    const description = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].description
 
     expect(description).toContain("propose append-only updates.")
     expect(description).not.toContain("Never prunes entries")
@@ -465,8 +454,7 @@ describe("memory-review description under DISABLED_TOOLS=vault_delete_memory", (
 
   it("keeps the pruning caveat when vault_delete_memory is served", async () => {
     const { calls } = await setupVault({ config: loadConfig({}) })
-    const description = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1]
-      .description
+    const description = findCall(calls, PROMPT_NAMES.MEMORY_REVIEW)[1].description
 
     expect(description).toContain(
       "propose append-only updates. Never prunes entries for being old, except expired entries in files marked entry-policy: living.",

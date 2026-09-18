@@ -56,19 +56,17 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  *  ignored. */
 const doneStatusSymbolsFrom = (parsed: Record<string, unknown>): string[] => {
   const { statusSettings } = parsed
+
   if (!isRecord(statusSettings)) return []
 
-  const statusLists = [
-    statusSettings.coreStatuses,
-    statusSettings.customStatuses,
-  ].filter(Array.isArray)
+  const statusLists = [statusSettings.coreStatuses, statusSettings.customStatuses].filter(
+    Array.isArray,
+  )
 
   return statusLists.flatMap((statusList) => {
     return statusList.flatMap((status: unknown) => {
       if (!isRecord(status)) return []
-      return typeof status.symbol === "string" && status.type === "DONE"
-        ? [status.symbol]
-        : []
+      return typeof status.symbol === "string" && status.type === "DONE" ? [status.symbol] : []
     })
   })
 }
@@ -91,10 +89,7 @@ type BooleanSettingKey =
 
 /** A boolean setting from the parsed config, or its default when absent or
  *  not a boolean. */
-const booleanSetting = (
-  parsed: Record<string, unknown>,
-  key: BooleanSettingKey,
-): boolean => {
+const booleanSetting = (parsed: Record<string, unknown>, key: BooleanSettingKey): boolean => {
   const value = parsed[key]
   return typeof value === "boolean" ? value : DEFAULTS[key]
 }
@@ -103,25 +98,16 @@ const booleanSetting = (
  *  `.obsidian/plugins/obsidian-tasks-plugin/data.json`. Falls back to the
  *  plugin's defaults (uncached — see cache comment) when the file is
  *  missing or malformed. */
-export const readTaskFormatConfig = async (
-  vaultPath: string,
-): Promise<TaskFormatConfig> => {
+export const readTaskFormatConfig = async (vaultPath: string): Promise<TaskFormatConfig> => {
   if (cachedConfig) return cachedConfig
 
   try {
-    const configPath = join(
-      vaultPath,
-      ".obsidian",
-      "plugins",
-      "obsidian-tasks-plugin",
-      "data.json",
-    )
+    const configPath = join(vaultPath, ".obsidian", "plugins", "obsidian-tasks-plugin", "data.json")
     const fileContent = await readFile(configPath, "utf8")
     const parsed: Record<string, unknown> = JSON.parse(fileContent)
 
     const rawFormat = parsed.taskFormat
-    const taskFormat: "emoji" | "dataview" =
-      rawFormat === "dataview" ? "dataview" : "emoji"
+    const taskFormat: "emoji" | "dataview" = rawFormat === "dataview" ? "dataview" : "emoji"
 
     const fileConfig = {
       taskFormat,
@@ -129,10 +115,7 @@ export const readTaskFormatConfig = async (
       setCancelledDate: booleanSetting(parsed, "setCancelledDate"),
       setCreatedDate: booleanSetting(parsed, "setCreatedDate"),
       recurrenceOnNextLine: booleanSetting(parsed, "recurrenceOnNextLine"),
-      removeScheduledDateOnRecurrence: booleanSetting(
-        parsed,
-        "removeScheduledDateOnRecurrence",
-      ),
+      removeScheduledDateOnRecurrence: booleanSetting(parsed, "removeScheduledDateOnRecurrence"),
       doneStatusSymbols: doneStatusSymbolsFrom(parsed),
     }
     cachedConfig = fileConfig

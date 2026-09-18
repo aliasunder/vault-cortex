@@ -9,9 +9,7 @@ import {
 import { startFakeObsidianApi } from "./fake-obsidian-api.js"
 import type { FakeApiRequest, FakeApiResponse } from "./fake-obsidian-api.js"
 
-const startApi = async (
-  respond: (request: FakeApiRequest) => FakeApiResponse,
-) => {
+const startApi = async (respond: (request: FakeApiRequest) => FakeApiResponse) => {
   const api = await startFakeObsidianApi(respond)
   onTestFinished(api.close)
   return api
@@ -194,9 +192,7 @@ describe("obsidianApi.validateVaultKey", () => {
       keyHash: "ab".repeat(32),
     })
 
-    expect(api.requests.map((request) => request.path)).toEqual([
-      "/vault/access",
-    ])
+    expect(api.requests.map((request) => request.path)).toEqual(["/vault/access"])
     expect(api.requests[0]?.body).toEqual({
       token: "tok-1",
       vault_uid: "vault-1",
@@ -218,20 +214,14 @@ describe("obsidianApi.validateVaultKey", () => {
         keyMaterial,
         keyHash: "ab".repeat(32),
       }),
-    ).rejects.toThrow(
-      new ObsidianApiError("Wrong vault key, please try again."),
-    )
+    ).rejects.toThrow(new ObsidianApiError("Wrong vault key, please try again."))
   })
 })
 
 describe("isMfaCodeError", () => {
   it("is true for both the code prompt and a wrong code", () => {
-    expect(isMfaCodeError(new ObsidianApiError("2FA code is required"))).toBe(
-      true,
-    )
-    expect(isMfaCodeError(new ObsidianApiError("2FA code is incorrect"))).toBe(
-      true,
-    )
+    expect(isMfaCodeError(new ObsidianApiError("2FA code is required"))).toBe(true)
+    expect(isMfaCodeError(new ObsidianApiError("2FA code is incorrect"))).toBe(true)
   })
 
   it("is false for other API errors and for non-API errors", () => {
@@ -242,30 +232,22 @@ describe("isMfaCodeError", () => {
 
 describe("isMfaRequiredError", () => {
   it("is true for the API's first-attempt 2FA prompt", () => {
-    expect(
-      isMfaRequiredError(new ObsidianApiError("2FA code is required")),
-    ).toBe(true)
+    expect(isMfaRequiredError(new ObsidianApiError("2FA code is required"))).toBe(true)
   })
 
   it("is false for a wrong code", () => {
-    expect(
-      isMfaRequiredError(new ObsidianApiError("2FA code is incorrect")),
-    ).toBe(false)
+    expect(isMfaRequiredError(new ObsidianApiError("2FA code is incorrect"))).toBe(false)
   })
 
   it("is false for other API errors and for non-API errors", () => {
-    expect(isMfaRequiredError(new ObsidianApiError("Invalid password"))).toBe(
-      false,
-    )
+    expect(isMfaRequiredError(new ObsidianApiError("Invalid password"))).toBe(false)
     expect(isMfaRequiredError(new Error("2FA code is required"))).toBe(false)
   })
 })
 
 describe("describeApiFailure", () => {
   it("returns the API's text for an API error", () => {
-    expect(describeApiFailure(new ObsidianApiError("Invalid password"))).toBe(
-      "Invalid password",
-    )
+    expect(describeApiFailure(new ObsidianApiError("Invalid password"))).toBe("Invalid password")
   })
 
   it("names a timeout without internals", () => {

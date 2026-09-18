@@ -18,18 +18,12 @@ describe("loadConfig", () => {
 
     it("orphanExcludeFolders defaults to Daily Notes, Templates, About Me", () => {
       const config = loadConfig(EMPTY_ENV)
-      expect(config.orphanExcludeFolders).toEqual([
-        "Daily Notes",
-        "Templates",
-        "About Me",
-      ])
+      expect(config.orphanExcludeFolders).toEqual(["Daily Notes", "Templates", "About Me"])
     })
 
     it("serviceDocumentationUrl defaults to the GitHub repo", () => {
       const config = loadConfig(EMPTY_ENV)
-      expect(config.serviceDocumentationUrl).toBe(
-        "https://github.com/aliasunder/vault-cortex",
-      )
+      expect(config.serviceDocumentationUrl).toBe("https://github.com/aliasunder/vault-cortex")
     })
 
     it("windowsBindMount defaults to false", () => {
@@ -56,11 +50,7 @@ describe("loadConfig", () => {
 
     it("cascades into orphanExcludeFolders when ORPHAN_EXCLUDE_FOLDERS is not set", () => {
       const config = loadConfig({ MEMORY_DIR: "Profile" })
-      expect(config.orphanExcludeFolders).toEqual([
-        "Daily Notes",
-        "Templates",
-        "Profile",
-      ])
+      expect(config.orphanExcludeFolders).toEqual(["Daily Notes", "Templates", "Profile"])
     })
 
     it.each([
@@ -137,11 +127,7 @@ describe("loadConfig", () => {
 
     it("cascades into orphanExcludeFolders when ORPHAN_EXCLUDE_FOLDERS is not set", () => {
       const config = loadConfig({ DAILY_NOTES_FOLDER: "Journal" })
-      expect(config.orphanExcludeFolders).toEqual([
-        "Journal",
-        "Templates",
-        "About Me",
-      ])
+      expect(config.orphanExcludeFolders).toEqual(["Journal", "Templates", "About Me"])
     })
 
     it("keeps the explicit PROTECTED_PATHS list when DAILY_NOTES_FOLDER is set", () => {
@@ -252,9 +238,7 @@ describe("loadConfig", () => {
       const config = loadConfig({ DAILY_NOTES_FORMAT: "MMMM Do, YYYY" })
       expect(config.dailyNotesFormat).toBe("MMMM Do, YYYY")
       expect(warnSpy).toHaveBeenCalledTimes(1)
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining("unsupported token(s): Do"),
-      )
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("unsupported token(s): Do"))
     })
 
     it("accepts a dd format and warns about unsupported token", () => {
@@ -263,9 +247,7 @@ describe("loadConfig", () => {
       const config = loadConfig({ DAILY_NOTES_FORMAT: "YYYY-MM-DD dd" })
       expect(config.dailyNotesFormat).toBe("YYYY-MM-DD dd")
       expect(warnSpy).toHaveBeenCalledTimes(1)
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining("unsupported token(s): dd"),
-      )
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("unsupported token(s): dd"))
     })
   })
 
@@ -303,9 +285,7 @@ describe("loadConfig", () => {
     })
 
     it("validates each entry", () => {
-      expect(() =>
-        loadConfig({ PROTECTED_PATHS: "Secrets,../escape" }),
-      ).toThrow("path traversal")
+      expect(() => loadConfig({ PROTECTED_PATHS: "Secrets,../escape" })).toThrow("path traversal")
     })
   })
 
@@ -327,9 +307,7 @@ describe("loadConfig", () => {
     })
 
     it("validates each entry", () => {
-      expect(() => loadConfig({ ORPHAN_EXCLUDE_FOLDERS: "/absolute" })).toThrow(
-        "absolute paths",
-      )
+      expect(() => loadConfig({ ORPHAN_EXCLUDE_FOLDERS: "/absolute" })).toThrow("absolute paths")
     })
   })
 
@@ -338,15 +316,11 @@ describe("loadConfig", () => {
       const config = loadConfig({
         SERVICE_DOCUMENTATION_URL: "https://github.com/myuser/my-fork",
       })
-      expect(config.serviceDocumentationUrl).toBe(
-        "https://github.com/myuser/my-fork",
-      )
+      expect(config.serviceDocumentationUrl).toBe("https://github.com/myuser/my-fork")
     })
 
     it("rejects invalid URLs", () => {
-      expect(() =>
-        loadConfig({ SERVICE_DOCUMENTATION_URL: "not-a-url" }),
-      ).toThrow("Invalid URL")
+      expect(() => loadConfig({ SERVICE_DOCUMENTATION_URL: "not-a-url" })).toThrow("Invalid URL")
     })
   })
 
@@ -388,9 +362,7 @@ describe("loadConfig", () => {
     })
 
     it("rejects an invalid value", () => {
-      expect(() => loadConfig({ RERANK_MODE: "aggressive" })).toThrow(
-        /Invalid option/,
-      )
+      expect(() => loadConfig({ RERANK_MODE: "aggressive" })).toThrow(/Invalid option/)
     })
   })
 
@@ -411,9 +383,7 @@ describe("loadConfig", () => {
     })
 
     it("rejects a non-boolean value", () => {
-      expect(() => loadConfig({ EMBEDDING_ENABLED: "yes" })).toThrow(
-        /EMBEDDING_ENABLED/,
-      )
+      expect(() => loadConfig({ EMBEDDING_ENABLED: "yes" })).toThrow(/EMBEDDING_ENABLED/)
     })
   })
 
@@ -434,9 +404,7 @@ describe("loadConfig", () => {
     })
 
     it("rejects a non-boolean value", () => {
-      expect(() => loadConfig({ MEMORY_ENABLED: "yes" })).toThrow(
-        /MEMORY_ENABLED/,
-      )
+      expect(() => loadConfig({ MEMORY_ENABLED: "yes" })).toThrow(/MEMORY_ENABLED/)
     })
 
     it("still parses MEMORY_DIR when disabled", () => {
@@ -466,9 +434,7 @@ describe("loadConfig", () => {
     })
 
     it("rejects a non-boolean value", () => {
-      expect(() => loadConfig({ FILE_TOOLS_ENABLED: "yes" })).toThrow(
-        /FILE_TOOLS_ENABLED/,
-      )
+      expect(() => loadConfig({ FILE_TOOLS_ENABLED: "yes" })).toThrow(/FILE_TOOLS_ENABLED/)
     })
 
     it("still parses MAX_FILE_BYTES when disabled", () => {
@@ -507,9 +473,7 @@ describe("loadConfig", () => {
     })
 
     it("rejects a non-boolean value", () => {
-      expect(() => loadConfig({ READONLY_MODE: "yes" })).toThrow(
-        /READONLY_MODE/,
-      )
+      expect(() => loadConfig({ READONLY_MODE: "yes" })).toThrow(/READONLY_MODE/)
     })
 
     it("composes with MEMORY_ENABLED — both flags parse independently", () => {
@@ -572,9 +536,7 @@ describe("loadConfig", () => {
         loadConfig({
           DISABLED_TOOLS: "vault_write_note,not_a_tool,vault_delete_note",
         }),
-      ).toThrow(
-        'env-var: "DISABLED_TOOLS" contains an unknown tool name: "not_a_tool"',
-      )
+      ).toThrow('env-var: "DISABLED_TOOLS" contains an unknown tool name: "not_a_tool"')
     })
   })
 
@@ -590,15 +552,11 @@ describe("loadConfig", () => {
     })
 
     it("rejects a non-integer value", () => {
-      expect(() => loadConfig({ MAX_FILE_BYTES: "abc" })).toThrow(
-        /MAX_FILE_BYTES/,
-      )
+      expect(() => loadConfig({ MAX_FILE_BYTES: "abc" })).toThrow(/MAX_FILE_BYTES/)
     })
 
     it.each(["0", "-1", "1.5"])("rejects non-positive-integer %s", (value) => {
-      expect(() => loadConfig({ MAX_FILE_BYTES: value })).toThrow(
-        /MAX_FILE_BYTES/,
-      )
+      expect(() => loadConfig({ MAX_FILE_BYTES: value })).toThrow(/MAX_FILE_BYTES/)
     })
   })
 
@@ -614,15 +572,11 @@ describe("loadConfig", () => {
     })
 
     it("rejects a non-integer value", () => {
-      expect(() => loadConfig({ MAX_IMAGE_OUTPUT_BYTES: "nope" })).toThrow(
-        /MAX_IMAGE_OUTPUT_BYTES/,
-      )
+      expect(() => loadConfig({ MAX_IMAGE_OUTPUT_BYTES: "nope" })).toThrow(/MAX_IMAGE_OUTPUT_BYTES/)
     })
 
     it.each(["0", "-1", "1.5"])("rejects non-positive-integer %s", (value) => {
-      expect(() => loadConfig({ MAX_IMAGE_OUTPUT_BYTES: value })).toThrow(
-        /MAX_IMAGE_OUTPUT_BYTES/,
-      )
+      expect(() => loadConfig({ MAX_IMAGE_OUTPUT_BYTES: value })).toThrow(/MAX_IMAGE_OUTPUT_BYTES/)
     })
   })
 
@@ -638,15 +592,11 @@ describe("loadConfig", () => {
     })
 
     it("rejects a non-integer value", () => {
-      expect(() => loadConfig({ MAX_PDF_RENDER_PAGES: "abc" })).toThrow(
-        /MAX_PDF_RENDER_PAGES/,
-      )
+      expect(() => loadConfig({ MAX_PDF_RENDER_PAGES: "abc" })).toThrow(/MAX_PDF_RENDER_PAGES/)
     })
 
     it.each(["0", "-1", "1.5"])("rejects non-positive-integer %s", (value) => {
-      expect(() => loadConfig({ MAX_PDF_RENDER_PAGES: value })).toThrow(
-        /MAX_PDF_RENDER_PAGES/,
-      )
+      expect(() => loadConfig({ MAX_PDF_RENDER_PAGES: value })).toThrow(/MAX_PDF_RENDER_PAGES/)
     })
   })
 
@@ -667,15 +617,11 @@ describe("loadConfig", () => {
     })
 
     it("rejects a non-integer value", () => {
-      expect(() => loadConfig({ TRASH_RETENTION_DAYS: "soon" })).toThrow(
-        /TRASH_RETENTION_DAYS/,
-      )
+      expect(() => loadConfig({ TRASH_RETENTION_DAYS: "soon" })).toThrow(/TRASH_RETENTION_DAYS/)
     })
 
     it.each(["0", "-1", "1.5"])("rejects non-positive-integer %s", (value) => {
-      expect(() => loadConfig({ TRASH_RETENTION_DAYS: value })).toThrow(
-        /TRASH_RETENTION_DAYS/,
-      )
+      expect(() => loadConfig({ TRASH_RETENTION_DAYS: value })).toThrow(/TRASH_RETENTION_DAYS/)
     })
   })
 
@@ -691,15 +637,11 @@ describe("loadConfig", () => {
     })
 
     it("rejects a non-integer value", () => {
-      expect(() => loadConfig({ TRUST_PROXY_HOPS: "abc" })).toThrow(
-        /TRUST_PROXY_HOPS/,
-      )
+      expect(() => loadConfig({ TRUST_PROXY_HOPS: "abc" })).toThrow(/TRUST_PROXY_HOPS/)
     })
 
     it.each(["-1", "1.5"])("rejects invalid hop count %s", (value) => {
-      expect(() => loadConfig({ TRUST_PROXY_HOPS: value })).toThrow(
-        /TRUST_PROXY_HOPS/,
-      )
+      expect(() => loadConfig({ TRUST_PROXY_HOPS: value })).toThrow(/TRUST_PROXY_HOPS/)
     })
   })
 
@@ -715,15 +657,11 @@ describe("loadConfig", () => {
     })
 
     it("rejects a non-integer value", () => {
-      expect(() => loadConfig({ TRUST_FORWARDED_HOPS: "abc" })).toThrow(
-        /TRUST_FORWARDED_HOPS/,
-      )
+      expect(() => loadConfig({ TRUST_FORWARDED_HOPS: "abc" })).toThrow(/TRUST_FORWARDED_HOPS/)
     })
 
     it.each(["-1", "1.5"])("rejects hop count %s", (value) => {
-      expect(() => loadConfig({ TRUST_FORWARDED_HOPS: value })).toThrow(
-        /TRUST_FORWARDED_HOPS/,
-      )
+      expect(() => loadConfig({ TRUST_FORWARDED_HOPS: value })).toThrow(/TRUST_FORWARDED_HOPS/)
     })
 
     it("warns when the removed TRUST_FORWARDED_HEADER is still set", () => {

@@ -8,10 +8,7 @@ import type { Logger } from "../../logger.js"
 import { TOOL_REGISTRY, TOOL_REGISTRY_BY_NAME } from "./tool-registry.js"
 import type { RegistryEntry, ToolGroup, ToolName } from "./tool-registry.js"
 import { createToolAvailability } from "./tool-availability.js"
-import type {
-  RegisterGatedTool,
-  ToolRegistrationContext,
-} from "./tools/tool-helpers.js"
+import type { RegisterGatedTool, ToolRegistrationContext } from "./tools/tool-helpers.js"
 import { registerVaultCrudTools } from "./tools/vault-crud-tools.js"
 import { registerSearchTools } from "./tools/search-tools.js"
 import { registerMemoryTools } from "./tools/memory-tools.js"
@@ -35,12 +32,8 @@ const isEntryEnabled = (entry: RegistryEntry, config: VaultConfig): boolean => {
 
 /** The set of tool names this config serves — shared by registration, the
  *  router's server metadata, and prompt gating so they cannot disagree. */
-export const computeEnabledToolNames = (
-  config: VaultConfig,
-): ReadonlySet<ToolName> => {
-  const enabledEntries = TOOL_REGISTRY.filter((entry) =>
-    isEntryEnabled(entry, config),
-  )
+export const computeEnabledToolNames = (config: VaultConfig): ReadonlySet<ToolName> => {
+  const enabledEntries = TOOL_REGISTRY.filter((entry) => isEntryEnabled(entry, config))
   return new Set(enabledEntries.map((entry) => entry.name))
 }
 
@@ -52,15 +45,12 @@ const createGatedRegisterTool = (
 ): RegisterGatedTool => {
   return (name, config, handler) => {
     const entry = TOOL_REGISTRY_BY_NAME.get(name)
+
     if (!entry) {
       throw new Error(`tool is not in the registry: ${name}`)
     }
     if (!enabledToolNames.has(name)) return
-    server.registerTool(
-      name,
-      { ...config, annotations: entry.annotations },
-      handler,
-    )
+    server.registerTool(name, { ...config, annotations: entry.annotations }, handler)
   }
 }
 
@@ -97,9 +87,7 @@ export const registerTools = (params: {
   }
 
   const groupHasEnabledTools = (group: ToolGroup): boolean =>
-    TOOL_REGISTRY.some(
-      (entry) => entry.group === group && enabledToolNames.has(entry.name),
-    )
+    TOOL_REGISTRY.some((entry) => entry.group === group && enabledToolNames.has(entry.name))
 
   for (const [group, registerGroup] of GROUP_REGISTRARS) {
     if (groupHasEnabledTools(group)) {

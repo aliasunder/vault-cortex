@@ -22,8 +22,7 @@ export default $config({
     const { readFileSync, existsSync } = await import("node:fs")
     const { homedir } = await import("node:os")
     const env = (await import("env-var")).get
-    const { urlHasCredentials } =
-      await import("./src/utils/url-has-credentials.js")
+    const { urlHasCredentials } = await import("./src/utils/url-has-credentials.js")
 
     // ── Environment ──────────────────────────────────────────────
     // SSH key fallback chain: SSH_PUBKEY (CI) → SSH_PUBKEY_PATH → ~/.ssh/vault-cortex.pub
@@ -58,8 +57,7 @@ export default $config({
     // and asBool() rejects.
     const originAccessServiceTokenEnabled =
       Boolean(originUrl) &&
-      env("ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED").asString()?.toLowerCase() ===
-        "true"
+      env("ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED").asString()?.toLowerCase() === "true"
 
     // Optional custom domain on API Gateway (e.g. mcp.example.com), replacing
     // the auto-generated execute-api URL. DNS stays external (any provider):
@@ -80,9 +78,7 @@ export default $config({
     // A bare hostname or a non-http(s) scheme (whose origin is "null")
     // can never match a minted token, so it would 403 every client at
     // runtime — fail the deploy instead.
-    const parsedPublicUrlOverride = publicUrlOverride
-      ? URL.parse(publicUrlOverride)
-      : undefined
+    const parsedPublicUrlOverride = publicUrlOverride ? URL.parse(publicUrlOverride) : undefined
 
     const publicUrlIsHttp =
       parsedPublicUrlOverride?.protocol === "https:" ||
@@ -90,8 +86,7 @@ export default $config({
 
     if (publicUrlOverride && !publicUrlIsHttp) {
       throw new Error(
-        "PUBLIC_URL must be an absolute http(s) URL, e.g. " +
-          "https://mcp.example.com",
+        "PUBLIC_URL must be an absolute http(s) URL, e.g. " + "https://mcp.example.com",
       )
     }
 
@@ -102,9 +97,7 @@ export default $config({
       : false
 
     if (publicUrlHasCredentials) {
-      throw new Error(
-        "PUBLIC_URL must not contain credentials (user:password@)",
-      )
+      throw new Error("PUBLIC_URL must not contain credentials (user:password@)")
     }
 
     if (customDomain && !customDomainCertArn) {
@@ -118,6 +111,7 @@ export default $config({
     // default execute-api hostname, so the custom domain is the only way in.
     const disableExecuteApiEndpoint =
       env("DISABLE_EXECUTE_API_ENDPOINT").asString()?.toLowerCase() === "true"
+
     if (disableExecuteApiEndpoint && !customDomain) {
       throw new Error(
         "DISABLE_EXECUTE_API_ENDPOINT requires CUSTOM_DOMAIN — without a " +
@@ -389,9 +383,7 @@ export default $config({
     // instead of directly to the Lightsail IP (plaintext HTTP). Pair with
     // MCP_PORT_CIDRS=none to close port 8000 on the firewall.
     const target = (path: string) =>
-      originUrl
-        ? `${originUrl}${path}`
-        : $interpolate`http://${staticIp.ipAddress}:8000${path}`
+      originUrl ? `${originUrl}${path}` : $interpolate`http://${staticIp.ipAddress}:8000${path}`
 
     // Service-token headers on every integration. `overwrite:` so a
     // client-supplied copy of either header is replaced, never joined.
@@ -400,10 +392,8 @@ export default $config({
         ? {
             integration: {
               requestParameters: {
-                "overwrite:header.CF-Access-Client-Id":
-                  originAccessClientId.value,
-                "overwrite:header.CF-Access-Client-Secret":
-                  originAccessClientSecret.value,
+                "overwrite:header.CF-Access-Client-Id": originAccessClientId.value,
+                "overwrite:header.CF-Access-Client-Secret": originAccessClientSecret.value,
               },
             },
           }
@@ -415,13 +405,7 @@ export default $config({
     // validation, and 5 req/min rate limiting. API Gateway always picks
     // the most specific matching route, so these win over the protected
     // catch-alls below regardless of declaration order.
-    for (const path of [
-      "/authorize",
-      "/token",
-      "/register",
-      "/revoke",
-      "/healthz",
-    ]) {
+    for (const path of ["/authorize", "/token", "/register", "/revoke", "/healthz"]) {
       api.routeUrl(`ANY ${path}`, target(path), {
         transform: originAccessHeaders,
       })

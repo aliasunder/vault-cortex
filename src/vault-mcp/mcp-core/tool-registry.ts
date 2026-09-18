@@ -48,8 +48,7 @@ export type ToolName = (typeof TOOL_NAMES)[keyof typeof TOOL_NAMES]
 /** Feature group a tool registers under. "memory" and "asset" are the
  *  flag-gated groups (MEMORY_ENABLED, FILE_TOOLS_ENABLED); the rest are
  *  always on. */
-export type ToolGroup =
-  "vault-crud" | "search" | "memory" | "daily-note" | "task" | "asset"
+export type ToolGroup = "vault-crud" | "search" | "memory" | "daily-note" | "task" | "asset"
 
 type ToolAnnotations = {
   readOnlyHint: boolean
@@ -292,15 +291,13 @@ export const TOOL_REGISTRY: readonly RegistryEntry[] = [
 /** Registry lookup by wire name — the registration wrapper resolves each
  *  tool's annotations through this, and config validation checks
  *  DISABLED_TOOLS entries against its keys. */
-export const TOOL_REGISTRY_BY_NAME: ReadonlyMap<ToolName, RegistryEntry> =
-  new Map(TOOL_REGISTRY.map((entry) => [entry.name, entry]))
-
-const TOOL_NAME_SET: ReadonlySet<string> = new Set(
-  TOOL_REGISTRY.map((entry) => entry.name),
+export const TOOL_REGISTRY_BY_NAME: ReadonlyMap<ToolName, RegistryEntry> = new Map(
+  TOOL_REGISTRY.map((entry) => [entry.name, entry]),
 )
+
+const TOOL_NAME_SET: ReadonlySet<string> = new Set(TOOL_REGISTRY.map((entry) => entry.name))
 
 /** Type guard for a wire tool name — true exactly when the registry has an
  *  entry for it. Config validation uses this to reject DISABLED_TOOLS typos
  *  at boot. */
-export const isToolName = (value: string): value is ToolName =>
-  TOOL_NAME_SET.has(value)
+export const isToolName = (value: string): value is ToolName => TOOL_NAME_SET.has(value)

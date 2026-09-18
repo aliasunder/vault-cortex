@@ -34,10 +34,7 @@ export const maxCharsArg = z
   .describe(MAX_CHARS_DESCRIPTION)
 
 /** One bullet line for a note: path, plus title when it adds information. */
-export const formatNoteLine = (note: {
-  path: string
-  title: string
-}): string =>
+export const formatNoteLine = (note: { path: string; title: string }): string =>
   note.title.length > 0 ? `- ${note.path} — ${note.title}` : `- ${note.path}`
 
 /** Wraps assembled text as a single user-role prompt message. */
@@ -81,16 +78,11 @@ export const wrapWithDataMarkers = ({
   truncationToolName: string | undefined
 }): string => {
   const attributeString = Object.entries(markerAttributes)
-    .map(
-      ([key, value]) =>
-        `${key}="${value.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"`,
-    )
+    .map(([key, value]) => `${key}="${value.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"`)
     .join(" ")
   return [
     `<vault-content ${attributeString}>`,
-    escapeVaultContentClosingTag(
-      capContent(content, maxChars, truncationToolName),
-    ),
+    escapeVaultContentClosingTag(capContent(content, maxChars, truncationToolName)),
     "</vault-content>",
   ].join("\n")
 }

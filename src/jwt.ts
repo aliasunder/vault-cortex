@@ -43,8 +43,7 @@ type VerifyUnboundJwtOptions = {
 
 const b64url = (buf: Buffer): string => buf.toString("base64url")
 
-const b64urlEncode = (obj: object): string =>
-  b64url(Buffer.from(JSON.stringify(obj)))
+const b64urlEncode = (obj: object): string => b64url(Buffer.from(JSON.stringify(obj)))
 
 const HEADER = b64urlEncode({ alg: "HS256", typ: "JWT" })
 
@@ -82,20 +81,20 @@ const isExpired = (claims: JwtBaseClaims): boolean => {
 
 /** The decoded payload of a token whose signature verifies under `secret`,
  *  with no claim checked yet; null when the signature or encoding is bad. */
-const payloadWithVerifiedSignature = (
-  token: string,
-  secret: string,
-): unknown => {
+const payloadWithVerifiedSignature = (token: string, secret: string): unknown => {
   // A valid JWT is exactly three base64url segments: header.payload.signature
   const parts = token.split(".")
+
   if (parts.length !== 3) return null
   const [header, payload, sig] = parts
+
   if (!header || !payload || !sig) return null
 
   const expected = hmac(`${header}.${payload}`, secret)
 
   const sigBuf = Buffer.from(sig, "base64url")
   const expBuf = Buffer.from(expected, "base64url")
+
   if (sigBuf.length !== expBuf.length) return null
   if (!timingSafeEqual(sigBuf, expBuf)) return null
 
@@ -116,6 +115,7 @@ export const verifyJwt = ({
   expectedAudience,
 }: VerifyJwtOptions): JwtPayload | null => {
   const decoded = payloadWithVerifiedSignature(token, secret)
+
   if (!isJwtPayload(decoded)) return null
   if (isExpired(decoded)) return null
   if (decoded.iss !== expectedIssuer) return null
@@ -133,6 +133,7 @@ export const verifyUnboundJwt = ({
   secret,
 }: VerifyUnboundJwtOptions): JwtBaseClaims | null => {
   const decoded = payloadWithVerifiedSignature(token, secret)
+
   if (!isJwtBaseClaims(decoded)) return null
   if ("aud" in decoded) return null
   if (isExpired(decoded)) return null

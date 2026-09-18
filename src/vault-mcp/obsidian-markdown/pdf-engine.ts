@@ -1,10 +1,6 @@
 import { createRequire } from "node:module"
 import { dirname, join } from "node:path"
-import {
-  createIsomorphicCanvasFactory,
-  definePDFJSModule,
-  getDocumentProxy,
-} from "unpdf"
+import { createIsomorphicCanvasFactory, definePDFJSModule, getDocumentProxy } from "unpdf"
 import type { PDFDocumentProxy } from "unpdf/pdfjs"
 
 /**
@@ -42,9 +38,7 @@ import type { PDFDocumentProxy } from "unpdf/pdfjs"
 
 /** The canvas factory class unpdf wires into pdfjs so intermediate canvases
  *  (transparency groups, patterns, masks) come from @napi-rs/canvas. */
-type PdfCanvasFactory = Awaited<
-  ReturnType<typeof createIsomorphicCanvasFactory>
->
+type PdfCanvasFactory = Awaited<ReturnType<typeof createIsomorphicCanvasFactory>>
 
 type PdfEngine = Readonly<{
   standardFontDataUrl: string
@@ -115,9 +109,7 @@ const getPdfEngine = (): Promise<PdfEngine> => {
  * caller owns the proxy lifecycle (`proxy.loadingTask.destroy()` — the
  * disposal call; `cleanup()` alone keeps the document alive).
  */
-export const createPdfDocumentProxy = async (
-  pdfData: Uint8Array,
-): Promise<PDFDocumentProxy> => {
+export const createPdfDocumentProxy = async (pdfData: Uint8Array): Promise<PDFDocumentProxy> => {
   const engine = await getPdfEngine()
   return getDocumentProxy(pdfData, {
     useSystemFonts: false,

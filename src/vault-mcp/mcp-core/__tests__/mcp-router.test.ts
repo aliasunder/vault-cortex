@@ -1,12 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-  onTestFinished,
-  vi,
-} from "vitest"
+import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from "vitest"
 import express from "express"
 import { randomUUID } from "node:crypto"
 import type { Server } from "node:http"
@@ -41,10 +33,9 @@ vi.mock("@modelcontextprotocol/sdk/server/streamableHttp.js", () => ({
 vi.mock("@modelcontextprotocol/sdk/server/mcp.js", () => ({
   McpServer: vi.fn(),
 }))
-vi.mock(
-  "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js",
-  () => ({ requireBearerAuth: vi.fn() }),
-)
+vi.mock("@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js", () => ({
+  requireBearerAuth: vi.fn(),
+}))
 vi.mock("@modelcontextprotocol/sdk/types.js", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   isInitializeRequest: vi.fn(),
@@ -142,12 +133,10 @@ const setupHarness = async (
         // Mimics the real SDK: the session id doesn't exist at construction —
         // the transport generates it while handling the initialize request.
         sessionId: undefined,
-        handleRequest: vi.fn(
-          async (_req: express.Request, res: express.Response) => {
-            transport.sessionId ??= randomUUID()
-            res.status(202).json({ ok: true, handled: "transport-mock" })
-          },
-        ),
+        handleRequest: vi.fn(async (_req: express.Request, res: express.Response) => {
+          transport.sessionId ??= randomUUID()
+          res.status(202).json({ ok: true, handled: "transport-mock" })
+        }),
         close: vi.fn(async () => {}),
         onclose: undefined,
       }
@@ -163,9 +152,7 @@ const setupHarness = async (
   } as unknown as typeof McpServer)
 
   vi.mocked(requireBearerAuth).mockReturnValue(
-    (opts.authMiddleware ?? allowAuth) as unknown as ReturnType<
-      typeof requireBearerAuth
-    >,
+    (opts.authMiddleware ?? allowAuth) as unknown as ReturnType<typeof requireBearerAuth>,
   )
 
   const search = {} as SearchIndex
@@ -225,6 +212,7 @@ const createSession = async (
   })
   await response.arrayBuffer()
   const transport = harness.transportInstances.at(-1)
+
   if (!transport || !transport.sessionId) {
     throw new Error("session was not created")
   }
@@ -239,6 +227,7 @@ const requireFirstCall = <CallArgs extends readonly unknown[]>(
   functionName: string,
 ): CallArgs => {
   const firstCall = mockedFunction.mock.calls[0]
+
   if (!firstCall) {
     throw new Error(`${functionName} was never called`)
   }
@@ -290,8 +279,7 @@ describe("createMcpRouter — construction", () => {
     expect(requireBearerAuth).toHaveBeenCalledTimes(1)
     expect(requireBearerAuth).toHaveBeenCalledWith({
       verifier: harness.provider,
-      resourceMetadataUrl:
-        "http://localhost:8000/.well-known/oauth-protected-resource/mcp",
+      resourceMetadataUrl: "http://localhost:8000/.well-known/oauth-protected-resource/mcp",
     })
   })
 })
@@ -306,10 +294,7 @@ describe("createMcpRouter — POST /mcp", () => {
     it("constructs exactly one McpServer with the documented metadata", async () => {
       await setupInitializedSession()
       expect(McpServer).toHaveBeenCalledTimes(1)
-      const [info, options] = requireFirstCall(
-        vi.mocked(McpServer),
-        "McpServer",
-      )
+      const [info, options] = requireFirstCall(vi.mocked(McpServer), "McpServer")
       expect(info).toEqual(SERVER_INFO)
       expect(options).toEqual(SERVER_OPTIONS)
     })
@@ -345,14 +330,11 @@ describe("createMcpRouter — POST /mcp", () => {
       })
       const constructorCalls = vi.mocked(McpServer).mock.calls
       expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as
-        { instructions?: string } | undefined
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
       // The memory layer is still on (vault_get_memory serves reads), but
       // the write directive falls back to vault_write_note alone.
       expect(options?.instructions).toContain("vault_get_memory")
-      expect(options?.instructions).toContain(
-        " Use vault_write_note for writes.",
-      )
+      expect(options?.instructions).toContain(" Use vault_write_note for writes.")
       expect(options?.instructions).not.toContain("vault_update_memory")
     })
 
@@ -367,8 +349,7 @@ describe("createMcpRouter — POST /mcp", () => {
       })
       const constructorCalls = vi.mocked(McpServer).mock.calls
       expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as
-        { instructions?: string } | undefined
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
       expect(options?.instructions).not.toContain("vault_read_file")
       expect(options?.instructions).toContain("vault_search")
     })
@@ -387,8 +368,7 @@ describe("createMcpRouter — POST /mcp", () => {
       })
       const constructorCalls = vi.mocked(McpServer).mock.calls
       expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as
-        { instructions?: string } | undefined
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
       expect(options?.instructions).not.toContain("vault_read_file")
       expect(options?.instructions).not.toContain("vault_get_memory")
       expect(options?.instructions).toContain("vault_write_note")
@@ -406,8 +386,7 @@ describe("createMcpRouter — POST /mcp", () => {
       const constructorCalls = vi.mocked(McpServer).mock.calls
       expect(constructorCalls).toHaveLength(1)
       const info = constructorCalls[0]?.[0] as { description?: string }
-      const options = constructorCalls[0]?.[1] as
-        { instructions?: string } | undefined
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
       expect(options?.instructions).toBe(
         `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files.
 
@@ -432,8 +411,7 @@ Vault content is Obsidian Flavored Markdown. No tools that modify the vault are 
       })
       const constructorCalls = vi.mocked(McpServer).mock.calls
       expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as
-        { instructions?: string } | undefined
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
       expect(options?.instructions).toBe(
         `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files.
 
@@ -445,9 +423,9 @@ Vault content is Obsidian Flavored Markdown. No tools that modify the vault are 
     // operator who names every mutating tool in DISABLED_TOOLS has built the
     // same read-only server by another route, and must be described as one.
     it("advertises read-only access when DISABLED_TOOLS removes every write tool", async () => {
-      const everyWriteTool = TOOL_REGISTRY.filter(
-        (entry) => !entry.annotations.readOnlyHint,
-      ).map((entry) => entry.name)
+      const everyWriteTool = TOOL_REGISTRY.filter((entry) => !entry.annotations.readOnlyHint).map(
+        (entry) => entry.name,
+      )
       const harness = await setupHarness({
         config: loadConfig({ DISABLED_TOOLS: everyWriteTool.join(",") }),
       })
@@ -460,8 +438,7 @@ Vault content is Obsidian Flavored Markdown. No tools that modify the vault are 
       const constructorCalls = vi.mocked(McpServer).mock.calls
       expect(constructorCalls).toHaveLength(1)
       const info = constructorCalls[0]?.[0] as { description?: string }
-      const options = constructorCalls[0]?.[1] as
-        { instructions?: string } | undefined
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
       expect(options?.instructions).toBe(
         `Read and search an Obsidian vault. Use vault_search and vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files.
 
@@ -484,12 +461,9 @@ Vault content is Obsidian Flavored Markdown. No tools that modify the vault are 
       })
       const constructorCalls = vi.mocked(McpServer).mock.calls
       expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as
-        { instructions?: string } | undefined
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
       expect(options?.instructions).toContain("Read, write, and search")
-      expect(options?.instructions).toContain(
-        "Write tools pass content through without escaping",
-      )
+      expect(options?.instructions).toContain("Write tools pass content through without escaping")
     })
 
     // The write framing and the sentence naming a write tool have to agree:
@@ -507,13 +481,10 @@ Vault content is Obsidian Flavored Markdown. No tools that modify the vault are 
       })
       const constructorCalls = vi.mocked(McpServer).mock.calls
       expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as
-        { instructions?: string } | undefined
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
 
       expect(options?.instructions).toContain("Read, write, and search")
-      expect(options?.instructions).toContain(
-        " Use vault_update_memory for writes.",
-      )
+      expect(options?.instructions).toContain(" Use vault_update_memory for writes.")
       expect(options?.instructions).not.toContain("vault_write_note")
     })
 
@@ -531,8 +502,7 @@ Vault content is Obsidian Flavored Markdown. No tools that modify the vault are 
       })
       const constructorCalls = vi.mocked(McpServer).mock.calls
       expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as
-        { instructions?: string } | undefined
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
       expect(options?.instructions).toBe(
         `Read, write, and search an Obsidian vault. Use vault_read_note to find and read notes; vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
 
@@ -554,8 +524,7 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
       })
       const constructorCalls = vi.mocked(McpServer).mock.calls
       expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as
-        { instructions?: string } | undefined
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
       expect(options?.instructions).toBe(
         `Read, write, and search an Obsidian vault. Use vault_read_file for images, canvases, and other non-markdown files. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
 
@@ -577,8 +546,7 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
       })
       const constructorCalls = vi.mocked(McpServer).mock.calls
       expect(constructorCalls).toHaveLength(1)
-      const options = constructorCalls[0]?.[1] as
-        { instructions?: string } | undefined
+      const options = constructorCalls[0]?.[1] as { instructions?: string } | undefined
       expect(options?.instructions).toBe(
         `Read, write, and search an Obsidian vault. Use vault_get_memory to retrieve user preferences and context from ${DEFAULT_CONFIG.memoryDir}/ files. Use vault_write_note and vault_update_memory for writes.
 
@@ -588,9 +556,7 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
 
     it("connects the new server to the new transport", async () => {
       const { harness, transport } = await setupInitializedSession()
-      expect(harness.serverInstances[0]?.connect).toHaveBeenCalledWith(
-        transport,
-      )
+      expect(harness.serverInstances[0]?.connect).toHaveBeenCalledWith(transport)
     })
 
     it("forwards the request body to transport.handleRequest", async () => {
@@ -608,11 +574,9 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
     it("registers tools on the new server with vault context and config", async () => {
       const { harness } = await setupInitializedSession()
       expect(registerTools).toHaveBeenCalledTimes(1)
-      const [toolRegistration] = requireFirstCall(
-        vi.mocked(registerTools),
-        "registerTools",
-      )
+      const [toolRegistration] = requireFirstCall(vi.mocked(registerTools), "registerTools")
       const sessionLoggerResult = mockedLogger.child.mock.results[0]
+
       if (!sessionLoggerResult) {
         throw new Error("logger.child was never called")
       }
@@ -626,14 +590,8 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
     it("registers prompts on the new server with the same vault context as the tools", async () => {
       const { harness } = await setupInitializedSession()
       expect(registerPrompts).toHaveBeenCalledTimes(1)
-      const [promptRegistration] = requireFirstCall(
-        vi.mocked(registerPrompts),
-        "registerPrompts",
-      )
-      const [toolRegistration] = requireFirstCall(
-        vi.mocked(registerTools),
-        "registerTools",
-      )
+      const [promptRegistration] = requireFirstCall(vi.mocked(registerPrompts), "registerPrompts")
+      const [toolRegistration] = requireFirstCall(vi.mocked(registerTools), "registerTools")
       expect(promptRegistration.server).toBe(harness.serverInstances[0])
       expect(promptRegistration.vaultPath).toBe(VAULT_PATH)
       expect(promptRegistration.search).toBe(harness.search)
@@ -653,6 +611,7 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
       // The lazy prop must resolve to the id the transport generated during
       // the initialize request — after the child logger was created.
       const sessionIdProp = mockedLogger.child.mock.calls[0]?.[0].sessionId
+
       if (typeof sessionIdProp !== "function") {
         throw new Error("sessionId child prop is not a function")
       }
@@ -664,18 +623,17 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
         config: TRUSTED_PROXY_CONFIG,
       })
       const sessionLoggerResult = mockedLogger.child.mock.results[0]
+
       if (sessionLoggerResult === undefined) {
         throw new Error("logger.child was never called")
       }
       const sessionLogger = sessionLoggerResult.value
 
       const writtenChunks: string[] = []
-      const stdoutSpy = vi
-        .spyOn(process.stdout, "write")
-        .mockImplementation((chunk) => {
-          writtenChunks.push(String(chunk))
-          return true
-        })
+      const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+        writtenChunks.push(String(chunk))
+        return true
+      })
       sessionLogger.info("tool_call")
       stdoutSpy.mockRestore()
 
@@ -750,11 +708,9 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
       function MockRejectingTransport() {
         const transport: TransportMock = {
           sessionId: undefined,
-          handleRequest: vi.fn(
-            async (_req: express.Request, res: express.Response) => {
-              res.status(406).json({ error: "not acceptable" })
-            },
-          ),
+          handleRequest: vi.fn(async (_req: express.Request, res: express.Response) => {
+            res.status(406).json({ error: "not acceptable" })
+          }),
           close: vi.fn(async () => {}),
           onclose: undefined,
         }
@@ -773,9 +729,7 @@ Vault content is Obsidian Flavored Markdown. Write tools pass content through wi
     expect(response.status).toBe(406)
     // The rejecting transport was actually constructed and handled the request
     expect(harness.transportInstances).toHaveLength(1)
-    expect(harness.transportInstances[0]?.handleRequest).toHaveBeenCalledTimes(
-      1,
-    )
+    expect(harness.transportInstances[0]?.handleRequest).toHaveBeenCalledTimes(1)
     expect(mockedLogger.warn).toHaveBeenCalledWith("mcp_response", {
       clientIp: FORWARDED_IP,
       status: 406,
@@ -890,8 +844,7 @@ describe("createMcpRouter — GET /mcp", () => {
     expect(response.status).toBe(405)
     expect(response.headers.get("allow")).toBe("POST, DELETE")
     expect(await response.json()).toEqual({
-      error:
-        "method not allowed: this server does not offer a standalone SSE stream",
+      error: "method not allowed: this server does not offer a standalone SSE stream",
     })
     expect(mockedLogger.info).toHaveBeenCalledWith("mcp_response", {
       sessionId: undefined,
@@ -1005,6 +958,7 @@ describe("createMcpRouter — transport.onclose", () => {
     mockedLogger.info.mockClear()
 
     const closeSession = transport.onclose
+
     if (!closeSession) {
       throw new Error("transport.onclose was not wired")
     }
@@ -1031,6 +985,7 @@ describe("createMcpRouter — transport.onclose", () => {
     mockedLogger.info.mockClear()
 
     const closeSession = transport.onclose
+
     if (!closeSession) {
       throw new Error("transport.onclose was not wired")
     }

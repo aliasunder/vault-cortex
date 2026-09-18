@@ -13,16 +13,13 @@ const MODEL_NAME = "Xenova/bge-small-en-v1.5"
 export const EMBEDDING_DIMENSIONS = 384
 
 /** SHA-256 content hash — used to skip re-embedding unchanged chunks. */
-export const contentHash = (text: string): string =>
-  createHash("sha256").update(text).digest("hex")
+export const contentHash = (text: string): string => createHash("sha256").update(text).digest("hex")
 
 export type Embedder = ReturnType<typeof createEmbedder>
 
 export const createEmbedder = (logger: Logger) => {
   type TransformersPipeline = Awaited<
-    ReturnType<
-      typeof import("@huggingface/transformers").pipeline<"feature-extraction">
-    >
+    ReturnType<typeof import("@huggingface/transformers").pipeline<"feature-extraction">>
   >
 
   let pipelineInstance: TransformersPipeline | null = null
@@ -69,9 +66,7 @@ export const createEmbedder = (logger: Logger) => {
    *  using an `as` cast. */
   const toFloat32Array = (data: unknown): Float32Array => {
     if (data instanceof Float32Array) return data
-    throw new Error(
-      `expected Float32Array from embedding pipeline, got ${typeof data}`,
-    )
+    throw new Error(`expected Float32Array from embedding pipeline, got ${typeof data}`)
   }
 
   /** Embed a single text. Returns a 384-dim Float32Array (mean-pooled, L2-normalized). */
@@ -82,9 +77,7 @@ export const createEmbedder = (logger: Logger) => {
   }
 
   /** Embed multiple texts in a single pipeline call. Returns one Float32Array per input. */
-  const embedBatch = async (
-    texts: readonly string[],
-  ): Promise<Float32Array[]> => {
+  const embedBatch = async (texts: readonly string[]): Promise<Float32Array[]> => {
     if (texts.length === 0) return []
     const pipe = await getPipeline()
     const output = await pipe([...texts], { pooling: "mean", normalize: true })
@@ -95,10 +88,7 @@ export const createEmbedder = (logger: Logger) => {
     return texts.map(
       (_text, index) =>
         new Float32Array(
-          data.slice(
-            index * EMBEDDING_DIMENSIONS,
-            (index + 1) * EMBEDDING_DIMENSIONS,
-          ),
+          data.slice(index * EMBEDDING_DIMENSIONS, (index + 1) * EMBEDDING_DIMENSIONS),
         ),
     )
   }

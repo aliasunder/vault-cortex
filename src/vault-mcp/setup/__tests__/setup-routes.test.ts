@@ -57,8 +57,7 @@ const VAULT_SALT = "vault-salt-1"
 // VAULT_SALT at encryption version 3 (scrypt + HKDF), produced by the pinned
 // CLI's own functions. The fake `/vault/access` accepts exactly this hash, so
 // the "correct password" test passes only when the derivation is right.
-const VAULT_KEY_HASH =
-  "60aa76a8ebdc3bd3fff0670081c08bc8056407f765a1c7b0918cc7077639a398" // gitleaks:allow
+const VAULT_KEY_HASH = "60aa76a8ebdc3bd3fff0670081c08bc8056407f765a1c7b0918cc7077639a398" // gitleaks:allow
 
 const plainVault = (name: string) => ({ id: name, name, password: "srv" })
 const encryptedVault = (name: string) => ({
@@ -82,10 +81,7 @@ type Harness = {
   apiRequests: FakeApiRequest[]
   onSetupComplete: ReturnType<typeof vi.fn>
   logs: LogCall[]
-  postForm: (
-    fields: Record<string, string>,
-    signal?: AbortSignal,
-  ) => Promise<Response>
+  postForm: (fields: Record<string, string>, signal?: AbortSignal) => Promise<Response>
   openConnections: () => Promise<number>
 }
 
@@ -109,16 +105,11 @@ const startHarness = async ({
   hostingPlatform?: HostingPlatform
 } = {}): Promise<Harness> => {
   const vaultName = vaultNameUnset ? undefined : "Notes"
-  const configuredVaultPassword = vaultPasswordWrong
-    ? WRONG_VAULT_PASSWORD
-    : VAULT_PASSWORD
+  const configuredVaultPassword = vaultPasswordWrong ? WRONG_VAULT_PASSWORD : VAULT_PASSWORD
   const vaultPassword = vaultPasswordSet ? configuredVaultPassword : undefined
-  const publicUrl = publicUrlUnset
-    ? undefined
-    : new URL("https://vault.example.com")
+  const publicUrl = publicUrlUnset ? undefined : new URL("https://vault.example.com")
   const fakeApi = await startFakeObsidianApi((request) => {
-    if (request.path === "/user/signin" && api.signIn)
-      return api.signIn(request)
+    if (request.path === "/user/signin" && api.signIn) return api.signIn(request)
     if (request.path === "/vault/list" && api.listVaults) {
       return api.listVaults(request)
     }
@@ -154,10 +145,9 @@ const startHarness = async ({
   const server = await new Promise<Server>((resolve) => {
     const listening = app.listen(0, "127.0.0.1", () => resolve(listening))
   })
-  onTestFinished(
-    () => new Promise<void>((resolve) => server.close(() => resolve())),
-  )
+  onTestFinished(() => new Promise<void>((resolve) => server.close(() => resolve())))
   const address = server.address()
+
   if (!address || typeof address === "string") {
     throw new Error("expected a TCP address from a listening server")
   }
@@ -236,9 +226,7 @@ describe("GET /setup", () => {
           (response) => {
             const chunks: Buffer[] = []
             response.on("data", (chunk: Buffer) => chunks.push(chunk))
-            response.on("end", () =>
-              resolve(Buffer.concat(chunks).toString("utf8")),
-            )
+            response.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")))
           },
         )
         request.on("error", reject)
@@ -283,9 +271,7 @@ describe("POST /setup — MCP token gate", () => {
   it("names the platform's settings tab in the wrong-token error when the platform is known", async () => {
     const harness = await startHarness({ hostingPlatform: "render" })
 
-    const html = await (
-      await harness.postForm({ ...CREDENTIALS, token: "not-the-token" })
-    ).text()
+    const html = await (await harness.postForm({ ...CREDENTIALS, token: "not-the-token" })).text()
 
     expect(html).toContain(
       `<div class="error">That MCP token does not match this server. Check the MCP_AUTH_TOKEN value in the service's Environment tab on Render.</div>`,
@@ -315,9 +301,7 @@ describe("POST /setup — MCP token gate", () => {
     const response = await harness.postForm({ token: AUTH_TOKEN, email: "" })
 
     expect(response.status).toBe(400)
-    expect(await response.text()).toContain(
-      "Enter your Obsidian account email and password.",
-    )
+    expect(await response.text()).toContain("Enter your Obsidian account email and password.")
     expect(harness.apiRequests).toEqual([])
   })
 
@@ -358,9 +342,7 @@ describe("POST /setup — sign-in outcomes", () => {
     )
     expect(await readFile(harness.tokenFilePath, "utf8")).toBe("sync-tok")
     expect((await stat(harness.tokenFilePath)).mode & 0o777).toBe(0o600)
-    await vi.waitFor(() =>
-      expect(harness.onSetupComplete).toHaveBeenCalledTimes(1),
-    )
+    await vi.waitFor(() => expect(harness.onSetupComplete).toHaveBeenCalledTimes(1))
     expect(harness.apiRequests.map((request) => request.path)).toEqual([
       "/user/signin",
       "/vault/list",
@@ -391,10 +373,9 @@ describe("POST /setup — sign-in outcomes", () => {
         clientRequest?.destroy()
         // Socket teardown and the completion chain take milliseconds locally
         // but can exceed vi.waitFor's default 1s budget on slow containers.
-        await vi.waitFor(
-          async () => expect(await harness.openConnections()).toBe(0),
-          { timeout: 10_000 },
-        )
+        await vi.waitFor(async () => expect(await harness.openConnections()).toBe(0), {
+          timeout: 10_000,
+        })
         return writeSyncToken(params, logger)
       })
     onTestFinished(() => writeSpy.mockRestore())
@@ -418,10 +399,9 @@ describe("POST /setup — sign-in outcomes", () => {
       }),
     ).rejects.toThrow("socket hang up")
 
-    await vi.waitFor(
-      () => expect(harness.onSetupComplete).toHaveBeenCalledTimes(1),
-      { timeout: 10_000 },
-    )
+    await vi.waitFor(() => expect(harness.onSetupComplete).toHaveBeenCalledTimes(1), {
+      timeout: 10_000,
+    })
     expect(await readFile(harness.tokenFilePath, "utf8")).toBe("sync-tok")
   })
 
@@ -477,8 +457,7 @@ describe("POST /setup — sign-in outcomes", () => {
 describe("POST /setup — two-factor round trip", () => {
   const mfaApi = (): ApiScript => ({
     signIn: (request) => {
-      if (request.body.mfa === "")
-        return { body: { error: "2FA code required" } }
+      if (request.body.mfa === "") return { body: { error: "2FA code required" } }
       if (request.body.mfa !== "123456") {
         return { body: { error: "2FA code is incorrect" } }
       }
@@ -493,6 +472,7 @@ describe("POST /setup — two-factor round trip", () => {
     const firstResponse = await harness.postForm(CREDENTIALS)
     const mfaHtml = await firstResponse.text()
     const requestId = REQUEST_ID_PATTERN.exec(mfaHtml)?.[1]
+
     if (!requestId) throw new Error("no request_id in the MFA page")
     expect(mfaHtml).not.toContain("pw")
     expect(mfaHtml).not.toContain("user@example.com")
@@ -515,25 +495,18 @@ describe("POST /setup — two-factor round trip", () => {
 
   it("re-asks for the code with a fresh id when it is wrong, retiring the old id", async () => {
     const harness = await startHarness({ api: mfaApi() })
-    const firstId = REQUEST_ID_PATTERN.exec(
-      await (await harness.postForm(CREDENTIALS)).text(),
-    )?.[1]
+    const firstId = REQUEST_ID_PATTERN.exec(await (await harness.postForm(CREDENTIALS)).text())?.[1]
+
     if (!firstId) throw new Error("no request_id in the MFA page")
 
-    const retryHtml = await (
-      await harness.postForm({ request_id: firstId, mfa: "000000" })
-    ).text()
+    const retryHtml = await (await harness.postForm({ request_id: firstId, mfa: "000000" })).text()
     const secondId = REQUEST_ID_PATTERN.exec(retryHtml)?.[1]
 
-    expect(retryHtml).toContain(
-      '<div class="error">2FA code is incorrect</div>',
-    )
+    expect(retryHtml).toContain('<div class="error">2FA code is incorrect</div>')
     if (!secondId) throw new Error("no request_id in the retry page")
     expect(secondId).not.toBe(firstId)
     // The retired id no longer holds a sign-in.
-    const reusedHtml = await (
-      await harness.postForm({ request_id: firstId, mfa: "123456" })
-    ).text()
+    const reusedHtml = await (await harness.postForm({ request_id: firstId, mfa: "123456" })).text()
     expect(reusedHtml).toContain("That sign-in expired — start again.")
     expect(existsSync(harness.tokenFilePath)).toBe(false)
   })
@@ -544,17 +517,15 @@ describe("POST /setup — two-factor round trip", () => {
       vi.useRealTimers()
     })
     const harness = await startHarness({ api: mfaApi() })
-    const firstId = REQUEST_ID_PATTERN.exec(
-      await (await harness.postForm(CREDENTIALS)).text(),
-    )?.[1]
+    const firstId = REQUEST_ID_PATTERN.exec(await (await harness.postForm(CREDENTIALS)).text())?.[1]
+
     if (!firstId) throw new Error("no request_id in the MFA page")
 
     // Advance 4 minutes, then submit a wrong code — within the original TTL.
     vi.setSystemTime(DateTime.now().plus({ minutes: 4 }).toJSDate())
-    const retryHtml = await (
-      await harness.postForm({ request_id: firstId, mfa: "000000" })
-    ).text()
+    const retryHtml = await (await harness.postForm({ request_id: firstId, mfa: "000000" })).text()
     const secondId = REQUEST_ID_PATTERN.exec(retryHtml)?.[1]
+
     if (!secondId) throw new Error("no request_id in the retry page")
 
     // Advance another 2 minutes (6 total) — past the original 5-min TTL,
@@ -565,12 +536,8 @@ describe("POST /setup — two-factor round trip", () => {
       await harness.postForm({ request_id: secondId, mfa: "123456" })
     ).text()
 
-    expect(expiredHtml).toContain(
-      '<div class="error">That sign-in expired — start again.</div>',
-    )
-    expect(
-      harness.apiRequests.filter((request) => request.path === "/user/signin"),
-    ).toHaveLength(2)
+    expect(expiredHtml).toContain('<div class="error">That sign-in expired — start again.</div>')
+    expect(harness.apiRequests.filter((request) => request.path === "/user/signin")).toHaveLength(2)
   })
 
   it("expires a pending sign-in after five minutes", async () => {
@@ -582,17 +549,14 @@ describe("POST /setup — two-factor round trip", () => {
     const requestId = REQUEST_ID_PATTERN.exec(
       await (await harness.postForm(CREDENTIALS)).text(),
     )?.[1]
+
     if (!requestId) throw new Error("no request_id in the MFA page")
 
     vi.setSystemTime(DateTime.now().plus({ minutes: 5, seconds: 1 }).toJSDate())
-    const html = await (
-      await harness.postForm({ request_id: requestId, mfa: "123456" })
-    ).text()
+    const html = await (await harness.postForm({ request_id: requestId, mfa: "123456" })).text()
 
     expect(html).toContain("That sign-in expired — start again.")
-    expect(
-      harness.apiRequests.filter((request) => request.path === "/user/signin"),
-    ).toHaveLength(1)
+    expect(harness.apiRequests.filter((request) => request.path === "/user/signin")).toHaveLength(1)
   })
 })
 
@@ -610,9 +574,7 @@ describe("POST /setup — vault pre-flight", () => {
     const html = await (await harness.postForm(CREDENTIALS)).text()
 
     expect(html).toContain("There is no vault named <code>Notes</code>")
-    expect(html).toContain(
-      "<li><code>Work</code></li><li><code>Team</code></li>",
-    )
+    expect(html).toContain("<li><code>Work</code></li><li><code>Team</code></li>")
     expect(existsSync(harness.tokenFilePath)).toBe(false)
     expect(harness.onSetupComplete).not.toHaveBeenCalled()
     expect(harness.logs.at(-1)).toEqual({
@@ -719,23 +681,20 @@ describe("POST /setup — vault pre-flight", () => {
 
     expect(html).toContain("<h1>Setup complete</h1>")
     expect(await readFile(harness.tokenFilePath, "utf8")).toBe("sync-tok")
-    expect(
-      harness.logs.filter(
-        (call) => call.message === "setup_vault_key_check_skipped",
-      ),
-    ).toEqual([
-      {
-        level: "warn",
-        message: "setup_vault_key_check_skipped",
-        data: {
-          component: "setup-routes",
-          requestId: expect.any(String),
-          clientIp: "127.0.0.1",
-          reason:
-            "Could not reach Obsidian's servers (Obsidian API answered HTTP 503).",
+    expect(harness.logs.filter((call) => call.message === "setup_vault_key_check_skipped")).toEqual(
+      [
+        {
+          level: "warn",
+          message: "setup_vault_key_check_skipped",
+          data: {
+            component: "setup-routes",
+            requestId: expect.any(String),
+            clientIp: "127.0.0.1",
+            reason: "Could not reach Obsidian's servers (Obsidian API answered HTTP 503).",
+          },
         },
-      },
-    ])
+      ],
+    )
   })
 
   it("blocks an encrypted vault whose encryption version is newer than the Sync client supports", async () => {
@@ -822,9 +781,7 @@ describe("POST /setup — vault pre-flight", () => {
     const html = await (await harness.postForm(CREDENTIALS)).text()
 
     expect(html).toContain("<code>VAULT_NAME</code> is not set")
-    expect(harness.apiRequests.map((request) => request.path)).toEqual([
-      "/user/signin",
-    ])
+    expect(harness.apiRequests.map((request) => request.path)).toEqual(["/user/signin"])
     expect(existsSync(harness.tokenFilePath)).toBe(false)
   })
 
@@ -854,9 +811,7 @@ describe("POST /setup — vault pre-flight", () => {
 
     expect(html).toContain("<h1>Setup complete</h1>")
     expect(await readFile(harness.tokenFilePath, "utf8")).toBe("sync-tok")
-    expect(harness.logs.map((call) => call.message)).toContain(
-      "setup_vault_check_skipped",
-    )
+    expect(harness.logs.map((call) => call.message)).toContain("setup_vault_check_skipped")
   })
 
   it("omits the MCP URL from the completion page without a public URL", async () => {
@@ -870,8 +825,6 @@ describe("POST /setup — vault pre-flight", () => {
 
     const html = await (await harness.postForm(CREDENTIALS)).text()
 
-    expect(html).toContain(
-      "Connect your MCP client to this server's <code>/mcp</code> address",
-    )
+    expect(html).toContain("Connect your MCP client to this server's <code>/mcp</code> address")
   })
 })

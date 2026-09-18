@@ -1,10 +1,4 @@
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -28,19 +22,13 @@ describe("buildFilesToWrite", () => {
   it("returns only the .env file with owner-only permissions", () => {
     const files = buildFilesToWrite("MCP_AUTH_TOKEN=abc\n")
 
-    expect(files).toEqual([
-      { name: ".env", content: "MCP_AUTH_TOKEN=abc\n", mode: 0o600 },
-    ])
+    expect(files).toEqual([{ name: ".env", content: "MCP_AUTH_TOKEN=abc\n", mode: 0o600 }])
   })
 })
 
 describe("writeFiles", () => {
   it("creates the target directory and writes all files", async () => {
-    const targetDir = join(
-      mkdtempSync(join(tmpdir(), "vault-cli-")),
-      "nested",
-      "vault-cortex",
-    )
+    const targetDir = join(mkdtempSync(join(tmpdir(), "vault-cli-")), "nested", "vault-cortex")
 
     const results = await writeFiles(
       {
@@ -51,9 +39,7 @@ describe("writeFiles", () => {
     )
 
     expect(results).toEqual([{ name: ".env", status: "created" }])
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
-      "MCP_AUTH_TOKEN=abc\n",
-    )
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=abc\n")
   })
 
   it("skips an existing identical file without consulting the conflict resolver", async () => {
@@ -87,9 +73,7 @@ describe("writeFiles", () => {
     )
 
     expect(results).toEqual([{ name: ".env", status: "kept" }])
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
-      "MCP_AUTH_TOKEN=old\n",
-    )
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=old\n")
   })
 
   it("overwrites a differing existing file when the resolver approves", async () => {
@@ -105,9 +89,7 @@ describe("writeFiles", () => {
     )
 
     expect(results).toEqual([{ name: ".env", status: "overwritten" }])
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
-      "MCP_AUTH_TOKEN=new\n",
-    )
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=new\n")
   })
 
   it("resolves conflicts per file — keeps one and creates another in the same run", async () => {
@@ -183,10 +165,7 @@ describe("readEnvVaultPath", () => {
   it("returns the vault path from an uncommented line", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/home/user/MyVault\n",
-    )
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/home/user/MyVault\n")
 
     expect(readEnvVaultPath(envPath)).toBe("/home/user/MyVault")
   })
@@ -194,10 +173,7 @@ describe("readEnvVaultPath", () => {
   it("handles paths with spaces", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/Users/me/My Vault\n",
-    )
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/Users/me/My Vault\n")
 
     expect(readEnvVaultPath(envPath)).toBe("/Users/me/My Vault")
   })
@@ -205,10 +181,7 @@ describe("readEnvVaultPath", () => {
   it("strips surrounding double quotes from the value", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      'MCP_AUTH_TOKEN=abc\nVAULT_PATH="/Users/me/My Vault"\n',
-    )
+    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nVAULT_PATH="/Users/me/My Vault"\n')
 
     expect(readEnvVaultPath(envPath)).toBe("/Users/me/My Vault")
   })
@@ -216,10 +189,7 @@ describe("readEnvVaultPath", () => {
   it("strips surrounding single quotes from the value", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nVAULT_PATH='/Users/me/My Vault'\n",
-    )
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_PATH='/Users/me/My Vault'\n")
 
     expect(readEnvVaultPath(envPath)).toBe("/Users/me/My Vault")
   })
@@ -229,10 +199,7 @@ describe("readEnvPublicUrl", () => {
   it("returns the value of an uncommented PUBLIC_URL line", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com\n",
-    )
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com\n")
 
     expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
   })
@@ -242,10 +209,7 @@ describe("readEnvPublicUrl", () => {
     // the connect message — mirror askPublicUrl's prompt-side normalization.
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com/\n",
-    )
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com/\n")
 
     expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
   })
@@ -253,10 +217,7 @@ describe("readEnvPublicUrl", () => {
   it("strips a run of trailing slashes, not just one", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com///\n",
-    )
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nPUBLIC_URL=https://vault.example.com///\n")
 
     expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
   })
@@ -298,10 +259,7 @@ describe("readEnvPublicUrl", () => {
   it("strips surrounding double quotes from the value", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      'MCP_AUTH_TOKEN=abc\nPUBLIC_URL="https://vault.example.com"\n',
-    )
+    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nPUBLIC_URL="https://vault.example.com"\n')
 
     expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
   })
@@ -309,10 +267,7 @@ describe("readEnvPublicUrl", () => {
   it("strips quotes then trailing slashes", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      'MCP_AUTH_TOKEN=abc\nPUBLIC_URL="https://vault.example.com/"\n',
-    )
+    writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nPUBLIC_URL="https://vault.example.com/"\n')
 
     expect(readEnvPublicUrl(envPath)).toBe("https://vault.example.com")
   })
@@ -328,10 +283,7 @@ describe("detectMode", () => {
   it("returns local when OBSIDIAN_AUTH_TOKEN is absent", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/home/user/MyVault\n",
-    )
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/home/user/MyVault\n")
 
     expect(detectMode(envPath)).toBe("local")
   })
@@ -347,10 +299,7 @@ describe("detectMode", () => {
   it("returns remote when OBSIDIAN_AUTH_TOKEN is present and uncommented", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-"))
     const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=token123\nVAULT_NAME=MyVault\n",
-    )
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=token123\nVAULT_NAME=MyVault\n")
 
     expect(detectMode(envPath)).toBe("remote")
   })
@@ -423,16 +372,11 @@ describe("patchEnvObsidianToken", () => {
     const result = patchEnvObsidianToken(envPath, "filled-in")
 
     expect(result).toBe(true)
-    expect(readFileSync(envPath, "utf8")).toBe(
-      "OBSIDIAN_AUTH_TOKEN=filled-in\n",
-    )
+    expect(readFileSync(envPath, "utf8")).toBe("OBSIDIAN_AUTH_TOKEN=filled-in\n")
   })
 
   it("returns false when the file does not exist", () => {
-    const result = patchEnvObsidianToken(
-      join(tmpdir(), "vault-cli-no-such-file", ".env"),
-      "token",
-    )
+    const result = patchEnvObsidianToken(join(tmpdir(), "vault-cli-no-such-file", ".env"), "token")
 
     expect(result).toBe(false)
   })
@@ -445,9 +389,7 @@ describe("patchEnvObsidianToken", () => {
     const result = patchEnvObsidianToken(envPath, "token")
 
     expect(result).toBe(false)
-    expect(readFileSync(envPath, "utf8")).toBe(
-      "MCP_AUTH_TOKEN=abc\nVAULT_PATH=/vault\n",
-    )
+    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=abc\nVAULT_PATH=/vault\n")
   })
 
   it("writes tokens containing $ patterns literally (no regex interpolation)", () => {
@@ -458,9 +400,7 @@ describe("patchEnvObsidianToken", () => {
     const result = patchEnvObsidianToken(envPath, "abc$&def$$1$'end")
 
     expect(result).toBe(true)
-    expect(readFileSync(envPath, "utf8")).toBe(
-      "OBSIDIAN_AUTH_TOKEN=abc$&def$$1$'end\n",
-    )
+    expect(readFileSync(envPath, "utf8")).toBe("OBSIDIAN_AUTH_TOKEN=abc$&def$$1$'end\n")
   })
 
   it("preserves surrounding content when patching", () => {
@@ -487,20 +427,14 @@ describe("readEnvObsidianToken", () => {
 
   it("returns the token value from an existing .env", () => {
     const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=my-token\nVAULT_NAME=Test\n",
-    )
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=my-token\nVAULT_NAME=Test\n")
 
     expect(readEnvObsidianToken(envPath)).toBe("my-token")
   })
 
   it("returns undefined when the line exists but the value is empty", () => {
     const envPath = join(mkdtempSync(join(tmpdir(), "vault-cli-")), ".env")
-    writeFileSync(
-      envPath,
-      "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=\nVAULT_NAME=Test\n",
-    )
+    writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=\nVAULT_NAME=Test\n")
 
     expect(readEnvObsidianToken(envPath)).toBeUndefined()
   })
@@ -543,9 +477,7 @@ describe("stripEnvQuotedValues", () => {
     writeFileSync(envPath, 'MCP_AUTH_TOKEN=abc\nVAULT_NAME="My Vault"\n')
 
     expect(stripEnvQuotedValues(envPath)).toBe(true)
-    expect(readFileSync(envPath, "utf8")).toBe(
-      "MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n",
-    )
+    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n")
   })
 
   it("strips single quotes from values", () => {
@@ -554,18 +486,13 @@ describe("stripEnvQuotedValues", () => {
     writeFileSync(envPath, "MCP_AUTH_TOKEN=abc\nVAULT_NAME='My Vault'\n")
 
     expect(stripEnvQuotedValues(envPath)).toBe(true)
-    expect(readFileSync(envPath, "utf8")).toBe(
-      "MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n",
-    )
+    expect(readFileSync(envPath, "utf8")).toBe("MCP_AUTH_TOKEN=abc\nVAULT_NAME=My Vault\n")
   })
 
   it("strips quotes from multiple values in one pass", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
     const envPath = join(targetDir, ".env")
-    writeFileSync(
-      envPath,
-      'VAULT_NAME="My Vault"\nSYNC_EXCLUDED_FOLDERS="Folder A,Folder B"\n',
-    )
+    writeFileSync(envPath, 'VAULT_NAME="My Vault"\nSYNC_EXCLUDED_FOLDERS="Folder A,Folder B"\n')
 
     expect(stripEnvQuotedValues(envPath)).toBe(true)
     expect(readFileSync(envPath, "utf8")).toBe(
@@ -576,8 +503,7 @@ describe("stripEnvQuotedValues", () => {
   it("preserves comments and unquoted values", () => {
     const targetDir = mkdtempSync(join(tmpdir(), "vault-cli-sanitize-"))
     const envPath = join(targetDir, ".env")
-    const content =
-      '# Comment\nMCP_AUTH_TOKEN=abc\nVAULT_NAME="My Vault"\nPORT=8000\n# Footer\n'
+    const content = '# Comment\nMCP_AUTH_TOKEN=abc\nVAULT_NAME="My Vault"\nPORT=8000\n# Footer\n'
     writeFileSync(envPath, content)
 
     stripEnvQuotedValues(envPath)

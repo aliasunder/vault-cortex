@@ -1,18 +1,8 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs"
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, relative } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
-import {
-  createVaultSnapshot,
-  snapshotMatchesProvenance,
-} from "../search-eval-snapshot.js"
+import { createVaultSnapshot, snapshotMatchesProvenance } from "../search-eval-snapshot.js"
 
 // Test-owned copy of the marker name the snapshot writes — drift between
 // this and the module's constant should fail these tests.
@@ -76,10 +66,7 @@ describe("createVaultSnapshot", () => {
       excludePrefixes: ["sessions"],
     })
 
-    expect(listSnapshotFiles(snapshotDir)).toEqual([
-      SNAPSHOT_MARKER,
-      join("notes", "keep.md"),
-    ])
+    expect(listSnapshotFiles(snapshotDir)).toEqual([SNAPSHOT_MARKER, join("notes", "keep.md")])
   })
 
   it("skips files with a hidden segment at any depth", () => {
@@ -95,10 +82,7 @@ describe("createVaultSnapshot", () => {
       excludePrefixes: [],
     })
 
-    expect(listSnapshotFiles(snapshotDir)).toEqual([
-      SNAPSHOT_MARKER,
-      join("notes", "keep.md"),
-    ])
+    expect(listSnapshotFiles(snapshotDir)).toEqual([SNAPSHOT_MARKER, join("notes", "keep.md")])
   })
 
   it("skips exactly the excluded paths and copies everything else", () => {
@@ -113,10 +97,7 @@ describe("createVaultSnapshot", () => {
       excludePrefixes: [],
     })
 
-    expect(listSnapshotFiles(snapshotDir)).toEqual([
-      SNAPSHOT_MARKER,
-      join("research", "keep.md"),
-    ])
+    expect(listSnapshotFiles(snapshotDir)).toEqual([SNAPSHOT_MARKER, join("research", "keep.md")])
   })
 
   it("replaces an existing harness snapshot so stale files from a prior run cannot survive", () => {
@@ -133,10 +114,7 @@ describe("createVaultSnapshot", () => {
       excludePrefixes: [],
     })
 
-    expect(listSnapshotFiles(snapshotDir)).toEqual([
-      SNAPSHOT_MARKER,
-      "current.md",
-    ])
+    expect(listSnapshotFiles(snapshotDir)).toEqual([SNAPSHOT_MARKER, "current.md"])
   })
 
   it("records provenance a matching reuse accepts, in any exclusion order", () => {
@@ -238,10 +216,7 @@ describe("createVaultSnapshot", () => {
       excludePaths: [],
       excludePrefixes: [],
     })
-    expect(listSnapshotFiles(snapshotDir)).toEqual([
-      SNAPSHOT_MARKER,
-      "current.md",
-    ])
+    expect(listSnapshotFiles(snapshotDir)).toEqual([SNAPSHOT_MARKER, "current.md"])
   })
 
   it("refuses to delete a directory that is not a harness snapshot", () => {
@@ -260,8 +235,6 @@ describe("createVaultSnapshot", () => {
     }).toThrow(
       `${snapshotDir} exists but is not a harness snapshot — remove it or choose another --work-dir`,
     )
-    expect(readFileSync(join(snapshotDir, "operator-data.md"), "utf8")).toBe(
-      "not ours to delete\n",
-    )
+    expect(readFileSync(join(snapshotDir, "operator-data.md"), "utf8")).toBe("not ours to delete\n")
   })
 })

@@ -40,10 +40,7 @@ const MOMENT_TOKEN_MAP = new Map(MOMENT_TO_LUXON)
 
 /** Replaces Moment tokens with their Luxon equivalents in a single pass. */
 const convertMomentTokens = (formatSpan: string): string =>
-  formatSpan.replace(
-    MOMENT_TOKEN_RE,
-    (match) => MOMENT_TOKEN_MAP.get(match) ?? match,
-  )
+  formatSpan.replace(MOMENT_TOKEN_RE, (match) => MOMENT_TOKEN_MAP.get(match) ?? match)
 
 /** Converts a Moment.js format string to Luxon format tokens. [literal]
  *  escapes become Luxon 'literal' quotes (single quotes doubled), and token
@@ -61,9 +58,7 @@ export const momentToLuxonFormat = (momentFormat: string): string => {
       const isLiteralContent = segmentIndex % 2 === 1
       // Luxon wraps literal text in single quotes and escapes an embedded
       // quote by doubling it ("it's" → 'it''s').
-      return isLiteralContent
-        ? `'${segment.replace(/'/g, "''")}'`
-        : convertMomentTokens(segment)
+      return isLiteralContent ? `'${segment.replace(/'/g, "''")}'` : convertMomentTokens(segment)
     })
     .join("")
 }
@@ -72,28 +67,27 @@ export const momentToLuxonFormat = (momentFormat: string): string => {
  *  regex pattern with boundary guards so it doesn't false-positive inside
  *  a supported token (e.g. dd inside ddd, D inside DD, L inside LL).
  *  Boundary guards use lookahead/lookbehind for the same letter family. */
-const UNSUPPORTED_PATTERNS: ReadonlyArray<{ pattern: RegExp; token: string }> =
-  [
-    { pattern: /DDDo/, token: "DDDo" },
-    { pattern: /(?<!D)Do/, token: "Do" },
-    { pattern: /Mo/, token: "Mo" },
-    { pattern: /wo/, token: "wo" },
-    { pattern: /(?<!d)dd(?!d)/, token: "dd" },
-    { pattern: /(?<!d)d(?!d)/, token: "d" },
-    { pattern: /(?<![A-Za-z])e(?![A-Za-z])/, token: "e" },
-    { pattern: /(?<!k)kk(?!k)/, token: "kk" },
-    { pattern: /(?<!k)k(?!k)/, token: "k" },
-    { pattern: /LLLL/, token: "LLLL" },
-    { pattern: /(?<!L)LLL(?!L)/, token: "LLL" },
-    { pattern: /(?<!L)LL(?!L)/, token: "LL" },
-    { pattern: /(?<!L)L(?![LT])/, token: "L" },
-    { pattern: /LTS/, token: "LTS" },
-    { pattern: /(?<!L)LT(?!S)/, token: "LT" },
-    { pattern: /(?<!Z)ZZ/, token: "ZZ" },
-    { pattern: /(?<!Z)Z(?!Z)/, token: "Z" },
-    { pattern: /(?<![A-Za-z])Q(?![A-Za-z])/, token: "Q" },
-    { pattern: /(?<![A-Za-z])w(?![A-Za-z])/, token: "w" },
-  ]
+const UNSUPPORTED_PATTERNS: ReadonlyArray<{ pattern: RegExp; token: string }> = [
+  { pattern: /DDDo/, token: "DDDo" },
+  { pattern: /(?<!D)Do/, token: "Do" },
+  { pattern: /Mo/, token: "Mo" },
+  { pattern: /wo/, token: "wo" },
+  { pattern: /(?<!d)dd(?!d)/, token: "dd" },
+  { pattern: /(?<!d)d(?!d)/, token: "d" },
+  { pattern: /(?<![A-Za-z])e(?![A-Za-z])/, token: "e" },
+  { pattern: /(?<!k)kk(?!k)/, token: "kk" },
+  { pattern: /(?<!k)k(?!k)/, token: "k" },
+  { pattern: /LLLL/, token: "LLLL" },
+  { pattern: /(?<!L)LLL(?!L)/, token: "LLL" },
+  { pattern: /(?<!L)LL(?!L)/, token: "LL" },
+  { pattern: /(?<!L)L(?![LT])/, token: "L" },
+  { pattern: /LTS/, token: "LTS" },
+  { pattern: /(?<!L)LT(?!S)/, token: "LT" },
+  { pattern: /(?<!Z)ZZ/, token: "ZZ" },
+  { pattern: /(?<!Z)Z(?!Z)/, token: "Z" },
+  { pattern: /(?<![A-Za-z])Q(?![A-Za-z])/, token: "Q" },
+  { pattern: /(?<![A-Za-z])w(?![A-Za-z])/, token: "w" },
+]
 
 /** Returns unsupported Moment tokens present in the format string outside
  *  of [literal] escapes, or an empty array if none. */

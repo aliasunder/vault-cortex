@@ -72,10 +72,10 @@ const fetchMfaRequired = (token = "mfa-sync-token"): typeof fetch => {
   return (async () => {
     callCount += 1
     if (callCount === 1) {
-      return new Response(
-        JSON.stringify({ error: "Your account requires a 2FA code" }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      )
+      return new Response(JSON.stringify({ error: "Your account requires a 2FA code" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
     }
     return new Response(JSON.stringify({ token }), {
       status: 200,
@@ -93,10 +93,10 @@ const fetchMfaRetryFail = (retryError: string): typeof fetch => {
   return (async () => {
     callCount += 1
     if (callCount === 1) {
-      return new Response(
-        JSON.stringify({ error: "Your account requires a 2FA code" }),
-        { status: 200, headers: { "Content-Type": "application/json" } },
-      )
+      return new Response(JSON.stringify({ error: "Your account requires a 2FA code" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
     }
     return new Response(JSON.stringify({ error: retryError }), {
       status: 200,
@@ -137,11 +137,7 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBe("mfa-token")
-    expect(scripted.asked).toEqual([
-      "Obsidian account email:",
-      "Password:",
-      "2FA code:",
-    ])
+    expect(scripted.asked).toEqual(["Obsidian account email:", "Password:", "2FA code:"])
     expect(scripted.spinnerMessages).toEqual([
       "start: Signing in to Obsidian...",
       "stop: Two-factor authentication required.",
@@ -159,9 +155,7 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toBe(
-      "Could not sign in: 2FA code is incorrect",
-    )
+    expect(scripted.warnings[0]).toBe("Could not sign in: 2FA code is incorrect")
   })
 
   it("returns undefined with retry guidance when MFA retry fails", async () => {
@@ -177,14 +171,9 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.asked).toEqual([
-      "Obsidian account email:",
-      "Password:",
-      "2FA code:",
-    ])
+    expect(scripted.asked).toEqual(["Obsidian account email:", "Password:", "2FA code:"])
     expect(scripted.warnings[0]).toBe(
-      "Could not sign in: 2FA code is incorrect\n" +
-        "  Check your 2FA code and try again.",
+      "Could not sign in: 2FA code is incorrect\n" + "  Check your 2FA code and try again.",
     )
     expect(scripted.spinnerMessages).toEqual([
       "start: Signing in to Obsidian...",
@@ -199,19 +188,15 @@ describe("captureObsidianToken", () => {
     const fetchMfaThenTimeout: typeof fetch = (async () => {
       callCount += 1
       if (callCount === 1) {
-        return new Response(
-          JSON.stringify({ error: "Your account requires a 2FA code" }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        )
+        return new Response(JSON.stringify({ error: "Your account requires a 2FA code" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
       }
       throw new DOMException("The operation was aborted", "TimeoutError")
     }) as typeof fetch
 
-    const scripted = createScriptedPrompts([
-      "user@example.com",
-      "password",
-      "123456",
-    ])
+    const scripted = createScriptedPrompts(["user@example.com", "password", "123456"])
 
     const token = await captureObsidianToken({
       prompts: scripted.prompts,
@@ -229,19 +214,15 @@ describe("captureObsidianToken", () => {
     const fetchMfaThenNetworkError: typeof fetch = (async () => {
       callCount += 1
       if (callCount === 1) {
-        return new Response(
-          JSON.stringify({ error: "Your account requires a 2FA code" }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        )
+        return new Response(JSON.stringify({ error: "Your account requires a 2FA code" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
       }
       throw new Error("fetch failed")
     }) as typeof fetch
 
-    const scripted = createScriptedPrompts([
-      "user@example.com",
-      "password",
-      "123456",
-    ])
+    const scripted = createScriptedPrompts(["user@example.com", "password", "123456"])
 
     const token = await captureObsidianToken({
       prompts: scripted.prompts,
@@ -253,10 +234,7 @@ describe("captureObsidianToken", () => {
   })
 
   it("returns undefined on wrong password", async () => {
-    const scripted = createScriptedPrompts([
-      "user@example.com",
-      "wrong-password",
-    ])
+    const scripted = createScriptedPrompts(["user@example.com", "wrong-password"])
 
     const token = await captureObsidianToken({
       prompts: scripted.prompts,
@@ -264,9 +242,7 @@ describe("captureObsidianToken", () => {
     })
 
     expect(token).toBeUndefined()
-    expect(scripted.warnings[0]).toBe(
-      "Could not sign in: Invalid email or password",
-    )
+    expect(scripted.warnings[0]).toBe("Could not sign in: Invalid email or password")
   })
 
   it("returns undefined on HTTP error", async () => {
@@ -380,10 +356,7 @@ describe("runGetSyncToken subcommand", () => {
   })
 
   it("exits 1 when token capture fails", async () => {
-    const scripted = createScriptedPrompts([
-      "user@example.com",
-      "wrong-password",
-    ])
+    const scripted = createScriptedPrompts(["user@example.com", "wrong-password"])
 
     const exitCode = await runGetSyncToken(
       {},
@@ -417,9 +390,7 @@ describe("runGetSyncToken subcommand", () => {
     expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
       "MCP_AUTH_TOKEN=abc\nOBSIDIAN_AUTH_TOKEN=new-sync-token\nVAULT_NAME=MyVault\n",
     )
-    const startHint = scripted.logs.find((log) =>
-      log.includes("Token written to"),
-    )
+    const startHint = scripted.logs.find((log) => log.includes("Token written to"))
     expect(startHint).toContain(`Token written to ${join(targetDir, ".env")}`)
     expect(startHint).toContain(`npx vault-cortex start --dir "${targetDir}"`)
   })
@@ -445,10 +416,7 @@ describe("runGetSyncToken subcommand", () => {
   })
 
   it("exits 1 when --dir .env does not exist", async () => {
-    const targetDir = join(
-      mkdtempSync(join(tmpdir(), "vault-cli-sync-token-")),
-      "nonexistent",
-    )
+    const targetDir = join(mkdtempSync(join(tmpdir(), "vault-cli-sync-token-")), "nonexistent")
     const scripted = createScriptedPrompts(["user@example.com", "password"])
 
     const exitCode = await runGetSyncToken(

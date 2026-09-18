@@ -43,9 +43,7 @@ const { handler } = await import("../authorizer.js")
 /** A gateway event for `/mcp` — the protected path, where the authorizer
  *  validates the Authorization header instead of passing the request
  *  through as it does for the OAuth paths. */
-const protectedRequest = (
-  authorization: string,
-): APIGatewayRequestAuthorizerEventV2 => {
+const protectedRequest = (authorization: string): APIGatewayRequestAuthorizerEventV2 => {
   return {
     rawPath: "/mcp",
     headers: { authorization },
@@ -72,9 +70,7 @@ const accessToken = (claims: { iss: string; aud: string }): string => {
  *  server (literal issuer, no `aud`) — signed by hand because `signJwt`
  *  only accepts the bound shape. */
 const preBindingToken = (secret: string): string => {
-  const header = Buffer.from(
-    JSON.stringify({ alg: "HS256", typ: "JWT" }),
-  ).toString("base64url")
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
   const body = Buffer.from(
     JSON.stringify({
       sub: "client-1",
@@ -130,9 +126,7 @@ describe("authorizer handler", () => {
   })
 
   it("authorizes a pre-binding JWT (no aud) so Express can answer it with a 401", async () => {
-    const result = await handler(
-      protectedRequest(`Bearer ${preBindingToken(SECRET)}`),
-    )
+    const result = await handler(protectedRequest(`Bearer ${preBindingToken(SECRET)}`))
     expect(result).toEqual({ isAuthorized: true })
   })
 

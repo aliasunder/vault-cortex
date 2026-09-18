@@ -17,9 +17,7 @@ import { describeError } from "../../../utils/describe-error.js"
  *  modules never restate them — the config type carries no annotations key,
  *  making an inline block a compile error. Throws on a name missing from the
  *  registry (a typo'd registration would otherwise be invisible forever). */
-export type RegisterGatedTool = <
-  InputArgs extends undefined | ZodRawShapeCompat = undefined,
->(
+export type RegisterGatedTool = <InputArgs extends undefined | ZodRawShapeCompat = undefined>(
   name: ToolName,
   config: { title: string; description: string; inputSchema?: InputArgs },
   handler: ToolCallback<InputArgs>,
@@ -56,9 +54,7 @@ export const formatNoteMetadata = (meta: {
   return {
     ...fields,
     ...(leadingCallout ? { leading_callout: leadingCallout } : {}),
-    ...(Object.keys(additional_properties).length > 0
-      ? { additional_properties }
-      : {}),
+    ...(Object.keys(additional_properties).length > 0 ? { additional_properties } : {}),
   }
 }
 
@@ -83,18 +79,13 @@ export const dateFilterSchema = z
 /** One-line, model-facing summary of a paged text read: the window served,
  *  the rendition's total line count, and the next start_line when more
  *  remains — shared by vault_read_note and vault_read_file. */
-export const describeTextWindow = (
-  path: string,
-  lineWindow: LineWindow,
-): string => {
+export const describeTextWindow = (path: string, lineWindow: LineWindow): string => {
   const { startLine, endLine, totalLines } = lineWindow
 
   if (totalLines === 0) return `${path} — 0 lines (end of file)`
 
   const isLastWindow = endLine >= totalLines
-  const continuation = isLastWindow
-    ? "(end of file)"
-    : `(continue with start_line: ${endLine + 1})`
+  const continuation = isLastWindow ? "(end of file)" : `(continue with start_line: ${endLine + 1})`
 
   return `${path} — lines ${startLine}–${endLine} of ${totalLines} ${continuation}`
 }
@@ -133,7 +124,4 @@ export const safeHandler = <T>(
 ): Promise<{
   content: CallToolResult["content"]
   isError?: true
-}> =>
-  safeHandlerContent(logger, fn, (result) => [
-    { type: "text" as const, text: format(result) },
-  ])
+}> => safeHandlerContent(logger, fn, (result) => [{ type: "text" as const, text: format(result) }])

@@ -9,17 +9,11 @@ import type { Logger } from "../../logger.js"
 import { parseNote } from "../obsidian-markdown/frontmatter.js"
 import { parseLeadingCallout } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
-import {
-  linearizeCanvas,
-  extractCanvasFileLinks,
-} from "../obsidian-markdown/canvas.js"
+import { linearizeCanvas, extractCanvasFileLinks } from "../obsidian-markdown/canvas.js"
 import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
-import {
-  parseMemoryEntries,
-  type MemoryEntry,
-} from "../obsidian-markdown/memory-entries.js"
+import { parseMemoryEntries, type MemoryEntry } from "../obsidian-markdown/memory-entries.js"
 import { tasks } from "../obsidian-markdown/tasks.js"
 import type { TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
 import { contentHash, type Embedder } from "./embedder.js"
@@ -70,6 +64,7 @@ const truncateToUtf8ByteLimit = (content: string, maxBytes: number): string => {
   let endIndex = 0
   for (const character of content) {
     const characterBytes = Buffer.byteLength(character, "utf8")
+
     if (usedBytes + characterBytes > maxBytes) break
     usedBytes += characterBytes
     // .length is UTF-16 code units — matches .slice()'s indexing
@@ -244,8 +239,7 @@ type SubtaskProgress = { done: number; total: number }
 /** Status filter vocabulary for listTasks. "not_done" (the default) covers
  *  todo + in_progress — the Tasks plugin's own `not done` semantics, which
  *  exclude cancelled tasks. */
-export type TaskStatusFilter =
-  "not_done" | "todo" | "in_progress" | "done" | "cancelled" | "all"
+export type TaskStatusFilter = "not_done" | "todo" | "in_progress" | "done" | "cancelled" | "all"
 
 /** Date bounds for one date field — task dates and vault_search's
  *  created/modified filters. before/after are exclusive and on is an exact
@@ -266,14 +260,7 @@ export type TaskPriorityFilter = TaskPriority | "none"
  *  task's own metadata; note_mtime sorts on the owning note's modified time;
  *  position sorts by file path then line number (Kanban card order). */
 export type TaskSortKey =
-  | "due"
-  | "scheduled"
-  | "start"
-  | "created"
-  | "done"
-  | "priority"
-  | "note_mtime"
-  | "position"
+  "due" | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime" | "position"
 
 /** listTasks response: tasks is the limit-capped page, total the full match
  *  count — so callers can tell "50 of 338" from "all 50". */
@@ -383,13 +370,9 @@ export const createSearchIndex = (
   // FTS5 doesn't support ALTER TABLE ADD COLUMN. When opening a warm database
   // that lacks the metadata column, drop the table so the CREATE below rebuilds
   // it with the new schema. rebuildFromVault repopulates on every startup.
-  const ftsColumns = db
-    .prepare<unknown[], { name: string }>("PRAGMA table_info(notes_fts)")
-    .all()
-  if (
-    ftsColumns.length > 0 &&
-    !ftsColumns.some((column) => column.name === "metadata")
-  ) {
+  const ftsColumns = db.prepare<unknown[], { name: string }>("PRAGMA table_info(notes_fts)").all()
+
+  if (ftsColumns.length > 0 && !ftsColumns.some((column) => column.name === "metadata")) {
     db.exec("DROP TABLE notes_fts")
   }
 
@@ -575,9 +558,8 @@ export const createSearchIndex = (
   // (and the upsert below would throw). Add it idempotently when absent. The
   // column is not FTS-indexed — the callout text already lives in `content`, so
   // it's searchable; this column only stores the parsed block for cheap retrieval.
-  const noteColumns = db
-    .prepare<unknown[], { name: string }>(`PRAGMA table_info(notes)`)
-    .all()
+  const noteColumns = db.prepare<unknown[], { name: string }>(`PRAGMA table_info(notes)`).all()
+
   if (!noteColumns.some((column) => column.name === "leading_callout")) {
     db.exec(`ALTER TABLE notes ADD COLUMN leading_callout TEXT`)
   }
@@ -590,9 +572,8 @@ export const createSearchIndex = (
 
   // Same idempotent migration for tasks: depth/parent columns for sub-task
   // tracking.
-  const taskColumns = db
-    .prepare<unknown[], { name: string }>(`PRAGMA table_info(tasks)`)
-    .all()
+  const taskColumns = db.prepare<unknown[], { name: string }>(`PRAGMA table_info(tasks)`).all()
+
   if (!taskColumns.some((column) => column.name === "depth")) {
     db.exec(`ALTER TABLE tasks ADD COLUMN depth INTEGER NOT NULL DEFAULT 0`)
   }
@@ -618,6 +599,7 @@ export const createSearchIndex = (
   const nonMdColumns = db
     .prepare<unknown[], { name: string }>(`PRAGMA table_info(non_md_files)`)
     .all()
+
   if (!nonMdColumns.some((column) => column.name === "bytes")) {
     db.exec(`ALTER TABLE non_md_files ADD COLUMN bytes INTEGER`)
   }
@@ -646,16 +628,11 @@ export const createSearchIndex = (
       @blockId, @heading, @folder, @depth, @parentLine, @parentBlockId)
   `)
   const deleteLinksStmt = db.prepare(`DELETE FROM links WHERE source = ?`)
-  const insertLinkStmt = db.prepare(
-    `INSERT OR IGNORE INTO links (source, target) VALUES (?, ?)`,
-  )
+  const insertLinkStmt = db.prepare(`INSERT OR IGNORE INTO links (source, target) VALUES (?, ?)`)
   // Links whose target isn't a known note or non-md file — stored as raw text
   // because they were unresolved when indexed (e.g. a forward reference).
   // Used by both note and non-md re-resolution to find candidates to upgrade.
-  const selectUnresolvedLinksStmt = db.prepare<
-    unknown[],
-    { source: string; target: string }
-  >(
+  const selectUnresolvedLinksStmt = db.prepare<unknown[], { source: string; target: string }>(
     `SELECT source, target FROM links WHERE target NOT IN (SELECT path FROM notes) AND target NOT IN (SELECT path FROM non_md_files)`,
   )
   // Upgrade one raw link to its resolved path. OR REPLACE drops a pre-existing
@@ -663,9 +640,7 @@ export const createSearchIndex = (
   const updateLinkTargetStmt = db.prepare(
     `UPDATE OR REPLACE links SET target = @resolved WHERE source = @source AND target = @rawTarget`,
   )
-  const selectAllNotePathsStmt = db.prepare<unknown[], { path: string }>(
-    `SELECT path FROM notes`,
-  )
+  const selectAllNotePathsStmt = db.prepare<unknown[], { path: string }>(`SELECT path FROM notes`)
 
   // ── Non-markdown file awareness ────────────────────────────────
   //
@@ -678,9 +653,7 @@ export const createSearchIndex = (
   const upsertNonMdFileStmt = db.prepare(
     `INSERT OR REPLACE INTO non_md_files (path, base_path, basename, bytes) VALUES (?, ?, ?, ?)`,
   )
-  const deleteNonMdFileStmt = db.prepare(
-    `DELETE FROM non_md_files WHERE path = ?`,
-  )
+  const deleteNonMdFileStmt = db.prepare(`DELETE FROM non_md_files WHERE path = ?`)
   /** Direct path match for targets that already include a non-md extension
    *  (e.g. `[[photo.png]]`, `![[diagram.svg]]`). */
   const resolveNonMdByFullPathStmt = db.prepare<[string], { path: string }>(
@@ -700,10 +673,7 @@ export const createSearchIndex = (
    *  (preserving folder segments). Mirrors links.resolve's basename tier which
    *  checks `candidatePath.endsWith('/' + target)`. ESCAPE clause prevents `_`
    *  and `%` in the target from acting as LIKE wildcards. */
-  const resolveNonMdByBasePathSuffixStmt = db.prepare<
-    [string],
-    { path: string }
-  >(
+  const resolveNonMdByBasePathSuffixStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE base_path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
   /** Suffix match on the full stored path, for targets that include their
@@ -711,10 +681,7 @@ export const createSearchIndex = (
    *  lives in a deeper folder (Obsidian's shortest-path format). The
    *  base_path/basename columns strip the extension, so with-extension targets
    *  can only ever match the path column. Same ESCAPE rationale as above. */
-  const resolveNonMdByFullPathSuffixStmt = db.prepare<
-    [string],
-    { path: string }
-  >(
+  const resolveNonMdByFullPathSuffixStmt = db.prepare<[string], { path: string }>(
     `SELECT path FROM non_md_files WHERE path LIKE '%/' || ? ESCAPE '\\' ORDER BY length(path), path LIMIT 1`,
   )
   // ── File content prepared statements (conditional on fileToolsEnabled) ──
@@ -731,9 +698,7 @@ export const createSearchIndex = (
     ? db.prepare(`DELETE FROM file_content_fts WHERE path = ?`)
     : null
   const insertFileContentFtsStmt = fileToolsEnabled
-    ? db.prepare(
-        `INSERT INTO file_content_fts (path, title, content) VALUES (?, ?, ?)`,
-      )
+    ? db.prepare(`INSERT INTO file_content_fts (path, title, content) VALUES (?, ?, ?)`)
     : null
   // The folder predicate runs before ORDER BY/LIMIT so a folder-scoped search
   // sees every in-folder match, not just those that rank inside the candidate
@@ -769,9 +734,7 @@ export const createSearchIndex = (
           mtime: number
           bytes: number
         }
-      >(
-        "SELECT path, title, folder, mtime, bytes FROM file_content WHERE path = ?",
-      )
+      >("SELECT path, title, folder, mtime, bytes FROM file_content WHERE path = ?")
     : null
 
   // ── Vector prepared statements (conditional on embedder) ──────
@@ -792,9 +755,7 @@ export const createSearchIndex = (
       )
     : null
   const deleteStaleChunksStmt = embedder
-    ? db.prepare(
-        `DELETE FROM note_chunks WHERE note_path = ? AND chunk_index >= ?`,
-      )
+    ? db.prepare(`DELETE FROM note_chunks WHERE note_path = ? AND chunk_index >= ?`)
     : null
   const insertVectorStmt = embedder
     ? db.prepare(`INSERT INTO note_vectors (chunk_id, embedding) VALUES (?, ?)`)
@@ -835,14 +796,10 @@ export const createSearchIndex = (
       )
     : null
   const deleteStaleFileChunksStmt = fileContentVectorEnabled
-    ? db.prepare(
-        `DELETE FROM file_content_chunks WHERE file_path = ? AND chunk_index >= ?`,
-      )
+    ? db.prepare(`DELETE FROM file_content_chunks WHERE file_path = ? AND chunk_index >= ?`)
     : null
   const insertFileVectorStmt = fileContentVectorEnabled
-    ? db.prepare(
-        `INSERT INTO file_content_vectors (chunk_id, embedding) VALUES (?, ?)`,
-      )
+    ? db.prepare(`INSERT INTO file_content_vectors (chunk_id, embedding) VALUES (?, ?)`)
     : null
   const deleteFileVectorByChunkIdStmt = fileContentVectorEnabled
     ? db.prepare(`DELETE FROM file_content_vectors WHERE chunk_id = ?`)
@@ -874,9 +831,7 @@ export const createSearchIndex = (
     "SELECT mtime FROM notes WHERE path = ?",
   )
   const selectFileMtimeStmt = fileToolsEnabled
-    ? db.prepare<[string], { mtime: number }>(
-        "SELECT mtime FROM file_content WHERE path = ?",
-      )
+    ? db.prepare<[string], { mtime: number }>("SELECT mtime FROM file_content WHERE path = ?")
     : null
 
   // ── Memory-entry prepared statements (conditional on memoryDir) ──
@@ -915,17 +870,12 @@ export const createSearchIndex = (
       )
     : null
   const selectDistinctMemoryFilesStmt = memoryDir
-    ? db.prepare<[], { file: string }>(
-        `SELECT DISTINCT file FROM memory_entries`,
-      )
+    ? db.prepare<[], { file: string }>(`SELECT DISTINCT file FROM memory_entries`)
     : null
   // Vector side — additionally requires the embedder.
   const selectUnembeddedMemoryEntriesStmt =
     memoryDir && embedder
-      ? db.prepare<
-          [string],
-          { id: number; file: string; section: string; entry_text: string }
-        >(
+      ? db.prepare<[string], { id: number; file: string; section: string; entry_text: string }>(
           `SELECT id, file, section, entry_text FROM memory_entries
            WHERE file = ? AND id NOT IN (SELECT entry_id FROM memory_entry_vectors)
            ORDER BY id`,
@@ -933,14 +883,10 @@ export const createSearchIndex = (
       : null
   const insertMemoryVectorStmt =
     memoryDir && embedder
-      ? db.prepare(
-          `INSERT INTO memory_entry_vectors (entry_id, embedding) VALUES (?, ?)`,
-        )
+      ? db.prepare(`INSERT INTO memory_entry_vectors (entry_id, embedding) VALUES (?, ?)`)
       : null
   const deleteMemoryVectorByEntryIdStmt =
-    memoryDir && embedder
-      ? db.prepare(`DELETE FROM memory_entry_vectors WHERE entry_id = ?`)
-      : null
+    memoryDir && embedder ? db.prepare(`DELETE FROM memory_entry_vectors WHERE entry_id = ?`) : null
   const deleteMemoryVectorsForFileStmt =
     memoryDir && embedder
       ? db.prepare(
@@ -978,10 +924,7 @@ export const createSearchIndex = (
   // ── Vector query statements ─────────────────────────────────────
   /** KNN search — finds the k nearest chunks to a query embedding. */
   const knnSearchStmt = embedder
-    ? db.prepare<
-        unknown[],
-        { note_path: string; chunk_text: string; distance: number }
-      >(
+    ? db.prepare<unknown[], { note_path: string; chunk_text: string; distance: number }>(
         `SELECT nc.note_path, nc.chunk_text, nv.distance
          FROM note_vectors nv
          JOIN note_chunks nc ON nc.id = nv.chunk_id
@@ -997,10 +940,7 @@ export const createSearchIndex = (
   // survives a vault-wide top-k. sqlite-vec honours rowid IN constraints
   // inside KNN queries; chunk_id is the vec0 rowid alias.
   const knnSearchInFolderStmt = embedder
-    ? db.prepare<
-        unknown[],
-        { note_path: string; chunk_text: string; distance: number }
-      >(
+    ? db.prepare<unknown[], { note_path: string; chunk_text: string; distance: number }>(
         `SELECT nc.note_path, nc.chunk_text, nv.distance
          FROM note_vectors nv
          JOIN note_chunks nc ON nc.id = nv.chunk_id
@@ -1023,10 +963,7 @@ export const createSearchIndex = (
 
   /** KNN search over file content vectors — finds the k nearest file chunks. */
   const fileContentKnnSearchStmt = fileContentVectorEnabled
-    ? db.prepare<
-        unknown[],
-        { file_path: string; chunk_text: string; distance: number }
-      >(
+    ? db.prepare<unknown[], { file_path: string; chunk_text: string; distance: number }>(
         `SELECT fc.file_path, fc.chunk_text, fv.distance
          FROM file_content_vectors fv
          JOIN file_content_chunks fc ON fc.id = fv.chunk_id
@@ -1038,10 +975,7 @@ export const createSearchIndex = (
 
   // Folder-scoped variant — same pre-window narrowing as knnSearchInFolderStmt.
   const fileContentKnnSearchInFolderStmt = fileContentVectorEnabled
-    ? db.prepare<
-        unknown[],
-        { file_path: string; chunk_text: string; distance: number }
-      >(
+    ? db.prepare<unknown[], { file_path: string; chunk_text: string; distance: number }>(
         `SELECT fc.file_path, fc.chunk_text, fv.distance
          FROM file_content_vectors fv
          JOIN file_content_chunks fc ON fc.id = fv.chunk_id
@@ -1090,48 +1024,44 @@ export const createSearchIndex = (
    *  full-filename tiers hit an extensionless file (LICENSE, Dockerfile) by
    *  exact path or path suffix, and the stem tiers hit any file whose
    *  extension-stripped name matches. */
-  const resolveNonMarkdownFile = (
-    target: string,
-    sourcePath?: string,
-  ): string | null => {
+  const resolveNonMarkdownFile = (target: string, sourcePath?: string): string | null => {
     const relativeTarget =
-      sourcePath === undefined
-        ? null
-        : posix.join(posix.dirname(sourcePath), target)
+      sourcePath === undefined ? null : posix.join(posix.dirname(sourcePath), target)
 
     // ── Full-filename family: exact → relative → path suffix ──
 
     // Exact path match for targets that already include a non-md extension
     // (e.g. [[photo.png]], ![[diagram.svg]]).
     const fullPathMatch = resolveNonMdByFullPathStmt.get(target)
+
     if (fullPathMatch) return fullPathMatch.path
 
     // Relative-to-source match ("path from current file"), e.g.
     // ![x](../assets/photo.png).
     if (relativeTarget) {
-      const relativeFullPathMatch =
-        resolveNonMdByFullPathStmt.get(relativeTarget)
+      const relativeFullPathMatch = resolveNonMdByFullPathStmt.get(relativeTarget)
+
       if (relativeFullPathMatch) return relativeFullPathMatch.path
     }
 
     // Path-suffix match ("photo.png", "assets/photo.png") — Obsidian's
     // shortest-path format for assets in a deeper folder.
-    const fullPathSuffixMatch = resolveNonMdByFullPathSuffixStmt.get(
-      escapeLikeWildcards(target),
-    )
+    const fullPathSuffixMatch = resolveNonMdByFullPathSuffixStmt.get(escapeLikeWildcards(target))
+
     if (fullPathSuffixMatch) return fullPathSuffixMatch.path
 
     // ── Stem family: exact → relative → suffix/basename ──
 
     // Exact base_path match ("path from vault folder")
     const basePathMatch = resolveNonMdByBasePathStmt.get(target)
+
     if (basePathMatch) return basePathMatch.path
 
     // Relative-to-source match for extensionless targets
     // (e.g. [[../boards/Trip Route]]).
     if (relativeTarget) {
-      const relativeBasePathMatch =
-        resolveNonMdByBasePathStmt.get(relativeTarget)
+      const relativeBasePathMatch = resolveNonMdByBasePathStmt.get(relativeTarget)
+
       if (relativeBasePathMatch) return relativeBasePathMatch.path
     }
 
@@ -1140,9 +1070,7 @@ export const createSearchIndex = (
     // preserve them in the match — only strip to pure basename when the
     // target is already a bare name. Mirrors links.resolve's endsWith check.
     if (target.includes("/")) {
-      const basePathSuffixMatch = resolveNonMdByBasePathSuffixStmt.get(
-        escapeLikeWildcards(target),
-      )
+      const basePathSuffixMatch = resolveNonMdByBasePathSuffixStmt.get(escapeLikeWildcards(target))
       return basePathSuffixMatch?.path ?? null
     }
     const basenameMatch = resolveNonMdByBasenameStmt.get(target)
@@ -1158,12 +1086,7 @@ export const createSearchIndex = (
     for (const file of files) {
       const basePath = links.stripExtension(file.relativePath)
       const baseFilename = links.stripExtension(basename(file.relativePath))
-      upsertNonMdFileStmt.run(
-        file.relativePath,
-        basePath,
-        baseFilename,
-        file.bytes,
-      )
+      upsertNonMdFileStmt.run(file.relativePath, basePath, baseFilename, file.bytes)
     }
     return files.length
   }
@@ -1182,6 +1105,7 @@ export const createSearchIndex = (
     const unresolvedLinks = selectUnresolvedLinksStmt.all()
     for (const link of unresolvedLinks) {
       const resolvedPath = resolveNonMarkdownFile(link.target, link.source)
+
       if (resolvedPath !== null) {
         updateLinkTargetStmt.run({
           resolved: resolvedPath,
@@ -1221,9 +1145,7 @@ export const createSearchIndex = (
 
     // Canvas: linearize for FTS, raw JSON for link extraction.
     // Other types: rawContent is already the rendered text.
-    const contentToIndex = isCanvas
-      ? linearizeCanvas(params.rawContent)
-      : params.rawContent
+    const contentToIndex = isCanvas ? linearizeCanvas(params.rawContent) : params.rawContent
 
     // Truncate content exceeding the FTS cap — iterates Unicode code points
     // and accumulates UTF-8 byte length so the cap is enforced in bytes
@@ -1233,6 +1155,7 @@ export const createSearchIndex = (
     const truncatedContent = needsTruncation
       ? truncateToUtf8ByteLimit(contentToIndex, MAX_INDEXED_CONTENT_BYTES)
       : contentToIndex
+
     if (needsTruncation) {
       logger.debug("truncated file content for FTS indexing", {
         path: params.filePath,
@@ -1241,17 +1164,11 @@ export const createSearchIndex = (
       })
     }
 
-    const canvasLinks = isCanvas
-      ? extractCanvasFileLinks(params.rawContent)
-      : []
+    const canvasLinks = isCanvas ? extractCanvasFileLinks(params.rawContent) : []
 
     db.transaction(() => {
       // FTS indexing — gated behind fileToolsEnabled
-      if (
-        upsertFileContentStmt &&
-        deleteFileContentFtsStmt &&
-        insertFileContentFtsStmt
-      ) {
+      if (upsertFileContentStmt && deleteFileContentFtsStmt && insertFileContentFtsStmt) {
         const title = basename(params.filePath, extension)
         const folder = posix.dirname(params.filePath)
         upsertFileContentStmt.run(
@@ -1283,10 +1200,7 @@ export const createSearchIndex = (
   }
 
   /** Removes a file's content from FTS and its links from the graph. */
-  const removeFileContent = (
-    params: { filePath: string },
-    logger: Logger,
-  ): void => {
+  const removeFileContent = (params: { filePath: string }, logger: Logger): void => {
     db.transaction(() => {
       if (deleteFileContentStmt && deleteFileContentFtsStmt) {
         deleteFileContentFtsStmt.run(params.filePath)
@@ -1331,11 +1245,7 @@ export const createSearchIndex = (
    *  (delete-then-insert, the notes_fts convention). Runs in one transaction;
    *  embedding is NOT gated on these hashes but on vector absence, so a crash
    *  between this upsert and embedMemoryEntriesForFile self-heals. */
-  const upsertMemoryEntries = (
-    memoryFile: string,
-    noteBody: string,
-    logger: Logger,
-  ): void => {
+  const upsertMemoryEntries = (memoryFile: string, noteBody: string, logger: Logger): void => {
     if (
       !insertMemoryEntryStmt ||
       !updateMemoryEntryIndexStmt ||
@@ -1364,9 +1274,8 @@ export const createSearchIndex = (
       // or inserts a new one; counters feed the summary log.
       let insertedCount = 0
       for (const entry of parsedEntries) {
-        const matchingRowId = rowIdQueuesByHash
-          .get(memoryEntryHash(entry))
-          ?.shift()
+        const matchingRowId = rowIdQueuesByHash.get(memoryEntryHash(entry))?.shift()
+
         if (matchingRowId !== undefined) {
           updateMemoryEntryIndexStmt.run(entry.entryIndex, matchingRowId)
           continue
@@ -1453,6 +1362,7 @@ export const createSearchIndex = (
     // The Kanban plugin marks completion lanes with a **Complete** paragraph.
     const isKanbanBoard = Boolean(frontmatter["kanban-plugin"])
     let kanbanDoneLanes: string | null = null
+
     if (isKanbanBoard) {
       const headings = parseHeadings(bodyLines)
       const doneLanes = tasks.extractDoneLanes(bodyLines, headings)
@@ -1461,18 +1371,14 @@ export const createSearchIndex = (
 
     const note = {
       path: filePath,
-      title: isString(frontmatter.title)
-        ? frontmatter.title
-        : basename(filePath, ".md"),
+      title: isString(frontmatter.title) ? frontmatter.title : basename(filePath, ".md"),
       content: parsed.content,
       tags: JSON.stringify(tags),
       related: JSON.stringify(related),
       // First path segment only — search filters drill into subfolders
       folder: filePath.includes("/") ? filePath.split("/")[0] : "",
       type: isString(frontmatter.type) ? frontmatter.type : null,
-      created: isString(frontmatter.created)
-        ? DateTime.fromISO(frontmatter.created).toISO()
-        : null,
+      created: isString(frontmatter.created) ? DateTime.fromISO(frontmatter.created).toISO() : null,
       mtime: fileStat.mtimeMs,
       properties: JSON.stringify(frontmatter),
       leading_callout: leadingCallout ? JSON.stringify(leadingCallout) : null,
@@ -1518,15 +1424,11 @@ export const createSearchIndex = (
       // Line→blockId lookup so each child can resolve its parent's
       // block_id from the same extraction batch (no second pass needed).
       const blockIdByLine = new Map(
-        extractedTasks.map((extractedTask) => [
-          extractedTask.line,
-          extractedTask.blockId,
-        ]),
+        extractedTasks.map((extractedTask) => [extractedTask.line, extractedTask.blockId]),
       )
       for (const extractedTask of extractedTasks) {
         const { parentLine } = extractedTask
-        const parentBlockId =
-          parentLine === null ? null : (blockIdByLine.get(parentLine) ?? null)
+        const parentBlockId = parentLine === null ? null : (blockIdByLine.get(parentLine) ?? null)
         insertTaskStmt.run({
           notePath: note.path,
           line: extractedTask.line,
@@ -1572,6 +1474,7 @@ export const createSearchIndex = (
           allPaths: pathList,
           sourcePath: note.path,
         })
+
         if (resolved !== null) {
           insertLinkStmt.run(note.path, resolved)
         } else {
@@ -1591,6 +1494,7 @@ export const createSearchIndex = (
           allPaths: pathList,
           sourcePath: link.source,
         })
+
         if (resolved !== null) {
           updateLinkTargetStmt.run({
             resolved,
@@ -1620,6 +1524,7 @@ export const createSearchIndex = (
     logger: Logger,
   ): Promise<number> => {
     const { notePath, rawContent } = params
+
     if (
       !embedder ||
       !upsertChunkStmt ||
@@ -1634,8 +1539,7 @@ export const createSearchIndex = (
 
     const parsed = parseNote(rawContent)
     const noteTitle =
-      (isString(parsed.data.title) ? parsed.data.title : null) ??
-      basename(notePath, ".md")
+      (isString(parsed.data.title) ? parsed.data.title : null) ?? basename(notePath, ".md")
     // Metadata enrichment changes chunk text, so every note re-embeds once
     // (content-hash gated) after the option flips — kept off until the
     // search-eval measurements justify it.
@@ -1651,9 +1555,7 @@ export const createSearchIndex = (
 
     // Load existing hashes for content-hash gating
     const existingHashes = new Map(
-      selectChunkHashesStmt
-        .all(notePath)
-        .map((row) => [row.chunk_index, row.content_hash]),
+      selectChunkHashesStmt.all(notePath).map((row) => [row.chunk_index, row.content_hash]),
     )
 
     // Counter tracking how many chunks were actually (re-)embedded — returned for logging
@@ -1673,6 +1575,7 @@ export const createSearchIndex = (
       // as "already embedded" while its vector is missing.
       db.transaction(() => {
         const existingChunk = selectChunkIdStmt.get(notePath, chunk.index)
+
         if (existingChunk) {
           deleteVectorByChunkIdStmt.run(BigInt(existingChunk.id))
         }
@@ -1685,6 +1588,7 @@ export const createSearchIndex = (
         })
 
         const chunkRow = selectChunkIdStmt.get(notePath, chunk.index)
+
         if (!chunkRow) {
           throw new Error(
             `chunk row missing after upsert: ${notePath} chunk ${String(chunk.index)}`,
@@ -1692,11 +1596,7 @@ export const createSearchIndex = (
         }
         insertVectorStmt.run(
           BigInt(chunkRow.id),
-          Buffer.from(
-            embedding.buffer,
-            embedding.byteOffset,
-            embedding.byteLength,
-          ),
+          Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength),
         )
       })()
       embeddedCount++
@@ -1730,18 +1630,12 @@ export const createSearchIndex = (
    *  file and section name ("Agents > Communication\n...") so both the
    *  embedder and cross-encoder see which file an entry belongs to — the
    *  date is excluded (semantic noise). Returns the number embedded. */
-  const embedMemoryEntriesForFile = async (
-    memoryFile: string,
-    logger: Logger,
-  ): Promise<number> => {
-    if (
-      !embedder ||
-      !selectUnembeddedMemoryEntriesStmt ||
-      !insertMemoryVectorStmt
-    ) {
+  const embedMemoryEntriesForFile = async (memoryFile: string, logger: Logger): Promise<number> => {
+    if (!embedder || !selectUnembeddedMemoryEntriesStmt || !insertMemoryVectorStmt) {
       return 0
     }
     const unembeddedRows = selectUnembeddedMemoryEntriesStmt.all(memoryFile)
+
     if (unembeddedRows.length === 0) return 0
 
     for (
@@ -1749,18 +1643,14 @@ export const createSearchIndex = (
       batchStart < unembeddedRows.length;
       batchStart += MEMORY_EMBED_BATCH_SIZE
     ) {
-      const batchRows = unembeddedRows.slice(
-        batchStart,
-        batchStart + MEMORY_EMBED_BATCH_SIZE,
-      )
+      const batchRows = unembeddedRows.slice(batchStart, batchStart + MEMORY_EMBED_BATCH_SIZE)
       const embeddings = await embedder.embedBatch(
-        batchRows.map(
-          (row) => `${row.file} > ${row.section}\n${row.entry_text}`,
-        ),
+        batchRows.map((row) => `${row.file} > ${row.section}\n${row.entry_text}`),
       )
       db.transaction(() => {
         for (const [rowIndexInBatch, row] of batchRows.entries()) {
           const embedding = embeddings[rowIndexInBatch]
+
           if (embedding === undefined) {
             throw new Error(
               `embedBatch returned ${String(embeddings.length)} vectors for ${String(batchRows.length)} entries`,
@@ -1768,11 +1658,7 @@ export const createSearchIndex = (
           }
           insertMemoryVectorStmt.run(
             BigInt(row.id),
-            Buffer.from(
-              embedding.buffer,
-              embedding.byteOffset,
-              embedding.byteLength,
-            ),
+            Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength),
           )
         }
       })()
@@ -1796,6 +1682,7 @@ export const createSearchIndex = (
     if (!embedder) return
     await embedAndStoreChunks(params, logger)
     const memoryFile = memoryFileNameFromPath(params.notePath)
+
     if (memoryFile) {
       await embedMemoryEntriesForFile(memoryFile, logger)
     }
@@ -1825,10 +1712,7 @@ export const createSearchIndex = (
     const existingHashes = new Map(
       selectFileChunkHashesStmt
         .all(params.filePath)
-        .map((chunkHashRow) => [
-          chunkHashRow.chunk_index,
-          chunkHashRow.content_hash,
-        ]),
+        .map((chunkHashRow) => [chunkHashRow.chunk_index, chunkHashRow.content_hash]),
     )
 
     let embeddedCount = 0
@@ -1841,10 +1725,8 @@ export const createSearchIndex = (
       const embedding = await embedder.embedText(chunk.text)
 
       db.transaction(() => {
-        const existingChunk = selectFileChunkIdStmt.get(
-          params.filePath,
-          chunk.index,
-        )
+        const existingChunk = selectFileChunkIdStmt.get(params.filePath, chunk.index)
+
         if (existingChunk) {
           deleteFileVectorByChunkIdStmt.run(BigInt(existingChunk.id))
         }
@@ -1857,6 +1739,7 @@ export const createSearchIndex = (
         })
 
         const chunkRow = selectFileChunkIdStmt.get(params.filePath, chunk.index)
+
         if (!chunkRow) {
           throw new Error(
             `file chunk row missing after upsert: ${params.filePath} chunk ${String(chunk.index)}`,
@@ -1864,11 +1747,7 @@ export const createSearchIndex = (
         }
         insertFileVectorStmt.run(
           BigInt(chunkRow.id),
-          Buffer.from(
-            embedding.buffer,
-            embedding.byteOffset,
-            embedding.byteLength,
-          ),
+          Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength),
         )
       })()
       embeddedCount++
@@ -1891,14 +1770,10 @@ export const createSearchIndex = (
    *  content from the file_content table (already linearized/truncated by
    *  upsertFileContent). No-op when the embedding pipeline or file tools are
    *  disabled, or the file is not in the FTS index. Safe to call unconditionally. */
-  const embedFileContent = async (
-    params: { filePath: string },
-    logger: Logger,
-  ): Promise<void> => {
+  const embedFileContent = async (params: { filePath: string }, logger: Logger): Promise<void> => {
     if (!embedder || !selectFileContentForEmbeddingStmt) return
-    const fileContentRow = selectFileContentForEmbeddingStmt.get(
-      params.filePath,
-    )
+    const fileContentRow = selectFileContentForEmbeddingStmt.get(params.filePath)
+
     if (!fileContentRow) return
     await embedAndStoreFileChunks(
       {
@@ -1978,18 +1853,14 @@ export const createSearchIndex = (
       fileKind: "note" | "file",
     ): { relativePath: string; absolutePath: string }[] => {
       const matchesKind = (directoryEntry: Dirent): boolean => {
-        if (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink())
-          return false
+        if (!directoryEntry.isFile() && !directoryEntry.isSymbolicLink()) return false
         const isNoteFile = directoryEntry.name.endsWith(".md")
         return fileKind === "note" ? isNoteFile : !isNoteFile
       }
       const toFilePaths = (
         directoryEntry: Dirent,
       ): { relativePath: string; absolutePath: string } => {
-        const absolutePath = join(
-          directoryEntry.parentPath,
-          directoryEntry.name,
-        )
+        const absolutePath = join(directoryEntry.parentPath, directoryEntry.name)
         return {
           relativePath: relative(normalizedVault, absolutePath),
           absolutePath,
@@ -2014,14 +1885,13 @@ export const createSearchIndex = (
       await Promise.all(
         allNonMdFiles.map(async (file) => {
           const fileStat = await statOrNull(file.absolutePath)
+
           if (!fileStat) return null
           return { relativePath: file.relativePath, bytes: fileStat.size }
         }),
       )
     ).filter((entry) => entry !== null)
-    const canvasFiles = allNonMdFiles.filter((file) =>
-      file.relativePath.endsWith(".canvas"),
-    )
+    const canvasFiles = allNonMdFiles.filter((file) => file.relativePath.endsWith(".canvas"))
     // PDF and text files are only read when file content FTS is enabled —
     // without the tables, the extraction is wasted I/O.
     const pdfFiles = fileToolsEnabled
@@ -2030,9 +1900,7 @@ export const createSearchIndex = (
     const textFiles = fileToolsEnabled
       ? allNonMdFiles.filter((file) => {
           const extension = posix.extname(file.relativePath)
-          return (
-            extension !== ".pdf" && INDEXABLE_TEXT_EXTENSIONS.has(extension)
-          )
+          return extension !== ".pdf" && INDEXABLE_TEXT_EXTENSIONS.has(extension)
         })
       : []
 
@@ -2077,11 +1945,7 @@ export const createSearchIndex = (
           readFile(file.absolutePath),
           stat(file.absolutePath),
         ])
-        const pdfData = new Uint8Array(
-          buffer.buffer,
-          buffer.byteOffset,
-          buffer.byteLength,
-        )
+        const pdfData = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
         const pdfResult = await extractPdfText(pdfData)
         return {
           relativePath: file.relativePath,
@@ -2228,26 +2092,18 @@ export const createSearchIndex = (
         if (skippedNotePaths.has(note.relativePath)) continue
         try {
           const parsed = parseNote(note.content)
-          for (const rawTarget of links.extractAll(
-            parsed.content,
-            parsed.data,
-          )) {
+          for (const rawTarget of links.extractAll(parsed.content, parsed.data)) {
             const resolved = links.resolve({
               target: rawTarget,
               allPaths: pathList,
               sourcePath: note.relativePath,
             })
+
             if (resolved !== null) {
               insertLinkStmt.run(note.relativePath, resolved)
             } else {
-              const resolvedNonMdPath = resolveNonMarkdownFile(
-                rawTarget,
-                note.relativePath,
-              )
-              insertLinkStmt.run(
-                note.relativePath,
-                resolvedNonMdPath ?? rawTarget,
-              )
+              const resolvedNonMdPath = resolveNonMarkdownFile(rawTarget, note.relativePath)
+              insertLinkStmt.run(note.relativePath, resolvedNonMdPath ?? rawTarget)
             }
           }
         } catch (error) {
@@ -2262,11 +2118,7 @@ export const createSearchIndex = (
       // File content indexing: canvas (FTS + link extraction), PDF and text
       // (FTS only). upsertFileContent deletes old canvas links before
       // inserting, so canvas links append cleanly after the note link pass.
-      const allFileContents = [
-        ...canvasContents,
-        ...pdfContents,
-        ...textFileContents,
-      ]
+      const allFileContents = [...canvasContents, ...pdfContents, ...textFileContents]
       for (const fileEntry of allFileContents) {
         try {
           upsertFileContent(
@@ -2289,13 +2141,8 @@ export const createSearchIndex = (
       }
     })()
 
-    const indexedNotes = noteContents.filter(
-      (note) => !skippedNotePaths.has(note.relativePath),
-    )
-    const totalBytes = indexedNotes.reduce(
-      (sum, note) => sum + note.sizeBytes,
-      0,
-    )
+    const indexedNotes = noteContents.filter((note) => !skippedNotePaths.has(note.relativePath))
+    const totalBytes = indexedNotes.reduce((sum, note) => sum + note.sizeBytes, 0)
     logger.info("rebuilt index", {
       count: indexedNotes.length,
       totalBytes,
@@ -2314,10 +2161,9 @@ export const createSearchIndex = (
     // (already linearized/extracted/truncated by upsertFileContent above).
     const filesForEmbedding = fileContentVectorEnabled
       ? db
-          .prepare<
-            unknown[],
-            { path: string; title: string; content: string; mtime: number }
-          >("SELECT path, title, content, mtime FROM file_content")
+          .prepare<unknown[], { path: string; title: string; content: string; mtime: number }>(
+            "SELECT path, title, content, mtime FROM file_content",
+          )
           .all()
       : []
 
@@ -2327,23 +2173,16 @@ export const createSearchIndex = (
     const embeddingPromise = embedder
       ? (async () => {
           // Clean up vectors for notes that no longer exist on disk
-          const currentPaths = new Set(
-            notesForEmbedding.map((note) => note.relativePath),
-          )
+          const currentPaths = new Set(notesForEmbedding.map((note) => note.relativePath))
           const indexedChunkPaths = db
-            .prepare<unknown[], { note_path: string }>(
-              "SELECT DISTINCT note_path FROM note_chunks",
-            )
+            .prepare<unknown[], { note_path: string }>("SELECT DISTINCT note_path FROM note_chunks")
             .all()
             .map((row) => row.note_path)
 
-          const deletedPaths = indexedChunkPaths.filter(
-            (path) => !currentPaths.has(path),
-          )
+          const deletedPaths = indexedChunkPaths.filter((path) => !currentPaths.has(path))
           const hasDeletedNotes =
-            deletedPaths.length > 0 &&
-            deleteVectorsForNoteStmt &&
-            deleteChunksForNoteStmt
+            deletedPaths.length > 0 && deleteVectorsForNoteStmt && deleteChunksForNoteStmt
+
           if (hasDeletedNotes) {
             for (const path of deletedPaths) {
               deleteVectorsForNoteStmt.run(path)
@@ -2362,8 +2201,8 @@ export const createSearchIndex = (
             // The watcher can update the index between the Pass 1 snapshot and
             // this embed — skip the note if its mtime changed.
             const currentNote = selectNoteMtimeStmt.get(note.relativePath)
-            const noteIsStale =
-              !currentNote || currentNote.mtime !== note.snapshotMtimeMs
+            const noteIsStale = !currentNote || currentNote.mtime !== note.snapshotMtimeMs
+
             if (noteIsStale) {
               continue
             }
@@ -2374,11 +2213,9 @@ export const createSearchIndex = (
                 logger,
               )
               const memoryFile = memoryFileNameFromPath(note.relativePath)
+
               if (memoryFile) {
-                entriesEmbedded += await embedMemoryEntriesForFile(
-                  memoryFile,
-                  logger,
-                )
+                entriesEmbedded += await embedMemoryEntriesForFile(memoryFile, logger)
               }
             } catch (err) {
               embedErrors++
@@ -2406,9 +2243,7 @@ export const createSearchIndex = (
             // table but absent from the snapshot.
             const currentFilePaths = new Set(
               db
-                .prepare<unknown[], { path: string }>(
-                  "SELECT path FROM file_content",
-                )
+                .prepare<unknown[], { path: string }>("SELECT path FROM file_content")
                 .all()
                 .map((fileContentPathRow) => fileContentPathRow.path),
             )
@@ -2422,6 +2257,7 @@ export const createSearchIndex = (
             const deletedFilePaths = indexedFileChunkPaths.filter(
               (path) => !currentFilePaths.has(path),
             )
+
             if (deletedFilePaths.length > 0) {
               for (const path of deletedFilePaths) {
                 deleteFileVectorsForPathStmt.run(path)
@@ -2439,8 +2275,8 @@ export const createSearchIndex = (
             for (const file of filesForEmbedding) {
               // Same watcher-race guard as for notes above.
               const currentFile = selectFileMtimeStmt.get(file.path)
-              const fileIsStale =
-                !currentFile || currentFile.mtime !== file.mtime
+              const fileIsStale = !currentFile || currentFile.mtime !== file.mtime
+
               if (fileIsStale) continue
 
               try {
@@ -2492,36 +2328,29 @@ export const createSearchIndex = (
     INSERT OR REPLACE INTO trash_entries (trash_key, trash_path, trashed_at)
     VALUES (?, ?, ?)
   `)
-  const selectTrashEntryStmt = db.prepare<
-    [string],
-    { trash_path: string; trashed_at: number }
-  >(`SELECT trash_path, trashed_at FROM trash_entries WHERE trash_key = ?`)
-  const selectAllTrashEntriesStmt = db.prepare<
-    [],
-    { trash_path: string; trashed_at: number }
-  >(`SELECT trash_path, trashed_at FROM trash_entries`)
+  const selectTrashEntryStmt = db.prepare<[string], { trash_path: string; trashed_at: number }>(
+    `SELECT trash_path, trashed_at FROM trash_entries WHERE trash_key = ?`,
+  )
+  const selectAllTrashEntriesStmt = db.prepare<[], { trash_path: string; trashed_at: number }>(
+    `SELECT trash_path, trashed_at FROM trash_entries`,
+  )
   const selectExpiredTrashEntriesStmt = db.prepare<
     [number],
     { trash_path: string; trashed_at: number }
   >(`SELECT trash_path, trashed_at FROM trash_entries WHERE trashed_at < ?`)
-  const deleteTrashEntryStmt = db.prepare(
-    `DELETE FROM trash_entries WHERE trash_key = ?`,
-  )
+  const deleteTrashEntryStmt = db.prepare(`DELETE FROM trash_entries WHERE trash_key = ?`)
 
   /** Records a file this server moved to .trash/ — the retention sweep only
    *  ever deletes recorded entries. Reusing a path (or a case alias of one,
    *  via the folded key) replaces the old row, restarting the retention clock
    *  for the file now at that path. */
   const recordTrashEntry = (trashPath: string): void => {
-    upsertTrashEntryStmt.run(
-      caseFoldPath(trashPath),
-      trashPath,
-      DateTime.now().toUnixInteger(),
-    )
+    upsertTrashEntryStmt.run(caseFoldPath(trashPath), trashPath, DateTime.now().toUnixInteger())
   }
 
   const getTrashEntry = (trashPath: string): TrashEntry | null => {
     const row = selectTrashEntryStmt.get(caseFoldPath(trashPath))
+
     if (!row) return null
     return { trashPath: row.trash_path, trashedAt: row.trashed_at }
   }
@@ -2535,9 +2364,7 @@ export const createSearchIndex = (
   }
 
   /** Rows recorded strictly before the cutoff — the sweep's candidate list. */
-  const listExpiredTrashEntries = (
-    cutoffEpochSeconds: number,
-  ): TrashEntry[] => {
+  const listExpiredTrashEntries = (cutoffEpochSeconds: number): TrashEntry[] => {
     return selectExpiredTrashEntriesStmt.all(cutoffEpochSeconds).map((row) => ({
       trashPath: row.trash_path,
       trashedAt: row.trashed_at,
@@ -2571,9 +2398,7 @@ export const createSearchIndex = (
           knnStmt: memoryKnnStmt,
         }
       : null,
-    fileContentFts: searchFileContentFtsStmt
-      ? { searchStmt: searchFileContentFtsStmt }
-      : null,
+    fileContentFts: searchFileContentFtsStmt ? { searchStmt: searchFileContentFtsStmt } : null,
     fileContentVector:
       fileContentKnnSearchStmt && fileContentKnnSearchInFolderStmt
         ? {
@@ -2641,8 +2466,5 @@ export type TrashEntry = {
  *  vault-operations/ never runtime-imports search/ (lint-enforced layering). */
 export type TrashEntryStore = Pick<
   SearchIndex,
-  | "listAllTrashEntries"
-  | "listExpiredTrashEntries"
-  | "getTrashEntry"
-  | "deleteTrashEntry"
+  "listAllTrashEntries" | "listExpiredTrashEntries" | "getTrashEntry" | "deleteTrashEntry"
 >

@@ -9,8 +9,6 @@ describe("escapeHtml", () => {
   })
 
   it("leaves text without those characters unchanged", () => {
-    expect(escapeHtml("My Vault's notes (2026)")).toBe(
-      "My Vault's notes (2026)",
-    )
+    expect(escapeHtml("My Vault's notes (2026)")).toBe("My Vault's notes (2026)")
   })
 })

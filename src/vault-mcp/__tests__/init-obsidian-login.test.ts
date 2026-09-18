@@ -1,12 +1,5 @@
 import { spawnSync } from "node:child_process"
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -20,10 +13,7 @@ import { describe, expect, it, onTestFinished } from "vitest"
  * under `sh` with stub `ob` and `s6-setuidgid` executables on PATH.
  */
 
-const SCRIPT_PATH = resolve(
-  __dirname,
-  "../../../rootfs/etc/s6-overlay/scripts/init-obsidian-login",
-)
+const SCRIPT_PATH = resolve(__dirname, "../../../rootfs/etc/s6-overlay/scripts/init-obsidian-login")
 
 /** Stub `ob`: logs each invocation; `login` exits with OB_LOGIN_EXIT. */
 const OB_STUB = `#!/bin/sh
@@ -67,12 +57,7 @@ const runLoginScript = (options: LoginRunOptions): LoginRun => {
   const stubBinDir = join(tempDir, "bin")
   const homeDir = join(tempDir, "home")
   const containerEnvDir = join(tempDir, "container_environment")
-  const tokenFilePath = join(
-    homeDir,
-    ".config",
-    "obsidian-headless",
-    "auth_token",
-  )
+  const tokenFilePath = join(homeDir, ".config", "obsidian-headless", "auth_token")
   mkdirSync(stubBinDir)
   mkdirSync(containerEnvDir, { recursive: true })
   if (options.fileToken) {
@@ -98,12 +83,8 @@ const runLoginScript = (options: LoginRunOptions): LoginRun => {
       OB_CALL_LOG: callLogPath,
       OB_LOGIN_EXIT: String(options.loginFails ? 2 : 0),
       ...(options.setupMode ? { SETUP_MODE: "1" } : {}),
-      ...(options.envToken === undefined
-        ? {}
-        : { OBSIDIAN_AUTH_TOKEN: options.envToken }),
-      ...(options.publicUrl === undefined
-        ? {}
-        : { PUBLIC_URL: options.publicUrl }),
+      ...(options.envToken === undefined ? {} : { OBSIDIAN_AUTH_TOKEN: options.envToken }),
+      ...(options.publicUrl === undefined ? {} : { PUBLIC_URL: options.publicUrl }),
     },
   })
 
@@ -118,9 +99,7 @@ const runLoginScript = (options: LoginRunOptions): LoginRun => {
     obCalls: readFileSync(callLogPath, "utf8")
       .split("\n")
       .filter((loggedCall) => loggedCall !== ""),
-    tokenFile: existsSync(tokenFilePath)
-      ? readFileSync(tokenFilePath, "utf8")
-      : undefined,
+    tokenFile: existsSync(tokenFilePath) ? readFileSync(tokenFilePath, "utf8") : undefined,
     setupMode: readPublished("SETUP_MODE"),
     setupReason: readPublished("SETUP_REASON"),
   }
@@ -146,8 +125,7 @@ describe("init-obsidian-login script", () => {
 
     expect(run).toEqual({
       status: 0,
-      stdout:
-        "[obsidian-sync] Authenticating with Obsidian...\n[obsidian-sync] Authenticated.\n",
+      stdout: "[obsidian-sync] Authenticating with Obsidian...\n[obsidian-sync] Authenticated.\n",
       stderr: "",
       obCalls: ["login"],
       tokenFile: undefined,
@@ -197,8 +175,7 @@ describe("init-obsidian-login script", () => {
 
     expect(run).toEqual({
       status: 0,
-      stdout:
-        "[obsidian-sync] Authenticating with Obsidian...\n[obsidian-sync] Authenticated.\n",
+      stdout: "[obsidian-sync] Authenticating with Obsidian...\n[obsidian-sync] Authenticated.\n",
       stderr: "",
       obCalls: ["login"],
       tokenFile: TOKEN_FILE_CONTENT,

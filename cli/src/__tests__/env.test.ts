@@ -26,9 +26,7 @@ describe("buildLocalEnv", () => {
   it("writes PUBLIC_URL exactly once — in the optional block with its default", () => {
     const env = buildLocalEnv({ mcpAuthToken: "abc123", vaultPath: "/vault" })
 
-    const publicUrlLines = env
-      .split("\n")
-      .filter((line) => line.startsWith("PUBLIC_URL="))
+    const publicUrlLines = env.split("\n").filter((line) => line.startsWith("PUBLIC_URL="))
     expect(publicUrlLines).toEqual(["PUBLIC_URL=http://localhost:8000"])
   })
 
@@ -43,9 +41,7 @@ describe("buildLocalEnv", () => {
   it("turns file logging off with the explicit none sentinel, not an absent line", () => {
     const env = buildLocalEnv({ mcpAuthToken: "abc123", vaultPath: "/vault" })
 
-    const logDirLines = env
-      .split("\n")
-      .filter((line) => line.startsWith("LOG_DIR="))
+    const logDirLines = env.split("\n").filter((line) => line.startsWith("LOG_DIR="))
     expect(logDirLines).toEqual(["LOG_DIR=none"])
   })
 

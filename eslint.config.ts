@@ -1,4 +1,5 @@
 import js from "@eslint/js"
+import stylistic from "@stylistic/eslint-plugin"
 import { defineConfig } from "eslint/config"
 import tseslint from "typescript-eslint"
 import eslintConfigPrettier from "eslint-config-prettier"
@@ -12,8 +13,7 @@ import eslintConfigPrettier from "eslint-config-prettier"
 const LUXON_OVER_DATE_RESTRICTIONS = [
   {
     selector: 'NewExpression[callee.name="Date"]',
-    message:
-      "Use Luxon DateTime over the native Date API (AGENTS.md → Code style)",
+    message: "Use Luxon DateTime over the native Date API (AGENTS.md → Code style)",
   },
   {
     selector: 'CallExpression[callee.object.name="Date"]',
@@ -48,10 +48,7 @@ export default defineConfig(
         "error",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
-      "@typescript-eslint/consistent-type-assertions": [
-        "error",
-        { assertionStyle: "never" },
-      ],
+      "@typescript-eslint/consistent-type-assertions": ["error", { assertionStyle: "never" }],
       // AGENTS.md → Code style: arrow functions over `function` declarations.
       "func-style": ["error", "expression"],
       // AGENTS.md → Code style: `type` over `interface`.
@@ -67,6 +64,18 @@ export default defineConfig(
       "id-length": [
         "error",
         { min: 2, properties: "never", exceptions: ["i", "a", "b", "k", "_"] },
+      ],
+    },
+  },
+  {
+    // AGENTS.md → Code style: blank lines separate logical sections — a
+    // declaration never runs straight into the guard that consumes it.
+    // Prettier does not manage blank lines, so this rule cannot conflict with it.
+    plugins: { "@stylistic": stylistic },
+    rules: {
+      "@stylistic/padding-line-between-statements": [
+        "error",
+        { blankLine: "always", prev: ["const", "let"], next: "if" },
       ],
     },
   },
@@ -100,8 +109,7 @@ export default defineConfig(
         {
           object: "process",
           property: "env",
-          message:
-            "Read env via the env-var package in config.ts — never raw process.env",
+          message: "Read env via the env-var package in config.ts — never raw process.env",
         },
       ],
     },
@@ -109,10 +117,7 @@ export default defineConfig(
   {
     files: ["**/__tests__/**/*.ts", "**/*.test.ts"],
     rules: {
-      "@typescript-eslint/consistent-type-assertions": [
-        "warn",
-        { assertionStyle: "never" },
-      ],
+      "@typescript-eslint/consistent-type-assertions": ["warn", { assertionStyle: "never" }],
       "@typescript-eslint/no-non-null-assertion": "warn",
     },
   },
@@ -198,12 +203,7 @@ export default defineConfig(
         {
           patterns: [
             {
-              group: [
-                "**/search/**",
-                "**/mcp-core/**",
-                "**/oauth/**",
-                "**/setup/**",
-              ],
+              group: ["**/search/**", "**/mcp-core/**", "**/oauth/**", "**/setup/**"],
               allowTypeImports: true,
               message:
                 "vault-operations/ builds on parsers and utils only — no runtime imports of search/, mcp-core/, oauth/, or setup/ (AGENTS.md → Module layering)",
@@ -224,12 +224,7 @@ export default defineConfig(
         {
           patterns: [
             {
-              group: [
-                "**/vault-operations/**",
-                "**/mcp-core/**",
-                "**/oauth/**",
-                "**/setup/**",
-              ],
+              group: ["**/vault-operations/**", "**/mcp-core/**", "**/oauth/**", "**/setup/**"],
               allowTypeImports: true,
               message:
                 "search/ builds on parsers and utils only — no runtime imports of vault-operations/, mcp-core/, oauth/, or setup/ (AGENTS.md → Module layering)",
@@ -267,10 +262,7 @@ export default defineConfig(
     // names live in the registry alone. Per-group name constants were a real
     // duplicate source of truth before the registry replaced them — a local
     // TOOL_NAMES would compile and pass tests while drifting from it.
-    files: [
-      "src/vault-mcp/mcp-core/tools/**/*.ts",
-      "src/vault-mcp/mcp-core/prompts/**/*.ts",
-    ],
+    files: ["src/vault-mcp/mcp-core/tools/**/*.ts", "src/vault-mcp/mcp-core/prompts/**/*.ts"],
     ignores: ["**/__tests__/**", "**/*.test.ts"],
     rules: {
       "no-restricted-syntax": [

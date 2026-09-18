@@ -27,16 +27,13 @@ const MIN_CHUNK_TOKENS = 50
 
 /** Approximate token count via whitespace splitting — good enough for
  *  deciding chunk boundaries without loading a real tokenizer. */
-const approximateTokenCount = (text: string): number =>
-  text.split(/\s+/).filter(Boolean).length
+const approximateTokenCount = (text: string): number => text.split(/\s+/).filter(Boolean).length
 
 /** Split a single oversized paragraph at word boundaries when it exceeds
  *  maxChunkTokens and can't be split at paragraph boundaries. */
-const splitOversizedParagraph = (
-  paragraph: string,
-  maxChunkTokens: number,
-): string[] => {
+const splitOversizedParagraph = (paragraph: string, maxChunkTokens: number): string[] => {
   const words = paragraph.split(/\s+/).filter(Boolean)
+
   if (words.length <= maxChunkTokens) return [paragraph]
 
   const fragments: string[] = []
@@ -58,9 +55,7 @@ const splitLargeText = (text: string, maxChunkTokens: number): string[] => {
   let currentChunk = ""
 
   for (const paragraph of paragraphs) {
-    const combined = currentChunk
-      ? `${currentChunk}\n\n${paragraph}`
-      : paragraph
+    const combined = currentChunk ? `${currentChunk}\n\n${paragraph}` : paragraph
 
     if (approximateTokenCount(combined) > maxChunkTokens && currentChunk) {
       subChunks.push(currentChunk)
@@ -99,8 +94,7 @@ export const buildChunkMetadataPrefix = (params: {
   tags: readonly string[]
 }): string | null => {
   const typePart = params.type ? `Type: ${params.type}.` : null
-  const tagsPart =
-    params.tags.length > 0 ? `Tags: ${params.tags.join(", ")}.` : null
+  const tagsPart = params.tags.length > 0 ? `Tags: ${params.tags.join(", ")}.` : null
   const parts = [typePart, tagsPart].filter(Boolean)
   return parts.length > 0 ? parts.join(" ") : null
 }
@@ -121,19 +115,14 @@ export const chunkNoteContent = (
   options?: { metadataPrefix?: string | null | undefined },
 ): NoteChunk[] => {
   const metadataPrefix = options?.metadataPrefix
-  const chunkPrefix = metadataPrefix
-    ? `${noteTitle}\n${metadataPrefix}`
-    : noteTitle
+  const chunkPrefix = metadataPrefix ? `${noteTitle}\n${metadataPrefix}` : noteTitle
   // Floor at MIN_CHUNK_TOKENS so a pathological tag list cannot shrink the
   // budget to nothing. The CHUNK_THRESHOLD_TOKENS gate below stays
   // body-token-based, so a large prefix can drive this budget far under the
   // threshold that routed a note to the single-chunk path — that note then
   // splits into many near-floor fragments.
   const maxChunkTokens = metadataPrefix
-    ? Math.max(
-        MAX_CHUNK_TOKENS - approximateTokenCount(chunkPrefix),
-        MIN_CHUNK_TOKENS,
-      )
+    ? Math.max(MAX_CHUNK_TOKENS - approximateTokenCount(chunkPrefix), MIN_CHUNK_TOKENS)
     : MAX_CHUNK_TOKENS
 
   const strippedBody = stripMarkdownSyntax(bodyContent)
@@ -142,8 +131,8 @@ export const chunkNoteContent = (
   if (tokenCount < CHUNK_THRESHOLD_TOKENS) {
     // Only a metadata prefix tightens the single-chunk ceiling — without
     // one, short-note behavior (and its content hashes) stays historical.
-    const exceedsBudgetWithPrefix =
-      Boolean(metadataPrefix) && tokenCount > maxChunkTokens
+    const exceedsBudgetWithPrefix = Boolean(metadataPrefix) && tokenCount > maxChunkTokens
+
     if (!exceedsBudgetWithPrefix) {
       return toChunks([strippedBody], chunkPrefix)
     }
@@ -160,6 +149,7 @@ export const chunkNoteContent = (
 
   // Content before the first heading (preamble)
   const firstHeading = headings[0]
+
   // noUncheckedIndexedAccess: length > 0 guarantees this, but TS
   // doesn't narrow array index access from a prior length check.
   if (!firstHeading) {
@@ -169,6 +159,7 @@ export const chunkNoteContent = (
   const preambleText = stripMarkdownSyntax(preambleLines.join("\n")).trim()
 
   const rawSections: string[] = []
+
   if (preambleText && approximateTokenCount(preambleText) >= MIN_CHUNK_TOKENS) {
     rawSections.push(preambleText)
   }
@@ -176,9 +167,7 @@ export const chunkNoteContent = (
   // Merges undersized sections with the next until the combined text is
   // large enough to stand as its own chunk
   let pendingText =
-    preambleText && approximateTokenCount(preambleText) < MIN_CHUNK_TOKENS
-      ? preambleText
-      : ""
+    preambleText && approximateTokenCount(preambleText) < MIN_CHUNK_TOKENS ? preambleText : ""
 
   for (const heading of headings) {
     const sectionLines = bodyLines.slice(heading.startLine, heading.bodyEndLine)
@@ -187,16 +176,11 @@ export const chunkNoteContent = (
     if (approximateTokenCount(sectionText) < MIN_CHUNK_TOKENS && pendingText) {
       pendingText = `${pendingText}\n\n${sectionText}`
     } else {
-      if (
-        pendingText &&
-        approximateTokenCount(pendingText) >= MIN_CHUNK_TOKENS
-      ) {
+      if (pendingText && approximateTokenCount(pendingText) >= MIN_CHUNK_TOKENS) {
         rawSections.push(pendingText)
         pendingText = ""
       }
-      pendingText = pendingText
-        ? `${pendingText}\n\n${sectionText}`
-        : sectionText
+      pendingText = pendingText ? `${pendingText}\n\n${sectionText}` : sectionText
     }
   }
 

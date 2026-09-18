@@ -49,15 +49,11 @@ describe("assertNoControlCharacters", () => {
   })
 
   it("allows LF (U+000A)", () => {
-    expect(() =>
-      assertNoControlCharacters("line1\nline2", "body"),
-    ).not.toThrow()
+    expect(() => assertNoControlCharacters("line1\nline2", "body")).not.toThrow()
   })
 
   it("allows CRLF", () => {
-    expect(() =>
-      assertNoControlCharacters("line1\r\nline2", "body"),
-    ).not.toThrow()
+    expect(() => assertNoControlCharacters("line1\r\nline2", "body")).not.toThrow()
   })
 
   it("allows empty string", () => {
@@ -66,17 +62,12 @@ describe("assertNoControlCharacters", () => {
 
   it("allows normal markdown content", () => {
     expect(() =>
-      assertNoControlCharacters(
-        "## Heading\n\nBody with [[links]] and #tags",
-        "body",
-      ),
+      assertNoControlCharacters("## Heading\n\nBody with [[links]] and #tags", "body"),
     ).not.toThrow()
   })
 
   it("allows bare CR (U+000D)", () => {
-    expect(() =>
-      assertNoControlCharacters("line1\rline2", "body"),
-    ).not.toThrow()
+    expect(() => assertNoControlCharacters("line1\rline2", "body")).not.toThrow()
   })
 
   it("includes the param name in the error message", () => {

@@ -39,11 +39,7 @@ describe("readDailyNotesConfig", () => {
 
   it("falls back to defaults when file is malformed JSON", async () => {
     const { readDailyNotesConfig } = await import("../daily-notes.js")
-    await writeFile(
-      join(vaultDir, ".obsidian", "daily-notes.json"),
-      "not valid json{{{",
-      "utf8",
-    )
+    await writeFile(join(vaultDir, ".obsidian", "daily-notes.json"), "not valid json{{{", "utf8")
     const config = await readDailyNotesConfig(vaultDir)
     expect(config).toEqual({ folder: "Daily Notes", format: "YYYY-MM-DD" })
   })
@@ -264,23 +260,23 @@ describe("getDailyNotePath", () => {
 
   it("throws on invalid date format", async () => {
     const { getDailyNotePath } = await import("../daily-notes.js")
-    await expect(
-      getDailyNotePath({ vaultPath: vaultDir, date: "not-a-date" }),
-    ).rejects.toThrow("invalid date")
+    await expect(getDailyNotePath({ vaultPath: vaultDir, date: "not-a-date" })).rejects.toThrow(
+      "invalid date",
+    )
   })
 
   it("rejects partial ISO dates (year only)", async () => {
     const { getDailyNotePath } = await import("../daily-notes.js")
-    await expect(
-      getDailyNotePath({ vaultPath: vaultDir, date: "2026" }),
-    ).rejects.toThrow("invalid date")
+    await expect(getDailyNotePath({ vaultPath: vaultDir, date: "2026" })).rejects.toThrow(
+      "invalid date",
+    )
   })
 
   it("rejects partial ISO dates (year-month only)", async () => {
     const { getDailyNotePath } = await import("../daily-notes.js")
-    await expect(
-      getDailyNotePath({ vaultPath: vaultDir, date: "2026-05" }),
-    ).rejects.toThrow("invalid date")
+    await expect(getDailyNotePath({ vaultPath: vaultDir, date: "2026-05" })).rejects.toThrow(
+      "invalid date",
+    )
   })
 
   it("rejects full ISO timestamps", async () => {
@@ -297,9 +293,9 @@ describe("getDailyNotePath", () => {
       JSON.stringify({ folder: "Journal", format: "MMMM Do, YYYY" }),
       "utf8",
     )
-    await expect(
-      getDailyNotePath({ vaultPath: vaultDir, date: "2026-05-13" }),
-    ).rejects.toThrow("unsupported token(s): Do")
+    await expect(getDailyNotePath({ vaultPath: vaultDir, date: "2026-05-13" })).rejects.toThrow(
+      "unsupported token(s): Do",
+    )
   })
 
   it("rejects a format containing unsupported tokens (dd)", async () => {
@@ -309,9 +305,9 @@ describe("getDailyNotePath", () => {
       JSON.stringify({ folder: "Journal", format: "YYYY-MM-DD dd" }),
       "utf8",
     )
-    await expect(
-      getDailyNotePath({ vaultPath: vaultDir, date: "2026-05-13" }),
-    ).rejects.toThrow("unsupported token(s): dd")
+    await expect(getDailyNotePath({ vaultPath: vaultDir, date: "2026-05-13" })).rejects.toThrow(
+      "unsupported token(s): dd",
+    )
   })
 })
 
@@ -338,10 +334,7 @@ describe("getDailyNote", () => {
       "---\ndate: 2026-05-13\n---\n\n# 2026-05-13\n\nToday's notes.\n",
       "utf8",
     )
-    const result = await getDailyNote(
-      { vaultPath: vaultDir, date: "2026-05-13" },
-      logger,
-    )
+    const result = await getDailyNote({ vaultPath: vaultDir, date: "2026-05-13" }, logger)
     expect(result.exists).toBe(true)
     expect(result.path).toBe("Daily Notes/2026-05-13.md")
     expect(result.content).toContain("Today's notes.")
@@ -349,10 +342,7 @@ describe("getDailyNote", () => {
 
   it("returns exists: false for missing daily note", async () => {
     const { getDailyNote } = await import("../daily-notes.js")
-    const result = await getDailyNote(
-      { vaultPath: vaultDir, date: "2026-01-01" },
-      logger,
-    )
+    const result = await getDailyNote({ vaultPath: vaultDir, date: "2026-01-01" }, logger)
     expect(result.exists).toBe(false)
     expect(result.path).toBe("Daily Notes/2026-01-01.md")
     expect(result.content).toBeNull()
@@ -365,8 +355,8 @@ describe("getDailyNote", () => {
       JSON.stringify({ folder: "../escape", format: "YYYY-MM-DD" }),
       "utf8",
     )
-    await expect(
-      getDailyNote({ vaultPath: vaultDir, date: "2026-05-13" }, logger),
-    ).rejects.toThrow("path traversal blocked")
+    await expect(getDailyNote({ vaultPath: vaultDir, date: "2026-05-13" }, logger)).rejects.toThrow(
+      "path traversal blocked",
+    )
   })
 })

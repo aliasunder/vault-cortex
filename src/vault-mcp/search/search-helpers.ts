@@ -15,17 +15,14 @@ import type {
 
 // ── Type guards ────────────────────────────────────────────────
 
-export const isString = (value: unknown): value is string =>
-  typeof value === "string"
+export const isString = (value: unknown): value is string => typeof value === "string"
 
 /** Coerces a YAML frontmatter field to a string array, stringifying
  *  non-string elements. gray-matter may parse multi-value YAML fields
  *  as a scalar or an array depending on syntax (flow vs block). */
 export const coerceToArray = (value: unknown): string[] => {
   if (Array.isArray(value))
-    return value
-      .filter((element) => element != null && typeof element !== "object")
-      .map(String)
+    return value.filter((element) => element != null && typeof element !== "object").map(String)
   return value ? [String(value)] : []
 }
 
@@ -39,6 +36,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
  *  indexer, so a non-array value indicates index corruption. */
 const parseStringArray = (json: string): string[] => {
   const parsed: unknown = JSON.parse(json)
+
   if (!Array.isArray(parsed) || !parsed.every(isString))
     throw new Error(`expected string[] from JSON column, got: ${json}`)
   return parsed
@@ -48,8 +46,8 @@ const parseStringArray = (json: string): string[] => {
  *  Throws on corruption — the indexer stores JSON.stringify(frontmatter). */
 const parseRecord = (json: string): Record<string, unknown> => {
   const parsed: unknown = JSON.parse(json)
-  if (!isRecord(parsed))
-    throw new Error(`expected object from JSON column, got: ${json}`)
+
+  if (!isRecord(parsed)) throw new Error(`expected object from JSON column, got: ${json}`)
   return parsed
 }
 
@@ -65,6 +63,7 @@ const isLeadingCalloutShape = (
  *  Throws on corruption — the indexer stores JSON.stringify(parseLeadingCallout(...)). */
 const parseLeadingCalloutJson = (json: string): LeadingCallout => {
   const parsed: unknown = JSON.parse(json)
+
   if (!isRecord(parsed) || !isLeadingCalloutShape(parsed))
     throw new Error(`expected LeadingCallout from JSON column, got: ${json}`)
   return { type: parsed.type, title: parsed.title, body: parsed.body }
@@ -74,8 +73,7 @@ const parseLeadingCalloutJson = (json: string): LeadingCallout => {
 
 /** Strips trailing slashes so folder paths produce clean LIKE patterns
  *  (e.g. `"Projects/"` → `"Projects"`, avoiding `Projects//%`). */
-export const stripTrailingSlashes = (folder: string): string =>
-  folder.replace(/\/+$/, "")
+export const stripTrailingSlashes = (folder: string): string => folder.replace(/\/+$/, "")
 
 /** Folds only A–Z, exactly as SQLite's default LIKE does — so the TypeScript
  *  mirror below can never disagree with the SQL predicate on a non-ASCII
@@ -86,16 +84,8 @@ const foldAsciiCase = (value: string): string =>
 /** TypeScript mirror of the `path LIKE 'folder/%'` predicate the SQL legs
  *  apply — segment-boundary (so "Docs" never matches "Docs2/") and
  *  ASCII-case-insensitive, matching SQLite LIKE's folding exactly. */
-export const pathIsInFolder = ({
-  path,
-  folder,
-}: {
-  path: string
-  folder: string
-}): boolean =>
-  foldAsciiCase(path).startsWith(
-    `${foldAsciiCase(stripTrailingSlashes(folder))}/`,
-  )
+export const pathIsInFolder = ({ path, folder }: { path: string; folder: string }): boolean =>
+  foldAsciiCase(path).startsWith(`${foldAsciiCase(stripTrailingSlashes(folder))}/`)
 
 /** Escapes LIKE-wildcard characters (`\`, `%`, `_`) in a value so it is
  *  matched literally in a `LIKE ... ESCAPE '\'` clause. */
@@ -113,9 +103,7 @@ export const folderLikePattern = (folder: string): string =>
 
 /** Flattens frontmatter into a searchable text block for the FTS metadata column.
  *  Keys are included (so "lifecycle" is findable), title is excluded (separate FTS column). */
-export const buildFtsMetadataText = (
-  frontmatter: Record<string, unknown>,
-): string => {
+export const buildFtsMetadataText = (frontmatter: Record<string, unknown>): string => {
   const lines: string[] = []
   for (const [key, value] of Object.entries(frontmatter)) {
     if (key === "title") continue
@@ -124,6 +112,7 @@ export const buildFtsMetadataText = (
       const primitiveElements = value
         .filter((element) => element != null && typeof element !== "object")
         .map(String)
+
       if (primitiveElements.length > 0) {
         lines.push(`${key}: ${primitiveElements.join(" ")}`)
       }
@@ -148,9 +137,7 @@ export const rowToMetadata = (row: NoteRow): NoteMetadata => ({
   modified: mtimeToIso(row.mtime),
   bytes: row.bytes ?? 0,
   properties: parseRecord(row.properties),
-  leading_callout: row.leading_callout
-    ? parseLeadingCalloutJson(row.leading_callout)
-    : null,
+  leading_callout: row.leading_callout ? parseLeadingCalloutJson(row.leading_callout) : null,
 })
 
 /** Maps a tasks-table row to its wire shape: note_path becomes path, NULL
@@ -180,13 +167,9 @@ export const rowToTaskEntry = (row: TaskRow): TaskEntry => ({
   depth: row.depth,
   parent_block_id: row.parent_block_id ?? undefined,
   subtask_progress:
-    row.subtask_total > 0
-      ? { done: row.subtask_done, total: row.subtask_total }
-      : undefined,
+    row.subtask_total > 0 ? { done: row.subtask_done, total: row.subtask_total } : undefined,
   is_kanban_task: Boolean(row.is_kanban_task),
-  done_lanes: row.kanban_done_lanes
-    ? parseStringArray(row.kanban_done_lanes)
-    : undefined,
+  done_lanes: row.kanban_done_lanes ? parseStringArray(row.kanban_done_lanes) : undefined,
 })
 
 /** Builds a SearchResult from a NoteRow and caller-provided snippet + score.
@@ -194,15 +177,10 @@ export const rowToTaskEntry = (row: TaskRow): TaskEntry => ({
 export const noteRowToSearchResult = (params: {
   row: Pick<
     NoteRow,
-    | "path"
-    | "title"
-    | "tags"
-    | "folder"
-    | "type"
-    | "created"
-    | "mtime"
-    | "bytes"
-  > & { leading_callout?: string | null }
+    "path" | "title" | "tags" | "folder" | "type" | "created" | "mtime" | "bytes"
+  > & {
+    leading_callout?: string | null
+  }
   snippet: string
   score: number
   includeLeadingCallout: boolean
@@ -266,14 +244,11 @@ export const fileContentRowToSearchResult = (
  *  day — a malformed date would otherwise yield a NaN range and a
  *  timestamped one a silently time-shifted window, both mis-filtering
  *  instead of failing fast. */
-export const dayToEpochMsRange = (
-  date: string,
-): { startMs: number; endMs: number } => {
+export const dayToEpochMsRange = (date: string): { startMs: number; endMs: number } => {
   const dayStart = DateTime.fromFormat(date, "yyyy-MM-dd")
+
   if (!dayStart.isValid) {
-    throw new Error(
-      `invalid date: "${date}". Use YYYY-MM-DD (e.g. 2026-07-03).`,
-    )
+    throw new Error(`invalid date: "${date}". Use YYYY-MM-DD (e.g. 2026-07-03).`)
   }
   return {
     startMs: dayStart.toMillis(),
@@ -287,18 +262,12 @@ export const dayToEpochMsRange = (
  *  in TypeScript — used for vector-only results that bypassed the FTS query.
  *  Date filter values are pre-validated by fullTextSearch, which hybridSearch
  *  always runs before this mirror. */
-export const noteMatchesSearchFilters = (
-  note: NoteRow,
-  filters: SearchFilters,
-): boolean => {
-  if (
-    filters.folder &&
-    !pathIsInFolder({ path: note.path, folder: filters.folder })
-  )
-    return false
+export const noteMatchesSearchFilters = (note: NoteRow, filters: SearchFilters): boolean => {
+  if (filters.folder && !pathIsInFolder({ path: note.path, folder: filters.folder })) return false
 
   if (filters.tags) {
     const noteTags = parseStringArray(note.tags)
+
     if (!filters.tags.every((tag) => noteTags.includes(tag))) return false
   }
 
@@ -306,8 +275,8 @@ export const noteMatchesSearchFilters = (
 
   if (filters.related) {
     const noteRelated = parseStringArray(note.related)
-    if (!filters.related.every((link) => noteRelated.includes(link)))
-      return false
+
+    if (!filters.related.every((link) => noteRelated.includes(link))) return false
   }
 
   if (filters.properties) {
@@ -324,21 +293,16 @@ export const noteMatchesSearchFilters = (
   // conditions); with a bound set, notes without created never match, like
   // SQL NULL comparisons.
   if (filters.created) {
-    const {
-      on: createdOn,
-      before: createdBefore,
-      after: createdAfter,
-    } = filters.created
+    const { on: createdOn, before: createdBefore, after: createdAfter } = filters.created
     const hasCreatedBound =
-      createdOn !== undefined ||
-      createdBefore !== undefined ||
-      createdAfter !== undefined
+      createdOn !== undefined || createdBefore !== undefined || createdAfter !== undefined
+
     if (hasCreatedBound) {
       if (note.created === null) return false
       const createdDay = note.created.slice(0, 10)
+
       if (createdOn !== undefined && createdDay !== createdOn) return false
-      if (createdBefore !== undefined && createdDay >= createdBefore)
-        return false
+      if (createdBefore !== undefined && createdDay >= createdBefore) return false
       if (createdAfter !== undefined && createdDay <= createdAfter) return false
     }
   }
@@ -347,26 +311,24 @@ export const noteMatchesSearchFilters = (
   // exclusive at day granularity: before/after match strictly earlier/later
   // days, on matches within the day.
   if (filters.modified) {
-    const {
-      on: modifiedOn,
-      before: modifiedBefore,
-      after: modifiedAfter,
-    } = filters.modified
+    const { on: modifiedOn, before: modifiedBefore, after: modifiedAfter } = filters.modified
 
     if (modifiedOn !== undefined) {
       const dayRange = dayToEpochMsRange(modifiedOn)
-      const withinDay =
-        note.mtime >= dayRange.startMs && note.mtime < dayRange.endMs
+      const withinDay = note.mtime >= dayRange.startMs && note.mtime < dayRange.endMs
+
       if (!withinDay) return false
     }
 
     if (modifiedBefore !== undefined) {
       const lastAllowedMs = dayToEpochMsRange(modifiedBefore).startMs
+
       if (note.mtime >= lastAllowedMs) return false
     }
 
     if (modifiedAfter !== undefined) {
       const firstAllowedMs = dayToEpochMsRange(modifiedAfter).endMs
+
       if (note.mtime < firstAllowedMs) return false
     }
   }
@@ -378,11 +340,9 @@ export const noteMatchesSearchFilters = (
 
 /** Truncates chunk text to the first N words for snippet display —
  *  used for vector-only results that have no FTS5 snippet available. */
-export const buildSnippetFromChunkText = (
-  chunkText: string,
-  snippetTokens: number,
-): string => {
+export const buildSnippetFromChunkText = (chunkText: string, snippetTokens: number): string => {
   const words = chunkText.split(/\s+/).filter((word) => word.length > 0)
+
   if (words.length <= snippetTokens) return words.join(" ")
   return words.slice(0, snippetTokens).join(" ") + "..."
 }

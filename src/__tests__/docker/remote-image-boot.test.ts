@@ -18,14 +18,7 @@
  *  re-reads the published port, which Docker may reassign. */
 
 import { randomBytes } from "node:crypto"
-import {
-  afterAll,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  onTestFinished,
-} from "vitest"
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from "vitest"
 import { callTool, textContent } from "../integration/test-harness.js"
 import {
   FAKE_OBSIDIAN_ACCOUNT,
@@ -238,15 +231,11 @@ describe("remote image boot — three-volume layout (anonymous /vault, /data, /h
   })
 
   it("records the two synced notes in the sync state under /home/obsidian/.config", async () => {
-    expect(
-      await countSyncStateFiles({ name, configDir: "/home/obsidian/.config" }),
-    ).toBe(2)
+    expect(await countSyncStateFiles({ name, configDir: "/home/obsidian/.config" })).toBe(2)
   })
 
   it("creates the search index at /data/index.db", async () => {
-    expect(await pathExistsInContainer({ name, path: "/data/index.db" })).toBe(
-      true,
-    )
+    expect(await pathExistsInContainer({ name, path: "/data/index.db" })).toBe(true)
   })
 
   it("keeps `ob sync --continuous` supervised as svc-obsidian-sync", async () => {
@@ -267,12 +256,7 @@ describe("remote image boot — three-volume layout (anonymous /vault, /data, /h
       "/run/service/svc-vault-mcp",
     ])
     const pid = pidResult.stdout.trim()
-    const owner = await execInContainer(name, [
-      "stat",
-      "-c",
-      "%u",
-      `/proc/${pid}`,
-    ])
+    const owner = await execInContainer(name, ["stat", "-c", "%u", `/proc/${pid}`])
     expect(owner.stdout.trim()).toBe("1000")
   })
 
@@ -291,16 +275,11 @@ describe("remote image boot — three-volume layout (anonymous /vault, /data, /h
       const searchResponse: unknown = JSON.parse(textContent(result))
       // `modified` is the boot-time mtime and `score` is an RRF float — every
       // other field of the response is fixed by the fixture, so pin those.
-      const isSearchResponse = (
-        value: unknown,
-      ): value is { results: Record<string, unknown>[] } =>
-        typeof value === "object" &&
-        value !== null &&
-        Array.isArray(Reflect.get(value, "results"))
+      const isSearchResponse = (value: unknown): value is { results: Record<string, unknown>[] } =>
+        typeof value === "object" && value !== null && Array.isArray(Reflect.get(value, "results"))
+
       if (!isSearchResponse(searchResponse)) {
-        throw new Error(
-          `unexpected vault_search response: ${textContent(result)}`,
-        )
+        throw new Error(`unexpected vault_search response: ${textContent(result)}`)
       }
       const deterministicResults = searchResponse.results.map(
         ({ modified: _modified, score: _score, ...fixedFields }) => fixedFields,
@@ -369,19 +348,15 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
   it("derives VAULT_PATH, INDEX_DB_PATH, LOG_DIR, XDG_CONFIG_HOME and PUBLIC_URL under /persist", async () => {
     const published = Object.fromEntries(
       await Promise.all(
-        [
-          "VAULT_PATH",
-          "INDEX_DB_PATH",
-          "LOG_DIR",
-          "XDG_CONFIG_HOME",
-          "PUBLIC_URL",
-        ].map(async (variable) => [
-          variable,
-          await readContainerFile({
-            name,
-            path: `/run/s6/container_environment/${variable}`,
-          }),
-        ]),
+        ["VAULT_PATH", "INDEX_DB_PATH", "LOG_DIR", "XDG_CONFIG_HOME", "PUBLIC_URL"].map(
+          async (variable) => [
+            variable,
+            await readContainerFile({
+              name,
+              path: `/run/s6/container_environment/${variable}`,
+            }),
+          ],
+        ),
       ),
     )
     expect(published).toEqual({
@@ -426,11 +401,7 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
       name,
       path: "/persist/data/index.db",
     })
-    const logsDir = await execInContainer(name, [
-      "test",
-      "-d",
-      "/persist/data/logs",
-    ])
+    const logsDir = await execInContainer(name, ["test", "-d", "/persist/data/logs"])
     expect({ indexPresent, logsDirExit: logsDir.code }).toEqual({
       indexPresent: true,
       logsDirExit: 0,
@@ -438,11 +409,7 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
   })
 
   it("bootstraps the memory folder into the derived vault path after the first sync", async () => {
-    const memoryDir = await execInContainer(name, [
-      "test",
-      "-d",
-      "/persist/vault/About Me",
-    ])
+    const memoryDir = await execInContainer(name, ["test", "-d", "/persist/vault/About Me"])
     const syncedNotePresent = await pathExistsInContainer({
       name,
       path: "/persist/vault/Projects/Remote Boot.md",
@@ -501,15 +468,15 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
     })
 
     it("keeps the ownership record unchanged", async () => {
-      expect(
-        await readContainerFile({ name, path: "/persist/config/.applied-ids" }),
-      ).toBe("1000:1000\n")
+      expect(await readContainerFile({ name, path: "/persist/config/.applied-ids" })).toBe(
+        "1000:1000\n",
+      )
     })
 
     it("runs the full Sync sequence again, appending to the first boot's log", async () => {
-      expect(
-        await readContainerFile({ name, path: "/persist/config/ob-calls.log" }),
-      ).toBe(callLogOf(2))
+      expect(await readContainerFile({ name, path: "/persist/config/ob-calls.log" })).toBe(
+        callLogOf(2),
+      )
     })
 
     it("keeps the sync state and the synced notes", async () => {
@@ -522,10 +489,7 @@ describe("remote image boot — single-volume layout (STORAGE_ROOT=/persist)", (
       ).filter((path) => !path.startsWith("/persist/vault/About Me/"))
       expect({ knownSyncFiles, syncedNotes }).toEqual({
         knownSyncFiles: 2,
-        syncedNotes: [
-          "/persist/vault/Projects/Remote Boot.md",
-          "/persist/vault/Sync Log.md",
-        ],
+        syncedNotes: ["/persist/vault/Projects/Remote Boot.md", "/persist/vault/Sync Log.md"],
       })
     })
 
@@ -686,15 +650,9 @@ describe("remote image boot — empty remote vault with the memory layer disable
   })
 
   it("completes the first sync with an empty vault and records no files", async () => {
-    expect(await containerLogs(name)).toContain(
-      "[obsidian-sync] First sync complete.",
-    )
-    expect(await listFilesInContainer({ name, directory: "/vault" })).toEqual(
-      [],
-    )
-    expect(
-      await countSyncStateFiles({ name, configDir: "/home/obsidian/.config" }),
-    ).toBe(0)
+    expect(await containerLogs(name)).toContain("[obsidian-sync] First sync complete.")
+    expect(await listFilesInContainer({ name, directory: "/vault" })).toEqual([])
+    expect(await countSyncStateFiles({ name, configDir: "/home/obsidian/.config" })).toBe(0)
   })
 
   describe("after docker restart", () => {
@@ -895,9 +853,7 @@ describe("remote image boot — remote vault holding only synced .obsidian/ sett
     expect(await listFilesInContainer({ name, directory: "/vault" })).toEqual([
       "/vault/.obsidian/appearance.json",
     ])
-    expect(
-      await countSyncStateFiles({ name, configDir: "/home/obsidian/.config" }),
-    ).toBe(1)
+    expect(await countSyncStateFiles({ name, configDir: "/home/obsidian/.config" })).toBe(1)
   })
 
   describe("after docker restart", () => {
@@ -1038,10 +994,7 @@ const setupModeEnv = (): Record<string, string> => {
   }
 }
 
-const postSetupForm = (
-  port: number,
-  fields: Record<string, string>,
-): Promise<Response> =>
+const postSetupForm = (port: number, fields: Record<string, string>): Promise<Response> =>
   fetch(`http://127.0.0.1:${port}/setup`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -1102,17 +1055,13 @@ describe("remote image boot — setup mode (no Sync token anywhere)", () => {
       setupMode: "1",
       obCallsLogged: false,
     })
-    expect(logs).toContain(
-      "[vault-cortex] No Obsidian Sync token yet — starting in setup mode.",
-    )
+    expect(logs).toContain("[vault-cortex] No Obsidian Sync token yet — starting in setup mode.")
     expect(logs).toContain(
       "[vault-cortex] Sign in at https://ci.example.test/setup — you will need your MCP_AUTH_TOKEN.",
     )
     expect(logs).toContain("[obsidian-sync] Setup mode — skipping login.")
     expect(logs).toContain("[obsidian-sync] Setup mode — skipping vault setup.")
-    expect(logs).toContain(
-      "[obsidian-sync] Setup mode — skipping the first sync.",
-    )
+    expect(logs).toContain("[obsidian-sync] Setup mode — skipping the first sync.")
   })
 
   it("keeps svc-obsidian-sync up (idle) so the setup page can be served", async () => {
@@ -1142,9 +1091,7 @@ describe("remote image boot — setup mode (no Sync token anywhere)", () => {
       password: FAKE_OBSIDIAN_ACCOUNT.password,
     })
     expect(rejected.status).toBe(401)
-    expect(await rejected.text()).toContain(
-      "That MCP token does not match this server.",
-    )
+    expect(await rejected.text()).toContain("That MCP token does not match this server.")
   })
 
   describe("after signing in on /setup", () => {
@@ -1161,6 +1108,7 @@ describe("remote image boot — setup mode (no Sync token anywhere)", () => {
         password: FAKE_OBSIDIAN_ACCOUNT.password,
       })
       const html = await response.text()
+
       if (!html.includes("<h1>Setup complete</h1>")) {
         throw new Error(`setup did not complete:\n${html}`)
       }
@@ -1190,12 +1138,7 @@ describe("remote image boot — setup mode (no Sync token anywhere)", () => {
 
       it("finds the token on the volume, mode 600, and runs the full Sync sequence", async () => {
         const token = await readContainerFile({ name, path: SYNC_TOKEN_FILE })
-        const mode = await execInContainer(name, [
-          "stat",
-          "-c",
-          "%a",
-          SYNC_TOKEN_FILE,
-        ])
+        const mode = await execInContainer(name, ["stat", "-c", "%a", SYNC_TOKEN_FILE])
         const callLog = await readContainerFile({
           name,
           path: "/persist/config/ob-calls.log",
@@ -1206,19 +1149,13 @@ describe("remote image boot — setup mode (no Sync token anywhere)", () => {
           mode: "600",
           callLog: callLogOf(1),
         })
-        expect(logs).toContain(
-          "[obsidian-sync] Auth token found on the volume.",
-        )
+        expect(logs).toContain("[obsidian-sync] Auth token found on the volume.")
       })
 
       it("answers /healthz as the full server and serves the synced note over MCP", async () => {
-        const response = await fetch(
-          `http://127.0.0.1:${restartedPort}/healthz`,
-        )
+        const response = await fetch(`http://127.0.0.1:${restartedPort}/healthz`)
         expect(await response.json()).toEqual({ ok: true })
-        expect(await readSyncedNoteOverMcp(restartedPort)).toBe(
-          REMOTE_BOOT_NOTE,
-        )
+        expect(await readSyncedNoteOverMcp(restartedPort)).toBe(REMOTE_BOOT_NOTE)
       })
 
       it("answers /setup with the already-configured page and refuses a second sign-in", async () => {
@@ -1277,9 +1214,7 @@ describe("remote image boot — token file on the volume rejected by the Sync cl
       name,
       path: "/run/s6/container_environment/SETUP_REASON",
     })
-    const health = await (
-      await fetch(`http://127.0.0.1:${port}/healthz`)
-    ).json()
+    const health = await (await fetch(`http://127.0.0.1:${port}/healthz`)).json()
     const logs = await containerLogs(name)
     expect({ callLog, setupReason, health }).toEqual({
       callLog: "login\n",
@@ -1303,15 +1238,9 @@ describe("remote image boot — token file on the volume rejected by the Sync cl
     // Killed, the way a crash looks to s6. The rejected token on the volume
     // must not read as a completed sign-in: the finish script leaves the
     // container up and s6 brings the page back.
-    await execInContainer(name, [
-      "/command/s6-svc",
-      "-k",
-      "/run/service/svc-vault-mcp",
-    ])
+    await execInContainer(name, ["/command/s6-svc", "-k", "/run/service/svc-vault-mcp"])
     await waitForHealthz({ name, port, deadlineMs: BOOT_DEADLINE_MS })
-    const health = await (
-      await fetch(`http://127.0.0.1:${port}/healthz`)
-    ).json()
+    const health = await (await fetch(`http://127.0.0.1:${port}/healthz`)).json()
     const logs = await containerLogs(name)
     expect(health).toEqual({ ok: true, mode: "setup" })
     expect(logs).not.toContain("[vault-cortex] Setup complete")

@@ -2,10 +2,7 @@ import { describe, it, expect, onTestFinished } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import {
-  readTaskFormatConfig,
-  resetTaskFormatConfigCache,
-} from "../task-format-config.js"
+import { readTaskFormatConfig, resetTaskFormatConfigCache } from "../task-format-config.js"
 
 const createVault = async (): Promise<string> => {
   const vaultPath = await mkdtemp(join(tmpdir(), "task-format-config-test-"))
@@ -17,12 +14,7 @@ const writePluginConfig = async (
   vaultPath: string,
   config: Record<string, unknown>,
 ): Promise<void> => {
-  const pluginDir = join(
-    vaultPath,
-    ".obsidian",
-    "plugins",
-    "obsidian-tasks-plugin",
-  )
+  const pluginDir = join(vaultPath, ".obsidian", "plugins", "obsidian-tasks-plugin")
   await mkdir(pluginDir, { recursive: true })
   await writeFile(join(pluginDir, "data.json"), JSON.stringify(config), "utf8")
 }
@@ -110,9 +102,7 @@ describe("readTaskFormatConfig", () => {
     const vault = await createVault()
     await writePluginConfig(vault, {
       statusSettings: {
-        customStatusTypes: [
-          { indicator: "P", name: "Pro", nextStatusIndicator: "C" },
-        ],
+        customStatusTypes: [{ indicator: "P", name: "Pro", nextStatusIndicator: "C" }],
       },
     })
 
@@ -172,12 +162,7 @@ describe("readTaskFormatConfig", () => {
   it("falls back to defaults on malformed JSON", async () => {
     resetTaskFormatConfigCache()
     const vault = await createVault()
-    const pluginDir = join(
-      vault,
-      ".obsidian",
-      "plugins",
-      "obsidian-tasks-plugin",
-    )
+    const pluginDir = join(vault, ".obsidian", "plugins", "obsidian-tasks-plugin")
     await mkdir(pluginDir, { recursive: true })
     await writeFile(join(pluginDir, "data.json"), "not valid json{{{", "utf8")
 

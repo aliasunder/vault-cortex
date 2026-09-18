@@ -12,9 +12,7 @@ import { startFakeObsidianApi } from "./fake-obsidian-api.js"
 // needs vitest's own timeout above that so the custom error fires first.
 vi.setConfig({ testTimeout: 20_000 })
 
-const SETUP_SERVER_ENTRY = fileURLToPath(
-  new URL("../setup-server.ts", import.meta.url),
-)
+const SETUP_SERVER_ENTRY = fileURLToPath(new URL("../setup-server.ts", import.meta.url))
 const AUTH_TOKEN = "local-dev-token"
 
 type SetupServerProcess = {
@@ -31,13 +29,12 @@ type SetupServerProcess = {
 /** Spawn the real entry point with only the given environment — the test
  *  controls every variable the server reads, so nothing from the runner's
  *  shell leaks in. */
-const spawnSetupServer = async (
-  env: Record<string, string>,
-): Promise<SetupServerProcess> => {
+const spawnSetupServer = async (env: Record<string, string>): Promise<SetupServerProcess> => {
   const port = await freePort()
   const vaultPath = await mkdtemp(join(tmpdir(), "setup-server-vault-"))
   onTestFinished(() => rm(vaultPath, { recursive: true, force: true }))
   const runnerPath = process.env.PATH
+
   if (!runnerPath) throw new Error("PATH is unset; npx cannot be resolved")
   const child = spawn("npx", ["tsx", SETUP_SERVER_ENTRY], {
     env: {
@@ -97,20 +94,13 @@ const spawnSetupServer = async (
 const waitForStart = async (server: SetupServerProcess): Promise<void> => {
   const timeout = new Promise<never>((_resolve, reject) => {
     setTimeout(
-      () =>
-        reject(
-          new Error(
-            `setup server did not start within 15s\nstderr:\n${server.stderr()}`,
-          ),
-        ),
+      () => reject(new Error(`setup server did not start within 15s\nstderr:\n${server.stderr()}`)),
       15_000,
     ).unref()
   })
   const earlyExit = async (): Promise<never> => {
     const code = await server.exited
-    throw new Error(
-      `setup server exited early with code ${code}\nstderr:\n${server.stderr()}`,
-    )
+    throw new Error(`setup server exited early with code ${code}\nstderr:\n${server.stderr()}`)
   }
   await Promise.race([server.started, earlyExit(), timeout])
 }
@@ -119,8 +109,10 @@ const waitForStart = async (server: SetupServerProcess): Promise<void> => {
 const lastLogRecord = (output: string): Record<string, unknown> => {
   const lines = output.trim().split("\n")
   const lastLine = lines.at(-1)
+
   if (!lastLine) throw new Error("no log output")
   const parsed: unknown = JSON.parse(lastLine)
+
   if (typeof parsed !== "object" || parsed === null) {
     throw new Error(`last log line is not an object: ${lastLine}`)
   }
@@ -167,10 +159,7 @@ describe("setup-server entry point", () => {
     expect(html).toContain("<h1>Setup complete</h1>")
     expect(exitCode).toBe(0)
     await expect(
-      readFile(
-        join(home, ".config", "obsidian-headless", "auth_token"),
-        "utf8",
-      ),
+      readFile(join(home, ".config", "obsidian-headless", "auth_token"), "utf8"),
     ).resolves.toBe("sync-tok")
   })
 
@@ -200,10 +189,7 @@ describe("setup-server entry point", () => {
       readFile(join(configHome, "obsidian-headless", "auth_token"), "utf8"),
     ).resolves.toBe("sync-tok")
     await expect(
-      readFile(
-        join(home, ".config", "obsidian-headless", "auth_token"),
-        "utf8",
-      ),
+      readFile(join(home, ".config", "obsidian-headless", "auth_token"), "utf8"),
     ).rejects.toThrow("ENOENT")
   })
 
@@ -266,16 +252,13 @@ describe("setup-server entry point", () => {
 
     const browserGet = await fetch(`http://127.0.0.1:${server.port}/anything`, {
       headers: {
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       },
       redirect: "manual",
     })
 
     expect(browserGet.status).toBe(302)
-    expect(browserGet.headers.get("location")).toBe(
-      "https://vault.example.com/setup",
-    )
+    expect(browserGet.headers.get("location")).toBe("https://vault.example.com/setup")
   })
 
   it("returns 503 JSON for GET with Accept: */* (fetch/curl default)", async () => {
@@ -306,8 +289,7 @@ describe("setup-server entry point", () => {
     const browserPost = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
       method: "POST",
       headers: {
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       },
     })
 
@@ -326,9 +308,7 @@ describe("setup-server entry point", () => {
     })
     await waitForStart(server)
 
-    const html = await (
-      await fetch(`http://127.0.0.1:${server.port}/setup`)
-    ).text()
+    const html = await (await fetch(`http://127.0.0.1:${server.port}/setup`)).text()
 
     expect(html).toContain(
       "Your saved Obsidian login stopped working. Sign in again to replace it.",
@@ -400,8 +380,7 @@ describe("setup-server entry point", () => {
     expect(lastLogRecord(server.stderr())).toMatchObject({
       level: "error",
       message: "failed to start setup server",
-      error:
-        '[EnvVarError]: env-var: "MCP_AUTH_TOKEN" is a required variable, but it was not set',
+      error: '[EnvVarError]: env-var: "MCP_AUTH_TOKEN" is a required variable, but it was not set',
     })
   })
 })

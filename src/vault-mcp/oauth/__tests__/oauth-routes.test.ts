@@ -1,11 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-  onTestFinished,
-} from "vitest"
+import { describe, it, expect, beforeEach, afterEach, onTestFinished } from "vitest"
 import { createHash, randomBytes } from "node:crypto"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
@@ -60,6 +53,7 @@ const REQUEST_ID_PATTERN = /name="request_id"\s+value="([^"]+)"/
  */
 const getListeningPort = (server: Server): number => {
   const serverAddress = server.address()
+
   if (!serverAddress || typeof serverAddress === "string") {
     throw new Error("expected a TCP address from a listening server")
   }
@@ -106,8 +100,8 @@ describe("OAuth consent token submission", () => {
   // /oauth/decide, the route under test, is not).
   const startPendingRequest = async (): Promise<string> => {
     const clientsStore = oauth.provider.clientsStore
-    if (!clientsStore?.registerClient)
-      throw new Error("clientsStore.registerClient not available")
+
+    if (!clientsStore?.registerClient) throw new Error("clientsStore.registerClient not available")
     const client = await clientsStore.registerClient({
       client_name: "Test Client",
       redirect_uris: [REDIRECT_URI],
@@ -131,6 +125,7 @@ describe("OAuth consent token submission", () => {
     }
     await oauth.provider.authorize(client, params, res as unknown as Response)
     const requestId = REQUEST_ID_PATTERN.exec(capturedHtml)?.[1]
+
     if (!requestId) throw new Error("no request_id in consent HTML")
     return requestId
   }
@@ -167,9 +162,11 @@ describe("OAuth consent token submission", () => {
     const response = await submitToken(requestId, token)
     expect(response.status).toBe(302)
     const locationHeader = response.headers.get("location")
+
     if (!locationHeader) throw new Error("expected Location header on 302")
     const location = new URL(locationHeader)
     const code = location.searchParams.get("code")
+
     if (!code) throw new Error("expected code query param in redirect")
     expect(code.length).toBeGreaterThan(0)
     expect(location.searchParams.get("state")).toBe("test-state")
@@ -293,8 +290,8 @@ describe("OAuth consent audit logging", () => {
 
   const startPendingRequest = async (): Promise<string> => {
     const clientsStore = oauth.provider.clientsStore
-    if (!clientsStore?.registerClient)
-      throw new Error("clientsStore.registerClient not available")
+
+    if (!clientsStore?.registerClient) throw new Error("clientsStore.registerClient not available")
     const client = await clientsStore.registerClient({
       client_name: "Audit Client",
       redirect_uris: [REDIRECT_URI],
@@ -318,6 +315,7 @@ describe("OAuth consent audit logging", () => {
     }
     await oauth.provider.authorize(client, params, res as unknown as Response)
     const requestId = REQUEST_ID_PATTERN.exec(capturedHtml)?.[1]
+
     if (!requestId) throw new Error("no request_id in consent HTML")
     return requestId
   }
@@ -386,9 +384,7 @@ describe("OAuth consent audit logging", () => {
       redirect: "manual",
     })
 
-    const event = logs.find(
-      (log) => log.message === "oauth_consent_denied_by_user",
-    )
+    const event = logs.find((log) => log.message === "oauth_consent_denied_by_user")
     expect(event).toMatchObject({
       level: "info",
       message: "oauth_consent_denied_by_user",
@@ -564,9 +560,7 @@ describe("OAuth endpoint rate limiting", () => {
 
   it("leaves /.well-known discovery metadata unlimited past 5 requests", async () => {
     for (let i = 0; i < 6; i++) {
-      const response = await fetch(
-        `${baseUrl}/.well-known/oauth-authorization-server`,
-      )
+      const response = await fetch(`${baseUrl}/.well-known/oauth-authorization-server`)
       expect(response.status).toBe(200)
     }
   })
@@ -653,9 +647,7 @@ describe("OAuth rate limiting when the Forwarded header is not trusted (default)
     // The loopback form varies by platform (::1 / 127.0.0.1 / v4-mapped) —
     // the security property is that the logged IP is the real peer, never
     // the client-supplied header value.
-    expect(["127.0.0.1", "::1", "::ffff:127.0.0.1"]).toContain(
-      event?.data.clientIp,
-    )
+    expect(["127.0.0.1", "::1", "::ffff:127.0.0.1"]).toContain(event?.data.clientIp)
   })
 })
 
@@ -705,17 +697,11 @@ describe("OAuth protected resource metadata", () => {
   const SUFFIXED_RESOURCE = "http://localhost:8000/mcp"
 
   it("advertises only client_secret_post while retaining S256 PKCE", async () => {
-    const response = await fetch(
-      `${baseUrl}/.well-known/oauth-authorization-server`,
-    )
+    const response = await fetch(`${baseUrl}/.well-known/oauth-authorization-server`)
     expect(response.status).toBe(200)
     const metadata = OAuthMetadataSchema.parse(await response.json())
-    expect(metadata.token_endpoint_auth_methods_supported).toEqual([
-      "client_secret_post",
-    ])
-    expect(metadata.revocation_endpoint_auth_methods_supported).toEqual([
-      "client_secret_post",
-    ])
+    expect(metadata.token_endpoint_auth_methods_supported).toEqual(["client_secret_post"])
+    expect(metadata.revocation_endpoint_auth_methods_supported).toEqual(["client_secret_post"])
     expect(metadata.code_challenge_methods_supported).toEqual(["S256"])
   })
 
@@ -723,17 +709,13 @@ describe("OAuth protected resource metadata", () => {
   // mcpAuthRouter: that would MOVE the SDK's metadata route to the suffixed
   // path and this root fetch would 404.
   it("serves the root discovery document unchanged", async () => {
-    const response = await fetch(
-      `${baseUrl}/.well-known/oauth-protected-resource`,
-    )
+    const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource`)
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual(ROOT_DOCUMENT)
   })
 
   it("serves the RFC 9728 path-suffixed document with the /mcp resource identifier", async () => {
-    const response = await fetch(
-      `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
-    )
+    const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`)
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       ...ROOT_DOCUMENT,
@@ -744,15 +726,9 @@ describe("OAuth protected resource metadata", () => {
   // Relational guard that survives SDK bumps: if a future SDK adds a field
   // to the root document, this fails until the suffixed document gains it.
   it("keeps the suffixed document identical to the live root document except for resource", async () => {
-    const rootResponse = await fetch(
-      `${baseUrl}/.well-known/oauth-protected-resource`,
-    )
-    const suffixedResponse = await fetch(
-      `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
-    )
-    const rootDocument = OAuthProtectedResourceMetadataSchema.parse(
-      await rootResponse.json(),
-    )
+    const rootResponse = await fetch(`${baseUrl}/.well-known/oauth-protected-resource`)
+    const suffixedResponse = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`)
+    const rootDocument = OAuthProtectedResourceMetadataSchema.parse(await rootResponse.json())
     const suffixedDocument = OAuthProtectedResourceMetadataSchema.parse(
       await suffixedResponse.json(),
     )
@@ -763,32 +739,26 @@ describe("OAuth protected resource metadata", () => {
   })
 
   it("serves the suffixed route with CORS enabled for browser-based clients", async () => {
-    const response = await fetch(
-      `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
-    )
+    const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`)
     expect(response.headers.get("access-control-allow-origin")).toBe("*")
   })
 
   it("rejects non-GET methods on the suffixed route with 405 and an Allow header", async () => {
-    const response = await fetch(
-      `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
-      { method: "POST" },
-    )
+    const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`, {
+      method: "POST",
+    })
     expect(response.status).toBe(405)
     expect(response.headers.get("allow")).toBe("GET, OPTIONS")
   })
 
   it("answers a browser CORS preflight on the suffixed route", async () => {
-    const response = await fetch(
-      `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
-      {
-        method: "OPTIONS",
-        headers: {
-          Origin: "https://claude.ai",
-          "Access-Control-Request-Method": "GET",
-        },
+    const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: "https://claude.ai",
+        "Access-Control-Request-Method": "GET",
       },
-    )
+    })
     expect(response.status).toBe(204)
     expect(response.headers.get("access-control-allow-origin")).toBe("*")
     expect(response.headers.get("access-control-allow-methods")).toBe(
@@ -798,9 +768,7 @@ describe("OAuth protected resource metadata", () => {
 
   it("leaves the suffixed discovery route unlimited past 5 requests", async () => {
     for (let i = 0; i < 6; i++) {
-      const response = await fetch(
-        `${baseUrl}/.well-known/oauth-protected-resource/mcp`,
-      )
+      const response = await fetch(`${baseUrl}/.well-known/oauth-protected-resource/mcp`)
       expect(response.status).toBe(200)
     }
   })
@@ -811,10 +779,7 @@ describe("OAuth refresh over HTTP", () => {
   type IssuedTokens = { access_token: string; refresh_token: string }
 
   const isRegisteredClient = (value: unknown): value is RegisteredClient =>
-    typeof value === "object" &&
-    value !== null &&
-    "client_id" in value &&
-    "client_secret" in value
+    typeof value === "object" && value !== null && "client_id" in value && "client_secret" in value
 
   const isIssuedTokens = (value: unknown): value is IssuedTokens =>
     typeof value === "object" &&
@@ -823,11 +788,7 @@ describe("OAuth refresh over HTTP", () => {
     "refresh_token" in value
 
   const base64Url = (buffer: Buffer): string =>
-    buffer
-      .toString("base64")
-      .replace(/\+/g, "-")
-      .replace(/\//g, "_")
-      .replace(/=+$/, "")
+    buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 
   const createRefreshTest = async (): Promise<{ baseUrl: string }> => {
     const dir = await mkdtemp(join(tmpdir(), "oauth-refresh-http-"))
@@ -879,6 +840,7 @@ describe("OAuth refresh over HTTP", () => {
     })
     expect(response.status).toBe(201)
     const registered: unknown = await response.json()
+
     if (!isRegisteredClient(registered)) throw new Error("malformed client")
     return registered
   }
@@ -905,6 +867,7 @@ describe("OAuth refresh over HTTP", () => {
       })
     ).text()
     const requestId = REQUEST_ID_PATTERN.exec(consentHtml)?.[1]
+
     if (!requestId) throw new Error("consent page carried no request_id")
     const decision = await fetch(`${baseUrl}/oauth/decide`, {
       method: "POST",
@@ -921,6 +884,7 @@ describe("OAuth refresh over HTTP", () => {
     })
     const location = decision.headers.get("location")
     const code = location ? new URL(location).searchParams.get("code") : null
+
     if (!code) throw new Error(`consent did not redirect with a code`)
     return { code, verifier }
   }
@@ -931,11 +895,7 @@ describe("OAuth refresh over HTTP", () => {
     client: RegisteredClient,
     forwardedClientIp: string,
   ): Promise<IssuedTokens> => {
-    const { code, verifier } = await issueCode(
-      baseUrl,
-      client,
-      forwardedClientIp,
-    )
+    const { code, verifier } = await issueCode(baseUrl, client, forwardedClientIp)
     const tokenResponse = await fetch(`${baseUrl}/token`, {
       method: "POST",
       headers: {
@@ -953,6 +913,7 @@ describe("OAuth refresh over HTTP", () => {
     })
     expect(tokenResponse.status).toBe(200)
     const issued: unknown = await tokenResponse.json()
+
     if (!isIssuedTokens(issued)) throw new Error("malformed token response")
     return issued
   }
@@ -998,9 +959,7 @@ describe("OAuth refresh over HTTP", () => {
         }),
       })
       expect(response.status).toBe(201)
-      const client = OAuthClientInformationFullSchema.parse(
-        await response.json(),
-      )
+      const client = OAuthClientInformationFullSchema.parse(await response.json())
       expect(client.token_endpoint_auth_method).toBe("client_secret_post")
       expect(client.client_secret).toMatch(/^[a-f0-9]{64}$/)
     },
@@ -1013,18 +972,10 @@ describe("OAuth refresh over HTTP", () => {
       const client = await registerClient(baseUrl, "203.0.113.10")
       const createGrant = async (): Promise<Record<string, string>> => {
         if (grantType === "authorization_code") {
-          const { code, verifier } = await issueCode(
-            baseUrl,
-            client,
-            "203.0.113.10",
-          )
+          const { code, verifier } = await issueCode(baseUrl, client, "203.0.113.10")
           return { code, code_verifier: verifier, redirect_uri: REDIRECT_URI }
         }
-        const { refresh_token } = await issueTokens(
-          baseUrl,
-          client,
-          "203.0.113.10",
-        )
+        const { refresh_token } = await issueTokens(baseUrl, client, "203.0.113.10")
         return { refresh_token }
       }
       const grant = await createGrant()

@@ -8,10 +8,7 @@
 
 import { DateTime } from "luxon"
 import { z } from "zod"
-import {
-  getDailyNote,
-  readDailyNotesConfig,
-} from "../../vault-operations/daily-notes.js"
+import { getDailyNote, readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import { describeError } from "../../../utils/describe-error.js"
 import type { TaskEntry } from "../../search/search-index.js"
 import { TOOL_NAMES } from "../tool-registry.js"
@@ -53,11 +50,11 @@ const formatOutgoingLinksSection = (
   outgoingLinks: readonly OutgoingLink[],
   brokenLinks: readonly OutgoingLink[],
 ): string => {
-  if (!noteExists)
-    return "_Daily note does not exist — no link analysis available._"
+  if (!noteExists) return "_Daily note does not exist — no link analysis available._"
   if (outgoingLinks.length === 0) return "No outgoing links in this daily note."
 
   const linkLines = outgoingLinks.map(formatOutgoingLink).join("\n")
+
   if (brokenLinks.length === 0) return linkLines
 
   const brokenCount = brokenLinks.length
@@ -70,8 +67,7 @@ const formatBacklinksSection = (
   noteExists: boolean,
   backlinks: ReadonlyArray<{ path: string; title: string }>,
 ): string => {
-  if (!noteExists)
-    return "_Daily note does not exist — no link analysis available._"
+  if (!noteExists) return "_Daily note does not exist — no link analysis available._"
   if (backlinks.length === 0) return "No other notes link to this daily note."
   return backlinks.map(formatNoteLine).join("\n")
 }
@@ -79,19 +75,14 @@ const formatBacklinksSection = (
 /** Formats a task entry as a prompt-friendly bullet with location and metadata. */
 const formatTaskForPrompt = (task: TaskEntry, includePath: boolean): string => {
   const checkbox = `[${task.status_char}]`
-  const locationParts = [
-    includePath ? `\`${task.path}\`` : null,
-    task.heading,
-  ].filter(Boolean)
-  const locationSuffix =
-    locationParts.length > 0 ? ` — ${locationParts.join(" → ")}` : ""
+  const locationParts = [includePath ? `\`${task.path}\`` : null, task.heading].filter(Boolean)
+  const locationSuffix = locationParts.length > 0 ? ` — ${locationParts.join(" → ")}` : ""
   const metadataParts = [
     task.due ? `due: ${task.due}` : null,
     task.priority ? `priority: ${task.priority}` : null,
     task.scheduled ? `scheduled: ${task.scheduled}` : null,
   ].filter(Boolean)
-  const metadataSuffix =
-    metadataParts.length > 0 ? ` [${metadataParts.join(", ")}]` : ""
+  const metadataSuffix = metadataParts.length > 0 ? ` [${metadataParts.join(", ")}]` : ""
   return `- ${checkbox} ${task.description}${locationSuffix}${metadataSuffix}`
 }
 
@@ -112,13 +103,9 @@ const formatTasksSection = ({
   overflowToolHint: string
 }): string => {
   if (tasks.length === 0) return emptyMessage
-  const lines = tasks
-    .map((task) => formatTaskForPrompt(task, includePath))
-    .join("\n")
+  const lines = tasks.map((task) => formatTaskForPrompt(task, includePath)).join("\n")
   const overflowHint =
-    total > tasks.length
-      ? `\n\n_Showing ${tasks.length} of ${total}.${overflowToolHint}_`
-      : ""
+    total > tasks.length ? `\n\n_Showing ${tasks.length} of ${total}.${overflowToolHint}_` : ""
   return `${lines}${overflowHint}`
 }
 
@@ -163,6 +150,7 @@ export const registerDailyReviewPrompt = ({
         // Resolve the date once so all queries target the same calendar day,
         // even around midnight.
         const resolvedDate = args.date ?? DateTime.now().toISODate()
+
         if (!resolvedDate) {
           return textResult(
             "Could not determine today's date. Pass an explicit date in YYYY-MM-DD format.",
@@ -173,6 +161,7 @@ export const registerDailyReviewPrompt = ({
         // Tomorrow is the exclusive upper bound: due < tomorrow captures
         // both due-today and overdue tasks in a single query.
         const tomorrow = DateTime.fromISO(dateArg).plus({ days: 1 }).toISODate()
+
         if (!tomorrow) {
           return textResult(
             "Could not compute the next day. Pass an explicit date in YYYY-MM-DD format.",
@@ -245,8 +234,7 @@ export const registerDailyReviewPrompt = ({
           : { total: 0, tasks: [] }
 
         const trimmedDaily = dailyNote.content?.trim() ?? ""
-        const truncated =
-          maxChars !== undefined && trimmedDaily.length > maxChars
+        const truncated = maxChars !== undefined && trimmedDaily.length > maxChars
         const cappedDailyContent = wrapWithDataMarkers({
           content: trimmedDaily,
           markerAttributes: {
@@ -272,10 +260,7 @@ export const registerDailyReviewPrompt = ({
           outgoingLinks,
           brokenLinks,
         )
-        const backlinksSection = formatBacklinksSection(
-          dailyNote.exists,
-          backlinks,
-        )
+        const backlinksSection = formatBacklinksSection(dailyNote.exists, backlinks)
         const modifiedSection =
           modifiedOnDate.length > 0
             ? modifiedOnDate.map(formatNoteLine).join("\n")
@@ -370,9 +355,7 @@ export const registerDailyReviewPrompt = ({
         const dailyReview = [
           "# Daily review",
           "",
-          dailyNote.exists
-            ? `Daily note: \`${dailyNote.path}\``
-            : noNoteMessage,
+          dailyNote.exists ? `Daily note: \`${dailyNote.path}\`` : noNoteMessage,
           "",
           "## Daily note",
           "",
@@ -424,9 +407,7 @@ export const registerDailyReviewPrompt = ({
           "vault_get_daily_note",
           " Try vault_get_daily_note to fetch the note directly.",
         )
-        return textResult(
-          `Could not assemble the daily review (${message}).${dailyFallbackHint}`,
-        )
+        return textResult(`Could not assemble the daily review (${message}).${dailyFallbackHint}`)
       }
     },
   )

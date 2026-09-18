@@ -33,13 +33,9 @@ export type HostingPlatform = "render" | "railway"
 /** Where the reader finds the deployment's settings, as a noun phrase that
  *  slots after "from", "in", or "to". The platform phrases use each deploy
  *  guide's exact tab name so the page and the guide agree. */
-export const settingsLocation = (
-  hostingPlatform: HostingPlatform | undefined,
-): string => {
-  if (hostingPlatform === "render")
-    return "the service's Environment tab on Render"
-  if (hostingPlatform === "railway")
-    return "the service's Variables tab on Railway"
+export const settingsLocation = (hostingPlatform: HostingPlatform | undefined): string => {
+  if (hostingPlatform === "render") return "the service's Environment tab on Render"
+  if (hostingPlatform === "railway") return "the service's Variables tab on Railway"
   return "your deployment's settings"
 }
 
@@ -114,9 +110,7 @@ ${body}
 const errorBox = (error: string | undefined): string =>
   error ? `<div class="error">${escapeHtml(error)}</div>` : ""
 
-const tokenField = (
-  settingsLocationPhrase: string,
-): string => `<div class="field">
+const tokenField = (settingsLocationPhrase: string): string => `<div class="field">
     <label class="label" for="token">MCP token</label>
     <div class="token-input">
       <input type="password" id="token" name="token" placeholder="MCP_AUTH_TOKEN" required autocomplete="off">
@@ -160,10 +154,7 @@ const renderSignIn = ({
   </form>`,
   )
 
-const renderMfa = ({
-  requestId,
-  error,
-}: Extract<SetupView, { kind: "mfa" }>): string =>
+const renderMfa = ({ requestId, error }: Extract<SetupView, { kind: "mfa" }>): string =>
   shell(
     "Two-factor code",
     `<h1>Two-factor code</h1>
@@ -179,10 +170,7 @@ const renderMfa = ({
   </form>`,
   )
 
-const problemCopy = (
-  problem: PreflightProblem,
-  settingsLocationPhrase: string,
-): string => {
+const problemCopy = (problem: PreflightProblem, settingsLocationPhrase: string): string => {
   switch (problem.kind) {
     case "vault-name-unset":
       return `<p><code>VAULT_NAME</code> is not set, so the server does not know which vault to sync.</p>
@@ -190,9 +178,7 @@ const problemCopy = (
     case "vault-not-found": {
       const vaultList = problem.vaultNames.length
         ? `<p>Your account's vaults:</p><ul>${problem.vaultNames
-            .map(
-              (vaultName) => `<li><code>${escapeHtml(vaultName)}</code></li>`,
-            )
+            .map((vaultName) => `<li><code>${escapeHtml(vaultName)}</code></li>`)
             .join("")}</ul>`
         : `<p>Your account has no vaults in Obsidian Sync yet.</p>`
       return `<p>There is no vault named <code>${escapeHtml(problem.vaultName)}</code> in this Obsidian account (names are case-sensitive).</p>

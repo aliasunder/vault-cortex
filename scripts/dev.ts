@@ -20,13 +20,7 @@
  */
 
 import { execSync } from "node:child_process"
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -46,8 +40,8 @@ const loadDotEnv = (): Record<string, string> => {
     const match = /^([A-Z0-9_]+)=(.*)$/i.exec(line.trim())
     const key = match?.[1]
     const value = match?.[2]
-    if (key !== undefined && value !== undefined)
-      out[key] = value.replace(/^['"]|['"]$/g, "")
+
+    if (key !== undefined && value !== undefined) out[key] = value.replace(/^['"]|['"]$/g, "")
   }
   return out
 }
@@ -63,6 +57,7 @@ const mask = (value: string): void => {
 }
 
 const ghcrUser = env.GHCR_USER
+
 if (!ghcrUser) {
   console.error("✕  GHCR_USER not set. Set it in ~/.config/vault-cortex/.env")
   process.exit(1)
@@ -72,13 +67,7 @@ const image = `ghcr.io/${ghcrUser}/vault-cortex:remote`
 // Echoes the description, never the command string — the ssh/scp commands
 // carry the instance address and key path, and not printing them at all
 // beats relying on mask() (the same rule as lightsail:up's success line).
-const run = ({
-  cmd,
-  description,
-}: {
-  cmd: string
-  description: string
-}): void => {
+const run = ({ cmd, description }: { cmd: string; description: string }): void => {
   console.log(`> ${description}`)
   try {
     execSync(cmd, { stdio: "inherit", env })
@@ -99,10 +88,10 @@ const waitForDocker = (ip: string, id: string, timeoutSec = 120): void => {
   console.log(`⏳ Waiting for Docker on the instance (up to ${timeoutSec}s)...`)
   while (Date.now() < deadline) {
     try {
-      execSync(
-        `ssh ${id} ${sshOpts} ubuntu@${ip} 'docker --version' 2>/dev/null`,
-        { stdio: "pipe", env },
-      )
+      execSync(`ssh ${id} ${sshOpts} ubuntu@${ip} 'docker --version' 2>/dev/null`, {
+        stdio: "pipe",
+        env,
+      })
       console.log(`✓ Docker is ready`)
       return
     } catch {
@@ -140,6 +129,7 @@ const sshHost = (): string => {
   )
     .toString()
     .trim()
+
   if (!ip || ip === "None") {
     console.error(`✕  Could not resolve ${staticIpName} from AWS.`)
     process.exit(1)
@@ -153,6 +143,7 @@ const sshHost = (): string => {
 // LIGHTSAIL_SSH_KEY for a different keypair.
 const sshIdentity = (): string => {
   const keyPath = expandHome(env.LIGHTSAIL_SSH_KEY ?? "~/.ssh/vault-cortex")
+
   if (!existsSync(keyPath)) {
     console.error(
       `✕  SSH key not found: ${keyPath}\n` +
@@ -230,8 +221,7 @@ switch (sub) {
     // derived at `sst deploy` — a mismatch 403s every request at the gateway.
     // Resolved before anything touches the instance, so a failed resolution
     // copies nothing (no partial deploy of new compose + stale .env).
-    const { url: resolvedPublicUrl, source: publicUrlSource } =
-      resolvePublicUrlForDeploy()
+    const { url: resolvedPublicUrl, source: publicUrlSource } = resolvePublicUrlForDeploy()
     mask(resolvedPublicUrl)
     if (publicUrlSource !== "PUBLIC_URL") {
       console.log(`> PUBLIC_URL derived from ${publicUrlSource}`)
@@ -253,6 +243,7 @@ switch (sub) {
     // Without one, clear any stored credential so a stale token can't 401
     // pulls that would succeed anonymously.
     const ghcrToken = env.GHCR_TOKEN
+
     if (ghcrToken) {
       console.log("> docker login ghcr.io (on the instance)")
       // stdin carries the token, stdout stays quiet on success, stderr is
@@ -260,7 +251,11 @@ switch (sub) {
       try {
         execSync(
           `ssh ${id} ${sshOpts} ubuntu@${ip} 'docker login ghcr.io -u ${ghcrUser} --password-stdin'`,
-          { input: ghcrToken, stdio: ["pipe", "pipe", "inherit"], env },
+          {
+            input: ghcrToken,
+            stdio: ["pipe", "pipe", "inherit"],
+            env,
+          },
         )
       } catch {
         // Same rule as run(): execSync's error message embeds the full
@@ -296,8 +291,7 @@ switch (sub) {
     }
     run({
       cmd: `ssh ${id} ${sshOpts} ubuntu@${ip} 'cd /opt/vault-cortex && docker compose pull && docker compose up -d --remove-orphans --wait --wait-timeout 300 && docker image prune -f'`,
-      description:
-        "ssh: docker compose pull && docker compose up -d on the instance",
+      description: "ssh: docker compose pull && docker compose up -d on the instance",
     })
     // Deliberately no IP in the success line — the instance IP is kept out
     // of logs (public CI) and is masked above, but not printing it at all is

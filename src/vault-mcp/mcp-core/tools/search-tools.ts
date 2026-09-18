@@ -4,11 +4,7 @@ import { z } from "zod"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
-import {
-  safeHandler,
-  formatNoteMetadata,
-  dateFilterSchema,
-} from "./tool-helpers.js"
+import { safeHandler, formatNoteMetadata, dateFilterSchema } from "./tool-helpers.js"
 
 export const registerSearchTools = ({
   registerTool,
@@ -90,9 +86,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
             tags: z
               .array(z.string().min(1))
               .optional()
-              .describe(
-                "Require all listed tags (AND — every tag must be present)",
-              ),
+              .describe("Require all listed tags (AND — every tag must be present)"),
             related: z
               .array(z.string().min(1))
               .optional()
@@ -101,14 +95,9 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
               .string()
               .min(1)
               .optional()
-              .describe(
-                'Match the frontmatter type field (exact match, e.g. "person", "meeting")',
-              ),
+              .describe('Match the frontmatter type field (exact match, e.g. "person", "meeting")'),
             properties: z
-              .record(
-                z.string().min(1),
-                z.union([z.string().min(1), z.number(), z.boolean()]),
-              )
+              .record(z.string().min(1), z.union([z.string().min(1), z.number(), z.boolean()]))
               .optional()
               .describe(
                 'Match arbitrary frontmatter properties by key-value (e.g. { status: "active", priority: 1 })',
@@ -124,13 +113,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
           .describe(
             "Optional structured filters — all conditions AND-combine with each other and with the text query",
           ),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .default(20)
-          .describe("Max results (default 20)"),
+        limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),
         snippet_tokens: z
           .number()
           .int()
@@ -147,10 +130,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
           ),
       },
     },
-    async (
-      { query, filters, limit, snippet_tokens, include_leading_callout },
-      extra,
-    ) => {
+    async ({ query, filters, limit, snippet_tokens, include_leading_callout }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_SEARCH,
@@ -350,13 +330,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .optional()
           .default(true)
           .describe("Include subfolders (default: true)"),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .default(20)
-          .describe("Max results (default 20)"),
+        limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),
       },
     },
     async ({ folder, recursive, limit }, extra) => {
@@ -367,8 +341,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
       reqLogger.info("tool_call", { folder, recursive })
       return safeHandler(
         reqLogger,
-        async () =>
-          search.searchByFolder({ folder, recursive, limit }, reqLogger),
+        async () => search.searchByFolder({ folder, recursive, limit }, reqLogger),
         (results) => {
           reqLogger.info("tool_result", { resultCount: results.length })
           return JSON.stringify(results.map(formatNoteMetadata))
@@ -393,11 +366,7 @@ Parameters:
 
 Returns: JSON array of { key, count, sample_values } sorted by count descending. sample_values shows the top 3 most common values per key for quick orientation.`,
       inputSchema: {
-        folder: z
-          .string()
-          .min(1)
-          .optional()
-          .describe('Restrict to a folder (e.g. "Projects")'),
+        folder: z.string().min(1).optional().describe('Restrict to a folder (e.g. "Projects")'),
       },
     },
     async ({ folder }, extra) => {
@@ -451,9 +420,7 @@ Returns: JSON array of { value, count } sorted by count descending.`,
           .min(1)
           .optional()
           .default(50)
-          .describe(
-            "Max values to return (default 50). Increase for high-cardinality properties.",
-          ),
+          .describe("Max values to return (default 50). Increase for high-cardinality properties."),
       },
     },
     async ({ key, folder, limit }, extra) => {
@@ -464,8 +431,7 @@ Returns: JSON array of { value, count } sorted by count descending.`,
       reqLogger.info("tool_call", { key, folder })
       return safeHandler(
         reqLogger,
-        async () =>
-          search.listPropertyValues({ key, folder, limit }, reqLogger),
+        async () => search.listPropertyValues({ key, folder, limit }, reqLogger),
         (values) => {
           reqLogger.info("tool_result", { resultCount: values.length })
           return JSON.stringify(values)
@@ -516,9 +482,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .min(1)
           .optional()
           .default(20)
-          .describe(
-            "Max results (default 20). Increase for broad metadata queries.",
-          ),
+          .describe("Max results (default 20). Increase for broad metadata queries."),
       },
     },
     async ({ key, value, folder, limit }, extra) => {
@@ -529,8 +493,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
       reqLogger.info("tool_call", { key, value, folder })
       return safeHandler(
         reqLogger,
-        async () =>
-          search.searchByProperty({ key, value, folder, limit }, reqLogger),
+        async () => search.searchByProperty({ key, value, folder, limit }, reqLogger),
         (results) => {
           reqLogger.info("tool_result", { resultCount: results.length })
           return JSON.stringify(results.map(formatNoteMetadata))
@@ -583,10 +546,7 @@ Errors: Rejects paths that don't end in .md or .canvas. A non-indexed path retur
     },
   )
 
-  const fileReadableClause = whenToolEnabledText(
-    "vault_read_file",
-    " readable via vault_read_file",
-  )
+  const fileReadableClause = whenToolEnabledText("vault_read_file", " readable via vault_read_file")
   const fileBytesClause = whenToolEnabledText(
     "vault_read_file",
     " — not the delivery cost: vault_read_file downscales images to fit response limits, so a large image file is still cheap to read",
@@ -674,13 +634,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .describe(
             `Folders to exclude — replaces the defaults (${JSON.stringify(config.orphanExcludeFolders)}), not merged`,
           ),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .default(50)
-          .describe("Max results (default 50)"),
+        limit: z.number().int().min(1).optional().default(50).describe("Max results (default 50)"),
       },
     },
     async ({ exclude_folders, limit }, extra) => {
@@ -694,9 +648,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
         async () =>
           search.findOrphans(
             {
-              excludeFolders: exclude_folders ?? [
-                ...config.orphanExcludeFolders,
-              ],
+              excludeFolders: exclude_folders ?? [...config.orphanExcludeFolders],
               limit,
             },
             reqLogger,

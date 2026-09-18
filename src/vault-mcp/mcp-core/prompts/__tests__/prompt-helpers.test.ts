@@ -8,23 +8,19 @@ import {
 
 describe("formatNoteLine", () => {
   it("includes title when present", () => {
-    expect(
-      formatNoteLine({ path: "Projects/plan.md", title: "The Plan" }),
-    ).toBe("- Projects/plan.md — The Plan")
+    expect(formatNoteLine({ path: "Projects/plan.md", title: "The Plan" })).toBe(
+      "- Projects/plan.md — The Plan",
+    )
   })
 
   it("omits title when empty", () => {
-    expect(formatNoteLine({ path: "Projects/plan.md", title: "" })).toBe(
-      "- Projects/plan.md",
-    )
+    expect(formatNoteLine({ path: "Projects/plan.md", title: "" })).toBe("- Projects/plan.md")
   })
 })
 
 describe("capContent", () => {
   it("returns full text when maxChars is undefined", () => {
-    expect(capContent("hello world", undefined, "vault_read_note")).toBe(
-      "hello world",
-    )
+    expect(capContent("hello world", undefined, "vault_read_note")).toBe("hello world")
   })
 
   it("returns full text when content is under the cap", () => {
@@ -52,15 +48,11 @@ describe("escapeVaultContentClosingTag", () => {
   })
 
   it("escapes case-insensitively", () => {
-    expect(escapeVaultContentClosingTag("</VAULT-CONTENT>")).toBe(
-      "<&#x2F;vault-content>",
-    )
+    expect(escapeVaultContentClosingTag("</VAULT-CONTENT>")).toBe("<&#x2F;vault-content>")
   })
 
   it("escapes with whitespace before the closing angle", () => {
-    expect(escapeVaultContentClosingTag("</vault-content  >")).toBe(
-      "<&#x2F;vault-content>",
-    )
+    expect(escapeVaultContentClosingTag("</vault-content  >")).toBe("<&#x2F;vault-content>")
   })
 
   it("passes through text with no closing tag", () => {

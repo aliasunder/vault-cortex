@@ -1,12 +1,5 @@
 import { spawnSync } from "node:child_process"
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
@@ -19,10 +12,7 @@ import { describe, expect, it, onTestFinished } from "vitest"
  * with the container-environment directory pointed at a temp dir.
  */
 
-const SCRIPT_PATH = resolve(
-  __dirname,
-  "../../../rootfs/etc/s6-overlay/scripts/init-check-auth",
-)
+const SCRIPT_PATH = resolve(__dirname, "../../../rootfs/etc/s6-overlay/scripts/init-check-auth")
 
 type GateRun = {
   status: number | null
@@ -51,9 +41,7 @@ const runGateScript = (options: GateRunOptions): GateRun => {
   onTestFinished(() => rmSync(tempDir, { recursive: true, force: true }))
   const homeDir = join(tempDir, "home")
   const xdgConfigDir = join(tempDir, "persist", "config")
-  const configDir = options.xdgConfigHome
-    ? xdgConfigDir
-    : join(homeDir, ".config")
+  const configDir = options.xdgConfigHome ? xdgConfigDir : join(homeDir, ".config")
   const containerEnvDir = join(tempDir, "container_environment")
   mkdirSync(containerEnvDir, { recursive: true })
   if (options.outsideSetupMode) {
@@ -73,13 +61,9 @@ const runGateScript = (options: GateRunOptions): GateRun => {
       PATH: process.env.PATH ?? "",
       HOME: homeDir,
       CONTAINER_ENVIRONMENT_DIR: containerEnvDir,
-      ...(options.envToken === undefined
-        ? {}
-        : { OBSIDIAN_AUTH_TOKEN: options.envToken }),
+      ...(options.envToken === undefined ? {} : { OBSIDIAN_AUTH_TOKEN: options.envToken }),
       ...(options.xdgConfigHome ? { XDG_CONFIG_HOME: xdgConfigDir } : {}),
-      ...(options.publicUrl === undefined
-        ? {}
-        : { PUBLIC_URL: options.publicUrl }),
+      ...(options.publicUrl === undefined ? {} : { PUBLIC_URL: options.publicUrl }),
       ...(options.port === undefined ? {} : { PORT: options.port }),
     },
   })
@@ -89,9 +73,7 @@ const runGateScript = (options: GateRunOptions): GateRun => {
     status: result.status,
     stdout: result.stdout,
     stderr: result.stderr,
-    setupModePublished: existsSync(setupModePath)
-      ? readFileSync(setupModePath, "utf8")
-      : undefined,
+    setupModePublished: existsSync(setupModePath) ? readFileSync(setupModePath, "utf8") : undefined,
     setupReasonPublished: existsSync(join(containerEnvDir, "SETUP_REASON")),
   }
 }

@@ -1,10 +1,4 @@
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs"
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
 export type Mode = "local" | "remote"
@@ -102,9 +96,7 @@ export const hasEnvPublicUrl = (envFilePath: string): boolean => {
  */
 export const readEnvPublicUrl = (envFilePath: string): string | undefined => {
   if (!existsSync(envFilePath)) return undefined
-  const match = ENV_PUBLIC_URL_VALUE_LINE.exec(
-    readFileSync(envFilePath, "utf8"),
-  )
+  const match = ENV_PUBLIC_URL_VALUE_LINE.exec(readFileSync(envFilePath, "utf8"))
   // A whitespace-only line matches the regex and trims to "" — normalize to
   // undefined so the non-empty contract holds ("" is never a legitimate URL).
   const rawValue = match?.[1].trim()
@@ -132,21 +124,16 @@ export const detectMode = (envFilePath: string): Mode | undefined => {
  * Returns true when the patch succeeded, false when the file is missing
  * or has no active OBSIDIAN_AUTH_TOKEN line (e.g. a local-mode .env).
  */
-export const patchEnvObsidianToken = (
-  envFilePath: string,
-  token: string,
-): boolean => {
+export const patchEnvObsidianToken = (envFilePath: string, token: string): boolean => {
   if (!existsSync(envFilePath)) return false
   const content = readFileSync(envFilePath, "utf8")
   /** Matches the full OBSIDIAN_AUTH_TOKEN line for replacement. */
   const fullTokenLine = /^OBSIDIAN_AUTH_TOKEN=.*$/m
+
   if (!fullTokenLine.test(content)) return false
   // Function replacement avoids $ pattern interpretation ($&, $', etc.)
   // that String.prototype.replace applies to string replacements.
-  const patched = content.replace(
-    fullTokenLine,
-    () => `OBSIDIAN_AUTH_TOKEN=${token}`,
-  )
+  const patched = content.replace(fullTokenLine, () => `OBSIDIAN_AUTH_TOKEN=${token}`)
   writeFileSync(envFilePath, patched)
   return true
 }
@@ -156,13 +143,9 @@ export const patchEnvObsidianToken = (
  * undefined when the file is missing, has no active line, or the value is
  * empty — an empty `OBSIDIAN_AUTH_TOKEN=` line is not a valid token.
  */
-export const readEnvObsidianToken = (
-  envFilePath: string,
-): string | undefined => {
+export const readEnvObsidianToken = (envFilePath: string): string | undefined => {
   if (!existsSync(envFilePath)) return undefined
-  const match = /^OBSIDIAN_AUTH_TOKEN=(.+)$/m.exec(
-    readFileSync(envFilePath, "utf8"),
-  )
+  const match = /^OBSIDIAN_AUTH_TOKEN=(.+)$/m.exec(readFileSync(envFilePath, "utf8"))
   return match?.[1].trim() || undefined
 }
 
@@ -179,6 +162,7 @@ export const stripEnvQuotedValues = (envFilePath: string): boolean => {
   // Reset lastIndex — the /g flag makes the regex stateful.
   QUOTED_ENV_VALUE.lastIndex = 0
   const sanitized = content.replace(QUOTED_ENV_VALUE, "$1$3$4")
+
   if (sanitized === content) return false
   writeFileSync(envFilePath, sanitized)
   return true
@@ -200,6 +184,7 @@ export const writeFiles = async (
   const results: FileWriteResult[] = []
   for (const file of files) {
     const filePath = join(targetDir, file.name)
+
     if (!existsSync(filePath)) {
       writeFileSync(filePath, file.content, { mode: file.mode })
       results.push({ name: file.name, status: "created" })
@@ -210,6 +195,7 @@ export const writeFiles = async (
       continue
     }
     const overwrite = await resolveConflict(file.name)
+
     if (!overwrite) {
       results.push({ name: file.name, status: "kept" })
       continue

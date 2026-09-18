@@ -39,7 +39,6 @@ export const createToolAvailability = (
   return {
     isToolEnabled,
     whenToolEnabledText: (name, text) => (isToolEnabled(name) ? text : ""),
-    formatEnabledToolList: (names) =>
-      TOOL_LIST_FORMAT.format(names.filter(isToolEnabled)),
+    formatEnabledToolList: (names) => TOOL_LIST_FORMAT.format(names.filter(isToolEnabled)),
   }
 }

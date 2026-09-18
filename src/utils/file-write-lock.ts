@@ -62,10 +62,7 @@ const cleanupAfterWrite = (key: string, thisWrite: Promise<unknown>): void => {
  *  the operation behind the previous promise without itself awaiting the
  *  chain — awaiting would make the caller wait for the entire chain, not
  *  just its own operation. */
-export const withFileLock = <T>(
-  filePath: string,
-  operation: () => Promise<T>,
-): Promise<T> => {
+export const withFileLock = <T>(filePath: string, operation: () => Promise<T>): Promise<T> => {
   const key = lockKeyForPath(filePath)
   const previousWrite = fileWriteLocks.get(key) ?? Promise.resolve()
   const thisWrite = previousWrite.then(operation, operation)
@@ -86,6 +83,7 @@ export const withExclusiveMultiFileLock = <T>(
 ): Promise<T> => {
   const keys = [...new Set(filePaths.map(lockKeyForPath))]
   const anyFileBusy = keys.some((key) => fileWriteLocks.has(key))
+
   if (anyFileBusy) {
     throw new Error("concurrent write in progress")
   }

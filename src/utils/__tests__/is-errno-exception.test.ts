@@ -17,6 +17,7 @@ describe("isErrnoException", () => {
 
     it("narrows error.code to the literal type", () => {
       const error: unknown = makeErrno("ENOENT")
+
       if (isErrnoException(error, "ENOENT")) {
         const code: "ENOENT" = error.code
         expect(code).toBe("ENOENT")
@@ -33,6 +34,7 @@ describe("isErrnoException", () => {
 
     it("narrows error.code to string", () => {
       const error: unknown = makeErrno("EEXIST")
+
       if (isErrnoException(error)) {
         const code: string = error.code
         expect(code).toBe("EEXIST")

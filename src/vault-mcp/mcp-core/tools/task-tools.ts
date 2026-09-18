@@ -48,26 +48,8 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
       inputSchema: {
         status: z
           .union([
-            z.enum([
-              "not_done",
-              "todo",
-              "in_progress",
-              "done",
-              "cancelled",
-              "all",
-            ]),
-            z
-              .array(
-                z.enum([
-                  "not_done",
-                  "todo",
-                  "in_progress",
-                  "done",
-                  "cancelled",
-                  "all",
-                ]),
-              )
-              .min(1),
+            z.enum(["not_done", "todo", "in_progress", "done", "cancelled", "all"]),
+            z.array(z.enum(["not_done", "todo", "in_progress", "done", "cancelled", "all"])).min(1),
           ])
           .optional()
           .default("not_done")
@@ -75,19 +57,11 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
             'Status filter, OR-combined (default "not_done" = todo + in_progress, excluding done and cancelled). Virtual values expand in arrays: "not_done" adds todo + in_progress, "all" includes every status.',
           ),
         due: dateFilterSchema.describe("Due date (📅 / [due:: ]) bounds"),
-        scheduled: dateFilterSchema.describe(
-          "Scheduled date (⏳ / [scheduled:: ]) bounds",
-        ),
+        scheduled: dateFilterSchema.describe("Scheduled date (⏳ / [scheduled:: ]) bounds"),
         start: dateFilterSchema.describe("Start date (🛫 / [start:: ]) bounds"),
-        done: dateFilterSchema.describe(
-          "Done date (✅ / [completion:: ]) bounds",
-        ),
-        created: dateFilterSchema.describe(
-          "Created date (➕ / [created:: ]) bounds",
-        ),
-        cancelled: dateFilterSchema.describe(
-          "Cancelled date (❌ / [cancelled:: ]) bounds",
-        ),
+        done: dateFilterSchema.describe("Done date (✅ / [completion:: ]) bounds"),
+        created: dateFilterSchema.describe("Created date (➕ / [created:: ]) bounds"),
+        cancelled: dateFilterSchema.describe("Cancelled date (❌ / [cancelled:: ]) bounds"),
         priority: z
           .array(z.enum(["highest", "high", "medium", "low", "lowest", "none"]))
           .optional()
@@ -98,16 +72,12 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .string()
           .min(1)
           .optional()
-          .describe(
-            'Restrict to a note-path prefix (e.g. "Code Projects/vault-cortex")',
-          ),
+          .describe('Restrict to a note-path prefix (e.g. "Code Projects/vault-cortex")'),
         tag: z
           .string()
           .min(1)
           .optional()
-          .describe(
-            'Inline task tag, bare name without "#"; parent tags match children',
-          ),
+          .describe('Inline task tag, bare name without "#"; parent tags match children'),
         heading: z
           .union([z.string().min(1), z.array(z.string().min(1)).min(1)])
           .optional()
@@ -132,9 +102,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .min(1)
           .optional()
           .default(50)
-          .describe(
-            "Max results (default 50); total always reports the full match count",
-          ),
+          .describe("Max results (default 50); total always reports the full match count"),
         sort_by: z
           .enum([
             "due",
@@ -298,10 +266,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
           .describe(
             'Vault-relative path to the note (must end in ".md"). The note must already exist.',
           ),
-        description: z
-          .string()
-          .min(1)
-          .describe("The task text (before metadata fields)."),
+        description: z.string().min(1).describe("The task text (before metadata fields)."),
         block_id: z
           .string()
           .min(1)
@@ -366,23 +331,17 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
           .string()
           .min(1)
           .optional()
-          .describe(
-            "Day the work is planned for (⏳), YYYY-MM-DD, calendar-validated.",
-          ),
+          .describe("Day the work is planned for (⏳), YYYY-MM-DD, calendar-validated."),
         start: z
           .string()
           .min(1)
           .optional()
-          .describe(
-            "Earliest day work can begin (🛫), YYYY-MM-DD, calendar-validated.",
-          ),
+          .describe("Earliest day work can begin (🛫), YYYY-MM-DD, calendar-validated."),
         task_id: z
           .string()
           .min(1)
           .optional()
-          .describe(
-            "Tasks plugin 🆔 identifier other tasks can name in depends_on.",
-          ),
+          .describe("Tasks plugin 🆔 identifier other tasks can name in depends_on."),
         depends_on: z
           .array(z.string().min(1))
           .min(1)
@@ -558,9 +517,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
         path: z
           .string()
           .min(1)
-          .describe(
-            'Vault-relative path to the note containing the task (must end in ".md")',
-          ),
+          .describe('Vault-relative path to the note containing the task (must end in ".md")'),
         block_id: z
           .string()
           .min(1)
@@ -646,9 +603,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .min(1)
           .nullable()
           .optional()
-          .describe(
-            "Tasks plugin ⛔ dependency IDs to set (non-empty), or null to clear.",
-          ),
+          .describe("Tasks plugin ⛔ dependency IDs to set (non-empty), or null to clear."),
         add_subtasks: z
           .array(z.string().min(1))
           .min(1)
