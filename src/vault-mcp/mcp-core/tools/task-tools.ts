@@ -231,7 +231,7 @@ Parameters:
 - block_id (required): the ^block-id for stable identification — letters, digits, and hyphens only. Must be unique within the note.
 - heading: target heading. Required on Kanban boards (notes with kanban-plugin frontmatter); optional on regular notes (omit to append at end of body).
 - parent_block_id / parent_line: the existing task to nest under as a sub-task, identified by its ^block-id or its 1-based line number — the same pair vault_update_task uses (block_id / line). Pass at most one. Either is mutually exclusive with heading — a sub-task lives wherever its parent lives.
-- position: "top" or "bottom" — where within the heading section the task is placed. Defaults to "bottom" (append). Kanban boards with new-card-insertion-method set to "prepend" default to "top" instead. Ignored when no heading or when placing under a parent.
+- position: "top", "bottom", or a 1-based integer — where within the heading section the task is placed. "top" or "bottom" for the extremes; an integer for an exact slot among the lane's top-level cards (position 1 is the first card; past the card count lands at the bottom). Defaults to "bottom" (append). Kanban boards with new-card-insertion-method set to "prepend" default to "top" instead. Ignored when no heading or when placing under a parent.
 - priority: "highest" | "high" | "medium" | "low" | "lowest". Omit for normal priority (the plugin ranks "no signifier" between medium and low).
 - recurrence: a Tasks plugin 🔁 rule in natural language ("every week", "every month on the 15th", "every 3 days when done" — "when done" bases the next occurrence on the completion day). Completing the task later spawns its next occurrence automatically.
 - on_completion: "delete" or "keep" — sets the Tasks plugin 🏁 action applied when the task is completed. "delete" removes the task line on completion; "keep" leaves it in place.
@@ -490,7 +490,7 @@ Parameters:
   - add_subtasks: non-empty string array — appends one indented [ ] checklist item per entry under the task; existing checklist items are kept.${whenToolEnabledText("vault_create_task", " For full sub-tasks with their own metadata, use vault_create_task with parent_block_id.")}
   - assign_block_id: adds or replaces the ^block-id on the task line. Letters, digits, and hyphens only; must be unique within the note.
   - heading: target heading to move the task to. On Kanban boards this is a lane move; works on any note with headings. Not valid on sub-tasks.
-  - position: "top" or "bottom" — where within the target heading the task lands after a heading move or auto-done-lane move. Defaults to "top" (first position in the lane). Ignored when no heading move occurs.
+  - position: "top", "bottom", or a 1-based integer — where within the target heading the task lands after a heading move or auto-done-lane move. Position 1 is the first card; past the card count lands at the bottom. Defaults to "top" on heading moves. Without a heading, triggers a same-lane reorder to the given position. Ignored when the task is deleted on completion. Not valid on sub-tasks.
   - Clearing is always explicit null — omitting a field leaves it untouched.
 - format: "emoji" or "dataview" — overrides the auto-detected Tasks plugin format.
 
