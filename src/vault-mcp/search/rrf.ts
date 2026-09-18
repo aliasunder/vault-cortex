@@ -1,6 +1,6 @@
 // ── Reciprocal Rank Fusion ─────────────────────────────────────
 
-import { compareByCodeUnits } from "../../utils/compare-code-units.js"
+import { compareByUtf8Bytes } from "../../utils/compare-utf8-bytes.js"
 
 /** Reciprocal Rank Fusion (RRF) — merges N independently ranked result
  *  lists into a single relevance score per unique identifier.
@@ -56,7 +56,7 @@ export const computeRrfScores = (params: {
   return [...scoresByIdentifier.entries()]
     .toSorted(([identifierA, scoreA], [identifierB, scoreB]) => {
       if (scoreA !== scoreB) return scoreB - scoreA
-      return compareByCodeUnits(identifierA, identifierB)
+      return compareByUtf8Bytes(identifierA, identifierB)
     })
     .map(([identifier, score]) => ({
       identifier,

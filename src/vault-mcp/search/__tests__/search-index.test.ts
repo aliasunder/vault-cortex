@@ -2295,6 +2295,23 @@ describe("rebuildFromVault", () => {
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
   })
 
+  it("resolves a case-differing asset target through the SQL suffix tier's fold", async () => {
+    // The stored path differs from the link target only in case — the SQL
+    // suffix tier must match via LIKE's ASCII fold, mirroring the JS
+    // resolver's foldAsciiCase.
+    await mkdir(join(vaultDir, "photos"), { recursive: true })
+    await writeFile(join(vaultDir, "source.md"), "# Source\n\n![[sunset.png]]\n", "utf8")
+    await writeFile(join(vaultDir, "photos", "Sunset.png"), "binary", "utf8")
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]?.path).toBe("photos/Sunset.png")
+    expect(outgoing[0]?.kind).toBe("file")
+    expect(outgoing[0]?.exists).toBe(true)
+    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+  })
+
   it("indexes a symlinked .md file", async () => {
     await mkdir(join(vaultDir, "real"), { recursive: true })
     await writeFile(

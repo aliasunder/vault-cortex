@@ -4,7 +4,7 @@ import type Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import type { Logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
-import { compareByCodeUnits } from "../../utils/compare-code-units.js"
+import { compareByUtf8Bytes } from "../../utils/compare-utf8-bytes.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { sanitizeFtsQuery, sanitizeFtsQueryAnyTerm } from "./fts-query.js"
 import { computeRrfScores } from "./rrf.js"
@@ -485,8 +485,8 @@ const tryRerankMemoryCandidates = async (
  *  ISO date (chronological for YYYY-MM-DD), then file and document position
  *  for same-date determinism — same-date entries have no knowable order. */
 const compareMemoryEntriesChronologically = (a: MemoryEntryRow, b: MemoryEntryRow): number =>
-  compareByCodeUnits(a.entry_date, b.entry_date) ||
-  compareByCodeUnits(a.file, b.file) ||
+  compareByUtf8Bytes(a.entry_date, b.entry_date) ||
+  compareByUtf8Bytes(a.file, b.file) ||
   a.entry_index - b.entry_index
 
 /** Fusion identifier for RRF and its lookup maps: a stable content key.
