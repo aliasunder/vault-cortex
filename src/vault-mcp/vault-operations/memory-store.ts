@@ -518,6 +518,47 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   const readMemoryFileOrNull = (vaultPath: string, file: string): Promise<string | null> =>
     readFileOrNull(memoryFilePath(vaultPath, file))
 
+  /** Resolves a named H2 section, throwing with the file's available headings
+   *  when none matches. Shared so the section, entries, and delete reads
+   *  resolve a section name by the same rules. */
+  const resolveSection = ({
+    lines,
+    section,
+    file,
+  }: {
+    lines: readonly string[]
+    section: string
+    file: string
+  }): ParsedSection => {
+    const sections = parseSections(lines)
+    const match = findSection(sections, section, 2)
+
+    if (!match) {
+      throw new Error(
+        `section not found: "${section}" in ${memoryDir}/${file}.md. Available sections: ${listSectionHeadings(sections)}`,
+      )
+    }
+    return match
+  }
+
+  /** Selects the entries belonging to a named H2 section. Sections and entries
+   *  both read H2 heading text through parseHeadings, so an entry's section
+   *  text equals the resolved heading exactly. */
+  const entriesInSection = ({
+    lines,
+    entries,
+    section,
+    file,
+  }: {
+    lines: readonly string[]
+    entries: readonly MemoryEntry[]
+    section: string
+    file: string
+  }): MemoryEntry[] => {
+    const match = resolveSection({ lines, section, file })
+    return entries.filter((entry) => entry.section === match.heading)
+  }
+
   /** Builds a new memory file with frontmatter, H1 title, H2 section, and initial entry. */
   const buildNewMemoryFile = (params: {
     fileName: string
@@ -594,14 +635,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
 
     const lines = splitIntoLines(parsed.content)
-    const sections = parseSections(lines)
-    const match = findSection(sections, params.section, 2)
-
-    if (!match) {
-      throw new Error(
-        `section not found: "${params.section}" in ${memoryDir}/${params.file}.md. Available sections: ${listSectionHeadings(sections)}`,
-      )
-    }
+    const match = resolveSection({ lines, section: params.section, file: params.file })
 
     // Extract only the lines between this heading and the next
     const body = lines.slice(match.bodyStartLine, match.bodyEndLine).join("\n").trim()
@@ -633,25 +667,13 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     const lines = splitIntoLines(parsed.content)
 
     // parseMemoryEntries returns every H2 entry in document order, each
-    // carrying its verbatim section heading — so an omitted section is simply
-    // the whole file, with no second scan needed.
+    // carrying its verbatim section heading — so an omitted section is every
+    // entry in the file, with no second heading scan needed.
     const allEntries = parseMemoryEntries(lines)
 
-    // Scope to a named section when given; otherwise the whole file is the scope.
-    let scopedEntries: MemoryEntry[] = allEntries
-
-    if (params.section) {
-      const sections = parseSections(lines)
-      const match = findSection(sections, params.section, 2)
-
-      if (!match) {
-        throw new Error(
-          `section not found: "${params.section}" in ${memoryDir}/${params.file}.md. Available sections: ${listSectionHeadings(sections)}`,
-        )
-      }
-      // parseMemoryEntries assigns the same heading text findSection resolves.
-      scopedEntries = allEntries.filter((entry) => entry.section === match.heading)
-    }
+    const scopedEntries = params.section
+      ? entriesInSection({ lines, entries: allEntries, section: params.section, file: params.file })
+      : allEntries
 
     // YYYY-MM-DD strings sort lexicographically in chronological order;
     // onOrAfter is validated above, and entry dates are YYYY-MM-DD by construction.
@@ -943,14 +965,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const raw = await readMemoryFile(params.vaultPath, params.file)
       const parsed = parseNote(raw)
       const lines = splitIntoLines(parsed.content)
-      const sections = parseSections(lines)
-      const match = findSection(sections, params.section, 2)
-
-      if (!match) {
-        throw new Error(
-          `section not found: "${params.section}" in ${memoryDir}/${params.file}.md. Available sections: ${listSectionHeadings(sections)}`,
-        )
-      }
+      const match = resolveSection({ lines, section: params.section, file: params.file })
 
       // Find the target bullet among genuine (non-fenced) entry lines.
       const targetBullet = `- **${params.date}**: ${params.entry}`
