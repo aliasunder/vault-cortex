@@ -1506,7 +1506,8 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     const today = todayIsoDate()
 
     // In-line edits applied to the task line in order. Description must
-    // be last — see its comment below for why.
+    // be last: field edits split at the description/metadata boundary,
+    // and a signifier in new description text shifts that boundary.
     const lineEdits: LineEdit[] = [
       ...(status
         ? [
