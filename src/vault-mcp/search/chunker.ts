@@ -300,7 +300,8 @@ const buildTableOfContentsText = (
  *  longer notes split into per-heading sections in two views (top-level
  *  aggregates + disjoint leaves — see collectSectionSpans), each fragment
  *  prefixed with the note title, a `Section:` line naming the heading's
- *  ancestor path, and — when `metadataPrefix` is given — a metadata line,
+ *  ancestor path (capped at the remaining budget — see capHeadingPath),
+ *  and — when `metadataPrefix` is given — a metadata line,
  *  plus one table-of-contents chunk naming the note's headings.
  *
  *  Every prefix counts against the chunk token budget — the embedding and
