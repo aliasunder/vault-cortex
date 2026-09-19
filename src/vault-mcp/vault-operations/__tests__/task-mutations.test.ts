@@ -2725,6 +2725,28 @@ kanban-plugin: board
           `---\ntitle: Notes\n---\n\n## Tasks\n\n- [ ] First ^first\n\nSome notes about the tasks.\n- [ ] After prose ➕ ${today()} ^after-prose\n\n## Other\n`,
         )
       })
+
+      it("bottom insertion into a lane with a child heading stays above the child", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n\n### Sub\n\n- [ ] Beta ^beta\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            description: "Appended",
+            blockId: "appended",
+            heading: "Active",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Appended ➕ ${today()} ^appended\n\n### Sub\n\n- [ ] Beta ^beta\n`,
+        )
+      })
     })
 
     // ── updateTask + position ───────────────────────────────────
