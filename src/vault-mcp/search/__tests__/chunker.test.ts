@@ -854,6 +854,31 @@ describe("chunkContent", () => {
       expect(sectionLineOf(deepWith.text)).toBe(`Section: ${innerName}`)
     })
 
+    it("drops multiple leading ancestors when one drop is not enough", () => {
+      // 3 levels with ~200-token names. Full path: "Section: " (1) +
+      // 3×200 names + 2 separators = ~603 > 399. After 1 drop: ~402 > 399.
+      // After 2 drops: ~201 ≤ 399 — only name3 survives. A regression
+      // replacing the while loop with a single if/shift keeps ~402 tokens
+      // and passes every single-drop test.
+      const name1 = generateLabeledTokens(200, "d1")
+      const name2 = generateLabeledTokens(200, "d2")
+      const name3 = generateLabeledTokens(200, "d3")
+      const body =
+        `## ${name1}\n\n${generateLabeledTokens(200, "a")}\n\n` +
+        `### ${name2}\n\n${generateLabeledTokens(200, "b")}\n\n` +
+        `#### ${name3}\n\n${generateLabeledTokens(200, "c")}` +
+        trailSection
+
+      const chunks = chunkContent({ noteTitle: "N", bodyContent: body })
+
+      const deepChunk = findLeafChunk(chunks, name3)
+
+      if (!deepChunk) {
+        throw new Error("expected deepest chunk not found")
+      }
+      expect(sectionLineOf(deepChunk.text)).toBe(`Section: ${name3}`)
+    })
+
     it("keeps the deepest segment when the loop exhausts all ancestors", () => {
       // 2 segments of ~400 tokens each. The full path exceeds the ~399
       // budget, and the loop drops the outer segment — the remaining

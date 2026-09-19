@@ -147,8 +147,9 @@ const capHeadingPath = (
   if (sectionLineTokens <= sectionLineBudget) return headingPath
 
   const capped = [...headingPath]
-  // The deepest segment always survives — even when it alone exceeds the
-  // budget, it carries the section's own vocabulary.
+  // The deepest segment survives even when it alone exceeds the budget,
+  // except at zero budget (title + metadata consume it all), where the
+  // early return above suppresses the Section line entirely.
   while (capped.length > 1) {
     capped.shift()
     if (approximateTokenCount(`Section: ${capped.join(" > ")}`) <= sectionLineBudget) break
