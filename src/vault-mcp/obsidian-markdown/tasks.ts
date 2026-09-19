@@ -717,7 +717,7 @@ const replaceCheckboxChar = ({
 }: {
   taskLine: string
   newChar: string
-}): string => taskLine.replace(/\[.\]/, `[${newChar}]`)
+}): string => taskLine.replace(/\[.\]/u, `[${newChar}]`)
 
 /** Removes the LAST occurrence of a field regex from a metadata tail.
  *  Description text ending in a parseable signifier lands at the front of

@@ -271,6 +271,17 @@ describe("tasks.extractTasks", () => {
       )
     })
 
+    it("returns the first matching char when multiple symbols share the same status", () => {
+      const registry: ReadonlyMap<string, StatusClassification> = new Map([
+        [" ", "in_progress"],
+        ["!", "todo"],
+        ["?", "todo"],
+        ["x", "done"],
+      ])
+
+      expect(tasks.charForStatus("todo", registry)).toBe("!")
+    })
+
     it("uses the hardcoded fallback when the registry has no char but the fallback is safe", () => {
       const registry: ReadonlyMap<string, StatusClassification> = new Map([
         [" ", "todo"],
