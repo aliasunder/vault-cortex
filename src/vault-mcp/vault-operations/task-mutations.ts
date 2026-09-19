@@ -423,18 +423,20 @@ const taskAppendIndexUnderHeading = ({
   return heading.bodyStartLine + lastContentOffset + 1
 }
 
-/** Body index for inserting at position N (1-based) among a section's
- *  top-level cards. Walks from the first valid card slot to the section
- *  end, skipping each card's sub-item block via findTaskBlockEnd. */
 /** A task line that the index would exclude — inside a fence/comment or
  *  typed NON_TASK in the status registry — is not a lane card for
  *  position-counting purposes. */
-const isExcludedFromLane = (
-  line: string,
-  lineIndex: number,
-  lines: readonly string[],
-  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined,
-): boolean => {
+const isExcludedFromLane = ({
+  line,
+  lineIndex,
+  lines,
+  statusRegistry,
+}: {
+  line: string
+  lineIndex: number
+  lines: readonly string[]
+  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
+}): boolean => {
   if (isInsideFenceOrComment(lines, lineIndex)) return true
 
   if (!statusRegistry) return false
@@ -485,7 +487,7 @@ const headingInsertIndexAtPosition = ({
     if (
       !line?.trim() ||
       !tasks.isTaskLine(line) ||
-      isExcludedFromLane(line, walkIndex, lines, statusRegistry)
+      isExcludedFromLane({ line, lineIndex: walkIndex, lines, statusRegistry })
     ) {
       walkIndex++
       continue
@@ -913,25 +915,41 @@ const moveTaskBlock = ({
   }
   if (isSameLane) {
     const before =
-      beforePosition ?? positionOfTaskInLane(lines, targetHeading, taskLineIndex, statusRegistry)
+      beforePosition ??
+      positionOfTaskInLane({ lines, heading: targetHeading, taskLineIndex, statusRegistry })
     const after = headingInResult
-      ? positionOfTaskInLane(resultLines, headingInResult, insertAt, statusRegistry)
+      ? positionOfTaskInLane({
+          lines: resultLines,
+          heading: headingInResult,
+          taskLineIndex: insertAt,
+          statusRegistry,
+        })
       : 1
 
     // Compare the card's position in the move-input lines (not the
     // pre-spawn before-value) with the result — a spawn shifts the
     // card's slot, so pre-spawn equality would suppress a real move.
-    const currentSlot = positionOfTaskInLane(lines, targetHeading, taskLineIndex, statusRegistry)
+    const currentSlot = positionOfTaskInLane({
+      lines,
+      heading: targetHeading,
+      taskLineIndex,
+      statusRegistry,
+    })
 
     if (currentSlot === after) return { lines, taskLineIndex, changes: [] }
     changes.push(formatChange({ field: "position", before, after }))
   } else if (typeof position === "number") {
     const before = currentHeading
       ? (beforePosition ??
-        positionOfTaskInLane(lines, currentHeading, taskLineIndex, statusRegistry))
+        positionOfTaskInLane({ lines, heading: currentHeading, taskLineIndex, statusRegistry }))
       : null
     const after = headingInResult
-      ? positionOfTaskInLane(resultLines, headingInResult, insertAt, statusRegistry)
+      ? positionOfTaskInLane({
+          lines: resultLines,
+          heading: headingInResult,
+          taskLineIndex: insertAt,
+          statusRegistry,
+        })
       : 1
     changes.push(formatChange({ field: "position", before, after }))
   }
@@ -945,12 +963,17 @@ const moveTaskBlock = ({
 }
 
 /** 1-based position of a task among its lane's top-level cards. */
-const positionOfTaskInLane = (
-  lines: readonly string[],
-  heading: HeadingInfo,
-  taskLineIndex: number,
-  statusRegistry?: ReadonlyMap<string, StatusClassification>,
-): number => {
+const positionOfTaskInLane = ({
+  lines,
+  heading,
+  taskLineIndex,
+  statusRegistry,
+}: {
+  lines: readonly string[]
+  heading: HeadingInfo
+  taskLineIndex: number
+  statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
+}): number => {
   // Scan from the heading's body start, not the insert slot — the insert
   // slot skips past a **Complete** marker, but cards above the marker are
   // still lane members for position-counting purposes.
@@ -973,7 +996,7 @@ const positionOfTaskInLane = (
     if (
       !line?.trim() ||
       !tasks.isTaskLine(line) ||
-      isExcludedFromLane(line, walkIndex, lines, statusRegistry)
+      isExcludedFromLane({ line, lineIndex: walkIndex, lines, statusRegistry })
     ) {
       walkIndex++
       continue
@@ -2108,12 +2131,12 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
         ? headings.findLast((heading) => heading.startLine < taskLineIndex)
         : undefined
     const beforePositionInLane = preSpawnHeading
-      ? positionOfTaskInLane(
-          linesWithEdits,
-          preSpawnHeading,
+      ? positionOfTaskInLane({
+          lines: linesWithEdits,
+          heading: preSpawnHeading,
           taskLineIndex,
-          formatConfig.statusRegistry,
-        )
+          statusRegistry: formatConfig.statusRegistry,
+        })
       : undefined
 
     const targetLane = autoDoneLane

@@ -3030,6 +3030,65 @@ kanban-plugin: board
         expect(result.changes).toEqual(["position: 1 → 3"])
       })
 
+      it("same-lane reorder skips NON_TASK checkboxes in position count", async () => {
+        resetTaskFormatConfigCache()
+        onTestFinished(resetTaskFormatConfigCache)
+
+        const vault = await createVault()
+        const pluginDir = join(vault, ".obsidian", "plugins", "obsidian-tasks-plugin")
+        await mkdir(pluginDir, { recursive: true })
+        await writeFile(
+          join(pluginDir, "data.json"),
+          JSON.stringify({
+            statusSettings: {
+              coreStatuses: [
+                { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
+                { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
+              ],
+              customStatuses: [
+                { symbol: ">", name: "Forwarded", nextStatusSymbol: " ", type: "NON_TASK" },
+              ],
+            },
+          }),
+          "utf8",
+        )
+
+        const board = [
+          "---",
+          "title: Board",
+          "kanban-plugin: board",
+          "---",
+          "",
+          "## Active",
+          "",
+          "- [ ] Alpha ^alpha",
+          "- [>] Forwarded ref",
+          "- [ ] Bravo ^bravo",
+          "- [ ] Charlie ^charlie",
+          "",
+          "## Done",
+          "",
+        ].join("\n")
+        await writeTestNote(vault, "board.md", board)
+
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "charlie",
+            position: 1,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        const lines = content.split("\n")
+        const charlieIndex = lines.findIndex((line) => line.includes("Charlie"))
+        const alphaIndex = lines.findIndex((line) => line.includes("Alpha"))
+        expect(charlieIndex).toBeLessThan(alphaIndex)
+        expect(result.changes).toEqual(["position: 3 → 1"])
+      })
+
       it("rejects position-only reorder on a task above all headings", async () => {
         const vault = await createVault()
         const note = `---\ntitle: Notes\n---\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n\n## Later\n\n- [ ] Charlie ^charlie\n`
@@ -3203,6 +3262,103 @@ kanban-plugin: board
         expect(content).toBe(
           `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Archive\n\n**Complete**\n- [ ] Archived item ➕ ${today()} ^archived\n- [x] Old task ^old\n- [x] Older task ^older\n\n## Active\n\n- [ ] New task ^new\n`,
         )
+      })
+
+      it("integer position skips fenced task-looking lines", async () => {
+        const vault = await createVault()
+        const note = [
+          "---",
+          "title: Board",
+          "kanban-plugin: board",
+          "---",
+          "",
+          "## Active",
+          "",
+          "- [ ] Card A ^card-a",
+          "```md",
+          "- [ ] Fenced example",
+          "```",
+          "- [ ] Card B ^card-b",
+          "",
+        ].join("\n")
+        await writeTestNote(vault, "board.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Inserted",
+            blockId: "inserted",
+            heading: "Active",
+            position: 2,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        const lines = content.split("\n")
+        const insertedIndex = lines.findIndex((line) => line.includes("Inserted"))
+        const cardBIndex = lines.findIndex((line) => line.includes("Card B"))
+        expect(insertedIndex).toBeLessThan(cardBIndex)
+        expect(insertedIndex).toBeGreaterThan(lines.findIndex((line) => line.includes("Card A")))
+      })
+
+      it("integer position skips NON_TASK checkboxes", async () => {
+        resetTaskFormatConfigCache()
+        onTestFinished(resetTaskFormatConfigCache)
+
+        const vault = await createVault()
+        const pluginDir = join(vault, ".obsidian", "plugins", "obsidian-tasks-plugin")
+        await mkdir(pluginDir, { recursive: true })
+        await writeFile(
+          join(pluginDir, "data.json"),
+          JSON.stringify({
+            statusSettings: {
+              coreStatuses: [
+                { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
+                { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
+              ],
+              customStatuses: [
+                { symbol: ">", name: "Forwarded", nextStatusSymbol: " ", type: "NON_TASK" },
+              ],
+            },
+          }),
+          "utf8",
+        )
+
+        const note = [
+          "---",
+          "title: Board",
+          "kanban-plugin: board",
+          "---",
+          "",
+          "## Active",
+          "",
+          "- [ ] Card A ^card-a",
+          "- [>] Forwarded ref",
+          "- [ ] Card B ^card-b",
+          "",
+        ].join("\n")
+        await writeTestNote(vault, "board.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Inserted",
+            blockId: "inserted",
+            heading: "Active",
+            position: 2,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        const lines = content.split("\n")
+        const insertedIndex = lines.findIndex((line) => line.includes("Inserted"))
+        const cardBIndex = lines.findIndex((line) => line.includes("Card B"))
+        expect(insertedIndex).toBeLessThan(cardBIndex)
+        expect(insertedIndex).toBeGreaterThan(lines.findIndex((line) => line.includes("Card A")))
       })
 
       it("spawn + position reports pre-spawn before-position", async () => {
