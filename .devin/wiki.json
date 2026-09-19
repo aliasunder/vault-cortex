@@ -60,7 +60,7 @@
     },
     {
       "title": "Task Management",
-      "purpose": "The Tasks-plugin domain across layers: the task-line grammar in obsidian-markdown/tasks.ts (emoji and Dataview inline-field formats, read and write), the recurrence engine in obsidian-markdown/recurrence.ts, task-mutations.ts mutations, task-format-config.ts (the user's Tasks-plugin format and recurrence-behavior configuration), the tasks table in the search index, and the task tools under mcp-core/tools/. Derive status, priority, and date-signifier specifics from the source at index time.",
+      "purpose": "The Tasks-plugin domain across layers: the task-line grammar in obsidian-markdown/tasks.ts (emoji and Dataview inline-field formats, read and write), the recurrence engine in obsidian-markdown/recurrence.ts, task-mutations.ts mutations, task-format-config.ts (the user's Tasks-plugin format, recurrence-behavior settings, and status registry), the tasks table in the search index, and the task tools under mcp-core/tools/. Derive status, priority, and date-signifier specifics from the source at index time.",
       "parent": "Architecture"
     },
     {

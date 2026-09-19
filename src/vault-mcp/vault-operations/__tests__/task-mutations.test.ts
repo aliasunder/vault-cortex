@@ -6040,5 +6040,44 @@ title: Tasks
       expect(result.description).toBe("Real task")
       expect(result.changes).toEqual(["status: todo → done"])
     })
+
+    it("skips a fenced match and finds the real task with the same block-id", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Fenced example ^shared-id\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^shared-id\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        { vaultPath: vault, path: "tasks.md", blockId: "shared-id", status: "done" },
+        logger,
+      )
+
+      expect(result.description).toBe("Real task")
+      expect(result.changes).toEqual(["status: todo → done"])
+    })
+
+    it("skips a fenced match and finds the real parent with the same block-id", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Fenced parent ^shared-parent\n\`\`\`\n\n- [ ] Real parent ➕ 2026-07-01 ^shared-parent\n`,
+      )
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "Child task",
+          blockId: "child-of-shared",
+          parentBlockId: "shared-parent",
+        },
+        logger,
+      )
+
+      expect(result.description).toBe("Child task")
+    })
   })
 })

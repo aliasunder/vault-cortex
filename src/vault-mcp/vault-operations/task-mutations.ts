@@ -643,6 +643,58 @@ type LineEdit = {
   change: string
 }
 
+/** Block-id search that skips fenced code blocks and comment blocks —
+ *  aligns lookup with validateBlockId's fence-skip uniqueness rule. */
+const findBlockIdSkippingFences = (
+  bodyLines: readonly string[],
+  blockId: string,
+): number | "fenced_only" | null => {
+  const suffix = ` ^${blockId}`
+  // Sequential parser state — fence and comment scanners are inherently stateful.
+  let openFence: OpenFence = null
+  let commentOpen = false
+  let hasFencedMatch = false
+
+  for (let index = 0; index < bodyLines.length; index++) {
+    const lineText = bodyLines[index]
+
+    // Empty strings are valid body lines (blank lines), so only undefined is skipped.
+    if (lineText === undefined) continue
+
+    // Fence scanner runs first; comment scanner only advances on non-fenced lines.
+    let isExcluded = false
+
+    if (!commentOpen) {
+      const fenceResult = advanceFence(lineText, openFence)
+      openFence = fenceResult.openFence
+
+      if (fenceResult.lineIsCode) {
+        isExcluded = true
+      }
+    }
+
+    if (!isExcluded) {
+      const commentResult = advanceComment(lineText, commentOpen)
+      commentOpen = commentResult.commentOpen
+
+      if (commentResult.lineIsComment) {
+        isExcluded = true
+      }
+    }
+
+    if (!lineText.trimEnd().endsWith(suffix) || !tasks.isTaskLine(lineText)) continue
+
+    if (isExcluded) {
+      hasFencedMatch = true
+      continue
+    }
+
+    return index
+  }
+
+  return hasFencedMatch ? "fenced_only" : null
+}
+
 /** Body index of the task an update names — by block id, or by 1-based file
  *  line. Callers guarantee exactly one identifier is set. */
 const locateTaskLine = ({
@@ -659,15 +711,15 @@ const locateTaskLine = ({
   path: string
 }): number => {
   if (blockId) {
-    const foundIndex = tasks.findTaskByBlockId(bodyLines, blockId)
+    const result = findBlockIdSkippingFences(bodyLines, blockId)
 
-    if (foundIndex === null) {
+    if (result === null) {
       throw new Error(`blockId "${blockId}" not found in "${path}"`)
     }
-    if (isInsideFenceOrComment(bodyLines, foundIndex)) {
+    if (result === "fenced_only") {
       throw new Error(`blockId "${blockId}" is inside a fenced code block or comment in "${path}"`)
     }
-    return foundIndex
+    return result
   }
   if (!line) {
     throw new Error("exactly one of blockId or line is required")
@@ -1207,22 +1259,22 @@ const findParentLineIndex = ({
   statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
 }): number => {
   if (locator.kind === "blockId") {
-    const foundIndex = tasks.findTaskByBlockId(bodyLines, locator.blockId)
+    const result = findBlockIdSkippingFences(bodyLines, locator.blockId)
 
-    if (foundIndex === null) {
+    if (result === null) {
       throw new Error(`parent task not found: blockId "${locator.blockId}"`)
     }
-    if (isInsideFenceOrComment(bodyLines, foundIndex)) {
+    if (result === "fenced_only") {
       throw new Error(
         `parent task not found: blockId "${locator.blockId}" is inside a fenced code block or comment`,
       )
     }
-    const foundLine = bodyLines[foundIndex]
+    const foundLine = bodyLines[result]
 
     if (statusRegistry && foundLine) {
       rejectNonTaskCheckbox({ taskLine: foundLine, statusRegistry })
     }
-    return foundIndex
+    return result
   }
   const parentLineIndex = locator.line - 1 - bodyStartLine
   const parentLineText = bodyLines[parentLineIndex]
