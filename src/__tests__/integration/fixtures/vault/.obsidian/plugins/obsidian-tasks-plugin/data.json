@@ -1,0 +1,13 @@
+{
+  "statusSettings": {
+    "coreStatuses": [
+      { "symbol": " ", "name": "Todo", "nextStatusSymbol": "x", "type": "TODO" },
+      { "symbol": "x", "name": "Done", "nextStatusSymbol": " ", "type": "DONE" },
+      { "symbol": "/", "name": "In Progress", "nextStatusSymbol": "x", "type": "IN_PROGRESS" },
+      { "symbol": "-", "name": "Cancelled", "nextStatusSymbol": " ", "type": "CANCELLED" }
+    ],
+    "customStatuses": [
+      { "symbol": ">", "name": "Forwarded", "nextStatusSymbol": " ", "type": "NON_TASK" }
+    ]
+  }
+}

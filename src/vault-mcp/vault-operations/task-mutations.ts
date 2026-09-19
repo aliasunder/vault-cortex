@@ -10,7 +10,12 @@ import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
 import { parseHeadings, type HeadingInfo } from "../obsidian-markdown/headings.js"
-import { splitIntoLines } from "../obsidian-markdown/lines.js"
+import {
+  splitIntoLines,
+  advanceFence,
+  advanceComment,
+  type OpenFence,
+} from "../obsidian-markdown/lines.js"
 import { tasks } from "../obsidian-markdown/tasks.js"
 import type {
   TaskStatus,
@@ -25,7 +30,11 @@ import {
   nextOccurrenceDates,
   type NextOccurrenceDates,
 } from "../obsidian-markdown/recurrence.js"
-import { readTaskFormatConfig, type TaskFormatConfig } from "./task-format-config.js"
+import {
+  readTaskFormatConfig,
+  type TaskFormatConfig,
+  type StatusClassification,
+} from "./task-format-config.js"
 import type { Logger } from "../../logger.js"
 
 // ── Types ───────────────────────────────────────────────────────
@@ -544,6 +553,7 @@ const resolveNewTaskPlacement = ({
   heading,
   isKanbanBoard,
   position,
+  statusRegistry,
 }: {
   bodyLines: readonly string[]
   bodyStartLine: number
@@ -552,12 +562,14 @@ const resolveNewTaskPlacement = ({
   heading: string | undefined
   isKanbanBoard: boolean
   position: "top" | "bottom" | number | undefined
+  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
 }): NewTaskPlacement => {
   if (parentLocator) {
     const parentLineIndex = findParentLineIndex({
       locator: parentLocator,
       bodyLines,
       bodyStartLine,
+      statusRegistry,
     })
     const nearestHeading = headings.findLast(
       (headingInfo) => headingInfo.startLine < parentLineIndex,
@@ -631,6 +643,58 @@ type LineEdit = {
   change: string
 }
 
+/** Block-id search that skips fenced code blocks and comment blocks —
+ *  aligns lookup with validateBlockId's fence-skip uniqueness rule. */
+const findBlockIdSkippingFences = (
+  bodyLines: readonly string[],
+  blockId: string,
+): number | "fenced_only" | null => {
+  const suffix = ` ^${blockId}`
+  // Sequential parser state — fence and comment scanners are inherently stateful.
+  let openFence: OpenFence = null
+  let commentOpen = false
+  let hasFencedMatch = false
+
+  for (let index = 0; index < bodyLines.length; index++) {
+    const lineText = bodyLines[index]
+
+    // Empty strings are valid body lines (blank lines), so only undefined is skipped.
+    if (lineText === undefined) continue
+
+    // Fence scanner runs first; comment scanner only advances on non-fenced lines.
+    let isExcluded = false
+
+    if (!commentOpen) {
+      const fenceResult = advanceFence(lineText, openFence)
+      openFence = fenceResult.openFence
+
+      if (fenceResult.lineIsCode) {
+        isExcluded = true
+      }
+    }
+
+    if (!isExcluded) {
+      const commentResult = advanceComment(lineText, commentOpen)
+      commentOpen = commentResult.commentOpen
+
+      if (commentResult.lineIsComment) {
+        isExcluded = true
+      }
+    }
+
+    if (!lineText.trimEnd().endsWith(suffix) || !tasks.isTaskLine(lineText)) continue
+
+    if (isExcluded) {
+      hasFencedMatch = true
+      continue
+    }
+
+    return index
+  }
+
+  return hasFencedMatch ? "fenced_only" : null
+}
+
 /** Body index of the task an update names — by block id, or by 1-based file
  *  line. Callers guarantee exactly one identifier is set. */
 const locateTaskLine = ({
@@ -647,12 +711,15 @@ const locateTaskLine = ({
   path: string
 }): number => {
   if (blockId) {
-    const foundIndex = tasks.findTaskByBlockId(bodyLines, blockId)
+    const result = findBlockIdSkippingFences(bodyLines, blockId)
 
-    if (foundIndex === null) {
+    if (result === null) {
       throw new Error(`blockId "${blockId}" not found in "${path}"`)
     }
-    return foundIndex
+    if (result === "fenced_only") {
+      throw new Error(`blockId "${blockId}" is inside a fenced code block or comment in "${path}"`)
+    }
+    return result
   }
   if (!line) {
     throw new Error("exactly one of blockId or line is required")
@@ -665,7 +732,67 @@ const locateTaskLine = ({
   if (taskLineIndex < 0 || !taskLineText || !tasks.isTaskLine(taskLineText)) {
     throw new Error(`no task at line ${line}`)
   }
+  if (isInsideFenceOrComment(bodyLines, taskLineIndex)) {
+    throw new Error(`line ${line} is inside a fenced code block or comment`)
+  }
   return taskLineIndex
+}
+
+/** Extracts the single character between `[` and `]` from a task line. */
+const CHECKBOX_CHAR_RE = /\[(.)\]/u
+
+/** The Tasks plugin's NON_TASK status type marks checkboxes that are
+ *  excluded from the task system. The grammar regex still matches them,
+ *  so callers guard after locating the line. */
+const rejectNonTaskCheckbox = ({
+  taskLine,
+  statusRegistry,
+}: {
+  taskLine: string
+  statusRegistry: ReadonlyMap<string, StatusClassification>
+}): void => {
+  const charMatch = CHECKBOX_CHAR_RE.exec(taskLine)
+
+  if (!charMatch) return
+
+  const statusChar = charMatch[1]
+
+  if (!statusChar) return
+
+  const classification = tasks.statusForChar(statusChar, statusRegistry)
+
+  if (classification === "non_task") {
+    throw new Error(`checkbox "[${statusChar}]" is a NON_TASK status in the Tasks plugin registry`)
+  }
+}
+
+/** Returns true when the body-line index falls inside a fenced code block
+ *  or a `%% %%` comment block — the same exclusions extractTasks applies. */
+const isInsideFenceOrComment = (bodyLines: readonly string[], lineIndex: number): boolean => {
+  // Sequential parser state — fence and comment scanners are inherently
+  // stateful (same pattern as extractTasks in tasks.ts).
+  let openFence: OpenFence = null
+  let commentOpen = false
+
+  for (let index = 0; index <= lineIndex; index++) {
+    const lineText = bodyLines[index]
+
+    if (lineText === undefined) return false
+
+    if (!commentOpen) {
+      const fenceResult = advanceFence(lineText, openFence)
+      openFence = fenceResult.openFence
+
+      if (index === lineIndex) return fenceResult.lineIsCode
+      if (fenceResult.lineIsCode) continue
+    }
+
+    const commentResult = advanceComment(lineText, commentOpen)
+    commentOpen = commentResult.commentOpen
+
+    if (index === lineIndex) return commentResult.lineIsComment
+  }
+  return false
 }
 
 /** No-op when the task already sits under the target heading and no
@@ -822,11 +949,13 @@ const appendSubtasks = ({
   taskLineIndex,
   descriptions,
   bodyStartLine,
+  statusRegistry,
 }: {
   lines: readonly string[]
   taskLineIndex: number
   descriptions: readonly string[]
   bodyStartLine: number
+  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
 }): {
   lines: readonly string[]
   subtaskPositions: SubtaskPosition[]
@@ -837,10 +966,17 @@ const appendSubtasks = ({
     lines,
     parentLineIndex: taskLineIndex,
   })
-  const subtaskLines = descriptions.map((subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`)
-  const existingSubtaskCount = lines
-    .slice(taskLineIndex + 1, blockEnd)
-    .filter((blockLine) => tasks.isTaskLine(blockLine)).length
+  const todoChar = tasks.charForStatus("todo", statusRegistry)
+  const subtaskLines = descriptions.map(
+    (subtaskText) => `${subtaskIndent}- [${todoChar}] ${subtaskText}`,
+  )
+  // Body-only content (lines has no frontmatter) so extractTasks line
+  // numbers are 1-based within the body, matching taskLineIndex + 1.
+  const bodyContent = lines.join("\n")
+  const taskBodyLine = taskLineIndex + 1
+  const existingSubtaskCount = tasks
+    .extractTasks(bodyContent, statusRegistry)
+    .filter((extractedTask) => extractedTask.parentLine === taskBodyLine).length
   return {
     lines: lines.toSpliced(blockEnd, 0, ...subtaskLines),
     subtaskPositions: subtaskPositionsFrom({
@@ -891,14 +1027,17 @@ const resolveRecurrenceSpawn = ({
 }): RecurrenceSpawn => {
   if (status !== "done") return { kind: "none" }
 
+  // taskBefore.status already reflects the registry (extractTasks receives
+  // it), so the registry lookup is belt-and-suspenders — guards against a
+  // caller that extracted tasks without the registry.
   const wasAlreadyDone =
-    taskBefore.status === "done" || config.doneStatusSymbols.includes(taskBefore.statusChar)
+    taskBefore.status === "done" || config.statusRegistry.get(taskBefore.statusChar) === "done"
 
   if (wasAlreadyDone) return { kind: "none" }
 
   // The note-level parser handles a bare task line: no frontmatter means a
   // body offset of zero and the one line parses to a one-element array.
-  const editedTask = tasks.extractTasks(editedTaskLine).at(0)
+  const editedTask = tasks.extractTasks(editedTaskLine, config.statusRegistry).at(0)
 
   if (!editedTask?.recurrence) return { kind: "none" }
   const recurrenceText = editedTask.recurrence
@@ -1032,9 +1171,11 @@ const validateBlockId = (
   }
   // trimEnd: a hard break's trailing spaces must not hide an existing
   // block link — an invisible duplicate would win every later id lookup.
-  const existingIndex = bodyLines.findIndex(
-    (bodyLine, index) => index !== excludeLineIndex && bodyLine.trimEnd().endsWith(` ^${blockId}`),
-  )
+  const existingIndex = bodyLines.findIndex((bodyLine, index) => {
+    if (index === excludeLineIndex) return false
+    if (!bodyLine.trimEnd().endsWith(` ^${blockId}`)) return false
+    return !isInsideFenceOrComment(bodyLines, index)
+  })
 
   if (existingIndex !== -1) {
     throw new Error(`blockId "${blockId}" already exists in this note`)
@@ -1104,29 +1245,50 @@ const parentTaskLocatorFrom = ({
   return undefined
 }
 
-/** Throws when the locator resolves to nothing or to a non-task line. */
+/** The parent's body-line index; throws when the locator resolves to
+ *  nothing, a non-task line, or a NON_TASK-typed checkbox. */
 const findParentLineIndex = ({
   locator,
   bodyLines,
   bodyStartLine,
+  statusRegistry,
 }: {
   locator: ParentLocator
   bodyLines: readonly string[]
   bodyStartLine: number
+  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
 }): number => {
   if (locator.kind === "blockId") {
-    const foundIndex = tasks.findTaskByBlockId(bodyLines, locator.blockId)
+    const result = findBlockIdSkippingFences(bodyLines, locator.blockId)
 
-    if (foundIndex === null) {
+    if (result === null) {
       throw new Error(`parent task not found: blockId "${locator.blockId}"`)
     }
-    return foundIndex
+    if (result === "fenced_only") {
+      throw new Error(
+        `parent task not found: blockId "${locator.blockId}" is inside a fenced code block or comment`,
+      )
+    }
+    const foundLine = bodyLines[result]
+
+    if (statusRegistry && foundLine) {
+      rejectNonTaskCheckbox({ taskLine: foundLine, statusRegistry })
+    }
+    return result
   }
   const parentLineIndex = locator.line - 1 - bodyStartLine
   const parentLineText = bodyLines[parentLineIndex]
 
   if (!parentLineText || !tasks.isTaskLine(parentLineText)) {
     throw new Error(`parent task not found: line ${locator.line}`)
+  }
+  if (isInsideFenceOrComment(bodyLines, parentLineIndex)) {
+    throw new Error(
+      `parent task not found: line ${locator.line} is inside a fenced code block or comment`,
+    )
+  }
+  if (statusRegistry) {
+    rejectNonTaskCheckbox({ taskLine: parentLineText, statusRegistry })
   }
   return parentLineIndex
 }
@@ -1250,6 +1412,7 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
       heading,
       isKanbanBoard,
       position,
+      statusRegistry: formatConfig.statusRegistry,
     })
 
     const taskLine = tasks.buildTaskLine(
@@ -1291,8 +1454,9 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
     ]
 
     const subtaskIndent = `${indent}  `
+    const subtaskTodoChar = tasks.charForStatus("todo", formatConfig.statusRegistry)
     const subtaskLines = (subtasks ?? []).map(
-      (subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`,
+      (subtaskText) => `${subtaskIndent}- [${subtaskTodoChar}] ${subtaskText}`,
     )
     const changes =
       subtaskLines.length > 0
@@ -1470,12 +1634,28 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
       throw new Error(`task line index ${taskLineIndex} out of bounds`)
     }
     const isKanbanBoard = Boolean(parsed.data["kanban-plugin"])
+
+    // Resolve format config early — the status registry is needed for
+    // extractTasks so taskBefore.status reflects custom classifications.
+    const pluginConfig = await readTaskFormatConfig(vaultPath)
+    const formatConfig = {
+      ...pluginConfig,
+      taskFormat: format ?? pluginConfig.taskFormat,
+    }
+
+    rejectNonTaskCheckbox({
+      taskLine: originalTaskLine,
+      statusRegistry: formatConfig.statusRegistry,
+    })
+
     // Prior field values, so every `changes` entry can state before → after.
     // Parsed from the whole note so `depth` counts task ancestors the way
     // the index does — raw indentation would call a checklist item under a
     // plain bullet a sub-task while the index lists it as top-level.
     const taskFileLine = bodyStartLine + taskLineIndex + 1
-    const taskBefore = tasks.extractTasks(fileContent).find((task) => task.line === taskFileLine)
+    const taskBefore = tasks
+      .extractTasks(fileContent, formatConfig.statusRegistry)
+      .find((task) => task.line === taskFileLine)
 
     if (!taskBefore) {
       throw new Error(`task line index ${taskLineIndex} does not parse as a task`)
@@ -1494,13 +1674,6 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     }
     if (newBlockId) {
       validateBlockId(newBlockId, bodyLines, taskLineIndex)
-    }
-
-    // The explicit param wins, then the plugin config, then the emoji default
-    const pluginConfig = await readTaskFormatConfig(vaultPath)
-    const formatConfig = {
-      ...pluginConfig,
-      taskFormat: format ?? pluginConfig.taskFormat,
     }
 
     const today = todayIsoDate()
@@ -1781,10 +1954,12 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
     // task must not delete the task.
     const effectiveOnCompletion =
       onCompletion !== undefined ? onCompletion : taskBefore.onCompletion
+    // Registry lookup mirrors resolveRecurrenceSpawn's belt-and-suspenders
+    // guard — taskBefore.status already reflects the registry.
     const shouldDeleteOnCompletion =
       status === "done" &&
       taskBefore.status !== "done" &&
-      !formatConfig.doneStatusSymbols.includes(taskBefore.statusChar) &&
+      formatConfig.statusRegistry.get(taskBefore.statusChar) !== "done" &&
       effectiveOnCompletion?.toLowerCase() === "delete"
 
     if (shouldDeleteOnCompletion) {
@@ -1923,6 +2098,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
           taskLineIndex: moved.taskLineIndex,
           descriptions: addSubtasks,
           bodyStartLine,
+          statusRegistry: formatConfig.statusRegistry,
         })
       : { lines: moved.lines, subtaskPositions: undefined, change: undefined }
 

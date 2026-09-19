@@ -24,7 +24,10 @@
 import { DateTime } from "luxon"
 import { advanceComment, advanceFence, type OpenFence, splitIntoLines } from "./lines.js"
 import { parseHeadings, type HeadingInfo } from "./headings.js"
-import type { TaskFormatConfig } from "../vault-operations/task-format-config.js"
+import type {
+  StatusClassification,
+  TaskFormatConfig,
+} from "../vault-operations/task-format-config.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -266,10 +269,18 @@ const PRIORITY_BY_WORD: Readonly<Record<string, TaskPriority>> = {
 
 // ── Status mapping ──────────────────────────────────────────────
 
-/** Maps a checkbox character to the plugin's core status types: `x`/`X` done,
- *  `-` cancelled, `/` in progress, everything else (including custom
- *  characters) todo — the plugin's unknown-symbol behavior. */
-const statusForChar = (statusChar: string): TaskStatus => {
+/** Maps a checkbox character to a status classification. With a registry
+ *  (from the Tasks plugin config), the registry lookup wins and unknown
+ *  chars fall back to "todo". Without a registry, the four built-in chars
+ *  are hardcoded — backward compat for callers that don't have a config. */
+const statusForChar = (
+  statusChar: string,
+  statusRegistry?: ReadonlyMap<string, StatusClassification>,
+): StatusClassification => {
+  if (statusRegistry) {
+    return statusRegistry.get(statusChar) ?? "todo"
+  }
+
   if (statusChar === "x" || statusChar === "X") return "done"
   if (statusChar === "-") return "cancelled"
   if (statusChar === "/") return "in_progress"
@@ -461,12 +472,11 @@ const findBodyStartLine = (lines: readonly string[]): number => {
   return closingIndex === -1 ? 0 : closingIndex + 1
 }
 
-/** Extracts every task line from raw note content (frontmatter included — it
- *  is skipped here so reported line numbers stay file-relative). Lines inside
- *  fenced code blocks and `%% %%` comment blocks are excluded via the shared
- *  fence and comment state machines. Each task carries the text of the nearest
- *  heading above it (its Kanban lane on a board), or null before the first
- *  heading. */
+/** Extracts task lines from raw note content (frontmatter included — it
+ *  is skipped here so reported line numbers stay file-relative). Excluded:
+ *  fenced code blocks, `%% %%` comment blocks, and checkboxes the status
+ *  registry classifies as NON_TASK. Each task carries the nearest heading
+ *  above it (its Kanban lane on a board), or null before the first heading. */
 /** One open task on the extraction indent stack: its structural indent and
  *  1-based file line. */
 type IndentEntry = {
@@ -485,7 +495,10 @@ const ancestorsOf = (
   return indentStack.filter((entry) => entry.indent < itemIndent)
 }
 
-const extractTasks = (rawContent: string): ParsedTask[] => {
+const extractTasks = (
+  rawContent: string,
+  statusRegistry?: ReadonlyMap<string, StatusClassification>,
+): ParsedTask[] => {
   const allLines = splitIntoLines(rawContent)
   const bodyStartLine = findBodyStartLine(allLines)
   const bodyLines = allLines.slice(bodyStartLine)
@@ -544,6 +557,18 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
     }
 
     const statusChar = capturedGroup(taskLineMatch, 1)
+    const resolvedStatus = statusForChar(statusChar, statusRegistry)
+
+    // NON_TASK lines are invisible to the task system — prune the indent
+    // stack (closing any open task at the same or deeper indent) so tasks
+    // nested below become top-level, then skip the line.
+    // After this guard, resolvedStatus is narrowed to TaskStatus
+    // (StatusClassification is TaskStatus | "non_task").
+    if (resolvedStatus === "non_task") {
+      indentStack = ancestorsOf(indentStack, getTaskIndent(lineText))
+      continue
+    }
+
     // The block link sits at the end of the line — strip it before metadata
     // parsing, exactly as the plugin does.
     const bodyWithBlockLink = capturedGroup(taskLineMatch, 2)
@@ -563,7 +588,7 @@ const extractTasks = (rawContent: string): ParsedTask[] => {
     extractedTasks.push({
       line: fileLine,
       statusChar,
-      status: statusForChar(statusChar),
+      status: resolvedStatus,
       blockId,
       heading: nearestHeading?.text ?? null,
       depth,
@@ -591,8 +616,32 @@ const EMOJI_FOR_PRIORITY: Readonly<Record<TaskPriority, string>> = {
   lowest: "⏬",
 }
 
-/** The checkbox character for a given status. */
-const charForStatus = (status: TaskStatus): string => CHAR_FOR_STATUS[status]
+/** The checkbox character for a given status. When a registry is present,
+ *  picks a char the registry maps to that classification — so the write
+ *  path never emits a symbol the read path would classify differently. */
+const charForStatus = (
+  status: TaskStatus,
+  statusRegistry?: ReadonlyMap<string, StatusClassification>,
+): string => {
+  if (statusRegistry) {
+    for (const [char, classification] of statusRegistry) {
+      if (classification === status) return char
+    }
+    // The registry has no char for this status. The hardcoded fallback is
+    // safe only if the registry reads it back as the same status — an absent
+    // char defaults to "todo" in statusForChar, so only "todo" is safe untyped.
+    const fallback = CHAR_FOR_STATUS[status]
+    const fallbackReadBack = statusRegistry.get(fallback) ?? "todo"
+
+    if (fallbackReadBack !== status) {
+      throw new Error(
+        `no checkbox symbol for status "${status}" in the Tasks plugin registry (the default "${fallback}" is typed ${fallbackReadBack})`,
+      )
+    }
+    return fallback
+  }
+  return CHAR_FOR_STATUS[status]
+}
 
 /** The emoji signifier for a given priority level. */
 const emojiForPriority = (priority: TaskPriority): string => EMOJI_FOR_PRIORITY[priority]
@@ -669,7 +718,7 @@ const replaceCheckboxChar = ({
 }: {
   taskLine: string
   newChar: string
-}): string => taskLine.replace(/\[.\]/, `[${newChar}]`)
+}): string => taskLine.replace(/\[.\]/u, `[${newChar}]`)
 
 /** Removes the LAST occurrence of a field regex from a metadata tail.
  *  Description text ending in a parseable signifier lands at the front of
@@ -697,9 +746,9 @@ const removeAllMetadataMatches = (metadata: string, regex: RegExp): string => {
   return stripped === metadata ? metadata : removeAllMetadataMatches(stripped, regex)
 }
 
-// Re-export TaskFormatConfig so consumers of tasks.ts don't need a
+// Re-export config types so consumers of tasks.ts don't need a
 // separate import from the vault-operations layer.
-export type { TaskFormatConfig }
+export type { StatusClassification, TaskFormatConfig }
 
 /** Formats a done date in the configured format. */
 const formatDoneDate = (today: string, format: "emoji" | "dataview"): string =>
@@ -984,12 +1033,14 @@ type TaskLineParts = {
   trailingWhitespace: string
 }
 
+/** Same prefix grammar as TASK_LINE_RE, captured up to and including the
+ *  checkbox — the two must stay in sync on what counts as the prefix. */
+const TASK_PREFIX_RE = /^([\s\t>]*(?:[-*+]|[0-9]+[.)]) +\[.\] *)/u
+
 /** Splits a task line at the parser's description/metadata boundary.
  *  Returns null when the line is not a task line. */
 const splitTaskLine = (taskLine: string): TaskLineParts | null => {
-  // Same prefix grammar as TASK_LINE_RE, captured up to and including the
-  // checkbox — the two must stay in sync on what counts as the prefix.
-  const checkboxMatch = /^([\s\t>]*(?:[-*+]|[0-9]+[.)]) +\[.\] *)/.exec(taskLine)
+  const checkboxMatch = TASK_PREFIX_RE.exec(taskLine)
   const prefix = checkboxMatch?.[1]
 
   if (!prefix) return null
@@ -1513,7 +1564,7 @@ const buildTaskLine = (params: BuildTaskLineParams, config: TaskFormatConfig): s
   )
 
   const parts = [
-    `${params.indent ?? ""}- [ ] ${params.description}`,
+    `${params.indent ?? ""}- [${charForStatus("todo", config.statusRegistry)}] ${params.description}`,
     ...(params.priority ? [formatPriority(params.priority, format)] : []),
     ...(params.recurrence ? [formatRecurrence(params.recurrence, format)] : []),
     ...(params.onCompletion ? [formatOnCompletion(params.onCompletion, format)] : []),
@@ -1559,7 +1610,7 @@ const updateTaskLineStatus = (params: {
 }): string => {
   const withNewCheckbox = replaceCheckboxChar({
     taskLine: params.taskLine,
-    newChar: charForStatus(params.newStatus),
+    newChar: charForStatus(params.newStatus, params.config.statusRegistry),
   })
 
   const stripMetadataField = (taskLine: string, regex: RegExp): string => {
@@ -1692,15 +1743,6 @@ const updateTaskLinePriority = ({
   })
 }
 
-/** Finds the 0-based line index of a task whose line ends with
- *  ` ^blockId`. Returns null when no match is found. */
-const findTaskByBlockId = (lines: readonly string[], blockId: string): number | null => {
-  // trimEnd: a hard break's trailing spaces must not hide the block link.
-  const suffix = ` ^${blockId}`
-  const lineIndex = lines.findIndex((line) => line.trimEnd().endsWith(suffix) && isTaskLine(line))
-  return lineIndex === -1 ? null : lineIndex
-}
-
 // ── Kanban done-lane detection ─────────────────────────────────
 
 /** The Kanban plugin's per-lane completion marker: a bold "Complete"
@@ -1807,7 +1849,6 @@ export const tasks = {
   buildTaskLine,
   buildNextOccurrenceLine,
   formatDateField,
-  findTaskByBlockId,
   findBodyStartLine,
   extractDoneLanes,
   parseKanbanCardInsertionMethod,

@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { readTaskFormatConfig, resetTaskFormatConfigCache } from "../task-format-config.js"
+import type { StatusClassification } from "../task-format-config.js"
 
 const createVault = async (): Promise<string> => {
   const vaultPath = await mkdtemp(join(tmpdir(), "task-format-config-test-"))
@@ -19,13 +20,20 @@ const writePluginConfig = async (
   await writeFile(join(pluginDir, "data.json"), JSON.stringify(config), "utf8")
 }
 
-/** The recurrence-behavior fields at the plugin's defaults — what a config
- *  file that doesn't mention them must produce. */
-const DEFAULT_RECURRENCE_FIELDS = {
+const DEFAULT_STATUS_REGISTRY: ReadonlyMap<string, StatusClassification> = new Map([
+  [" ", "todo"],
+  ["x", "done"],
+  ["X", "done"],
+  ["/", "in_progress"],
+  ["-", "cancelled"],
+])
+
+/** Plugin defaults shared by every config assertion: recurrence behavior + status registry. */
+const DEFAULT_PLUGIN_FIELDS = {
   setCreatedDate: false,
   recurrenceOnNextLine: false,
   removeScheduledDateOnRecurrence: false,
-  doneStatusSymbols: [],
+  statusRegistry: DEFAULT_STATUS_REGISTRY,
 } as const
 
 describe("readTaskFormatConfig", () => {
@@ -44,7 +52,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "emoji",
       setDoneDate: true,
       setCancelledDate: false,
-      ...DEFAULT_RECURRENCE_FIELDS,
+      ...DEFAULT_PLUGIN_FIELDS,
     })
   })
 
@@ -67,11 +75,11 @@ describe("readTaskFormatConfig", () => {
       setCreatedDate: true,
       recurrenceOnNextLine: true,
       removeScheduledDateOnRecurrence: true,
-      doneStatusSymbols: [],
+      statusRegistry: DEFAULT_STATUS_REGISTRY,
     })
   })
 
-  it("collects DONE-typed checkbox symbols from the status registry", async () => {
+  it("builds the full status registry from core + custom statuses", async () => {
     resetTaskFormatConfigCache()
     const vault = await createVault()
     await writePluginConfig(vault, {
@@ -79,22 +87,54 @@ describe("readTaskFormatConfig", () => {
         coreStatuses: [
           { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
           { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
+          { symbol: "/", name: "In Progress", nextStatusSymbol: "x", type: "IN_PROGRESS" },
+          { symbol: "-", name: "Deferred", nextStatusSymbol: " ", type: "TODO" },
         ],
         customStatuses: [
-          {
-            symbol: "D",
-            name: "Deployed",
-            nextStatusSymbol: " ",
-            type: "DONE",
-          },
+          { symbol: "D", name: "Deployed", nextStatusSymbol: " ", type: "DONE" },
           { symbol: "!", name: "Urgent", nextStatusSymbol: "x", type: "TODO" },
+          { symbol: ">", name: "Forwarded", nextStatusSymbol: " ", type: "NON_TASK" },
+          { symbol: "?", name: "Question", nextStatusSymbol: " ", type: "IN_PROGRESS" },
+          { symbol: "~", name: "Dropped", nextStatusSymbol: " ", type: "CANCELLED" },
         ],
       },
     })
 
     const config = await readTaskFormatConfig(vault)
 
-    expect(config.doneStatusSymbols).toEqual(["x", "D"])
+    // Config wins on overlap (- is retyped from cancelled to todo),
+    // defaults fill in what the config omits (X stays done).
+    expect(config.statusRegistry).toEqual(
+      new Map<string, StatusClassification>([
+        [" ", "todo"],
+        ["x", "done"],
+        ["X", "done"],
+        ["/", "in_progress"],
+        ["-", "todo"],
+        ["D", "done"],
+        ["!", "todo"],
+        [">", "non_task"],
+        ["?", "in_progress"],
+        ["~", "cancelled"],
+      ]),
+    )
+  })
+
+  it("resolves intra-config duplicate symbols with last-wins (custom over core)", async () => {
+    resetTaskFormatConfigCache()
+    const vault = await createVault()
+    await writePluginConfig(vault, {
+      statusSettings: {
+        coreStatuses: [{ symbol: "!", name: "Urgent", nextStatusSymbol: "x", type: "TODO" }],
+        customStatuses: [
+          { symbol: "!", name: "Important", nextStatusSymbol: " ", type: "IN_PROGRESS" },
+        ],
+      },
+    })
+
+    const config = await readTaskFormatConfig(vault)
+
+    expect(config.statusRegistry.get("!")).toBe("in_progress")
   })
 
   it("ignores the legacy pre-type status format", async () => {
@@ -108,7 +148,7 @@ describe("readTaskFormatConfig", () => {
 
     const config = await readTaskFormatConfig(vault)
 
-    expect(config.doneStatusSymbols).toEqual([])
+    expect(config.statusRegistry).toEqual(DEFAULT_STATUS_REGISTRY)
   })
 
   it("ignores malformed status-registry entries", async () => {
@@ -123,7 +163,35 @@ describe("readTaskFormatConfig", () => {
 
     const config = await readTaskFormatConfig(vault)
 
-    expect(config.doneStatusSymbols).toEqual([])
+    expect(config.statusRegistry).toEqual(DEFAULT_STATUS_REGISTRY)
+  })
+
+  it("ignores entries with unrecognized plugin type strings", async () => {
+    resetTaskFormatConfigCache()
+    const vault = await createVault()
+    await writePluginConfig(vault, {
+      statusSettings: {
+        coreStatuses: [
+          { symbol: " ", name: "Todo", type: "TODO" },
+          { symbol: "x", name: "Done", type: "DONE" },
+        ],
+        customStatuses: [{ symbol: "?", name: "Unknown", type: "MYSTERY" }],
+      },
+    })
+
+    const config = await readTaskFormatConfig(vault)
+
+    // The parsed entries (space + x) merge on top of the defaults, so
+    // the built-in X, /, - keep their classifications.
+    expect(config.statusRegistry).toEqual(
+      new Map<string, StatusClassification>([
+        [" ", "todo"],
+        ["x", "done"],
+        ["X", "done"],
+        ["/", "in_progress"],
+        ["-", "cancelled"],
+      ]),
+    )
   })
 
   it("reads dataview format from a valid config file", async () => {
@@ -141,7 +209,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "dataview",
       setDoneDate: false,
       setCancelledDate: true,
-      ...DEFAULT_RECURRENCE_FIELDS,
+      ...DEFAULT_PLUGIN_FIELDS,
     })
   })
 
@@ -155,7 +223,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "emoji",
       setDoneDate: true,
       setCancelledDate: true,
-      ...DEFAULT_RECURRENCE_FIELDS,
+      ...DEFAULT_PLUGIN_FIELDS,
     })
   })
 
@@ -172,7 +240,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "emoji",
       setDoneDate: true,
       setCancelledDate: true,
-      ...DEFAULT_RECURRENCE_FIELDS,
+      ...DEFAULT_PLUGIN_FIELDS,
     })
   })
 
@@ -185,7 +253,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "emoji",
       setDoneDate: true,
       setCancelledDate: true,
-      ...DEFAULT_RECURRENCE_FIELDS,
+      ...DEFAULT_PLUGIN_FIELDS,
     })
 
     await writePluginConfig(vault, {
@@ -198,7 +266,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "dataview",
       setDoneDate: false,
       setCancelledDate: false,
-      ...DEFAULT_RECURRENCE_FIELDS,
+      ...DEFAULT_PLUGIN_FIELDS,
     })
   })
 
@@ -216,7 +284,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "dataview",
       setDoneDate: true,
       setCancelledDate: true,
-      ...DEFAULT_RECURRENCE_FIELDS,
+      ...DEFAULT_PLUGIN_FIELDS,
     })
 
     await writePluginConfig(vault, {
@@ -229,7 +297,7 @@ describe("readTaskFormatConfig", () => {
       taskFormat: "dataview",
       setDoneDate: true,
       setCancelledDate: true,
-      ...DEFAULT_RECURRENCE_FIELDS,
+      ...DEFAULT_PLUGIN_FIELDS,
     })
   })
 })

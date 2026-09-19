@@ -15,7 +15,7 @@ import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
 import { parseMemoryEntries, type MemoryEntry } from "../obsidian-markdown/memory-entries.js"
 import { tasks } from "../obsidian-markdown/tasks.js"
-import type { TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
+import type { StatusClassification, TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
 import { contentHash, type Embedder } from "./embedder.js"
 import type { Reranker } from "./reranker.js"
 import { buildChunkMetadataPrefix, chunkContent } from "./chunker.js"
@@ -343,6 +343,9 @@ export const createSearchIndex = (
     /** When true, creates file_content + file_content_fts tables for
      *  full-text search of non-markdown file content (e.g. canvas). */
     fileToolsEnabled?: boolean | undefined
+    /** Checkbox char → classified type from the Tasks plugin config.
+     *  Captured once at boot — a config change requires a server restart. */
+    statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
     /** Query-time overrides for hybridSearch (file-leg RRF weight, reranker
      *  kind prefix — defaults in hybrid-search.ts) plus the index-time
      *  enrichChunkMetadata, which changes stored chunk text and re-embeds
@@ -353,6 +356,7 @@ export const createSearchIndex = (
 ) => {
   const memoryDir = options?.memoryDir
   const fileToolsEnabled = options?.fileToolsEnabled ?? false
+  const statusRegistry = options?.statusRegistry
   const db = new Database(dbPath)
   db.pragma("journal_mode = WAL")
   db.pragma("synchronous = NORMAL")
@@ -1393,7 +1397,7 @@ export const createSearchIndex = (
     // needs project-level attribution ("Code Projects/vault-cortex", not
     // "Code Projects").
     const taskFolder = filePath.includes("/") ? posix.dirname(filePath) : ""
-    const extractedTasks = tasks.extractTasks(rawContent)
+    const extractedTasks = tasks.extractTasks(rawContent, statusRegistry)
     const memoryFile = memoryFileNameFromPath(filePath)
 
     // All index writes commit or roll back together — a mid-sequence throw

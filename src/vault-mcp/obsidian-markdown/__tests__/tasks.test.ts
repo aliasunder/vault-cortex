@@ -1,13 +1,25 @@
 import { describe, it, expect } from "vitest"
-import { tasks, type ParsedTask, type TaskFormatConfig } from "../tasks.js"
+import {
+  tasks,
+  type ParsedTask,
+  type StatusClassification,
+  type TaskFormatConfig,
+} from "../tasks.js"
 
-/** The recurrence-behavior settings at their plugin defaults, shared by
- *  every config literal in this file. */
-const DEFAULT_RECURRENCE_SETTINGS = {
+const DEFAULT_STATUS_REGISTRY: ReadonlyMap<string, StatusClassification> = new Map([
+  [" ", "todo"],
+  ["x", "done"],
+  ["X", "done"],
+  ["/", "in_progress"],
+  ["-", "cancelled"],
+])
+
+/** Plugin defaults shared by every config literal: recurrence behavior + status registry. */
+const DEFAULT_PLUGIN_SETTINGS = {
   setCreatedDate: false,
   recurrenceOnNextLine: false,
   removeScheduledDateOnRecurrence: false,
-  doneStatusSymbols: [],
+  statusRegistry: DEFAULT_STATUS_REGISTRY,
 } as const
 
 /** Default emoji format config for mutation tests. */
@@ -15,7 +27,7 @@ const EMOJI_CONFIG: TaskFormatConfig = {
   taskFormat: "emoji",
   setDoneDate: true,
   setCancelledDate: true,
-  ...DEFAULT_RECURRENCE_SETTINGS,
+  ...DEFAULT_PLUGIN_SETTINGS,
 }
 
 /** Dataview format config for format-specific tests. */
@@ -23,7 +35,7 @@ const DATAVIEW_CONFIG: TaskFormatConfig = {
   taskFormat: "dataview",
   setDoneDate: true,
   setCancelledDate: true,
-  ...DEFAULT_RECURRENCE_SETTINGS,
+  ...DEFAULT_PLUGIN_SETTINGS,
 }
 
 /** Builds a full ParsedTask from overrides so assertions compare whole
@@ -107,6 +119,185 @@ describe("tasks.extractTasks", () => {
     it.each(statusScenarios)("maps status char “$char” to $status", ({ char, status }) => {
       const extracted = tasks.extractTasks(`- [${char}] Task`)
       expect(extracted).toEqual([task({ statusChar: char, status, description: "Task" })])
+    })
+  })
+
+  describe("status registry classification", () => {
+    const customRegistry: ReadonlyMap<string, StatusClassification> = new Map([
+      [" ", "todo"],
+      ["x", "done"],
+      ["/", "in_progress"],
+      ["-", "cancelled"],
+      ["D", "done"],
+      ["?", "in_progress"],
+      [">", "non_task"],
+    ])
+
+    it("classifies a custom DONE char as done", () => {
+      const extracted = tasks.extractTasks("- [D] Deployed task", customRegistry)
+      expect(extracted).toEqual([
+        task({ statusChar: "D", status: "done", description: "Deployed task" }),
+      ])
+    })
+
+    it("classifies a custom IN_PROGRESS char as in_progress", () => {
+      const extracted = tasks.extractTasks("- [?] Question task", customRegistry)
+      expect(extracted).toEqual([
+        task({ statusChar: "?", status: "in_progress", description: "Question task" }),
+      ])
+    })
+
+    it("excludes NON_TASK lines from extraction", () => {
+      const extracted = tasks.extractTasks(
+        "- [>] Forwarded reference\n- [ ] Real task",
+        customRegistry,
+      )
+      expect(extracted).toEqual([task({ line: 2, description: "Real task" })])
+    })
+
+    it("makes children of a NON_TASK line top-level", () => {
+      const content = [
+        "- [>] Forwarded parent",
+        "  - [ ] Nested under non-task",
+        "- [ ] Sibling task",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content, customRegistry)
+
+      expect(extracted).toEqual([
+        task({ line: 2, description: "Nested under non-task", depth: 0 }),
+        task({ line: 3, description: "Sibling task", depth: 0 }),
+      ])
+    })
+
+    it("closes a prior task's scope when a NON_TASK line appears at the same indent", () => {
+      const content = [
+        "- [ ] Parent task ^parent",
+        "- [>] Forwarded ref",
+        "  - [ ] Child after non-task",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content, customRegistry)
+
+      expect(extracted).toEqual([
+        task({ line: 1, description: "Parent task", blockId: "parent", depth: 0 }),
+        task({ line: 3, description: "Child after non-task", depth: 0 }),
+      ])
+    })
+
+    it("preserves the indent stack when a NON_TASK line is nested under a task", () => {
+      const content = [
+        "- [ ] Parent ^parent",
+        "  - [>] Forwarded child",
+        "  - [ ] Real child",
+      ].join("\n")
+      const extracted = tasks.extractTasks(content, customRegistry)
+
+      expect(extracted).toEqual([
+        task({ line: 1, description: "Parent", blockId: "parent", depth: 0 }),
+        task({ line: 3, description: "Real child", depth: 1, parentLine: 1 }),
+      ])
+    })
+
+    it("falls back to todo for chars not in the registry", () => {
+      const extracted = tasks.extractTasks("- [!] Unknown char", customRegistry)
+      expect(extracted).toEqual([
+        task({ statusChar: "!", status: "todo", description: "Unknown char" }),
+      ])
+    })
+
+    it("uses hardcoded defaults without a registry", () => {
+      const extracted = tasks.extractTasks("- [D] Custom char without registry")
+      expect(extracted).toEqual([
+        task({ statusChar: "D", status: "todo", description: "Custom char without registry" }),
+      ])
+    })
+  })
+
+  describe("statusForChar", () => {
+    const registry: ReadonlyMap<string, StatusClassification> = new Map([
+      [" ", "todo"],
+      ["x", "done"],
+      ["D", "done"],
+      [">", "non_task"],
+    ])
+
+    it("returns the registry classification when present", () => {
+      expect(tasks.statusForChar("D", registry)).toBe("done")
+      expect(tasks.statusForChar(">", registry)).toBe("non_task")
+    })
+
+    it("falls back to todo for chars not in a provided registry", () => {
+      expect(tasks.statusForChar("?", registry)).toBe("todo")
+    })
+
+    it("uses hardcoded defaults without a registry", () => {
+      expect(tasks.statusForChar("x")).toBe("done")
+      expect(tasks.statusForChar("X")).toBe("done")
+      expect(tasks.statusForChar("-")).toBe("cancelled")
+      expect(tasks.statusForChar("/")).toBe("in_progress")
+      expect(tasks.statusForChar(" ")).toBe("todo")
+      expect(tasks.statusForChar("?")).toBe("todo")
+    })
+  })
+
+  describe("charForStatus", () => {
+    it("returns the registry char when the registry maps one to the target status", () => {
+      const registry: ReadonlyMap<string, StatusClassification> = new Map([
+        [" ", "non_task"],
+        ["!", "todo"],
+        ["x", "done"],
+      ])
+
+      expect(tasks.charForStatus("todo", registry)).toBe("!")
+      expect(tasks.charForStatus("done", registry)).toBe("x")
+    })
+
+    it("falls back to the hardcoded char when no registry is provided", () => {
+      expect(tasks.charForStatus("todo")).toBe(" ")
+      expect(tasks.charForStatus("done")).toBe("x")
+      expect(tasks.charForStatus("cancelled")).toBe("-")
+      expect(tasks.charForStatus("in_progress")).toBe("/")
+    })
+
+    it("throws when the registry has no char for the status and the fallback is retyped", () => {
+      const registry: ReadonlyMap<string, StatusClassification> = new Map([
+        [" ", "non_task"],
+        ["x", "done"],
+      ])
+
+      expect(() => tasks.charForStatus("todo", registry)).toThrow(
+        'no checkbox symbol for status "todo" in the Tasks plugin registry (the default " " is typed non_task)',
+      )
+    })
+
+    it("returns the first matching char when multiple symbols share the same status", () => {
+      const registry: ReadonlyMap<string, StatusClassification> = new Map([
+        [" ", "in_progress"],
+        ["!", "todo"],
+        ["?", "todo"],
+        ["x", "done"],
+      ])
+
+      expect(tasks.charForStatus("todo", registry)).toBe("!")
+    })
+
+    it("throws when the fallback char is absent from the registry and status is not todo", () => {
+      const registry: ReadonlyMap<string, StatusClassification> = new Map([
+        [" ", "todo"],
+        ["x", "done"],
+      ])
+
+      expect(() => tasks.charForStatus("cancelled", registry)).toThrow(
+        'no checkbox symbol for status "cancelled" in the Tasks plugin registry (the default "-" is typed todo)',
+      )
+    })
+
+    it("uses the hardcoded fallback when the registry has no char and status is todo", () => {
+      const registry: ReadonlyMap<string, StatusClassification> = new Map([
+        ["x", "done"],
+        ["-", "cancelled"],
+      ])
+
+      expect(tasks.charForStatus("todo", registry)).toBe(" ")
     })
   })
 
@@ -946,7 +1137,7 @@ describe("task line mutations", () => {
         taskFormat: "emoji",
         setDoneDate: false,
         setCancelledDate: true,
-        ...DEFAULT_RECURRENCE_SETTINGS,
+        ...DEFAULT_PLUGIN_SETTINGS,
       }
       const result = tasks.updateTaskLineStatus({
         taskLine: "- [ ] Task ➕ 2026-07-01",
@@ -962,7 +1153,7 @@ describe("task line mutations", () => {
         taskFormat: "emoji",
         setDoneDate: true,
         setCancelledDate: false,
-        ...DEFAULT_RECURRENCE_SETTINGS,
+        ...DEFAULT_PLUGIN_SETTINGS,
       }
       const result = tasks.updateTaskLineStatus({
         taskLine: "- [ ] Task ➕ 2026-07-01",
@@ -1122,37 +1313,6 @@ describe("task line mutations", () => {
         config: DATAVIEW_CONFIG,
       })
       expect(result).toBe("- [ ] Task [priority:: high] ➕ 2026-07-01")
-    })
-  })
-
-  describe("findTaskByBlockId", () => {
-    it("finds a task line by its block ID suffix", () => {
-      const lines = [
-        "## Active",
-        "",
-        "- [ ] First task ➕ 2026-07-01 ^first-task",
-        "- [ ] Second task ➕ 2026-07-02 ^second-task",
-      ]
-      const result = tasks.findTaskByBlockId(lines, "second-task")
-      expect(result).toBe(3)
-    })
-
-    it("returns null when no task line matches the block ID", () => {
-      const lines = ["## Active", "- [ ] Task ➕ 2026-07-01 ^existing-id"]
-      const result = tasks.findTaskByBlockId(lines, "nonexistent-id")
-      expect(result).toBeNull()
-    })
-
-    it("does not match a heading with a block ID", () => {
-      const lines = ["## Heading ^heading-id", "- [ ] Real task ^task-id"]
-      const result = tasks.findTaskByBlockId(lines, "heading-id")
-      expect(result).toBeNull()
-    })
-
-    it("returns the first matching task when multiple lines end with the same block ID", () => {
-      const lines = ["- [ ] First ^dup-id", "- [ ] Second ^dup-id"]
-      const result = tasks.findTaskByBlockId(lines, "dup-id")
-      expect(result).toBe(0)
     })
   })
 

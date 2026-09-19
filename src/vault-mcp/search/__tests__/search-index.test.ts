@@ -8,6 +8,7 @@ import * as sqliteVec from "sqlite-vec"
 vi.mock("sqlite-vec", { spy: true })
 import { createSearchIndex, INDEXABLE_TEXT_EXTENSIONS } from "../search-index.js"
 import type { NoteMetadata, OutgoingLinkEntry, SearchIndex, TaskEntry } from "../search-index.js"
+import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
 import { logger } from "../../../logger.js"
 
 let index: SearchIndex
@@ -983,6 +984,59 @@ describe("upsertNote", () => {
     )
     const tags = index.listAllTags({}, logger)
     expect(tags).toEqual([{ tag: "single-tag", count: 1 }])
+  })
+
+  it("threads the status registry to classify custom task statuses", () => {
+    const statusRegistry: ReadonlyMap<string, StatusClassification> = new Map([
+      [" ", "todo"],
+      ["x", "done"],
+      ["D", "done"],
+      [">", "non_task"],
+    ])
+    const registryIndex = createSearchIndex(":memory:", undefined, undefined, {
+      statusRegistry,
+    })
+    registryIndex.upsertNote(
+      {
+        filePath: "tasks.md",
+        rawContent:
+          "---\ntitle: Tasks\n---\n\n- [D] Deployed task\n- [>] Forwarded ref\n- [ ] Normal task\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = registryIndex.listTasks({ status: "all" }, logger)
+
+    expect(result).toEqual({
+      total: 2,
+      tasks: [
+        {
+          path: "tasks.md",
+          line: 5,
+          status: "done",
+          status_char: "D",
+          description: "Deployed task",
+          folder: "",
+          depends_on: [],
+          tags: [],
+          depth: 0,
+          is_kanban_task: false,
+        },
+        {
+          path: "tasks.md",
+          line: 7,
+          status: "todo",
+          status_char: " ",
+          description: "Normal task",
+          folder: "",
+          depends_on: [],
+          tags: [],
+          depth: 0,
+          is_kanban_task: false,
+        },
+      ],
+    })
   })
 })
 

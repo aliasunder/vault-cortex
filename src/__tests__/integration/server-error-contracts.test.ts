@@ -1146,6 +1146,60 @@ describe("task errors", () => {
     })
     expectToolError(result, "blockId and line are mutually exclusive")
   })
+
+  it("vault_update_task rejects a NON_TASK checkbox", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/status-registry.md",
+        block_id: "forwarded-ref",
+        status: "done",
+      },
+    })
+    expectToolError(result, 'checkbox "[>]" is a NON_TASK status')
+  })
+
+  it("vault_update_task rejects a block_id inside a fenced code block", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/status-registry.md",
+        block_id: "fenced-example",
+        status: "done",
+      },
+    })
+    expectToolError(result, "is inside a fenced code block or comment")
+  })
+
+  it("vault_create_task rejects a NON_TASK parent", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/status-registry.md",
+        description: "Child",
+        block_id: "child-of-nontask",
+        parent_block_id: "forwarded-ref",
+      },
+    })
+    expectToolError(result, 'checkbox "[>]" is a NON_TASK status')
+  })
+
+  it("vault_create_task rejects a parent inside a fenced code block", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/status-registry.md",
+        description: "Child",
+        block_id: "child-of-fenced",
+        parent_block_id: "fenced-example",
+      },
+    })
+    expectToolError(result, "is inside a fenced code block or comment")
+  })
 })
 
 // ── Path extension errors ────────────────────────────────────

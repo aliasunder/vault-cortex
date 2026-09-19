@@ -5753,14 +5753,14 @@ title: Tasks
       )
 
       // The plugin treats "D" as already done via the status registry —
-      // the doneStatusSymbols guard prevents deletion.
+      // the statusRegistry guard prevents deletion.
       expect(result).toEqual({
         path: "tasks.md",
         line: 7,
         description: "Deploy and clean up",
         block_id: "deploy-cleanup",
         heading: "Active",
-        changes: ["status: todo → done"],
+        changes: ["status: done → done"],
       })
 
       const content = await readTestNote(vault, "tasks.md")
@@ -5810,6 +5810,375 @@ title: Tasks
       expect(content).toBe(
         `---\ntitle: Tasks\n---\n\n## Active\n\n- [ ] Other task ➕ 2026-07-02 ^other\n`,
       )
+    })
+  })
+
+  describe("NON_TASK guard", () => {
+    const writePluginConfig = async (
+      vaultPath: string,
+      config: Record<string, unknown>,
+    ): Promise<void> => {
+      const pluginDir = join(vaultPath, ".obsidian", "plugins", "obsidian-tasks-plugin")
+      await mkdir(pluginDir, { recursive: true })
+      await writeFile(join(pluginDir, "data.json"), JSON.stringify(config), "utf8")
+    }
+
+    const NON_TASK_CONFIG = {
+      statusSettings: {
+        coreStatuses: [
+          { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
+          { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
+        ],
+        customStatuses: [
+          { symbol: ">", name: "Forwarded", nextStatusSymbol: " ", type: "NON_TASK" },
+        ],
+      },
+    }
+
+    it("updateTask rejects a NON_TASK checkbox by block_id", async () => {
+      resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [ ] Normal task ➕ 2026-07-02 ^normal\n`,
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          { vaultPath: vault, path: "tasks.md", blockId: "fwd", heading: "Done" },
+          logger,
+        ),
+      ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
+    })
+
+    it("updateTask rejects a NON_TASK checkbox by line number", async () => {
+      resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [ ] Normal task ➕ 2026-07-02 ^normal\n`,
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          { vaultPath: vault, path: "tasks.md", line: 5, status: "done" },
+          logger,
+        ),
+      ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
+    })
+
+    it("createTask rejects a NON_TASK parent by block_id", async () => {
+      resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [ ] Normal task ➕ 2026-07-02 ^normal\n`,
+      )
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Sub-task",
+            blockId: "sub",
+            parentBlockId: "fwd",
+          },
+          logger,
+        ),
+      ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
+    })
+
+    it("createTask rejects a NON_TASK parent by line number", async () => {
+      resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [ ] Normal task ➕ 2026-07-02 ^normal\n`,
+      )
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Sub-task",
+            blockId: "sub",
+            parentLine: 5,
+          },
+          logger,
+        ),
+      ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
+    })
+
+    it("allows updating a normal task when NON_TASK statuses exist", async () => {
+      resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [ ] Normal task ➕ 2026-07-02 ^normal\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        { vaultPath: vault, path: "tasks.md", blockId: "normal", status: "done" },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 6,
+        description: "Normal task",
+        block_id: "normal",
+        changes: ["status: todo → done"],
+      })
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [x] Normal task ➕ 2026-07-02 ✅ ${today()} ^normal\n`,
+      )
+    })
+
+    it("appendSubtasks excludes NON_TASK children from the count", async () => {
+      resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [ ] Card ^card\n  - [>] Forwarded child\n  - [ ] Real child ^real\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "card",
+          addSubtasks: ["New stage"],
+        },
+        logger,
+      )
+
+      expect(result.changes).toEqual(["subtasks: 1 → 2"])
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [ ] Card ^card\n  - [>] Forwarded child\n  - [ ] Real child ^real\n  - [ ] New stage\n`,
+      )
+    })
+  })
+
+  describe("charForStatus throw at mutation boundary", () => {
+    const writePluginConfig = async (
+      vaultPath: string,
+      config: Record<string, unknown>,
+    ): Promise<void> => {
+      const pluginDir = join(vaultPath, ".obsidian", "plugins", "obsidian-tasks-plugin")
+      await mkdir(pluginDir, { recursive: true })
+      await writeFile(join(pluginDir, "data.json"), JSON.stringify(config), "utf8")
+    }
+
+    it("updateTask rejects status change when the fallback char is retyped", async () => {
+      resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
+      const vault = await createVault()
+      await writePluginConfig(vault, {
+        statusSettings: {
+          coreStatuses: [
+            { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
+            { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
+            { symbol: "-", name: "Pending", nextStatusSymbol: " ", type: "TODO" },
+          ],
+          customStatuses: [],
+        },
+      })
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ^task\n`,
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          { vaultPath: vault, path: "tasks.md", blockId: "task", status: "cancelled" },
+          logger,
+        ),
+      ).rejects.toThrow(
+        'no checkbox symbol for status "cancelled" in the Tasks plugin registry (the default "-" is typed todo)',
+      )
+    })
+  })
+
+  describe("fenced/comment task guard", () => {
+    it("updateTask rejects a task inside a fenced code block", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Example task ^example\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`,
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          { vaultPath: vault, path: "tasks.md", blockId: "example", status: "done" },
+          logger,
+        ),
+      ).rejects.toThrow('blockId "example" is inside a fenced code block or comment in "tasks.md"')
+    })
+
+    it("createTask rejects a parent inside a fenced code block", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Fenced parent ^fenced\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`,
+      )
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Child",
+            blockId: "child",
+            parentBlockId: "fenced",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        'parent task not found: blockId "fenced" is inside a fenced code block or comment',
+      )
+    })
+
+    it("allows updating a task outside the fence", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Example ^example\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        { vaultPath: vault, path: "tasks.md", blockId: "real", status: "done" },
+        logger,
+      )
+
+      expect(result.description).toBe("Real task")
+      expect(result.changes).toEqual(["status: todo → done"])
+    })
+
+    it("skips a fenced match and finds the real task with the same block-id", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Fenced example ^shared-id\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^shared-id\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        { vaultPath: vault, path: "tasks.md", blockId: "shared-id", status: "done" },
+        logger,
+      )
+
+      expect(result.description).toBe("Real task")
+      expect(result.changes).toEqual(["status: todo → done"])
+    })
+
+    it("skips a fenced match and finds the real parent with the same block-id", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Fenced parent ^shared-parent\n\`\`\`\n\n- [ ] Real parent ➕ 2026-07-01 ^shared-parent\n`,
+      )
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "Child task",
+          blockId: "child-of-shared",
+          parentBlockId: "shared-parent",
+        },
+        logger,
+      )
+
+      expect(result.description).toBe("Child task")
+    })
+
+    it("createTask succeeds when the block-id exists only inside a fenced block", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Example ^taken\n\`\`\`\n\n- [ ] Existing task ➕ 2026-07-01 ^real\n`,
+      )
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "New task",
+          blockId: "taken",
+        },
+        logger,
+      )
+
+      expect(result.description).toBe("New task")
+      expect(result.block_id).toBe("taken")
+    })
+
+    it("updateTask rejects a line-addressed task inside a fenced code block", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Fenced example\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`,
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          { vaultPath: vault, path: "tasks.md", line: 6, status: "done" },
+          logger,
+        ),
+      ).rejects.toThrow("line 6 is inside a fenced code block or comment")
+    })
+
+    it("createTask rejects a line-addressed parent inside a fenced code block", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Fenced parent\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`,
+      )
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Child",
+            blockId: "child",
+            parentLine: 6,
+          },
+          logger,
+        ),
+      ).rejects.toThrow("parent task not found: line 6 is inside a fenced code block or comment")
     })
   })
 })

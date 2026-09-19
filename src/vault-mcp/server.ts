@@ -8,6 +8,7 @@ import { createSearchIndex } from "./search/search-index.js"
 import { createEmbedder } from "./search/embedder.js"
 import { createReranker } from "./search/reranker.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
+import { readTaskFormatConfig } from "./vault-operations/task-format-config.js"
 import { trashSweeper } from "./vault-operations/trash-sweeper.js"
 import { startFileWatcher } from "./search/file-watcher.js"
 import { createOAuthProvider } from "./oauth/oauth-provider.js"
@@ -113,6 +114,7 @@ const startServer = async (): Promise<void> => {
   }
 
   const indexDbPath = env.get("INDEX_DB_PATH").asString()
+  // /data is the Docker volume where the container persists indexes and logs
   const dataDir = indexDbPath ? dirname(indexDbPath) : "/data"
   const searchDbPath = indexDbPath ?? `${dataDir}/search.db`
   const oauthDbPath = `${dataDir}/oauth.db`
@@ -136,9 +138,11 @@ const startServer = async (): Promise<void> => {
   const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
   const reranker =
     config.embeddingEnabled && config.rerankMode === "blended" ? createReranker(logger) : undefined
+  const taskFormatConfig = await readTaskFormatConfig(vaultPath)
   const search = createSearchIndex(searchDbPath, embedder, reranker, {
     memoryDir: config.memoryEnabled ? config.memoryDir : undefined,
     fileToolsEnabled: config.fileToolsEnabled,
+    statusRegistry: taskFormatConfig.statusRegistry,
   })
   const { count } = await search.rebuildFromVault({ vaultPath }, logger)
   logger.info("initial index built", { count })
