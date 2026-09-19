@@ -2723,11 +2723,27 @@ created: 2026-01-01T00:00:00-05:00
   })
 
   it("returns every entry in document order when section and on_or_after are both omitted", async () => {
-    const entries = await getMemoryEntries({ vaultPath: vault, file: "Principles" }, logger)
-    expect(entries.map((entry) => entry.text)).toEqual([
-      "- **2026-05-06**: Secrets invisible at every layer",
-      "- **2026-05-05**: Least-privilege for AI agents",
-      "- **2026-05-04**: Single-purpose files",
+    const entries = await getMemoryEntries({ vaultPath: vault, file: "Opinions" }, logger)
+    // Dates run 07 → 04 → 07, so any global date sort would reorder them.
+    expect(entries).toEqual([
+      {
+        section: "AI tooling & memory (newest first)",
+        date: "2026-05-07",
+        text: "- **2026-05-07**: **Research current docs before configuring.** AI agents should consult docs",
+        entryIndex: 0,
+      },
+      {
+        section: "AI tooling & memory (newest first)",
+        date: "2026-05-04",
+        text: "- **2026-05-04**: **Clean breaks over placeholders.** Remove all references",
+        entryIndex: 1,
+      },
+      {
+        section: "Code patterns (newest first)",
+        date: "2026-05-07",
+        text: "- **2026-05-07**: **.reduce() over filter/map chains.** Single reduce pass",
+        entryIndex: 2,
+      },
     ])
   })
 

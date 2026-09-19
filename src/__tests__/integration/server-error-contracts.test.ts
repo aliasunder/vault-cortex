@@ -716,6 +716,15 @@ describe("memory errors", () => {
     expectToolError(result, 'section not found: "No Such Section" in About Me/Preferences.md')
   })
 
+  it("vault_get_memory with section but no file", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_memory",
+      args: { section: "Editor settings" },
+    })
+    expectToolError(result, "section requires a file")
+  })
+
   it("vault_get_memory on_or_after without file", async () => {
     const result = await callTool({
       client,
