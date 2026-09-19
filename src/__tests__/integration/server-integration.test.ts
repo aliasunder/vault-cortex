@@ -425,6 +425,23 @@ describe("default config", () => {
       expect(text).toContain("alpha-task-2")
     })
 
+    it("vault_list_tasks — boot-time status registry excludes NON_TASK checkboxes", async () => {
+      const result = await callTool({
+        client,
+        name: "vault_list_tasks",
+        args: {
+          path: "Projects/status-registry.md",
+          status: "all",
+          sort_by: "position",
+        },
+      })
+      expect(result.isError).not.toBe(true)
+      const json = JSON.parse(textContent(result))
+      expect(json.tasks.map((task: { description: string }) => task.description)).toEqual([
+        "Normal task",
+      ])
+    })
+
     it("vault_create_task — creates a card and verifies via readback", async () => {
       const createResult = await callTool({
         client,
