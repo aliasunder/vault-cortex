@@ -147,6 +147,8 @@ const capHeadingPath = (
   if (sectionLineTokens <= sectionLineBudget) return headingPath
 
   const capped = [...headingPath]
+  // The deepest segment always survives — even when it alone exceeds the
+  // budget, it carries the section's own vocabulary.
   while (capped.length > 1) {
     capped.shift()
     if (approximateTokenCount(`Section: ${capped.join(" > ")}`) <= sectionLineBudget) break
@@ -188,9 +190,9 @@ const collectSectionSpans = (
   const topLevel = Math.min(...headings.map((heading) => heading.level))
   const topLevelHeadingCount = headings.filter((heading) => heading.level === topLevel).length
 
-  // A wrapper must OPEN the note — preamble text or an earlier deeper
-  // heading means the lone top-level heading does not span the note, so
-  // it keeps its Section line.
+  // A lone top-level heading that opens the note (the `# Title` wrapper
+  // pattern) spans the whole body — preamble text or an earlier deeper
+  // heading means it does not, so it keeps its Section line.
   const hasSingletonWrapper =
     topLevelHeadingCount === 1 && headings[0]?.level === topLevel && !preambleExists
 
@@ -200,6 +202,8 @@ const collectSectionSpans = (
   headings.forEach((heading, headingIndex) => {
     // Pop siblings and descendants (same or deeper level) so the stack
     // holds only the current heading's ancestors.
+    // 0 is below any valid heading level (1-6), so the condition is
+    // false on an empty stack.
     while ((ancestorStack.at(-1)?.level ?? 0) >= heading.level) {
       ancestorStack.pop()
     }
@@ -260,10 +264,11 @@ const buildTableOfContentsText = (
 
   // A single short chunk is the point — splitting an oversized name list
   // into more chunks would defeat it, so names are dropped at the budget.
-  // Deliberately no MIN floor (unlike budgetAfterPrefix): padding a huge
-  // title line with 50 name tokens would push the chunk past MAX and
-  // defeat its short-chunk purpose — when the title line exhausts the
-  // budget, the TOC is suppressed instead (the null return below).
+  // No MIN floor — budgetAfterPrefix floors at MIN_CHUNK_TOKENS to
+  // guarantee body content, but padding a huge title line with 50 name
+  // tokens here would push the chunk past MAX and defeat its short-chunk
+  // purpose. When the title line exhausts the budget, the TOC is
+  // suppressed instead (the null return below).
   const headingNameBudget = MAX_CHUNK_TOKENS - approximateTokenCount(titleLine)
   const budgetedHeadingNames: string[] = []
   // Cumulative token total threads through the loop sequentially.
@@ -356,6 +361,8 @@ export const chunkContent = (params: {
       )
     : []
 
+  // Total chunk budget minus the body-content floor (MIN), title, and
+  // metadata leaves what is available for the Section-line ancestor path.
   const titleTokens = approximateTokenCount(noteTitle)
   const metadataTokens = metadataPrefix ? approximateTokenCount(metadataPrefix) : 0
   const sectionLineBudget = Math.max(
