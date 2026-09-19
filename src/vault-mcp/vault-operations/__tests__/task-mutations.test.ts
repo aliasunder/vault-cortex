@@ -5983,6 +5983,47 @@ title: Tasks
     })
   })
 
+  describe("charForStatus throw at mutation boundary", () => {
+    const writePluginConfig = async (
+      vaultPath: string,
+      config: Record<string, unknown>,
+    ): Promise<void> => {
+      const pluginDir = join(vaultPath, ".obsidian", "plugins", "obsidian-tasks-plugin")
+      await mkdir(pluginDir, { recursive: true })
+      await writeFile(join(pluginDir, "data.json"), JSON.stringify(config), "utf8")
+    }
+
+    it("updateTask rejects status change when the fallback char is retyped", async () => {
+      resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
+      const vault = await createVault()
+      await writePluginConfig(vault, {
+        statusSettings: {
+          coreStatuses: [
+            { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
+            { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
+            { symbol: "-", name: "Pending", nextStatusSymbol: " ", type: "TODO" },
+          ],
+          customStatuses: [],
+        },
+      })
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ^task\n`,
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          { vaultPath: vault, path: "tasks.md", blockId: "task", status: "cancelled" },
+          logger,
+        ),
+      ).rejects.toThrow(
+        'no checkbox symbol for status "cancelled" in the Tasks plugin registry (the default "-" is typed todo)',
+      )
+    })
+  })
+
   describe("fenced/comment task guard", () => {
     it("updateTask rejects a task inside a fenced code block", async () => {
       const vault = await createVault()
