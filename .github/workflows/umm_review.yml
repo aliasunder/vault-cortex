@@ -17,7 +17,7 @@ permissions:
 # before `if`, so a guard-failing run (non-trigger comment, fork-PR push,
 # non-owner push) would otherwise cancel a live review and then skip.
 concurrency:
-  group: umm-review-${{ github.event.pull_request.number || github.event.issue.number }}${{ ((github.event_name == 'issue_comment' && !(github.event.comment.user.login == github.repository_owner && startsWith(github.event.comment.body, '@umm review'))) || (github.event_name == 'pull_request' && !(github.event.pull_request.user.login == github.repository_owner && github.event.pull_request.head.repo.full_name == github.repository))) && format('-noop-{0}', github.run_id) || '' }}
+  group: umm-review-${{ github.event.pull_request.number || github.event.issue.number }}${{ ((github.event_name == 'issue_comment' && !(github.event.issue.pull_request && github.event.comment.user.login == github.repository_owner && startsWith(github.event.comment.body, '@umm review'))) || (github.event_name == 'pull_request' && !(github.event.pull_request.user.login == github.repository_owner && github.event.pull_request.head.repo.full_name == github.repository))) && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:
@@ -89,7 +89,7 @@ jobs:
       # default unless the expression below supplies an explicit workflow default.
       # Inputs whose default is empty (fallback_model, max_findings) pass empty
       # when the var is unset — identical to omitting them.
-      - uses: aliasunder/umm-actually@1175cd5fbd4141c33686f0925993a7a8a9b569fa # v0.4.6
+      - uses: aliasunder/umm-actually@9c9353ca381a38b951f14970beaf43c8bef145b3 # v0.4.7
         with:
           github_token: ${{ steps.app-token.outputs.token }}
           openrouter_api_key: ${{ secrets.OPENROUTER_KEY }}
@@ -113,6 +113,9 @@ jobs:
           # Repo-relative path to the conventions/instructions file fed to
           # the model
           conventions_file: ${{ vars.UMM_CONVENTIONS_FILE || 'AGENTS.md' }}
+          # Approximate token budget for the conventions file section.
+          # Files over this are truncated with a notice. Empty = 8000
+          conventions_budget_tokens: ${{ vars.UMM_CONVENTIONS_BUDGET_TOKENS }}
           # Comma-separated repo-relative paths always included in review
           # context. Nested paths fine; spaces after commas fine; never
           # quote individual paths (quotes are not stripped), e.g.
