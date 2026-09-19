@@ -141,7 +141,12 @@ const capHeadingPath = (
   headingPath: readonly string[],
   sectionLineBudget: number,
 ): readonly string[] => {
-  if (sectionLineBudget <= 0 || headingPath.length === 0) return []
+  // Suppress the Section line when the budget can't even hold the
+  // "Section:" literal — a 1-2 token budget would add a prefix with
+  // no retrievable path vocabulary.
+  const sectionLabelTokens = approximateTokenCount("Section:")
+
+  if (sectionLineBudget < sectionLabelTokens || headingPath.length === 0) return []
 
   const sectionLineTokens = approximateTokenCount(`Section: ${headingPath.join(" > ")}`)
 
