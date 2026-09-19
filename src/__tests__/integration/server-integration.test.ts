@@ -437,9 +437,25 @@ describe("default config", () => {
       })
       expect(result.isError).not.toBe(true)
       const json = JSON.parse(textContent(result))
-      expect(json.tasks.map((task: { description: string }) => task.description)).toEqual([
-        "Normal task",
-      ])
+      expect(json).toEqual({
+        total: 1,
+        tasks: [
+          {
+            path: "Projects/status-registry.md",
+            line: 12,
+            status: "todo",
+            status_char: " ",
+            description: "Normal task",
+            heading: "Tasks",
+            folder: "Projects",
+            depends_on: [],
+            tags: [],
+            block_id: "normal-task",
+            depth: 0,
+            is_kanban_task: false,
+          },
+        ],
+      })
     })
 
     it("vault_create_task — creates a card and verifies via readback", async () => {
