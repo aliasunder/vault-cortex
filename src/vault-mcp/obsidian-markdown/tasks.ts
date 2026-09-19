@@ -1032,12 +1032,14 @@ type TaskLineParts = {
   trailingWhitespace: string
 }
 
+/** Same prefix grammar as TASK_LINE_RE, captured up to and including the
+ *  checkbox — the two must stay in sync on what counts as the prefix. */
+const TASK_PREFIX_RE = /^([\s\t>]*(?:[-*+]|[0-9]+[.)]) +\[.\] *)/u
+
 /** Splits a task line at the parser's description/metadata boundary.
  *  Returns null when the line is not a task line. */
 const splitTaskLine = (taskLine: string): TaskLineParts | null => {
-  // Same prefix grammar as TASK_LINE_RE, captured up to and including the
-  // checkbox — the two must stay in sync on what counts as the prefix.
-  const checkboxMatch = /^([\s\t>]*(?:[-*+]|[0-9]+[.)]) +\[.\] *)/.exec(taskLine)
+  const checkboxMatch = TASK_PREFIX_RE.exec(taskLine)
   const prefix = checkboxMatch?.[1]
 
   if (!prefix) return null
