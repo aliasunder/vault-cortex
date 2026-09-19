@@ -175,14 +175,17 @@ describe("readTaskFormatConfig", () => {
           { symbol: " ", name: "Todo", type: "TODO" },
           { symbol: "x", name: "Done", type: "DONE" },
         ],
-        customStatuses: [{ symbol: "?", name: "Unknown", type: "MYSTERY" }],
+        customStatuses: [
+          { symbol: "D", name: "Deployed", nextStatusSymbol: " ", type: "DONE" },
+          { symbol: "?", name: "Unknown", nextStatusSymbol: " ", type: "MYSTERY" },
+        ],
       },
     })
 
     const config = await readTaskFormatConfig(vault)
 
-    // The parsed entries (space + x) merge on top of the defaults, so
-    // the built-in X, /, - keep their classifications.
+    // The parsed entries merge on top of the defaults; the MYSTERY entry
+    // is dropped, but the valid D→done entry survives alongside the defaults.
     expect(config.statusRegistry).toEqual(
       new Map<string, StatusClassification>([
         [" ", "todo"],
@@ -190,6 +193,7 @@ describe("readTaskFormatConfig", () => {
         ["X", "done"],
         ["/", "in_progress"],
         ["-", "cancelled"],
+        ["D", "done"],
       ]),
     )
   })

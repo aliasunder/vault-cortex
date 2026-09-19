@@ -426,14 +426,37 @@ const taskAppendIndexUnderHeading = ({
 /** Body index for inserting at position N (1-based) among a section's
  *  top-level cards. Walks from the first valid card slot to the section
  *  end, skipping each card's sub-item block via findTaskBlockEnd. */
+/** A task line that the index would exclude — inside a fence/comment or
+ *  typed NON_TASK in the status registry — is not a lane card for
+ *  position-counting purposes. */
+const isExcludedFromLane = (
+  line: string,
+  lineIndex: number,
+  lines: readonly string[],
+  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined,
+): boolean => {
+  if (isInsideFenceOrComment(lines, lineIndex)) return true
+
+  if (!statusRegistry) return false
+
+  const charMatch = CHECKBOX_CHAR_RE.exec(line)
+  const statusChar = charMatch?.[1]
+
+  if (!statusChar) return false
+
+  return tasks.statusForChar(statusChar, statusRegistry) === "non_task"
+}
+
 const headingInsertIndexAtPosition = ({
   lines,
   heading,
   position,
+  statusRegistry,
 }: {
   lines: readonly string[]
   heading: HeadingInfo
   position: number
+  statusRegistry?: ReadonlyMap<string, StatusClassification>
 }): number => {
   // Start from bodyStartLine (not taskInsertIndexUnderHeading) so the
   // integer walk and positionOfTaskInLane count from the same window.
@@ -459,7 +482,11 @@ const headingInsertIndexAtPosition = ({
   while (walkIndex < walkEnd) {
     const line = lines[walkIndex]
 
-    if (!line?.trim() || !tasks.isTaskLine(line)) {
+    if (
+      !line?.trim() ||
+      !tasks.isTaskLine(line) ||
+      isExcludedFromLane(line, walkIndex, lines, statusRegistry)
+    ) {
       walkIndex++
       continue
     }
@@ -910,6 +937,7 @@ const positionOfTaskInLane = (
   lines: readonly string[],
   heading: HeadingInfo,
   taskLineIndex: number,
+  statusRegistry?: ReadonlyMap<string, StatusClassification>,
 ): number => {
   // Scan from the heading's body start, not the insert slot — the insert
   // slot skips past a **Complete** marker, but cards above the marker are
@@ -930,7 +958,11 @@ const positionOfTaskInLane = (
   while (walkIndex < walkEnd) {
     const line = lines[walkIndex]
 
-    if (!line?.trim() || !tasks.isTaskLine(line)) {
+    if (
+      !line?.trim() ||
+      !tasks.isTaskLine(line) ||
+      isExcludedFromLane(line, walkIndex, lines, statusRegistry)
+    ) {
       walkIndex++
       continue
     }
