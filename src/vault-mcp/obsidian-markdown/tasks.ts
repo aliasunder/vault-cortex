@@ -628,13 +628,14 @@ const charForStatus = (
       if (classification === status) return char
     }
     // The registry has no char for this status. The hardcoded fallback is
-    // safe only if the registry classifies it the same way (or not at all).
+    // safe only if the registry reads it back as the same status — an absent
+    // char defaults to "todo" in statusForChar, so only "todo" is safe untyped.
     const fallback = CHAR_FOR_STATUS[status]
-    const fallbackClassification = statusRegistry.get(fallback)
+    const fallbackReadBack = statusRegistry.get(fallback) ?? "todo"
 
-    if (fallbackClassification && fallbackClassification !== status) {
+    if (fallbackReadBack !== status) {
       throw new Error(
-        `no checkbox symbol for status "${status}" in the Tasks plugin registry (the default "${fallback}" is typed ${fallbackClassification})`,
+        `no checkbox symbol for status "${status}" in the Tasks plugin registry (the default "${fallback}" is typed ${fallbackReadBack})`,
       )
     }
     return fallback

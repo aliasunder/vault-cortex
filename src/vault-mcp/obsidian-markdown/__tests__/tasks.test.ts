@@ -280,13 +280,24 @@ describe("tasks.extractTasks", () => {
       expect(tasks.charForStatus("todo", registry)).toBe("!")
     })
 
-    it("uses the hardcoded fallback when the registry has no char but the fallback is safe", () => {
+    it("throws when the fallback char is absent from the registry and status is not todo", () => {
       const registry: ReadonlyMap<string, StatusClassification> = new Map([
         [" ", "todo"],
         ["x", "done"],
       ])
 
-      expect(tasks.charForStatus("cancelled", registry)).toBe("-")
+      expect(() => tasks.charForStatus("cancelled", registry)).toThrow(
+        'no checkbox symbol for status "cancelled" in the Tasks plugin registry (the default "-" is typed todo)',
+      )
+    })
+
+    it("uses the hardcoded fallback when the registry has no char and status is todo", () => {
+      const registry: ReadonlyMap<string, StatusClassification> = new Map([
+        ["x", "done"],
+        ["-", "cancelled"],
+      ])
+
+      expect(tasks.charForStatus("todo", registry)).toBe(" ")
     })
   })
 

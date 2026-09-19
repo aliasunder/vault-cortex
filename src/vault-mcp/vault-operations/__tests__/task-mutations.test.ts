@@ -6142,5 +6142,43 @@ title: Tasks
       expect(result.description).toBe("New task")
       expect(result.block_id).toBe("taken")
     })
+
+    it("updateTask rejects a line-addressed task inside a fenced code block", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Fenced example\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`,
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          { vaultPath: vault, path: "tasks.md", line: 6, status: "done" },
+          logger,
+        ),
+      ).rejects.toThrow("line 6 is inside a fenced code block or comment")
+    })
+
+    it("createTask rejects a line-addressed parent inside a fenced code block", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Fenced parent\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`,
+      )
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Child",
+            blockId: "child",
+            parentLine: 6,
+          },
+          logger,
+        ),
+      ).rejects.toThrow("parent task not found: line 6 is inside a fenced code block or comment")
+    })
   })
 })
