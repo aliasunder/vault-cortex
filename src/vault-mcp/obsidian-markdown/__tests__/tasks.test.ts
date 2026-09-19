@@ -241,6 +241,46 @@ describe("tasks.extractTasks", () => {
     })
   })
 
+  describe("charForStatus", () => {
+    it("returns the registry char when the registry maps one to the target status", () => {
+      const registry: ReadonlyMap<string, StatusClassification> = new Map([
+        [" ", "non_task"],
+        ["!", "todo"],
+        ["x", "done"],
+      ])
+
+      expect(tasks.charForStatus("todo", registry)).toBe("!")
+      expect(tasks.charForStatus("done", registry)).toBe("x")
+    })
+
+    it("falls back to the hardcoded char when no registry is provided", () => {
+      expect(tasks.charForStatus("todo")).toBe(" ")
+      expect(tasks.charForStatus("done")).toBe("x")
+      expect(tasks.charForStatus("cancelled")).toBe("-")
+      expect(tasks.charForStatus("in_progress")).toBe("/")
+    })
+
+    it("throws when the registry has no char for the status and the fallback is retyped", () => {
+      const registry: ReadonlyMap<string, StatusClassification> = new Map([
+        [" ", "non_task"],
+        ["x", "done"],
+      ])
+
+      expect(() => tasks.charForStatus("todo", registry)).toThrow(
+        'no checkbox symbol for status "todo" in the Tasks plugin registry (the default " " is typed non_task)',
+      )
+    })
+
+    it("uses the hardcoded fallback when the registry has no char but the fallback is safe", () => {
+      const registry: ReadonlyMap<string, StatusClassification> = new Map([
+        [" ", "todo"],
+        ["x", "done"],
+      ])
+
+      expect(tasks.charForStatus("cancelled", registry)).toBe("-")
+    })
+  })
+
   describe("emoji date fields", () => {
     const dateScenarios = [
       {
