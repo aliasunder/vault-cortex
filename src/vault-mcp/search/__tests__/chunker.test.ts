@@ -773,11 +773,13 @@ describe("chunkContent", () => {
       })
 
       // All section chunks lose their Section line because the prefix
-      // already exhausts the budget
-      const sectionChunks = chunks.filter((chunk) => chunk.text.includes("body0"))
+      // already exhausts the budget — verify both Heading and Trail sections
+      const bodyChunks = chunks.filter((chunk) => chunk.text.includes("body0"))
+      const trailChunks = chunks.filter((chunk) => chunk.text.includes("trail0"))
 
-      expect(sectionChunks.length).toBeGreaterThan(0)
-      for (const chunk of sectionChunks) {
+      expect(bodyChunks.length).toBeGreaterThan(0)
+      expect(trailChunks.length).toBeGreaterThan(0)
+      for (const chunk of [...bodyChunks, ...trailChunks]) {
         expect(sectionLineOf(chunk.text)).toBeNull()
       }
     })
@@ -852,7 +854,28 @@ describe("chunkContent", () => {
       expect(sectionLineOf(deepWith.text)).toBe(`Section: ${innerName}`)
     })
 
-    it("preserves chunk output byte-identically for a moderately deep path within budget", () => {
+    it("keeps the deepest segment when the loop exhausts all ancestors", () => {
+      // 2 segments of ~400 tokens each. The full path exceeds the ~399
+      // budget, and the loop drops the outer segment — the remaining
+      // deepest segment alone still exceeds the budget but survives.
+      const outerName = generateLabeledTokens(400, "out")
+      const innerName = generateLabeledTokens(400, "inn")
+      const body =
+        `## ${outerName}\n\n${generateLabeledTokens(200, "a")}\n\n` +
+        `### ${innerName}\n\n${generateLabeledTokens(200, "b")}` +
+        trailSection
+
+      const chunks = chunkContent({ noteTitle: "N", bodyContent: body })
+
+      const innerChunk = findLeafChunk(chunks, innerName)
+
+      if (!innerChunk) {
+        throw new Error("expected inner chunk not found")
+      }
+      expect(sectionLineOf(innerChunk.text)).toBe(`Section: ${innerName}`)
+    })
+
+    it("preserves a moderately deep Section path within budget", () => {
       // 4 levels with short names (~25 total tokens) stay well under the
       // ~395-token budget, so the cap's early return preserves the path.
       const body =
