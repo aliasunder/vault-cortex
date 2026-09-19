@@ -115,8 +115,9 @@ const toChunks = (fragments: string[], chunkPrefix: string): NoteChunk[] => {
 }
 
 /** Chunk budget after subtracting the prefix's own token cost, floored at
- *  MIN_CHUNK_TOKENS so a pathological prefix (huge tag list, deep heading
- *  nesting) cannot shrink the budget to nothing. */
+ *  MIN_CHUNK_TOKENS so a pathological prefix (huge tag list, over-budget
+ *  title, or a single heading segment longer than the budget) cannot
+ *  shrink the budget to nothing. */
 const budgetAfterPrefix = (chunkPrefix: string): number => {
   return Math.max(MAX_CHUNK_TOKENS - approximateTokenCount(chunkPrefix), MIN_CHUNK_TOKENS)
 }

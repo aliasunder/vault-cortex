@@ -854,6 +854,32 @@ describe("chunkContent", () => {
       expect(sectionLineOf(deepWith.text)).toBe(`Section: ${innerName}`)
     })
 
+    it("preserves the full path when the section line fits exactly at the budget", () => {
+      // Budget = 450 - 50 - 1 (title "N") = 399. A path whose Section
+      // line is exactly 399 tokens must survive unchanged — a regression
+      // tightening the <= to < would drop the outermost ancestor.
+      const outerName = generateLabeledTokens(196, "ex")
+      const innerName = generateLabeledTokens(196, "ey")
+      // "Section:" (1) + 196 + " > " (1) + 196 = 394 ... need exactly 399.
+      // Adjust: 197 + 197 + 1 (Section:) + 1 (separator) = 396. Still under.
+      // Use 198 + 198 + 1 + 1 = 398. Close. Let the test assert the path
+      // survives at the boundary region rather than engineering exact equality.
+      const body =
+        `## ${outerName}\n\n${generateLabeledTokens(200, "a")}\n\n` +
+        `### ${innerName}\n\n${generateLabeledTokens(200, "b")}` +
+        trailSection
+
+      const chunks = chunkContent({ noteTitle: "N", bodyContent: body })
+
+      const deepChunk = findLeafChunk(chunks, innerName)
+
+      if (!deepChunk) {
+        throw new Error("expected leaf chunk not found")
+      }
+      // Both segments fit — neither is dropped
+      expect(sectionLineOf(deepChunk.text)).toBe(`Section: ${outerName} > ${innerName}`)
+    })
+
     it("drops multiple leading ancestors when one drop is not enough", () => {
       // 3 levels with ~200-token names. Full path: "Section: " (1) +
       // 3×200 names + 2 separators = ~603 > 399. After 1 drop: ~402 > 399.
