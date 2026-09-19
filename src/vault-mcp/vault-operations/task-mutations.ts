@@ -717,7 +717,9 @@ const moveTaskBlock = ({
 
   if (matchingHeadings.length > 1 && (isSameLane || typeof position === "number")) {
     throw new Error(
-      `cannot reorder within "${targetLane}" — the heading appears ${matchingHeadings.length} times; rename one section to make it unique`,
+      isSameLane
+        ? `cannot reorder within "${targetLane}" — the heading appears ${matchingHeadings.length} times; rename one section to make it unique`
+        : `cannot place at position ${String(position)} under "${targetLane}" — the heading appears ${matchingHeadings.length} times; rename one section to make it unique`,
     )
   }
 

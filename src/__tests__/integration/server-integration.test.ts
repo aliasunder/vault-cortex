@@ -738,6 +738,18 @@ describe("default config", () => {
     })
 
     it("vault_update_task — same-lane reorder via position", async () => {
+      const fillerResult = await callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "Projects/board.md",
+          description: "Reorder filler",
+          block_id: "reorder-filler",
+          heading: "Active",
+        },
+      })
+      expect(fillerResult.isError).not.toBe(true)
+
       const setupResult = await callTool({
         client,
         name: "vault_create_task",
@@ -771,11 +783,15 @@ describe("default config", () => {
       })
       const activeText = textContent(readback)
       const topLevelCards = activeText.split("\n").filter((cardLine) => /^- \[/.test(cardLine))
-      expect(topLevelCards.map((cardLine) => cardLine.includes("Reorder test card"))).toEqual([
-        false,
-        true,
-        false,
-      ])
+      const reorderIndex = topLevelCards.findIndex((cardLine) => {
+        return cardLine.includes("Reorder test card")
+      })
+      const fillerIndex = topLevelCards.findIndex((cardLine) => {
+        return cardLine.includes("Reorder filler")
+      })
+      expect(reorderIndex).toBeGreaterThan(0)
+      expect(fillerIndex).toBeGreaterThanOrEqual(0)
+      expect(reorderIndex).toBe(fillerIndex + 1)
     })
   })
 

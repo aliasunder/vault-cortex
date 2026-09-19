@@ -3070,6 +3070,27 @@ kanban-plugin: board
         )
       })
 
+      it("rejects cross-lane move with integer position when the target heading is ambiguous", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n\n## Done\n\n## Done\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await expect(
+          taskMutations.updateTask(
+            {
+              vaultPath: vault,
+              path: "notes.md",
+              blockId: "alpha",
+              heading: "Done",
+              position: 1,
+            },
+            logger,
+          ),
+        ).rejects.toThrow(
+          `cannot place at position 1 under "Done" — the heading appears 2 times; rename one section to make it unique`,
+        )
+      })
+
       it("integer overshoot clamps to after last card, not trailing prose", async () => {
         const vault = await createVault()
         const note = `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n\nSome trailing notes about the lane.\n\n## Done\n`
