@@ -8,8 +8,9 @@
  *     metadata prefix lowers the budget below the body's token count
  *  3. Longer notes → two views per note: top-level headings own their
  *     full subtree, deeper headings own only their disjoint bodies, each
- *     fragment prefixed with title + `Section:` ancestor path (the why
- *     lives on collectSectionSpans)
+ *     fragment prefixed with title + `Section:` ancestor path, capped
+ *     at the remaining budget (leading ancestors dropped, deepest kept;
+ *     omitted when title + metadata exhaust it — see capHeadingPath)
  *  4. A heading whose span has no content emits nothing
  *  5. Each split note with named headings also emits one table-of-contents
  *     chunk, last (the why lives on buildTableOfContentsText)
