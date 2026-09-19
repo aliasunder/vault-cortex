@@ -1,7 +1,7 @@
 /** Error contract integration tests — every tool's documented error paths
  *  verified over real HTTP transport against a real server. */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest"
+import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
   startServer,
@@ -979,6 +979,92 @@ describe("task errors", () => {
       },
     })
     expectToolError(result, "cannot move a sub-task to a heading")
+  })
+
+  it("vault_update_task — cannot reposition a sub-task", async () => {
+    const createResult = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/board.md",
+        description: "Sub for position test",
+        block_id: "sub-pos-test",
+        parent_block_id: "board-active-1",
+      },
+    })
+    expect(createResult.isError).not.toBe(true)
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/board.md",
+        block_id: "sub-pos-test",
+        position: 1,
+      },
+    })
+    expectToolError(result, "cannot reposition a sub-task")
+  })
+
+  it("vault_update_task — cannot reorder above the first heading", async () => {
+    const setupResult = await callTool({
+      client,
+      name: "vault_write_note",
+      args: {
+        path: "error-test-above-heading.md",
+        body: "- [ ] Orphan task ^orphan-above\n\n## Later\n\n- [ ] Under a heading ^under-heading\n",
+        properties: { title: "Above heading test" },
+      },
+    })
+    onTestFinished(async () => {
+      await callTool({
+        client,
+        name: "vault_delete_note",
+        args: { path: "error-test-above-heading.md" },
+      })
+    })
+    expect(setupResult.isError).not.toBe(true)
+
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "error-test-above-heading.md",
+        block_id: "orphan-above",
+        position: 2,
+      },
+    })
+    expectToolError(result, "cannot reorder a task that sits above the first heading")
+  })
+
+  it("vault_update_task — cannot reorder within an ambiguous heading", async () => {
+    const setupResult = await callTool({
+      client,
+      name: "vault_write_note",
+      args: {
+        path: "error-test-dup-heading.md",
+        body: "## Tasks\n\n- [ ] First ^dup-first\n\n## Tasks\n\n- [ ] Second ^dup-second\n",
+        properties: { title: "Dup heading test" },
+      },
+    })
+    onTestFinished(async () => {
+      await callTool({
+        client,
+        name: "vault_delete_note",
+        args: { path: "error-test-dup-heading.md" },
+      })
+    })
+    expect(setupResult.isError).not.toBe(true)
+
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "error-test-dup-heading.md",
+        block_id: "dup-first",
+        position: 2,
+      },
+    })
+    expectToolError(result, 'cannot reorder within "Tasks"')
   })
 
   it("vault_create_task — description must be a single line", async () => {

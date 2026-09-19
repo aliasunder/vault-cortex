@@ -707,6 +707,74 @@ describe("default config", () => {
       // available here), so only the created task's line is asserted.
       expect(textContent(readback)).toContain(`🏁 delete ➕ ${todayDate} ^disposable`)
     })
+
+    it("vault_create_task — integer position inserts at the specified slot", async () => {
+      const createResult = await callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "Projects/board.md",
+          description: "Position test card",
+          block_id: "pos-test",
+          heading: "Active",
+          position: 1,
+        },
+      })
+      expect(createResult.isError).not.toBe(true)
+      const createJson = JSON.parse(textContent(createResult))
+      expect(createJson.heading).toBe("Active")
+
+      const readback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/board.md", heading: "Active" },
+      })
+      const activeText = textContent(readback)
+      const topLevelCards = activeText.split("\n").filter((cardLine) => /^- \[/.test(cardLine))
+      expect(topLevelCards.map((cardLine) => cardLine.includes("Position test card"))).toEqual([
+        true,
+        false,
+      ])
+    })
+
+    it("vault_update_task — same-lane reorder via position", async () => {
+      const setupResult = await callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "Projects/board.md",
+          description: "Reorder test card",
+          block_id: "reorder-test",
+          heading: "Active",
+          position: 1,
+        },
+      })
+      expect(setupResult.isError).not.toBe(true)
+
+      const reorderResult = await callTool({
+        client,
+        name: "vault_update_task",
+        args: {
+          path: "Projects/board.md",
+          block_id: "reorder-test",
+          position: 2,
+        },
+      })
+      expect(reorderResult.isError).not.toBe(true)
+      const reorderJson = JSON.parse(textContent(reorderResult))
+      expect(reorderJson.changes).toEqual(["position: 1 → 2"])
+
+      const readback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/board.md", heading: "Active" },
+      })
+      const activeText = textContent(readback)
+      const topLevelCards = activeText.split("\n").filter((cardLine) => /^- \[/.test(cardLine))
+      expect(topLevelCards.length).toBeGreaterThanOrEqual(2)
+      expect(topLevelCards[0]?.includes("Reorder test card")).toBe(false)
+      expect(topLevelCards[1]?.includes("Reorder test card")).toBe(true)
+    })
   })
 
   describe("daily note tool", () => {

@@ -2609,6 +2609,101 @@ kanban-plugin: board
 `)
       })
 
+      // ── integer position ──────────────────────────────────────
+
+      it("position=2 inserts the card as the 2nd top-level card", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] First ^first\n- [ ] Second ^second\n- [ ] Third ^third\n`
+        await writeTestNote(vault, "board.md", note)
+
+        const result = await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Inserted",
+            blockId: "inserted",
+            heading: "Active",
+            position: 2,
+          },
+          logger,
+        )
+
+        expect(result.heading).toBe("Active")
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] First ^first\n- [ ] Inserted ➕ ${today()} ^inserted\n- [ ] Second ^second\n- [ ] Third ^third\n`,
+        )
+      })
+
+      it("position past the card count clamps to the bottom", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Ideas\n\n- [ ] Only card ^only\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            description: "Clamped",
+            blockId: "clamped",
+            heading: "Ideas",
+            position: 10,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Ideas\n\n- [ ] Only card ^only\n- [ ] Clamped ➕ ${today()} ^clamped\n`,
+        )
+      })
+
+      it("position=1 on an empty lane inserts the card as the only entry", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n## Done\n`
+        await writeTestNote(vault, "board.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Solo",
+            blockId: "solo",
+            heading: "Active",
+            position: 1,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n- [ ] Solo ➕ ${today()} ^solo\n\n## Done\n`,
+        )
+      })
+
+      it("position=2 skips sub-items when counting top-level cards", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Card A ^card-a\n  - [ ] Sub-item 1\n  - [ ] Sub-item 2\n- [ ] Card B ^card-b\n`
+        await writeTestNote(vault, "board.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Between",
+            blockId: "between",
+            heading: "Active",
+            position: 2,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Card A ^card-a\n  - [ ] Sub-item 1\n  - [ ] Sub-item 2\n- [ ] Between ➕ ${today()} ^between\n- [ ] Card B ^card-b\n`,
+        )
+      })
+
       it("bottom insertion into a section ending with prose appends after the prose", async () => {
         const vault = await createVault()
         const note = `---\ntitle: Notes\n---\n\n## Tasks\n\n- [ ] First ^first\n\nSome notes about the tasks.\n\n## Other\n`
@@ -2628,6 +2723,28 @@ kanban-plugin: board
         const content = await readTestNote(vault, "notes.md")
         expect(content).toBe(
           `---\ntitle: Notes\n---\n\n## Tasks\n\n- [ ] First ^first\n\nSome notes about the tasks.\n- [ ] After prose ➕ ${today()} ^after-prose\n\n## Other\n`,
+        )
+      })
+
+      it("bottom insertion into a lane with a child heading stays above the child", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n\n### Sub\n\n- [ ] Beta ^beta\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            description: "Appended",
+            blockId: "appended",
+            heading: "Active",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Appended ➕ ${today()} ^appended\n\n### Sub\n\n- [ ] Beta ^beta\n`,
         )
       })
     })
@@ -2757,6 +2874,366 @@ kanban-plugin: board
 \`\`\`
 %%
 `)
+      })
+
+      // ── integer position ──────────────────────────────────────
+
+      it("same-lane reorder from position 1 to 3", async () => {
+        const vault = await createVault()
+        const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n- [ ] Charlie ^charlie\n- [ ] Delta ^delta\n\n## Done\n`
+        await writeTestNote(vault, "board.md", board)
+
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "alpha",
+            position: 3,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n- [ ] Charlie ^charlie\n- [ ] Alpha ^alpha\n- [ ] Delta ^delta\n\n## Done\n`,
+        )
+        expect(result.changes).toEqual(["position: 1 → 3"])
+      })
+
+      it("same-lane reorder is a no-op when already at the target position", async () => {
+        const vault = await createVault()
+        const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n\n## Done\n`
+        await writeTestNote(vault, "board.md", board)
+
+        const contentBefore = await readTestNote(vault, "board.md")
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "alpha",
+            position: 1,
+          },
+          logger,
+        )
+
+        const contentAfter = await readTestNote(vault, "board.md")
+        expect(contentAfter).toBe(contentBefore)
+        expect(result.changes).toEqual([])
+      })
+
+      it("cross-lane move with position=2 lands at the 2nd card in the target lane", async () => {
+        const vault = await createVault()
+        const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n\n## Up Next\n\n- [ ] Charlie ^charlie\n- [ ] Delta ^delta\n`
+        await writeTestNote(vault, "board.md", board)
+
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "alpha",
+            heading: "Up Next",
+            position: 2,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n\n## Up Next\n\n- [ ] Charlie ^charlie\n- [ ] Alpha ^alpha\n- [ ] Delta ^delta\n`,
+        )
+        expect(result.changes).toEqual(["heading: Active → Up Next", "position: 1 → 2"])
+      })
+
+      it("position-only call without heading or status succeeds", async () => {
+        const vault = await createVault()
+        const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n\n## Done\n`
+        await writeTestNote(vault, "board.md", board)
+
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "bravo",
+            position: 1,
+          },
+          logger,
+        )
+
+        expect(result.changes).toEqual(["position: 2 → 1"])
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n- [ ] Alpha ^alpha\n\n## Done\n`,
+        )
+      })
+
+      it("same-lane reorder preserves sub-items attached to their parent", async () => {
+        const vault = await createVault()
+        const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n  - [ ] Sub-A1\n  - [ ] Sub-A2\n- [ ] Bravo ^bravo\n  - [ ] Sub-B1\n- [ ] Charlie ^charlie\n\n## Done\n`
+        await writeTestNote(vault, "board.md", board)
+
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "bravo",
+            position: 1,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n  - [ ] Sub-B1\n- [ ] Alpha ^alpha\n  - [ ] Sub-A1\n  - [ ] Sub-A2\n- [ ] Charlie ^charlie\n\n## Done\n`,
+        )
+        expect(result.changes).toEqual(["position: 2 → 1"])
+      })
+
+      it("rejects position on a sub-task", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n- [ ] Parent ^parent\n  - [ ] Child ^child\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await expect(
+          taskMutations.updateTask(
+            {
+              vaultPath: vault,
+              path: "notes.md",
+              blockId: "child",
+              position: 1,
+            },
+            logger,
+          ),
+        ).rejects.toThrow(
+          "cannot reposition a sub-task — the parent's position determines placement",
+        )
+      })
+
+      it("same-lane reorder with position past card count clamps to bottom", async () => {
+        const vault = await createVault()
+        const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n- [ ] Charlie ^charlie\n\n## Done\n`
+        await writeTestNote(vault, "board.md", board)
+
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "alpha",
+            position: 99,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n- [ ] Charlie ^charlie\n- [ ] Alpha ^alpha\n\n## Done\n`,
+        )
+        expect(result.changes).toEqual(["position: 1 → 3"])
+      })
+
+      it("rejects position-only reorder on a task above all headings", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n\n## Later\n\n- [ ] Charlie ^charlie\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await expect(
+          taskMutations.updateTask(
+            {
+              vaultPath: vault,
+              path: "notes.md",
+              blockId: "alpha",
+              position: 2,
+            },
+            logger,
+          ),
+        ).rejects.toThrow(
+          "cannot reorder a task that sits above the first heading — pass a heading",
+        )
+      })
+
+      it("rejects same-lane reorder when the heading name is ambiguous", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Tasks\n\n- [ ] Alpha ^alpha\n\n## Tasks\n\n- [ ] Bravo ^bravo\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await expect(
+          taskMutations.updateTask(
+            {
+              vaultPath: vault,
+              path: "notes.md",
+              blockId: "alpha",
+              position: 2,
+            },
+            logger,
+          ),
+        ).rejects.toThrow(
+          `cannot reorder within "Tasks" — the heading appears 2 times; rename one section to make it unique`,
+        )
+      })
+
+      it("rejects cross-lane move with integer position when the target heading is ambiguous", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n\n## Done\n\n## Done\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await expect(
+          taskMutations.updateTask(
+            {
+              vaultPath: vault,
+              path: "notes.md",
+              blockId: "alpha",
+              heading: "Done",
+              position: 1,
+            },
+            logger,
+          ),
+        ).rejects.toThrow(
+          `cannot place at position 1 under "Done" — the heading appears 2 times; rename one section to make it unique`,
+        )
+      })
+
+      it("integer overshoot clamps to after last card, not trailing prose", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n\nSome trailing notes about the lane.\n\n## Done\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            description: "Charlie",
+            blockId: "charlie",
+            heading: "Active",
+            position: 99,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n- [ ] Charlie ➕ ${today()} ^charlie\n\nSome trailing notes about the lane.\n\n## Done\n`,
+        )
+      })
+
+      it("rejects integer position when heading name is duplicated (create)", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Tasks\n\n- [ ] Alpha ^alpha\n\n## Tasks\n\n- [ ] Bravo ^bravo\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await expect(
+          taskMutations.createTask(
+            {
+              vaultPath: vault,
+              path: "notes.md",
+              description: "Charlie",
+              blockId: "charlie",
+              heading: "Tasks",
+              position: 2,
+            },
+            logger,
+          ),
+        ).rejects.toThrow(
+          `cannot place at position 2 under "Tasks" — the heading appears 2 times; rename one section to make it unique`,
+        )
+      })
+
+      it("integer position stops at an ATX child heading", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n\n### In Progress\n\n- [ ] Beta ^beta\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            description: "Charlie",
+            blockId: "charlie",
+            heading: "Active",
+            position: 2,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Charlie ➕ ${today()} ^charlie\n\n### In Progress\n\n- [ ] Beta ^beta\n`,
+        )
+      })
+
+      it("integer position stops at a setext child heading", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n# Active\n\n- [ ] Alpha ^alpha\n\nSub\n---\n\n- [ ] Beta ^beta\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            description: "Charlie",
+            blockId: "charlie",
+            heading: "Active",
+            position: 2,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n# Active\n\n- [ ] Alpha ^alpha\n- [ ] Charlie ➕ ${today()} ^charlie\n\nSub\n---\n\n- [ ] Beta ^beta\n`,
+        )
+      })
+
+      it("integer position in a Complete-marked lane inserts after the marker", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Archive\n\n**Complete**\n- [x] Old task ^old\n- [x] Older task ^older\n\n## Active\n\n- [ ] New task ^new\n`
+        await writeTestNote(vault, "board.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Archived item",
+            blockId: "archived",
+            heading: "Archive",
+            position: 1,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Archive\n\n**Complete**\n- [ ] Archived item ➕ ${today()} ^archived\n- [x] Old task ^old\n- [x] Older task ^older\n\n## Active\n\n- [ ] New task ^new\n`,
+        )
+      })
+
+      it("spawn + position reports pre-spawn before-position", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-05 ^water\n- [ ] Read for 30 min ^read\n\n## Done\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            blockId: "water",
+            status: "done",
+            position: 3,
+          },
+          logger,
+        )
+
+        // The spawn inserts a new occurrence above the completed task,
+        // pushing it from position 1 → 2 in the post-spawn lane.
+        // before-position 1 proves the count comes from the pre-spawn lane
+        // (2 cards); linesWithSpawn would report 2.
+        expect(result.changes).toEqual([
+          "status: todo → done",
+          "position: 1 → 3",
+          "next_occurrence: (none) → line 7",
+        ])
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n- [ ] Read for 30 min ^read\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ ${today()} ^water\n\n## Done\n`,
+        )
       })
 
       it("status=done auto-move + position=bottom → bottom of done lane", async () => {
