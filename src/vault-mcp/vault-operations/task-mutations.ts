@@ -456,7 +456,7 @@ const headingInsertIndexAtPosition = ({
   lines: readonly string[]
   heading: HeadingInfo
   position: number
-  statusRegistry?: ReadonlyMap<string, StatusClassification>
+  statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
 }): number => {
   // Start from bodyStartLine (not taskInsertIndexUnderHeading) so the
   // integer walk and positionOfTaskInLane count from the same window.
@@ -510,13 +510,15 @@ const headingInsertIndex = ({
   lines,
   heading,
   position,
+  statusRegistry,
 }: {
   lines: readonly string[]
   heading: HeadingInfo
   position: "top" | "bottom" | number
+  statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
 }): number => {
   if (typeof position === "number") {
-    return headingInsertIndexAtPosition({ lines, heading, position })
+    return headingInsertIndexAtPosition({ lines, heading, position, statusRegistry })
   }
   if (position === "top") {
     return taskInsertIndexUnderHeading({ lines, heading })
@@ -637,6 +639,7 @@ const resolveNewTaskPlacement = ({
         lines: bodyLines,
         heading: targetHeading,
         position: resolvedPosition,
+        statusRegistry,
       }),
       indent: "",
       heading,
@@ -832,13 +835,15 @@ const moveTaskBlock = ({
   headings,
   position,
   beforePosition,
+  statusRegistry,
 }: {
   lines: readonly string[]
   taskLineIndex: number
   targetLane: string
   headings: readonly HeadingInfo[]
   position?: "top" | "bottom" | number
-  beforePosition?: number
+  beforePosition?: number | undefined
+  statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
 }): {
   lines: readonly string[]
   taskLineIndex: number
@@ -887,6 +892,7 @@ const moveTaskBlock = ({
     lines: linesWithoutBlock,
     heading: headingAfterRemoval,
     position: resolvedPosition,
+    statusRegistry,
   })
 
   // An unchanged raw index means the card is already at the target slot.
@@ -906,21 +912,27 @@ const moveTaskBlock = ({
     changes.push(formatChange({ field: "heading", before: currentLane, after: targetLane }))
   }
   if (isSameLane) {
-    const before = beforePosition ?? positionOfTaskInLane(lines, targetHeading, taskLineIndex)
-    const after = headingInResult ? positionOfTaskInLane(resultLines, headingInResult, insertAt) : 1
+    const before =
+      beforePosition ?? positionOfTaskInLane(lines, targetHeading, taskLineIndex, statusRegistry)
+    const after = headingInResult
+      ? positionOfTaskInLane(resultLines, headingInResult, insertAt, statusRegistry)
+      : 1
 
     // Compare the card's position in the move-input lines (not the
     // pre-spawn before-value) with the result — a spawn shifts the
     // card's slot, so pre-spawn equality would suppress a real move.
-    const currentSlot = positionOfTaskInLane(lines, targetHeading, taskLineIndex)
+    const currentSlot = positionOfTaskInLane(lines, targetHeading, taskLineIndex, statusRegistry)
 
     if (currentSlot === after) return { lines, taskLineIndex, changes: [] }
     changes.push(formatChange({ field: "position", before, after }))
   } else if (typeof position === "number") {
     const before = currentHeading
-      ? (beforePosition ?? positionOfTaskInLane(lines, currentHeading, taskLineIndex))
+      ? (beforePosition ??
+        positionOfTaskInLane(lines, currentHeading, taskLineIndex, statusRegistry))
       : null
-    const after = headingInResult ? positionOfTaskInLane(resultLines, headingInResult, insertAt) : 1
+    const after = headingInResult
+      ? positionOfTaskInLane(resultLines, headingInResult, insertAt, statusRegistry)
+      : 1
     changes.push(formatChange({ field: "position", before, after }))
   }
 
@@ -2096,7 +2108,12 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
         ? headings.findLast((heading) => heading.startLine < taskLineIndex)
         : undefined
     const beforePositionInLane = preSpawnHeading
-      ? positionOfTaskInLane(linesWithEdits, preSpawnHeading, taskLineIndex)
+      ? positionOfTaskInLane(
+          linesWithEdits,
+          preSpawnHeading,
+          taskLineIndex,
+          formatConfig.statusRegistry,
+        )
       : undefined
 
     const targetLane = autoDoneLane
@@ -2112,6 +2129,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
             taskLineIndex: completedIndexAfterSpawn,
             targetLane,
             headings: headingsAfterSpawn,
+            statusRegistry: formatConfig.statusRegistry,
             ...(position && { position }),
             ...(beforePositionInLane !== undefined && { beforePosition: beforePositionInLane }),
           })
