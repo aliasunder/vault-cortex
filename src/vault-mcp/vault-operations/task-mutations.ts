@@ -743,7 +743,7 @@ const moveTaskBlock = ({
   // The insertion shifts headings below insertAt — re-parse so
   // positionOfTaskInLane sees the correct bodyEndLine.
   const headingInResult = parseHeadings(resultLines).findLast(
-    (heading) => heading.startLine <= insertAt,
+    (heading) => heading.startLine < insertAt,
   )
 
   const changes: string[] = []
