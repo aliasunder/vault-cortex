@@ -49,17 +49,18 @@ export const registerMemoryTools = ({
       title: "Get Memory",
       description: `Read semantic memory from ${config.memoryDir}/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: single file content. With file+section: just that H2 section's entries. No args: all files concatenated (frontmatter stripped) — can be large. Returns empty string when no memory files exist yet.
 
-With file+section+on_or_after: returns structured JSON entries dated on or after the boundary date (inclusive), in document order (newest first when the section uses the default top-insertion convention). Designed for reconciliation consumers that know a boundary date and need deterministic chronological coverage without re-parsing the section.
+With file+on_or_after: returns structured JSON entries dated on or after the boundary date (inclusive), in document order (newest first when the section uses the default top-insertion convention). Add section to scope to one H2 section; omit it to read every section in the file, each entry keeping its section attribution. Designed for reconciliation consumers that know a boundary date and need deterministic chronological coverage without re-parsing the section.
 
 Example: vault_get_memory({ file: "Principles", section: "Decision heuristics (newest first)" })
 Example: vault_get_memory({ file: "Opinions", section: "Code patterns", on_or_after: "2026-09-01" })
+Example: vault_get_memory({ file: "Opinions", on_or_after: "2026-09-01" }) — every section's entries since the date
 
 When to use: Reading user preferences, principles, opinions, or other persistent context stored in ${config.memoryDir}/ files. Call vault_list_memory_files first to discover valid file and section names. Use on_or_after when you need entries from a known date forward (e.g. reconciliation boundaries).
 Prefer vault_read_note for reading non-memory notes.
 
 Errors:
 - "section requires a file" — section was provided without file; pass both or just file
-- "on_or_after requires file and section" — on_or_after needs both file and section to scope the filter
+- "on_or_after requires a file" — on_or_after needs a file to scope the filter
 - "memory file not found" — file does not exist in ${config.memoryDir}/; call vault_list_memory_files to discover valid names
 - "memory file must not start with a dot" — a dot-prefixed name would be a hidden file; memory files are always visible notes
 - "section not found: …" — no H2 heading matches; the error lists the file's available sections
@@ -77,14 +78,14 @@ Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entrie
           .min(1)
           .optional()
           .describe(
-            'H2 section heading (e.g. "Decision heuristics (newest first)"). Matched case-insensitively, with or without the "(newest first)" suffix. Call vault_list_memory_files first to discover valid names.',
+            'H2 section heading (e.g. "Decision heuristics (newest first)"). Matched case-insensitively, with or without the "(newest first)" suffix. Omit to read the whole file; with on_or_after, omitting returns entries from every H2 section. Call vault_list_memory_files first to discover valid names.',
           ),
         on_or_after: z
           .string()
           .min(1)
           .optional()
           .describe(
-            "Inclusive date filter (YYYY-MM-DD). When provided with file and section, returns structured JSON entries dated on or after this date instead of raw markdown. Requires both file and section.",
+            "Inclusive date filter (YYYY-MM-DD). When provided with file, returns structured JSON entries dated on or after this date instead of raw markdown. Requires a file; add section to scope to one H2 section.",
           ),
       },
     },
@@ -95,17 +96,12 @@ Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entrie
       })
       reqLogger.info("tool_call", { file, section, onOrAfter })
 
-      if (onOrAfter && (!file || !section)) {
+      if (onOrAfter && !file) {
         reqLogger.warn("tool_error", {
-          error: "on_or_after requires file and section",
+          error: "on_or_after requires a file",
         })
         return {
-          content: [
-            {
-              type: "text" as const,
-              text: "on_or_after requires file and section",
-            },
-          ],
+          content: [{ type: "text" as const, text: "on_or_after requires a file" }],
           isError: true as const,
         }
       }
@@ -120,7 +116,7 @@ Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entrie
         }
       }
 
-      if (onOrAfter && file && section) {
+      if (onOrAfter && file) {
         return safeHandler(
           reqLogger,
           () => {

@@ -617,7 +617,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     params: {
       vaultPath: string
       file: string
-      section: string
+      section?: string | undefined
       onOrAfter?: string | undefined
     },
     logger: Logger,
@@ -631,31 +631,39 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     const raw = await readMemoryFile(params.vaultPath, params.file)
     const parsed = parseNote(raw)
     const lines = splitIntoLines(parsed.content)
-    const sections = parseSections(lines)
-    const match = findSection(sections, params.section, 2)
 
-    if (!match) {
-      throw new Error(
-        `section not found: "${params.section}" in ${memoryDir}/${params.file}.md. Available sections: ${listSectionHeadings(sections)}`,
-      )
-    }
-
-    // parseMemoryEntries calls parseHeadings internally; the heading text it
-    // assigns to each entry is identical to match.heading from findSection above.
+    // parseMemoryEntries returns every H2 entry in document order, each
+    // carrying its verbatim section heading — so an omitted section is simply
+    // the whole file, with no second scan needed.
     const allEntries = parseMemoryEntries(lines)
-    const sectionEntries = allEntries.filter((entry) => entry.section === match.heading)
+
+    // Scope to a named section when given; otherwise the whole file is the scope.
+    let scopedEntries: MemoryEntry[] = allEntries
+
+    if (params.section) {
+      const sections = parseSections(lines)
+      const match = findSection(sections, params.section, 2)
+
+      if (!match) {
+        throw new Error(
+          `section not found: "${params.section}" in ${memoryDir}/${params.file}.md. Available sections: ${listSectionHeadings(sections)}`,
+        )
+      }
+      // parseMemoryEntries assigns the same heading text findSection resolves.
+      scopedEntries = allEntries.filter((entry) => entry.section === match.heading)
+    }
 
     // YYYY-MM-DD strings sort lexicographically in chronological order;
     // onOrAfter is validated above, and entry dates are YYYY-MM-DD by construction.
     const filteredEntries = onOrAfter
-      ? sectionEntries.filter((entry) => entry.date >= onOrAfter)
-      : sectionEntries
+      ? scopedEntries.filter((entry) => entry.date >= onOrAfter)
+      : scopedEntries
 
     logger.info("get memory entries", {
       file: params.file,
-      section: params.section,
+      section: params.section ?? null,
       onOrAfter,
-      totalInSection: sectionEntries.length,
+      totalInScope: scopedEntries.length,
       returned: filteredEntries.length,
     })
 
