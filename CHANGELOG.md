@@ -104,6 +104,34 @@
 
 
 
+
+## [0.54.0] — 2026-09-19
+
+### Features
+
+- **tasks:** Classify custom checkbox statuses from the Tasks plugin registry (#589)
+- **tasks:** Integer position param + same-lane reorder (#590)
+- **search:** Two-view chunking with Section paths, TOC chunks, and top-level aggregates (#597)
+
+### Bug Fixes
+
+- **tasks:** Align position counting with status registry exclusions (#600)
+- **search:** Cap Section-line ancestor path to prevent budget floor (#598)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.53.0
+
+### Maintenance
+
+- Bump umm-actually to v0.4.7 (#599)
+- **deps-dev:** Bump the development group across 1 directory with 4 updates (#594)
+- **deps:** Bump docker/setup-buildx-action from 4.3.0 to 4.4.0 (#596)
+- **deps:** Bump aws-actions/configure-aws-credentials from 6.2.4 to 6.3.0 (#595)
+- **deps:** Bump zod from 4.6.2 to 4.6.5 in the production group (#592)
+- **deps:** Bump docker/build-push-action from 7.3.0 to 7.4.0 (#591)
+- **deps:** Bump docker/setup-qemu-action from 4.3.0 to 4.4.0 (#593)
+
 ## [0.53.0] — 2026-09-18
 
 ### Features
