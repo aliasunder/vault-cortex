@@ -3082,10 +3082,24 @@ kanban-plugin: board
         )
 
         const content = await readTestNote(vault, "board.md")
-        const lines = content.split("\n")
-        const charlieIndex = lines.findIndex((line) => line.includes("Charlie"))
-        const alphaIndex = lines.findIndex((line) => line.includes("Alpha"))
-        expect(charlieIndex).toBeLessThan(alphaIndex)
+        expect(content).toBe(
+          [
+            "---",
+            "title: Board",
+            "kanban-plugin: board",
+            "---",
+            "",
+            "## Active",
+            "",
+            "- [ ] Charlie ^charlie",
+            "- [ ] Alpha ^alpha",
+            "- [>] Forwarded ref",
+            "- [ ] Bravo ^bravo",
+            "",
+            "## Done",
+            "",
+          ].join("\n"),
+        )
         expect(result.changes).toEqual(["position: 3 → 1"])
       })
 
@@ -3296,11 +3310,24 @@ kanban-plugin: board
         )
 
         const content = await readTestNote(vault, "board.md")
-        const lines = content.split("\n")
-        const insertedIndex = lines.findIndex((line) => line.includes("Inserted"))
-        const cardBIndex = lines.findIndex((line) => line.includes("Card B"))
-        expect(insertedIndex).toBeLessThan(cardBIndex)
-        expect(insertedIndex).toBeGreaterThan(lines.findIndex((line) => line.includes("Card A")))
+        expect(content).toBe(
+          [
+            "---",
+            "title: Board",
+            "kanban-plugin: board",
+            "---",
+            "",
+            "## Active",
+            "",
+            "- [ ] Card A ^card-a",
+            "```md",
+            "- [ ] Fenced example",
+            "```",
+            `- [ ] Inserted ➕ ${today()} ^inserted`,
+            "- [ ] Card B ^card-b",
+            "",
+          ].join("\n"),
+        )
       })
 
       it("integer position skips NON_TASK checkboxes", async () => {
@@ -3336,6 +3363,7 @@ kanban-plugin: board
           "",
           "- [ ] Card A ^card-a",
           "- [>] Forwarded ref",
+          "  - [ ] Sub-item of forwarded",
           "- [ ] Card B ^card-b",
           "",
         ].join("\n")
@@ -3354,11 +3382,23 @@ kanban-plugin: board
         )
 
         const content = await readTestNote(vault, "board.md")
-        const lines = content.split("\n")
-        const insertedIndex = lines.findIndex((line) => line.includes("Inserted"))
-        const cardBIndex = lines.findIndex((line) => line.includes("Card B"))
-        expect(insertedIndex).toBeLessThan(cardBIndex)
-        expect(insertedIndex).toBeGreaterThan(lines.findIndex((line) => line.includes("Card A")))
+        expect(content).toBe(
+          [
+            "---",
+            "title: Board",
+            "kanban-plugin: board",
+            "---",
+            "",
+            "## Active",
+            "",
+            "- [ ] Card A ^card-a",
+            "- [>] Forwarded ref",
+            "  - [ ] Sub-item of forwarded",
+            `- [ ] Inserted ➕ ${today()} ^inserted`,
+            "- [ ] Card B ^card-b",
+            "",
+          ].join("\n"),
+        )
       })
 
       it("spawn + position reports pre-spawn before-position", async () => {

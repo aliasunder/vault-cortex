@@ -484,12 +484,12 @@ const headingInsertIndexAtPosition = ({
   while (walkIndex < walkEnd) {
     const line = lines[walkIndex]
 
-    if (
-      !line?.trim() ||
-      !tasks.isTaskLine(line) ||
-      isExcludedFromLane({ line, lineIndex: walkIndex, lines, statusRegistry })
-    ) {
+    if (!line?.trim() || !tasks.isTaskLine(line)) {
       walkIndex++
+      continue
+    }
+    if (isExcludedFromLane({ line, lineIndex: walkIndex, lines, statusRegistry })) {
+      walkIndex = findTaskBlockEnd(lines, walkIndex)
       continue
     }
     cardStartIndices.push(walkIndex)
@@ -993,12 +993,12 @@ const positionOfTaskInLane = ({
   while (walkIndex < walkEnd) {
     const line = lines[walkIndex]
 
-    if (
-      !line?.trim() ||
-      !tasks.isTaskLine(line) ||
-      isExcludedFromLane({ line, lineIndex: walkIndex, lines, statusRegistry })
-    ) {
+    if (!line?.trim() || !tasks.isTaskLine(line)) {
       walkIndex++
+      continue
+    }
+    if (isExcludedFromLane({ line, lineIndex: walkIndex, lines, statusRegistry })) {
+      walkIndex = findTaskBlockEnd(lines, walkIndex)
       continue
     }
     cardPosition++
