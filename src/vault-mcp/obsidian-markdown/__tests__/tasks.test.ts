@@ -14,8 +14,6 @@ const DEFAULT_STATUS_REGISTRY: ReadonlyMap<string, StatusClassification> = new M
   ["-", "cancelled"],
 ])
 
-/** The recurrence-behavior settings at their plugin defaults, shared by
- *  every config literal in this file. */
 /** Plugin defaults shared by every config literal: recurrence behavior + status registry. */
 const DEFAULT_PLUGIN_SETTINGS = {
   setCreatedDate: false,
@@ -1304,37 +1302,6 @@ describe("task line mutations", () => {
         config: DATAVIEW_CONFIG,
       })
       expect(result).toBe("- [ ] Task [priority:: high] ➕ 2026-07-01")
-    })
-  })
-
-  describe("findTaskByBlockId", () => {
-    it("finds a task line by its block ID suffix", () => {
-      const lines = [
-        "## Active",
-        "",
-        "- [ ] First task ➕ 2026-07-01 ^first-task",
-        "- [ ] Second task ➕ 2026-07-02 ^second-task",
-      ]
-      const result = tasks.findTaskByBlockId(lines, "second-task")
-      expect(result).toBe(3)
-    })
-
-    it("returns null when no task line matches the block ID", () => {
-      const lines = ["## Active", "- [ ] Task ➕ 2026-07-01 ^existing-id"]
-      const result = tasks.findTaskByBlockId(lines, "nonexistent-id")
-      expect(result).toBeNull()
-    })
-
-    it("does not match a heading with a block ID", () => {
-      const lines = ["## Heading ^heading-id", "- [ ] Real task ^task-id"]
-      const result = tasks.findTaskByBlockId(lines, "heading-id")
-      expect(result).toBeNull()
-    })
-
-    it("returns the first matching task when multiple lines end with the same block ID", () => {
-      const lines = ["- [ ] First ^dup-id", "- [ ] Second ^dup-id"]
-      const result = tasks.findTaskByBlockId(lines, "dup-id")
-      expect(result).toBe(0)
     })
   })
 

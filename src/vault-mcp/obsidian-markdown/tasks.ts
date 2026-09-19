@@ -1740,15 +1740,6 @@ const updateTaskLinePriority = ({
   })
 }
 
-/** Finds the 0-based line index of a task whose line ends with
- *  ` ^blockId`. Returns null when no match is found. */
-const findTaskByBlockId = (lines: readonly string[], blockId: string): number | null => {
-  // trimEnd: a hard break's trailing spaces must not hide the block link.
-  const suffix = ` ^${blockId}`
-  const lineIndex = lines.findIndex((line) => line.trimEnd().endsWith(suffix) && isTaskLine(line))
-  return lineIndex === -1 ? null : lineIndex
-}
-
 // ── Kanban done-lane detection ─────────────────────────────────
 
 /** The Kanban plugin's per-lane completion marker: a bold "Complete"
@@ -1855,7 +1846,6 @@ export const tasks = {
   buildTaskLine,
   buildNextOccurrenceLine,
   formatDateField,
-  findTaskByBlockId,
   findBodyStartLine,
   extractDoneLanes,
   parseKanbanCardInsertionMethod,

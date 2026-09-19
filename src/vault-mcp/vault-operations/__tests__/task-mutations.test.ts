@@ -6079,5 +6079,27 @@ title: Tasks
 
       expect(result.description).toBe("Child task")
     })
+
+    it("createTask succeeds when the block-id exists only inside a fenced block", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Example ^taken\n\`\`\`\n\n- [ ] Existing task ➕ 2026-07-01 ^real\n`,
+      )
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "New task",
+          blockId: "taken",
+        },
+        logger,
+      )
+
+      expect(result.description).toBe("New task")
+      expect(result.block_id).toBe("taken")
+    })
   })
 })
