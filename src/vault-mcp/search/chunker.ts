@@ -133,6 +133,27 @@ export const buildChunkMetadataPrefix = (params: {
   return parts.length > 0 ? parts.join(" ") : null
 }
 
+/** Drop leading (outermost) ancestors when the assembled Section line
+ *  would exceed a token budget, keeping the deepest segments — those
+ *  carry the section's own vocabulary and are most useful for retrieval. */
+const capHeadingPath = (
+  headingPath: readonly string[],
+  sectionLineBudget: number,
+): readonly string[] => {
+  if (sectionLineBudget <= 0 || headingPath.length === 0) return []
+
+  const sectionLineTokens = approximateTokenCount(`Section: ${headingPath.join(" > ")}`)
+
+  if (sectionLineTokens <= sectionLineBudget) return headingPath
+
+  const capped = [...headingPath]
+  while (capped.length > 1) {
+    capped.shift()
+    if (approximateTokenCount(`Section: ${capped.join(" > ")}`) <= sectionLineBudget) break
+  }
+  return capped
+}
+
 /** A heading's slice of the note (full subtree for top-level headings,
  *  own body for deeper ones — see collectSectionSpans) plus the
  *  ancestor-chain path that names it. */
@@ -335,6 +356,13 @@ export const chunkContent = (params: {
       )
     : []
 
+  const titleTokens = approximateTokenCount(noteTitle)
+  const metadataTokens = metadataPrefix ? approximateTokenCount(metadataPrefix) : 0
+  const sectionLineBudget = Math.max(
+    MAX_CHUNK_TOKENS - MIN_CHUNK_TOKENS - titleTokens - metadataTokens,
+    0,
+  )
+
   const sectionFragments = collectSectionSpans(headings, preambleText !== "").flatMap(
     (sectionSpan) => {
       const sectionSpanText = stripMarkdownSyntax(
@@ -348,10 +376,11 @@ export const chunkContent = (params: {
       // rides the TOC chunk, and the FTS leg indexes the full note text.
       if (!sectionSpanText) return []
 
-      const sectionLine =
+      const cappedPath =
         sectionSpan.headingPath.length > 0
-          ? `Section: ${sectionSpan.headingPath.join(" > ")}`
-          : null
+          ? capHeadingPath(sectionSpan.headingPath, sectionLineBudget)
+          : sectionSpan.headingPath
+      const sectionLine = cappedPath.length > 0 ? `Section: ${cappedPath.join(" > ")}` : null
       const sectionPrefix = [noteTitle, sectionLine, metadataPrefix].filter(Boolean).join("\n")
 
       return splitWithTrailingMerge(sectionSpanText, budgetAfterPrefix(sectionPrefix)).map(
