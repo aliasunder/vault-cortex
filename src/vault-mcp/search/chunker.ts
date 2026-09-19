@@ -8,8 +8,9 @@
  *     metadata prefix lowers the budget below the body's token count
  *  3. Longer notes → two views per note: top-level headings own their
  *     full subtree, deeper headings own only their disjoint bodies, each
- *     fragment prefixed with title + `Section:` ancestor path (the why
- *     lives on collectSectionSpans)
+ *     fragment prefixed with title + `Section:` ancestor path, capped
+ *     at the remaining budget (leading ancestors dropped, deepest kept;
+ *     omitted when title + metadata exhaust it — see capHeadingPath)
  *  4. A heading whose span has no content emits nothing
  *  5. Each split note with named headings also emits one table-of-contents
  *     chunk, last (the why lives on buildTableOfContentsText)
@@ -114,8 +115,9 @@ const toChunks = (fragments: string[], chunkPrefix: string): NoteChunk[] => {
 }
 
 /** Chunk budget after subtracting the prefix's own token cost, floored at
- *  MIN_CHUNK_TOKENS so a pathological prefix (huge tag list, deep heading
- *  nesting) cannot shrink the budget to nothing. */
+ *  MIN_CHUNK_TOKENS so a pathological prefix (huge tag list, over-budget
+ *  title, or a single heading segment longer than the budget) cannot
+ *  shrink the budget to nothing. */
 const budgetAfterPrefix = (chunkPrefix: string): number => {
   return Math.max(MAX_CHUNK_TOKENS - approximateTokenCount(chunkPrefix), MIN_CHUNK_TOKENS)
 }
@@ -131,6 +133,35 @@ export const buildChunkMetadataPrefix = (params: {
   const tagsPart = params.tags.length > 0 ? `Tags: ${params.tags.join(", ")}.` : null
   const parts = [typePart, tagsPart].filter(Boolean)
   return parts.length > 0 ? parts.join(" ") : null
+}
+
+/** Drop leading (outermost) ancestors when the assembled Section line
+ *  would exceed a token budget, keeping the deepest segments — those
+ *  carry the section's own vocabulary and are most useful for retrieval. */
+const capHeadingPath = (
+  headingPath: readonly string[],
+  sectionLineBudget: number,
+): readonly string[] => {
+  // Suppress the Section line when the budget can't even hold the
+  // "Section:" literal — a 1-2 token budget would add a prefix with
+  // no retrievable path vocabulary.
+  const sectionLabelTokens = approximateTokenCount("Section:")
+
+  if (sectionLineBudget < sectionLabelTokens || headingPath.length === 0) return []
+
+  const sectionLineTokens = approximateTokenCount(`Section: ${headingPath.join(" > ")}`)
+
+  if (sectionLineTokens <= sectionLineBudget) return headingPath
+
+  const capped = [...headingPath]
+  // The deepest segment survives even when it alone exceeds the budget,
+  // except at zero budget (title + metadata consume it all), where the
+  // early return above suppresses the Section line entirely.
+  while (capped.length > 1) {
+    capped.shift()
+    if (approximateTokenCount(`Section: ${capped.join(" > ")}`) <= sectionLineBudget) break
+  }
+  return capped
 }
 
 /** A heading's slice of the note (full subtree for top-level headings,
@@ -167,9 +198,9 @@ const collectSectionSpans = (
   const topLevel = Math.min(...headings.map((heading) => heading.level))
   const topLevelHeadingCount = headings.filter((heading) => heading.level === topLevel).length
 
-  // A wrapper must OPEN the note — preamble text or an earlier deeper
-  // heading means the lone top-level heading does not span the note, so
-  // it keeps its Section line.
+  // A lone top-level heading that opens the note (the `# Title` wrapper
+  // pattern) spans the whole body — preamble text or an earlier deeper
+  // heading means it does not, so it keeps its Section line.
   const hasSingletonWrapper =
     topLevelHeadingCount === 1 && headings[0]?.level === topLevel && !preambleExists
 
@@ -179,6 +210,8 @@ const collectSectionSpans = (
   headings.forEach((heading, headingIndex) => {
     // Pop siblings and descendants (same or deeper level) so the stack
     // holds only the current heading's ancestors.
+    // 0 is below any valid heading level (1-6), so the condition is
+    // false on an empty stack.
     while ((ancestorStack.at(-1)?.level ?? 0) >= heading.level) {
       ancestorStack.pop()
     }
@@ -239,10 +272,11 @@ const buildTableOfContentsText = (
 
   // A single short chunk is the point — splitting an oversized name list
   // into more chunks would defeat it, so names are dropped at the budget.
-  // Deliberately no MIN floor (unlike budgetAfterPrefix): padding a huge
-  // title line with 50 name tokens would push the chunk past MAX and
-  // defeat its short-chunk purpose — when the title line exhausts the
-  // budget, the TOC is suppressed instead (the null return below).
+  // No MIN floor — budgetAfterPrefix floors at MIN_CHUNK_TOKENS to
+  // guarantee body content, but padding a huge title line with 50 name
+  // tokens here would push the chunk past MAX and defeat its short-chunk
+  // purpose. When the title line exhausts the budget, the TOC is
+  // suppressed instead (the null return below).
   const headingNameBudget = MAX_CHUNK_TOKENS - approximateTokenCount(titleLine)
   const budgetedHeadingNames: string[] = []
   // Cumulative token total threads through the loop sequentially.
@@ -266,7 +300,8 @@ const buildTableOfContentsText = (
  *  longer notes split into per-heading sections in two views (top-level
  *  aggregates + disjoint leaves — see collectSectionSpans), each fragment
  *  prefixed with the note title, a `Section:` line naming the heading's
- *  ancestor path, and — when `metadataPrefix` is given — a metadata line,
+ *  ancestor path (capped at the remaining budget — see capHeadingPath),
+ *  and — when `metadataPrefix` is given — a metadata line,
  *  plus one table-of-contents chunk naming the note's headings.
  *
  *  Every prefix counts against the chunk token budget — the embedding and
@@ -335,6 +370,15 @@ export const chunkContent = (params: {
       )
     : []
 
+  // Total chunk budget minus the body-content floor (MIN), title, and
+  // metadata leaves what is available for the Section-line ancestor path.
+  const titleTokens = approximateTokenCount(noteTitle)
+  const metadataTokens = metadataPrefix ? approximateTokenCount(metadataPrefix) : 0
+  const sectionLineBudget = Math.max(
+    MAX_CHUNK_TOKENS - MIN_CHUNK_TOKENS - titleTokens - metadataTokens,
+    0,
+  )
+
   const sectionFragments = collectSectionSpans(headings, preambleText !== "").flatMap(
     (sectionSpan) => {
       const sectionSpanText = stripMarkdownSyntax(
@@ -348,10 +392,11 @@ export const chunkContent = (params: {
       // rides the TOC chunk, and the FTS leg indexes the full note text.
       if (!sectionSpanText) return []
 
-      const sectionLine =
+      const cappedPath =
         sectionSpan.headingPath.length > 0
-          ? `Section: ${sectionSpan.headingPath.join(" > ")}`
-          : null
+          ? capHeadingPath(sectionSpan.headingPath, sectionLineBudget)
+          : sectionSpan.headingPath
+      const sectionLine = cappedPath.length > 0 ? `Section: ${cappedPath.join(" > ")}` : null
       const sectionPrefix = [noteTitle, sectionLine, metadataPrefix].filter(Boolean).join("\n")
 
       return splitWithTrailingMerge(sectionSpanText, budgetAfterPrefix(sectionPrefix)).map(

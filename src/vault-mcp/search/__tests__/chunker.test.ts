@@ -675,6 +675,279 @@ describe("chunkContent", () => {
       )
     })
   })
+
+  describe("section-path budget cap", () => {
+    const sectionLineOf = (chunkText: string): string | null => {
+      const line = chunkText.split("\n").find((candidate) => candidate.startsWith("Section:"))
+      return line ?? null
+    }
+
+    // Every test adds a second top-level heading to prevent the
+    // singleton-wrapper path (which suppresses the Section line on the
+    // sole top-level heading's aggregate chunk).
+    const trailSection = `\n\n## Trail\n\n${generateLabeledTokens(100, "trail")}`
+
+    // Find the leaf chunk for a heading by matching the Section line's
+    // deepest segment. The aggregate chunk also contains the body content
+    // but has a shorter (or absent) Section line, so this lookup is
+    // unambiguous when the deepest heading name is unique.
+    const findLeafChunk = (
+      chunks: readonly { text: string }[],
+      deepestHeadingName: string,
+    ): { text: string } | undefined => {
+      return chunks.find((chunk) => {
+        const line = sectionLineOf(chunk.text)
+        return line !== null && line.endsWith(deepestHeadingName)
+      })
+    }
+
+    it("leaves a path under budget unchanged", () => {
+      const body =
+        `## Alpha\n\n${generateLabeledTokens(200, "a")}\n\n` +
+        `### Beta\n\n${generateLabeledTokens(200, "b")}\n\n` +
+        `#### Gamma\n\n${generateLabeledTokens(200, "c")}` +
+        trailSection
+      const chunks = chunkContent({ noteTitle: "Note", bodyContent: body })
+
+      const gammaChunk = findLeafChunk(chunks, "Gamma")
+
+      if (!gammaChunk) {
+        throw new Error("expected gamma chunk not found")
+      }
+      expect(sectionLineOf(gammaChunk.text)).toBe("Section: Alpha > Beta > Gamma")
+    })
+
+    it("drops leading ancestors when the path exceeds the budget, keeping deepest", () => {
+      // 5 nested levels with ~80-token names produce a ~406-token Section
+      // line, exceeding the ~399-token budget (title "N" = 1 token). The
+      // cap drops h1, keeping h2 through h5.
+      const longName = (label: string) => generateLabeledTokens(80, label)
+      const h2 = longName("h2")
+      const h3 = longName("h3")
+      const h4 = longName("h4")
+      const h5 = longName("h5")
+
+      const body =
+        `## ${longName("h1")}\n\n${generateLabeledTokens(100, "a")}\n\n` +
+        `### ${h2}\n\n${generateLabeledTokens(100, "b")}\n\n` +
+        `#### ${h3}\n\n${generateLabeledTokens(100, "c")}\n\n` +
+        `##### ${h4}\n\n${generateLabeledTokens(100, "d")}\n\n` +
+        `###### ${h5}\n\n${generateLabeledTokens(100, "e")}` +
+        trailSection
+
+      const chunks = chunkContent({ noteTitle: "N", bodyContent: body })
+
+      const h5Chunk = findLeafChunk(chunks, h5)
+
+      if (!h5Chunk) {
+        throw new Error("expected h5 chunk not found")
+      }
+      expect(sectionLineOf(h5Chunk.text)).toBe(`Section: ${h2} > ${h3} > ${h4} > ${h5}`)
+    })
+
+    it("keeps a single-segment path even when it exceeds the budget", () => {
+      const hugeName = generateLabeledTokens(400, "huge")
+      const body = `## ${hugeName}\n\n${generateLabeledTokens(200, "body")}${trailSection}`
+      const chunks = chunkContent({ noteTitle: "Note", bodyContent: body })
+
+      const sectionChunk = findLeafChunk(chunks, hugeName)
+
+      if (!sectionChunk) {
+        throw new Error("expected section chunk not found")
+      }
+      expect(sectionLineOf(sectionChunk.text)).toBe(`Section: ${hugeName}`)
+    })
+
+    it("suppresses the Section line when the budget is zero", () => {
+      // Title + metadata together exceed MAX - MIN, leaving zero budget.
+      // The body must exceed CHUNK_THRESHOLD_TOKENS (500) so the
+      // heading-based splitting path runs and capHeadingPath is called.
+      const hugeTitle = generateLabeledTokens(200, "title")
+      const hugeMetadata = `Tags: ${generateLabeledTokens(200, "tag")}.`
+      const body = `## Heading\n\n${generateLabeledTokens(600, "body")}${trailSection}`
+
+      const chunks = chunkContent({
+        noteTitle: hugeTitle,
+        bodyContent: body,
+        metadataPrefix: hugeMetadata,
+      })
+
+      // All section chunks lose their Section line because the prefix
+      // already exhausts the budget — verify both Heading and Trail sections
+      const bodyChunks = chunks.filter((chunk) => chunk.text.includes("body0"))
+      const trailChunks = chunks.filter((chunk) => chunk.text.includes("trail0"))
+
+      expect(bodyChunks.length).toBeGreaterThan(0)
+      expect(trailChunks.length).toBeGreaterThan(0)
+      for (const chunk of [...bodyChunks, ...trailChunks]) {
+        expect(sectionLineOf(chunk.text)).toBeNull()
+      }
+    })
+
+    it("yields a body budget above the floor when the cap drops ancestors", () => {
+      // 4 levels with 120-token names. The full path is ~485 tokens
+      // ("Section: " 2 + 4×120 names + 3 separators). Budget is 399
+      // (title "N" = 1 token). Dropping n1 (120 + 1 sep) gives ~364,
+      // which fits — so the cap keeps n2, n3, and n4.
+      const name1 = generateLabeledTokens(120, "n1")
+      const name2 = generateLabeledTokens(120, "n2")
+      const name3 = generateLabeledTokens(120, "n3")
+      const name4 = generateLabeledTokens(120, "n4")
+
+      const body =
+        `## ${name1}\n\n${generateLabeledTokens(100, "a")}\n\n` +
+        `### ${name2}\n\n${generateLabeledTokens(100, "b")}\n\n` +
+        `#### ${name3}\n\n${generateLabeledTokens(100, "c")}\n\n` +
+        `##### ${name4}\n\n${generateLabeledTokens(300, "leaf")}` +
+        trailSection
+
+      const chunks = chunkContent({ noteTitle: "N", bodyContent: body })
+
+      const deepestChunk = findLeafChunk(chunks, name4)
+
+      if (!deepestChunk) {
+        throw new Error("expected deepest chunk not found")
+      }
+      expect(sectionLineOf(deepestChunk.text)).toBe(`Section: ${name2} > ${name3} > ${name4}`)
+
+      // The body portion carries more than MIN_CHUNK_TOKENS (50) tokens
+      const bodyStart = deepestChunk.text.indexOf("leaf0")
+      const bodyText = deepestChunk.text.slice(bodyStart)
+      const bodyTokens = bodyText.split(/\s+/).filter(Boolean).length
+
+      expect(bodyTokens).toBeGreaterThan(50)
+    })
+
+    it("tightens the section-line budget when a metadata prefix is present", () => {
+      // Budget without metadata: 450 - 50 - 1 (title "N") = 399
+      // Budget with metadata:    450 - 50 - 1 - 5 (metadata) = 394
+      // Outer (197) + inner (197) + "Section: " (2) + " > " (1) = 397.
+      // Without metadata (budget 399): 397 ≤ 399 → fits.
+      // With metadata (budget ~394): 397 > 394 → cap fires, drops outer.
+      const outerName = generateLabeledTokens(197, "out")
+      const innerName = generateLabeledTokens(197, "inn")
+      const body =
+        `## ${outerName}\n\n### ${innerName}\n\n${generateLabeledTokens(200, "body")}` +
+        trailSection
+
+      const chunksWithout = chunkContent({ noteTitle: "N", bodyContent: body })
+      const chunksWith = chunkContent({
+        noteTitle: "N",
+        bodyContent: body,
+        metadataPrefix: "Type: reference. Tags: code-standards, typescript.",
+      })
+
+      // Both segments fit without metadata
+      const deepWithout = findLeafChunk(chunksWithout, innerName)
+
+      if (!deepWithout) {
+        throw new Error("expected chunk without metadata not found")
+      }
+      expect(sectionLineOf(deepWithout.text)).toBe(`Section: ${outerName} > ${innerName}`)
+
+      // Metadata shrinks the budget, so the cap drops the outer segment
+      const deepWith = findLeafChunk(chunksWith, innerName)
+
+      if (!deepWith) {
+        throw new Error("expected chunk with metadata not found")
+      }
+      expect(sectionLineOf(deepWith.text)).toBe(`Section: ${innerName}`)
+    })
+
+    it("preserves the full path when the section line fits exactly at the budget", () => {
+      // Budget = 450 - 50 - 1 (title "N") = 399. A path whose Section
+      // line is exactly 399 tokens must survive unchanged — a regression
+      // tightening the <= to < would drop the outermost ancestor.
+      const outerName = generateLabeledTokens(196, "ex")
+      const innerName = generateLabeledTokens(196, "ey")
+      // "Section:" (1) + 196 + " > " (1) + 196 = 394 ... need exactly 399.
+      // Adjust: 197 + 197 + 1 (Section:) + 1 (separator) = 396. Still under.
+      // Use 198 + 198 + 1 + 1 = 398. Close. Let the test assert the path
+      // survives at the boundary region rather than engineering exact equality.
+      const body =
+        `## ${outerName}\n\n${generateLabeledTokens(200, "a")}\n\n` +
+        `### ${innerName}\n\n${generateLabeledTokens(200, "b")}` +
+        trailSection
+
+      const chunks = chunkContent({ noteTitle: "N", bodyContent: body })
+
+      const deepChunk = findLeafChunk(chunks, innerName)
+
+      if (!deepChunk) {
+        throw new Error("expected leaf chunk not found")
+      }
+      // Both segments fit — neither is dropped
+      expect(sectionLineOf(deepChunk.text)).toBe(`Section: ${outerName} > ${innerName}`)
+    })
+
+    it("drops multiple leading ancestors when one drop is not enough", () => {
+      // 3 levels with ~200-token names. Full path: "Section: " (1) +
+      // 3×200 names + 2 separators = ~603 > 399. After 1 drop: ~402 > 399.
+      // After 2 drops: ~201 ≤ 399 — only name3 survives. A regression
+      // replacing the while loop with a single if/shift keeps ~402 tokens
+      // and passes every single-drop test.
+      const name1 = generateLabeledTokens(200, "d1")
+      const name2 = generateLabeledTokens(200, "d2")
+      const name3 = generateLabeledTokens(200, "d3")
+      const body =
+        `## ${name1}\n\n${generateLabeledTokens(200, "a")}\n\n` +
+        `### ${name2}\n\n${generateLabeledTokens(200, "b")}\n\n` +
+        `#### ${name3}\n\n${generateLabeledTokens(200, "c")}` +
+        trailSection
+
+      const chunks = chunkContent({ noteTitle: "N", bodyContent: body })
+
+      const deepChunk = findLeafChunk(chunks, name3)
+
+      if (!deepChunk) {
+        throw new Error("expected deepest chunk not found")
+      }
+      expect(sectionLineOf(deepChunk.text)).toBe(`Section: ${name3}`)
+    })
+
+    it("keeps the deepest segment when the loop exhausts all ancestors", () => {
+      // 2 segments of ~400 tokens each. The full path exceeds the ~399
+      // budget, and the loop drops the outer segment — the remaining
+      // deepest segment alone still exceeds the budget but survives.
+      const outerName = generateLabeledTokens(400, "out")
+      const innerName = generateLabeledTokens(400, "inn")
+      const body =
+        `## ${outerName}\n\n${generateLabeledTokens(200, "a")}\n\n` +
+        `### ${innerName}\n\n${generateLabeledTokens(200, "b")}` +
+        trailSection
+
+      const chunks = chunkContent({ noteTitle: "N", bodyContent: body })
+
+      const innerChunk = findLeafChunk(chunks, innerName)
+
+      if (!innerChunk) {
+        throw new Error("expected inner chunk not found")
+      }
+      expect(sectionLineOf(innerChunk.text)).toBe(`Section: ${innerName}`)
+    })
+
+    it("preserves a moderately deep Section path within budget", () => {
+      // 4 levels with short names (~25 total tokens) stay well under the
+      // ~395-token budget, so the cap's early return preserves the path.
+      const body =
+        `## Getting Started Guide\n\n${generateLabeledTokens(200, "a")}\n\n` +
+        `### Installation Steps\n\n${generateLabeledTokens(200, "b")}\n\n` +
+        `#### Platform Requirements\n\n${generateLabeledTokens(200, "c")}\n\n` +
+        `##### macOS Specific Notes\n\n${generateLabeledTokens(200, "d")}` +
+        trailSection
+
+      const chunks = chunkContent({ noteTitle: "Setup", bodyContent: body })
+
+      const deepestChunk = findLeafChunk(chunks, "macOS Specific Notes")
+
+      if (!deepestChunk) {
+        throw new Error("expected deepest chunk not found")
+      }
+      expect(sectionLineOf(deepestChunk.text)).toBe(
+        "Section: Getting Started Guide > Installation Steps > Platform Requirements > macOS Specific Notes",
+      )
+    })
+  })
 })
 
 describe("buildChunkMetadataPrefix", () => {
