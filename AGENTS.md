@@ -1171,6 +1171,8 @@ it runs the resource graph. The file is committed but auto-generated
 — on a fresh clone it may be stale, and `npm run build` can fail with
 `Property 'McpAuthToken' does not exist on type 'Resource'` until
 you've run `npm run deploy` (or `npm run dev:sst`) once for your stage.
+These commands require `~/.config/vault-cortex/.env`; create it from
+`.env.example` as shown in `DEPLOY.md` one-time setup step 3.
 
 If you add or rename a secret in `sst.config.ts`, re-run `npm run deploy`
 (or `npm run dev:sst`) to regenerate `sst-env.d.ts`.

@@ -49,17 +49,26 @@ describe("loadDeploymentEnv", () => {
     expect(env).toEqual({ MODE: "second" })
   })
 
-  it("lets the invoking environment override file values", () => {
-    const envFilePath = writeEnvFile("MODE=file\nFILE_ONLY=kept\n")
+  it("lets the invoking environment override file values, including an empty string", () => {
+    const envFilePath = writeEnvFile(
+      "MODE=file\nFILE_ONLY=kept\nORIGIN_URL=https://tunnel.example.com\nMCP_PORT_CIDRS=none\n",
+    )
 
     const env = loadDeploymentEnv({
       envFilePath,
-      parentEnv: { MODE: "shell", SHELL_ONLY: "kept" },
+      parentEnv: {
+        MCP_PORT_CIDRS: "0.0.0.0/0",
+        MODE: "shell",
+        ORIGIN_URL: "",
+        SHELL_ONLY: "kept",
+      },
     })
 
     expect(env).toEqual({
       FILE_ONLY: "kept",
+      MCP_PORT_CIDRS: "0.0.0.0/0",
       MODE: "shell",
+      ORIGIN_URL: "",
       SHELL_ONLY: "kept",
     })
   })
@@ -78,11 +87,12 @@ describe("loadDeploymentEnv", () => {
 
   it("rejects a missing external file with setup guidance", () => {
     const missingPath = join(createTempDirectory(), ".env")
+    const expectedError = new Error(
+      `deployment environment file not found at ${missingPath}; copy .env.example there and fill in the required values`,
+    )
 
-    expect(() => loadDeploymentEnv({ envFilePath: missingPath, parentEnv: {} })).toThrow(
-      new RegExp(
-        `^deployment environment file not found at ${missingPath}; copy \\.env\\.example there and fill in the required values$`,
-      ),
+    expect(() => loadDeploymentEnv({ envFilePath: missingPath, parentEnv: {} })).toThrowError(
+      expectedError,
     )
   })
 
