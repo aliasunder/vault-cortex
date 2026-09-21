@@ -35,9 +35,9 @@ import {
 const expandHome = (path: string): string =>
   path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path
 
-const loadEnvForDeploy = (): NodeJS.ProcessEnv => {
+const loadEnvForDeploy = ({ requireFile }: { requireFile: boolean }): NodeJS.ProcessEnv => {
   try {
-    return loadDeploymentEnv()
+    return loadDeploymentEnv({ requireFile })
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "could not load the deployment environment"
@@ -46,7 +46,8 @@ const loadEnvForDeploy = (): NodeJS.ProcessEnv => {
   }
 }
 
-const env = loadEnvForDeploy()
+const sub = process.argv[2]
+const env = loadEnvForDeploy({ requireFile: sub === "lightsail:up" })
 
 /** In GitHub Actions, masks a value so it appears as *** in logs. No-op locally. */
 const mask = (value: string): void => {
@@ -176,8 +177,6 @@ const resolvePublicUrlForDeploy = (): ResolvedPublicUrl => {
     process.exit(1)
   }
 }
-
-const sub = process.argv[2]
 
 switch (sub) {
   case "docker:build":

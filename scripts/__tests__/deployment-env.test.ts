@@ -59,6 +59,18 @@ describe("loadDeploymentEnv", () => {
     })
   })
 
+  it("uses the invoking environment when an optional external file is missing", () => {
+    const missingPath = join(tmpdir(), "vault-cortex-missing-optional-deployment-env", ".env")
+
+    const env = loadDeploymentEnv({
+      envFilePath: missingPath,
+      parentEnv: { SHELL_ONLY: "kept" },
+      requireFile: false,
+    })
+
+    expect(env).toEqual({ SHELL_ONLY: "kept" })
+  })
+
   it("rejects a missing external file with setup guidance", () => {
     const missingPath = join(tmpdir(), "vault-cortex-missing-deployment-env", ".env")
 
