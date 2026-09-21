@@ -810,7 +810,7 @@ curl https://mcp.example.com/healthz
 
 ## Troubleshooting
 
-- **`npm run build` fails with `Property 'McpAuthToken' does not exist`** — `sst-env.d.ts` hasn't been generated. Complete one-time setup step 3 to create `~/.config/vault-cortex/.env`, then run `npm run deploy` (or `npm run dev:sst`) once for your stage.
+- **`npm run build` fails with `Property 'McpAuthToken' does not exist`** — `sst-env.d.ts` hasn't been generated. Complete one-time setup step 2 to create `~/.config/vault-cortex/.env`, then run `npm run deploy` (or `npm run dev:sst`) once for your stage.
 - **Every request gets `403` at the gateway while the instance is healthy** — the Lambda authorizer is rejecting every token, and clients do not recover on their own (they refresh on 401, not 403). Either the Lambda and Express disagree on `PUBLIC_URL` — the Lambda derives its value at `sst deploy` (the `PUBLIC_URL` env var, else `CUSTOM_DOMAIN`, else the gateway URL), and Express reads the instance `.env`, which CI and `npm run lightsail:up` write with the same rule, so a disagreement means the instance `.env` was edited by hand or written by an older deploy; re-run the deploy (or `npm run lightsail:up`) so both derive the same value — or connected clients still hold tokens minted before audience binding (an upgrade that skipped the release that accepts them): each client recovers when its own token timer refreshes it, at most one access-token lifetime, or reconnect it now.
 - **`npm run dev:sst` errors with `SecretMissingError`** — set the secret first (one-time setup step 2).
 - **`curl <lightsailIp>` hangs** — use `:8000`. The firewall only allows ports 22 and 8000 by default (port 22 may be blocked if `SSH_CIDRS=none`, port 8000 may be blocked if `MCP_PORT_CIDRS=none`).
