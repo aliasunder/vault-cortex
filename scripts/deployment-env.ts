@@ -11,6 +11,7 @@ type LoadDeploymentEnvParams = {
   requireFile?: boolean
 }
 
+/** Combines deployment-file values with the invoking environment. */
 export const loadDeploymentEnv = ({
   envFilePath = DEPLOYMENT_ENV_PATH,
   parentEnv = process.env,
@@ -30,6 +31,7 @@ export const loadDeploymentEnv = ({
     // vary configuration without rewriting the user's local secrets file.
     return { ...fileEnv, ...parentEnv }
   } catch {
+    // Optional files add local overrides only; the caller's environment remains usable without them.
     if (!requireFile) return { ...parentEnv }
 
     throw new Error(`could not read or parse the deployment environment file at ${envFilePath}`)

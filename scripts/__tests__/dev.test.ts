@@ -75,25 +75,26 @@ describe("dev deployment helper", () => {
 
   it("rejects lightsail deployment when the external env file is missing", () => {
     const directory = createTempDirectory()
+    const deploymentEnvPath = join(directory, ".config", "vault-cortex", ".env")
 
     const result = runDev({ subcommand: "lightsail:up", homeDirectory: directory })
 
     expect(result.status).toBe(1)
     expect(result.stderr).toBe(
-      `✕ deployment environment file not found at ${join(directory, ".config", "vault-cortex", ".env")}; copy .env.example there and fill in the required values\n`,
+      `✕ deployment environment file not found at ${deploymentEnvPath}; copy .env.example there and fill in the required values\n`,
     )
   })
 
   it("rejects lightsail deployment when the external env file is unreadable", () => {
     const directory = createTempDirectory()
-    const envPath = join(directory, ".config", "vault-cortex", ".env")
-    mkdirSync(envPath, { recursive: true })
+    const deploymentEnvPath = join(directory, ".config", "vault-cortex", ".env")
+    mkdirSync(deploymentEnvPath, { recursive: true })
 
     const result = runDev({ subcommand: "lightsail:up", homeDirectory: directory })
 
     expect(result.status).toBe(1)
     expect(result.stderr).toBe(
-      `✕ could not read or parse the deployment environment file at ${envPath}\n`,
+      `✕ could not read or parse the deployment environment file at ${deploymentEnvPath}\n`,
     )
   })
 })
