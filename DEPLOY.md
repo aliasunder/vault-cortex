@@ -30,16 +30,7 @@ npm install
 On Linux (x64), run `ONNXRUNTIME_NODE_INSTALL=skip npm install` instead —
 see the Linux note in [CONTRIBUTING.md](./CONTRIBUTING.md#quick-start).
 
-**2. Generate MCP auth token and set SST secret:**
-
-```bash
-MCP_AUTH_TOKEN=$(openssl rand -hex 32)
-npx sst secret set McpAuthToken "$MCP_AUTH_TOKEN"
-```
-
-`McpAuthToken` is the only SST secret the base deployment needs — it's linked to the Lambda authorizer. (The optional [Port 8000 Hardening](#port-8000-hardening-optional) adds two more.) Obsidian credentials (`OBSIDIAN_AUTH_TOKEN`, `VAULT_NAME`) flow to Docker containers via the `.env` file, not through SST.
-
-**3. Create the deploy `.env` file** (secrets stay outside the repo at `~/.config/vault-cortex/.env`):
+**2. Create the deploy `.env` file** (secrets stay outside the repo at `~/.config/vault-cortex/.env`):
 
 ```bash
 mkdir -p ~/.config/vault-cortex
@@ -47,17 +38,25 @@ cp .env.example ~/.config/vault-cortex/.env
 chmod 600 ~/.config/vault-cortex/.env
 ```
 
-The repository's `npm run sst -- <command>` wrapper loads this file into the SST child process. `lightsail:up` reads the same file directly, so a value like `CUSTOM_DOMAIN` or a pinned `PUBLIC_URL` reaches the Lambda authorizer and the instance identically without placing a secret-bearing file in the repository.
+The repository's `npm run sst -- <command>` wrapper loads this file into the SST child process. `lightsail:up` reads the same file directly, so a value like `AWS_REGION`, `CUSTOM_DOMAIN`, or a pinned `PUBLIC_URL` reaches every local deployment command without placing a secret-bearing file in the repository.
 
-Write the MCP token into `.env` (it must equal the value stored as the `McpAuthToken` SST secret in step 2):
+If you deploy outside `us-east-1`, uncomment and set `AWS_REGION` in this file before the next step.
+
+**3. Generate the MCP auth token, write it to `.env`, and set the SST secret:**
 
 ```bash
-# macOS
-sed -i '' "s/^MCP_AUTH_TOKEN=.*/MCP_AUTH_TOKEN=$MCP_AUTH_TOKEN/" ~/.config/vault-cortex/.env
+MCP_AUTH_TOKEN=$(openssl rand -hex 32)
 
-# Linux
-sed -i "s/^MCP_AUTH_TOKEN=.*/MCP_AUTH_TOKEN=$MCP_AUTH_TOKEN/" ~/.config/vault-cortex/.env
+if [ "$(uname)" = "Darwin" ]; then
+  sed -i '' "s/^MCP_AUTH_TOKEN=.*/MCP_AUTH_TOKEN=$MCP_AUTH_TOKEN/" ~/.config/vault-cortex/.env
+else
+  sed -i "s/^MCP_AUTH_TOKEN=.*/MCP_AUTH_TOKEN=$MCP_AUTH_TOKEN/" ~/.config/vault-cortex/.env
+fi
+
+npm run sst -- secret set McpAuthToken "$MCP_AUTH_TOKEN"
 ```
+
+`McpAuthToken` is the only SST secret the base deployment needs — it's linked to the Lambda authorizer. (The optional [Port 8000 Hardening](#port-8000-hardening-optional) adds two more.) Obsidian credentials (`OBSIDIAN_AUTH_TOKEN`, `VAULT_NAME`) flow to Docker containers via the `.env` file, not through SST.
 
 Then open `~/.config/vault-cortex/.env` and fill in the remaining values:
 
