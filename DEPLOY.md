@@ -104,8 +104,8 @@ On startup, Compose runs one `vault-cortex` container (the `:remote` image). Ins
 ## Verify
 
 ```bash
-# Full chain via API Gateway (use the MCP_AUTH_TOKEN value, not the SST secret name):
-curl -H "Authorization: Bearer $MCP_AUTH_TOKEN" <apiUrl>/healthz
+# Full chain via API Gateway (paste the MCP_AUTH_TOKEN value, not the SST secret name):
+curl -H "Authorization: Bearer <your MCP_AUTH_TOKEN value>" <apiUrl>/healthz
 
 # Direct hit on the Lightsail VM (skips API Gateway).
 # Skip if you've set MCP_PORT_CIDRS=none (port 8000 blocked).

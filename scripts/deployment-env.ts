@@ -30,6 +30,8 @@ export const loadDeploymentEnv = ({
     // vary configuration without rewriting the user's local secrets file.
     return { ...fileEnv, ...parentEnv }
   } catch {
+    if (!requireFile) return { ...parentEnv }
+
     throw new Error(`could not read or parse the deployment environment file at ${envFilePath}`)
   }
 }

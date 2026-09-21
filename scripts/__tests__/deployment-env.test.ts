@@ -85,6 +85,18 @@ describe("loadDeploymentEnv", () => {
     expect(env).toEqual({ SHELL_ONLY: "kept" })
   })
 
+  it("uses the invoking environment when an optional external file is unreadable", () => {
+    const envDirectory = createTempDirectory()
+
+    const env = loadDeploymentEnv({
+      envFilePath: envDirectory,
+      parentEnv: { SHELL_ONLY: "kept" },
+      requireFile: false,
+    })
+
+    expect(env).toEqual({ SHELL_ONLY: "kept" })
+  })
+
   it("rejects a missing external file with setup guidance", () => {
     const missingPath = join(createTempDirectory(), ".env")
     const expectedError = new Error(
