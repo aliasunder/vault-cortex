@@ -45,7 +45,9 @@ describe("runSst", () => {
   })
 
   it("does not spawn SST when the external file is missing", () => {
-    const missingPath = join(tmpdir(), "vault-cortex-missing-run-sst", ".env")
+    const missingDirectory = mkdtempSync(join(tmpdir(), "vault-cortex-missing-run-sst-"))
+    onTestFinished(() => rmSync(missingDirectory, { recursive: true, force: true }))
+    const missingPath = join(missingDirectory, ".env")
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined)
 
     const exitCode = runSst({ args: ["deploy"], envFilePath: missingPath })
@@ -67,6 +69,16 @@ describe("runSst", () => {
     expect(exitCode).toBe(7)
   })
 
+  it("returns one when SST exits without a status", () => {
+    const envFilePath = writeEnvFile("WRAPPER_SETTING=value\n")
+    vi.mocked(spawnSync).mockReturnValue({ ...successfulSpawn, status: null })
+
+    const exitCode = runSst({ args: ["deploy"], envFilePath })
+
+    expect(exitCode).toBe(1)
+    expect(spawnSync).toHaveBeenCalledTimes(1)
+  })
+
   it("reports a fixed error when the SST process cannot start", () => {
     const envFilePath = writeEnvFile("WRAPPER_SETTING=value\n")
     const spawnError = new Error("spawn sst ENOENT")
@@ -76,6 +88,21 @@ describe("runSst", () => {
     const exitCode = runSst({ args: ["deploy"], envFilePath })
 
     expect(exitCode).toBe(1)
+    expect(errorLog).toHaveBeenCalledTimes(1)
+    expect(errorLog).toHaveBeenCalledWith("✕ Could not start the local SST CLI.")
+  })
+
+  it("reports a fixed error when starting SST throws", () => {
+    const envFilePath = writeEnvFile("WRAPPER_SETTING=value\n")
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined)
+    vi.mocked(spawnSync).mockImplementation(() => {
+      throw new Error("spawn sst EACCES")
+    })
+
+    const exitCode = runSst({ args: ["deploy"], envFilePath })
+
+    expect(exitCode).toBe(1)
+    expect(spawnSync).toHaveBeenCalledTimes(1)
     expect(errorLog).toHaveBeenCalledTimes(1)
     expect(errorLog).toHaveBeenCalledWith("✕ Could not start the local SST CLI.")
   })

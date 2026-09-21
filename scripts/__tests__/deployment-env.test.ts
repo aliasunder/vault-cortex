@@ -5,9 +5,14 @@ import { describe, expect, it, onTestFinished } from "vitest"
 
 import { loadDeploymentEnv } from "../deployment-env.js"
 
-const writeEnvFile = (content: string): string => {
+const createTempDirectory = (): string => {
   const directory = mkdtempSync(join(tmpdir(), "vault-cortex-deployment-env-"))
   onTestFinished(() => rmSync(directory, { recursive: true, force: true }))
+  return directory
+}
+
+const writeEnvFile = (content: string): string => {
+  const directory = createTempDirectory()
   const envFilePath = join(directory, ".env")
   writeFileSync(envFilePath, content)
   return envFilePath
@@ -60,7 +65,7 @@ describe("loadDeploymentEnv", () => {
   })
 
   it("uses the invoking environment when an optional external file is missing", () => {
-    const missingPath = join(tmpdir(), "vault-cortex-missing-optional-deployment-env", ".env")
+    const missingPath = join(createTempDirectory(), ".env")
 
     const env = loadDeploymentEnv({
       envFilePath: missingPath,
@@ -72,12 +77,20 @@ describe("loadDeploymentEnv", () => {
   })
 
   it("rejects a missing external file with setup guidance", () => {
-    const missingPath = join(tmpdir(), "vault-cortex-missing-deployment-env", ".env")
+    const missingPath = join(createTempDirectory(), ".env")
 
     expect(() => loadDeploymentEnv({ envFilePath: missingPath, parentEnv: {} })).toThrow(
       new RegExp(
         `^deployment environment file not found at ${missingPath}; copy \\.env\\.example there and fill in the required values$`,
       ),
+    )
+  })
+
+  it("rejects an unreadable external file without leaking its read error", () => {
+    const envDirectory = createTempDirectory()
+
+    expect(() => loadDeploymentEnv({ envFilePath: envDirectory, parentEnv: {} })).toThrow(
+      `could not read or parse the deployment environment file at ${envDirectory}`,
     )
   })
 })
