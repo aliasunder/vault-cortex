@@ -36,8 +36,9 @@ These components are part of the maintainer's deployment, not the vault-cortex
 project itself — adopters may use any hosting, reverse proxy, and CI/CD setup:
 
 - **API Gateway + Lambda authorizer** — HTTP API fronting the Lightsail
-  instance, path-aware authorization (OAuth endpoints pass through, `/mcp`
-  requires valid bearer). IaC via SST v4
+  instance, path-aware authorization (OAuth endpoints pass through; `/mcp`
+  requires the static token or a correctly signed, deployment-bound JWT).
+  Express enforces JWT expiry and revocation. IaC via SST v4
 - **CI/CD workflows** — GitHub Actions with OIDC AWS auth, SSH to Lightsail,
   GHCR image push
 

@@ -608,9 +608,11 @@ OAuth session. These optional measures add defense-in-depth:
   port 22 in your firewall.
 
 - **Add a second auth layer** — the reference [AWS deployment](../../DEPLOY.md)
-  validates tokens once at the network edge (API Gateway + Lambda authorizer)
-  and again at the server. The principle applies anywhere: an auth-aware
-  proxy in front means a misconfigured server alone can't expose your vault.
+  checks static tokens and JWT signature/binding at the network edge (API
+  Gateway + Lambda authorizer), then validates them again at the server, where
+  JWT expiry and revocation are enforced. The principle applies anywhere: an
+  auth-aware proxy still rejects forged or foreign JWTs if server-side
+  validation regresses.
 
 These measures stack. Start with whichever is easiest for your setup — even
 one makes a meaningful difference.
