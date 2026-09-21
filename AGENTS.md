@@ -84,6 +84,8 @@ assets/                                # Static assets (not shipped in Docker)
     DejaVuSans.ttf                     #   Embedded in render script for deterministic text rendering
 scripts/                               # Dev/ops helpers (not shipped in Docker)
   dev.ts                               # Deployment helper (subcommands for SSH, sync, etc.)
+  deployment-env.ts                    # Loads ~/.config/vault-cortex/.env beneath shell overrides
+  run-sst.ts                           # Runs local SST commands with the external deployment env
   instance-env.ts                      # PUBLIC_URL resolution for lightsail:up (same rule as deploy.yml + sst.config.ts)
   sync-cli-env-blocks.ts               # Syncs deploy/ .env.example optional blocks into cli/src/env.ts
   lobehub-manifest.ts                  # Builds lhm.plugin.json from the live MCP tool/prompt registry
@@ -1168,10 +1170,10 @@ typed via `sst-env.d.ts` at the project root, which SST writes when
 it runs the resource graph. The file is committed but auto-generated
 — on a fresh clone it may be stale, and `npm run build` can fail with
 `Property 'McpAuthToken' does not exist on type 'Resource'` until
-you've run `npx sst deploy` (or `sst dev`) once for your stage.
+you've run `npm run deploy` (or `npm run dev:sst`) once for your stage.
 
-If you add or rename a secret in `sst.config.ts`, re-run `sst deploy`
-(or `sst dev`) to regenerate `sst-env.d.ts`.
+If you add or rename a secret in `sst.config.ts`, re-run `npm run deploy`
+(or `npm run dev:sst`) to regenerate `sst-env.d.ts`.
 
 `sst.config.ts` is typechecked by `npm run build:sst` (part of
 `npm run build`) through its own `tsconfig.sst.json`. It cannot share

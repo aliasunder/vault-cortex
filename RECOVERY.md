@@ -114,9 +114,9 @@ you have no manual snapshot, you're rebuilding from scratch:
 
 ```bash
 # Unprotect (since the existing state still claims the VM exists)
-sst state remove --target 'aws:lightsail:Instance::VaultCortexVm'
+npm run sst -- state remove --target 'aws:lightsail:Instance::VaultCortexVm'
 # Then a normal deploy provisions a fresh VM
-npx sst deploy --stage "${STAGE}"
+npm run deploy -- --stage "${STAGE}"
 ```
 
 You'll need to re-run the post-provision steps from the README
@@ -150,11 +150,11 @@ survive — only on-disk state carries over.
 8. Update `sst.config.ts` with the new `bundleId` (and `blueprintId`
    if the OS was upgraded in-place)
 9. Remove the old instance from SST state:
-   `sst state remove 'VaultCortexVm'`
+   `npm run sst -- state remove 'VaultCortexVm'`
 10. Import the new instance: add `import: "<instance-name>"` to the
-    resource options in `sst.config.ts`, then `sst deploy`
-11. Clean up the import: remove the `import` line, run `sst refresh`,
-    then `sst deploy` again to confirm a clean no-diff deploy
+    resource options in `sst.config.ts`, then run `npm run deploy`
+11. Clean up the import: remove the `import` line, run `npm run sst -- refresh`,
+    then run `npm run deploy` again to confirm a clean no-diff deploy
 12. Delete the old instance after verification
 
 If the new instance name differs from the canonical name (`vault-cortex-<stage>`),
@@ -179,18 +179,18 @@ aws lightsail create-instance-snapshot \
   --instance-snapshot-name "pre-upgrade-$(date +%Y%m%d-%H%M%S)"
 
 # 2. Unprotect the resource in Pulumi state
-sst state unprotect --target 'aws:lightsail:Instance::VaultCortexVm'
+npm run sst -- state unprotect --target 'aws:lightsail:Instance::VaultCortexVm'
 
 # 3. Make the change in sst.config.ts (e.g. bundleId: "medium_3_0")
 # 4. Deploy — this is the one and only time replacement is allowed.
-npx sst deploy --stage "${STAGE}"
+npm run deploy -- --stage "${STAGE}"
 
 # 5. Re-protect on the next normal deploy. The protect:true line in
 #    sst.config.ts is still there, so deploy with no changes:
-npx sst deploy --stage "${STAGE}"
+npm run deploy -- --stage "${STAGE}"
 ```
 
-If `sst state unprotect` isn't available in your SST version, drop to
+If `npm run sst -- state unprotect` isn't available in your SST version, drop to
 Pulumi directly:
 
 ```bash
@@ -216,7 +216,7 @@ invariant. Costs another ~5 minutes and a brief downtime window.
 
 **Path 2 — Adopt the restored instance into state.**
 Update `sst.config.ts` to point at the restored name (e.g. via a stage
-override), `sst refresh` to pick up actual cloud state, then deploy. SST
+override), run `npm run sst -- refresh` to pick up actual cloud state, then deploy. SST
 state and AWS reality converge without further AWS-side changes.
 
 For a personal single-stage setup, Path 1 is usually cleanest. For
@@ -261,7 +261,7 @@ aws lightsail get-auto-snapshots \
 
 # 2. Confirm protect blocks a replace-triggering change:
 #    (Temporarily tweak userData in sst.config.ts, then:)
-npx sst deploy --stage "${DRILL_STAGE}"
+npm run deploy -- --stage "${DRILL_STAGE}"
 #    Expected: deploy fails with a protected-resource error. Revert the change.
 
 # 3. Confirm the restore path:

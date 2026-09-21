@@ -24,6 +24,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { DEPLOYMENT_ENV_PATH, loadDeploymentEnv } from "./deployment-env.js"
 import {
   envContentWithPublicUrl,
   gatewayApiEndpointQuery,
@@ -31,25 +32,21 @@ import {
   type ResolvedPublicUrl,
 } from "./instance-env.js"
 
-const ENV_PATH = join(homedir(), ".config", "vault-cortex", ".env")
-
-const loadDotEnv = (): Record<string, string> => {
-  if (!existsSync(ENV_PATH)) return {}
-  const out: Record<string, string> = {}
-  for (const line of readFileSync(ENV_PATH, "utf8").split("\n")) {
-    const match = /^([A-Z0-9_]+)=(.*)$/i.exec(line.trim())
-    const key = match?.[1]
-    const value = match?.[2]
-
-    if (key !== undefined && value !== undefined) out[key] = value.replace(/^['"]|['"]$/g, "")
-  }
-  return out
-}
-
 const expandHome = (path: string): string =>
   path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path
 
-const env: NodeJS.ProcessEnv = { ...loadDotEnv(), ...process.env }
+const loadEnvForDeploy = (): NodeJS.ProcessEnv => {
+  try {
+    return loadDeploymentEnv()
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "could not load the deployment environment"
+    console.error(`✕ ${message}`)
+    process.exit(1)
+  }
+}
+
+const env = loadEnvForDeploy()
 
 /** In GitHub Actions, masks a value so it appears as *** in logs. No-op locally. */
 const mask = (value: string): void => {
@@ -107,7 +104,7 @@ const waitForDocker = (ip: string, id: string, timeoutSec = 120): void => {
 
 const readStage = (): string => {
   if (!existsSync(".sst/stage")) {
-    console.error("✕  .sst/stage not found. Run `npx sst deploy` first.")
+    console.error("✕  .sst/stage not found. Run `npm run deploy` first.")
     process.exit(1)
   }
   return readFileSync(".sst/stage", "utf8").trim()
@@ -209,14 +206,6 @@ switch (sub) {
     break
 
   case "lightsail:up": {
-    if (!existsSync(ENV_PATH)) {
-      console.error(
-        `✕  ${ENV_PATH} not found.\n` +
-          `  Copy .env.example there and fill in values:\n` +
-          `  mkdir -p ~/.config/vault-cortex && cp .env.example ~/.config/vault-cortex/.env`,
-      )
-      process.exit(1)
-    }
     // The instance .env must carry the same PUBLIC_URL the Lambda authorizer
     // derived at `sst deploy` — a mismatch 403s every request at the gateway.
     // Resolved before anything touches the instance, so a failed resolution
@@ -227,7 +216,7 @@ switch (sub) {
       console.log(`> PUBLIC_URL derived from ${publicUrlSource}`)
     }
     const shippedEnvContent = envContentWithPublicUrl(
-      readFileSync(ENV_PATH, "utf8"),
+      readFileSync(DEPLOYMENT_ENV_PATH, "utf8"),
       resolvedPublicUrl,
     )
     const ip = sshHost()
