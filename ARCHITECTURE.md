@@ -223,7 +223,8 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 **Entry-granular recall:** `vault_memory_recall` retrieves individual dated
 entries — the granularity the other layers miss (`vault_get_memory` returns
-whole files/sections; `vault_search` is note-granular).
+whole files/sections, or date-scoped entries across them with `on_or_after`;
+`vault_search` is note-granular).
 
 **Indexing:**
 

@@ -449,6 +449,10 @@ const isExcludedFromLane = ({
   return tasks.statusForChar(statusChar, statusRegistry) === "non_task"
 }
 
+/** Body-line index for inserting at position N (1-based) among a lane's
+ *  top-level cards — skipping sub-item blocks and fence/comment/NON_TASK
+ *  lines. An N past the last card clamps to the lane's end site rather than
+ *  its trailing-content position. */
 const headingInsertIndexAtPosition = ({
   lines,
   heading,

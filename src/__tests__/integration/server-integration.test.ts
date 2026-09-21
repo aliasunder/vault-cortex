@@ -344,22 +344,59 @@ describe("default config", () => {
       })
       expect(result.isError).not.toBe(true)
       const parsed = JSON.parse(textContent(result))
-      expect(parsed.on_or_after).toBe("2026-01-08")
-      expect(parsed.total).toBe(2)
-      expect(parsed.entries).toEqual([
-        {
-          file: "Preferences",
-          section: "Editor settings (newest first)",
-          date: "2026-01-12",
-          text: "- **2026-01-12**: Prefers dark mode in all editors",
-        },
-        {
-          file: "Preferences",
-          section: "Editor settings (newest first)",
-          date: "2026-01-08",
-          text: "- **2026-01-08**: Uses Vim keybindings in VS Code",
-        },
-      ])
+      expect(parsed).toEqual({
+        on_or_after: "2026-01-08",
+        total: 2,
+        entries: [
+          {
+            file: "Preferences",
+            section: "Editor settings (newest first)",
+            date: "2026-01-12",
+            text: "- **2026-01-12**: Prefers dark mode in all editors",
+          },
+          {
+            file: "Preferences",
+            section: "Editor settings (newest first)",
+            date: "2026-01-08",
+            text: "- **2026-01-08**: Uses Vim keybindings in VS Code",
+          },
+        ],
+      })
+    })
+
+    it("vault_get_memory — on_or_after without section reads every section in document order", async () => {
+      const result = await callTool({
+        client,
+        name: "vault_get_memory",
+        args: { file: "Preferences", on_or_after: "2026-01-08" },
+      })
+      expect(result.isError).not.toBe(true)
+      const parsed = JSON.parse(textContent(result))
+      // Dates run 12 → 08 → 10, so a global date sort would reorder them.
+      expect(parsed).toEqual({
+        on_or_after: "2026-01-08",
+        total: 3,
+        entries: [
+          {
+            file: "Preferences",
+            section: "Editor settings (newest first)",
+            date: "2026-01-12",
+            text: "- **2026-01-12**: Prefers dark mode in all editors",
+          },
+          {
+            file: "Preferences",
+            section: "Editor settings (newest first)",
+            date: "2026-01-08",
+            text: "- **2026-01-08**: Uses Vim keybindings in VS Code",
+          },
+          {
+            file: "Preferences",
+            section: "Workflow settings (newest first)",
+            date: "2026-01-10",
+            text: "- **2026-01-10**: Enables format on save",
+          },
+        ],
+      })
     })
 
     it("vault_memory_recall", async () => {

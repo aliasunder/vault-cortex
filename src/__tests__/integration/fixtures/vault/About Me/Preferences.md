@@ -16,3 +16,8 @@ created: 2026-01-01T09:00:00-05:00
 - **2026-01-12**: Prefers dark mode in all editors
 - **2026-01-08**: Uses Vim keybindings in VS Code
 - **2026-01-01**: Font size 14px for coding
+
+## Workflow settings (newest first)
+
+- **2026-01-10**: Enables format on save
+- **2026-01-02**: Uses 2-space indentation
