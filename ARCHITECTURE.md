@@ -586,8 +586,8 @@ A deployment-bound JWT has an issuer equal to the deployment's normalized
 `PUBLIC_URL` and an audience equal to that URL's `/mcp` resource. The Lambda
 classifies a deployment-bound expired token as forwardable; Express then
 returns the 401 challenge that starts refresh. A Lambda 403 means the token
-failed signature or binding checks, so the client must correct its server or
-credentials and authorize again.
+failed its JWT signature, payload, or binding checks, so the client must correct
+its server or credentials and authorize again.
 
 **Why both layers:** Lightsail port 8000 is publicly bound by default. If the
 API Gateway authorizer is misconfigured, or someone hits the public IP
