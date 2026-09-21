@@ -81,15 +81,18 @@ const run = ({ cmd, description }: { cmd: string; description: string }): void =
 // The target host is deliberately absent from both messages — matching the
 // success line at the end of lightsail:up. Tool output (ssh errors, compose
 // logs) can still print the address, so mask() keeps it out of public CI logs.
-const waitForDocker = (ip: string, id: string, timeoutSec = 120): void => {
+const waitForDocker = (targetHost: string, sshIdentityOption: string, timeoutSec = 120): void => {
   const deadline = Date.now() + timeoutSec * 1000
   console.log(`⏳ Waiting for Docker on the instance (up to ${timeoutSec}s)...`)
   while (Date.now() < deadline) {
     try {
-      execSync(`ssh ${id} ${sshOpts} ubuntu@${ip} 'docker --version' 2>/dev/null`, {
-        stdio: "pipe",
-        env,
-      })
+      execSync(
+        `ssh ${sshIdentityOption} ${sshOpts} ubuntu@${targetHost} 'docker --version' 2>/dev/null`,
+        {
+          stdio: "pipe",
+          env,
+        },
+      )
       console.log(`✓ Docker is ready`)
       return
     } catch {
@@ -120,7 +123,7 @@ const sshHost = (): string => {
   // public). The static-ip name matches sst.config.ts
   // (`vault-cortex-ip-${stage}`).
   const staticIpName = `vault-cortex-ip-${stage}`
-  const ip = execSync(
+  const staticIpAddress = execSync(
     `aws lightsail get-static-ip --static-ip-name ${staticIpName} ` +
       `--query staticIp.ipAddress --output text`,
     { env },
@@ -128,18 +131,18 @@ const sshHost = (): string => {
     .toString()
     .trim()
 
-  if (!ip || ip === "None") {
+  if (!staticIpAddress || staticIpAddress === "None") {
     console.error(`✕  Could not resolve ${staticIpName} from AWS.`)
     process.exit(1)
   }
-  return ip
+  return staticIpAddress
 }
 
 // Returns `-i <path>` for the SSH identity to use.
 // Defaults to ~/.ssh/vault-cortex (the dedicated deploy key that
 // matches the Lightsail KeyPair in sst.config.ts). Override with
 // LIGHTSAIL_SSH_KEY for a different keypair.
-const sshIdentity = (): string => {
+const getSshIdentityOption = (): string => {
   const keyPath = expandHome(env.LIGHTSAIL_SSH_KEY ?? "~/.ssh/vault-cortex")
 
   if (!existsSync(keyPath)) {
@@ -218,14 +221,14 @@ switch (sub) {
       readFileSync(DEPLOYMENT_ENV_PATH, "utf8"),
       resolvedPublicUrl,
     )
-    const ip = sshHost()
-    mask(ip)
-    const id = sshIdentity()
+    const targetHost = sshHost()
+    mask(targetHost)
+    const sshIdentityOption = getSshIdentityOption()
     run({
-      cmd: `ssh ${id} ${sshOpts} ubuntu@${ip} 'sudo mkdir -p /opt/vault-cortex && sudo chown ubuntu:ubuntu /opt/vault-cortex'`,
+      cmd: `ssh ${sshIdentityOption} ${sshOpts} ubuntu@${targetHost} 'sudo mkdir -p /opt/vault-cortex && sudo chown ubuntu:ubuntu /opt/vault-cortex'`,
       description: "ssh: create /opt/vault-cortex on the instance",
     })
-    waitForDocker(ip, id)
+    waitForDocker(targetHost, sshIdentityOption)
     // A public GHCR image pulls anonymously — GHCR_TOKEN is only needed when
     // the package is private (a fork's first push defaults to private).
     // Without one, clear any stored credential so a stale token can't 401
@@ -238,7 +241,7 @@ switch (sub) {
       // inherited so a failure's cause is visible like every other step.
       try {
         execSync(
-          `ssh ${id} ${sshOpts} ubuntu@${ip} 'docker login ghcr.io -u ${ghcrUser} --password-stdin'`,
+          `ssh ${sshIdentityOption} ${sshOpts} ubuntu@${targetHost} 'docker login ghcr.io -u ${ghcrUser} --password-stdin'`,
           {
             input: ghcrToken,
             stdio: ["pipe", "pipe", "inherit"],
@@ -256,12 +259,12 @@ switch (sub) {
         "> GHCR_TOKEN not set — clearing any stored GHCR credential on the instance (public images pull anonymously)",
       )
       run({
-        cmd: `ssh ${id} ${sshOpts} ubuntu@${ip} 'docker logout ghcr.io || true'`,
+        cmd: `ssh ${sshIdentityOption} ${sshOpts} ubuntu@${targetHost} 'docker logout ghcr.io || true'`,
         description: "ssh: docker logout ghcr.io on the instance",
       })
     }
     run({
-      cmd: `scp ${id} ${sshOpts} docker-compose.yml ubuntu@${ip}:/opt/vault-cortex/`,
+      cmd: `scp ${sshIdentityOption} ${sshOpts} docker-compose.yml ubuntu@${targetHost}:/opt/vault-cortex/`,
       description: "scp docker-compose.yml to the instance",
     })
     // Ship a copy carrying the resolved PUBLIC_URL instead of the local file
@@ -271,14 +274,14 @@ switch (sub) {
     try {
       writeFileSync(shippedEnvPath, shippedEnvContent, { mode: 0o600 })
       run({
-        cmd: `scp ${id} ${sshOpts} ${shippedEnvPath} ubuntu@${ip}:/opt/vault-cortex/.env`,
+        cmd: `scp ${sshIdentityOption} ${sshOpts} ${shippedEnvPath} ubuntu@${targetHost}:/opt/vault-cortex/.env`,
         description: "scp .env (with the resolved PUBLIC_URL) to the instance",
       })
     } finally {
       rmSync(shippedEnvDir, { recursive: true, force: true })
     }
     run({
-      cmd: `ssh ${id} ${sshOpts} ubuntu@${ip} 'cd /opt/vault-cortex && docker compose pull && docker compose up -d --remove-orphans --wait --wait-timeout 300 && docker image prune -f'`,
+      cmd: `ssh ${sshIdentityOption} ${sshOpts} ubuntu@${targetHost} 'cd /opt/vault-cortex && docker compose pull && docker compose up -d --remove-orphans --wait --wait-timeout 300 && docker image prune -f'`,
       description: "ssh: docker compose pull && docker compose up -d on the instance",
     })
     // Deliberately no IP in the success line — the instance IP is kept out

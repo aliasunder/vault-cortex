@@ -58,6 +58,15 @@ stage:
 ```bash
 STAGE=<your-stage>                                # e.g. "production"
 INSTANCE_NAME="vault-cortex-${STAGE}"
+AWS_REGION="${AWS_REGION:-$(aws configure get region)}"
+
+# These must match the existing values in sst.config.ts. Confirm that the
+# deployment region offers the configured availability zone and bundle before
+# restoring; choose a different bundle only as an intentional configuration change.
+AVAILABILITY_ZONE="${AWS_REGION}a"
+BUNDLE_ID="medium_3_0"
+aws lightsail get-regions --include-availability-zones --region "${AWS_REGION}" --output table
+aws lightsail get-bundles --region "${AWS_REGION}" --output table
 
 aws lightsail get-auto-snapshots \
   --resource-name "${INSTANCE_NAME}" \
@@ -74,8 +83,8 @@ RESTORE_NAME="${INSTANCE_NAME}-restore-$(date +%s)"
 
 aws lightsail create-instances-from-snapshot \
   --instance-names "${RESTORE_NAME}" \
-  --availability-zone us-east-1a \
-  --bundle-id medium_3_0 \
+  --availability-zone "${AVAILABILITY_ZONE}" \
+  --bundle-id "${BUNDLE_ID}" \
   --source-instance-name "${INSTANCE_NAME}" \
   --restore-date "${SNAPSHOT_DATE}" \
   --key-pair-name "vault-cortex-key-${STAGE}"
@@ -150,11 +159,14 @@ survive — only on-disk state carries over.
 8. Update `sst.config.ts` with the new `bundleId` (and `blueprintId`
    if the OS was upgraded in-place)
 9. Remove the old instance from SST state:
-   `npm run sst -- state remove 'VaultCortexVm'`
-10. Import the new instance: add `import: "<instance-name>"` to the
-    resource options in `sst.config.ts`, then run `npm run deploy`
-11. Clean up the import: remove the `import` line, run `npm run sst -- refresh`,
-    then run `npm run deploy` again to confirm a clean no-diff deploy
+   `npm run sst -- state remove --target 'aws:lightsail:Instance::VaultCortexVm'`
+10. In `sst.config.ts`, replace the `name` value in the `VaultCortexVm`
+    constructor's first object with the restored instance name. In that
+    constructor's second object, add `import: "<restored-instance-name>",`
+    directly above `protect: true`, then run `npm run deploy`.
+11. Remove only the `import` line, leaving the restored name configured. Run
+    `npm run sst -- refresh`, then `npm run deploy` again to confirm a clean
+    no-diff deploy.
 12. Delete the old instance after verification
 
 If the new instance name differs from the canonical name (`vault-cortex-<stage>`),
@@ -205,8 +217,7 @@ The URN follows the pattern
 ## Reconciling SST state after a restore
 
 After Scenario B, AWS has a new instance with a different name, but SST's
-state still references the old name. Two paths depending on how much
-drift you're willing to keep:
+state still references the old name. Choose one of these paths:
 
 **Path 1 — Rename the restored instance back to the canonical name.**
 Lightsail can't rename in place, so this means a second snapshot of the
@@ -214,10 +225,53 @@ restored VM, then a fresh restore under the canonical name, then a
 StaticIp re-attach. This restores the SST-state-matches-reality
 invariant. Costs another ~5 minutes and a brief downtime window.
 
+```bash
+RESTORED_SNAPSHOT="${RESTORE_NAME}-canonical-$(date +%Y%m%d-%H%M%S)"
+aws lightsail create-instance-snapshot \
+  --instance-name "${RESTORE_NAME}" \
+  --instance-snapshot-name "${RESTORED_SNAPSHOT}"
+
+aws lightsail create-instances-from-snapshot \
+  --instance-names "${INSTANCE_NAME}" \
+  --instance-snapshot-name "${RESTORED_SNAPSHOT}" \
+  --availability-zone "${AVAILABILITY_ZONE}" \
+  --bundle-id "${BUNDLE_ID}" \
+  --key-pair-name "vault-cortex-key-${STAGE}"
+
+# Continue after this reports "running".
+aws lightsail get-instance --instance-name "${INSTANCE_NAME}" \
+  --query 'instance.state.name' --output text
+
+aws lightsail detach-static-ip --static-ip-name "${STATIC_IP_NAME}"
+aws lightsail attach-static-ip \
+  --static-ip-name "${STATIC_IP_NAME}" \
+  --instance-name "${INSTANCE_NAME}"
+aws lightsail delete-instance --instance-name "${RESTORE_NAME}"
+
+npm run sst -- refresh -- --stage "${STAGE}"
+npm run deploy -- --stage "${STAGE}"
+```
+
 **Path 2 — Adopt the restored instance into state.**
-Update `sst.config.ts` to point at the restored name (e.g. via a stage
-override), run `npm run sst -- refresh` to pick up actual cloud state, then deploy. SST
-state and AWS reality converge without further AWS-side changes.
+This preserves the restored name, so configure it explicitly before import:
+
+1. Remove the stale state entry:
+
+   ```bash
+   npm run sst -- state remove --target 'aws:lightsail:Instance::VaultCortexVm'
+   ```
+
+2. In `sst.config.ts`, replace the `name` value in the `VaultCortexVm`
+   constructor's first object with the restored instance name.
+3. In the constructor's second object, add
+   `import: "<restored-instance-name>",` immediately above `protect: true`.
+4. Run `npm run deploy -- --stage "${STAGE}"`, then remove the `import`
+   line while keeping the restored name.
+5. Run `npm run sst -- refresh -- --stage "${STAGE}"`, followed by
+   `npm run deploy -- --stage "${STAGE}"` to confirm a clean no-diff deploy.
+
+SST state and AWS reality now use the restored name. Use Path 1 instead when
+the canonical `vault-cortex-<stage>` name must remain the configured name.
 
 For a personal single-stage setup, Path 1 is usually cleanest. For
 production-style multi-stage, Path 2 is faster and avoids the second

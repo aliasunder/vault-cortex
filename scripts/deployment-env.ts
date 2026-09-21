@@ -26,6 +26,8 @@ export const loadDeploymentEnv = ({
 
   try {
     const fileEnv = parseEnv(readFileSync(envFilePath, "utf8"))
+    // Shell values override the shared file so CI and one-off deploys can
+    // vary configuration without rewriting the user's local secrets file.
     return { ...fileEnv, ...parentEnv }
   } catch {
     throw new Error(`could not read or parse the deployment environment file at ${envFilePath}`)
