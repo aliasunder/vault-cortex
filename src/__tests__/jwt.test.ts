@@ -312,7 +312,12 @@ describe("verifyJwt", () => {
     const token = signJwt(buildPayload(), SECRET)
     const [header, body, sig] = token.split(".") as [string, string, string]
     const flipped = Buffer.from(sig, "base64url")
-    flipped[0] = flipped[0]! ^ 0xff
+    const firstByte = flipped.at(0)
+
+    if (firstByte === undefined) {
+      throw new Error("signature unexpectedly empty")
+    }
+    flipped[0] = firstByte ^ 0xff
     expect(verify(`${header}.${body}.${flipped.toString("base64url")}`, SECRET)).toBeNull()
   })
 })
