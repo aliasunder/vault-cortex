@@ -546,7 +546,10 @@ guarantees that hold in any deployment. The
 
 ### Auth: OAuth 2.1 + defense in depth
 
-Both authentication methods cross two validation layers:
+OAuth authorization and Express bearer-token validation apply to every
+deployment. The two-layer path below describes the reference AWS deployment:
+API Gateway invokes the Lambda authorizer before forwarding protected requests
+to Express.
 
 | Method                                | Used by                                                  | Token format                | Lifetime                                   |
 | ------------------------------------- | -------------------------------------------------------- | --------------------------- | ------------------------------------------ |
@@ -578,6 +581,13 @@ token stops here with **401** and `WWW-Authenticate`; no MCP handler runs.
 
 Both layers share the same HMAC key (`MCP_AUTH_TOKEN`) for JWT verification
 and `safeEqual`/`parseBearer` from `src/auth.ts`.
+
+A deployment-bound JWT has an issuer equal to the deployment's normalized
+`PUBLIC_URL` and an audience equal to that URL's `/mcp` resource. The Lambda
+classifies a deployment-bound expired token as forwardable; Express then
+returns the 401 challenge that starts refresh. A Lambda 403 means the token
+failed signature or binding checks, so the client must correct its server or
+credentials and authorize again.
 
 **Why both layers:** Lightsail port 8000 is publicly bound by default. If the
 API Gateway authorizer is misconfigured, or someone hits the public IP
@@ -688,17 +698,17 @@ needed for the cryptographic or binding checks. The binding claims
   rejects it with a 401 challenge, which lets the client use its refresh token;
   malformed, forged, foreign-issuer, and foreign-audience tokens remain Lambda
   denials and therefore gateway 403 responses.
-- The Lambda passes a token that carries no `aud` at all — the shape minted
-  by releases before binding — so that Express can reject it with a 401, the
-  status MCP clients refresh on; a Lambda deny is a fixed 403 that strands
-  them. Only tokens minted before an upgrade have this shape, so the path
-  goes quiet within one access-token TTL. A token that names any other
-  audience is denied at the Lambda.
-- A client's `resource` parameter, when sent, must name one of the two
-  identifiers the server's discovery documents advertise — the MCP endpoint
-  or the server URL itself — compared in canonical form, so a trailing slash
-  is fine. A mismatch is answered with `invalid_target` before any code or
-  refresh token is consumed; clients that send no `resource` are accepted.
+- The legacy path accepts only tokens minted before issuer and audience
+  binding was added. Those tokens carry no `aud`; Express rejects them with a
+  401 so the client can refresh, while a Lambda deny would be a fixed 403.
+  The path should go quiet within one six-hour access-token TTL after an
+  upgrade. A token with any other audience is denied at the Lambda.
+- A client's `resource` parameter, when sent, must name either the server URL
+  (`PUBLIC_URL`, for example `https://host.example/`) or the MCP endpoint
+  (`https://host.example/mcp`) from the discovery documents. The comparison is
+  canonical, so a trailing slash is fine. A mismatch returns `invalid_target`
+  before any code or refresh token is consumed; clients that send no `resource`
+  are accepted.
 
 `vault` is the server's only scope: a client that requests it gets it, and a
 client that requests no scope is granted it at authorization time, so the

@@ -29,19 +29,18 @@ export type JwtPayload = JwtBaseClaims & {
 type VerifyJwtOptions = {
   token: string
   secret: string
-  /** The value `iss` must equal; a token from another issuer is rejected. */
+  /** `tokenBindingForServer(new URL(PUBLIC_URL)).issuer` must equal `iss`. */
   expectedIssuer: string
-  /** The value `aud` must equal; a token minted for another server is
-   *  rejected even when it carries a valid signature under `secret`. */
+  /** `tokenBindingForServer(new URL(PUBLIC_URL)).audience` must equal `aud`. */
   expectedAudience: string
 }
 
-type BoundJwtVerification =
+type DeploymentJwtVerification =
   | { status: "valid"; payload: JwtPayload }
   | { status: "expired"; payload: JwtPayload }
   | { status: "invalid" }
 
-type VerifyUnboundJwtOptions = {
+type VerifyLegacyJwtOptions = {
   token: string
   secret: string
 }
@@ -52,9 +51,8 @@ const b64urlEncode = (obj: object): string => b64url(Buffer.from(JSON.stringify(
 
 const HEADER = b64urlEncode({ alg: "HS256", typ: "JWT" })
 
-const hmac = (data: string, secret: string): string => {
-  return b64url(createHmac("sha256", secret).update(data).digest())
-}
+const hmac = (data: string, secret: string): string =>
+  b64url(createHmac("sha256", secret).update(data).digest())
 
 export const signJwt = (payload: JwtPayload, secret: string): string => {
   const body = `${HEADER}.${b64urlEncode(payload)}`
@@ -81,6 +79,8 @@ const isJwtPayload = (value: unknown): value is JwtPayload => {
 // into the Lambda authorizer and stays dependency-free — a single epoch read
 // doesn't justify the bundle weight.
 const isExpired = (claims: JwtBaseClaims): boolean => {
+  // Keep the integer expiry second valid at equality; all callers use this
+  // same strict boundary for access and legacy tokens.
   // eslint-disable-next-line no-restricted-syntax
   return claims.exp < Date.now() / 1000
 }
@@ -99,10 +99,10 @@ const payloadWithVerifiedSignature = (token: string, secret: string): unknown =>
   const expected = hmac(`${header}.${payload}`, secret)
 
   const sigBuf = Buffer.from(sig, "base64url")
-  const expBuf = Buffer.from(expected, "base64url")
+  const expectedSignatureBuffer = Buffer.from(expected, "base64url")
 
-  if (sigBuf.length !== expBuf.length) return null
-  if (!timingSafeEqual(sigBuf, expBuf)) return null
+  if (sigBuf.length !== expectedSignatureBuffer.length) return null
+  if (!timingSafeEqual(sigBuf, expectedSignatureBuffer)) return null
 
   try {
     return JSON.parse(Buffer.from(payload, "base64url").toString())
@@ -111,13 +111,13 @@ const payloadWithVerifiedSignature = (token: string, secret: string): unknown =>
   }
 }
 
-/** Only an otherwise-valid bound token may be classified as expired. */
-export const classifyBoundJwt = ({
+/** Classifies a JWT whose issuer and audience match this deployment exactly. */
+export const classifyDeploymentJwt = ({
   token,
   secret,
   expectedIssuer,
   expectedAudience,
-}: VerifyJwtOptions): BoundJwtVerification => {
+}: VerifyJwtOptions): DeploymentJwtVerification => {
   const decoded = payloadWithVerifiedSignature(token, secret)
 
   if (!isJwtPayload(decoded)) return { status: "invalid" }
@@ -127,20 +127,19 @@ export const classifyBoundJwt = ({
   return { status: "valid", payload: decoded }
 }
 
-/** Issuer and audience use exact matches; callers canonicalize them. */
+/** Verifies a JWT against the issuer and audience derived from its PUBLIC_URL. */
 export const verifyJwt = (options: VerifyJwtOptions): JwtPayload | null => {
-  const verification = classifyBoundJwt(options)
+  const verification = classifyDeploymentJwt(options)
 
   if (verification.status !== "valid") return null
   return verification.payload
 }
 
-/** A pre-binding token must be unexpired and carry no audience before Express
- *  can reject it with the 401 that prompts clients to refresh. */
-export const verifyUnboundJwt = ({
+/** Verifies a legacy JWT minted before issuer and audience binding was added. */
+export const verifyLegacyJwt = ({
   token,
   secret,
-}: VerifyUnboundJwtOptions): JwtBaseClaims | null => {
+}: VerifyLegacyJwtOptions): JwtBaseClaims | null => {
   const decoded = payloadWithVerifiedSignature(token, secret)
 
   if (!isJwtBaseClaims(decoded)) return null
