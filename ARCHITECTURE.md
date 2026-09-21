@@ -546,7 +546,7 @@ guarantees that hold in any deployment. The
 
 ### Auth: OAuth 2.1 + defense in depth
 
-Two authentication methods, both validated at two layers:
+Both authentication methods cross two validation layers:
 
 | Method                                | Used by                                                  | Token format                | Lifetime                                   |
 | ------------------------------------- | -------------------------------------------------------- | --------------------------- | ------------------------------------------ |
@@ -558,20 +558,23 @@ Attached to protected routes only. OAuth discovery paths (`/.well-known/*`,
 `/authorize`, `/token`, `/register`, `/revoke`, `/oauth/*`, `/healthz`) are
 separate unauthenticated routes in `sst.config.ts` (required by the
 OAuth/MCP spec) and never invoke the Lambda. On protected routes the
-authorizer validates the bearer token — accepts both the static
-`MCP_AUTH_TOKEN` (via `safeEqual`) and JWT access tokens signed with it
-(via `verifyJwt`). The Authorization header is the route's identity
-source, so a tokenless request gets an automatic **401** from API Gateway
-without invoking the Lambda — this is what lets MCP clients (Claude
-Desktop/web, etc.) enter the OAuth connect flow on their first
-unauthenticated probe. A Lambda deny is a fixed, uncustomizable **403**
-on HTTP APIs, which MCP clients treat as a broken server rather than a
-sign-in prompt.
+authorizer accepts the static `MCP_AUTH_TOKEN` via `safeEqual`. For JWT access
+tokens, it validates the HMAC, payload shape, issuer, and audience. It forwards
+both current tokens and correctly bound expired tokens to Express; forwarding
+the latter lets Express return the 401 challenge that tells MCP clients to
+refresh. The Authorization header is the route's identity source, so a
+tokenless request gets an automatic **401** from API Gateway without invoking
+the Lambda. This is what lets MCP clients enter the OAuth connect flow on their
+first unauthenticated probe. A Lambda deny is a fixed, uncustomizable **403** on
+HTTP APIs, which MCP clients treat as a broken server rather than a sign-in
+prompt.
 
 **Layer 2 — Express middleware** (MCP SDK's `requireBearerAuth`, applied to the
 `/mcp` routes in `mcp-core/mcp-router.ts`):
 The OAuth provider's `verifyAccessToken()` accepts both static tokens and
-JWTs. Same validation as the Lambda, independent second check.
+JWTs. It independently repeats the JWT signature, payload, issuer, and audience
+checks, then enforces expiry and per-token or per-client revocation. An expired
+token stops here with **401** and `WWW-Authenticate`; no MCP handler runs.
 
 Both layers share the same HMAC key (`MCP_AUTH_TOKEN`) for JWT verification
 and `safeEqual`/`parseBearer` from `src/auth.ts`.
@@ -599,7 +602,9 @@ refresh, and revocation. S256 PKCE also protects the authorization-code exchange
 6. User enters MCP_AUTH_TOKEN in consent page → POST /oauth/decide → redirect with auth code
 7. Client → POST /token (code + code_verifier + client_id + client_secret) → JWT access token + refresh token
 8. Client → POST /mcp (Authorization: Bearer <JWT>)       → MCP requests (dual-validated)
-9. Token expires → POST /token (refresh_token + client_id + client_secret) → new JWT (silent, no browser)
+9. Expired JWT → Lambda verifies signature + binding → Express returns 401 challenge
+10. Client → POST /token (refresh_token + client_id + client_secret) → new JWT (silent, no browser)
+11. Client retries POST /mcp with the new JWT              → MCP request succeeds
 ```
 
 **In detail:**
@@ -642,22 +647,34 @@ sequenceDiagram
     Note over C,E: Subsequent MCP Requests (dual-validated)
     C->>AG: POST /mcp (Bearer JWT)
     AG->>L: Authorize request
-    L->>L: Verify JWT signature (HMAC)
+    L->>L: Verify JWT signature + issuer + audience
     L-->>AG: isAuthorized: true
     AG->>E: Forward
-    E->>E: requireBearerAuth (verify JWT again)
+    E->>E: Verify JWT + revocation state
     E-->>C: MCP response
 
     Note over C,E: Silent Token Refresh (6h cycle)
+    C->>AG: POST /mcp (expired bound JWT)
+    AG->>L: Authorize request
+    L->>L: Verify JWT signature + issuer + audience
+    L-->>AG: isAuthorized: true
+    AG->>E: Forward
+    E->>E: Reject expired JWT
+    E-->>C: 401 + WWW-Authenticate
     C->>E: POST /token (refresh_token + client_id + client_secret)
     E->>DB: Consume old, store new refresh token
     E-->>C: {access_token: new JWT, refresh_token: new}
+    C->>AG: Retry POST /mcp (new JWT)
+    AG->>E: Lambda-authorized request
+    E-->>C: MCP response
 ```
 
 **JWT payload:** `{ sub: clientId, scope: "vault", iat: <unix>, exp: <unix>, iss, aud }`
 Signed with HMAC-SHA256 using `MCP_AUTH_TOKEN` as the key. Both the Lambda
-authorizer and Express verify independently — no shared state needed. The
-binding claims ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
+authorizer and Express independently verify the signature, payload shape, and
+binding claims; Express also enforces expiry and revocation. No shared state is
+needed for the cryptographic or binding checks. The binding claims
+([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
 
 - `iss` — the normalized `PUBLIC_URL` (a bare origin gains a trailing slash).
 - `aud` — the MCP endpoint's canonical URI: the origin of `PUBLIC_URL` plus
@@ -667,6 +684,10 @@ binding claims ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
   Lambda reads its function environment, Express the instance `.env` — so a
   token minted by another deployment is rejected even when the two share a
   secret.
+- The Lambda forwards an otherwise-valid bound token after expiry. Express
+  rejects it with a 401 challenge, which lets the client use its refresh token;
+  malformed, forged, foreign-issuer, and foreign-audience tokens remain Lambda
+  denials and therefore gateway 403 responses.
 - The Lambda passes a token that carries no `aud` at all — the shape minted
   by releases before binding — so that Express can reject it with a 401, the
   status MCP clients refresh on; a Lambda deny is a fixed 403 that strands
@@ -1266,7 +1287,7 @@ Any VPS with comparable specs works — the table above prices the Lightsail ref
 | API Gateway over Caddy                      | Free HTTPS URL without a custom domain, SST native, and a Lambda authorizer for path-aware auth (OAuth endpoints pass through, `/mcp` validates). Tradeoff: 10-minute idle timeout on HTTP connections can cause `Connection closed` on first call after idle.                                                                                                                                                                                                                                                                                                                                    |
 | Obsidian Sync over git-based sync           | Bidirectional real-time sync to all devices, automatic conflict resolution, no manual push/pull. Tradeoff: dependency on Obsidian's proprietary cloud service.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Single image over a separate sync container | The two processes have shared fate through `/vault` — the MCP server without sync serves a stale vault; sync without the server serves nothing — so a single supervised container is the semantically honest packaging, not a convenience bundle. One image also means one repo, one CI, one version, and no Compose requirement for users (`docker run`/Podman/nerdctl all work). The `local` target has no sync process and stays single-process under tini.                                                                                                                                    |
-| OAuth 2.1 + static token                    | OAuth 2.1 (PKCE) for browser-capable clients — automatic token refresh, no `MCP_AUTH_TOKEN` in client config after consent. Static bearer token for CLI tools and scripts where a browser flow isn't practical. Both validated at two independent layers (Lambda + Express) using the same HMAC key.                                                                                                                                                                                                                                                                                              |
+| OAuth 2.1 + static token                    | OAuth 2.1 (PKCE) for browser-capable clients — automatic token refresh, no `MCP_AUTH_TOKEN` in client config after consent. Static bearer token for CLI tools and scripts where a browser flow isn't practical. Both pass through independent Lambda and Express checks using the same HMAC key.                                                                                                                                                                                                                                                                                                  |
 | Custom JWT over JWT libraries               | 50-line HS256 implementation vs 200KB+ library bundle. Lambda authorizer stays tiny. Constant-time comparison prevents timing attacks. Acceptable for a single-algorithm use case.                                                                                                                                                                                                                                                                                                                                                                                                                |
 | JWT over opaque tokens                      | Verifiable at Lambda edge without shared state. HS256 with MCP_AUTH_TOKEN.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | 60-day sliding refresh                      | Active clients never re-auth; leaked tokens bounded. Standard OAuth practice.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |

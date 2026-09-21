@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { createHmac } from "node:crypto"
 import { DateTime } from "luxon"
-import { signJwt, verifyJwt, verifyUnboundJwt } from "../jwt.js"
+import { classifyBoundJwt, signJwt, verifyJwt, verifyUnboundJwt } from "../jwt.js"
 import type { JwtPayload } from "../jwt.js"
 
 const SECRET = "test-secret"
@@ -48,6 +48,15 @@ const verify = (token: string, secret: string): JwtPayload | null =>
     expectedAudience: AUDIENCE,
   })
 
+const classify = ({ token, secret = SECRET }: { token: string; secret?: string }) => {
+  return classifyBoundJwt({
+    token,
+    secret,
+    expectedIssuer: ISSUER,
+    expectedAudience: AUDIENCE,
+  })
+}
+
 describe("signJwt", () => {
   it("produces a 3-part dot-separated token", () => {
     const token = signJwt(buildPayload(), SECRET)
@@ -75,6 +84,75 @@ describe("signJwt", () => {
     const [, body] = token.split(".") as [string, string]
     const decoded = JSON.parse(Buffer.from(body, "base64url").toString()) as JwtPayload
     expect(decoded).toEqual(payload)
+  })
+})
+
+describe("classifyBoundJwt", () => {
+  it("classifies a correctly bound future token as valid", () => {
+    const payload = buildPayload()
+    expect(classify({ token: signJwt(payload, SECRET) })).toEqual({
+      status: "valid",
+      payload,
+    })
+  })
+
+  it("classifies a correctly bound expired token as expired", () => {
+    const payload = buildPayload({
+      exp: DateTime.now().minus({ minutes: 1 }).toUnixInteger(),
+    })
+    expect(classify({ token: signJwt(payload, SECRET) })).toEqual({
+      status: "expired",
+      payload,
+    })
+  })
+
+  it("classifies an expired token signed with another secret as invalid", () => {
+    const payload = buildPayload({
+      exp: DateTime.now().minus({ minutes: 1 }).toUnixInteger(),
+    })
+    expect(classify({ token: signJwt(payload, OTHER_SECRET) })).toEqual({ status: "invalid" })
+  })
+
+  it("classifies an expired token from another issuer as invalid", () => {
+    const payload = buildPayload({
+      exp: DateTime.now().minus({ minutes: 1 }).toUnixInteger(),
+      iss: "https://other.example/",
+    })
+    expect(classify({ token: signJwt(payload, SECRET) })).toEqual({ status: "invalid" })
+  })
+
+  it("classifies an expired token for another audience as invalid", () => {
+    const payload = buildPayload({
+      exp: DateTime.now().minus({ minutes: 1 }).toUnixInteger(),
+      aud: "https://other.example/mcp",
+    })
+    expect(classify({ token: signJwt(payload, SECRET) })).toEqual({ status: "invalid" })
+  })
+
+  it("classifies an expired token without an audience as invalid", () => {
+    const token = signClaims(
+      {
+        sub: "test-client",
+        scope: "vault",
+        exp: DateTime.now().minus({ minutes: 1 }).toUnixInteger(),
+        iss: ISSUER,
+      },
+      SECRET,
+    )
+    expect(classify({ token })).toEqual({ status: "invalid" })
+  })
+
+  it("classifies an expired token with malformed claims as invalid", () => {
+    const token = signClaims(
+      {
+        sub: "test-client",
+        exp: DateTime.now().minus({ minutes: 1 }).toUnixInteger(),
+        iss: ISSUER,
+        aud: AUDIENCE,
+      },
+      SECRET,
+    )
+    expect(classify({ token })).toEqual({ status: "invalid" })
   })
 })
 

@@ -1,11 +1,11 @@
 /**
  * Minimal JWT (HS256) sign/verify — shared by Lambda authorizer and Express.
- * Custom instead of a library (e.g. jose): ~50 lines using only node:crypto,
- * keeps the Lambda esbuild bundle small, and avoids adding a dependency to
- * two deployment targets. HS256-only — the only algorithm we need.
+ * Custom instead of a library (e.g. jose): uses only node:crypto, keeps the
+ * Lambda esbuild bundle small, and avoids adding a dependency to two deployment
+ * targets. HS256-only — the only algorithm we need.
  *
  * Intentionally avoids Luxon (and any other runtime dep). The Lambda
- * authorizer imports verifyJwt — every dependency here enlarges that bundle.
+ * authorizer imports this module — every dependency here enlarges that bundle.
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto"
@@ -36,6 +36,11 @@ type VerifyJwtOptions = {
   expectedAudience: string
 }
 
+type BoundJwtVerification =
+  | { status: "valid"; payload: JwtPayload }
+  | { status: "expired"; payload: JwtPayload }
+  | { status: "invalid" }
+
 type VerifyUnboundJwtOptions = {
   token: string
   secret: string
@@ -47,8 +52,9 @@ const b64urlEncode = (obj: object): string => b64url(Buffer.from(JSON.stringify(
 
 const HEADER = b64urlEncode({ alg: "HS256", typ: "JWT" })
 
-const hmac = (data: string, secret: string): string =>
-  b64url(createHmac("sha256", secret).update(data).digest())
+const hmac = (data: string, secret: string): string => {
+  return b64url(createHmac("sha256", secret).update(data).digest())
+}
 
 export const signJwt = (payload: JwtPayload, secret: string): string => {
   const body = `${HEADER}.${b64urlEncode(payload)}`
@@ -105,29 +111,32 @@ const payloadWithVerifiedSignature = (token: string, secret: string): unknown =>
   }
 }
 
-/** Returns the payload when the signature, expiry, issuer, and audience all
- *  check out; null otherwise. Issuer and audience are compared as exact
- *  strings — callers canonicalize before passing them in. */
-export const verifyJwt = ({
+/** Only an otherwise-valid bound token may be classified as expired. */
+export const classifyBoundJwt = ({
   token,
   secret,
   expectedIssuer,
   expectedAudience,
-}: VerifyJwtOptions): JwtPayload | null => {
+}: VerifyJwtOptions): BoundJwtVerification => {
   const decoded = payloadWithVerifiedSignature(token, secret)
 
-  if (!isJwtPayload(decoded)) return null
-  if (isExpired(decoded)) return null
-  if (decoded.iss !== expectedIssuer) return null
-  if (decoded.aud !== expectedAudience) return null
-  return decoded
+  if (!isJwtPayload(decoded)) return { status: "invalid" }
+  if (decoded.iss !== expectedIssuer) return { status: "invalid" }
+  if (decoded.aud !== expectedAudience) return { status: "invalid" }
+  if (isExpired(decoded)) return { status: "expired", payload: decoded }
+  return { status: "valid", payload: decoded }
 }
 
-/** Accepts a token minted before access tokens carried `aud`: signature and
- *  expiry are checked, and the token must carry no `aud` at all — a token
- *  that names any audience goes through `verifyJwt`. Lets clients holding a
- *  pre-binding token reach the server that rejects it with a 401, which is
- *  the signal they refresh on; a gateway-level deny would strand them. */
+/** Issuer and audience use exact matches; callers canonicalize them. */
+export const verifyJwt = (options: VerifyJwtOptions): JwtPayload | null => {
+  const verification = classifyBoundJwt(options)
+
+  if (verification.status !== "valid") return null
+  return verification.payload
+}
+
+/** A pre-binding token must be unexpired and carry no audience before Express
+ *  can reject it with the 401 that prompts clients to refresh. */
 export const verifyUnboundJwt = ({
   token,
   secret,
