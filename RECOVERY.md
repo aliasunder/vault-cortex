@@ -35,6 +35,16 @@ Pulumi-driven replacement.
   sensitive — the disk image contains `/opt/vault-cortex/.env` and
   `oauth.db`. Same handling discipline as the `.env` itself.
 
+## AWS CLI region
+
+Before running any `aws lightsail` command in this guide, export the same
+region used by the deployment (`AWS_REGION` in
+`~/.config/vault-cortex/.env`, default `us-east-1`):
+
+```bash
+export AWS_REGION=<deployment-region>
+```
+
 ## Restore scenarios
 
 ### Scenario A — VM alive, container crashed
@@ -59,7 +69,7 @@ stage:
 STAGE=<your-stage>                                # e.g. "production"
 INSTANCE_NAME="vault-cortex-${STAGE}"
 # Match AWS_REGION in ~/.config/vault-cortex/.env (defaults to us-east-1).
-AWS_REGION=<deployment-region>
+export AWS_REGION=<deployment-region>
 
 # These must match the existing values in sst.config.ts. Confirm that the
 # deployment region offers the configured availability zone and bundle before
