@@ -68,8 +68,6 @@ stage:
 ```bash
 STAGE=<your-stage>                                # e.g. "production"
 INSTANCE_NAME="vault-cortex-${STAGE}"
-# Match AWS_REGION in ~/.config/vault-cortex/.env (defaults to us-east-1).
-export AWS_REGION=<deployment-region>
 
 # These must match the existing values in sst.config.ts. Confirm that the
 # deployment region offers the configured availability zone and bundle before
