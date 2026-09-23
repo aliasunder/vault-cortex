@@ -122,12 +122,8 @@ export const handler = async (
     return { isAuthorized: true }
   }
 
-  // A token minted before issuer and audience binding was added is
-  // let through to Express, which rejects it with a 401 so the client
-  // refreshes into a deployment-bound token. Denying it here would be a 403, which
-  // clients never recover from on their own. Only tokens minted before
-  // an upgrade can lack binding claims, so this path goes quiet within one
-  // access-token TTL of upgrading.
+  // Forward valid pre-binding tokens to Express for a 401 refresh challenge.
+  // A Lambda 403 would strand the client. These tokens expire within 24 hours.
   const legacyJwt = verifyLegacyJwt({ token, secret })
 
   if (legacyJwt) {

@@ -685,7 +685,7 @@ cryptographic or binding checks. The binding claims
   by releases before binding — so that Express can reject it with a 401, the
   status MCP clients refresh on; a Lambda deny is a fixed 403 that strands
   them. Only tokens minted before an upgrade have this shape, so the path
-  goes quiet within one access-token TTL. A token that names any other
+  goes quiet within their 24-hour lifetime. A token that names any other
   audience is denied at the Lambda.
 - A client's `resource` parameter, when sent, must name one of the two
   identifiers the server's discovery documents advertise — the MCP endpoint
