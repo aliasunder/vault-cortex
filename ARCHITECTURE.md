@@ -603,8 +603,7 @@ refresh, and revocation. S256 PKCE also protects the authorization-code exchange
 6. User enters MCP_AUTH_TOKEN in consent page → POST /oauth/decide → redirect with auth code
 7. Client → POST /token (code + code_verifier + client_id + client_secret) → JWT access token + refresh token
 8. Client → POST /mcp (Authorization: Bearer <JWT>)       → MCP requests (dual-validated)
-9. Expired JWT → Lambda verifies signature + binding → Express returns 401 challenge
-10. Client → POST /token (refresh_token + client_id + client_secret) → new JWT (silent, no browser)
+9. Token expires → POST /token (refresh_token + client_id + client_secret) → new JWT (silent, no browser)
 ```
 
 **In detail:**
@@ -647,20 +646,13 @@ sequenceDiagram
     Note over C,E: Subsequent MCP Requests (dual-validated)
     C->>AG: POST /mcp (Bearer JWT)
     AG->>L: Authorize request
-    L->>L: Verify JWT signature + issuer + audience
+    L->>L: Verify JWT signature (HMAC)
     L-->>AG: isAuthorized: true
     AG->>E: Forward
-    E->>E: Verify JWT + revocation state
+    E->>E: requireBearerAuth (verify JWT again)
     E-->>C: MCP response
 
     Note over C,E: Silent Token Refresh (6h cycle)
-    C->>AG: POST /mcp (expired bound JWT)
-    AG->>L: Authorize request
-    L->>L: Verify JWT signature + issuer + audience
-    L-->>AG: isAuthorized: true
-    AG->>E: Forward
-    E->>E: Reject expired JWT
-    E-->>C: 401 + WWW-Authenticate
     C->>E: POST /token (refresh_token + client_id + client_secret)
     E->>DB: Consume old, store new refresh token
     E-->>C: {access_token: new JWT, refresh_token: new}
