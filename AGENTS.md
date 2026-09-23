@@ -1317,12 +1317,12 @@ match their siblings' length and shape.
 - Factual claims match the implementation — capability lists and
   data-flow descriptions are verified against the code; conditional
   capabilities are stated conditionally.
-- In Markdown docs, link an external specification when citing its
-  document title, RFC number, or numbered section for the first time in
-  a file. A bare protocol name (`MCP`, `OAuth 2.1`) is not a citation. In
-  explanatory code or env-file comments, put the authoritative URL
-  beside the first citation. Do not add citation URLs to MCP tool
-  descriptions or test names (`it`/`describe` titles).
+- Add an authoritative specification link when it helps a reader verify
+  a specific requirement or implement a behavior. Do not require a link
+  for every first mention, a bare protocol name, or a broad capability
+  summary. Use a Markdown link in docs and a raw URL in explanatory code
+  or env-file comments. Keep citation URLs out of MCP tool descriptions
+  and test names (`it`/`describe` titles).
 - Pair a destructive-outcome claim with its actual recovery path at
   the same point in the doc.
 - Mechanism language is earned — "caches", "batches", "switches
