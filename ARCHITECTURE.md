@@ -546,15 +546,12 @@ guarantees that hold in any deployment. The
 
 ### Auth: OAuth 2.1 + defense in depth
 
-Vault Cortex accepts two authentication methods:
+Two authentication methods, both validated at two layers:
 
 | Method                                | Used by                                                  | Token format                | Lifetime                                   |
 | ------------------------------------- | -------------------------------------------------------- | --------------------------- | ------------------------------------------ |
 | OAuth 2.1 (Authorization Code + PKCE) | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256)                 | 6h access, 60-day sliding refresh (SQLite) |
 | Static bearer token                   | Claude Code, MCP Inspector, curl                         | Raw string (MCP_AUTH_TOKEN) | No expiry                                  |
-
-Express validates either method in every deployment. The reference AWS
-deployment also checks protected requests at API Gateway.
 
 **Layer 1 — API Gateway Lambda authorizer** (`src/functions/authorizer.ts`):
 Attached to protected routes only. OAuth discovery paths (`/.well-known/*`,
