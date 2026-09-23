@@ -562,8 +562,10 @@ OAuth/MCP spec) and never invoke the Lambda.
 For protected requests, the authorizer:
 
 - accepts the static `MCP_AUTH_TOKEN` through `safeEqual`
-- checks each JWT's signature, issuer, and audience
+- checks the signature, issuer, and audience of deployment-bound JWTs
 - forwards a correctly bound expired JWT to Express for the **401** refresh challenge
+- forwards unexpired pre-binding JWTs without an audience claim to Express,
+  avoiding API Gateway's fixed **403** while those tokens remain valid
 
 The Authorization header is the route's identity source, so a
 tokenless request gets an automatic **401** from API Gateway without invoking
