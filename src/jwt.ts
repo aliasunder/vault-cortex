@@ -79,8 +79,6 @@ const isJwtPayload = (value: unknown): value is JwtPayload => {
 // into the Lambda authorizer and stays dependency-free — a single epoch read
 // doesn't justify the bundle weight.
 const isExpired = (claims: JwtBaseClaims): boolean => {
-  // Keep the integer expiry second valid at equality; all callers use this
-  // same strict boundary for access and legacy tokens.
   // eslint-disable-next-line no-restricted-syntax
   return claims.exp < Date.now() / 1000
 }
