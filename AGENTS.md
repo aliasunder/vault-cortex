@@ -505,12 +505,17 @@ log would produce N lines during a vault rebuild (one per note), it's
   — no `any`, no `delete` on copies.
 - Every catch logs or re-throws — `.catch(() => {})` and empty catch
   blocks are banned; a swallowed error is worse than an uncaught one.
+- If a child-process command contains sensitive values, catch a failure
+  at the call site and log a sanitized description. The original error
+  message and a rethrow with `{ cause }` can expose the full command.
 - Layer-appropriate messages: internal/data-layer functions describe
   what went wrong in their own domain and never name API surfaces
   (tool names, routes) or prescribe caller-level remediation.
 - Log full detail internally, return generic messages externally —
   error responses to clients never include paths, stack traces, or
   implementation state.
+- Unauthenticated routes must not reveal deployment settings or host
+  details. A health check may report only whether the service is up.
 
 ## Platform
 
@@ -525,7 +530,7 @@ throughout the codebase.
 
 ## Code style
 
-<!-- distilled from vault Reference/code-standards-* on 2026-08-24; refresh: run the sync-code-standards skill -->
+<!-- distilled from vault Reference/code-standards-* on 2026-09-23; refresh: run the sync-code-standards skill -->
 
 These rules are authoring guidance, not a review checklist — apply them
 while writing, not after. Several are lint-enforced in `eslint.config.ts`
@@ -549,9 +554,9 @@ at write time.
   second copy of a guard the data layer must enforce regardless (drift
   risk). `.min(1)` is the floor because it does serialize (`minLength`)
   and its default failure message is self-explanatory.
-- No `any`. No `as` or `!` (non-null assertion) — both are type
-  assertions that bypass the compiler. Use runtime guards (`if (x ===
-undefined) return`) or schema validation to narrow types instead.
+- No `any`, general `as` casts, or `!` (non-null assertion) — these bypass
+  type checking. `as const` is allowed for literal narrowing. Use runtime
+  guards (`if (x === undefined) return`) or schema validation instead.
   When a library method returns `T | null` but the null case is
   unreachable (e.g. `DateTime.now().toISO()`), throw on null — never
   fall back to an empty string or other sentinel. `?? ""` is a code
@@ -571,6 +576,9 @@ undefined) return`) or schema validation to narrow types instead.
   bodies simple — predicates are compiler-trusted, not verified. A
   short `&&` chain is fine; when checks need a negated `in` or `||`
   branches, early returns read clearer.
+- One discriminant represents one outcome. When two result shapes encode
+  the same statuses and need a converter between them, use one
+  status-discriminated union instead.
 - Prefer `async/await` over `.then()`/`.catch()`. When `.then()` or
   `.finally()` is the natural idiom (e.g. promise-chain serialization
   queues), use it with a comment explaining the pattern.
@@ -614,6 +622,9 @@ undefined) return`) or schema validation to narrow types instead.
   state), add a comment justifying why mutation is needed here.
   Readability is the deciding gate — never refactor working, readable
   code into a more "functional" shape for its own sake.
+- Helpers do not mutate their inputs. Type collection parameters as
+  `ReadonlyArray`, `ReadonlySet`, or `Readonly<T>` views and return new
+  values. A `const` local collection may be mutated in an honest loop.
 - Don't disguise mutation as a fold. A `reduce` that mutates its
   accumulator (`acc.push(...)`, `acc.count += …`, then `return acc`) is
   the worst of both worlds — it reads as declarative but isn't, so a
@@ -641,6 +652,9 @@ undefined) return`) or schema validation to narrow types instead.
   `expandedStatusValues`, not `input` → `values` → `withExpansions`
   → `expanded`. A reader scanning the function should see the domain
   noun on every intermediate, not just the first and last.
+- Alias generic destructured keys with their source when use sites do
+  not show the destructure: `{ on: modifiedOn }` from `filters.modified`.
+  Keep bare keys when they are self-describing or every use stays nearby.
 - Lean toward named records over positional tuples, and named locals over
   inline expressions, where it helps a line read on its own — `{ start, end }`
   over `[start, end] as const` destructured as `[spanStart, spanEnd]`;
@@ -665,8 +679,10 @@ undefined) return`) or schema validation to narrow types instead.
 - Block bodies `{}` for any multiline function response (guards,
   multi-clause booleans, multiline returns); expression bodies only
   for trivial one-liners.
-- Named params object at >2 args, or adjacent same-typed args that
-  could transpose silently. Below that, positional is fine.
+- Use named params when a positional value hides its role at the call
+  site, even for one literal. Always use them above two args or for
+  adjacent same-typed args that could transpose silently. Keep a
+  clear one- or two-arg call positional.
 - Scope constants to where they're used — module level overstates
   visibility.
 - Function and helper names state what they _do_, specifically — a reader
@@ -1003,7 +1019,8 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   that script's test file.
 - Separate `it()` blocks over callback-pattern `it.each` when
   assertions are structurally different — `it.each` is for genuinely
-  identical assertion shapes (input → expected).
+  identical assertion shapes (input → expected). Use labeled case objects
+  and `$label` in the title when values alone do not name the scenario.
 - Error paths and boundaries are covered, not just the happy path.
   Zero/one/empty inputs expose the special-case bugs.
 - Prefer a controllable seam over fake timers for retry/polling logic
@@ -1032,6 +1049,9 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   (`vi.resetModules`, factory-created instances per test); review
   findings proposing production changes for test-only scenarios get
   declined.
+- Mocks must preserve the dimension under test. Give a stand-in varied
+  order, timing, ranking, or size with decoys when the behavior depends
+  on that dimension; otherwise test against the real component.
 - CI shell snippets are tested under `bash -e` before committing —
   Actions runs `run:` steps with errexit, so a failing
   `[ test ] && cmd` short-circuit aborts the job; use `if/then/fi`.
@@ -1291,12 +1311,18 @@ match their siblings' length and shape.
 - Factual claims match the implementation — capability lists and
   data-flow descriptions are verified against the code; conditional
   capabilities are stated conditionally.
+- Link a specification at its first mention in each file.
+- Pair a destructive-outcome claim with its actual recovery path at
+  the same point in the doc.
 - Mechanism language is earned — "caches", "batches", "switches
   automatically" only when the code implements that mechanism.
 - Corrections leave no residue — fixing an over-claim states the
   current design directly, never a walk-back parenthetical explaining
   what "actually" handles it; in inventory-style sections, one
   mechanism per bullet.
+- Before cutting copy that survived earlier reviews as redundant,
+  check why it exists. Preserve a useful explanation or replace it
+  with a plainer one that carries the same information.
 - Concrete referents at the point of use — when a specific name exists
   (a UI toggle, a filename, a section title), state it where the reader
   is; a "see below" names its target. Vague referents force backwards
@@ -1400,7 +1426,8 @@ archiver, e.g. registry build images); the render script installs the browser
 on demand, so the first run downloads it (~350MB on disk). It losslessly
 optimizes the PNG with `optipng` if available (not required).
 
-Not every PR touches these — a new tool in an existing category needs
-a `server.json` + `README.md` count bump but nothing else. A module
-rename needs `.devin/wiki.json` + `ARCHITECTURE.md`. Use the table as
-a checklist, not a mandate to touch every file.
+Not every PR touches these. A new tool in an existing category updates
+the README tools table and the tool-surface snapshot; it changes the
+`server.json` description only when the category description changes. A
+module rename updates `.devin/wiki.json` and `ARCHITECTURE.md`. Use the
+table as a checklist, not a mandate to touch every file.
