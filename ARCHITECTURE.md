@@ -557,11 +557,15 @@ Two authentication methods, both validated at two layers:
 Attached to protected routes only. OAuth discovery paths (`/.well-known/*`,
 `/authorize`, `/token`, `/register`, `/revoke`, `/oauth/*`, `/healthz`) are
 separate unauthenticated routes in `sst.config.ts` (required by the
-OAuth/MCP spec) and never invoke the Lambda. On protected routes the
-authorizer accepts the static `MCP_AUTH_TOKEN` via `safeEqual`. For JWTs, it
-verifies the signature, issuer, and audience. A correctly bound expired JWT
-passes to Express, which can return the **401** challenge that prompts a client
-to refresh. The Authorization header is the route's identity source, so a
+OAuth/MCP spec) and never invoke the Lambda.
+
+For protected requests, the authorizer:
+
+- accepts the static `MCP_AUTH_TOKEN` through `safeEqual`
+- checks each JWT's signature, issuer, and audience
+- forwards a correctly bound expired JWT to Express for the **401** refresh challenge
+
+The Authorization header is the route's identity source, so a
 tokenless request gets an automatic **401** from API Gateway without invoking
 the Lambda — this lets MCP clients enter the OAuth connect flow on their first
 unauthenticated probe. A Lambda deny is a fixed, uncustomizable **403** on HTTP
