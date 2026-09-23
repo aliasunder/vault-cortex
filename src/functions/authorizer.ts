@@ -99,9 +99,8 @@ export const handler = async (
     logger.error("auth_failed: PUBLIC_URL contains credentials")
     return { isAuthorized: false }
   }
-  // The issuer is PUBLIC_URL with its normalized trailing slash; the audience
-  // is that origin plus /mcp. A token from another deployment fails either
-  // exact comparison even when both deployments share a secret.
+  // Verifying against this deployment's own URL is what makes a JWT
+  // minted for another deployment fail even when the two share a secret.
   const { issuer: expectedIssuer, audience: expectedAudience } = tokenBindingForServer(serverUrl)
   const deploymentJwtVerification = getDeploymentJwtVerification({
     token,
