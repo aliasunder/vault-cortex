@@ -147,8 +147,8 @@ export default $config({
 
     // ── Secrets ────────────────────────────────────────────────────
     // Set once, then deploy:
-    //   sst secret set McpAuthToken "$(openssl rand -hex 32)"
-    //   sst deploy
+    //   npm run sst -- secret set McpAuthToken "$(openssl rand -hex 32)"
+    //   npm run deploy
     //
     // SST encrypts to S3 in your account. Names MUST be PascalCase.
     // OBSIDIAN_AUTH_TOKEN and VAULT_NAME are NOT SST secrets — they
@@ -199,8 +199,8 @@ export default $config({
     // any Pulumi operation that would destroy or replace this resource;
     // `retainOnDelete` orphans the AWS resource if SST ever does decide
     // to delete it (e.g. stage rename) instead of actually destroying.
-    // These pair with `removal: "retain"` at the app level — that one
-    // only fires on `sst remove`; these fire on every operation.
+    // The app-level `removal: "retain"` retains only data stores (S3,
+    // DynamoDB), so these two options are the VM's only IaC protection.
     //
     // GOTCHA #1: Changing userData, bundleId, or keyPairName WOULD
     //            normally replace the instance. With protect:true,

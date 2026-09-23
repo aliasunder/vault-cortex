@@ -52,7 +52,7 @@
     "dev:mcp": "tsx watch src/vault-mcp/server.ts",
     "dev:docker": "docker compose -f docker-compose.local.yml up --build",
     "start": "node dist/src/vault-mcp/server.js",
-    "sst": "tsx scripts/run-sst.ts",
+    "sst": "node --import tsx scripts/run-sst.ts",
     "dev:sst": "npm run sst -- dev",
     "deploy": "npm run sst -- deploy",
     "remove": "npm run sst -- remove",

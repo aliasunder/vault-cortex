@@ -8,7 +8,7 @@ For simpler setups, see [`deploy/local/`](./deploy/local/) (Docker on your machi
 
 ---
 
-SST manages the AWS infrastructure declared in `sst.config.ts`, with each developer's resources isolated under a stage. The stage name is based on your OS username (run `npx sst secret list` once and SST writes `.sst/stage`). Commands below omit `--stage` to use the default.
+SST manages the AWS infrastructure declared in `sst.config.ts`, with each developer's resources isolated under a stage. The stage name is based on your OS username (SST writes it to `.sst/stage` the first time one-time setup step 3 runs an SST command). Commands below omit `--stage` to use the default.
 
 ## Prerequisites
 
@@ -207,7 +207,7 @@ aws logs tail /aws/lambda/<authorizer-function> --since 24h
 | `npm run docker:publish`   | Builds the vault-cortex `:remote` image (linux/amd64) and pushes to GHCR.                                                                                                                      |
 | `npm run lightsail:up`     | Resolves `PUBLIC_URL` (explicit value, else `CUSTOM_DOMAIN`, else the gateway), bootstraps the VM (mkdir, Docker wait, GHCR login), SCPs config, pulls + restarts containers. Volumes persist. |
 | `npm run deploy:dev`       | Full chain: `deploy` → `docker:publish` → `lightsail:up`.                                                                                                                                      |
-| `npm run remove`           | Removes the SST stack state but retains AWS resources because this project sets `removal: "retain"`; it does not free Lightsail costs.                                                         |
+| `npm run remove`           | **Destructive** — deletes the stack, VM included, once the VM's protection is removed. Fails by default; see [Tearing down](#tearing-down).                                                    |
 
 Deployment and update commands are idempotent and safe to run repeatedly.
 
@@ -223,22 +223,22 @@ Infra changes (anything in `sst.config.ts`): use `npm run deploy:dev` (full chai
 
 ## Tearing down
 
-`npm run remove` is deliberately non-destructive: it removes SST state while
-leaving the AWS resources intact. To intentionally delete the deployment, take a
-manual snapshot first, then make these temporary local changes in `sst.config.ts`:
+With the default configuration, `npm run remove` fails: the VM's
+`protect: true` setting makes Pulumi refuse to delete it. `removal: "retain"`
+does not protect the rest of the stack — SST retains only data stores such as
+S3 buckets and DynamoDB tables, and this stack has none.
 
-1. Change `removal: "retain"` to `removal: "remove"` in `app()`.
-2. Remove `protect: true` and `retainOnDelete: true` from the `VaultCortexVm`
-   resource-options object.
-3. Run `npm run remove`, then restore those local safety settings without
-   committing the temporary changes.
+To intentionally delete the deployment, take a manual snapshot first, then:
 
-This destroys the VM and its disk data. Retain the default configuration unless
-you intend that result.
+1. In `sst.config.ts`, remove `protect: true` and `retainOnDelete: true` from
+   the `VaultCortexVm` resource-options object.
+2. Run `npm run deploy`. `npm run remove` reads these settings from SST state,
+   not from `sst.config.ts`, so the change must be deployed first.
+3. Run `npm run remove`, then restore the two settings without committing the
+   temporary change.
 
-```bash
-npm run remove   # removes SST state but retains AWS resources by default
-```
+This destroys the VM and its disk data. Keep the manual snapshot until you are
+sure: it is the only remaining copy of that disk.
 
 ---
 
@@ -350,9 +350,9 @@ See [AWS docs: Creating an OIDC provider](https://docs.aws.amazon.com/IAM/latest
 
 ### SST stage
 
-SST creates a stage on your first `npm run deploy` — the default is your OS username, stored in `.sst/stage`. For CI, the `SST_STAGE` secret must match this value so CI deploys land on the same Lightsail instance and SST state as your laptop deploys.
+SST creates a stage on the first SST command in one-time setup — the default is your OS username, stored in `.sst/stage`. For CI, the `SST_STAGE` secret must match this value so CI deploys land on the same Lightsail instance and SST state as your laptop deploys.
 
-To find your stage: `cat .sst/stage` (after your first deploy).
+To find your stage: `cat .sst/stage` (after one-time setup).
 
 ### CI/CD configuration
 
@@ -812,7 +812,7 @@ curl https://mcp.example.com/healthz
 
 - **`npm run build` fails with `Property 'McpAuthToken' does not exist`** — `sst-env.d.ts` hasn't been generated. Complete one-time setup step 2 to create `~/.config/vault-cortex/.env`, then run `npm run deploy` (or `npm run dev:sst`) once for your stage.
 - **Every request gets `403` at the gateway while the instance is healthy** — the Lambda authorizer is rejecting every token, and clients do not recover on their own (they refresh on 401, not 403). Either the Lambda and Express disagree on `PUBLIC_URL` — the Lambda derives its value at `sst deploy` (the `PUBLIC_URL` env var, else `CUSTOM_DOMAIN`, else the gateway URL), and Express reads the instance `.env`, which CI and `npm run lightsail:up` write with the same rule, so a disagreement means the instance `.env` was edited by hand or written by an older deploy; re-run the deploy (or `npm run lightsail:up`) so both derive the same value — or connected clients still hold tokens minted before audience binding (an upgrade that skipped the release that accepts them): each client recovers when its own token timer refreshes it, at most one access-token lifetime, or reconnect it now.
-- **`npm run dev:sst` errors with `SecretMissingError`** — set the secret first (one-time setup step 2).
+- **`npm run dev:sst` errors with `SecretMissingError`** — set the secret first (one-time setup step 3).
 - **`curl <lightsailIp>` hangs** — use `:8000`. The firewall only allows ports 22 and 8000 by default (port 22 may be blocked if `SSH_CIDRS=none`, port 8000 may be blocked if `MCP_PORT_CIDRS=none`).
 - **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Verify `~/.ssh/vault-cortex` exists (generate with `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`), then redeploy. To also use your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.
 - **`docker: command not found` on `lightsail:up`** — cloud-init hasn't finished installing Docker. The script waits up to 120s automatically; if it still times out, SSH in and check `tail /var/log/cloud-init-output.log`.

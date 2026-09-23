@@ -1,5 +1,3 @@
-#!/usr/bin/env tsx
-
 import { spawnSync } from "node:child_process"
 import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -46,5 +44,8 @@ const entryPath = process.argv[1]
 const isMainModule = entryPath ? pathToFileURL(resolve(entryPath)).href === import.meta.url : false
 
 if (isMainModule) {
+  // Ctrl-C already reaches SST through the terminal's process group. Handling
+  // it here keeps the wrapper, and npm above it, running until SST shuts down.
+  process.on("SIGINT", () => undefined)
   process.exitCode = runSst({ args: process.argv.slice(2) })
 }

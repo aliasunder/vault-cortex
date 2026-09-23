@@ -9,7 +9,6 @@ Three layers cover different failure classes:
 
 | Layer                                 | What it does                                                                                    | Where                         |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------- |
-| App-level `removal: "retain"`         | Blocks `sst remove` from destroying the stack                                                   | `sst.config.ts` `app()`       |
 | Resource-level `protect: true`        | Refuses any Pulumi op that would destroy/replace the Instance                                   | `sst.config.ts` instance opts |
 | Resource-level `retainOnDelete: true` | If SST ever does decide to delete (stage rename), orphan the AWS resource instead of destroying | `sst.config.ts` instance opts |
 | Lightsail auto-snapshot               | Daily disk image at 03:00 UTC, 7-day rolling retention                                          | `addOn` on the Instance       |
