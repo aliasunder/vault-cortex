@@ -16,22 +16,25 @@ vi.mock("sst", () => ({
 }))
 vi.stubEnv("PUBLIC_URL", PUBLIC_URL)
 
-// Records every log message so a denial can be pinned to the guard that
-// produced it — the PUBLIC_URL guards are otherwise indistinguishable
-// from the outside (both return { isAuthorized: false }).
-type RecordedLog = { level: "info" | "warn" | "error"; message: string }
+// Records log data so tests can distinguish the branch that produced an
+// otherwise-identical authorization result.
+type RecordedLog = {
+  level: "info" | "warn" | "error"
+  message: string
+  data?: Record<string, unknown>
+}
 const recordedLogs: RecordedLog[] = []
 vi.mock("../../logger.js", () => {
   const recordingLogger = {
     debug: () => {},
-    info: (message: string) => {
-      recordedLogs.push({ level: "info", message })
+    info: (message: string, data?: Record<string, unknown>) => {
+      recordedLogs.push({ level: "info", message, ...(!data ? {} : { data }) })
     },
-    warn: (message: string) => {
-      recordedLogs.push({ level: "warn", message })
+    warn: (message: string, data?: Record<string, unknown>) => {
+      recordedLogs.push({ level: "warn", message, ...(!data ? {} : { data }) })
     },
-    error: (message: string) => {
-      recordedLogs.push({ level: "error", message })
+    error: (message: string, data?: Record<string, unknown>) => {
+      recordedLogs.push({ level: "error", message, ...(!data ? {} : { data }) })
     },
     child: () => recordingLogger,
   }
@@ -54,28 +57,45 @@ const protectedRequest = (authorization: string): APIGatewayRequestAuthorizerEve
   } as unknown as APIGatewayRequestAuthorizerEventV2
 }
 
-const accessToken = (claims: { iss: string; aud: string }): string => {
+const accessToken = ({
+  iss,
+  aud,
+  exp = DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+  secret = SECRET,
+}: {
+  iss: string
+  aud: string
+  exp?: number
+  secret?: string
+}): string => {
   return signJwt(
     {
       sub: "client-1",
       scope: "vault",
-      exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
-      ...claims,
+      exp,
+      iss,
+      aud,
     },
-    SECRET,
+    secret,
   )
 }
 
 /** An access token in the shape minted before tokens were bound to a
  *  server (literal issuer, no `aud`) — signed by hand because `signJwt`
  *  only accepts the bound shape. */
-const preBindingToken = (secret: string): string => {
+const preBindingToken = ({
+  secret,
+  exp = DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+}: {
+  secret: string
+  exp?: number
+}): string => {
   const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url")
   const body = Buffer.from(
     JSON.stringify({
       sub: "client-1",
       scope: "vault",
-      exp: DateTime.now().plus({ hours: 1 }).toUnixInteger(),
+      exp,
       iss: "vault-cortex",
     }),
   ).toString("base64url")
@@ -99,6 +119,24 @@ describe("authorizer handler", () => {
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: true })
+  })
+
+  it("forwards an expired JWT minted for this deployment so Express can challenge it", async () => {
+    recordedLogs.length = 0
+    const token = accessToken({
+      iss: "https://mcp.example.com/",
+      aud: "https://mcp.example.com/mcp",
+      exp: DateTime.now().minus({ minutes: 1 }).toUnixInteger(),
+    })
+
+    const result = await handler(protectedRequest(`Bearer ${token}`))
+
+    expect(result).toEqual({ isAuthorized: true })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "info",
+      message: "auth_success",
+      data: { method: "jwt-expired" },
+    })
   })
 
   it("derives issuer from full URL and audience from origin when URL has a path", async () => {
@@ -125,15 +163,51 @@ describe("authorizer handler", () => {
     expect(result).toEqual({ isAuthorized: false })
   })
 
-  it("authorizes a pre-binding JWT (no aud) so Express can answer it with a 401", async () => {
-    const result = await handler(protectedRequest(`Bearer ${preBindingToken(SECRET)}`))
+  it("denies an expired same-secret JWT minted for another deployment", async () => {
+    const token = accessToken({
+      iss: "https://mcp.example.com/",
+      aud: "https://other.example/mcp",
+      exp: DateTime.now().minus({ minutes: 1 }).toUnixInteger(),
+    })
+    const result = await handler(protectedRequest(`Bearer ${token}`))
+    expect(result).toEqual({ isAuthorized: false })
+  })
+
+  it("denies an expired JWT signed with another secret", async () => {
+    const token = accessToken({
+      iss: "https://mcp.example.com/",
+      aud: "https://mcp.example.com/mcp",
+      exp: DateTime.now().minus({ minutes: 1 }).toUnixInteger(),
+      secret: "not-the-lambda-secret",
+    })
+    const result = await handler(protectedRequest(`Bearer ${token}`))
+    expect(result).toEqual({ isAuthorized: false })
+  })
+
+  it("authorizes a pre-binding JWT with the jwt-unbound log method", async () => {
+    recordedLogs.length = 0
+    const result = await handler(protectedRequest(`Bearer ${preBindingToken({ secret: SECRET })}`))
     expect(result).toEqual({ isAuthorized: true })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "info",
+      message: "auth_success",
+      data: { method: "jwt-unbound" },
+    })
   })
 
   it("denies a pre-binding JWT signed with another secret", async () => {
     const result = await handler(
-      protectedRequest(`Bearer ${preBindingToken("not-the-lambda-secret")}`),
+      protectedRequest(`Bearer ${preBindingToken({ secret: "not-the-lambda-secret" })}`),
     )
+    expect(result).toEqual({ isAuthorized: false })
+  })
+
+  it("denies an expired pre-binding JWT", async () => {
+    const token = preBindingToken({
+      secret: SECRET,
+      exp: DateTime.now().minus({ minutes: 1 }).toUnixInteger(),
+    })
+    const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: false })
   })
 
@@ -141,6 +215,16 @@ describe("authorizer handler", () => {
     const token = accessToken({
       iss: "https://other.example/",
       aud: "https://mcp.example.com/mcp",
+    })
+    const result = await handler(protectedRequest(`Bearer ${token}`))
+    expect(result).toEqual({ isAuthorized: false })
+  })
+
+  it("denies an expired same-secret JWT from another issuer", async () => {
+    const token = accessToken({
+      iss: "https://other.example/",
+      aud: "https://mcp.example.com/mcp",
+      exp: DateTime.now().minus({ minutes: 1 }).toUnixInteger(),
     })
     const result = await handler(protectedRequest(`Bearer ${token}`))
     expect(result).toEqual({ isAuthorized: false })

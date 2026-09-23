@@ -1,5 +1,4 @@
-/** OAuth integration tests — token rotation, client sweep, and reuse
- *  detection exercised over real HTTP against a real server. */
+/** OAuth challenge, rotation, sweep, reuse, and scope behavior over real HTTP. */
 
 import { describe, it, expect, onTestFinished } from "vitest"
 import { createHash, randomBytes } from "node:crypto"
@@ -8,6 +7,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
+import { signJwt } from "../../jwt.js"
 import { startServer, freePort } from "./test-harness.js"
 
 const REDIRECT_URI = "http://127.0.0.1/callback"
@@ -28,8 +28,8 @@ const isIssuedTokens = (value: unknown): value is IssuedTokens =>
 
 /** Initialize over /mcp with the transport's required Accept header, so
  *  a valid bearer is distinguishable (200) from a rejected one (401). */
-const mcpStatusWithBearer = async (port: number, bearer: string): Promise<number> => {
-  const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
+const mcpResponseWithBearer = (port: number, bearer: string): Promise<Response> => {
+  return fetch(`http://127.0.0.1:${port}/mcp`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -47,6 +47,10 @@ const mcpStatusWithBearer = async (port: number, bearer: string): Promise<number
       },
     }),
   })
+}
+
+const mcpStatusWithBearer = async (port: number, bearer: string): Promise<number> => {
+  const response = await mcpResponseWithBearer(port, bearer)
   return response.status
 }
 
@@ -160,6 +164,33 @@ const refresh = ({
     body: params,
   })
 }
+
+// ── Expired access token challenge ─────────────────────────────
+
+describe("expired access token challenge", () => {
+  it("returns the OAuth resource challenge for an expired bound JWT", async () => {
+    const port = await freePort()
+    const server = await startServer(port, { MCP_AUTH_TOKEN: TOKEN_A })
+    onTestFinished(() => server.cleanup())
+    const token = signJwt(
+      {
+        sub: "expired-client",
+        scope: "vault",
+        exp: DateTime.now().minus({ minutes: 1 }).toUnixInteger(),
+        iss: `http://127.0.0.1:${port}/`,
+        aud: `http://127.0.0.1:${port}/mcp`,
+      },
+      TOKEN_A,
+    )
+
+    const response = await mcpResponseWithBearer(port, token)
+
+    expect(response.status).toBe(401)
+    expect(response.headers.get("www-authenticate")).toBe(
+      `Bearer error="invalid_token", error_description="Token expired or invalid", resource_metadata="http://127.0.0.1:${port}/.well-known/oauth-protected-resource/mcp"`,
+    )
+  })
+})
 
 // ── Rotating MCP_AUTH_TOKEN ends every OAuth session ───────────
 
