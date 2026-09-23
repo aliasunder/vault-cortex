@@ -111,8 +111,8 @@ const payloadWithVerifiedSignature = (token: string, secret: string): unknown =>
   }
 }
 
-/** Classifies a JWT whose issuer and audience match this deployment exactly. */
-export const classifyDeploymentJwt = ({
+/** Checks signature and deployment binding before reporting expiry. */
+export const getDeploymentJwtVerification = ({
   token,
   secret,
   expectedIssuer,
@@ -129,7 +129,7 @@ export const classifyDeploymentJwt = ({
 
 /** Verifies a JWT against the issuer and audience derived from its PUBLIC_URL. */
 export const verifyJwt = (options: VerifyJwtOptions): JwtPayload | null => {
-  const verification = classifyDeploymentJwt(options)
+  const verification = getDeploymentJwtVerification(options)
 
   if (verification.status !== "valid") return null
   return verification.payload

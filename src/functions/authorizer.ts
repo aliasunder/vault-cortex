@@ -30,7 +30,7 @@ import env from "env-var"
 import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda"
 import { safeEqual, parseBearer, tokenBindingForServer } from "../auth.js"
 import { urlHasCredentials } from "../utils/url-has-credentials.js"
-import { classifyDeploymentJwt, verifyLegacyJwt } from "../jwt.js"
+import { getDeploymentJwtVerification, verifyLegacyJwt } from "../jwt.js"
 import { logger as rootLogger } from "../logger.js"
 
 const OPEN_PATH_PREFIXES = [
@@ -103,21 +103,21 @@ export const handler = async (
   // is that origin plus /mcp. A token from another deployment fails either
   // exact comparison even when both deployments share a secret.
   const { issuer: expectedIssuer, audience: expectedAudience } = tokenBindingForServer(serverUrl)
-  const deploymentJwt = classifyDeploymentJwt({
+  const deploymentJwtVerification = getDeploymentJwtVerification({
     token,
     secret,
     expectedIssuer,
     expectedAudience,
   })
 
-  if (deploymentJwt.status === "valid") {
+  if (deploymentJwtVerification.status === "valid") {
     logger.info("auth_success", { method: "jwt" })
     return { isAuthorized: true }
   }
 
   // Express enforces expiry and returns the 401 challenge that prompts
   // clients to refresh. Every other JWT check still runs at both layers.
-  if (deploymentJwt.status === "expired") {
+  if (deploymentJwtVerification.status === "expired") {
     logger.info("auth_success", { method: "jwt-expired" })
     return { isAuthorized: true }
   }
