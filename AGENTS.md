@@ -568,12 +568,14 @@ at write time.
   fine, just use empty." A throw documents the invariant explicitly and
   surfaces the bug immediately if the assumption ever breaks.
 - Model states in the type system — reach for a discriminated union, a
-  user-defined type guard, or `never`-exhaustiveness before reshaping
+  user-defined [type predicate](https://www.typescriptlang.org/docs/handbook/2/narrowing.html#using-type-predicates)
+  (`value is Type`), or `never`-exhaustiveness before reshaping
   an API to route around the checker. Optional fields doc-commented
   "present only in mode X" are the cue for a discriminated union; a
   callback param with a closed set of instantiations becomes a
-  discriminated field naming the domain choice. Keep `x is T` guard
-  bodies simple — predicates are compiler-trusted, not verified. A
+  discriminated field naming the domain choice. Reuse type predicates
+  in filters over union members. Keep `x is T` guard bodies simple —
+  predicates are compiler-trusted, not verified. A
   short `&&` chain is fine; when checks need a negated `in` or `||`
   branches, early returns read clearer.
 - One discriminant represents one outcome. When two result shapes encode
