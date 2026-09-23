@@ -445,7 +445,7 @@ See [ARCHITECTURE.md → Data Integrity](./ARCHITECTURE.md#data-integrity) for m
 
 ## Authentication
 
-For a server with read/write access to personal notes, authentication is not optional. Vault Cortex supports the OAuth 2.1 authorization-code flow with PKCE and refresh-token rotation. All deployments validate bearer tokens in Express. The [AWS (SST) reference deployment](#deployment-options) adds defense-in-depth: its API Gateway Lambda authorizer verifies static tokens and JWT signature/binding before Express enforces expiry and revocation. Per [BlueRock's 2026 MCP security analysis](https://www.bluerock.io/use-cases/safely-adopt-mcp), only 8.5% of MCP servers implement OAuth; 41% have no authentication at all.
+For a server with read/write access to personal notes, authentication is not optional. Vault Cortex implements the full OAuth 2.1 specification, including PKCE and refresh-token rotation. The [AWS (SST) deployment](#deployment-options) adds defense-in-depth: requests are validated at two independent layers (API Gateway Lambda authorizer + Express middleware). Per [BlueRock's 2026 MCP security analysis](https://www.bluerock.io/use-cases/safely-adopt-mcp), only 8.5% of MCP servers implement OAuth; 41% have no authentication at all.
 
 Two methods:
 
@@ -462,7 +462,7 @@ OAuth uses dynamic client registration — no manual Client ID or Secret needed:
 2. Enter your `MCP_AUTH_TOKEN` on the browser consent page to approve access.
 3. Your client includes the issued secret in subsequent token requests automatically.
 
-Refresh tokens have a 60-day sliding expiry. Access tokens are bound to your server's URL, so a token minted for one deployment is never accepted by another. When an access token expires, the client receives a 401 challenge and uses its refresh token to obtain a replacement; an expired or revoked refresh token requires authorization again. Rotating `MCP_AUTH_TOKEN` ends every session — each client re-authorizes through the consent page.
+Refresh tokens have a 60-day sliding expiry. Access tokens are bound to your server's URL, so a token minted for one deployment is never accepted by another. Rotating `MCP_AUTH_TOKEN` ends every session — each client re-authorizes through the consent page.
 
 See [ARCHITECTURE.md → Auth](./ARCHITECTURE.md#auth-oauth-21--defense-in-depth) for the full flow diagram.
 

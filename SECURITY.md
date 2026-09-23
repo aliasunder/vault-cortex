@@ -38,8 +38,8 @@ project itself — adopters may use any hosting, reverse proxy, and CI/CD setup:
 - **API Gateway + Lambda authorizer** — HTTP API fronting the Lightsail
   instance, path-aware authorization (OAuth endpoints pass through; protected
   routes require the static token or a correctly signed, deployment-bound JWT).
-  The Lambda forwards a correctly bound expired JWT so Express can return its
-  401 refresh challenge; Express enforces expiry and revocation. IaC via SST v4
+  Expired JWTs with valid signatures and binding reach Express for a 401
+  challenge; Express enforces expiry and revocation. IaC via SST v4
 - **CI/CD workflows** — GitHub Actions with OIDC AWS auth, SSH to Lightsail,
   GHCR image push
 
@@ -235,9 +235,6 @@ a real fixture vault on disk. Security-relevant coverage:
 
 - **Auth enforcement** — both missing and invalid Bearer tokens are rejected
   before any MCP handshake
-- **Expired-token recovery** — a correctly bound expired JWT reaches Express,
-  which returns the 401 `WWW-Authenticate` challenge; forged, foreign, and
-  malformed JWTs are denied at the Lambda layer
 - **Config-gated surfaces** — `READONLY_MODE` hides every vault-writing tool
   at registration (verified by asserting each write tool is absent and reads
   still work); `DISABLED_TOOLS` removes exactly the named tools (verified by

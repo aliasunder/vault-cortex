@@ -55,7 +55,7 @@ The constraints that shaped every decision below:
 - **Design for the Obsidian user** — anything that mirrors an Obsidian concept (links, tags, properties, tasks, daily notes) must match what Obsidian itself does; recognizing a strict subset of Obsidian's behavior is a bug, not a limitation.
 - **Personal scale, zero services** — one user's vault, not a multi-tenant platform. Everything runs embedded and in-process: SQLite for the index and OAuth state, ONNX models for embeddings. No external APIs, no second datastore, no per-query cost.
 - **Low operational overhead** — always-on with no manual intervention; free to run locally, a modest VPS remotely; infrastructure as code.
-- **Secure by default** — the client-facing endpoint is HTTPS, authenticated via OAuth 2.1 or a bearer token; the reference deployment checks every protected request at the Lambda and Express layers, with JWT expiry and revocation enforced by Express.
+- **Secure by default** — the client-facing endpoint is HTTPS, authenticated via OAuth 2.1 or a bearer token; the reference deployment checks protected requests at two independent layers, with JWT expiry and revocation enforced by Express.
 - **Portable** — nothing depends on the author's machine: any Docker host works, and the reference AWS deployment is one option, not a requirement.
 
 ## Component Diagram
@@ -546,48 +546,39 @@ guarantees that hold in any deployment. The
 
 ### Auth: OAuth 2.1 + defense in depth
 
-OAuth authorization and Express bearer-token validation apply to every
-deployment. The two-layer path below describes the reference AWS deployment:
-API Gateway invokes the Lambda authorizer before forwarding protected requests
-to Express.
+Vault Cortex accepts two authentication methods:
 
 | Method                                | Used by                                                  | Token format                | Lifetime                                   |
 | ------------------------------------- | -------------------------------------------------------- | --------------------------- | ------------------------------------------ |
 | OAuth 2.1 (Authorization Code + PKCE) | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256)                 | 6h access, 60-day sliding refresh (SQLite) |
 | Static bearer token                   | Claude Code, MCP Inspector, curl                         | Raw string (MCP_AUTH_TOKEN) | No expiry                                  |
 
+Express validates either method in every deployment. The reference AWS
+deployment also checks protected requests at API Gateway.
+
 **Layer 1 — API Gateway Lambda authorizer** (`src/functions/authorizer.ts`):
 Attached to protected routes only. OAuth discovery paths (`/.well-known/*`,
 `/authorize`, `/token`, `/register`, `/revoke`, `/oauth/*`, `/healthz`) are
 separate unauthenticated routes in `sst.config.ts` (required by the
 OAuth/MCP spec) and never invoke the Lambda. On protected routes the
-authorizer accepts the static `MCP_AUTH_TOKEN` via `safeEqual`. For JWT access
-tokens, it validates the HMAC, payload shape, issuer, and audience. It forwards
-both current tokens and correctly bound expired tokens to Express; forwarding
-the latter lets Express return the 401 challenge that tells MCP clients to
-refresh. The Authorization header is the route's identity source, so a
+authorizer accepts the static `MCP_AUTH_TOKEN` via `safeEqual`. For JWTs, it
+verifies the signature, issuer, and audience. A correctly bound expired JWT
+passes to Express, which can return the **401** challenge that prompts a client
+to refresh. The Authorization header is the route's identity source, so a
 tokenless request gets an automatic **401** from API Gateway without invoking
-the Lambda. This is what lets MCP clients enter the OAuth connect flow on their
-first unauthenticated probe. A Lambda deny is a fixed, uncustomizable **403** on
-HTTP APIs, which MCP clients treat as a broken server rather than a sign-in
-prompt.
+the Lambda — this lets MCP clients enter the OAuth connect flow on their first
+unauthenticated probe. A Lambda deny is a fixed, uncustomizable **403** on HTTP
+APIs, which MCP clients treat as a broken server rather than a sign-in prompt.
 
 **Layer 2 — Express middleware** (MCP SDK's `requireBearerAuth`, applied to the
 `/mcp` routes in `mcp-core/mcp-router.ts`):
 The OAuth provider's `verifyAccessToken()` accepts both static tokens and
-JWTs. It independently repeats the JWT signature, payload, issuer, and audience
-checks, then enforces expiry and per-token or per-client revocation. An expired
-token stops here with **401** and `WWW-Authenticate`; no MCP handler runs.
+JWTs. It independently verifies JWT signature and binding, then enforces expiry
+and revocation. An expired token stops here with **401** and
+`WWW-Authenticate`; no MCP handler runs.
 
 Both layers share the same HMAC key (`MCP_AUTH_TOKEN`) for JWT verification
 and `safeEqual`/`parseBearer` from `src/auth.ts`.
-
-A deployment-bound JWT has an issuer equal to the deployment's normalized
-`PUBLIC_URL` and an audience equal to that URL's `/mcp` resource. The Lambda
-classifies a deployment-bound expired token as forwardable; Express then
-returns the 401 challenge that starts refresh. A Lambda 403 means the token
-failed its JWT signature, payload, or binding checks, so the client must correct
-its server or credentials and authorize again.
 
 **Why both layers:** Lightsail port 8000 is publicly bound by default. If the
 API Gateway authorizer is misconfigured, or someone hits the public IP
@@ -614,7 +605,6 @@ refresh, and revocation. S256 PKCE also protects the authorization-code exchange
 8. Client → POST /mcp (Authorization: Bearer <JWT>)       → MCP requests (dual-validated)
 9. Expired JWT → Lambda verifies signature + binding → Express returns 401 challenge
 10. Client → POST /token (refresh_token + client_id + client_secret) → new JWT (silent, no browser)
-11. Client retries POST /mcp with the new JWT              → MCP request succeeds
 ```
 
 **In detail:**
@@ -674,16 +664,13 @@ sequenceDiagram
     C->>E: POST /token (refresh_token + client_id + client_secret)
     E->>DB: Consume old, store new refresh token
     E-->>C: {access_token: new JWT, refresh_token: new}
-    C->>AG: Retry POST /mcp (new JWT)
-    AG->>E: Lambda-authorized request
-    E-->>C: MCP response
 ```
 
 **JWT payload:** `{ sub: clientId, scope: "vault", iat: <unix>, exp: <unix>, iss, aud }`
 Signed with HMAC-SHA256 using `MCP_AUTH_TOKEN` as the key. Both the Lambda
-authorizer and Express independently verify the signature, payload shape, and
-binding claims; Express also enforces expiry and revocation. No shared state is
-needed for the cryptographic or binding checks. The binding claims
+authorizer and Express independently verify the signature and binding claims;
+Express also enforces expiry and revocation. No shared state is needed for the
+cryptographic or binding checks. The binding claims
 ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
 
 - `iss` — the normalized `PUBLIC_URL` (a bare origin gains a trailing slash).
@@ -694,21 +681,17 @@ needed for the cryptographic or binding checks. The binding claims
   Lambda reads its function environment, Express the instance `.env` — so a
   token minted by another deployment is rejected even when the two share a
   secret.
-- The Lambda forwards an otherwise-valid bound token after expiry. Express
-  rejects it with a 401 challenge, which lets the client use its refresh token;
-  malformed, forged, foreign-issuer, and foreign-audience tokens remain Lambda
-  denials and therefore gateway 403 responses.
-- The legacy path accepts only tokens minted before issuer and audience
-  binding was added. Those tokens carry no `aud`; Express rejects them with a
-  401 so the client can refresh, while a Lambda deny would be a fixed 403.
-  The path should go quiet within one six-hour access-token TTL after an
-  upgrade. A token with any other audience is denied at the Lambda.
-- A client's `resource` parameter, when sent, must name either the server URL
-  (`PUBLIC_URL`, for example `https://host.example/`) or the MCP endpoint
-  (`https://host.example/mcp`) from the discovery documents. The comparison is
-  canonical, so a trailing slash is fine. A mismatch returns `invalid_target`
-  before any code or refresh token is consumed; clients that send no `resource`
-  are accepted.
+- The Lambda passes a token that carries no `aud` at all — the shape minted
+  by releases before binding — so that Express can reject it with a 401, the
+  status MCP clients refresh on; a Lambda deny is a fixed 403 that strands
+  them. Only tokens minted before an upgrade have this shape, so the path
+  goes quiet within one access-token TTL. A token that names any other
+  audience is denied at the Lambda.
+- A client's `resource` parameter, when sent, must name one of the two
+  identifiers the server's discovery documents advertise — the MCP endpoint
+  or the server URL itself — compared in canonical form, so a trailing slash
+  is fine. A mismatch is answered with `invalid_target` before any code or
+  refresh token is consumed; clients that send no `resource` are accepted.
 
 `vault` is the server's only scope: a client that requests it gets it, and a
 client that requests no scope is granted it at authorization time, so the

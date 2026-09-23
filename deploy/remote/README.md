@@ -349,10 +349,6 @@ Secret empty — dynamic registration handles it. A consent page opens in your
 browser; enter your `MCP_AUTH_TOKEN` to approve. The client receives a JWT
 access token (6h) with automatic refresh (60-day sliding window).
 
-When an access token expires, the client refreshes it and retries the request.
-If the refresh token has expired or been revoked, connect the client again to
-complete authorization.
-
 Claude Code also accepts `http` URLs directly:
 
 ```bash
@@ -597,9 +593,8 @@ All settings are documented in `.env.example` and in the
 
 ## Hardening (recommended)
 
-Protected requests require your token or an OAuth session. Discovery, OAuth,
-and health-check routes remain public so clients can connect and Docker can
-check the service. These optional measures add defense-in-depth:
+The setup above is authenticated — every request requires your token or an
+OAuth session. These optional measures add defense-in-depth:
 
 - **Close port 8000** — once a tunnel or reverse proxy handles HTTPS, close
   direct access to port 8000 wherever you manage your server's firewall
@@ -613,10 +608,9 @@ check the service. These optional measures add defense-in-depth:
   port 22 in your firewall.
 
 - **Add a second auth layer** — the reference [AWS deployment](../../DEPLOY.md)
-  checks static tokens and JWT signature/binding at the network edge (API
-  Gateway + Lambda authorizer), then validates them again at the server, where
-  JWT expiry and revocation are enforced. Other hosting providers need their
-  own auth-aware proxy; the Lambda authorizer is specific to the AWS path.
+  validates tokens once at the network edge (API Gateway + Lambda authorizer)
+  and again at the server. The principle applies anywhere: an auth-aware
+  proxy in front means a misconfigured server alone can't expose your vault.
 
 These measures stack. Start with whichever is easiest for your setup — even
 one makes a meaningful difference.
