@@ -217,7 +217,7 @@ src/
       consent-page.ts                  # HTML consent page for OAuth authorization
     setup/                             # Setup mode — browser sign-in to Obsidian Sync when the :remote image boots without a working token
       setup-server.ts                  # Entry point svc-vault-mcp runs in setup mode (/setup + /healthz; every other path 503)
-      setup-routes.ts                  # GET/POST /setup — MCP-token gate, sign-in + 2FA, vault pre-flight, token write, restart signal
+      setup-routes.ts                  # Public GET /setup page + token-gated POST /setup, 2FA, vault pre-flight, token write, restart signal
       setup-page.ts                    # HTML for the flow (sign-in, 2FA, blocked, complete, already configured)
       obsidian-api.ts                  # Obsidian's account API as the obsidian-headless CLI calls it (sign-in, vault list, vault key check)
       vault-key.ts                     # Vault password → key hash, the derivation `ob sync-setup` uses (scrypt + HKDF; pure)
