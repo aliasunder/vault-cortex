@@ -127,7 +127,7 @@ export const handler = async (
   const legacyJwt = verifyLegacyJwt({ token, secret })
 
   if (legacyJwt) {
-    logger.info("auth_success", { method: "jwt-legacy" })
+    logger.info("auth_success", { method: "jwt-unbound" })
     return { isAuthorized: true }
   }
 

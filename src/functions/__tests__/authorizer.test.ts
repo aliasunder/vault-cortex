@@ -184,9 +184,15 @@ describe("authorizer handler", () => {
     expect(result).toEqual({ isAuthorized: false })
   })
 
-  it("authorizes a pre-binding JWT (no aud) so Express can answer it with a 401", async () => {
+  it("authorizes a pre-binding JWT with the jwt-unbound log method", async () => {
+    recordedLogs.length = 0
     const result = await handler(protectedRequest(`Bearer ${preBindingToken({ secret: SECRET })}`))
     expect(result).toEqual({ isAuthorized: true })
+    expect(recordedLogs.at(-1)).toEqual({
+      level: "info",
+      message: "auth_success",
+      data: { method: "jwt-unbound" },
+    })
   })
 
   it("denies a pre-binding JWT signed with another secret", async () => {
