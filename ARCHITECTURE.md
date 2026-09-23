@@ -55,7 +55,7 @@ The constraints that shaped every decision below:
 - **Design for the Obsidian user** — anything that mirrors an Obsidian concept (links, tags, properties, tasks, daily notes) must match what Obsidian itself does; recognizing a strict subset of Obsidian's behavior is a bug, not a limitation.
 - **Personal scale, zero services** — one user's vault, not a multi-tenant platform. Everything runs embedded and in-process: SQLite for the index and OAuth state, ONNX models for embeddings. No external APIs, no second datastore, no per-query cost.
 - **Low operational overhead** — always-on with no manual intervention; free to run locally, a modest VPS remotely; infrastructure as code.
-- **Secure by default** — the client-facing endpoint is HTTPS, authenticated via OAuth 2.1 or a bearer token; the reference deployment checks protected requests at two independent layers, with JWT expiry and revocation enforced by Express.
+- **Secure by default** — the client-facing endpoint uses HTTPS and requires OAuth 2.1 or a bearer token. The reference deployment checks protected requests at two independent layers. Express enforces JWT expiry and revocation.
 - **Portable** — nothing depends on the author's machine: any Docker host works, and the reference AWS deployment is one option, not a requirement.
 
 ## Component Diagram
@@ -575,7 +575,7 @@ APIs, which MCP clients treat as a broken server rather than a sign-in prompt.
 The OAuth provider's `verifyAccessToken()` accepts both static tokens and
 JWTs. It independently verifies JWT signature and binding, then enforces expiry
 and revocation. An expired token stops here with **401** and
-`WWW-Authenticate`; no MCP handler runs.
+`WWW-Authenticate`. No MCP handler runs.
 
 Both layers share the same HMAC key (`MCP_AUTH_TOKEN`) for JWT verification
 and `safeEqual`/`parseBearer` from `src/auth.ts`.
@@ -668,7 +668,7 @@ sequenceDiagram
 
 **JWT payload:** `{ sub: clientId, scope: "vault", iat: <unix>, exp: <unix>, iss, aud }`
 Signed with HMAC-SHA256 using `MCP_AUTH_TOKEN` as the key. Both the Lambda
-authorizer and Express independently verify the signature and binding claims;
+authorizer and Express independently verify the signature and binding claims.
 Express also enforces expiry and revocation. No shared state is needed for the
 cryptographic or binding checks. The binding claims
 ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
