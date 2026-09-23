@@ -189,7 +189,7 @@ src/
       prompt-definitions.ts            # Prompt orchestrator — PROMPT_NAMES + conditional group registration
       tools/                           # Tool group modules (one per data-layer domain)
         tool-helpers.ts                # Shared ToolRegistrationContext type + safeHandler/safeHandlerContent + describeTextWindow
-        vault-crud-tools.ts            # 11 tools: read, write, patch, replace, delete, move, anchor-targeted delete/replace/insert
+        vault-crud-tools.ts            # 11 tools: read, list, write, patch, replace, delete, move, update-properties, anchor-targeted delete/replace/insert
         search-tools.ts                # 11 tools: search, tags, properties, graph queries
         task-tools.ts                  # 3 tools: list-tasks, create-task, update-task
         memory-tools.ts                # 5 tools: get/update/list/delete memory + memory recall
@@ -234,11 +234,13 @@ on**, not just its topic:
   formats (frontmatter, lines, headings, callouts, links). **No fs, no SQLite,
   no MCP**; they take strings/lines and return data or transformed strings, so
   they're trivially unit-testable. The folder's contract is the dependency
-  profile, not the syntax family: `canvas.ts` parses JSON (JSON Canvas 1.0),
+  profile, not the syntax family: `canvas.ts` parses JSON
+  ([JSON Canvas 1.0](https://jsoncanvas.org/spec/1.0/)),
   but its text nodes and its linearized output are markdown, and it's the same
   pure leaf layer — Obsidian format parsers belong here regardless of whether
   the format is markdown, JSON, or YAML. `lines.ts` is the single home of the
-  CommonMark §4.5 fence state machine (`advanceFence`) — every fence-aware walk
+  [CommonMark §4.5](https://spec.commonmark.org/0.31.2/#fenced-code-blocks)
+  fence state machine (`advanceFence`) — every fence-aware walk
   threads it, so they can't disagree about where a fence opens.
   **PDF engine exception:** `pdf-engine.ts` is the one module in this folder
   that performs side effects — it resolves `pdfjs-dist` package paths from disk
@@ -514,8 +516,9 @@ log would produce N lines during a vault rebuild (one per note), it's
 - Log full detail internally, return generic messages externally —
   error responses to clients never include paths, stack traces, or
   implementation state.
-- Unauthenticated routes must not reveal deployment settings or host
-  details. A health check may report only whether the service is up.
+- Normal `/healthz` returns `{ ok: true }`, and setup mode adds
+  `mode: "setup"` for completion polling. Do not add deployment
+  settings or host details to either response.
 
 ## Platform
 
@@ -1053,7 +1056,8 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   declined.
 - Mocks must preserve the dimension under test. Give a stand-in varied
   order, timing, ranking, or size with decoys when the behavior depends
-  on that dimension; otherwise test against the real component.
+  on that dimension. If the stand-in cannot model that variation, test
+  against the real component.
 - CI shell snippets are tested under `bash -e` before committing —
   Actions runs `run:` steps with errexit, so a failing
   `[ test ] && cmd` short-circuit aborts the job; use `if/then/fi`.
@@ -1313,7 +1317,7 @@ match their siblings' length and shape.
 - Factual claims match the implementation — capability lists and
   data-flow descriptions are verified against the code; conditional
   capabilities are stated conditionally.
-- Link a specification at its first mention in each file.
+- Link a specification at its first prose mention in each file.
 - Pair a destructive-outcome claim with its actual recovery path at
   the same point in the doc.
 - Mechanism language is earned — "caches", "batches", "switches
@@ -1429,7 +1433,7 @@ on demand, so the first run downloads it (~350MB on disk). It losslessly
 optimizes the PNG with `optipng` if available (not required).
 
 Not every PR touches these. A new tool in an existing category updates
-the README tools table and the tool-surface snapshot; it changes the
+the README tools table and the tool-surface snapshot. Update the
 `server.json` description only when the category description changes. A
 module rename updates `.devin/wiki.json` and `ARCHITECTURE.md`. Use the
 table as a checklist, not a mandate to touch every file.
