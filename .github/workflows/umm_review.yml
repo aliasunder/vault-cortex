@@ -89,7 +89,7 @@ jobs:
       # default unless the expression below supplies an explicit workflow default.
       # Inputs whose default is empty (fallback_model, max_findings) pass empty
       # when the var is unset — identical to omitting them.
-      - uses: aliasunder/umm-actually@9c9353ca381a38b951f14970beaf43c8bef145b3 # v0.4.7
+      - uses: aliasunder/umm-actually@4f73e6112e61e0ce38ecef51e28c2338ff2aa3de # v0.4.8
         with:
           github_token: ${{ steps.app-token.outputs.token }}
           openrouter_api_key: ${{ secrets.OPENROUTER_KEY }}
@@ -129,10 +129,12 @@ jobs:
           # sequential (the same three calls in order, each seeing the
           # earlier findings). Empty = combined
           phases: ${{ vars.UMM_PHASES }}
-          # One shared token pool for all prompt context, spent in priority
-          # order: diff → changed files → import-traced related files →
-          # priority docs → mention-matched docs. (Conventions file has its
-          # own separate cap inside the action.)
+          # One shared token pool for all prompt context, spent in this
+          # order: diff → priority docs (up to 10% of the budget, read
+          # before changed files) → changed files → import-traced related
+          # files → priority docs that didn't fit earlier → mention-matched
+          # docs. (Conventions file has its own separate cap inside the
+          # action.)
           context_budget_tokens: ${{ vars.UMM_CONTEXT_BUDGET_TOKENS || '300000' }}
           # true | false — import-tracing (caller regressions) and
           # doc-mention scanning (staleness)
