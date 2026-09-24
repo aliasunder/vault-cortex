@@ -25,12 +25,16 @@ export default $config({
     const { urlHasCredentials } = await import("./src/utils/url-has-credentials.js")
 
     // ── Environment ──────────────────────────────────────────────
+    // process.env holds ~/.config/vault-cortex/.env only when SST runs through
+    // `npm run sst` (scripts/run-sst.ts). A bare `npx sst deploy` sees the shell
+    // alone, so every setting below falls back to its default.
+    //
     // SSH key fallback chain: SSH_PUBKEY (CI) → SSH_PUBKEY_PATH → ~/.ssh/vault-cortex.pub
-    // Neither is individually required — readSshPublicKey errors if all three miss.
+    // No source is required on its own; readSshPublicKey throws only when all three miss.
     const sshPubkey = env("SSH_PUBKEY").asString()
     const sshPubkeyPath = env("SSH_PUBKEY_PATH").asString()
 
-    // SSH firewall CIDRs. Comma-separated. Default: open (backward-compat).
+    // SSH firewall CIDRs. Comma-separated. Unset: open to all (0.0.0.0/0).
     // Set to "none" to block public SSH (Tailscale-only).
     const sshCidrs = env("SSH_CIDRS").asString()
 
@@ -85,9 +89,7 @@ export default $config({
       parsedPublicUrlOverride?.protocol === "http:"
 
     if (publicUrlOverride && !publicUrlIsHttp) {
-      throw new Error(
-        "PUBLIC_URL must be an absolute http(s) URL, e.g. " + "https://mcp.example.com",
-      )
+      throw new Error("PUBLIC_URL must be an absolute http(s) URL, e.g. https://mcp.example.com")
     }
 
     // Credentials in the URL would be minted into every token's `iss`
@@ -119,8 +121,9 @@ export default $config({
       )
     }
 
-    const expandHome = (path: string): string =>
-      path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path
+    const expandHome = (path: string): string => {
+      return path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path
+    }
 
     /**
      * Resolve the SSH public key to upload to Lightsail.
@@ -131,15 +134,16 @@ export default $config({
      */
     const readSshPublicKey = (): string => {
       if (sshPubkey) return sshPubkey
-      const candidates = sshPubkeyPath
-        ? [expandHome(sshPubkeyPath)]
-        : [expandHome("~/.ssh/vault-cortex.pub")]
-      for (const path of candidates) {
-        if (existsSync(path)) return readFileSync(path, "utf8").trim()
+
+      const publicKeyPath = expandHome(sshPubkeyPath || "~/.ssh/vault-cortex.pub")
+
+      if (existsSync(publicKeyPath)) {
+        return readFileSync(publicKeyPath, "utf8").trim()
       }
+
       throw new Error(
         `No SSH public key found. Tried env SSH_PUBKEY, then paths: ` +
-          `${candidates.join(", ")}. Generate a dedicated deploy key:\n` +
+          `${publicKeyPath}. Generate a dedicated deploy key:\n` +
           `  ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy\n` +
           `Or set SSH_PUBKEY_PATH / SSH_PUBKEY to override.`,
       )
@@ -202,8 +206,9 @@ export default $config({
     // The app-level `removal: "retain"` retains only data stores (S3,
     // DynamoDB), so these two options are the VM's only IaC protection.
     //
-    // GOTCHA #1: Changing userData, bundleId, or keyPairName WOULD
-    //            normally replace the instance. With protect:true,
+    // GOTCHA #1: Changing bundleId or keyPairName WOULD normally replace
+    //            the instance (userData would too, but ignoreChanges below
+    //            makes deploys skip it). With protect:true,
     //            Pulumi refuses and the deploy fails loudly. For
     //            bundle upgrades, use a snapshot-based upgrade
     //            (preserves all state) then reconcile SST state
@@ -347,6 +352,9 @@ export default $config({
       },
     })
 
+    // The same precedence as resolvePublicUrl in scripts/instance-env.ts
+    // (laptop lightsail:up) and deploy.yml's "Resolve public URL" step (CI):
+    // the Lambda rejects tokens minted for any other URL.
     const resolvePublicUrl = (): $util.Output<string> => {
       if (publicUrlOverride) return $output(publicUrlOverride)
       if (customDomain) return $output(`https://${customDomain}`)
@@ -381,9 +389,15 @@ export default $config({
 
     // ORIGIN_URL: when set, API GW routes through a tunnel/proxy (HTTPS)
     // instead of directly to the Lightsail IP (plaintext HTTP). Pair with
-    // MCP_PORT_CIDRS=none to close port 8000 on the firewall.
-    const target = (path: string) =>
-      originUrl ? `${originUrl}${path}` : $interpolate`http://${staticIp.ipAddress}:8000${path}`
+    // MCP_PORT_CIDRS=none to close port 8000 on the firewall. `path` is
+    // appended to the origin, so the bare root passes "". A greedy route
+    // parameter is written `{proxy+}` in the route key but `{proxy}` in the
+    // integration URL.
+    const target = (path: string) => {
+      return originUrl
+        ? `${originUrl}${path}`
+        : $interpolate`http://${staticIp.ipAddress}:8000${path}`
+    }
 
     // Service-token headers on every integration. `overwrite:` so a
     // client-supplied copy of either header is replaced, never joined.

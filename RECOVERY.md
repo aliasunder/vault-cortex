@@ -68,9 +68,9 @@ stage:
 STAGE=<your-stage>                                # e.g. "production"
 INSTANCE_NAME="vault-cortex-${STAGE}"
 
-# These must match the existing values in sst.config.ts. Confirm that the
-# deployment region offers the configured availability zone and bundle before
-# restoring; choose a different bundle only as an intentional configuration change.
+# These copy availabilityZone and bundleId from sst.config.ts; change them
+# only if you changed those values there. The two listings below show the
+# zones and bundles your region offers, so confirm both values appear.
 AVAILABILITY_ZONE="${AWS_REGION}a"
 BUNDLE_ID="medium_3_0"
 aws lightsail get-regions --include-availability-zones --region "${AWS_REGION}" --output table
@@ -130,6 +130,7 @@ Auto-snapshots expire after 7 days. If the VM has been gone longer and
 you have no manual snapshot, you're rebuilding from scratch:
 
 ```bash
+STAGE=<your-stage>                                # the name in .sst/stage
 # Remove the stale state entry (the existing state still claims the VM exists)
 npm run sst -- state remove --target 'aws:lightsail:Instance::VaultCortexVm' --stage "${STAGE}"
 # Then a normal deploy provisions a fresh VM
@@ -168,12 +169,16 @@ survive — only on-disk state carries over.
    if the OS was upgraded in-place)
 9. Remove the old instance from SST state:
    `npm run sst -- state remove --target 'aws:lightsail:Instance::VaultCortexVm' --stage "${STAGE}"`
-10. In `sst.config.ts`, replace the `name` value in the `VaultCortexVm`
-    constructor's first object with the restored instance name. In that
-    constructor's second object, add `import: "<restored-instance-name>",`
-    directly above `protect: true`, then run `npm run deploy`.
-11. Remove only the `import` line, leaving the restored name configured. Run
-    `npm run sst -- refresh`, then `npm run deploy` again to confirm a clean
+10. In `sst.config.ts`, find `new aws.lightsail.Instance("VaultCortexVm", …)`.
+    Set `name` in its instance settings (the first object) to the new
+    instance's name. In its options object (the second object, which holds
+    `protect: true`), add `import: "<new-instance-name>",` directly above
+    `protect: true`; `import` makes the deploy adopt the existing instance
+    instead of creating one. Then run `npm run deploy -- --stage "${STAGE}"`.
+11. Remove only the `import` line, leaving the new name configured. Run
+    `npm run sst -- refresh --stage "${STAGE}"` so SST state records the
+    instance's actual settings, then
+    `npm run deploy -- --stage "${STAGE}"` again to confirm a clean
     no-diff deploy.
 12. Delete the old instance after verification
 
@@ -234,6 +239,8 @@ StaticIp re-attach. This restores the SST-state-matches-reality
 invariant. Costs another ~5 minutes and a brief downtime window.
 
 ```bash
+# Uses STAGE, INSTANCE_NAME, AVAILABILITY_ZONE, BUNDLE_ID, RESTORE_NAME, and
+# STATIC_IP_NAME from Scenario B. In a new shell, set them again first.
 RESTORED_SNAPSHOT="${RESTORE_NAME}-canonical-$(date +%Y%m%d-%H%M%S)"
 aws lightsail create-instance-snapshot \
   --instance-name "${RESTORE_NAME}" \
@@ -269,10 +276,13 @@ This preserves the restored name, so configure it explicitly before import:
    npm run sst -- state remove --target 'aws:lightsail:Instance::VaultCortexVm' --stage "${STAGE}"
    ```
 
-2. In `sst.config.ts`, replace the `name` value in the `VaultCortexVm`
-   constructor's first object with the restored instance name.
-3. In the constructor's second object, add
-   `import: "<restored-instance-name>",` immediately above `protect: true`.
+2. In `sst.config.ts`, find `new aws.lightsail.Instance("VaultCortexVm", …)`
+   and set `name` in its instance settings (the first object) to the
+   restored instance name (`RESTORE_NAME` from Scenario B).
+3. In its options object (the second object, which holds `protect: true`),
+   add `import: "<restored-instance-name>",` immediately above
+   `protect: true`. `import` makes the next deploy adopt the existing
+   instance instead of creating one.
 4. Run `npm run deploy -- --stage "${STAGE}"`, then remove the `import`
    line while keeping the restored name.
 5. Run `npm run sst -- refresh --stage "${STAGE}"`, followed by

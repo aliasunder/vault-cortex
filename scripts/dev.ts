@@ -32,8 +32,9 @@ import {
   type ResolvedPublicUrl,
 } from "./instance-env.js"
 
-const expandHome = (path: string): string =>
-  path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path
+const expandHome = (path: string): string => {
+  return path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path
+}
 
 const loadEnvForDeploy = ({ requireFile }: { requireFile: boolean }): NodeJS.ProcessEnv => {
   try {
@@ -46,8 +47,10 @@ const loadEnvForDeploy = ({ requireFile }: { requireFile: boolean }): NodeJS.Pro
   }
 }
 
-const sub = process.argv[2]
-const env = loadEnvForDeploy({ requireFile: sub === "lightsail:up" })
+const subcommand = process.argv[2]
+// lightsail:up copies the file to the instance, so the file must exist. The
+// docker:* subcommands need only GHCR_USER, which the shell can supply.
+const env = loadEnvForDeploy({ requireFile: subcommand === "lightsail:up" })
 
 /** In GitHub Actions, masks a value so it appears as *** in logs. No-op locally. */
 const mask = (value: string): void => {
@@ -57,10 +60,12 @@ const mask = (value: string): void => {
 const ghcrUser = env.GHCR_USER
 
 if (!ghcrUser) {
-  console.error("✕  GHCR_USER not set. Set it in ~/.config/vault-cortex/.env")
+  console.error(`✕  GHCR_USER not set. Set it in ${DEPLOYMENT_ENV_PATH} or in the shell.`)
   process.exit(1)
 }
 const image = `ghcr.io/${ghcrUser}/vault-cortex:remote`
+
+const sshOpts = "-o StrictHostKeyChecking=accept-new"
 
 // Echoes the description, never the command string — the ssh/scp commands
 // carry the instance address and key path, and not printing them at all
@@ -106,6 +111,8 @@ const waitForDocker = (targetHost: string, sshIdentityOption: string, timeoutSec
   process.exit(1)
 }
 
+// The path is relative to the working directory: npm runs package.json
+// scripts from the repo root, where SST writes .sst/stage.
 const readStage = (): string => {
   if (!existsSync(".sst/stage")) {
     console.error("✕  .sst/stage not found. Run `npm run deploy` first.")
@@ -114,7 +121,7 @@ const readStage = (): string => {
   return readFileSync(".sst/stage", "utf8").trim()
 }
 
-const sshHost = (): string => {
+const resolveSshHost = (): string => {
   if (env.LIGHTSAIL_SSH_HOST) return env.LIGHTSAIL_SSH_HOST
 
   const stage = readStage()
@@ -131,6 +138,7 @@ const sshHost = (): string => {
     .toString()
     .trim()
 
+  // `aws --output text` prints the literal "None" for an empty query result.
   if (!staticIpAddress || staticIpAddress === "None") {
     console.error(`✕  Could not resolve ${staticIpName} from AWS.`)
     process.exit(1)
@@ -156,8 +164,6 @@ const getSshIdentityOption = (): string => {
   return `-i ${keyPath}`
 }
 
-const sshOpts = "-o StrictHostKeyChecking=accept-new"
-
 const fetchGatewayUrl = (): string => {
   const stage = readStage()
   return execSync(
@@ -176,12 +182,13 @@ const resolvePublicUrlForDeploy = (): ResolvedPublicUrl => {
       queryGatewayUrl: fetchGatewayUrl,
     })
   } catch (error) {
-    console.error(`✕  ${error instanceof Error ? error.message : error}`)
+    const message = error instanceof Error ? error.message : String(error)
+    console.error(`✕  ${message}`)
     process.exit(1)
   }
 }
 
-switch (sub) {
+switch (subcommand) {
   case "docker:build":
     run({
       cmd: `docker build --target remote --platform linux/amd64 -t ${image} .`,
@@ -214,14 +221,18 @@ switch (sub) {
     // copies nothing (no partial deploy of new compose + stale .env).
     const { url: resolvedPublicUrl, source: publicUrlSource } = resolvePublicUrlForDeploy()
     mask(resolvedPublicUrl)
+    // The other sources are CUSTOM_DOMAIN and the API Gateway lookup.
     if (publicUrlSource !== "PUBLIC_URL") {
       console.log(`> PUBLIC_URL derived from ${publicUrlSource}`)
     }
+    // The instance gets the file's values, not shell overrides. PUBLIC_URL is
+    // the exception: it is resolved from the merged environment, as SST
+    // resolves it, so the Lambda and the instance agree.
     const shippedEnvContent = envContentWithPublicUrl(
       readFileSync(DEPLOYMENT_ENV_PATH, "utf8"),
       resolvedPublicUrl,
     )
-    const targetHost = sshHost()
+    const targetHost = resolveSshHost()
     mask(targetHost)
     const sshIdentityOption = getSshIdentityOption()
     run({

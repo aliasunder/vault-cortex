@@ -8,7 +8,7 @@ For simpler setups, see [`deploy/local/`](./deploy/local/) (Docker on your machi
 
 ---
 
-SST manages the AWS infrastructure declared in `sst.config.ts`, with each developer's resources isolated under a stage. The stage name is based on your OS username (SST writes it to `.sst/stage` the first time one-time setup step 3 runs an SST command). Commands below omit `--stage` to use the default.
+SST manages the AWS infrastructure declared in `sst.config.ts`, with each developer's resources isolated under a stage. The stage name is based on your OS username (SST writes it to `.sst/stage` the first time one-time setup step 3 runs an SST command). Commands below omit `--stage` to use the default; add `--stage <name>` to target a different stage.
 
 ## Prerequisites
 
@@ -38,7 +38,7 @@ cp .env.example ~/.config/vault-cortex/.env
 chmod 600 ~/.config/vault-cortex/.env
 ```
 
-The repository's `npm run sst -- <command>` wrapper loads this file into the SST child process. `lightsail:up` reads the same file directly, so a value like `AWS_REGION`, `CUSTOM_DOMAIN`, or a pinned `PUBLIC_URL` reaches every local deployment command without placing a secret-bearing file in the repository.
+`npm run deploy`, `npm run dev:sst`, `npm run remove`, and `npm run sst -- <command>` load this file into SST, and `npm run lightsail:up` reads it directly. A value like `AWS_REGION`, `CUSTOM_DOMAIN`, or a pinned `PUBLIC_URL` therefore reaches every local deployment command without placing a secret-bearing file in the repository.
 
 If you deploy outside `us-east-1`, uncomment and set `AWS_REGION` in this file before the next step.
 
@@ -202,8 +202,9 @@ aws logs tail /aws/lambda/<authorizer-function> --since 24h
 
 | Command                    | What it does                                                                                                                                                                                   |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run sst -- <command>` | After one-time setup, runs any local SST command with `~/.config/vault-cortex/.env`. Shell variables override matching file values.                                                            |
+| `npm run sst -- <command>` | After one-time setup, runs any local SST command with `~/.config/vault-cortex/.env`. A shell variable overrides the matching file value, even when it is empty (`ORIGIN_URL=`).                |
 | `npm run deploy`           | Runs SST with `~/.config/vault-cortex/.env` — creates or updates AWS infrastructure. First run provisions everything; subsequent runs are incremental.                                         |
+| `npm run dev:sst`          | Runs `sst dev` with `~/.config/vault-cortex/.env` — SST's development mode for this stage.                                                                                                     |
 | `npm run docker:publish`   | Builds the vault-cortex `:remote` image (linux/amd64) and pushes to GHCR.                                                                                                                      |
 | `npm run lightsail:up`     | Resolves `PUBLIC_URL` (explicit value, else `CUSTOM_DOMAIN`, else the gateway), bootstraps the VM (mkdir, Docker wait, GHCR login), SCPs config, pulls + restarts containers. Volumes persist. |
 | `npm run deploy:dev`       | Full chain: `deploy` → `docker:publish` → `lightsail:up`.                                                                                                                                      |
@@ -223,22 +224,41 @@ Infra changes (anything in `sst.config.ts`): use `npm run deploy:dev` (full chai
 
 ## Tearing down
 
-With the default configuration, `npm run remove` fails: the VM's
-`protect: true` setting makes Pulumi refuse to delete it. `removal: "retain"`
-does not protect the rest of the stack — SST retains only data stores such as
-S3 buckets and DynamoDB tables, and this stack has none.
+With the default configuration, `npm run remove` fails. Two settings on the
+VM in `sst.config.ts` stand in the way:
 
-To intentionally delete the deployment, take a manual snapshot first, then:
+- `protect: true` makes Pulumi, the engine SST uses to apply changes, refuse
+  to delete the VM.
+- `retainOnDelete: true` makes removal drop the VM from SST's records without
+  deleting it, so the VM would keep running and billing.
 
-1. In `sst.config.ts`, remove `protect: true` and `retainOnDelete: true` from
-   the `VaultCortexVm` resource-options object.
-2. Run `npm run deploy`. `npm run remove` reads these settings from SST state,
+The app-level `removal: "retain"` setting does not protect the rest of the
+stack: SST retains only data stores such as S3 buckets and DynamoDB tables,
+and this stack has none.
+
+To delete the deployment on purpose:
+
+1. Take a manual snapshot of the VM. `<stage>` is the name in `.sst/stage`:
+
+   ```bash
+   aws lightsail create-instance-snapshot \
+     --instance-name vault-cortex-<stage> \
+     --instance-snapshot-name "pre-teardown-$(date +%Y%m%d-%H%M%S)"
+   ```
+
+2. In `sst.config.ts`, delete the `protect: true` and `retainOnDelete: true`
+   lines. They sit in the options object of
+   `new aws.lightsail.Instance("VaultCortexVm", …)`, the object that follows
+   the instance settings.
+3. Run `npm run deploy`. `npm run remove` reads these settings from SST state,
    not from `sst.config.ts`, so the change must be deployed first.
-3. Run `npm run remove`, then restore the two settings without committing the
-   temporary change.
+4. Run `npm run remove`.
+5. Restore the two lines (`git checkout sst.config.ts`), so the edit is never
+   committed and any later deployment is protected again.
 
 This destroys the VM and its disk data. Keep the manual snapshot until you are
-sure: it is the only remaining copy of that disk.
+sure: it is the only remaining copy of that disk, and Lightsail bills its
+storage until you delete it.
 
 ---
 
@@ -499,7 +519,7 @@ This connects via MagicDNS. You can also use the Tailscale IP directly (`100.x.y
 npm run deploy
 ```
 
-This blocks port 22 on the Lightsail firewall (non-routable CIDR — same mechanism as [`MCP_PORT_CIDRS`](#port-8000-hardening-optional)). SSH via the public IP is now blocked; SSH via Tailscale continues to work. A shell prefix such as `SSH_CIDRS=none npm run deploy` applies only to that one deploy; the external `.env` is the durable laptop configuration.
+This blocks port 22 on the Lightsail firewall (non-routable CIDR — same mechanism as [`MCP_PORT_CIDRS`](#port-8000-hardening-optional)). SSH via the public IP is now blocked; SSH via Tailscale continues to work. A shell prefix such as `SSH_CIDRS=none npm run deploy` applies only to that one deploy; the value in `~/.config/vault-cortex/.env` applies to every laptop deploy.
 
 **4. Update local dev** — add to `~/.config/vault-cortex/.env`:
 
@@ -568,8 +588,10 @@ If the VM is replaced (key rotation, bundle upgrade) and `SSH_CIDRS=none`, port 
 To revert to public SSH at any time:
 
 ```bash
-# Re-open port 22 via SST (no SSH needed — runs from your laptop)
-SSH_CIDRS=0.0.0.0/0 npm run deploy
+# Re-open port 22 via SST (no SSH needed — runs from your laptop).
+# First delete SSH_CIDRS=none from ~/.config/vault-cortex/.env; a shell
+# prefix alone would last only until the next deploy.
+npm run deploy
 ```
 
 Or via AWS CLI for immediate effect (overwritten on next SST deploy):
@@ -702,7 +724,7 @@ curl --connect-timeout 5 http://<lightsailIp>:8000/healthz
 curl https://<api-gateway-url>/healthz
 ```
 
-**10. Set the instance's client-IP trust** — `TRUST_FORWARDED_HOPS=1` (the compose default) and `TRUST_PROXY_HOPS=2` must reach the instance. For laptop deploys, add them to `~/.config/vault-cortex/.env` and run `npm run lightsail:up`; do not edit `/opt/vault-cortex/.env`, because that command replaces it. For CI deploys, set repo Variables and redeploy the instance. Use `TRUST_FORWARDED_HOPS=2` instead only if the gateway's custom domain is a proxied Cloudflare record **and** the CDN is the only way into the gateway — see the **Client-IP trust with ORIGIN_URL** callout under [How it works](#port-8000-hardening-optional).
+**10. Set the instance's client-IP trust** — the instance needs `TRUST_PROXY_HOPS=2` and `TRUST_FORWARDED_HOPS=1`. `1` is the compose default, so delete any other `TRUST_FORWARDED_HOPS` value you set earlier rather than adding one. For laptop deploys, add `TRUST_PROXY_HOPS=2` to `~/.config/vault-cortex/.env` and run `npm run lightsail:up`; do not edit `/opt/vault-cortex/.env`, because that command replaces it. For CI deploys, set the `TRUST_PROXY_HOPS` repo Variable and redeploy the instance. Use `TRUST_FORWARDED_HOPS=2` instead only if the gateway's custom domain is a proxied Cloudflare record **and** the CDN is the only way into the gateway — see the **Client-IP trust with ORIGIN_URL** callout under [How it works](#port-8000-hardening-optional).
 
 **Already running `ORIGIN_URL` with an open tunnel?** Until the lock exists, keep `TRUST_FORWARDED_HOPS=0` — the open tunnel hostname passes any client-written `Forwarded` header through unverified. To lock it:
 
@@ -754,8 +776,11 @@ The tunnel token doesn't change when the VM is replaced — it's tied to the Clo
 To revert to direct port 8000 access at any time:
 
 ```bash
-# Remove ORIGIN_URL and re-open port 8000 (no SSH needed — runs from your laptop)
-ORIGIN_URL= MCP_PORT_CIDRS=0.0.0.0/0 npm run deploy
+# Remove ORIGIN_URL and re-open port 8000 (no SSH needed — runs from your laptop).
+# First delete ORIGIN_URL, MCP_PORT_CIDRS, and ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED
+# from ~/.config/vault-cortex/.env; a shell prefix alone would last only until
+# the next deploy.
+npm run deploy
 ```
 
 Or via AWS CLI for immediate firewall change (overwritten on next SST deploy):

@@ -83,8 +83,8 @@ assets/                                # Static assets (not shipped in Docker)
   fonts/
     DejaVuSans.ttf                     #   Embedded in render script for deterministic text rendering
 scripts/                               # Dev/ops helpers (not shipped in Docker)
-  dev.ts                               # Deployment helper (subcommands for SSH, sync, etc.)
-  deployment-env.ts                    # Loads ~/.config/vault-cortex/.env beneath shell overrides
+  dev.ts                               # Deployment helper (docker:build/push/publish, lightsail:up over SSH)
+  deployment-env.ts                    # Loads ~/.config/vault-cortex/.env; shell variables override its values
   run-sst.ts                           # Runs local SST commands with the external deployment env
   instance-env.ts                      # PUBLIC_URL resolution for lightsail:up (same rule as deploy.yml + sst.config.ts)
   sync-cli-env-blocks.ts               # Syncs deploy/ .env.example optional blocks into cli/src/env.ts
@@ -1183,7 +1183,8 @@ If you add or rename a secret in `sst.config.ts`, re-run `npm run deploy`
 pulls SST's platform source into the program, and that source does not
 compile under the repo's stricter checks. `.sst/platform` exists only after
 `npx sst install` — CI runs it before the build; run it once locally on a
-fresh clone.
+fresh clone. Installing needs no deployment settings, so it runs without the
+`npm run sst` wrapper and before `~/.config/vault-cortex/.env` exists.
 
 ## Upgrading rrule (recurrence parity)
 
