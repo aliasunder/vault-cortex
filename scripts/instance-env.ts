@@ -15,11 +15,11 @@ type PublicUrlSource = "PUBLIC_URL" | "CUSTOM_DOMAIN" | "API Gateway"
 
 /**
  * JMESPath picking the newest API Gateway whose name carries the stage's
- * prefix — with removal "retain", an `sst remove` can leave an older API
- * matching the same prefix, and picking it would bind tokens to a gateway
- * the Lambda no longer fronts. CI's deploy workflows embed the same
- * expression (with the `${SST_STAGE}` shell variable); the parity test in
- * instance-env.test.ts fails when the two copies diverge.
+ * prefix — an API left over from an earlier deploy can carry the same
+ * prefix, and picking it would bind tokens to a gateway the Lambda no
+ * longer fronts. CI's deploy workflows embed the same expression (with the
+ * `${SST_STAGE}` shell variable); the parity test in instance-env.test.ts
+ * fails when the two copies diverge.
  */
 export const gatewayApiEndpointQuery = (stage: string): string => {
   return `sort_by(Items[?starts_with(Name, 'vault-cortex-${stage}-VaultCortexApi')], &CreatedDate)[-1].ApiEndpoint`
