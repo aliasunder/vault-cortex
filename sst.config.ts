@@ -26,8 +26,9 @@ export default $config({
 
     // ── Environment ──────────────────────────────────────────────
     // process.env holds ~/.config/vault-cortex/.env only when SST runs through
-    // `npm run sst` (scripts/run-sst.ts). A bare `npx sst deploy` sees the shell
-    // alone, so every setting below falls back to its default.
+    // `npm run sst` (scripts/run-sst.ts). A bare `npx sst deploy` sees only the
+    // shell plus any repo-root `.env` / `.env.<stage>` (SST loads those itself),
+    // so a setting found in neither falls back to its default.
     //
     // SSH key fallback chain: SSH_PUBKEY (CI) → SSH_PUBKEY_PATH → ~/.ssh/vault-cortex.pub
     // No source is required on its own; readSshPublicKey throws only when all three miss.

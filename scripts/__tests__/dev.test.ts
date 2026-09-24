@@ -21,10 +21,12 @@ const runDev = ({
   subcommand,
   homeDirectory,
   additionalEnv = {},
+  workingDirectory = process.cwd(),
 }: {
   subcommand: string
   homeDirectory: string
   additionalEnv?: Readonly<Record<string, string>>
+  workingDirectory?: string
 }): ReturnType<typeof spawnSync> => {
   const inheritedPath = process.env.PATH
 
@@ -34,9 +36,9 @@ const runDev = ({
 
   return spawnSync(
     process.execPath,
-    [resolve("node_modules/tsx/dist/cli.mjs"), "scripts/dev.ts", subcommand],
+    [resolve("node_modules/tsx/dist/cli.mjs"), resolve("scripts/dev.ts"), subcommand],
     {
-      cwd: process.cwd(),
+      cwd: workingDirectory,
       encoding: "utf8",
       env: {
         HOME: homeDirectory,
@@ -123,5 +125,45 @@ describe("dev deployment helper", () => {
     expect(result.stderr).toBe(
       `✕ could not read or parse the deployment environment file at ${deploymentEnvPath}\n`,
     )
+  })
+
+  it.each([
+    {
+      label: "us-east-1 when AWS_REGION is unset",
+      fileRegionLine: "",
+      expectedRegion: "us-east-1",
+    },
+    {
+      label: "AWS_REGION from the external env file",
+      fileRegionLine: "AWS_REGION=eu-west-2\n",
+      expectedRegion: "eu-west-2",
+    },
+  ])("looks up the instance address in $label", ({ fileRegionLine, expectedRegion }) => {
+    const directory = createTempDirectory()
+    const awsRegionPath = join(directory, "aws-region.txt")
+    const deploymentEnvDirectory = join(directory, ".config", "vault-cortex")
+    mkdirSync(deploymentEnvDirectory, { recursive: true })
+    writeFileSync(
+      join(deploymentEnvDirectory, ".env"),
+      `GHCR_USER=file-user\nPUBLIC_URL=https://mcp.example.com\n${fileRegionLine}`,
+    )
+    const workingDirectory = join(directory, "repo")
+    mkdirSync(join(workingDirectory, ".sst"), { recursive: true })
+    writeFileSync(join(workingDirectory, ".sst", "stage"), "teststage\n")
+    // An empty lookup result ("None") stops the helper before it runs ssh.
+    const awsPath = join(directory, "aws")
+    writeFileSync(awsPath, '#!/bin/sh\nprintf "%s" "$AWS_REGION" > "$AWS_REGION_PATH"\necho None\n')
+    chmodSync(awsPath, 0o755)
+
+    const result = runDev({
+      subcommand: "lightsail:up",
+      homeDirectory: directory,
+      workingDirectory,
+      additionalEnv: { AWS_REGION_PATH: awsRegionPath },
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toBe("✕  Could not resolve vault-cortex-ip-teststage from AWS.\n")
+    expect(readFileSync(awsRegionPath, "utf8")).toBe(expectedRegion)
   })
 })

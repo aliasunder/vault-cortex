@@ -65,6 +65,10 @@ if (!ghcrUser) {
 }
 const image = `ghcr.io/${ghcrUser}/vault-cortex:remote`
 
+// sst.config.ts deploys to AWS_REGION, else us-east-1. Without the same
+// default, the AWS CLI would search its profile's region for the stack.
+const awsCliEnv = { ...env, AWS_REGION: env.AWS_REGION ?? "us-east-1" }
+
 const sshOpts = "-o StrictHostKeyChecking=accept-new"
 
 // Echoes the description, never the command string — the ssh/scp commands
@@ -133,7 +137,7 @@ const resolveSshHost = (): string => {
   const staticIpAddress = execSync(
     `aws lightsail get-static-ip --static-ip-name ${staticIpName} ` +
       `--query staticIp.ipAddress --output text`,
-    { env },
+    { env: awsCliEnv },
   )
     .toString()
     .trim()
@@ -168,7 +172,7 @@ const fetchGatewayUrl = (): string => {
   const stage = readStage()
   return execSync(
     `aws apigatewayv2 get-apis --query "${gatewayApiEndpointQuery(stage)}" --output text`,
-    { env },
+    { env: awsCliEnv },
   )
     .toString()
     .trim()
