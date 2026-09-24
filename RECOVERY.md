@@ -182,9 +182,14 @@ survive — only on-disk state carries over.
     no-diff deploy.
 12. Delete the old instance after verification
 
-If the new instance name differs from the canonical name (`vault-cortex-<stage>`),
-use Path 1 from "Reconciling SST state" below to rename it back before
-reconciling — avoids permanent state drift.
+Steps 9–11 keep the new instance's name, the same result as Path 2 in
+"Reconciling SST state" below. Commands elsewhere in this guide and in
+DEPLOY.md use the canonical name (`vault-cortex-<stage>`), so substitute the
+new name when you run them. To keep the canonical name instead, skip steps
+9–11. Once the new instance is verified, delete the old one (step 12), then
+follow Path 1. Set the variables its code block lists as Scenario B does, but
+with `RESTORE_NAME` set to the new instance's name and `BUNDLE_ID` set to the
+new bundle.
 
 ### Option B — SST replace (clean provision)
 
