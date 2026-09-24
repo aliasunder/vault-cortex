@@ -129,10 +129,12 @@ jobs:
           # sequential (the same three calls in order, each seeing the
           # earlier findings). Empty = combined
           phases: ${{ vars.UMM_PHASES }}
-          # One shared token pool for all prompt context, spent in priority
-          # order: diff → changed files → import-traced related files →
-          # priority docs → mention-matched docs. (Conventions file has its
-          # own separate cap inside the action.)
+          # One shared token pool for all prompt context, spent in this
+          # order: diff → priority docs (up to 10% of the budget, read
+          # before changed files) → changed files → import-traced related
+          # files → priority docs that didn't fit earlier → mention-matched
+          # docs. (Conventions file has its own separate cap inside the
+          # action.)
           context_budget_tokens: ${{ vars.UMM_CONTEXT_BUDGET_TOKENS || '300000' }}
           # true | false — import-tracing (caller regressions) and
           # doc-mention scanning (staleness)
