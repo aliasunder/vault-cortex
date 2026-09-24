@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { delimiter, join } from "node:path"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { runSst } from "../run-sst.js"
@@ -72,11 +72,13 @@ describe("runSst", () => {
   it("returns one when SST exits without a status", () => {
     const envFilePath = writeEnvFile("WRAPPER_SETTING=value\n")
     vi.mocked(spawnSync).mockReturnValue({ ...successfulSpawn, status: null })
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined)
 
     const exitCode = runSst({ args: ["deploy"], envFilePath })
 
     expect(exitCode).toBe(1)
     expect(spawnSync).toHaveBeenCalledTimes(1)
+    expect(errorLog).toHaveBeenCalledTimes(0)
   })
 
   it("reports a fixed error when the SST process cannot start", () => {
@@ -105,5 +107,108 @@ describe("runSst", () => {
     expect(spawnSync).toHaveBeenCalledTimes(1)
     expect(errorLog).toHaveBeenCalledTimes(1)
     expect(errorLog).toHaveBeenCalledWith("✕ Could not start the local SST CLI.")
+  })
+})
+
+type EntryScriptExit = { code: number | null; signal: NodeJS.Signals | null }
+
+type EntryScriptRun = {
+  homeDirectory: string
+  /** Resolves once the SST stub has printed "ready", so it is running. */
+  sstStarted: Promise<void>
+  exited: Promise<EntryScriptExit>
+  processGroupId: number
+}
+
+/**
+ * Starts run-sst.ts as `npm run sst` does, leading its own process group so a
+ * group signal reaches the wrapper and the SST stub together, as Ctrl-C does.
+ */
+const startEntryScript = async ({
+  args,
+  sstStubBody,
+}: {
+  args: readonly string[]
+  sstStubBody: string
+}): Promise<EntryScriptRun> => {
+  const { spawn } = await vi.importActual<typeof import("node:child_process")>("node:child_process")
+  const inheritedPath = process.env.PATH
+
+  if (!inheritedPath) {
+    throw new Error("PATH is required to run the SST stub")
+  }
+
+  const homeDirectory = mkdtempSync(join(tmpdir(), "vault-cortex-run-sst-entry-"))
+  onTestFinished(() => rmSync(homeDirectory, { recursive: true, force: true }))
+  const binDirectory = join(homeDirectory, "bin")
+  mkdirSync(binDirectory)
+  const sstStubPath = join(binDirectory, "sst")
+  writeFileSync(sstStubPath, `#!/bin/sh\n${sstStubBody}`)
+  chmodSync(sstStubPath, 0o755)
+  const deploymentEnvDirectory = join(homeDirectory, ".config", "vault-cortex")
+  mkdirSync(deploymentEnvDirectory, { recursive: true })
+  writeFileSync(
+    join(deploymentEnvDirectory, ".env"),
+    `SST_ARGUMENTS_PATH=${join(homeDirectory, "sst-arguments.txt")}\n`,
+  )
+
+  const wrapper = spawn(process.execPath, ["--import", "tsx", "scripts/run-sst.ts", ...args], {
+    cwd: process.cwd(),
+    detached: true,
+    env: { HOME: homeDirectory, PATH: [binDirectory, inheritedPath].join(delimiter) },
+    stdio: ["ignore", "pipe", "inherit"],
+  })
+  const processGroupId = wrapper.pid
+
+  if (!processGroupId) {
+    throw new Error("the run-sst entry script did not start")
+  }
+
+  const exited = new Promise<EntryScriptExit>((resolveExit) => {
+    wrapper.once("exit", (code, signal) => resolveExit({ code, signal }))
+  })
+  onTestFinished(async () => {
+    const stillRunning = wrapper.exitCode === null && wrapper.signalCode === null
+
+    if (stillRunning) process.kill(-processGroupId, "SIGKILL")
+    await exited
+  })
+  const sstStarted = new Promise<void>((resolveStarted) => {
+    wrapper.stdout.on("data", (chunk: Buffer) => {
+      if (chunk.toString().includes("ready")) resolveStarted()
+    })
+  })
+
+  return { homeDirectory, sstStarted, exited, processGroupId }
+}
+
+describe("run-sst entry script", () => {
+  it("passes its arguments and the external env file to SST, then exits with SST's status", async () => {
+    const entryScript = await startEntryScript({
+      args: ["deploy", "--stage", "test"],
+      sstStubBody: 'printf "%s\\n" "$@" > "$SST_ARGUMENTS_PATH"\nexit 4\n',
+    })
+
+    const exit = await entryScript.exited
+
+    expect(exit).toEqual({ code: 4, signal: null })
+    expect(readFileSync(join(entryScript.homeDirectory, "sst-arguments.txt"), "utf8")).toBe(
+      "deploy\n--stage\ntest\n",
+    )
+  })
+
+  it("stays running through Ctrl-C until SST finishes shutting down", async () => {
+    // The stub models SST's graceful shutdown: on SIGINT it takes a moment,
+    // then exits with its own status.
+    const entryScript = await startEntryScript({
+      args: ["dev"],
+      sstStubBody: "trap 'sleep 0.3; exit 3' INT\necho ready\nwhile :; do sleep 0.05; done\n",
+    })
+    await entryScript.sstStarted
+
+    process.kill(-entryScript.processGroupId, "SIGINT")
+    const exit = await entryScript.exited
+
+    expect(exit).toEqual({ code: 3, signal: null })
   })
 })

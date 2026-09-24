@@ -16,6 +16,7 @@ const writeDockerStub = (directory: string): void => {
   chmodSync(dockerPath, 0o755)
 }
 
+/** PATH starts with homeDirectory, so a Docker stub written there replaces the real docker. */
 const runDev = ({
   subcommand,
   homeDirectory,
@@ -39,7 +40,7 @@ const runDev = ({
       encoding: "utf8",
       env: {
         HOME: homeDirectory,
-        PATH: inheritedPath,
+        PATH: [homeDirectory, inheritedPath].join(delimiter),
         ...additionalEnv,
       },
     },
@@ -50,11 +51,6 @@ describe("dev deployment helper", () => {
   it("runs an image build with shell configuration when the external env file is absent", () => {
     const directory = createTempDirectory()
     const dockerArgumentsPath = join(directory, "docker-arguments.txt")
-    const inheritedPath = process.env.PATH
-
-    if (!inheritedPath) {
-      throw new Error("PATH is required to run the Docker stub")
-    }
 
     writeDockerStub(directory)
     const result = runDev({
@@ -63,13 +59,44 @@ describe("dev deployment helper", () => {
       additionalEnv: {
         DOCKER_ARGUMENTS_PATH: dockerArgumentsPath,
         GHCR_USER: "shell-user",
-        PATH: [directory, inheritedPath].join(delimiter),
       },
     })
 
     expect(result.status).toBe(0)
     expect(readFileSync(dockerArgumentsPath, "utf8")).toBe(
       "build\n--target\nremote\n--platform\nlinux/amd64\n-t\nghcr.io/shell-user/vault-cortex:remote\n.\n",
+    )
+  })
+
+  it("runs an image build with GHCR_USER from the external env file", () => {
+    const directory = createTempDirectory()
+    const dockerArgumentsPath = join(directory, "docker-arguments.txt")
+    const deploymentEnvDirectory = join(directory, ".config", "vault-cortex")
+    mkdirSync(deploymentEnvDirectory, { recursive: true })
+    writeFileSync(join(deploymentEnvDirectory, ".env"), "GHCR_USER=file-user\n")
+
+    writeDockerStub(directory)
+    const result = runDev({
+      subcommand: "docker:build",
+      homeDirectory: directory,
+      additionalEnv: { DOCKER_ARGUMENTS_PATH: dockerArgumentsPath },
+    })
+
+    expect(result.status).toBe(0)
+    expect(readFileSync(dockerArgumentsPath, "utf8")).toBe(
+      "build\n--target\nremote\n--platform\nlinux/amd64\n-t\nghcr.io/file-user/vault-cortex:remote\n.\n",
+    )
+  })
+
+  it("rejects an image build when neither the external env file nor the shell sets GHCR_USER", () => {
+    const directory = createTempDirectory()
+    const deploymentEnvPath = join(directory, ".config", "vault-cortex", ".env")
+
+    const result = runDev({ subcommand: "docker:build", homeDirectory: directory })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toBe(
+      `✕  GHCR_USER not set. Set it in ${deploymentEnvPath} or in the shell.\n`,
     )
   })
 

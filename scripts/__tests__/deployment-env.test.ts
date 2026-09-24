@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it, onTestFinished } from "vitest"
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { loadDeploymentEnv } from "../deployment-env.js"
 
@@ -19,6 +19,10 @@ const writeEnvFile = (content: string): string => {
 }
 
 describe("loadDeploymentEnv", () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   it("parses dotenv quoting, comments, and empty values", () => {
     const envFilePath = writeEnvFile(
       [
@@ -75,6 +79,7 @@ describe("loadDeploymentEnv", () => {
 
   it("uses the invoking environment when an optional external file is missing", () => {
     const missingPath = join(createTempDirectory(), ".env")
+    const warnLog = vi.spyOn(console, "warn").mockImplementation(() => undefined)
 
     const env = loadDeploymentEnv({
       envFilePath: missingPath,
@@ -83,10 +88,24 @@ describe("loadDeploymentEnv", () => {
     })
 
     expect(env).toEqual({ SHELL_ONLY: "kept" })
+    expect(warnLog).toHaveBeenCalledTimes(0)
   })
 
-  it("uses the invoking environment when an optional external file is unreadable", () => {
+  it("merges an existing optional external file under the invoking environment", () => {
+    const envFilePath = writeEnvFile("MODE=file\nFILE_ONLY=kept\n")
+
+    const env = loadDeploymentEnv({
+      envFilePath,
+      parentEnv: { MODE: "shell" },
+      requireFile: false,
+    })
+
+    expect(env).toEqual({ FILE_ONLY: "kept", MODE: "shell" })
+  })
+
+  it("warns and uses the invoking environment when an optional external file is unreadable", () => {
     const envDirectory = createTempDirectory()
+    const warnLog = vi.spyOn(console, "warn").mockImplementation(() => undefined)
 
     const env = loadDeploymentEnv({
       envFilePath: envDirectory,
@@ -95,6 +114,10 @@ describe("loadDeploymentEnv", () => {
     })
 
     expect(env).toEqual({ SHELL_ONLY: "kept" })
+    expect(warnLog).toHaveBeenCalledTimes(1)
+    expect(warnLog).toHaveBeenCalledWith(
+      `⚠ could not read ${envDirectory}; using shell variables only`,
+    )
   })
 
   it("rejects a missing external file with setup guidance", () => {
@@ -110,9 +133,12 @@ describe("loadDeploymentEnv", () => {
 
   it("rejects an unreadable external file without leaking its read error", () => {
     const envDirectory = createTempDirectory()
-
-    expect(() => loadDeploymentEnv({ envFilePath: envDirectory, parentEnv: {} })).toThrow(
+    const expectedError = new Error(
       `could not read or parse the deployment environment file at ${envDirectory}`,
+    )
+
+    expect(() => loadDeploymentEnv({ envFilePath: envDirectory, parentEnv: {} })).toThrowError(
+      expectedError,
     )
   })
 })
