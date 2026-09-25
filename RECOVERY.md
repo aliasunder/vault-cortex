@@ -58,6 +58,7 @@ stage:
 ```bash
 STAGE=<your-stage>                                # e.g. "production"
 INSTANCE_NAME="vault-cortex-${STAGE}"
+export AWS_REGION=<deployment-region>             # AWS_REGION from ~/.config/vault-cortex/.env; us-east-1 if unset
 
 aws lightsail get-auto-snapshots \
   --resource-name "${INSTANCE_NAME}" \
@@ -74,7 +75,7 @@ RESTORE_NAME="${INSTANCE_NAME}-restore-$(date +%s)"
 
 aws lightsail create-instances-from-snapshot \
   --instance-names "${RESTORE_NAME}" \
-  --availability-zone us-east-1a \
+  --availability-zone "${AWS_REGION}a" \
   --bundle-id medium_3_0 \
   --source-instance-name "${INSTANCE_NAME}" \
   --restore-date "${SNAPSHOT_DATE}" \
