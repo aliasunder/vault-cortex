@@ -29,12 +29,12 @@ const ENABLED_SET_OVER_READONLY_FLAG_RESTRICTIONS = [
   {
     selector: 'MemberExpression[property.name="readOnlyMode"]',
     message:
-      "Key tool references on the enabled set (isToolEnabled / whenToolEnabled), not on config.readOnlyMode — the flag misses DISABLED_TOOLS (AGENTS.md → Module layering)",
+      "Key tool references on the enabled set (isToolEnabled / whenToolEnabledText), not on config.readOnlyMode — the flag misses DISABLED_TOOLS (AGENTS.md → Module layering)",
   },
   {
     selector: 'ObjectPattern > Property[key.name="readOnlyMode"]',
     message:
-      "Key tool references on the enabled set (isToolEnabled / whenToolEnabled), not on config.readOnlyMode — the flag misses DISABLED_TOOLS (AGENTS.md → Module layering)",
+      "Key tool references on the enabled set (isToolEnabled / whenToolEnabledText), not on config.readOnlyMode — the flag misses DISABLED_TOOLS (AGENTS.md → Module layering)",
   },
 ]
 

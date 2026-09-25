@@ -30,7 +30,7 @@ import env from "env-var"
 import type { APIGatewayRequestAuthorizerEventV2 } from "aws-lambda"
 import { safeEqual, parseBearer, tokenBindingForServer } from "../auth.js"
 import { urlHasCredentials } from "../utils/url-has-credentials.js"
-import { verifyJwt, verifyUnboundJwt } from "../jwt.js"
+import { getDeploymentJwtVerification, verifyLegacyJwt } from "../jwt.js"
 import { logger as rootLogger } from "../logger.js"
 
 const OPEN_PATH_PREFIXES = [
@@ -77,9 +77,7 @@ export const handler = async (
     return { isAuthorized: true }
   }
 
-  // sst.config.ts sets PUBLIC_URL on this function from the same inputs
-  // Express reads it from, so the binding derived here matches the one
-  // Express mints into tokens.
+  // sst.config.ts gives this function the same PUBLIC_URL that Express uses.
   const publicUrl = env.get("PUBLIC_URL").asString()
 
   if (!publicUrl) {
@@ -103,28 +101,31 @@ export const handler = async (
   }
   // Verifying against this deployment's own URL is what makes a JWT
   // minted for another deployment fail even when the two share a secret.
-  const { issuer, audience } = tokenBindingForServer(serverUrl)
-  const verified = verifyJwt({
+  const { issuer: expectedIssuer, audience: expectedAudience } = tokenBindingForServer(serverUrl)
+  const deploymentJwtVerification = getDeploymentJwtVerification({
     token,
     secret,
-    expectedIssuer: issuer,
-    expectedAudience: audience,
+    expectedIssuer,
+    expectedAudience,
   })
 
-  if (verified) {
+  if (deploymentJwtVerification.status === "valid") {
     logger.info("auth_success", { method: "jwt" })
     return { isAuthorized: true }
   }
 
-  // A token minted by a release before access tokens carried `aud` is
-  // let through to Express, which rejects it with a 401 so the client
-  // refreshes into a bound token. Denying it here would be a 403, which
-  // clients never recover from on their own. Only tokens minted before
-  // an upgrade can be unbound, so this path goes quiet within one
-  // access-token TTL of upgrading.
-  const unbound = verifyUnboundJwt({ token, secret })
+  // Express enforces expiry and returns the 401 challenge that prompts
+  // clients to refresh. Every other JWT check still runs at both layers.
+  if (deploymentJwtVerification.status === "expired") {
+    logger.info("auth_success", { method: "jwt-expired" })
+    return { isAuthorized: true }
+  }
 
-  if (unbound) {
+  // Forward valid pre-binding tokens to Express for a 401 refresh challenge.
+  // A Lambda 403 would strand the client. These tokens expire within 24 hours.
+  const legacyJwt = verifyLegacyJwt({ token, secret })
+
+  if (legacyJwt) {
     logger.info("auth_success", { method: "jwt-unbound" })
     return { isAuthorized: true }
   }

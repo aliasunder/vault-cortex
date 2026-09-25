@@ -35,9 +35,10 @@ The maintainer runs the `:remote` image on AWS Lightsail behind API Gateway.
 These components are part of the maintainer's deployment, not the vault-cortex
 project itself — adopters may use any hosting, reverse proxy, and CI/CD setup:
 
-- **API Gateway + Lambda authorizer** — HTTP API fronting the Lightsail
-  instance, path-aware authorization (OAuth endpoints pass through, `/mcp`
-  requires valid bearer). IaC via SST v4
+- **API Gateway + Lambda authorizer** — checks bearer tokens on protected
+  routes before Express. It forwards signed, deployment-bound expired JWTs so
+  Express can return 401 and enforce expiry and revocation. OAuth endpoints
+  bypass the Lambda.
 - **CI/CD workflows** — GitHub Actions with OIDC AWS auth, SSH to Lightsail,
   GHCR image push
 
