@@ -43,9 +43,10 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
 ## Structure
 
-The tree maps the main folders and the files agents most often open; it is
-not a full listing. Most tests, config files, READMEs, and small helpers are
-left out, so run `ls` on a folder before concluding a file doesn't exist.
+The tree lists the main folders and the files an agent most often needs:
+entry points and core modules. Small self-explanatory helpers and routine
+files (READMEs, compose files, config files) are left out; run `ls` on a
+folder for the full list.
 
 ```text
 server.json # MCP server registry manifest
@@ -517,7 +518,8 @@ while writing, not after. `eslint.config.ts` enforces this subset:
 - A blank line between a declaration and the guard that consumes it.
 - In `src/` only: Luxon over `Date`, no `console`, env access only through
   `config.ts`.
-- The Module layering import and tool-surface bans.
+- The Module layering bans (layer imports, `config.readOnlyMode`, a local
+  `TOOL_NAMES`).
 
 The rest are the author's responsibility at write time. All rules, enforced
 ones included:
