@@ -37,6 +37,10 @@ Pulumi-driven replacement.
 
 ## Restore scenarios
 
+The `npm run` commands in this guide load `~/.config/vault-cortex/.env` and
+stop if it is missing. On a machine without it, create it first as in
+[DEPLOY.md one-time setup](./DEPLOY.md#one-time-setup) step 2.
+
 ### Scenario A — VM alive, container crashed
 
 Don't restore from snapshot. Just bring the stack back up.
