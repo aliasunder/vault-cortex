@@ -15,11 +15,11 @@ type PublicUrlSource = "PUBLIC_URL" | "CUSTOM_DOMAIN" | "API Gateway"
 
 /**
  * JMESPath picking the newest API Gateway whose name carries the stage's
- * prefix — with removal "retain", an `sst remove` can leave an older API
- * matching the same prefix, and picking it would bind tokens to a gateway
- * the Lambda no longer fronts. CI's deploy workflows embed the same
- * expression (with the `${SST_STAGE}` shell variable); the parity test in
- * instance-env.test.ts fails when the two copies diverge.
+ * prefix — an API left over from an earlier deploy can carry the same
+ * prefix, and picking it would bind tokens to a gateway the Lambda no
+ * longer fronts. CI's deploy workflows embed the same expression (with the
+ * `${SST_STAGE}` shell variable); the parity test in instance-env.test.ts
+ * fails when the two copies diverge.
  */
 export const gatewayApiEndpointQuery = (stage: string): string => {
   return `sort_by(Items[?starts_with(Name, 'vault-cortex-${stage}-VaultCortexApi')], &CreatedDate)[-1].ApiEndpoint`
@@ -59,7 +59,13 @@ export const resolvePublicUrl = ({
  * value — replaced in place when a line exists (including an empty
  * `PUBLIC_URL=`), appended otherwise. Commented lines are left alone.
  */
-export const envContentWithPublicUrl = (envFileContent: string, publicUrl: string): string => {
+export const envContentWithPublicUrl = ({
+  envFileContent,
+  publicUrl,
+}: {
+  envFileContent: string
+  publicUrl: string
+}): string => {
   const publicUrlLine = `PUBLIC_URL=${publicUrl}`
   const lines = envFileContent.split("\n")
   const hasPublicUrlLine = lines.some((line) => line.startsWith("PUBLIC_URL="))

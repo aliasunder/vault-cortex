@@ -124,7 +124,10 @@ describe("envContentWithPublicUrl", () => {
     const envFileContent =
       "MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=https://old.example.com\nVAULT_NAME=My Vault\n"
 
-    const rewritten = envContentWithPublicUrl(envFileContent, "https://new.example.com")
+    const rewritten = envContentWithPublicUrl({
+      envFileContent,
+      publicUrl: "https://new.example.com",
+    })
 
     expect(rewritten).toBe(
       "MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=https://new.example.com\nVAULT_NAME=My Vault\n",
@@ -134,7 +137,10 @@ describe("envContentWithPublicUrl", () => {
   it("fills in an empty PUBLIC_URL= line", () => {
     const envFileContent = "MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=\n"
 
-    const rewritten = envContentWithPublicUrl(envFileContent, "https://mcp.example.com")
+    const rewritten = envContentWithPublicUrl({
+      envFileContent,
+      publicUrl: "https://mcp.example.com",
+    })
 
     expect(rewritten).toBe("MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=https://mcp.example.com\n")
   })
@@ -142,7 +148,10 @@ describe("envContentWithPublicUrl", () => {
   it("appends when no PUBLIC_URL line exists", () => {
     const envFileContent = "MCP_AUTH_TOKEN=fake-token\n"
 
-    const rewritten = envContentWithPublicUrl(envFileContent, "https://mcp.example.com")
+    const rewritten = envContentWithPublicUrl({
+      envFileContent,
+      publicUrl: "https://mcp.example.com",
+    })
 
     expect(rewritten).toBe("MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=https://mcp.example.com\n")
   })
@@ -150,7 +159,10 @@ describe("envContentWithPublicUrl", () => {
   it("appends on its own line when the content lacks a trailing newline", () => {
     const envFileContent = "MCP_AUTH_TOKEN=fake-token"
 
-    const rewritten = envContentWithPublicUrl(envFileContent, "https://mcp.example.com")
+    const rewritten = envContentWithPublicUrl({
+      envFileContent,
+      publicUrl: "https://mcp.example.com",
+    })
 
     expect(rewritten).toBe("MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=https://mcp.example.com\n")
   })
@@ -158,7 +170,10 @@ describe("envContentWithPublicUrl", () => {
   it("leaves a commented # PUBLIC_URL line alone and appends the real one", () => {
     const envFileContent = "# PUBLIC_URL=https://commented.example.com\n"
 
-    const rewritten = envContentWithPublicUrl(envFileContent, "https://mcp.example.com")
+    const rewritten = envContentWithPublicUrl({
+      envFileContent,
+      publicUrl: "https://mcp.example.com",
+    })
 
     expect(rewritten).toBe(
       "# PUBLIC_URL=https://commented.example.com\nPUBLIC_URL=https://mcp.example.com\n",
@@ -166,7 +181,10 @@ describe("envContentWithPublicUrl", () => {
   })
 
   it("appends to empty content without a leading blank line", () => {
-    const rewritten = envContentWithPublicUrl("", "https://mcp.example.com")
+    const rewritten = envContentWithPublicUrl({
+      envFileContent: "",
+      publicUrl: "https://mcp.example.com",
+    })
 
     expect(rewritten).toBe("PUBLIC_URL=https://mcp.example.com\n")
   })
@@ -174,7 +192,10 @@ describe("envContentWithPublicUrl", () => {
   it("appends with CRLF endings when the file uses CRLF", () => {
     const envFileContent = "MCP_AUTH_TOKEN=fake-token\r\n"
 
-    const rewritten = envContentWithPublicUrl(envFileContent, "https://mcp.example.com")
+    const rewritten = envContentWithPublicUrl({
+      envFileContent,
+      publicUrl: "https://mcp.example.com",
+    })
 
     expect(rewritten).toBe("MCP_AUTH_TOKEN=fake-token\r\nPUBLIC_URL=https://mcp.example.com\r\n")
   })
@@ -182,7 +203,10 @@ describe("envContentWithPublicUrl", () => {
   it("keeps CRLF line endings intact when replacing", () => {
     const envFileContent = "MCP_AUTH_TOKEN=fake-token\r\nPUBLIC_URL=https://old.example.com\r\n"
 
-    const rewritten = envContentWithPublicUrl(envFileContent, "https://new.example.com")
+    const rewritten = envContentWithPublicUrl({
+      envFileContent,
+      publicUrl: "https://new.example.com",
+    })
 
     expect(rewritten).toBe("MCP_AUTH_TOKEN=fake-token\r\nPUBLIC_URL=https://new.example.com\r\n")
   })

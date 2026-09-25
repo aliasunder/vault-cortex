@@ -116,7 +116,13 @@ const assertSinglePage = (listName: string, nextCursor?: string): void => {
  * sets one — an absent description is a registration bug, and failing the build
  * beats publishing a listing entry the marketplace renders blank.
  */
-const requireDescription = (description: string | undefined, subject: string): string => {
+const requireDescription = ({
+  description,
+  subject,
+}: {
+  description: string | undefined
+  subject: string
+}): string => {
   if (!description) {
     throw new Error(`${subject} has no description; every tool and prompt must declare one`)
   }
@@ -128,7 +134,10 @@ const requireDescription = (description: string | undefined, subject: string): s
 const toManifestTool = (tool: Tool): ManifestTool => {
   return {
     name: tool.name,
-    description: requireDescription(tool.description, `tool "${tool.name}"`),
+    description: requireDescription({
+      description: tool.description,
+      subject: `tool "${tool.name}"`,
+    }),
     inputSchema: tool.inputSchema,
   }
 }
@@ -138,7 +147,10 @@ const toManifestTool = (tool: Tool): ManifestTool => {
 const toManifestPrompt = (prompt: Prompt): ManifestPrompt => {
   return {
     name: prompt.name,
-    description: requireDescription(prompt.description, `prompt "${prompt.name}"`),
+    description: requireDescription({
+      description: prompt.description,
+      subject: `prompt "${prompt.name}"`,
+    }),
   }
 }
 
