@@ -10,15 +10,17 @@ target (`:latest`, the default stage) is tini + the MCP server alone; the
 `remote` target (`:remote`) adds s6-overlay supervising both obsidian-sync
 (bidirectional Obsidian Sync via the `obsidian-headless` npm CLI) and the MCP
 server in a single container — s6 service definitions live in `rootfs/`, and
-the init chain registers the initial Sync device under DEVICE_NAME. Both
+the init chain registers the initial Sync device under the `DEVICE_NAME` env
+var (else the container hostname). Both
 processes run as UID 1000 (PUID/PGID-adjustable). Production runs the
 `:remote` image on Lightsail as a single Compose service, fronted by API
-Gateway with a smart Lambda authorizer (path-aware: OAuth endpoints pass
+Gateway with a Lambda authorizer (path-aware: OAuth endpoints pass
 through, /mcp validates static token or JWT). IaC via SST v4.
 
-The server provides vault CRUD, hybrid search (FTS5 keyword + sqlite-vec
-vector + cross-encoder reranking via RRF fusion and position-aware score
-blending), and the About Me/ memory layer. The Docker image uses Debian
+The server provides vault CRUD, hybrid search (FTS5 keyword and sqlite-vec
+vector results fused by Reciprocal Rank Fusion, then reranked by a
+cross-encoder; see ARCHITECTURE.md → Hybrid Search), and a memory layer
+(dated-entry notes in the vault's `About Me/` folder). The Docker image uses Debian
 slim (`node:24-trixie-slim`) because `onnxruntime-node` requires glibc,
 and specifically trixie because better-sqlite3 v13's bundled linux-arm64
 prebuild needs glibc >= 2.38 (bookworm's 2.36 crash-loops arm64 images).
@@ -58,10 +60,8 @@ Dockerfile # Two-target build: local (default) + remote
     install-deps.sh # nvm + npm ci guard for fresh clones and worktrees
 obsidian-headless/ # Lockfile-pinned obsidian-headless for Docker remote target
 rootfs/ # Container filesystem overlay (remote target)
-  etc/s6-overlay/ # init chain + svc-obsidian-sync + svc-vault-mcp (run + finish: the setup-mode restart)
-  usr/local/bin/get-sync-token # interactive Obsidian Sync token helper (manual flow)
-docker-compose.yml # Lightsail: single vault-cortex:remote service
-docker-compose.local.yml # Contributor dev: builds from source
+  etc/s6-overlay/ # init chain + svc-obsidian-sync + svc-vault-mcp (run + finish: restart after setup mode's sign-in; see setup/ below)
+  usr/local/bin/get-sync-token # interactive Obsidian Sync token helper (terminal alternative to setup mode's browser sign-in)
 .env.example # template for Lightsail .env
 templates/ # Bootstrap templates for new vaults
   memory/ # About Me/ memory file templates
@@ -133,7 +133,7 @@ src/
       fixtures/vault/ # Fixture vault copied to tempdir per server boot
     docker/ # Remote image boot tests (npm run test:remote-boot; excluded from npm test)
       docker-harness.ts # docker run/exec/logs/healthz helpers + MCP client factory
-      remote-image-boot.test.ts # s6 init chain end-to-end against the built :remote image, ob stubbed
+      remote-image-boot.test.ts # s6 init chain end-to-end against the built :remote image, `ob` (the obsidian-headless CLI) stubbed
       fixtures/ob # POSIX stub for the obsidian-headless CLI, bind-mounted over its cli.js
   functions/
     authorizer.ts # Lambda: path-aware auth (OAuth pass-through, JWT + static)
@@ -162,7 +162,7 @@ src/
       task-mutations.ts # Task create + state mutations (status, priority, heading moves, sub-tasks)
       task-format-config.ts # Tasks-plugin format config reader (emoji vs Dataview) + status registry
       trash-config.ts # Obsidian "Deleted files" config reader (trashOption from .obsidian/app.json)
-      trash-sweeper.ts # Trash bookkeeping: orphan purge (boot) + retention sweep (boot + daily); row store injected from search
+      trash-sweeper.ts # Trash bookkeeping: orphan purge (boot) + retention sweep (boot + daily); trash rows via an injected `TrashEntryStore` (search/ owns the table)
       asset-operations.ts # Asset read dispatch + browsing (image fit, canvas linearize/raw, extension filter, statted slice)
     mcp-core/ # MCP protocol surface
       mcp-router.ts # /mcp session routes + transport lifecycle
@@ -171,7 +171,7 @@ src/
       tool-definitions.ts # Tool orchestrator — enabled-set filter chain + gated registration wrapper
       prompt-definitions.ts # Prompt orchestrator — PROMPT_NAMES + conditional group registration
       tools/ # Tool group modules (one per data-layer domain)
-        tool-helpers.ts # Shared ToolRegistrationContext type + safeHandler/safeHandlerContent + describeTextWindow
+        tool-helpers.ts # Shared ToolRegistrationContext type + safeHandler/safeHandlerContent + formatNoteMetadata/describeTextWindow
         vault-crud-tools.ts # 11 tools: read, list, write, patch, replace, delete, move, update-properties, anchor-targeted delete/replace/insert
         search-tools.ts # 11 tools: search, tags, properties, graph queries
         task-tools.ts # 3 tools: list-tasks, create-task, update-task
@@ -207,9 +207,10 @@ src/
 
 ### Module layering
 
-The `vault-mcp/` tree is organized in dependency layers — parsers → I/O →
-use-cases → protocol → wiring. A module's folder is decided by **what it depends
-on**, not just its topic:
+The `vault-mcp/` tree is organized in dependency layers — parsers
+(`obsidian-markdown/`, `utils/`) → I/O and use-cases (`vault-operations/`,
+`search/`) → protocol (`mcp-core/`, `oauth/`, `setup/`) → wiring (`server.ts`).
+A module's folder is decided by **what it depends on**, not just its topic:
 
 - **`obsidian-markdown/`** — pure parsers/transforms over Obsidian's file
   formats (frontmatter, lines, headings, callouts, links). **No fs, no SQLite,
@@ -227,19 +228,19 @@ on**, not just its topic:
   that performs side effects — it resolves `pdfjs-dist` package paths from disk
   via `createRequire` and mutates `globalThis` (canvas polyfill injection). It
   lives here because it is PDF domain logic: the bootstrap that configures pdfjs
-  so `pdf.ts`'s extraction pipeline works — same relationship as if canvas.ts
-  needed a JSON parser configuration step. The two PDF modules are a unit and
+  so `pdf.ts`'s extraction pipeline works. The two PDF modules are a unit and
   belong together in the parser layer.
   `pdf.ts` imports it as a sibling for the `extractPdfText` pipeline.
   **Dual-format task mutations:** `tasks.ts` reads **and writes** both emoji
   signifiers (`✅`, `📅`, `⏫`) and Dataview inline fields (`[completion:: date]`,
   `[priority:: high]`). Mutation functions must strip both formats when removing
-  a field (a Dataview-formatted task must not get fields orphaned). New fields
-  are written in the format configured by the user's Tasks plugin
-  (`taskFormat` in `.obsidian/plugins/obsidian-tasks-plugin/data.json`) — emoji
-  by default. The `setDoneDate`/`setCancelledDate` settings control whether
-  completion dates are stamped at all. When `.obsidian/` is not synced to the
-  server, the tool defaults to emoji format.
+  a field (a Dataview-formatted task must not get fields orphaned). `tasks.ts`
+  takes the format as a parameter; `vault-operations/task-format-config.ts`
+  decides it from the user's Tasks plugin settings (`taskFormat` in
+  `.obsidian/plugins/obsidian-tasks-plugin/data.json`, emoji by default), and
+  its `setDoneDate`/`setCancelledDate` switches control whether completion
+  dates are stamped at all. When `.obsidian/` is not synced to the server, it
+  defaults to emoji.
 - **`vault-operations/`** — everything that reads/writes the vault.
   `vault-filesystem.ts` is the base I/O primitive (atomic writes, path-safety,
   read/list/delete); `vault-patcher`, `note-mover`, `memory-store`, and
@@ -286,8 +287,9 @@ on**, not just its topic:
   `prompt-definitions.ts` is the orchestrator that composes `PROMPT_NAMES` from
   three group modules under `mcp-core/prompts/` (vault-orientation, memory-review,
   daily-review) — mirroring the `tools/` pattern. Shared helpers
-  (`PromptRegistrationContext` type, `textResult`, `wrapWithDataMarkers`) live in
-  `prompt-helpers.ts`.
+  (`PromptRegistrationContext` type, `textResult`, and `wrapWithDataMarkers`,
+  which wraps vault content in `<vault-content>` tags so the model treats it as
+  data) live in `prompt-helpers.ts`.
 - **`search/`** — SQLite FTS5 + sqlite-vec index, embedding pipeline, file watcher.
 - **`oauth/`** — the OAuth 2.1 server (distinct from the shared `src/auth.ts`
   token utilities).
@@ -295,9 +297,10 @@ on**, not just its topic:
   page served while the container has no working Obsidian Sync token, the
   Obsidian account API client, and the token store. A sibling surface to
   `oauth/`, not a layer below it: builds on `config.ts`, `src/auth.ts`,
-  and `utils/`; nothing lower imports it (lint-enforced like `oauth/`).
+  and `utils/`; nothing lower imports it (lint-enforced: each lower layer's
+  `no-restricted-imports` bans `setup/` and `oauth/`).
   `svc-vault-mcp/run` starts `setup-server.ts` instead of `server.ts`
-  when `SETUP_MODE` is set.
+  when `init-check-auth` sets `SETUP_MODE` (no working Sync token).
 - **`utils/`** (at `src/`) — generic cross-cutting helpers.
 
 Three rules keep this honest:
@@ -351,9 +354,7 @@ Validate any new rule with a planted violation.
 
 **`utils/` admission:** a helper belongs here only if it is **generic with zero
 domain knowledge** (no vault, Markdown, or MCP concepts) **and** clears one of two
-bars. `import type` from infrastructure modules (`Logger`, config types) is fine —
-type-only imports are erased at compile time and don't create runtime coupling.
-Don't reinvent a type with a structural stand-in when the real type exists:
+bars:
 
 - **(1) It removes real duplication** — already called from more than one place
   (`describeError`, `readFileOrNull`).
@@ -366,6 +367,11 @@ Premature-abstraction guard: if the only way to explain the helper is "the part 
 `someFunction` that does X," it fails bar (2) — it's a _fragment_, not a primitive,
 so keep it private until a second caller appears. Markdown logic is domain — it
 goes in `obsidian-markdown/`, never `utils/`.
+
+`import type` from infrastructure modules (`Logger`, config types) is fine in
+`utils/` — type-only imports are erased at compile time and don't create runtime
+coupling. Don't reinvent a type with a structural stand-in when the real type
+exists.
 
 **Export style** depends on what kind of module it is:
 
@@ -457,7 +463,7 @@ All data-layer functions use named params + required logger:
 ```typescript
 vaultFs.readNote({ vaultPath, path }, reqLogger)
 memoryStore.getMemory({ vaultPath, file, section }, reqLogger)
-search.fullTextSearch({ query, filters }, reqLogger)
+search.fullTextSearch({ query, filters }, reqLogger) // search = the context's SearchIndex
 ```
 
 **Log levels:**
@@ -480,11 +486,11 @@ log would produce N lines during a vault rebuild (one per note), it's
 
 - Never log PII, credentials, tokens, or secrets — not in messages,
   not in structured fields, not in tests (fake fixtures only). Log
-  identifiers (`userId`), never identity payloads.
+  identifiers (`sessionId`), never identity payloads.
 - Redact via destructuring: `const { password, token, ...safe } = payload`
   — no `any`, no `delete` on copies.
 - Every catch logs or re-throws — `.catch(() => {})` and empty catch
-  blocks are banned; a swallowed error is worse than an uncaught one.
+  blocks are banned; a swallowed error hides the failure.
 - If a child-process command contains sensitive values, catch a failure
   at the call site and log a sanitized description. The original error
   message and a rethrow with `{ cause }` can expose the full command.
@@ -559,13 +565,15 @@ covers both kinds, with reasons:
   an API to route around the checker. Optional fields doc-commented
   "present only in mode X" are the cue for a discriminated union; a
   callback param with a closed set of instantiations becomes a
-  discriminated field naming the domain choice. Reuse type predicates
+  discriminated field naming the domain choice (every caller passes one of
+  two formatters → `format: "date" | "datetime"`). Reuse type predicates
   in filters over union members. Keep `x is T` guard bodies simple —
   predicates are compiler-trusted, not verified. A
   short `&&` chain is fine; when checks need a negated `in` or `||`
   branches, early returns read clearer.
 - One discriminant represents one outcome. When two result shapes encode
-  the same statuses and need a converter between them, use one
+  the same statuses and need a converter between them (a boolean `ok` result
+  beside a `status` result for the same outcomes), use one
   status-discriminated union instead.
 - Prefer `async/await` over `.then()`/`.catch()`. When `.then()` or
   `.finally()` is the natural idiom (e.g. promise-chain serialization
@@ -577,7 +585,8 @@ covers both kinds, with reasons:
   blocks are banned; a swallowed error hides the failure.
 - Three tiers at input boundaries: invalid input → reject with a
   clear error; valid input with a surprising structural consequence →
-  non-blocking advisory; machine-derived values (byte-exact match) →
+  non-blocking advisory; machine-derived values (the stored value
+  byte-exactly matches the tool's own earlier output) →
   auto-correct and report. User-authored values never auto-corrected.
 - Required inputs enforced at every entry point — fail fast at
   boot/load, not only the friendliest launcher. Making an
@@ -609,7 +618,7 @@ covers both kinds, with reasons:
   code into a more "functional" shape for its own sake.
 - Helpers do not mutate their inputs. Type collection parameters as
   `ReadonlyArray`, `ReadonlySet`, or `Readonly<T>` views and return new
-  values. A `const` local collection may be mutated in an honest loop.
+  values. A `const` local collection may be mutated in a plain `for…of` loop.
 - Don't disguise mutation as a fold. A `reduce` that mutates its
   accumulator (`acc.push(...)`, `acc.count += …`, then `return acc`) is
   the worst of both worlds — it reads as declarative but isn't, so a
@@ -705,7 +714,7 @@ covers both kinds, with reasons:
   explaining the overall strategy before the query.
 - Regex constants get doc comments explaining what they match.
 - Durable rationale only — never transition history, decision
-  narrative, or operator internals. OSS boundary: issue/PR numbers,
+  narrative, or the maintainer's own infrastructure details. OSS boundary: issue/PR numbers,
   incident dates, deployment names, task-board IDs, remediation
   narration, and investigation chronology never enter any public
   artifact — committed files, PR descriptions, or comments.
@@ -714,8 +723,8 @@ covers both kinds, with reasons:
   guard with a trailing ternary.
 - Early returns over nested `if/else` — reduces indentation depth
   and cognitive load. Prefer `if (done) return` over wrapping 15
-  lines in `if (!done) { ... }`. In loops, prefer `if (cond) { …;
-continue }` over `if/else if` chains — each branch is
+  lines in `if (!done) { ... }`. In loops, prefer
+  `if (cond) { …; continue }` over `if/else if` chains — each branch is
   self-contained and the reader doesn't have to track mutual
   exclusivity across the chain.
 - Extract multi-clause conditionals into a named boolean when the `if`
@@ -827,7 +836,7 @@ continue }` over `if/else if` chains — each branch is
    `prompt-definitions.ts`. If the prompt depends on a specific tool,
    gate it on `context.isToolEnabled(TOOL_NAMES.*)`.
 3. **Tests** — co-located at `prompts/__tests__/`. Use the shared
-   `prompt-test-harness.ts` for registration capture.
+   `prompt-test-harness.ts` in that folder for registration capture.
 4. **Availability keying** — use `whenToolEnabledText`,
    `isToolEnabled`, and `formatEnabledToolList` from the context for
    any tool references in the prompt text or fallback paths.
@@ -910,8 +919,8 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   regressed without reading the body.
 - `const` per test over `let` in `beforeEach` — this is the strong
   default, not a soft preference. When setup is cheap (in-memory DB,
-  small fixtures), use a factory helper and `const index =
-createTestIndex()` at the top of each test. `beforeEach` is only
+  small fixtures), use a factory helper and
+  `const index = createTestIndex()` at the top of each test. `beforeEach` is only
   justified when per-test creation is genuinely impractical (expensive
   resources, complex multi-step setup that would obscure the test body).
 - Every test must actually verify the behavior it claims to test.
@@ -942,15 +951,17 @@ createTestIndex()` at the top of each test. `beforeEach` is only
     before reaching it. Assert a side effect that only the intended
     path produces (e.g. the expected `warn` was logged) so the
     happy-accident return can't pass.
-    When in doubt, mutate the code (break the specific behavior) and
-    confirm the test fails for _that_ reason — not a compile error or
-    an unrelated assertion.
   - **Wrong-item pass.** Seeding multiple items, querying one, then
     asserting only "something came back" — assert the specific
     expected item (path/id/content).
   - **Coincidental-equality hazard.** When production and test read
     the same source (e.g. `err.stack`), both being `undefined` passes
     trivially — set a predictable value and assert it exactly.
+
+  For any of these, when in doubt, mutate the code (break the specific
+  behavior) and confirm the test fails for _that_ reason — not a compile
+  error or an unrelated assertion.
+
 - Exact assertions (`toHaveLength(2)`, `toBe("value")`) over
   loose matchers (`toBeGreaterThanOrEqual(1)`, `toBeDefined()`)
   when the expected value is known.
@@ -989,7 +1000,8 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   `src/vault-mcp/__tests__/` (`init-check-auth.test.ts`,
   `init-obsidian-login.test.ts`, `init-first-sync.test.ts`,
   `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
-  `print-derived-env.test.ts`). These script tests run the real
+  `print-derived-env.test.ts`, which covers the pure half of
+  `init-derive-env`). These script tests run the real
   script under `sh` with stub binaries on `PATH`, and name the script
   they cover — don't move them under `rootfs/` or widen vitest's
   include for them. Whole-image behaviour (the init chain's ordering,
@@ -1104,8 +1116,8 @@ from `npm test`).
 - New interactive command → happy-path test driving the full prompt
   sequence.
 - New prompt in an existing command → extend or add a scenario.
-- Docker start/health-check changes → test with the docker shim's
-  health server.
+- Docker start/health-check changes → test with the fake `docker`
+  binary's `/healthz` server.
 
 **Never add:**
 
@@ -1121,7 +1133,7 @@ Remote image boot tests (`src/__tests__/docker/`) boot the built
 They catch what a single script's test file cannot: the ordering of
 init scripts, the `container_environment` files the init chain
 writes, the volume layout, and the checks that stop the container
-on bad state. Run via `npm run test:remote-boot` (builds the image,
+on bad state (guards). Run via `npm run test:remote-boot` (builds the image,
 then runs a separate vitest config excluded from `npm test`).
 
 Tests in a `describe` block share one booted container. Two places boot
@@ -1155,8 +1167,8 @@ own `it()`, and the failing-sync block boots once per sub-`describe`
   haven't used in this repo (linking, secrets, outputs) — don't infer from
   other IaC tools or older SST versions.
 - Plain configuration a Lambda needs (`PUBLIC_URL`) goes in the function's
-  `environment:`, read with `env-var`; `sst.Linkable` follows SST v4's own
-  guidance on what to link. Type-generation timing is in "Build pipeline
+  `environment:`, read with `env-var`; `link:` is for SST resources a
+  handler reads through `Resource.*` (the `McpAuthToken` secret). Type-generation timing is in "Build pipeline
   gotcha" below.
 - `$interpolate` for `Output<string>` composition.
 - Raw Pulumi `aws.*` for Lightsail (no SST component exists).
@@ -1196,8 +1208,9 @@ release — re-check each of these against the plugin source before merging:
   `parseText` try/null handling.
 - Reference-date priority (due → scheduled → start; flipped to due →
   start → scheduled under `removeScheduledDateOnRecurrence`).
-- The month/year overflow walk-back: dtstart moves with each step, and
-  the `" on "` exemption applies to the month branch only.
+- The month/year overflow walk-back: dtstart moves with each step, and a
+  rule whose text contains `" on "` (an explicit day, "every month on the
+  31st") skips the walk-back — month rules only.
 - The spawn's field handling in `createNextOccurrence`: block link, 🆔,
   and ⛔ cleared; created date replaced per `setCreatedDate`, never
   carried forward.
@@ -1226,7 +1239,10 @@ re-verify each contract against the new source before merging:
   nothing but `.sync.lock` as an empty vault.
 - The device's file record is
   `obsidian-headless/sync/<vaultId>/state.db` under `$XDG_CONFIG_HOME`,
-  table `local_files`. The deletion-storm guard reads this table. The
+  table `local_files`. The deletion-storm guard in `init-first-sync` reads
+  this table: it stops the container when the record lists files but the
+  vault is empty, because the engine would push each missing file as a
+  deletion. The
   engine loads it at startup and compares it against the files on disk.
 - Files delivered by `sync --continuous` are recorded in that same
   table as they arrive, and a file deleted locally has its row removed.
@@ -1236,7 +1252,7 @@ re-verify each contract against the new source before merging:
   end-to-end encrypted vault comes back with `password: ""`) and
   `/vault/access` with the key hash — scrypt over the NFKC-normalized
   password and salt (N 32768, r 8, p 1, 32 bytes), then HKDF-SHA256 with
-  info `ObsidianKeyHash` for versions 2 and 3, SHA-256 for version 0. The
+  info `ObsidianKeyHash` for `encryption_version` 2 and 3, SHA-256 for 0. The
   vectors in `vault-key.test.ts` were produced by the pinned CLI's own
   functions; recompute them on a bump.
 
@@ -1277,8 +1293,9 @@ match their siblings' length and shape.
 
 **Doc quality rules:**
 
-- Before calling a doc done, pick each supported reader persona and
-  walk the entire document start to finish — line-level fact-checking
+- Before calling a doc done, pick each reader the doc serves (the
+  Obsidian user, a self-hoster deploying it, a contributor) and walk the
+  entire document start to finish — line-level fact-checking
   cannot validate a doc; each sentence can be true while the doc
   as a whole misleads.
 - When a doc offers multiple paths (install methods, tools, runtimes),
@@ -1397,8 +1414,9 @@ pattern:
    the remote guide's table. Re-publish the Railway template after editing
    its definition.
 
-CI drift tests in `cli/src/__tests__/templates.test.ts` catch omissions across steps 2–4
-and pin the committed hosted templates (step 8), but the checklist prevents them.
+CI drift tests in `cli/src/__tests__/templates.test.ts` catch omissions across
+steps 2–4 after the fact and pin the committed hosted templates (step 8);
+following the checklist avoids the omissions in the first place.
 
 **Regenerating `social-preview.png`:** Run `npm run render:social-preview`.
 The script uses Puppeteer's pinned Chrome for Testing build with an embedded
