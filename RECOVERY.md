@@ -192,10 +192,10 @@ Steps 9–11 keep the new instance's name, the same result as Path 2 in
 "Reconciling SST state" below. Commands elsewhere in this guide and in
 DEPLOY.md use the canonical name (`vault-cortex-<stage>`), so substitute the
 new name when you run them. To keep the canonical name instead, skip steps
-9–11. Once the new instance is verified, delete the old one (step 12), then
-follow Path 1. Set the variables its code block lists as Scenario B does, but
-with `RESTORE_NAME` set to the new instance's name and `BUNDLE_ID` set to the
-new bundle.
+9–12. Once the new instance is verified, follow Path 1, which deletes the old
+instance before reusing its name. Set the variables its code block lists as
+Scenario B does, but with `RESTORE_NAME` set to the new instance's name and
+`BUNDLE_ID` set to the new bundle.
 
 ### Option B — SST replace (clean provision)
 
@@ -263,6 +263,10 @@ aws lightsail create-instance-snapshot \
 aws lightsail get-instance-snapshot \
   --instance-snapshot-name "${RESTORED_SNAPSHOT}" \
   --query 'instanceSnapshot.state' --output text
+
+# The broken instance still holds the canonical name, and Lightsail names are
+# unique per region. Delete it now that the restored instance is verified.
+aws lightsail delete-instance --instance-name "${INSTANCE_NAME}"
 
 aws lightsail create-instances-from-snapshot \
   --instance-names "${INSTANCE_NAME}" \

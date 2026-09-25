@@ -12,7 +12,7 @@ SST manages the AWS infrastructure declared in `sst.config.ts`, with each develo
 
 ## Prerequisites
 
-- AWS credentials configured (`aws configure` or `AWS_PROFILE`)
+- [AWS CLI v2](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) with credentials configured (`aws configure` or `AWS_PROFILE`)
 - Docker installed locally
 - A GitHub PAT with `read:packages` + `write:packages` scopes — needed for the first deploy, because `npm run deploy:dev` pushes the image from your machine (GitHub Actions uses its built-in `GITHUB_TOKEN` instead, and a public GHCR package pulls anonymously)
 - A dedicated deploy SSH keypair at `~/.ssh/vault-cortex`. If you don't have one: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`. SST uploads the public key to Lightsail. Both local dev and CI use the same key so deploys never trigger an instance replacement.
