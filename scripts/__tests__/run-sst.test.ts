@@ -60,7 +60,9 @@ describe("runSst", () => {
 
   it("reports a fixed error without spawning when the sst package is missing", () => {
     const envFilePath = writeEnvFile("WRAPPER_SETTING=value\n")
-    vi.mocked(findPackageJSON).mockReturnValueOnce(undefined)
+    vi.mocked(findPackageJSON).mockImplementationOnce(() => {
+      throw Object.assign(new Error("Cannot find package 'sst'"), { code: "ERR_MODULE_NOT_FOUND" })
+    })
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined)
 
     const exitCode = runSst({ args: ["deploy"], envFilePath })

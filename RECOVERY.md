@@ -137,6 +137,9 @@ instance. Without a manual snapshot, you're rebuilding from scratch:
 STAGE=<your-stage>                                # the name in .sst/stage
 # Remove the stale state entry (the existing state still claims the VM exists)
 npm run sst -- state remove VaultCortexVm --stage "${STAGE}"
+# Sync SST state with AWS: the static IP attachment and firewall rules went
+# with the deleted VM, so the deploy must recreate them too
+npm run sst -- refresh --stage "${STAGE}"
 # Then a normal deploy provisions a fresh VM
 npm run deploy -- --stage "${STAGE}"
 ```
@@ -345,15 +348,10 @@ second downtime.
 
 ## Verifying the protections work
 
-End-to-end drill. Do this once on a throwaway stage and record the RTO.
-Afterwards, delete the drill stage as [DEPLOY.md § Tearing down](./DEPLOY.md#tearing-down)
-describes, passing `--stage recovery-drill`.
+End-to-end drill. Do this once on a throwaway stage and record the RTO:
 
 ```bash
 DRILL_STAGE=recovery-drill
-
-# 0. Deploy the drill stage and wait a day for its first auto-snapshot:
-npm run deploy -- --stage "${DRILL_STAGE}"
 
 # 1. Confirm auto-snapshot is wired up (after first 24h):
 aws lightsail get-auto-snapshots \

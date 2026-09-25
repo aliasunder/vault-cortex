@@ -39,10 +39,20 @@ const readJsonOrNull = (filePath: string): unknown => {
  * works on Windows, where npm's `sst` shim is a .cmd file that Node cannot
  * start without one.
  */
+const findSstPackageJsonOrNull = (): string | null => {
+  try {
+    // Resolves the package directory directly, because SST's exports map
+    // hides bin/ from require.resolve.
+    return findPackageJSON("sst", import.meta.url) ?? null
+  } catch {
+    // findPackageJSON throws ERR_MODULE_NOT_FOUND when sst isn't installed;
+    // the caller reports that SST could not start.
+    return null
+  }
+}
+
 const resolveSstLauncherPath = (): string | null => {
-  // Resolves the package directory directly: SST's exports map hides
-  // bin/ from require.resolve.
-  const packageJsonPath = findPackageJSON("sst", import.meta.url)
+  const packageJsonPath = findSstPackageJsonOrNull()
 
   if (!packageJsonPath) return null
 

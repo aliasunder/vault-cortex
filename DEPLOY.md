@@ -459,15 +459,15 @@ Direct commits to `main` are blocked by a branch ruleset — every change, versi
 
 Changing the deploy keypair **triggers a VM replacement**. The `SSH_PUBKEY` GitHub secret flows through CI → `sst deploy` → `readSshPublicKey()` → Lightsail KeyPair `publicKey`. A changed public key replaces the KeyPair, which cascades to an Instance replacement. There's no way to rotate the SST-managed key without replacing the VM.
 
-**Steps:**
+**Steps** (run them from your laptop; the `sst.config.ts` edit is never committed):
 
 1. Take a manual snapshot first (rollback point if the replacement goes wrong — see [RECOVERY.md](./RECOVERY.md) Scenario B): `aws lightsail create-instance-snapshot --instance-name vault-cortex-<stage> --instance-snapshot-name pre-key-rotation`
 2. Wait for the snapshot to finish. Lightsail creates it in the background, so repeat `aws lightsail get-instance-snapshot --instance-snapshot-name pre-key-rotation --query 'instanceSnapshot.state' --output text` until it prints `available`. Stop if it prints `error`
-3. Regenerate the key: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`
-4. In `sst.config.ts`, remove `protect: true` and `retainOnDelete: true` from the `VaultCortexVm` options, then deploy with no other change. `protect` blocks the replacement, and `retainOnDelete` would leave the old VM holding the instance name
-5. Update both `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets
-6. Deploy — the old VM is deleted and a fresh one is created
-7. Restore `protect: true` and `retainOnDelete: true`, then deploy once more with no other change so the new VM is protected
+3. In `sst.config.ts`, remove `protect: true` and `retainOnDelete: true` from the `VaultCortexVm` options, then run `npm run deploy` with no other change. `protect` blocks the replacement, and `retainOnDelete` would leave the old VM holding the instance name
+4. Regenerate the key: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`
+5. Run `npm run deploy:dev` — the old VM is deleted, a fresh one is created with the new key, and the container starts on it
+6. Restore the two lines (`git checkout sst.config.ts`), then run `npm run deploy` once more so the new VM is protected
+7. Update both `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets, so CI deploys use the new key
 
 **Data implications:** vault re-syncs from Obsidian and the search index rebuilds automatically, so the MCP server recovers quickly. What you lose: OAuth state (`oauth.db` — clients re-authenticate on next use), accumulated Docker logs, and anything manually installed on the VM outside of IaC (ad-hoc `apt install`, Tailscale, cron jobs, etc.).
 
@@ -628,7 +628,7 @@ To revert to public SSH at any time:
 npm run deploy
 ```
 
-Or via AWS CLI for immediate effect (overwritten on next SST deploy). This command replaces every firewall rule, so it sets both ports. If you use `MCP_PORT_CIDRS=none`, replace port 8000's `0.0.0.0/0` with `192.0.2.1/32`, or the command reopens port 8000 to the internet:
+Or via AWS CLI for immediate effect (overwritten on next SST deploy). This command replaces every firewall rule, so it sets both ports. If you restrict port 8000 with `MCP_PORT_CIDRS`, replace its `0.0.0.0/0` with your configured CIDRs (`192.0.2.1/32` for `none`), or the command reopens port 8000 to the internet:
 
 ```bash
 aws lightsail put-instance-public-ports \
@@ -817,7 +817,7 @@ To revert to direct port 8000 access at any time:
 npm run deploy
 ```
 
-Or via AWS CLI for immediate firewall change (overwritten on next SST deploy). This command replaces every firewall rule, so it sets both ports. If you use `SSH_CIDRS=none`, replace port 22's `0.0.0.0/0` with `192.0.2.1/32`, or the command reopens SSH to the internet:
+Or via AWS CLI for immediate firewall change (overwritten on next SST deploy). This command replaces every firewall rule, so it sets both ports. If you restrict SSH with `SSH_CIDRS`, replace port 22's `0.0.0.0/0` with your configured CIDRs (`192.0.2.1/32` for `none`), or the command reopens SSH to the internet:
 
 ```bash
 aws lightsail put-instance-public-ports \
