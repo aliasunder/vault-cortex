@@ -1183,8 +1183,7 @@ If you add or rename a secret in `sst.config.ts`, re-run `npm run deploy`
 pulls SST's platform source into the program, and that source does not
 compile under the repo's stricter checks. `.sst/platform` exists only after
 `npx sst install` — CI runs it before the build; run it once locally on a
-fresh clone. Installing needs no deployment settings, so it runs without the
-`npm run sst` wrapper and before `~/.config/vault-cortex/.env` exists.
+fresh clone.
 
 ## Upgrading rrule (recurrence parity)
 

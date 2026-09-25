@@ -31,11 +31,11 @@ export default $config({
     // so a setting found in neither falls back to its default.
     //
     // SSH key fallback chain: SSH_PUBKEY (CI) → SSH_PUBKEY_PATH → ~/.ssh/vault-cortex.pub
-    // No source is required on its own; readSshPublicKey throws only when all three miss.
+    // Neither is individually required — readSshPublicKey errors if all three miss.
     const sshPubkey = env("SSH_PUBKEY").asString()
     const sshPubkeyPath = env("SSH_PUBKEY_PATH").asString()
 
-    // SSH firewall CIDRs. Comma-separated. Unset: open to all (0.0.0.0/0).
+    // SSH firewall CIDRs. Comma-separated. Default: open (backward-compat).
     // Set to "none" to block public SSH (Tailscale-only).
     const sshCidrs = env("SSH_CIDRS").asString()
 
@@ -90,7 +90,9 @@ export default $config({
       parsedPublicUrlOverride?.protocol === "http:"
 
     if (publicUrlOverride && !publicUrlIsHttp) {
-      throw new Error("PUBLIC_URL must be an absolute http(s) URL, e.g. https://mcp.example.com")
+      throw new Error(
+        "PUBLIC_URL must be an absolute http(s) URL, e.g. " + "https://mcp.example.com",
+      )
     }
 
     // Credentials in the URL would be minted into every token's `iss`
@@ -122,32 +124,28 @@ export default $config({
       )
     }
 
-    const expandHome = (path: string): string => {
-      return path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path
-    }
+    const expandHome = (path: string): string =>
+      path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path
 
     /**
      * Resolve the SSH public key to upload to Lightsail.
      * Resolution order:
      *   1. SSH_PUBKEY env var (literal key contents) — for CI / GH Actions.
-     *   2. SSH_PUBKEY_PATH env var (path) — for local overrides. A set path
-     *      must exist, so a stale override fails instead of uploading a
-     *      different key.
-     *   3. ~/.ssh/vault-cortex.pub, used only when SSH_PUBKEY_PATH is unset —
+     *   2. SSH_PUBKEY_PATH env var (path) — for local overrides.
+     *   3. ~/.ssh/vault-cortex.pub, only when SSH_PUBKEY_PATH is unset —
      *      dedicated deploy key (same key local + CI).
      */
     const readSshPublicKey = (): string => {
       if (sshPubkey) return sshPubkey
-
-      const publicKeyPath = expandHome(sshPubkeyPath || "~/.ssh/vault-cortex.pub")
-
-      if (existsSync(publicKeyPath)) {
-        return readFileSync(publicKeyPath, "utf8").trim()
+      const candidates = sshPubkeyPath
+        ? [expandHome(sshPubkeyPath)]
+        : [expandHome("~/.ssh/vault-cortex.pub")]
+      for (const path of candidates) {
+        if (existsSync(path)) return readFileSync(path, "utf8").trim()
       }
-
       throw new Error(
         `No SSH public key found. Tried env SSH_PUBKEY, then paths: ` +
-          `${publicKeyPath}. Generate a dedicated deploy key:\n` +
+          `${candidates.join(", ")}. Generate a dedicated deploy key:\n` +
           `  ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy\n` +
           `Or set SSH_PUBKEY_PATH / SSH_PUBKEY to override.`,
       )
@@ -203,13 +201,12 @@ export default $config({
     // /opt/vault-cortex, /etc edits, ad-hoc apt installs). snapshotTime
     // is UTC. Restore path is in RECOVERY.md.
     //
-    // protect + retainOnDelete guard the VM's disk. `protect` refuses
+    // protect + retainOnDelete are the IaC seatbelt. `protect` refuses
     // any Pulumi operation that would destroy or replace this resource;
-    // `retainOnDelete` orphans the AWS resource instead of destroying it if
-    // SST deletes it once `protect` is cleared (`sst remove`, or removing it
-    // from this config).
-    // The app-level `removal: "retain"` retains only data stores (S3,
-    // DynamoDB), so these two options are the VM's only IaC protection.
+    // `retainOnDelete` orphans the AWS resource if SST ever does decide
+    // to delete it (e.g. `sst remove` once `protect` is cleared) instead of
+    // actually destroying. The app-level `removal: "retain"` keeps only data
+    // stores (S3, DynamoDB), so it does not cover the VM.
     //
     // GOTCHA #1: Changing bundleId or keyPairName WOULD normally replace
     //            the instance (userData would too, but ignoreChanges below
@@ -358,9 +355,9 @@ export default $config({
     })
 
     /**
-     * Uses the same precedence as resolvePublicUrl in scripts/instance-env.ts
-     * (laptop lightsail:up) and deploy.yml's "Resolve public URL" step (CI),
-     * because the Lambda rejects tokens minted for any other URL.
+     * The same precedence as resolvePublicUrl in scripts/instance-env.ts
+     * (laptop lightsail:up) and deploy.yml's "Resolve public URL" step (CI):
+     * the Lambda rejects tokens minted for any other URL.
      */
     const resolvePublicUrl = (): $util.Output<string> => {
       if (publicUrlOverride) return $output(publicUrlOverride)
@@ -395,19 +392,12 @@ export default $config({
     })
 
     /**
-     * When ORIGIN_URL is set, API Gateway routes through a tunnel or proxy
-     * (HTTPS) instead of directly to the Lightsail IP (plaintext HTTP). Pair it
-     * with MCP_PORT_CIDRS=none to close port 8000 on the firewall.
-     *
-     * `path` is appended to the origin, so the bare root passes "". A greedy
-     * route parameter is written `{proxy+}` in the route key but `{proxy}` in
-     * the integration URL.
+     * ORIGIN_URL: when set, API GW routes through a tunnel/proxy (HTTPS)
+     * instead of directly to the Lightsail IP (plaintext HTTP). Pair with
+     * MCP_PORT_CIDRS=none to close port 8000 on the firewall.
      */
-    const target = (path: string) => {
-      return originUrl
-        ? `${originUrl}${path}`
-        : $interpolate`http://${staticIp.ipAddress}:8000${path}`
-    }
+    const target = (path: string) =>
+      originUrl ? `${originUrl}${path}` : $interpolate`http://${staticIp.ipAddress}:8000${path}`
 
     // Service-token headers on every integration. `overwrite:` so a
     // client-supplied copy of either header is replaced, never joined.

@@ -7,12 +7,11 @@ replace it on purpose. Companion to `sst.config.ts`.
 
 Three layers cover different failure classes:
 
-| Layer                                 | What it does                                                                                    | Where                         |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------- |
-| App-level `removal: "retain"`         | Blocks `sst remove` from destroying the stack                                                   | `sst.config.ts` `app()`       |
-| Resource-level `protect: true`        | Refuses any Pulumi op that would destroy/replace the Instance                                   | `sst.config.ts` instance opts |
-| Resource-level `retainOnDelete: true` | If SST ever does decide to delete (stage rename), orphan the AWS resource instead of destroying | `sst.config.ts` instance opts |
-| Lightsail auto-snapshot               | Daily disk image at 03:00 UTC, 7-day rolling retention                                          | `addOn` on the Instance       |
+| Layer                                 | What it does                                                                                                              | Where                         |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Resource-level `protect: true`        | Refuses any Pulumi op that would destroy/replace the Instance                                                             | `sst.config.ts` instance opts |
+| Resource-level `retainOnDelete: true` | If SST ever does decide to delete (`sst remove` once `protect` is cleared), orphan the AWS resource instead of destroying | `sst.config.ts` instance opts |
+| Lightsail auto-snapshot               | Daily disk image at 03:00 UTC, 7-day rolling retention                                                                    | `addOn` on the Instance       |
 
 The auto-snapshot is the only one that protects against AWS-side events
 (hardware failure, AZ outage) and against in-VM mistakes (fat-finger

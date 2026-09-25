@@ -55,7 +55,7 @@ The constraints that shaped every decision below:
 - **Design for the Obsidian user** — anything that mirrors an Obsidian concept (links, tags, properties, tasks, daily notes) must match what Obsidian itself does; recognizing a strict subset of Obsidian's behavior is a bug, not a limitation.
 - **Personal scale, zero services** — one user's vault, not a multi-tenant platform. Everything runs embedded and in-process: SQLite for the index and OAuth state, ONNX models for embeddings. No external APIs, no second datastore, no per-query cost.
 - **Low operational overhead** — always-on with no manual intervention; free to run locally, a modest VPS remotely; infrastructure as code.
-- **Secure by default** — the client-facing endpoint is HTTPS, authenticated via OAuth 2.1 or a bearer token; the reference deployment validates every request at two independent layers.
+- **Secure by default** — the client-facing endpoint uses HTTPS and requires OAuth 2.1 or a bearer token. The reference deployment checks protected requests at two independent layers. Express enforces JWT expiry and revocation.
 - **Portable** — nothing depends on the author's machine: any Docker host works, and the reference AWS deployment is one option, not a requirement.
 
 ## Component Diagram
@@ -557,21 +557,28 @@ Two authentication methods, both validated at two layers:
 Attached to protected routes only. OAuth discovery paths (`/.well-known/*`,
 `/authorize`, `/token`, `/register`, `/revoke`, `/oauth/*`, `/healthz`) are
 separate unauthenticated routes in `sst.config.ts` (required by the
-OAuth/MCP spec) and never invoke the Lambda. On protected routes the
-authorizer validates the bearer token — accepts both the static
-`MCP_AUTH_TOKEN` (via `safeEqual`) and JWT access tokens signed with it
-(via `verifyJwt`). The Authorization header is the route's identity
-source, so a tokenless request gets an automatic **401** from API Gateway
-without invoking the Lambda — this is what lets MCP clients (Claude
-Desktop/web, etc.) enter the OAuth connect flow on their first
-unauthenticated probe. A Lambda deny is a fixed, uncustomizable **403**
-on HTTP APIs, which MCP clients treat as a broken server rather than a
-sign-in prompt.
+OAuth/MCP spec) and never invoke the Lambda.
+
+For protected requests, the authorizer:
+
+- accepts the static `MCP_AUTH_TOKEN` through `safeEqual`
+- checks the signature, issuer, and audience of deployment-bound JWTs
+- forwards a correctly bound expired JWT to Express for the **401** refresh challenge
+- forwards unexpired pre-binding JWTs without an audience claim to Express,
+  avoiding API Gateway's fixed **403** while those tokens remain valid
+
+The Authorization header is the route's identity source, so a
+tokenless request gets an automatic **401** from API Gateway without invoking
+the Lambda — this lets MCP clients enter the OAuth connect flow on their first
+unauthenticated probe. A Lambda deny is a fixed, uncustomizable **403** on HTTP
+APIs, which MCP clients treat as a broken server rather than a sign-in prompt.
 
 **Layer 2 — Express middleware** (MCP SDK's `requireBearerAuth`, applied to the
 `/mcp` routes in `mcp-core/mcp-router.ts`):
 The OAuth provider's `verifyAccessToken()` accepts both static tokens and
-JWTs. Same validation as the Lambda, independent second check.
+JWTs. It independently verifies JWT signature and binding, then enforces expiry
+and revocation. An expired token stops here with **401** and
+`WWW-Authenticate`. No MCP handler runs.
 
 Both layers share the same HMAC key (`MCP_AUTH_TOKEN`) for JWT verification
 and `safeEqual`/`parseBearer` from `src/auth.ts`.
@@ -656,8 +663,10 @@ sequenceDiagram
 
 **JWT payload:** `{ sub: clientId, scope: "vault", iat: <unix>, exp: <unix>, iss, aud }`
 Signed with HMAC-SHA256 using `MCP_AUTH_TOKEN` as the key. Both the Lambda
-authorizer and Express verify independently — no shared state needed. The
-binding claims ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
+authorizer and Express independently verify the signature and binding claims.
+Express also enforces expiry and revocation. No shared state is needed for the
+cryptographic or binding checks. The binding claims
+([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
 
 - `iss` — the normalized `PUBLIC_URL` (a bare origin gains a trailing slash).
 - `aud` — the MCP endpoint's canonical URI: the origin of `PUBLIC_URL` plus
@@ -671,7 +680,7 @@ binding claims ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
   by releases before binding — so that Express can reject it with a 401, the
   status MCP clients refresh on; a Lambda deny is a fixed 403 that strands
   them. Only tokens minted before an upgrade have this shape, so the path
-  goes quiet within one access-token TTL. A token that names any other
+  goes quiet within their 24-hour lifetime. A token that names any other
   audience is denied at the Lambda.
 - A client's `resource` parameter, when sent, must name one of the two
   identifiers the server's discovery documents advertise — the MCP endpoint
@@ -1056,27 +1065,26 @@ The runtime image (`Dockerfile`) minimizes the attack surface:
 
 Three layers cover different failure classes:
 
-| Layer                                 | What it does                                                                                                                                           | Where                         |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- |
-| Resource-level `protect: true`        | Refuses any Pulumi op that would destroy or replace the Instance                                                                                       | `sst.config.ts` instance opts |
-| Resource-level `retainOnDelete: true` | If SST deletes the Instance once `protect` is cleared (`sst remove`, or removing it from the config), orphan the AWS resource instead of destroying it | `sst.config.ts` instance opts |
-| Lightsail auto-snapshot (`addOn`)     | Daily disk image at 03:00 UTC, 7-day rolling retention. Captures the full boot disk including ad-hoc SSH-installed packages                            | `addOn` on the Instance       |
+| Layer                                 | What it does                                                                                                                | Where                         |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Resource-level `protect: true`        | Refuses any Pulumi op that would destroy or replace the Instance                                                            | `sst.config.ts` instance opts |
+| Resource-level `retainOnDelete: true` | If SST does decide to delete (`sst remove` once `protect` is cleared), orphan the AWS resource instead of destroying        | `sst.config.ts` instance opts |
+| Lightsail auto-snapshot (`addOn`)     | Daily disk image at 03:00 UTC, 7-day rolling retention. Captures the full boot disk including ad-hoc SSH-installed packages | `addOn` on the Instance       |
 
 The auto-snapshot is the only one that protects against AWS-side events
 (hardware failure, AZ outage) and against in-VM mistakes (fat-finger
-`rm -rf`, container compromise). `protect` and `retainOnDelete` only protect
-against Pulumi-driven replacement.
+`rm -rf`, container compromise). The IaC seatbelts only protect against
+Pulumi-driven replacement.
 
-Restore procedures, the intentional-replace flows (a snapshot-based
-upgrade, recommended; or unprotect → deploy → re-protect), SST state
-reconciliation,
+Restore procedures, the intentional-replace flow (unprotect → deploy →
+re-protect, e.g. for a bundle upgrade), SST state reconciliation,
 and auth implications post-restore live in [`RECOVERY.md`](./RECOVERY.md).
 
 ### Data integrity
 
 The vault is source of truth — every write path is built to prevent
 corruption, not just errors. These patterns complement the authentication,
-Docker hardening, and durability protections above.
+Docker hardening, and durability seatbelts above.
 
 #### File I/O safety
 
@@ -1266,12 +1274,12 @@ Any VPS with comparable specs works — the table above prices the Lightsail ref
 | API Gateway over Caddy                      | Free HTTPS URL without a custom domain, SST native, and a Lambda authorizer for path-aware auth (OAuth endpoints pass through, `/mcp` validates). Tradeoff: 10-minute idle timeout on HTTP connections can cause `Connection closed` on first call after idle.                                                                                                                                                                                                                                                                                                                                    |
 | Obsidian Sync over git-based sync           | Bidirectional real-time sync to all devices, automatic conflict resolution, no manual push/pull. Tradeoff: dependency on Obsidian's proprietary cloud service.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Single image over a separate sync container | The two processes have shared fate through `/vault` — the MCP server without sync serves a stale vault; sync without the server serves nothing — so a single supervised container is the semantically honest packaging, not a convenience bundle. One image also means one repo, one CI, one version, and no Compose requirement for users (`docker run`/Podman/nerdctl all work). The `local` target has no sync process and stays single-process under tini.                                                                                                                                    |
-| OAuth 2.1 + static token                    | OAuth 2.1 (PKCE) for browser-capable clients — automatic token refresh, no `MCP_AUTH_TOKEN` in client config after consent. Static bearer token for CLI tools and scripts where a browser flow isn't practical. Both validated at two independent layers (Lambda + Express) using the same HMAC key.                                                                                                                                                                                                                                                                                              |
-| Custom JWT over JWT libraries               | 50-line HS256 implementation vs 200KB+ library bundle. Lambda authorizer stays tiny. Constant-time comparison prevents timing attacks. Acceptable for a single-algorithm use case.                                                                                                                                                                                                                                                                                                                                                                                                                |
+| OAuth 2.1 + static token                    | OAuth 2.1 (PKCE) for browser-capable clients — automatic token refresh, no `MCP_AUTH_TOKEN` in client config after consent. Static bearer token for CLI tools and scripts where a browser flow isn't practical. Both pass through independent Lambda and Express checks using the same HMAC key.                                                                                                                                                                                                                                                                                                  |
+| Custom JWT over JWT libraries               | Small HS256 implementation vs 200KB+ library bundle. Lambda authorizer stays tiny. Constant-time comparison prevents timing attacks. Acceptable for a single-algorithm use case.                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | JWT over opaque tokens                      | Verifiable at Lambda edge without shared state. HS256 with MCP_AUTH_TOKEN.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | 60-day sliding refresh                      | Active clients never re-auth; leaked tokens bounded. Standard OAuth practice.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Auto-snapshot (`addOn`)                     | Native Lightsail primitive over hand-rolled cron + S3. Daily, 7-day retention, captures full boot disk including SSH-installed state.                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| Pulumi `protect` + `retainOnDelete`         | Resource options that block deletion, over `replaceOnChanges` gymnastics. Intentional replaces require explicit unprotect — the friction is the feature.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Pulumi `protect` + `retainOnDelete`         | IaC seatbelt over `replaceOnChanges` gymnastics. Intentional replaces require explicit unprotect — the friction is the feature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Debian slim over Alpine                     | `onnxruntime-node` (bundled by `@huggingface/transformers` for local embeddings) requires glibc. Alpine uses musl — no musl build exists. Hard architectural constraint, not a preference.                                                                                                                                                                                                                                                                                                                                                                                                        |
 | SQLite FTS5                                 | The [personal-scale, zero-services](#design-constraints) constraint applied to search — embedded in-process, no search service to run.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | sqlite-vec over pgvector/Pinecone           | Vectors live alongside FTS5 in the same SQLite database — loaded as an extension into the same connection (`sqliteVec.load(db)`), not a separate datastore or service. No network hop, no second process, no API key. Keeps vector search inside the [personal-scale, zero-services](#design-constraints) constraint.                                                                                                                                                                                                                                                                             |

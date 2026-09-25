@@ -111,14 +111,11 @@ describe("dev deployment helper", () => {
 
   it("rejects an image build when neither the external env file nor the shell sets GHCR_USER", () => {
     const directory = createTempDirectory()
-    const deploymentEnvPath = join(directory, ".config", "vault-cortex", ".env")
 
     const result = runDev({ subcommand: "docker:build", homeDirectory: directory })
 
     expect(result.status).toBe(1)
-    expect(result.stderr).toBe(
-      `✕  GHCR_USER not set. Set it in ${deploymentEnvPath} or in the shell.\n`,
-    )
+    expect(result.stderr).toBe("✕  GHCR_USER not set. Set it in ~/.config/vault-cortex/.env\n")
   })
 
   it("rejects lightsail deployment when the external env file is missing", () => {

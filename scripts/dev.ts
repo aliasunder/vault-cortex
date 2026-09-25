@@ -69,7 +69,7 @@ const mask = (value: string): void => {
 const ghcrUser = env.GHCR_USER
 
 if (!ghcrUser) {
-  console.error(`✕  GHCR_USER not set. Set it in ${DEPLOYMENT_ENV_PATH} or in the shell.`)
+  console.error("✕  GHCR_USER not set. Set it in ~/.config/vault-cortex/.env")
   process.exit(1)
 }
 const image = `ghcr.io/${ghcrUser}/vault-cortex:remote`
@@ -99,8 +99,8 @@ const run = ({ cmd, description }: { cmd: string; description: string }): void =
 }
 
 /**
- * Neither the waiting nor the failure message names the target host, matching
- * the success line at the end of lightsail:up. Tool output (ssh errors, compose
+ * The target host is deliberately absent from both messages — matching the
+ * success line at the end of lightsail:up. Tool output (ssh errors, compose
  * logs) can still print the address, so mask() keeps it out of public CI logs.
  */
 const waitForDocker = ({
@@ -136,10 +136,6 @@ const waitForDocker = ({
   process.exit(1)
 }
 
-/**
- * The path is relative to the working directory, because npm runs package.json
- * scripts from the repo root, where SST writes .sst/stage.
- */
 const readStage = (): string => {
   if (!existsSync(".sst/stage")) {
     console.error("✕  .sst/stage not found. Run `npm run deploy` first.")
@@ -165,7 +161,6 @@ const resolveSshHost = (): string => {
     .toString()
     .trim()
 
-  // `aws --output text` prints the literal "None" for an empty query result.
   if (!staticIpAddress || staticIpAddress === "None") {
     console.error(`✕  Could not resolve ${staticIpName} from AWS.`)
     process.exit(1)
@@ -174,10 +169,10 @@ const resolveSshHost = (): string => {
 }
 
 /**
- * Returns `-i <path>` for the SSH identity to use. Defaults to
- * ~/.ssh/vault-cortex (the dedicated deploy key that matches the Lightsail
- * KeyPair in sst.config.ts). Override with LIGHTSAIL_SSH_KEY for a different
- * keypair.
+ * Returns `-i <path>` for the SSH identity to use.
+ * Defaults to ~/.ssh/vault-cortex (the dedicated deploy key that
+ * matches the Lightsail KeyPair in sst.config.ts). Override with
+ * LIGHTSAIL_SSH_KEY for a different keypair.
  */
 const getSshIdentityOption = (): string => {
   const keyPath = expandHome(env.LIGHTSAIL_SSH_KEY ?? "~/.ssh/vault-cortex")
@@ -211,8 +206,7 @@ const resolvePublicUrlForDeploy = (): ResolvedPublicUrl => {
       queryGatewayUrl: fetchGatewayUrl,
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    console.error(`✕  ${message}`)
+    console.error(`✕  ${error instanceof Error ? error.message : error}`)
     process.exit(1)
   }
 }
@@ -250,13 +244,9 @@ switch (subcommand) {
     // copies nothing (no partial deploy of new compose + stale .env).
     const { url: resolvedPublicUrl, source: publicUrlSource } = resolvePublicUrlForDeploy()
     mask(resolvedPublicUrl)
-    // The other sources are CUSTOM_DOMAIN and the API Gateway lookup.
     if (publicUrlSource !== "PUBLIC_URL") {
       console.log(`> PUBLIC_URL derived from ${publicUrlSource}`)
     }
-    // The instance gets the file's values, not shell overrides. PUBLIC_URL is
-    // the exception: it is resolved from the merged environment, as SST
-    // resolves it, so the Lambda and the instance agree.
     const shippedEnvContent = envContentWithPublicUrl({
       envFileContent: readFileSync(DEPLOYMENT_ENV_PATH, "utf8"),
       publicUrl: resolvedPublicUrl,
