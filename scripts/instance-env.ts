@@ -59,7 +59,13 @@ export const resolvePublicUrl = ({
  * value — replaced in place when a line exists (including an empty
  * `PUBLIC_URL=`), appended otherwise. Commented lines are left alone.
  */
-export const envContentWithPublicUrl = (envFileContent: string, publicUrl: string): string => {
+export const envContentWithPublicUrl = ({
+  envFileContent,
+  publicUrl,
+}: {
+  envFileContent: string
+  publicUrl: string
+}): string => {
   const publicUrlLine = `PUBLIC_URL=${publicUrl}`
   const lines = envFileContent.split("\n")
   const hasPublicUrlLine = lines.some((line) => line.startsWith("PUBLIC_URL="))

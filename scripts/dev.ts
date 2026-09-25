@@ -99,7 +99,15 @@ const run = ({ cmd, description }: { cmd: string; description: string }): void =
 // The target host is deliberately absent from both messages — matching the
 // success line at the end of lightsail:up. Tool output (ssh errors, compose
 // logs) can still print the address, so mask() keeps it out of public CI logs.
-const waitForDocker = (targetHost: string, sshIdentityOption: string, timeoutSec = 120): void => {
+const waitForDocker = ({
+  targetHost,
+  sshIdentityOption,
+  timeoutSec = 120,
+}: {
+  targetHost: string
+  sshIdentityOption: string
+  timeoutSec?: number
+}): void => {
   const deadline = Date.now() + timeoutSec * 1000
   console.log(`⏳ Waiting for Docker on the instance (up to ${timeoutSec}s)...`)
   while (Date.now() < deadline) {
@@ -241,10 +249,10 @@ switch (subcommand) {
     // The instance gets the file's values, not shell overrides. PUBLIC_URL is
     // the exception: it is resolved from the merged environment, as SST
     // resolves it, so the Lambda and the instance agree.
-    const shippedEnvContent = envContentWithPublicUrl(
-      readFileSync(DEPLOYMENT_ENV_PATH, "utf8"),
-      resolvedPublicUrl,
-    )
+    const shippedEnvContent = envContentWithPublicUrl({
+      envFileContent: readFileSync(DEPLOYMENT_ENV_PATH, "utf8"),
+      publicUrl: resolvedPublicUrl,
+    })
     const targetHost = resolveSshHost()
     mask(targetHost)
     const sshIdentityOption = getSshIdentityOption()
@@ -252,7 +260,7 @@ switch (subcommand) {
       cmd: `ssh ${sshIdentityOption} ${sshOpts} ubuntu@${targetHost} 'sudo mkdir -p /opt/vault-cortex && sudo chown ubuntu:ubuntu /opt/vault-cortex'`,
       description: "ssh: create /opt/vault-cortex on the instance",
     })
-    waitForDocker(targetHost, sshIdentityOption)
+    waitForDocker({ targetHost, sshIdentityOption })
     // A public GHCR image pulls anonymously — GHCR_TOKEN is only needed when
     // the package is private (a fork's first push defaults to private).
     // Without one, clear any stored credential so a stale token can't 401
