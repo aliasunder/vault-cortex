@@ -1063,7 +1063,7 @@ The runtime image (`Dockerfile`) minimizes the attack surface:
 
 ### Durability
 
-Four layers cover different failure classes:
+Three layers cover different failure classes:
 
 | Layer                                 | What it does                                                                                                                | Where                         |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
