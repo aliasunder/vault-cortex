@@ -232,52 +232,18 @@ Infra changes (anything in `sst.config.ts`): use `npm run deploy:dev` (full chai
 
 ## Tearing down
 
-With the default configuration, `npm run remove` fails. Two settings on the
-VM in `sst.config.ts` stand in the way:
+`npm run remove` fails while the VM keeps `protect: true` and
+`retainOnDelete: true`. Clear both first by following
+[RECOVERY.md Option B](./RECOVERY.md#option-b--sst-replace-clean-provision)
+steps 1–3 (take a snapshot, wait for it, clear the two lines and deploy),
+then run:
 
-- `protect: true` makes Pulumi, the engine SST uses to apply changes, refuse
-  to delete the VM.
-- `retainOnDelete: true` makes removal drop the VM from SST's records without
-  deleting it, so the VM would keep running and billing.
+```bash
+npm run remove   # removes Lightsail, API Gateway, Lambda
+```
 
-The app-level `removal: "retain"` setting does not protect the rest of the
-stack: SST retains only data stores such as S3 buckets and DynamoDB tables,
-and this stack has none.
-
-To delete the deployment on purpose:
-
-1. Take a manual snapshot of the VM. `<stage>` is the name in `.sst/stage`:
-
-   ```bash
-   SNAPSHOT_NAME="pre-teardown-$(date +%Y%m%d-%H%M%S)"
-   aws lightsail create-instance-snapshot \
-     --instance-name vault-cortex-<stage> \
-     --instance-snapshot-name "${SNAPSHOT_NAME}"
-   ```
-
-2. Wait for the snapshot to finish. Lightsail creates it in the background, so
-   repeat this command until it prints `available`. Stop if it prints `error`:
-   the VM would then have no backup.
-
-   ```bash
-   aws lightsail get-instance-snapshot \
-     --instance-snapshot-name "${SNAPSHOT_NAME}" \
-     --query 'instanceSnapshot.state' --output text
-   ```
-
-3. In `sst.config.ts`, delete the `protect: true` and `retainOnDelete: true`
-   lines. They sit in the options object of
-   `new aws.lightsail.Instance("VaultCortexVm", …)`, the object that follows
-   the instance settings.
-4. Run `npm run deploy`. `npm run remove` reads these settings from SST state,
-   not from `sst.config.ts`, so the change must be deployed first.
-5. Run `npm run remove`.
-6. Restore the two lines (`git checkout sst.config.ts`), so the edit is never
-   committed and any later deployment is protected again.
-
-This destroys the VM and its disk data. Keep the manual snapshot until you are
-sure: it is the only remaining copy of that disk, and Lightsail bills its
-storage until you delete it.
+Afterwards restore the two lines (`git checkout sst.config.ts`) so the edit
+is never committed.
 
 ---
 
@@ -459,15 +425,13 @@ Direct commits to `main` are blocked by a branch ruleset — every change, versi
 
 Changing the deploy keypair **triggers a VM replacement**. The `SSH_PUBKEY` GitHub secret flows through CI → `sst deploy` → `readSshPublicKey()` → Lightsail KeyPair `publicKey`. A changed public key replaces the KeyPair, which cascades to an Instance replacement. There's no way to rotate the SST-managed key without replacing the VM.
 
-**Steps** (run them from your laptop; the `sst.config.ts` edit is never committed):
+**Steps:**
 
-1. Take a manual snapshot first (rollback point if the replacement goes wrong — see [RECOVERY.md](./RECOVERY.md) Scenario B): `aws lightsail create-instance-snapshot --instance-name vault-cortex-<stage> --instance-snapshot-name pre-key-rotation`
-2. Wait for the snapshot to finish. Lightsail creates it in the background, so repeat `aws lightsail get-instance-snapshot --instance-snapshot-name pre-key-rotation --query 'instanceSnapshot.state' --output text` until it prints `available`. Stop if it prints `error`
-3. In `sst.config.ts`, remove `protect: true` and `retainOnDelete: true` from the `VaultCortexVm` options, then run `npm run deploy` with no other change. `protect` blocks the replacement, and `retainOnDelete` would leave the old VM holding the instance name
-4. Regenerate the key: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`
-5. Update both `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets now, so a CI deploy during the next steps uses the new key instead of replacing the VM again
-6. Run `npm run deploy:dev` — the old VM is deleted, a fresh one is created with the new key, and the container starts on it
-7. Restore the two lines (`git checkout sst.config.ts`), then run `npm run deploy` once more so the new VM is protected
+1. Take a manual snapshot (rollback point if the replacement goes wrong) and unprotect the instance (required — `protect: true` blocks replacement): follow [RECOVERY.md Option B](./RECOVERY.md#option-b--sst-replace-clean-provision) steps 1–3
+2. Regenerate the key: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`
+3. Update both `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets
+4. Deploy — the VM is replaced with a fresh disk
+5. Re-protect the new instance: RECOVERY.md Option B step 6
 
 **Data implications:** vault re-syncs from Obsidian and the search index rebuilds automatically, so the MCP server recovers quickly. What you lose: OAuth state (`oauth.db` — clients re-authenticate on next use), accumulated Docker logs, and anything manually installed on the VM outside of IaC (ad-hoc `apt install`, Tailscale, cron jobs, etc.).
 
@@ -497,12 +461,7 @@ CI writes the instance `.env` from the GitHub secret on every deploy, so the lap
 NEW_TOKEN=$(openssl rand -hex 32)
 npm run sst -- secret set McpAuthToken "$NEW_TOKEN"
 gh secret set MCP_AUTH_TOKEN --body "$NEW_TOKEN"
-
-if [ "$(uname)" = "Darwin" ]; then
-  sed -i '' "s/^MCP_AUTH_TOKEN=.*/MCP_AUTH_TOKEN=$NEW_TOKEN/" ~/.config/vault-cortex/.env
-else
-  sed -i "s/^MCP_AUTH_TOKEN=.*/MCP_AUTH_TOKEN=$NEW_TOKEN/" ~/.config/vault-cortex/.env
-fi
+# Set MCP_AUTH_TOKEN to the same value in ~/.config/vault-cortex/.env.
 # Then dispatch manual_release.yml or push a new tag — CI takes care of the rest.
 ```
 
