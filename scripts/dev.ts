@@ -80,9 +80,11 @@ const awsCliEnv = { ...env, AWS_REGION: env.AWS_REGION ?? "us-east-1" }
 
 const sshOpts = "-o StrictHostKeyChecking=accept-new"
 
-// Echoes the description, never the command string — the ssh/scp commands
-// carry the instance address and key path, and not printing them at all
-// beats relying on mask() (the same rule as lightsail:up's success line).
+/**
+ * Echoes the description, never the command string — the ssh/scp commands
+ * carry the instance address and key path, and not printing them at all
+ * beats relying on mask() (the same rule as lightsail:up's success line).
+ */
 const run = ({ cmd, description }: { cmd: string; description: string }): void => {
   console.log(`> ${description}`)
   try {
@@ -96,9 +98,11 @@ const run = ({ cmd, description }: { cmd: string; description: string }): void =
   }
 }
 
-// The target host is deliberately absent from both messages — matching the
-// success line at the end of lightsail:up. Tool output (ssh errors, compose
-// logs) can still print the address, so mask() keeps it out of public CI logs.
+/**
+ * Neither the waiting nor the failure message names the target host, matching
+ * the success line at the end of lightsail:up. Tool output (ssh errors, compose
+ * logs) can still print the address, so mask() keeps it out of public CI logs.
+ */
 const waitForDocker = ({
   targetHost,
   sshIdentityOption,
@@ -132,8 +136,10 @@ const waitForDocker = ({
   process.exit(1)
 }
 
-// The path is relative to the working directory: npm runs package.json
-// scripts from the repo root, where SST writes .sst/stage.
+/**
+ * The path is relative to the working directory, because npm runs package.json
+ * scripts from the repo root, where SST writes .sst/stage.
+ */
 const readStage = (): string => {
   if (!existsSync(".sst/stage")) {
     console.error("✕  .sst/stage not found. Run `npm run deploy` first.")
@@ -167,10 +173,12 @@ const resolveSshHost = (): string => {
   return staticIpAddress
 }
 
-// Returns `-i <path>` for the SSH identity to use.
-// Defaults to ~/.ssh/vault-cortex (the dedicated deploy key that
-// matches the Lightsail KeyPair in sst.config.ts). Override with
-// LIGHTSAIL_SSH_KEY for a different keypair.
+/**
+ * Returns `-i <path>` for the SSH identity to use. Defaults to
+ * ~/.ssh/vault-cortex (the dedicated deploy key that matches the Lightsail
+ * KeyPair in sst.config.ts). Override with LIGHTSAIL_SSH_KEY for a different
+ * keypair.
+ */
 const getSshIdentityOption = (): string => {
   const keyPath = expandHome(env.LIGHTSAIL_SSH_KEY ?? "~/.ssh/vault-cortex")
 

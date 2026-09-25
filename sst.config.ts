@@ -357,9 +357,11 @@ export default $config({
       },
     })
 
-    // The same precedence as resolvePublicUrl in scripts/instance-env.ts
-    // (laptop lightsail:up) and deploy.yml's "Resolve public URL" step (CI):
-    // the Lambda rejects tokens minted for any other URL.
+    /**
+     * Uses the same precedence as resolvePublicUrl in scripts/instance-env.ts
+     * (laptop lightsail:up) and deploy.yml's "Resolve public URL" step (CI),
+     * because the Lambda rejects tokens minted for any other URL.
+     */
     const resolvePublicUrl = (): $util.Output<string> => {
       if (publicUrlOverride) return $output(publicUrlOverride)
       if (customDomain) return $output(`https://${customDomain}`)
@@ -392,12 +394,15 @@ export default $config({
       },
     })
 
-    // ORIGIN_URL: when set, API GW routes through a tunnel/proxy (HTTPS)
-    // instead of directly to the Lightsail IP (plaintext HTTP). Pair with
-    // MCP_PORT_CIDRS=none to close port 8000 on the firewall. `path` is
-    // appended to the origin, so the bare root passes "". A greedy route
-    // parameter is written `{proxy+}` in the route key but `{proxy}` in the
-    // integration URL.
+    /**
+     * When ORIGIN_URL is set, API Gateway routes through a tunnel or proxy
+     * (HTTPS) instead of directly to the Lightsail IP (plaintext HTTP). Pair it
+     * with MCP_PORT_CIDRS=none to close port 8000 on the firewall.
+     *
+     * `path` is appended to the origin, so the bare root passes "". A greedy
+     * route parameter is written `{proxy+}` in the route key but `{proxy}` in
+     * the integration URL.
+     */
     const target = (path: string) => {
       return originUrl
         ? `${originUrl}${path}`
