@@ -80,8 +80,7 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     question: "Vault folder for daily notes:",
     placeholder: "blank = use your vault's daily notes settings",
     validate: (value) => {
-      if (value.includes(".."))
-        return "Path traversal (..) is not allowed in folder names."
+      if (value.includes("..")) return "Path traversal (..) is not allowed in folder names."
       if (value.startsWith("/"))
         return "Absolute paths are not allowed — use a vault-relative folder name."
       return undefined
@@ -94,18 +93,16 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     question: "Filename date format for daily notes (e.g. YYYY-MM-DD):",
     placeholder: "blank = use your vault's daily notes settings",
     validate: (value) => {
-      if (value.includes(".."))
-        return "Date format must not contain path traversal (..)."
-      if (value.startsWith("/"))
-        return "Date format must not start with a path separator."
-      if (value.endsWith("/"))
-        return "Date format must not end with a path separator."
+      if (value.includes("..")) return "Date format must not contain path traversal (..)."
+      if (value.startsWith("/")) return "Date format must not start with a path separator."
+      if (value.endsWith("/")) return "Date format must not end with a path separator."
       // Moment format tokens are all letters — digits outside of [...]
       // bracket escapes are almost always a mistake.
       const formatSegments = value.split(MOMENT_BRACKET_ESCAPE)
       const hasDigitsInFormat = formatSegments.some(
         (segment, index) => index % 2 === 0 && /\d/.test(segment),
       )
+
       if (hasDigitsInFormat)
         return "Date format should use Moment tokens (YYYY, MM, DD), not digits — wrap literal text in [...] brackets."
       return undefined
@@ -115,23 +112,20 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
     kind: "toggle",
     name: "FILE_TOOLS_ENABLED",
     label: "File tools",
-    question:
-      "Enable file tools (read images, PDFs, and other non-Markdown files)?",
+    question: "Enable file tools (read images, PDFs, and other non-Markdown files)?",
   },
   {
     kind: "toggle",
     name: "READONLY_MODE",
     label: "Read-only mode",
-    question:
-      "Run the server in read-only mode (hide all tools that change the vault)?",
+    question: "Run the server in read-only mode (hide all tools that change the vault)?",
     defaultEnabled: false,
   },
   {
     kind: "toggle",
     name: "EMBEDDING_ENABLED",
     label: "Semantic search",
-    question:
-      "Enable semantic search embeddings (richer search, slower first startup)?",
+    question: "Enable semantic search embeddings (richer search, slower first startup)?",
   },
   { kind: "port", name: "PORT", label: "Host port" },
   { kind: "timezone", name: "TZ", label: "Timezone" },
@@ -163,12 +157,10 @@ const OPTIONAL_SETTINGS: OptionalSetting[] = [
 ]
 
 /** Matches the full active (uncommented) assignment line for a var. */
-const activeLinePattern = (name: string): RegExp =>
-  new RegExp(`^${name}=.*$`, "m")
+const activeLinePattern = (name: string): RegExp => new RegExp(`^${name}=.*$`, "m")
 
 /** Matches the full commented-out assignment line (`# VAR=...`) for a var. */
-const commentedLinePattern = (name: string): RegExp =>
-  new RegExp(`^# ${name}=.*$`, "m")
+const commentedLinePattern = (name: string): RegExp => new RegExp(`^# ${name}=.*$`, "m")
 
 /**
  * Reads a var's current value from .env content. A commented-out or missing
@@ -178,10 +170,7 @@ const commentedLinePattern = (name: string): RegExp =>
  * prompt seeding, and the PUBLIC_URL derivation must reason from the value
  * that actually takes effect.
  */
-export const readOptionalValue = (
-  envContent: string,
-  name: string,
-): string | undefined => {
+export const readOptionalValue = (envContent: string, name: string): string | undefined => {
   const matches = [...envContent.matchAll(new RegExp(`^${name}=(.*)$`, "gm"))]
   return matches.at(-1)?.[1].trim()
 }
@@ -203,14 +192,12 @@ export const applyOptionalSettings = (
     // lastIndex); function replacements avoid $-pattern interpretation in
     // values, same as patchEnvObsidianToken.
     const everyActiveLine = new RegExp(`^${name}=.*$`, "gm")
+
     if (activeLinePattern(name).test(content)) {
       return content.replace(everyActiveLine, () => `${name}=${value}`)
     }
     if (commentedLinePattern(name).test(content)) {
-      return content.replace(
-        commentedLinePattern(name),
-        () => `${name}=${value}`,
-      )
+      return content.replace(commentedLinePattern(name), () => `${name}=${value}`)
     }
     return `${content.trimEnd()}\n\n${name}=${value}\n`
   }, envContent)
@@ -228,10 +215,11 @@ export const derivePublicUrlOverride = (
   overrides: Record<string, string>,
 ): Record<string, string> => {
   const newPort = overrides.PORT
+
   if (!newPort) return overrides
-  const currentPort =
-    readOptionalValue(envContent, "PORT") ?? String(DEFAULT_PORT)
+  const currentPort = readOptionalValue(envContent, "PORT") ?? String(DEFAULT_PORT)
   const currentPublicUrl = readOptionalValue(envContent, "PUBLIC_URL")
+
   if (currentPublicUrl !== `http://localhost:${currentPort}`) return overrides
   return { ...overrides, PUBLIC_URL: `http://localhost:${newPort}` }
 }
@@ -270,32 +258,28 @@ const isValidTimezone = (value: string): boolean => {
 }
 
 /** Re-prompts until the answer is a valid port number. */
-const askPort = async (
-  currentValue: string | undefined,
-  prompts: Prompts,
-): Promise<string> => {
+const askPort = async (currentValue: string | undefined, prompts: Prompts): Promise<string> => {
   const answer = (
     await prompts.text("Host port for the server:", {
       defaultValue: currentValue ?? String(DEFAULT_PORT),
       placeholder: String(DEFAULT_PORT),
     })
   ).trim()
+
   if (isValidPort(answer)) return answer
   prompts.error("PORT must be a whole number between 1 and 65535.")
   return askPort(currentValue, prompts)
 }
 
 /** Re-prompts until the answer is a zone the runtime recognizes. */
-const askTimezone = async (
-  currentValue: string | undefined,
-  prompts: Prompts,
-): Promise<string> => {
+const askTimezone = async (currentValue: string | undefined, prompts: Prompts): Promise<string> => {
   const answer = (
     await prompts.text("Your IANA timezone:", {
       defaultValue: currentValue,
       placeholder: "America/New_York",
     })
   ).trim()
+
   if (answer !== "" && isValidTimezone(answer)) return answer
   prompts.error(
     `"${answer}" is not a recognized IANA timezone (e.g. America/New_York, Europe/London).`,
@@ -319,15 +303,14 @@ const askFolder = async (
       placeholder: defaultValue,
     })
   ).trim()
+
   if (answer !== "") {
     if (answer.includes("..")) {
       prompts.error("Path traversal (..) is not allowed in folder names.")
       return askFolder(params, prompts)
     }
     if (answer.startsWith("/")) {
-      prompts.error(
-        "Absolute paths are not allowed — use a vault-relative folder name.",
-      )
+      prompts.error("Absolute paths are not allowed — use a vault-relative folder name.")
       return askFolder(params, prompts)
     }
     return answer
@@ -355,17 +338,13 @@ const askOptionalText = async (
   const answer = (
     await prompts.text(question, {
       defaultValue: currentValue,
-      placeholder:
-        currentValue === undefined
-          ? placeholder
-          : "blank = keep the current value",
+      placeholder: currentValue === undefined ? placeholder : "blank = keep the current value",
     })
   ).trim()
+
   if (answer !== "" && answer !== currentValue) return answer
   if (currentValue === undefined) {
-    prompts.log(
-      "Left unset — the server reads this setting from your vault's own config.",
-    )
+    prompts.log("Left unset — the server reads this setting from your vault's own config.")
     return undefined
   }
   prompts.log(`Kept the current value (${currentValue}).`)
@@ -416,8 +395,10 @@ const askSettingValue = async (
         },
         prompts,
       )
+
       if (value && setting.validate) {
         const error = setting.validate(value)
+
         if (error) {
           prompts.error(error)
           return askSettingValue(params, prompts)
@@ -426,11 +407,7 @@ const askSettingValue = async (
       return value
     }
     case "choice":
-      return prompts.select(
-        setting.question,
-        setting.choices,
-        currentValue ?? setting.defaultValue,
-      )
+      return prompts.select(setting.question, setting.choices, currentValue ?? setting.defaultValue)
   }
 }
 
@@ -454,8 +431,7 @@ export const askOptionalSettings = async (
       (candidate) => candidate.name === setting.requiresToggle,
     )
     const dependencyNote =
-      requiredToggle &&
-      !isEnabledToggleValue(readOptionalValue(envContent, requiredToggle.name))
+      requiredToggle && !isEnabledToggleValue(readOptionalValue(envContent, requiredToggle.name))
         ? ` · not used while ${requiredToggle.label} is off`
         : ""
     return {
@@ -480,6 +456,7 @@ export const askOptionalSettings = async (
       { setting, currentValue: readOptionalValue(envContent, setting.name) },
       prompts,
     )
+
     if (value !== undefined) overrides[setting.name] = value
   }
   return overrides

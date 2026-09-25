@@ -55,7 +55,7 @@ The constraints that shaped every decision below:
 - **Design for the Obsidian user** — anything that mirrors an Obsidian concept (links, tags, properties, tasks, daily notes) must match what Obsidian itself does; recognizing a strict subset of Obsidian's behavior is a bug, not a limitation.
 - **Personal scale, zero services** — one user's vault, not a multi-tenant platform. Everything runs embedded and in-process: SQLite for the index and OAuth state, ONNX models for embeddings. No external APIs, no second datastore, no per-query cost.
 - **Low operational overhead** — always-on with no manual intervention; free to run locally, a modest VPS remotely; infrastructure as code.
-- **Secure by default** — the client-facing endpoint is HTTPS, authenticated via OAuth 2.1 or a bearer token; the reference deployment validates every request at two independent layers.
+- **Secure by default** — the client-facing endpoint uses HTTPS and requires OAuth 2.1 or a bearer token. The reference deployment checks protected requests at two independent layers. Express enforces JWT expiry and revocation.
 - **Portable** — nothing depends on the author's machine: any Docker host works, and the reference AWS deployment is one option, not a requirement.
 
 ## Component Diagram
@@ -150,7 +150,12 @@ Group modules register through a gated wrapper that skips disabled names and inj
 | `vault_move_note`         | `old_path, new_path, prune_empty_folders?`                                        | destructiveHint  |
 | `vault_update_properties` | `path, properties`                                                                | destructiveHint  |
 
-`vault_read_note` returns full content by default; optional `properties_only`, `outline`, or `heading` (with `heading_level` to disambiguate) modes return just the properties, the structure, or a single section — cheap partial reads for large notes. `outline` returns an object `{ leading_callout?, leading_content?, headings }` — the heading tree, any top-of-file callout (a `> [!type]` block), and any remaining body text above the first heading (the callout's own lines excluded, so the two never overlap). `start_line` and `limit` page the delivered rendition (full body or a heading section) by line range — the same idiom as `vault_read_file` paging; not available for JSON modes (outline, properties_only).
+`vault_read_note` supports four read shapes:
+
+- The default returns the full note.
+- `properties_only` returns parsed frontmatter. `heading` returns one section (`heading_level` disambiguates duplicate names).
+- `outline` returns `{ bytes, modified, leading_callout?, leading_content?, headings }`. Top-level `bytes` is the whole file's on-disk size; `modified` is its filesystem modification time. Each heading's `bytes` is the exact UTF-8 byte length of the text that `heading` mode returns for that section.
+- `start_line` and `limit` page a full note or heading section by line range. JSON modes do not support paging.
 
 The edit tools differ in how they locate the lines they change — by heading, by exact text, or by a short anchor substring:
 
@@ -210,7 +215,7 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 | Tool                      | Input                            | Annotation       |
 | ------------------------- | -------------------------------- | ---------------- |
-| `vault_get_memory`        | `file?, section?`                | readOnlyHint     |
+| `vault_get_memory`        | `file?, section?, on_or_after?`  | readOnlyHint     |
 | `vault_update_memory`     | `file, section, entry, options?` | !destructiveHint |
 | `vault_delete_memory`     | `file, section, date, entry`     | destructiveHint  |
 | `vault_list_memory_files` | —                                | readOnlyHint     |
@@ -218,7 +223,8 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 **Entry-granular recall:** `vault_memory_recall` retrieves individual dated
 entries — the granularity the other layers miss (`vault_get_memory` returns
-whole files/sections; `vault_search` is note-granular).
+whole files/sections, or date-scoped entries across them with `on_or_after`;
+`vault_search` is note-granular).
 
 **Indexing:**
 
@@ -311,11 +317,11 @@ The extension-to-representation routing above is implemented by the `vault-opera
 | `vault_create_task` | `path, description, block_id, heading?, parent_block_id?, parent_line?, position?, priority?, recurrence?, on_completion?, due?, scheduled?, start?, task_id?, depends_on?, subtasks?, format?`                   | !destructiveHint |
 | `vault_update_task` | `path, block_id?, line?, status?, priority?, recurrence?, on_completion?, description?, due?, scheduled?, start?, created?, task_id?, depends_on?, add_subtasks?, assign_block_id?, heading?, position?, format?` | destructiveHint  |
 
-A `tasks` table in the same SQLite database stores every checkbox task line, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a reimplementation of the [Tasks plugin](https://publish.obsidian.md/tasks/)'s own parser:
+A `tasks` table in the same SQLite database stores checkbox task lines, parsed by the pure `obsidian-markdown/tasks.ts` grammar — a reimplementation of the [Tasks plugin](https://publish.obsidian.md/tasks/)'s own parser:
 
 - **Right-to-left signifier stripping** — status, all six dates, priority, recurrence, onCompletion, dependencies, inline tags, block IDs.
 - **Both formats in one pass** — emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields are recognized together (the plugin reads one configured format per vault), so mixed-format vaults index uniformly.
-- **Fences and comments skipped** — task lines inside fenced code blocks and `%% %%` comments are ignored; the parser threads the same fence and comment state machines as heading and link extraction (`lines.ts`).
+- **Fences, comments, and NON_TASK skipped** — task lines inside fenced code blocks and `%% %%` comments are ignored; the parser threads the same fence and comment state machines as heading and link extraction (`lines.ts`). Checkboxes the Tasks plugin's status registry classifies as NON_TASK are also excluded — they are not tasks in the plugin's model.
 - **Sub-task depth** — an indent stack during extraction gives each task a `depth` (0 for top-level, 1+ for sub-tasks) and a `parent_block_id` (the parent's block_id, when it has one). Blockquote markers are stripped before measuring indent; a plain list item at a task's indent closes that task's sub-task scope (a task nested under a non-task bullet is top-level); depth resets at heading boundaries.
 
 Each row carries its attribution — note path, full parent folder, 1-based file line number, and the nearest heading when the task sits under one (the Kanban lane on a board) — so no follow-up reads are needed to locate a task. Rows are replaced per note inside `upsertNote`, deleted in `removeNote`, and wiped on rebuild — the same lifecycle as the FTS rows.
@@ -335,16 +341,16 @@ Four design choices shape the query surface:
 `vault_create_task` builds a task line (description, priority, recurrence, `on_completion`, dates, `task_id`, `depends_on`, `block_id`) plus optional checklist sub-item lines. The line builder is a pure string transform in `obsidian-markdown/tasks.ts`; the I/O orchestration lives in `vault-operations/task-mutations.ts`:
 
 - **Field ordering is guaranteed** — description → priority → 🔁 recurrence → 🏁 onCompletion → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id.
-- **Always `[ ]`** — creating a task is not starting it.
-- **Placement** — a heading (required on Kanban boards), a parent task (for sub-tasks; mutually exclusive with a heading), or end-of-body.
+- **Always todo** (`[ ]` by default, or the status registry's configured todo symbol) — creating a task is not starting it.
+- **Placement** — a heading (required on Kanban boards), a parent task (for sub-tasks; mutually exclusive with a heading), or end-of-body. Within a heading, `position` selects the slot: `"top"`, `"bottom"`, or a 1-based integer for exact placement among the lane's top-level cards.
 
-`vault_update_task` applies status, priority, recurrence, on_completion, description, dates, task_id, depends_on, block_id assignment, heading moves, and sub-task additions in one atomic read-modify-write under one exclusive file lock:
+`vault_update_task` applies status, priority, recurrence, on_completion, description, dates, task_id, depends_on, block_id assignment, heading moves, position reordering, and sub-task additions in one atomic read-modify-write under one exclusive file lock:
 
 - **Mutations compose** — every field passed is applied in the same write cycle; clearing a field is always an explicit `null`.
 - **Line splitting follows the parser** — the description is everything before the metadata tail, and a signifier only opens the tail when everything after it parses as fields (a priority emoji used as prose stays in the description). Description edits, priority changes, and the returned `description` all use that boundary.
 - **Status** — toggles the checkbox character and stamps or strips done/cancelled dates. `status: "done"` on a top-level Kanban task without an explicit `heading` auto-detects the done lane. Completing a recurring task (🔁) spawns the next occurrence — dates advanced per the rule, block link/id/dependencies cleared — adjacent to the completed line (above by default, below with the plugin's `recurrenceOnNextLine` setting); the spawn stays in the source lane. A task with `🏁 delete` / `[onCompletion:: delete]` is removed from the file on completion instead of moving to done; when combined with recurrence, the spawn is written first and the completed line is then deleted.
 - **Dates** — set or clear due, scheduled, start, and created at their position in the field ordering.
-- **Heading moves** — `heading` moves the task and its indented sub-items to another section; on a Kanban board that is a lane move, but any note with headings works. A sub-task (depth > 0) never moves: an explicit `heading` is rejected, and `status: "done"` changes its checkbox in place.
+- **Heading moves and position** — `heading` moves the task and its indented sub-items to another section; on a Kanban board that is a lane move, but any note with headings works. `position` (`"top"`, `"bottom"`, or a 1-based integer) selects where within the target heading the card lands; without a `heading`, it triggers a same-lane reorder (rejected when the task sits above the first heading or the lane's heading name is duplicated). A sub-task (depth > 0) never moves or reorders: an explicit `heading` or `position` is rejected, and `status: "done"` changes its checkbox in place.
 - **`add_subtasks`** — appends checklist items under the task's existing ones.
 
 ## MCP Prompts
@@ -386,7 +392,10 @@ Both models lazy-load on first use (~1–2s cold start each, cached after). Tota
 2. **File content FTS5** — linearized canvas, extracted PDF text, plain text files (skipped when note-specific filters are active)
 3. **Note vector search** — embed the query → sqlite-vec KNN over `note_vectors` → deduplicate to best chunk per note
 4. **File content vector search** — same query embedding → KNN over `file_content_vectors` → deduplicate to best chunk per file (same skip condition as step 2)
-5. RRF fusion (`computeRrfScores`): score = Σ(1/(k+rank)) across all available lists, k=60, with top-rank bonuses (+0.05 rank 1, +0.02 ranks 2–3)
+5. **RRF fusion** (`computeRrfScores`) — score = Σ(1/(k+rank)) across all available lists, k=60, with top-rank bonuses (+0.05 rank 1, +0.02 ranks 2–3):
+   - The two file-content legs contribute at half weight (0.5, applied to base term + bonus together) — a large file matching scattered common words across its chunks earns leg rank too easily, so a file result needs a strong match or corroboration from another leg to reach the top ranks
+   - Under a note-specific filter only the two note legs fuse — steps 2 and 4 skipped the file legs
+   - Ties break by path so equal scores order deterministically
 6. Build merged results: FTS results keep their metadata and snippet (score replaced with RRF score); vector-only results get metadata from their respective tables and a snippet from their best-matching chunk text
 7. Apply user filters (folder, tags, type, related, properties, created, modified) to vector-only note results — FTS results are already filtered via SQL
 
@@ -443,7 +452,14 @@ Vector tables persist across restarts and rebuilds (only FTS, notes, links, task
 
 **Incremental updates:** the file watcher calls `embedNote` after `upsertNote` and `embedFileContent` after `upsertFileContent`; deletion cleans up both vectors and chunks.
 
-**Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Notes are chunked via heading-aware splitting (`chunker.ts`) with paragraph sub-splitting for oversized sections (MAX_CHUNK_TOKENS = 450). Markdown syntax is stripped before embedding (`plaintext.ts`). Each chunk is prefixed with the note title for context. Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds.
+**Embedding pipeline:** Controlled by `EMBEDDING_ENABLED` (default: `true`). Markdown syntax is stripped before embedding (`plaintext.ts`). Short notes (under 500 body tokens) stay a single title-prefixed chunk. Longer notes split into per-heading sections via `chunker.ts`:
+
+- **Two views per note:** each top-level heading spans its full subtree (the aggregate view, so child text embeds twice); deeper headings own only the lines above the next heading of any level (the disjoint leaf view)
+- **Chunk prefixes:** every fragment starts with the note title; aggregate and leaf fragments add a `Section:` line naming the heading's ancestor path (capped at the remaining token budget — leading ancestors are dropped when deep nesting with long names would floor the body budget, keeping the deepest segments; the Section line is suppressed entirely when the title and metadata exhaust the budget), while preamble fragments, a singleton wrapper's aggregate, and the TOC chunk keep the bare title. A heading whose slice is empty emits no section chunk — its name still rides the TOC chunk, and descendant chunks' Section lines carry it when it has children. A top-level heading with children but no body of its own still emits its aggregate (the slice spans the subtree)
+- **Table-of-contents chunk:** each split note with named headings emits one short chunk (folder segments + title on one line, then heading names in document order, truncated at the chunk budget). Generic intent-phrased queries are structurally won by short chunks under the embedding model, so every split note gets one deliberately short chunk, made unique by its folder path
+- **Sub-splitting:** oversized sections split at paragraph boundaries (MAX_CHUNK_TOKENS = 450, minus each chunk's prefix cost), with a sub-minimum trailing fragment merged backward
+
+Content-hash gating (SHA-256 per chunk) skips re-embedding unchanged content on both incremental file-watcher updates and full rebuilds.
 
 **Vector schema:** Four tables in the same SQLite database as FTS5 (which also holds the `tasks` table — see [Tasks](#tasks)):
 
@@ -541,21 +557,28 @@ Two authentication methods, both validated at two layers:
 Attached to protected routes only. OAuth discovery paths (`/.well-known/*`,
 `/authorize`, `/token`, `/register`, `/revoke`, `/oauth/*`, `/healthz`) are
 separate unauthenticated routes in `sst.config.ts` (required by the
-OAuth/MCP spec) and never invoke the Lambda. On protected routes the
-authorizer validates the bearer token — accepts both the static
-`MCP_AUTH_TOKEN` (via `safeEqual`) and JWT access tokens signed with it
-(via `verifyJwt`). The Authorization header is the route's identity
-source, so a tokenless request gets an automatic **401** from API Gateway
-without invoking the Lambda — this is what lets MCP clients (Claude
-Desktop/web, etc.) enter the OAuth connect flow on their first
-unauthenticated probe. A Lambda deny is a fixed, uncustomizable **403**
-on HTTP APIs, which MCP clients treat as a broken server rather than a
-sign-in prompt.
+OAuth/MCP spec) and never invoke the Lambda.
+
+For protected requests, the authorizer:
+
+- accepts the static `MCP_AUTH_TOKEN` through `safeEqual`
+- checks the signature, issuer, and audience of deployment-bound JWTs
+- forwards a correctly bound expired JWT to Express for the **401** refresh challenge
+- forwards unexpired pre-binding JWTs without an audience claim to Express,
+  avoiding API Gateway's fixed **403** while those tokens remain valid
+
+The Authorization header is the route's identity source, so a
+tokenless request gets an automatic **401** from API Gateway without invoking
+the Lambda — this lets MCP clients enter the OAuth connect flow on their first
+unauthenticated probe. A Lambda deny is a fixed, uncustomizable **403** on HTTP
+APIs, which MCP clients treat as a broken server rather than a sign-in prompt.
 
 **Layer 2 — Express middleware** (MCP SDK's `requireBearerAuth`, applied to the
 `/mcp` routes in `mcp-core/mcp-router.ts`):
 The OAuth provider's `verifyAccessToken()` accepts both static tokens and
-JWTs. Same validation as the Lambda, independent second check.
+JWTs. It independently verifies JWT signature and binding, then enforces expiry
+and revocation. An expired token stops here with **401** and
+`WWW-Authenticate`. No MCP handler runs.
 
 Both layers share the same HMAC key (`MCP_AUTH_TOKEN`) for JWT verification
 and `safeEqual`/`parseBearer` from `src/auth.ts`.
@@ -640,8 +663,10 @@ sequenceDiagram
 
 **JWT payload:** `{ sub: clientId, scope: "vault", iat: <unix>, exp: <unix>, iss, aud }`
 Signed with HMAC-SHA256 using `MCP_AUTH_TOKEN` as the key. Both the Lambda
-authorizer and Express verify independently — no shared state needed. The
-binding claims ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
+authorizer and Express independently verify the signature and binding claims.
+Express also enforces expiry and revocation. No shared state is needed for the
+cryptographic or binding checks. The binding claims
+([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
 
 - `iss` — the normalized `PUBLIC_URL` (a bare origin gains a trailing slash).
 - `aud` — the MCP endpoint's canonical URI: the origin of `PUBLIC_URL` plus
@@ -655,7 +680,7 @@ binding claims ([RFC 8707](https://www.rfc-editor.org/rfc/rfc8707)):
   by releases before binding — so that Express can reject it with a 401, the
   status MCP clients refresh on; a Lambda deny is a fixed 403 that strands
   them. Only tokens minted before an upgrade have this shape, so the path
-  goes quiet within one access-token TTL. A token that names any other
+  goes quiet within their 24-hour lifetime. A token that names any other
   audience is denied at the Lambda.
 - A client's `resource` parameter, when sent, must name one of the two
   identifiers the server's discovery documents advertise — the MCP endpoint
@@ -1038,13 +1063,12 @@ The runtime image (`Dockerfile`) minimizes the attack surface:
 
 ### Durability
 
-Four layers cover different failure classes:
+Three layers cover different failure classes:
 
 | Layer                                 | What it does                                                                                                                | Where                         |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| App-level `removal: "retain"`         | Blocks `sst remove` from destroying the stack                                                                               | `sst.config.ts` `app()`       |
 | Resource-level `protect: true`        | Refuses any Pulumi op that would destroy or replace the Instance                                                            | `sst.config.ts` instance opts |
-| Resource-level `retainOnDelete: true` | If SST does decide to delete (stage rename), orphan the AWS resource instead of destroying                                  | `sst.config.ts` instance opts |
+| Resource-level `retainOnDelete: true` | If SST does decide to delete (`sst remove` once `protect` is cleared), orphan the AWS resource instead of destroying        | `sst.config.ts` instance opts |
 | Lightsail auto-snapshot (`addOn`)     | Daily disk image at 03:00 UTC, 7-day rolling retention. Captures the full boot disk including ad-hoc SSH-installed packages | `addOn` on the Instance       |
 
 The auto-snapshot is the only one that protects against AWS-side events
@@ -1084,8 +1108,9 @@ Docker hardening, and durability seatbelts above.
   `withExclusiveMultiFileLock` (all-or-nothing fail-fast) acquires all
   locks in one synchronous tick — used by note-mover, which must lock the
   source, destination, and every backlink source for the whole
-  read-plan-write span. The trash move and the retention sweep share one
-  serializing key for the whole `.trash/` domain.
+  read-plan-write span. The trash move, the orphan purge, and the
+  retention sweep share one serializing key for the whole `.trash/`
+  domain.
 - **Trash claim loop** (`moveNoteToTrash` in `vault-filesystem.ts`): a
   delete under Obsidian's `system` (default) or `local` trash setting
   moves the note into `.trash/`. Each candidate name is claimed with an
@@ -1096,13 +1121,20 @@ Docker hardening, and durability seatbelts above.
   table's primary key is the case-folded path, so a case alias replaces
   its stale row instead of leaving one that could purge the wrong sibling
   on a case-insensitive mount.
-- **Recorded retention sweep** (`trash-sweeper.ts`): purges recorded
-  entries older than `TRASH_RETENTION_DAYS` at startup and daily. The
-  sweep shares a serializing lock with the trash move and re-reads each
-  row under it before touching the file, so it never acts on a stale
-  snapshot. Each unlink is double-guarded — the resolved path and the
-  parent directory's realpath must both sit inside `.trash/` — so a
-  corrupted row or a directory symlink cannot reach live notes.
+- **Recorded trash bookkeeping** (`trash-sweeper.ts`): two row-driven
+  operations (neither walks the folder):
+  - **Orphan purge** — runs once at boot regardless of
+    `TRASH_RETENTION_DAYS`. Drops rows whose `.trash/` entry no longer
+    exists on disk (uses lstat, so dangling symlinks are kept), so
+    manual emptying or `retention=none` never leaves
+    unbounded stale rows.
+  - **Retention sweep** — runs at startup and daily. Purges recorded
+    entries older than `TRASH_RETENTION_DAYS`. Each unlink is
+    double-guarded: the resolved path and the parent directory's
+    realpath must both sit inside `.trash/`, so a corrupted row or a
+    directory symlink cannot reach live notes.
+  - Both share a serializing lock with the trash move and re-read each
+    row under it before acting, so neither operates on a stale snapshot.
 - **Verify-then-preflight-then-commit move** (`note-mover.ts`): under the
   lock, `moveNote` first scans the filesystem for backlinks the search
   index missed (closing a lag race); then reads every affected file and
@@ -1242,8 +1274,8 @@ Any VPS with comparable specs works — the table above prices the Lightsail ref
 | API Gateway over Caddy                      | Free HTTPS URL without a custom domain, SST native, and a Lambda authorizer for path-aware auth (OAuth endpoints pass through, `/mcp` validates). Tradeoff: 10-minute idle timeout on HTTP connections can cause `Connection closed` on first call after idle.                                                                                                                                                                                                                                                                                                                                    |
 | Obsidian Sync over git-based sync           | Bidirectional real-time sync to all devices, automatic conflict resolution, no manual push/pull. Tradeoff: dependency on Obsidian's proprietary cloud service.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | Single image over a separate sync container | The two processes have shared fate through `/vault` — the MCP server without sync serves a stale vault; sync without the server serves nothing — so a single supervised container is the semantically honest packaging, not a convenience bundle. One image also means one repo, one CI, one version, and no Compose requirement for users (`docker run`/Podman/nerdctl all work). The `local` target has no sync process and stays single-process under tini.                                                                                                                                    |
-| OAuth 2.1 + static token                    | OAuth 2.1 (PKCE) for browser-capable clients — automatic token refresh, no `MCP_AUTH_TOKEN` in client config after consent. Static bearer token for CLI tools and scripts where a browser flow isn't practical. Both validated at two independent layers (Lambda + Express) using the same HMAC key.                                                                                                                                                                                                                                                                                              |
-| Custom JWT over JWT libraries               | 50-line HS256 implementation vs 200KB+ library bundle. Lambda authorizer stays tiny. Constant-time comparison prevents timing attacks. Acceptable for a single-algorithm use case.                                                                                                                                                                                                                                                                                                                                                                                                                |
+| OAuth 2.1 + static token                    | OAuth 2.1 (PKCE) for browser-capable clients — automatic token refresh, no `MCP_AUTH_TOKEN` in client config after consent. Static bearer token for CLI tools and scripts where a browser flow isn't practical. Both pass through independent Lambda and Express checks using the same HMAC key.                                                                                                                                                                                                                                                                                                  |
+| Custom JWT over JWT libraries               | Small HS256 implementation vs 200KB+ library bundle. Lambda authorizer stays tiny. Constant-time comparison prevents timing attacks. Acceptable for a single-algorithm use case.                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | JWT over opaque tokens                      | Verifiable at Lambda edge without shared state. HS256 with MCP_AUTH_TOKEN.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | 60-day sliding refresh                      | Active clients never re-auth; leaked tokens bounded. Standard OAuth practice.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Auto-snapshot (`addOn`)                     | Native Lightsail primitive over hand-rolled cron + S3. Daily, 7-day retention, captures full boot disk including SSH-installed state.                                                                                                                                                                                                                                                                                                                                                                                                                                                             |

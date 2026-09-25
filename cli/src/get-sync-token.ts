@@ -13,8 +13,7 @@ export type GetSyncTokenDeps = {
   fetchFn: typeof fetch
 }
 
-const OBSIDIAN_SIGNIN_URL =
-  process.env.OBSIDIAN_SIGNIN_URL ?? "https://api.obsidian.md/user/signin"
+const OBSIDIAN_SIGNIN_URL = process.env.OBSIDIAN_SIGNIN_URL ?? "https://api.obsidian.md/user/signin"
 const SIGNIN_TIMEOUT_MS = 30_000
 
 const describeError = (error: unknown): string =>
@@ -57,18 +56,17 @@ const callSigninApi = async (
 
   try {
     const body = await response.json()
+
     if (!isJsonObject(body)) throw new Error("not a JSON object")
     if (typeof body.error === "string") throw new ObsidianApiError(body.error)
-    if (typeof body.token !== "string" || !body.token)
-      throw new Error("no token field")
+    if (typeof body.token !== "string" || !body.token) throw new Error("no token field")
 
     return body.token
   } catch (error) {
     if (error instanceof ObsidianApiError) throw error
-    throw new Error(
-      `Unexpected response from Obsidian API (${describeError(error)})`,
-      { cause: error },
-    )
+    throw new Error(`Unexpected response from Obsidian API (${describeError(error)})`, {
+      cause: error,
+    })
   }
 }
 
@@ -76,22 +74,14 @@ const callSigninApi = async (
  * Warns the user about a signin failure with a message tailored to the
  * error type. Called by both the initial signin and MFA retry paths.
  */
-const warnSigninError = (
-  error: unknown,
-  prompts: Prompts,
-  isMfaRetry: boolean,
-): void => {
+const warnSigninError = (error: unknown, prompts: Prompts, isMfaRetry: boolean): void => {
   if (error instanceof Error && error.name === "TimeoutError") {
-    prompts.warn(
-      "Request timed out — check your internet connection and try again.",
-    )
+    prompts.warn("Request timed out — check your internet connection and try again.")
     return
   }
 
-  const isMfaError =
-    error instanceof ObsidianApiError && error.message.includes("2FA code")
-  const mfaHint =
-    isMfaRetry && isMfaError ? "\n  Check your 2FA code and try again." : ""
+  const isMfaError = error instanceof ObsidianApiError && error.message.includes("2FA code")
+  const mfaHint = isMfaRetry && isMfaError ? "\n  Check your 2FA code and try again." : ""
 
   prompts.warn(`Could not sign in: ${describeError(error)}${mfaHint}`)
 }
@@ -101,9 +91,7 @@ const warnSigninError = (
  * the auth token. Prompts for email, password, and MFA code (when 2FA
  * is enabled). Returns the token on success, undefined on any failure.
  */
-export const captureObsidianToken = async (
-  deps: GetSyncTokenDeps,
-): Promise<string | undefined> => {
+export const captureObsidianToken = async (deps: GetSyncTokenDeps): Promise<string | undefined> => {
   const { prompts, fetchFn } = deps
 
   const email = await prompts.text("Obsidian account email:", {
@@ -138,10 +126,7 @@ export const captureObsidianToken = async (
 
     spinner.start("Verifying...")
     try {
-      const token = await callSigninApi(
-        { email, password, mfa: mfaCode },
-        fetchFn,
-      )
+      const token = await callSigninApi({ email, password, mfa: mfaCode }, fetchFn)
       spinner.stop(`Signed in as ${email}.`)
       return token
     } catch (retryError) {
@@ -166,14 +151,13 @@ export const runGetSyncToken = async (
   prompts.intro("vault-cortex get-sync-token")
 
   const token = await captureObsidianToken(deps)
+
   if (!token) {
     prompts.error("Could not capture the auth token.")
     return 1
   }
 
-  const envFilePath = flags.dir
-    ? join(resolve(expandTilde(flags.dir)), ".env")
-    : undefined
+  const envFilePath = flags.dir ? join(resolve(expandTilde(flags.dir)), ".env") : undefined
 
   if (!envFilePath) {
     prompts.log("Your OBSIDIAN_AUTH_TOKEN:")
@@ -183,6 +167,7 @@ export const runGetSyncToken = async (
   }
 
   const patched = patchEnvObsidianToken(envFilePath, token)
+
   if (!patched) {
     prompts.error(
       `Could not patch ${envFilePath} — the file is missing or has no ` +

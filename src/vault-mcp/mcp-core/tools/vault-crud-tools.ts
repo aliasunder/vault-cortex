@@ -2,10 +2,7 @@
 
 import { z } from "zod"
 import type { VaultConfig } from "../../config.js"
-import {
-  vaultFs,
-  resolveVaultRelativePath,
-} from "../../vault-operations/vault-filesystem.js"
+import { vaultFs, resolveVaultRelativePath } from "../../vault-operations/vault-filesystem.js"
 import { noteMover } from "../../vault-operations/note-mover.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import { readTrashConfig } from "../../vault-operations/trash-config.js"
@@ -14,11 +11,7 @@ import type { DisplacedLeadingContent } from "../../vault-operations/vault-patch
 import { pageTextByLines } from "../../obsidian-markdown/lines.js"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import {
-  describeTextWindow,
-  safeHandler,
-  safeHandlerContent,
-} from "./tool-helpers.js"
+import { describeTextWindow, safeHandler, safeHandlerContent } from "./tool-helpers.js"
 
 /** Advisory sentence for a no-heading prepend that nested pre-existing content
  *  inside the heading it inserted. Names the remedy as a vault_patch_note
@@ -57,9 +50,7 @@ export const resolveEffectiveProtectedPaths = async (
  *  named by its sources because it is resolved per call, not at startup. */
 const describeProtectedPaths = (config: VaultConfig): string => {
   if (config.protectedPathsOverride) {
-    return config.protectedPathsOverride
-      .map((protectedPath) => protectedPath + "/")
-      .join(", ")
+    return config.protectedPathsOverride.map((protectedPath) => protectedPath + "/").join(", ")
   }
   return `${config.memoryDir}/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/)`
 }
@@ -91,6 +82,7 @@ Prefer vault_search when you don't know the path.${whenToolEnabledText("vault_ge
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Child headings are included. Modes are mutually exclusive — set at most one of properties_only, outline, or heading. Paged reads normalize line endings to LF; unpaged reads stay byte-identical.
 
 Errors:
+- "note not found" — no note exists at this path; verify it with vault_list_notes
 - "heading not found" — no heading matches the text; error lists available headings
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or read the full note (omit heading) when headings share the same level
 - "outline, heading, and properties_only are mutually exclusive" — only one mode per call
@@ -100,9 +92,9 @@ Errors:
 - "absolute path blocked" — the path starts at the filesystem root; use a vault-relative path
 - "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not accessible, matching Obsidian
 
-Returns: Raw markdown string (default); JSON object of properties (properties_only); JSON outline object (outline); raw markdown of the section, heading line included (heading). When start_line or limit is given, the result is preceded by a window-metadata text block ("path — lines 1–20 of 250 (continue with start_line: 21)").
+Returns: Raw markdown string (default); JSON object of properties (properties_only); JSON outline object with file-level bytes and modified time (outline); raw markdown of the section, heading line included (heading). When start_line or limit is given, the result is preceded by a window-metadata text block ("path — lines 1–20 of 250 (continue with start_line: 21)").
 
-Outline shape: { leading_callout?, leading_content?, headings } — headings is [{ level, text, bytes }]; leading_callout ({ type, title, body }) is the note's top-of-file callout; leading_content is the rest of the body text above the first heading, with the callout's own lines excluded so the two never repeat the same text. Either key is omitted when the note has none. Empty headings ("##" with no text) appear with text: "" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section (which includes child headings) or the full note${whenToolEnabledText("vault_replace_in_note", ", and edit via vault_replace_in_note")}.`,
+Outline shape: { bytes, modified, leading_callout?, leading_content?, headings } — bytes is the whole file's on-disk size; modified is its filesystem modification time; headings is [{ level, text, bytes }], where each heading's bytes is the exact UTF-8 byte length of the text that heading mode returns for that section. leading_callout ({ type, title, body }) is the note's top-of-file callout; leading_content is the rest of the body text above the first heading, with the callout's own lines excluded so the two never repeat the same text. Either key is omitted when the note has none. Empty headings ("##" with no text) appear with text: "" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section (which includes child headings) or the full note${whenToolEnabledText("vault_replace_in_note", ", and edit via vault_replace_in_note")}.`,
       inputSchema: {
         path: z
           .string()
@@ -113,14 +105,12 @@ Outline shape: { leading_callout?, leading_content?, headings } — headings is 
         properties_only: z
           .boolean()
           .optional()
-          .describe(
-            "If true, returns parsed properties as JSON instead of full note content",
-          ),
+          .describe("If true, returns parsed properties as JSON instead of full note content"),
         outline: z
           .boolean()
           .optional()
           .describe(
-            "If true, returns { leading_callout?, leading_content?, headings } as JSON instead of body content — a cheap structure fetch for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
+            "If true, returns { bytes, modified, leading_callout?, leading_content?, headings } as JSON instead of body content — a cheap structure fetch for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
           ),
         heading: z
           .string()
@@ -157,15 +147,7 @@ Outline shape: { leading_callout?, leading_content?, headings } — headings is 
       },
     },
     async (
-      {
-        path,
-        properties_only,
-        outline,
-        heading,
-        heading_level,
-        start_line,
-        limit,
-      },
+      { path, properties_only, outline, heading, heading_level, start_line, limit },
       extra,
     ) => {
       const reqLogger = sessionLogger.child({
@@ -201,6 +183,7 @@ Outline shape: { leading_callout?, leading_content?, headings } — headings is 
         outline === true,
         heading !== undefined,
       ].filter(Boolean).length
+
       if (selectedModeCount > 1) {
         return returnError(
           "outline, heading, and properties_only are mutually exclusive — set at most one",
@@ -219,9 +202,7 @@ Outline shape: { leading_callout?, leading_content?, headings } — headings is 
         return returnError("line paging is not available in outline mode")
       }
       if (isPagedRead && properties_only) {
-        return returnError(
-          "line paging is not available in properties_only mode",
-        )
+        return returnError("line paging is not available in properties_only mode")
       }
 
       if (properties_only) {
@@ -423,9 +404,7 @@ Returns: Confirmation message.`,
           .boolean()
           .optional()
           .default(false)
-          .describe(
-            "Allow overwriting an existing note (default: false — errors if file exists).",
-          ),
+          .describe("Allow overwriting an existing note (default: false — errors if file exists)."),
       },
     },
     async ({ path, body, properties, overwrite }, extra) => {
@@ -440,11 +419,7 @@ Returns: Confirmation message.`,
       })
       return safeHandler(
         reqLogger,
-        () =>
-          vaultFs.writeNote(
-            { vaultPath, path, body, properties, overwrite },
-            reqLogger,
-          ),
+        () => vaultFs.writeNote({ vaultPath, path, body, properties, overwrite }, reqLogger),
         () => {
           reqLogger.info("tool_result", { outcome: "written" })
           return `Wrote ${path}`
@@ -543,10 +518,7 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
           ),
       },
     },
-    async (
-      { path, operation, content, heading, heading_level, include_children },
-      extra,
-    ) => {
+    async ({ path, operation, content, heading, heading_level, include_children }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_PATCH_NOTE,
@@ -628,16 +600,12 @@ Returns: Confirmation message with replacement count (number of occurrences repl
           ),
         new_text: z
           .string()
-          .describe(
-            'Replacement text. Empty string ("") deletes the matched text.',
-          ),
+          .describe('Replacement text. Empty string ("") deletes the matched text.'),
         replace_all_occurrences: z
           .boolean()
           .optional()
           .default(false)
-          .describe(
-            "Replace all occurrences (default: false — replaces first occurrence only)",
-          ),
+          .describe("Replace all occurrences (default: false — replaces first occurrence only)"),
       },
     },
     async ({ path, old_text, new_text, replace_all_occurrences }, extra) => {
@@ -984,9 +952,7 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
         path: z
           .string()
           .min(1)
-          .describe(
-            'Vault-relative path of the note to delete, including the ".md" extension',
-          ),
+          .describe('Vault-relative path of the note to delete, including the ".md" extension'),
         prune_empty_folders: z
           .boolean()
           .optional()
@@ -1005,17 +971,12 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
       return safeHandler(
         reqLogger,
         async () => {
-          const protectedPaths = await resolveEffectiveProtectedPaths(
-            config,
-            vaultPath,
-          )
+          const protectedPaths = await resolveEffectiveProtectedPaths(config, vaultPath)
           // On :remote (Obsidian Sync), skip the config and delete for good —
           // recovery is through Sync's version history, and a server-side
           // .trash/ would never sync back to the user. "none" (not "system")
           // because "system" now lands in .trash/.
-          const trashOption = config.obsidianSyncEnabled
-            ? "none"
-            : await readTrashConfig(vaultPath)
+          const trashOption = config.obsidianSyncEnabled ? "none" : await readTrashConfig(vaultPath)
           // Record for retention only under "system": Docker has no system
           // trash, so the server maps it to .trash/ — the server chose that
           // destination, so the server sweeps it. "local" means the user
@@ -1032,8 +993,7 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
               protectedPaths,
               pruneEmptyFolders,
               trashOption,
-              recordTrashEntry:
-                trashOption === "system" ? search.recordTrashEntry : undefined,
+              recordTrashEntry: trashOption === "system" ? search.recordTrashEntry : undefined,
               clearStaleTrashEntry: search.deleteTrashEntry,
             },
             reqLogger,
@@ -1048,9 +1008,7 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
           })
           const folderLabel = prunedEmptyFolders > 1 ? "folders" : "folder"
           const pruneSuffix =
-            prunedEmptyFolders > 0
-              ? ` (removed ${prunedEmptyFolders} empty ${folderLabel})`
-              : ""
+            prunedEmptyFolders > 0 ? ` (removed ${prunedEmptyFolders} empty ${folderLabel})` : ""
           return trashLocation
             ? `Moved ${path} to trash (${trashLocation})${pruneSuffix}`
             : `Deleted ${path}${pruneSuffix}`
@@ -1111,11 +1069,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
       },
     },
     async (
-      {
-        old_path: oldPath,
-        new_path: newPath,
-        prune_empty_folders: pruneEmptyFolders,
-      },
+      { old_path: oldPath, new_path: newPath, prune_empty_folders: pruneEmptyFolders },
       extra,
     ) => {
       const reqLogger = sessionLogger.child({
@@ -1138,16 +1092,12 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
             vaultPath,
             notePath: newPath,
           })
-          const backlinks = search.getBacklinks(
-            { path: normalizedOldPath },
-            reqLogger,
-          )
-          const [allNotePaths, allAssetPaths, protectedPaths] =
-            await Promise.all([
-              vaultFs.listNotes({ vaultPath }, reqLogger),
-              vaultFs.listAssets({ vaultPath }, reqLogger),
-              resolveEffectiveProtectedPaths(config, vaultPath),
-            ])
+          const backlinks = search.getBacklinks({ path: normalizedOldPath }, reqLogger)
+          const [allNotePaths, allAssetPaths, protectedPaths] = await Promise.all([
+            vaultFs.listNotes({ vaultPath }, reqLogger),
+            vaultFs.listAssets({ vaultPath }, reqLogger),
+            resolveEffectiveProtectedPaths(config, vaultPath),
+          ])
           return noteMover.moveNote(
             {
               vaultPath,
@@ -1200,9 +1150,7 @@ Returns: Confirmation message.`,
         path: z
           .string()
           .min(1)
-          .describe(
-            'Vault-relative path to the note, including the ".md" extension',
-          ),
+          .describe('Vault-relative path to the note, including the ".md" extension'),
         properties: z
           .record(z.string().min(1), z.unknown())
           .describe(
@@ -1218,8 +1166,7 @@ Returns: Confirmation message.`,
       reqLogger.info("tool_call", { path })
       return safeHandler(
         reqLogger,
-        () =>
-          vaultFs.updateProperties({ vaultPath, path, properties }, reqLogger),
+        () => vaultFs.updateProperties({ vaultPath, path, properties }, reqLogger),
         () => {
           reqLogger.info("tool_result", { outcome: "properties_updated" })
           return `Updated properties on ${path}`

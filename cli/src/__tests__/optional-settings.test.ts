@@ -14,9 +14,7 @@ describe("readOptionalValue", () => {
   })
 
   it("returns the last duplicate, matching docker --env-file precedence", () => {
-    expect(readOptionalValue("PORT=8000\nTZ=UTC\nPORT=9000\n", "PORT")).toBe(
-      "9000",
-    )
+    expect(readOptionalValue("PORT=8000\nTZ=UTC\nPORT=9000\n", "PORT")).toBe("9000")
   })
 
   it("returns undefined for a commented-out line", () => {
@@ -58,23 +56,22 @@ describe("applyOptionalSettings", () => {
   it("applies multiple overrides in one pass", () => {
     const patched = applyOptionalSettings(
       "MEMORY_ENABLED=true\nPORT=8000\n# TZ=America/New_York\n",
-      { MEMORY_ENABLED: "false", PORT: "9000", TZ: "America/Toronto" },
+      {
+        MEMORY_ENABLED: "false",
+        PORT: "9000",
+        TZ: "America/Toronto",
+      },
     )
-    expect(patched).toBe(
-      "MEMORY_ENABLED=false\nPORT=9000\nTZ=America/Toronto\n",
-    )
+    expect(patched).toBe("MEMORY_ENABLED=false\nPORT=9000\nTZ=America/Toronto\n")
   })
 
   it("replaces every duplicate active line, not just the first", () => {
     // docker --env-file gives the LAST duplicate precedence — a first-line
     // replace would leave a stale duplicate silently winning.
-    const patched = applyOptionalSettings(
-      "MEMORY_ENABLED=true\nPORT=8000\nMEMORY_ENABLED=true\n",
-      { MEMORY_ENABLED: "false" },
-    )
-    expect(patched).toBe(
-      "MEMORY_ENABLED=false\nPORT=8000\nMEMORY_ENABLED=false\n",
-    )
+    const patched = applyOptionalSettings("MEMORY_ENABLED=true\nPORT=8000\nMEMORY_ENABLED=true\n", {
+      MEMORY_ENABLED: "false",
+    })
+    expect(patched).toBe("MEMORY_ENABLED=false\nPORT=8000\nMEMORY_ENABLED=false\n")
   })
 
   it("writes values containing replacement patterns literally", () => {
@@ -87,10 +84,9 @@ describe("applyOptionalSettings", () => {
 
 describe("derivePublicUrlOverride", () => {
   it("follows a PORT change when PUBLIC_URL is the derived localhost form", () => {
-    const derived = derivePublicUrlOverride(
-      "PUBLIC_URL=http://localhost:8000\nPORT=8000\n",
-      { PORT: "9000" },
-    )
+    const derived = derivePublicUrlOverride("PUBLIC_URL=http://localhost:8000\nPORT=8000\n", {
+      PORT: "9000",
+    })
     expect(derived).toEqual({
       PORT: "9000",
       PUBLIC_URL: "http://localhost:9000",
@@ -98,10 +94,9 @@ describe("derivePublicUrlOverride", () => {
   })
 
   it("derives from the current PORT, not the default", () => {
-    const derived = derivePublicUrlOverride(
-      "PUBLIC_URL=http://localhost:9100\nPORT=9100\n",
-      { PORT: "9200" },
-    )
+    const derived = derivePublicUrlOverride("PUBLIC_URL=http://localhost:9100\nPORT=9100\n", {
+      PORT: "9200",
+    })
     expect(derived).toEqual({
       PORT: "9200",
       PUBLIC_URL: "http://localhost:9200",
@@ -109,18 +104,16 @@ describe("derivePublicUrlOverride", () => {
   })
 
   it("never touches a custom PUBLIC_URL", () => {
-    const derived = derivePublicUrlOverride(
-      "PUBLIC_URL=https://vault.example.com\nPORT=8000\n",
-      { PORT: "9000" },
-    )
+    const derived = derivePublicUrlOverride("PUBLIC_URL=https://vault.example.com\nPORT=8000\n", {
+      PORT: "9000",
+    })
     expect(derived).toEqual({ PORT: "9000" })
   })
 
   it("returns the overrides unchanged without a PORT override", () => {
-    const derived = derivePublicUrlOverride(
-      "PUBLIC_URL=http://localhost:8000\nPORT=8000\n",
-      { MEMORY_ENABLED: "false" },
-    )
+    const derived = derivePublicUrlOverride("PUBLIC_URL=http://localhost:8000\nPORT=8000\n", {
+      MEMORY_ENABLED: "false",
+    })
     expect(derived).toEqual({ MEMORY_ENABLED: "false" })
   })
 
@@ -134,14 +127,9 @@ describe("askOptionalSettings chooser", () => {
   it("offers the local settings without SYNC_MODE in local mode", async () => {
     const scripted = createScriptedPrompts([[]])
 
-    await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
-    expect(
-      scripted.multiselectCalls[0].options.map((option) => option.value),
-    ).toEqual([
+    expect(scripted.multiselectCalls[0].options.map((option) => option.value)).toEqual([
       "MEMORY_ENABLED",
       "MEMORY_DIR",
       "DAILY_NOTES_FOLDER",
@@ -157,14 +145,9 @@ describe("askOptionalSettings chooser", () => {
   it("adds SYNC_MODE to the chooser in remote mode", async () => {
     const scripted = createScriptedPrompts([[]])
 
-    await askOptionalSettings(
-      { mode: "remote", envContent: "" },
-      scripted.prompts,
-    )
+    await askOptionalSettings({ mode: "remote", envContent: "" }, scripted.prompts)
 
-    expect(
-      scripted.multiselectCalls[0].options.map((option) => option.value),
-    ).toEqual([
+    expect(scripted.multiselectCalls[0].options.map((option) => option.value)).toEqual([
       "MEMORY_ENABLED",
       "MEMORY_DIR",
       "DAILY_NOTES_FOLDER",
@@ -186,9 +169,7 @@ describe("askOptionalSettings chooser", () => {
       scripted.prompts,
     )
 
-    expect(
-      scripted.multiselectCalls[0].options.map((option) => option.hint),
-    ).toEqual([
+    expect(scripted.multiselectCalls[0].options.map((option) => option.hint)).toEqual([
       "MEMORY_ENABLED · currently false",
       "MEMORY_DIR · currently not set · not used while Memory layer is off",
       "DAILY_NOTES_FOLDER · currently not set",
@@ -221,10 +202,7 @@ describe("askOptionalSettings chooser", () => {
   it('adds the dependency note for the server-valid disabled spelling "0"', async () => {
     const scripted = createScriptedPrompts([[]])
 
-    await askOptionalSettings(
-      { mode: "local", envContent: "MEMORY_ENABLED=0\n" },
-      scripted.prompts,
-    )
+    await askOptionalSettings({ mode: "local", envContent: "MEMORY_ENABLED=0\n" }, scripted.prompts)
 
     const memoryFolderOption = scripted.multiselectCalls[0].options.find(
       (option) => option.value === "MEMORY_DIR",
@@ -237,15 +215,10 @@ describe("askOptionalSettings chooser", () => {
   it("returns no overrides and asks nothing further when nothing is picked", async () => {
     const scripted = createScriptedPrompts([[]])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
     expect(overrides).toEqual({})
-    expect(scripted.asked).toEqual([
-      "Any optional settings to change? (press enter to skip)",
-    ])
+    expect(scripted.asked).toEqual(["Any optional settings to change? (press enter to skip)"])
   })
 })
 
@@ -272,10 +245,7 @@ describe("askOptionalSettings per-setting prompts", () => {
     // toggle) — the confirm must start on Yes, not fall to false.
     const scripted = createScriptedPrompts([["MEMORY_ENABLED"], true])
 
-    await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
     expect(scripted.confirmCalls).toEqual([
       {
@@ -290,15 +260,11 @@ describe("askOptionalSettings per-setting prompts", () => {
     // the confirm at No, not inherit the enabled-unless-"false" heuristic.
     const scripted = createScriptedPrompts([["READONLY_MODE"], false])
 
-    await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
     expect(scripted.confirmCalls).toEqual([
       {
-        message:
-          "Run the server in read-only mode (hide all tools that change the vault)?",
+        message: "Run the server in read-only mode (hide all tools that change the vault)?",
         initialValue: false,
       },
     ])
@@ -309,15 +275,11 @@ describe("askOptionalSettings per-setting prompts", () => {
     // ${VAR:-default} and env-var's .default() — the CLI must match.
     const scripted = createScriptedPrompts([["READONLY_MODE"], false])
 
-    await askOptionalSettings(
-      { mode: "local", envContent: "READONLY_MODE=\n" },
-      scripted.prompts,
-    )
+    await askOptionalSettings({ mode: "local", envContent: "READONLY_MODE=\n" }, scripted.prompts)
 
     expect(scripted.confirmCalls).toEqual([
       {
-        message:
-          "Run the server in read-only mode (hide all tools that change the vault)?",
+        message: "Run the server in read-only mode (hide all tools that change the vault)?",
         initialValue: false,
       },
     ])
@@ -333,8 +295,7 @@ describe("askOptionalSettings per-setting prompts", () => {
 
     expect(scripted.confirmCalls).toEqual([
       {
-        message:
-          "Run the server in read-only mode (hide all tools that change the vault)?",
+        message: "Run the server in read-only mode (hide all tools that change the vault)?",
         initialValue: true,
       },
     ])
@@ -344,10 +305,7 @@ describe("askOptionalSettings per-setting prompts", () => {
   it("offers the three Sync modes the client accepts, seeded with the default when the var is absent", async () => {
     const scripted = createScriptedPrompts([["SYNC_MODE"], "pull-only"])
 
-    await askOptionalSettings(
-      { mode: "remote", envContent: "" },
-      scripted.prompts,
-    )
+    await askOptionalSettings({ mode: "remote", envContent: "" }, scripted.prompts)
 
     // The values are what `ob sync-config --mode` accepts; a chooser entry the
     // client rejects would only surface at the image's first boot.
@@ -381,10 +339,7 @@ describe("askOptionalSettings per-setting prompts", () => {
     // the confirm must not misrepresent MEMORY_ENABLED=0 as enabled.
     const scripted = createScriptedPrompts([["MEMORY_ENABLED"], false])
 
-    await askOptionalSettings(
-      { mode: "local", envContent: "MEMORY_ENABLED=0\n" },
-      scripted.prompts,
-    )
+    await askOptionalSettings({ mode: "local", envContent: "MEMORY_ENABLED=0\n" }, scripted.prompts)
 
     expect(scripted.confirmCalls).toEqual([
       {
@@ -399,14 +354,9 @@ describe("askOptionalSettings per-setting prompts", () => {
     // silently fall back to the default port on every later read.
     const scripted = createScriptedPrompts([["PORT"], "1e4", "9000"])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
-    expect(scripted.errors).toEqual([
-      "PORT must be a whole number between 1 and 65535.",
-    ])
+    expect(scripted.errors).toEqual(["PORT must be a whole number between 1 and 65535."])
     expect(overrides).toEqual({ PORT: "9000" })
   })
 
@@ -434,10 +384,7 @@ describe("askOptionalSettings per-setting prompts", () => {
     // default suppressed — send whitespace, which trims to empty.
     const scripted = createScriptedPrompts([["MEMORY_DIR"], "   ", "Notes"])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
     expect(scripted.errors).toEqual(["The folder name can't be empty."])
     expect(overrides).toEqual({ MEMORY_DIR: "Notes" })
@@ -446,10 +393,7 @@ describe("askOptionalSettings per-setting prompts", () => {
   it("uses the default port on an empty submission", async () => {
     const scripted = createScriptedPrompts([["PORT"], ""])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
     expect(overrides).toEqual({ PORT: "8000" })
   })
@@ -462,9 +406,7 @@ describe("askOptionalSettings per-setting prompts", () => {
       scripted.prompts,
     )
 
-    expect(
-      scripted.selectCalls.map(({ initialValue }) => initialValue),
-    ).toEqual(["pull-only"])
+    expect(scripted.selectCalls.map(({ initialValue }) => initialValue)).toEqual(["pull-only"])
     expect(overrides).toEqual({ SYNC_MODE: "bidirectional" })
   })
 
@@ -475,10 +417,7 @@ describe("askOptionalSettings per-setting prompts", () => {
       "Europe/London", // accepted
     ])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
     expect(scripted.errors).toEqual([
       '"Not/AZone" is not a recognized IANA timezone (e.g. America/New_York, Europe/London).',
@@ -489,10 +428,7 @@ describe("askOptionalSettings per-setting prompts", () => {
   it("skips an unset daily notes folder left blank, writing nothing", async () => {
     const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], ""])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
     // No pre-filled default when unset — the real default is the vault's
     // own config, so the prompt must not offer a concrete value to accept.
@@ -533,15 +469,9 @@ describe("askOptionalSettings per-setting prompts", () => {
   })
 
   it("collects a typed daily notes format, trimmed", async () => {
-    const scripted = createScriptedPrompts([
-      ["DAILY_NOTES_FORMAT"],
-      "  DD-MM-YYYY  ",
-    ])
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "  DD-MM-YYYY  "])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
     expect(scripted.textCalls).toEqual([
       {
@@ -606,10 +536,7 @@ describe("askOptionalSettings per-setting prompts", () => {
       "YYYY/MM/DD", // format typed
     ])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
     expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY/MM/DD" })
   })
@@ -625,9 +552,7 @@ describe("askOptionalSettings per-setting prompts", () => {
     const dailyNotesFolderOption = scripted.multiselectCalls[0].options.find(
       (option) => option.value === "DAILY_NOTES_FOLDER",
     )
-    expect(dailyNotesFolderOption?.hint).toBe(
-      "DAILY_NOTES_FOLDER · currently Journal",
-    )
+    expect(dailyNotesFolderOption?.hint).toBe("DAILY_NOTES_FOLDER · currently Journal")
   })
 })
 
@@ -647,18 +572,12 @@ describe("askFolder validation", () => {
       scripted.prompts,
     )
 
-    expect(scripted.errors).toEqual([
-      "Path traversal (..) is not allowed in folder names.",
-    ])
+    expect(scripted.errors).toEqual(["Path traversal (..) is not allowed in folder names."])
     expect(overrides).toEqual({ MEMORY_DIR: "My Notes" })
   })
 
   it("rejects absolute paths", async () => {
-    const scripted = createScriptedPrompts([
-      ["MEMORY_DIR"],
-      "/var/data",
-      "My Notes",
-    ])
+    const scripted = createScriptedPrompts([["MEMORY_DIR"], "/var/data", "My Notes"])
 
     const overrides = await askOptionalSettings(
       { mode: "local", envContent: "MEMORY_DIR=About Me\n" },
@@ -674,34 +593,18 @@ describe("askFolder validation", () => {
 
 describe("DAILY_NOTES_FOLDER validate callback", () => {
   it("rejects path traversal", async () => {
-    const scripted = createScriptedPrompts([
-      ["DAILY_NOTES_FOLDER"],
-      "../etc",
-      "Journal",
-    ])
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "../etc", "Journal"])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
-    expect(scripted.errors).toEqual([
-      "Path traversal (..) is not allowed in folder names.",
-    ])
+    expect(scripted.errors).toEqual(["Path traversal (..) is not allowed in folder names."])
     expect(overrides).toEqual({ DAILY_NOTES_FOLDER: "Journal" })
   })
 
   it("rejects absolute paths", async () => {
-    const scripted = createScriptedPrompts([
-      ["DAILY_NOTES_FOLDER"],
-      "/var/notes",
-      "Journal",
-    ])
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FOLDER"], "/var/notes", "Journal"])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
     expect(scripted.errors).toEqual([
       "Absolute paths are not allowed — use a vault-relative folder name.",
@@ -712,70 +615,36 @@ describe("DAILY_NOTES_FOLDER validate callback", () => {
 
 describe("DAILY_NOTES_FORMAT validate callback", () => {
   it("rejects path traversal", async () => {
-    const scripted = createScriptedPrompts([
-      ["DAILY_NOTES_FORMAT"],
-      "../YYYY-MM-DD",
-      "YYYY-MM-DD",
-    ])
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "../YYYY-MM-DD", "YYYY-MM-DD"])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
-    expect(scripted.errors).toEqual([
-      "Date format must not contain path traversal (..).",
-    ])
+    expect(scripted.errors).toEqual(["Date format must not contain path traversal (..)."])
     expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY-MM-DD" })
   })
 
   it("rejects a leading path separator", async () => {
-    const scripted = createScriptedPrompts([
-      ["DAILY_NOTES_FORMAT"],
-      "/YYYY-MM-DD",
-      "YYYY-MM-DD",
-    ])
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "/YYYY-MM-DD", "YYYY-MM-DD"])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
-    expect(scripted.errors).toEqual([
-      "Date format must not start with a path separator.",
-    ])
+    expect(scripted.errors).toEqual(["Date format must not start with a path separator."])
     expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY-MM-DD" })
   })
 
   it("rejects a trailing path separator", async () => {
-    const scripted = createScriptedPrompts([
-      ["DAILY_NOTES_FORMAT"],
-      "YYYY-MM-DD/",
-      "YYYY-MM-DD",
-    ])
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "YYYY-MM-DD/", "YYYY-MM-DD"])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
-    expect(scripted.errors).toEqual([
-      "Date format must not end with a path separator.",
-    ])
+    expect(scripted.errors).toEqual(["Date format must not end with a path separator."])
     expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY-MM-DD" })
   })
 
   it("rejects digits outside bracket escapes", async () => {
-    const scripted = createScriptedPrompts([
-      ["DAILY_NOTES_FORMAT"],
-      "2024-MM-DD",
-      "YYYY-MM-DD",
-    ])
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "2024-MM-DD", "YYYY-MM-DD"])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
     expect(scripted.errors).toEqual([
       "Date format should use Moment tokens (YYYY, MM, DD), not digits — wrap literal text in [...] brackets.",
@@ -784,16 +653,9 @@ describe("DAILY_NOTES_FORMAT validate callback", () => {
   })
 
   it("rejects digits outside brackets even when brackets contain digits too", async () => {
-    const scripted = createScriptedPrompts([
-      ["DAILY_NOTES_FORMAT"],
-      "2024 [Day 2]",
-      "YYYY-MM-DD",
-    ])
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "2024 [Day 2]", "YYYY-MM-DD"])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
     expect(scripted.errors).toEqual([
       "Date format should use Moment tokens (YYYY, MM, DD), not digits — wrap literal text in [...] brackets.",
@@ -802,16 +664,9 @@ describe("DAILY_NOTES_FORMAT validate callback", () => {
   })
 
   it("rejects trailing digits in a format string", async () => {
-    const scripted = createScriptedPrompts([
-      ["DAILY_NOTES_FORMAT"],
-      "YYYY-2024",
-      "YYYY-MM-DD",
-    ])
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "YYYY-2024", "YYYY-MM-DD"])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
     expect(scripted.errors).toEqual([
       "Date format should use Moment tokens (YYYY, MM, DD), not digits — wrap literal text in [...] brackets.",
@@ -820,30 +675,18 @@ describe("DAILY_NOTES_FORMAT validate callback", () => {
   })
 
   it("accepts digits inside bracket escapes", async () => {
-    const scripted = createScriptedPrompts([
-      ["DAILY_NOTES_FORMAT"],
-      "YYYY-MM-DD [Day 1]",
-    ])
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "YYYY-MM-DD [Day 1]"])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
     expect(scripted.errors).toEqual([])
     expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY-MM-DD [Day 1]" })
   })
 
   it("accepts a valid format without digits", async () => {
-    const scripted = createScriptedPrompts([
-      ["DAILY_NOTES_FORMAT"],
-      "YYYY/MM/DD",
-    ])
+    const scripted = createScriptedPrompts([["DAILY_NOTES_FORMAT"], "YYYY/MM/DD"])
 
-    const overrides = await askOptionalSettings(
-      { mode: "local", envContent: "" },
-      scripted.prompts,
-    )
+    const overrides = await askOptionalSettings({ mode: "local", envContent: "" }, scripted.prompts)
 
     expect(scripted.errors).toEqual([])
     expect(overrides).toEqual({ DAILY_NOTES_FORMAT: "YYYY/MM/DD" })

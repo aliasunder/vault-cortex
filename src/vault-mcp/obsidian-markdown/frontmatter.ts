@@ -21,16 +21,14 @@ const MATTER_OPTIONS = {
         // expects an object for `data`
         const parsed: unknown = parseYaml(input)
         const isPlainObject =
-          typeof parsed === "object" &&
-          parsed !== null &&
-          !Array.isArray(parsed)
+          typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+
         if (!isPlainObject) return {}
         // parseYaml returns a plain object for valid YAML mappings;
         // round-trip through entries to satisfy Record<string, unknown>
         return Object.fromEntries(Object.entries(parsed))
       },
-      stringify: (data: object): string =>
-        stringifyYaml(data, { lineWidth: 0, nullStr: "" }),
+      stringify: (data: object): string => stringifyYaml(data, { lineWidth: 0, nullStr: "" }),
     },
   },
 }
@@ -82,8 +80,8 @@ const FRONTMATTER_CLOSER = /\n---/
  * UTC-Z datetime bug.
  */
 export const parseNote = (content: string): ParsedNote => {
-  const hasFrontmatterFences =
-    FRONTMATTER_OPENER.test(content) && FRONTMATTER_CLOSER.test(content)
+  const hasFrontmatterFences = FRONTMATTER_OPENER.test(content) && FRONTMATTER_CLOSER.test(content)
+
   if (hasFrontmatterFences) {
     // Rebuilt as a literal so the runtime value carries exactly the
     // declared fields — gray-matter's result has extra enumerable keys
@@ -91,9 +89,7 @@ export const parseNote = (content: string): ParsedNote => {
     const parsed = matter(content, MATTER_OPTIONS)
     return { data: parsed.data, content: parsed.content }
   }
-  const contentWithoutBom = content.startsWith("\uFEFF")
-    ? content.slice(1)
-    : content
+  const contentWithoutBom = content.startsWith("\uFEFF") ? content.slice(1) : content
   return { data: {}, content: contentWithoutBom }
 }
 

@@ -1,37 +1,16 @@
-import {
-  writeFile,
-  readdir,
-  mkdir,
-  open,
-  unlink,
-  rename,
-  link,
-  rm,
-  rmdir,
-} from "node:fs/promises"
+import { writeFile, readdir, mkdir, open, unlink, rename, link, rm, rmdir } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
-import { join, dirname, relative, resolve, parse, posix } from "node:path"
+import { join, dirname, relative, resolve, parse, posix, isAbsolute, sep } from "node:path"
 import picomatch from "picomatch"
 import { describeError } from "../../utils/describe-error.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
-import {
-  fileExists,
-  readFileOrNull,
-  readdirOrNull,
-  statOrNull,
-} from "../../utils/fs.js"
+import { fileExists, readFileOrNull, readdirOrNull, statOrNull } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { mapWithConcurrency } from "../../utils/map-with-concurrency.js"
-import {
-  withExclusiveFileLock,
-  withFileLock,
-} from "../../utils/file-write-lock.js"
+import { mtimeToIso } from "../../utils/mtime-to-iso.js"
+import { withExclusiveFileLock, withFileLock } from "../../utils/file-write-lock.js"
 import { links } from "../obsidian-markdown/links.js"
-import {
-  parseNote,
-  stringifyNote,
-  mergeFrontmatter,
-} from "../obsidian-markdown/frontmatter.js"
+import { parseNote, stringifyNote, mergeFrontmatter } from "../obsidian-markdown/frontmatter.js"
 import {
   parseHeadings,
   findHeading,
@@ -39,10 +18,7 @@ import {
 } from "../obsidian-markdown/headings.js"
 import { parseLeadingCalloutSpan } from "../obsidian-markdown/callouts.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
-import {
-  splitIntoLines,
-  trimBlankEdgeLines,
-} from "../obsidian-markdown/lines.js"
+import { splitIntoLines, trimBlankEdgeLines } from "../obsidian-markdown/lines.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { caseFoldPath } from "../../utils/case-fold-path.js"
@@ -58,14 +34,12 @@ export const toVaultRelativePath = (input: string): string =>
   posix.normalize(input.replace(/\\/g, "/"))
 
 /** Resolves a note path within the vault; throws on absolute paths,
- *  traversal, and hidden paths (dot-prefixed segments — Obsidian ignores
- *  them). Hidden is checked on the resolved relative path (so "./" and "../"
- *  normalize) before any fs access (no existence leak). Internal ".obsidian/"
+ *  traversal, hidden paths (dot-prefixed segments — Obsidian ignores
+ *  them), and the vault root itself (which names no entry). Hidden is
+ *  checked on the resolved relative path (so "./" and "../" normalize)
+ *  before any fs access (no existence leak). Internal ".obsidian/"
  *  config readers deliberately bypass this via direct readFile. */
-export const resolveSafePath = (
-  vaultPath: string,
-  notePath: string,
-): string => {
+export const resolveSafePath = (vaultPath: string, notePath: string): string => {
   // Vault paths are relative to the vault root — Obsidian has no other
   // form. An absolute input is rejected even when it lands inside the vault,
   // because accepting it would tie behavior to the deployment's mount point,
@@ -73,21 +47,30 @@ export const resolveSafePath = (
   // folder "vault/") would let one leading slash silently select the wrong
   // file.
   if (posix.isAbsolute(notePath)) {
-    throw new Error(
-      `absolute path blocked: "${notePath}" must be vault-relative`,
-    )
+    throw new Error(`absolute path blocked: "${notePath}" must be vault-relative`)
   }
-  const normalizedVault = resolve(vaultPath)
-  const resolved = resolve(normalizedVault, notePath)
-  if (!resolved.startsWith(normalizedVault + "/")) {
+
+  const vaultRoot = resolve(vaultPath)
+  const resolvedPath = resolve(vaultRoot, notePath)
+  const pathFromVaultRoot = relative(vaultRoot, resolvedPath)
+  const escapesVault =
+    pathFromVaultRoot === ".." ||
+    pathFromVaultRoot.startsWith(`..${sep}`) ||
+    isAbsolute(pathFromVaultRoot)
+
+  if (escapesVault) {
     throw new Error(`path traversal blocked: "${notePath}" escapes vault root`)
   }
-  if (hasHiddenPathSegment(relative(normalizedVault, resolved))) {
-    throw new Error(
-      `hidden path blocked: "${notePath}" targets a hidden file or folder`,
-    )
+
+  if (resolvedPath === vaultRoot) {
+    throw new Error(`path traversal blocked: "${notePath}" resolves to the vault root`)
   }
-  return resolved
+
+  if (hasHiddenPathSegment(pathFromVaultRoot)) {
+    throw new Error(`hidden path blocked: "${notePath}" targets a hidden file or folder`)
+  }
+
+  return resolvedPath
 }
 
 /** Canonical vault-relative form of a note path — prefix guards must run on
@@ -102,7 +85,8 @@ export const resolveVaultRelativePath = (params: {
   // resolveSafePath is called for its safety guards; its absolute result is
   // an intermediate, converted straight back to vault-relative.
   const resolvedPath = resolveSafePath(params.vaultPath, normalizedInput)
-  return relative(resolve(params.vaultPath), resolvedPath)
+  const relativePath = relative(resolve(params.vaultPath), resolvedPath)
+  return toVaultRelativePath(relativePath)
 }
 
 /** True when the path sits under one of the protected folders (memory, daily
@@ -143,6 +127,7 @@ export const pruneEmptyParents = async (
     if (dir === vaultRoot || dir === dirname(dir)) return removed
     try {
       const entries = await readdir(dir)
+
       // A non-empty folder means no ancestor can be empty either — stop here.
       if (entries.length > 0) return removed
       await rmdir(dir)
@@ -240,14 +225,12 @@ export const atomicWriteFileExclusive = async (
       // The reservation took but the swap failed — drop the placeholder so a
       // failed write never strands a 0-byte note at the destination. A failed
       // cleanup is logged, not thrown, so the swap failure propagates.
-      await rm(params.filePath, { force: true }).catch(
-        (cleanupError: unknown) => {
-          logger.warn("failed to remove reservation placeholder", {
-            path: params.filePath,
-            error: describeError(cleanupError),
-          })
-        },
-      )
+      await rm(params.filePath, { force: true }).catch((cleanupError: unknown) => {
+        logger.warn("failed to remove reservation placeholder", {
+          path: params.filePath,
+          error: describeError(cleanupError),
+        })
+      })
       throw renameError
     }
   } finally {
@@ -269,13 +252,10 @@ const serializeNote = (
   body: string,
   frontmatter?: Record<string, unknown>,
 ): string => {
-  if (!existing)
-    return stringifyNote(body, mergeFrontmatter({}, frontmatter ?? {}))
+  if (!existing) return stringifyNote(body, mergeFrontmatter({}, frontmatter ?? {}))
 
   const parsed = parseNote(existing)
-  const mergedData = frontmatter
-    ? mergeFrontmatter(parsed.data, frontmatter)
-    : parsed.data
+  const mergedData = frontmatter ? mergeFrontmatter(parsed.data, frontmatter) : parsed.data
   return stringifyNote(body, mergedData)
 }
 
@@ -289,6 +269,7 @@ const readNote = async (
   assertPathHasExtension(params.path, ".md")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
   const content = await readFileOrNull(fullPath)
+
   if (content === null) {
     throw new Error(`note not found: "${params.path}"`)
   }
@@ -296,64 +277,46 @@ const readNote = async (
   return content
 }
 
-/** One heading in a note's outline: its level, text, and the byte size of its
- *  section (heading line through the next same-or-higher heading). */
+/** One heading and the exact UTF-8 byte length returned by a section read. */
 type HeadingOutline = Readonly<{
   level: number
   text: string
   bytes: number
 }>
 
-/** A note's outline: its optional leading callout (a top-of-file `> [!type]`
- *  block — info, warning, etc.), any other body text above the first heading,
- *  and the heading tree. `leading_callout` and `leading_content` are each
- *  omitted when absent, and never overlap — together they cover the whole
- *  region above the first heading. */
+/** The optional leading fields are omitted when absent and never overlap. */
 type NoteOutline = Readonly<{
+  bytes: number
+  modified: string
   leading_callout?: LeadingCallout
   leading_content?: string
   headings: HeadingOutline[]
 }>
 
-/**
- * Returns a note's heading tree (no bodies) — H1–H6 with each section's byte
- * size, so an agent can pick which section to read without pulling the whole
- * file — plus any leading callout (a top-of-file `> [!type]` block — info,
- * warning, etc.), so notable context or state is visible without a full read.
- * Frontmatter is excluded (line
- * ranges are body-relative, matching vault_patch_note). A note with no headings
- * returns an empty headings array.
- *
- * Any remaining body text above the first heading comes back as
- * `leading_content`, with the callout's own lines excluded so the two never
- * repeat the same text. Without it that region is invisible to every structured
- * read, which is how a displaced intro block can go unnoticed.
- */
+/** Returns file metadata and the heading tree without section bodies, plus visible content above the first heading. */
 const readNoteOutline = async (
   params: { vaultPath: string; path: string },
   logger: Logger,
 ): Promise<NoteOutline> => {
   assertPathHasExtension(params.path, ".md")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
-  const content = await readFileOrNull(fullPath)
-  if (content === null) {
+  const [content, fileStats] = await Promise.all([readFileOrNull(fullPath), statOrNull(fullPath)])
+
+  if (content === null || fileStats === null) {
     throw new Error(`note not found: "${params.path}"`)
   }
+
   const lines = splitIntoLines(parseNote(content).content)
   const headings = parseHeadings(lines)
   const calloutSpan = parseLeadingCalloutSpan(lines)
 
-  // Everything above the first heading that the callout doesn't already cover,
-  // so the two fields describe the region without repeating bytes. Filtering by
-  // index (rather than subtracting spans) keeps the callout-after-a-leading-H1
-  // case safe, because that span sits outside the region entirely — no index
-  // matches, nothing is removed, and no negative slice is possible.
+  // linesBeforeFirstHeading returns a zero-based prefix, so its indices still
+  // match the callout span. Filtering that prefix also keeps a callout after a
+  // leading H1 outside the region without span subtraction or negative slices.
   const regionLines = linesBeforeFirstHeading(lines, headings)
   const regionOutsideCallout = regionLines.filter(
     (_line, index) =>
-      calloutSpan === null ||
-      index < calloutSpan.startLine ||
-      index >= calloutSpan.endLine,
+      calloutSpan === null || index < calloutSpan.startLine || index >= calloutSpan.endLine,
   )
   const leadingContent = trimBlankEdgeLines(regionOutsideCallout).join("\n")
 
@@ -361,25 +324,26 @@ const readNoteOutline = async (
     // The section span runs from the heading line through bodyEndLine (the
     // same span a section read returns), so the size hint matches what
     // reading it would cost.
-    const sectionText = lines
-      .slice(heading.startLine, heading.bodyEndLine)
-      .join("\n")
+    const sectionText = lines.slice(heading.startLine, heading.bodyEndLine).join("\n")
     return {
       level: heading.level,
       text: heading.text,
       bytes: Buffer.byteLength(sectionText, "utf8"),
     }
   })
-  const totalBytes = outline.reduce((sum, section) => sum + section.bytes, 0)
+  const totalSectionBytes = outline.reduce((sum, section) => sum + section.bytes, 0)
   logger.info("read note outline", {
     path: params.path,
     headingCount: outline.length,
     hasCallout: calloutSpan !== null,
     hasLeadingContent: leadingContent !== "",
-    totalBytes,
+    fileBytes: fileStats.size,
+    totalSectionBytes,
   })
   // Omit either key when absent, rather than emitting an explicit null.
   return {
+    bytes: fileStats.size,
+    modified: mtimeToIso(fileStats.mtimeMs),
     ...(calloutSpan ? { leading_callout: calloutSpan.callout } : {}),
     ...(leadingContent ? { leading_content: leadingContent } : {}),
     headings: outline,
@@ -403,6 +367,7 @@ const readNoteSection = async (
   assertPathHasExtension(params.path, ".md")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
   const content = await readFileOrNull(fullPath)
+
   if (content === null) {
     throw new Error(`note not found: "${params.path}"`)
   }
@@ -424,6 +389,7 @@ const readNoteProperties = async (
   assertPathHasExtension(params.path, ".md")
   const fullPath = resolveSafePath(params.vaultPath, params.path)
   const content = await readFileOrNull(fullPath)
+
   if (content === null) {
     throw new Error(`note not found: "${params.path}"`)
   }
@@ -449,6 +415,7 @@ const writeNote = async (
     await mkdir(dirname(fullPath), { recursive: true })
 
     const existing = await readFileOrNull(fullPath)
+
     if (existing !== null && !params.overwrite) {
       throw new Error(`note already exists: "${params.path}"`)
     }
@@ -475,6 +442,7 @@ const updateProperties = async (
   const fullPath = resolveSafePath(params.vaultPath, params.path)
   return withExclusiveFileLock(fullPath, async () => {
     const existing = await readFileOrNull(fullPath)
+
     if (existing === null) {
       throw new Error(`note not found: "${params.path}"`)
     }
@@ -573,6 +541,7 @@ const moveNoteToTrash = async (
   return withFileLock(trashDomainLockKey(params.vaultPath), async () => {
     for (const candidateRelativePath of candidateRelativePaths) {
       const candidateFullPath = join(params.vaultPath, candidateRelativePath)
+
       if (!(await claimTrashTarget(candidateFullPath))) continue
       try {
         await rename(params.fullPath, candidateFullPath)
@@ -580,14 +549,12 @@ const moveNoteToTrash = async (
         // The claim took but the move failed — drop our placeholder so it
         // doesn't strand a 0-byte file occupying a suffix. A failed cleanup is
         // logged, not thrown, so the rename failure propagates as the cause.
-        await rm(candidateFullPath, { force: true }).catch(
-          (cleanupError: unknown) => {
-            logger.warn("failed to remove claim placeholder", {
-              path: candidateRelativePath,
-              error: describeError(cleanupError),
-            })
-          },
-        )
+        await rm(candidateFullPath, { force: true }).catch((cleanupError: unknown) => {
+          logger.warn("failed to remove claim placeholder", {
+            path: candidateRelativePath,
+            error: describeError(cleanupError),
+          })
+        })
         throw renameError
       }
       // The exclusive claim proved nothing occupied the landed path, so any
@@ -608,6 +575,7 @@ const moveNoteToTrash = async (
           })
         }
       }
+
       if (params.recordTrashEntry) {
         try {
           params.recordTrashEntry(candidateRelativePath)
@@ -705,8 +673,8 @@ const deleteNote = async (
     } catch (error) {
       // Collision-exhaustion errors from moveNoteToTrash are already vault-relative
       const isTrashCollisionError =
-        error instanceof Error &&
-        error.message.startsWith(TRASH_COLLISION_ERROR_PREFIX)
+        error instanceof Error && error.message.startsWith(TRASH_COLLISION_ERROR_PREFIX)
+
       if (isTrashCollisionError) {
         throw error
       }
@@ -736,7 +704,7 @@ const deleteNote = async (
   })
 }
 
-/** Walks the vault (or a folder within it) and returns the sorted
+/** Recursively walks the vault (or a folder within it) and returns the sorted
  *  vault-relative paths of every file of the requested kind — "note"
  *  (.md files) or "file" (everything else). The .md extension is the
  *  single definition of that boundary. Follows valid symlinks; hidden
@@ -753,6 +721,7 @@ const listVaultFilePaths = async (
     ? resolveSafePath(params.vaultPath, params.folder)
     : resolve(params.vaultPath)
   const allEntries = await readdirOrNull(searchRoot)
+
   if (!allEntries) return []
 
   const normalizedVault = resolve(params.vaultPath)
@@ -774,9 +743,7 @@ const listVaultFilePaths = async (
   const relativePaths = kindMatchingEntries.map((entry) =>
     relative(normalizedVault, join(entry.parentPath, entry.name)),
   )
-  const visiblePaths = relativePaths.filter(
-    (relativePath) => !hasHiddenPathSegment(relativePath),
-  )
+  const visiblePaths = relativePaths.filter((relativePath) => !hasHiddenPathSegment(relativePath))
   return visiblePaths.sort()
 }
 
@@ -838,6 +805,7 @@ const readAsset = async (
   }
   const fullPath = resolveSafePath(params.vaultPath, params.path)
   const fileStats = await statOrNull(fullPath)
+
   if (!fileStats || !fileStats.isFile()) {
     throw new Error(`file not found: "${params.path}"`)
   }
@@ -862,9 +830,7 @@ const readAsset = async (
     // The buffer is one sentinel byte longer than the statted size — if the
     // file grew after the stat, the sentinel fills and the read is rejected
     // as unstable.
-    const readBuffer = Buffer.alloc(
-      Math.min(fileStats.size, params.maxBytes) + 1,
-    )
+    const readBuffer = Buffer.alloc(Math.min(fileStats.size, params.maxBytes) + 1)
     // A single read() may return short on some platforms, so the loop
     // accumulates until EOF or the buffer is full.
     let totalBytesRead = 0
@@ -875,6 +841,7 @@ const readAsset = async (
         readBuffer.length - totalBytesRead,
         totalBytesRead,
       )
+
       if (bytesRead === 0) break
       totalBytesRead += bytesRead
     }
@@ -907,9 +874,8 @@ const statAssets = async (
     items: params.paths,
     concurrency: 16,
     mapper: async (assetPath) => {
-      const fileStats = await statOrNull(
-        resolveSafePath(params.vaultPath, assetPath),
-      )
+      const fileStats = await statOrNull(resolveSafePath(params.vaultPath, assetPath))
+
       if (!fileStats) return null
       return { path: assetPath, bytes: fileStats.size }
     },

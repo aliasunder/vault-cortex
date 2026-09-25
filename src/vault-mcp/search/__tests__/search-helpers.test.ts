@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest"
 import { DateTime, Settings } from "luxon"
+import { mtimeToIso } from "../../../utils/mtime-to-iso.js"
 import {
   isString,
   coerceToArray,
   buildFtsMetadataText,
-  mtimeToIso,
   rowToMetadata,
   rowToTaskEntry,
   noteRowToSearchResult,
@@ -37,8 +37,12 @@ describe("isString", () => {
 // ── coerceToArray ─────────────────────────────────────────────
 
 describe("coerceToArray", () => {
-  it("passes through an existing array", () => {
+  it("preserves string array values", () => {
     expect(coerceToArray(["a", "b"])).toEqual(["a", "b"])
+  })
+
+  it("stringifies primitive non-string array elements and drops null and objects", () => {
+    expect(coerceToArray(["a", 2, true, null, { nested: "value" }])).toEqual(["a", "2", "true"])
   })
 
   it("wraps a scalar string in an array", () => {
@@ -72,9 +76,7 @@ describe("buildFtsMetadataText", () => {
   })
 
   it("excludes title from output", () => {
-    expect(buildFtsMetadataText({ title: "My Note", status: "draft" })).toBe(
-      "status: draft",
-    )
+    expect(buildFtsMetadataText({ title: "My Note", status: "draft" })).toBe("status: draft")
   })
 
   it("joins array elements with spaces", () => {
@@ -82,9 +84,7 @@ describe("buildFtsMetadataText", () => {
   })
 
   it("skips null and undefined values", () => {
-    expect(buildFtsMetadataText({ a: null, b: undefined, c: "kept" })).toBe(
-      "c: kept",
-    )
+    expect(buildFtsMetadataText({ a: null, b: undefined, c: "kept" })).toBe("c: kept")
   })
 
   it("skips nested object values entirely", () => {
@@ -92,9 +92,9 @@ describe("buildFtsMetadataText", () => {
   })
 
   it("filters non-primitive elements from arrays", () => {
-    expect(
-      buildFtsMetadataText({ mixed: ["text", { obj: true }, 42, null] }),
-    ).toBe("mixed: text 42")
+    expect(buildFtsMetadataText({ mixed: ["text", { obj: true }, 42, null] })).toBe(
+      "mixed: text 42",
+    )
   })
 
   it("skips array with only non-primitive elements", () => {
@@ -103,24 +103,6 @@ describe("buildFtsMetadataText", () => {
 
   it("returns empty string for empty frontmatter", () => {
     expect(buildFtsMetadataText({})).toBe("")
-  })
-})
-
-// ── mtimeToIso ────────────────────────────────────────────────
-
-describe("mtimeToIso", () => {
-  it("converts a valid epoch ms to an ISO string", () => {
-    const iso = mtimeToIso(1700000000000)
-    expect(iso).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-  })
-
-  it("rounds fractional milliseconds", () => {
-    const iso = mtimeToIso(1700000000000.7)
-    expect(iso).toMatch(/^\d{4}-\d{2}-\d{2}T/)
-  })
-
-  it("throws on invalid mtime", () => {
-    expect(() => mtimeToIso(NaN)).toThrow("invalid mtime: NaN")
   })
 })
 
@@ -206,27 +188,27 @@ describe("rowToMetadata", () => {
   })
 
   it("throws when tags column contains a non-array value", () => {
-    expect(() =>
-      rowToMetadata(makeNoteRow({ tags: '"not-an-array"' })),
-    ).toThrow("expected string[] from JSON column")
+    expect(() => rowToMetadata(makeNoteRow({ tags: '"not-an-array"' }))).toThrow(
+      "expected string[] from JSON column",
+    )
   })
 
   it("throws when tags column contains an array with non-string elements", () => {
-    expect(() =>
-      rowToMetadata(makeNoteRow({ tags: JSON.stringify(["ok", 123]) })),
-    ).toThrow("expected string[] from JSON column")
+    expect(() => rowToMetadata(makeNoteRow({ tags: JSON.stringify(["ok", 123]) }))).toThrow(
+      "expected string[] from JSON column",
+    )
   })
 
   it("throws when properties column contains a non-object value", () => {
-    expect(() =>
-      rowToMetadata(makeNoteRow({ properties: '"string"' })),
-    ).toThrow("expected object from JSON column")
+    expect(() => rowToMetadata(makeNoteRow({ properties: '"string"' }))).toThrow(
+      "expected object from JSON column",
+    )
   })
 
   it("throws when leading_callout column has missing fields", () => {
-    expect(() =>
-      rowToMetadata(makeNoteRow({ leading_callout: '{"type":"info"}' })),
-    ).toThrow("expected LeadingCallout from JSON column")
+    expect(() => rowToMetadata(makeNoteRow({ leading_callout: '{"type":"info"}' }))).toThrow(
+      "expected LeadingCallout from JSON column",
+    )
   })
 })
 
@@ -254,9 +236,7 @@ describe("rowToTaskEntry", () => {
   })
 
   it("maps subtask counts to subtask_progress when the task has children", () => {
-    const entry = rowToTaskEntry(
-      makeTaskRow({ subtask_done: 2, subtask_total: 4 }),
-    )
+    const entry = rowToTaskEntry(makeTaskRow({ subtask_done: 2, subtask_total: 4 }))
     expect(entry.subtask_progress).toEqual({ done: 2, total: 4 })
   })
 
@@ -293,23 +273,21 @@ describe("rowToTaskEntry", () => {
   })
 
   it("renames note_path to path", () => {
-    const entry = rowToTaskEntry(
-      makeTaskRow({ note_path: "Journal/2024-01-01.md" }),
-    )
+    const entry = rowToTaskEntry(makeTaskRow({ note_path: "Journal/2024-01-01.md" }))
     expect(entry.path).toBe("Journal/2024-01-01.md")
     expect("note_path" in entry).toBe(false)
   })
 
   it("throws when depends_on column contains a non-array value", () => {
-    expect(() =>
-      rowToTaskEntry(makeTaskRow({ depends_on: '"not-an-array"' })),
-    ).toThrow("expected string[] from JSON column")
+    expect(() => rowToTaskEntry(makeTaskRow({ depends_on: '"not-an-array"' }))).toThrow(
+      "expected string[] from JSON column",
+    )
   })
 
   it("throws when tags column contains a non-array value", () => {
-    expect(() =>
-      rowToTaskEntry(makeTaskRow({ tags: '"not-an-array"' })),
-    ).toThrow("expected string[] from JSON column")
+    expect(() => rowToTaskEntry(makeTaskRow({ tags: '"not-an-array"' }))).toThrow(
+      "expected string[] from JSON column",
+    )
   })
 })
 
@@ -481,20 +459,14 @@ describe("noteMatchesSearchFilters", () => {
   })
 
   it("filters by folder prefix", () => {
-    expect(
-      noteMatchesSearchFilters(baseRow, { folder: "Projects/Alpha" }),
-    ).toBe(true)
-    expect(noteMatchesSearchFilters(baseRow, { folder: "Projects/Beta" })).toBe(
-      false,
-    )
+    expect(noteMatchesSearchFilters(baseRow, { folder: "Projects/Alpha" })).toBe(true)
+    expect(noteMatchesSearchFilters(baseRow, { folder: "Projects/Beta" })).toBe(false)
     expect(noteMatchesSearchFilters(baseRow, { folder: "Projects" })).toBe(true)
   })
 
   it("requires all tags to match", () => {
     expect(noteMatchesSearchFilters(baseRow, { tags: ["project"] })).toBe(true)
-    expect(
-      noteMatchesSearchFilters(baseRow, { tags: ["project", "project/alpha"] }),
-    ).toBe(true)
+    expect(noteMatchesSearchFilters(baseRow, { tags: ["project", "project/alpha"] })).toBe(true)
     expect(noteMatchesSearchFilters(baseRow, { tags: ["missing"] })).toBe(false)
   })
 
@@ -504,21 +476,13 @@ describe("noteMatchesSearchFilters", () => {
   })
 
   it("requires all related links to match", () => {
-    expect(noteMatchesSearchFilters(baseRow, { related: ["Other.md"] })).toBe(
-      true,
-    )
-    expect(noteMatchesSearchFilters(baseRow, { related: ["Missing.md"] })).toBe(
-      false,
-    )
+    expect(noteMatchesSearchFilters(baseRow, { related: ["Other.md"] })).toBe(true)
+    expect(noteMatchesSearchFilters(baseRow, { related: ["Missing.md"] })).toBe(false)
   })
 
   it("filters by property key/value", () => {
-    expect(
-      noteMatchesSearchFilters(baseRow, { properties: { status: "active" } }),
-    ).toBe(true)
-    expect(
-      noteMatchesSearchFilters(baseRow, { properties: { status: "archived" } }),
-    ).toBe(false)
+    expect(noteMatchesSearchFilters(baseRow, { properties: { status: "active" } })).toBe(true)
+    expect(noteMatchesSearchFilters(baseRow, { properties: { status: "archived" } })).toBe(false)
   })
 
   it("combines multiple filters with AND semantics", () => {
@@ -539,15 +503,9 @@ describe("noteMatchesSearchFilters", () => {
   })
 
   it("strips trailing slashes from folder filter before matching", () => {
-    expect(
-      noteMatchesSearchFilters(baseRow, { folder: "Projects/Alpha/" }),
-    ).toBe(true)
-    expect(noteMatchesSearchFilters(baseRow, { folder: "Projects/" })).toBe(
-      true,
-    )
-    expect(
-      noteMatchesSearchFilters(baseRow, { folder: "Projects/Beta/" }),
-    ).toBe(false)
+    expect(noteMatchesSearchFilters(baseRow, { folder: "Projects/Alpha/" })).toBe(true)
+    expect(noteMatchesSearchFilters(baseRow, { folder: "Projects/" })).toBe(true)
+    expect(noteMatchesSearchFilters(baseRow, { folder: "Projects/Beta/" })).toBe(false)
   })
 
   it("created.on matches the note's created calendar day", () => {
@@ -555,12 +513,8 @@ describe("noteMatchesSearchFilters", () => {
       ...baseRow,
       created: "2026-03-10T00:00:00.000-04:00",
     }
-    expect(
-      noteMatchesSearchFilters(row, { created: { on: "2026-03-10" } }),
-    ).toBe(true)
-    expect(
-      noteMatchesSearchFilters(row, { created: { on: "2026-03-11" } }),
-    ).toBe(false)
+    expect(noteMatchesSearchFilters(row, { created: { on: "2026-03-10" } })).toBe(true)
+    expect(noteMatchesSearchFilters(row, { created: { on: "2026-03-11" } })).toBe(false)
   })
 
   it("created.before excludes the boundary day", () => {
@@ -568,12 +522,8 @@ describe("noteMatchesSearchFilters", () => {
       ...baseRow,
       created: "2026-03-10T12:00:00.000-04:00",
     }
-    expect(
-      noteMatchesSearchFilters(row, { created: { before: "2026-03-10" } }),
-    ).toBe(false)
-    expect(
-      noteMatchesSearchFilters(row, { created: { before: "2026-03-11" } }),
-    ).toBe(true)
+    expect(noteMatchesSearchFilters(row, { created: { before: "2026-03-10" } })).toBe(false)
+    expect(noteMatchesSearchFilters(row, { created: { before: "2026-03-11" } })).toBe(true)
   })
 
   it("created.after excludes the boundary day", () => {
@@ -581,12 +531,8 @@ describe("noteMatchesSearchFilters", () => {
       ...baseRow,
       created: "2026-03-10T12:00:00.000-04:00",
     }
-    expect(
-      noteMatchesSearchFilters(row, { created: { after: "2026-03-10" } }),
-    ).toBe(false)
-    expect(
-      noteMatchesSearchFilters(row, { created: { after: "2026-03-09" } }),
-    ).toBe(true)
+    expect(noteMatchesSearchFilters(row, { created: { after: "2026-03-10" } })).toBe(false)
+    expect(noteMatchesSearchFilters(row, { created: { after: "2026-03-09" } })).toBe(true)
   })
 
   it("created.on matches the day prefix of a full ISO created value", () => {
@@ -594,21 +540,15 @@ describe("noteMatchesSearchFilters", () => {
       ...baseRow,
       created: "2026-03-10T23:45:00.000-04:00",
     }
-    expect(
-      noteMatchesSearchFilters(row, { created: { on: "2026-03-10" } }),
-    ).toBe(true)
+    expect(noteMatchesSearchFilters(row, { created: { on: "2026-03-10" } })).toBe(true)
     // Adjacent-day mismatch proves the comparison ran on the day prefix —
     // a skipped filter would return true for any date
-    expect(
-      noteMatchesSearchFilters(row, { created: { on: "2026-03-11" } }),
-    ).toBe(false)
+    expect(noteMatchesSearchFilters(row, { created: { on: "2026-03-11" } })).toBe(false)
   })
 
   it("a created filter rejects notes with null created", () => {
     const row: NoteRow = { ...baseRow, created: null }
-    expect(
-      noteMatchesSearchFilters(row, { created: { before: "2099-01-01" } }),
-    ).toBe(false)
+    expect(noteMatchesSearchFilters(row, { created: { before: "2099-01-01" } })).toBe(false)
   })
 
   it("an empty created filter object is a no-op, matching the SQL leg", () => {
@@ -624,15 +564,9 @@ describe("noteMatchesSearchFilters", () => {
       ...baseRow,
       mtime: DateTime.fromISO("2026-06-15T12:00:00").toMillis(),
     }
-    expect(
-      noteMatchesSearchFilters(row, { modified: { on: "2026-06-15" } }),
-    ).toBe(true)
-    expect(
-      noteMatchesSearchFilters(row, { modified: { on: "2026-06-14" } }),
-    ).toBe(false)
-    expect(
-      noteMatchesSearchFilters(row, { modified: { on: "2026-06-16" } }),
-    ).toBe(false)
+    expect(noteMatchesSearchFilters(row, { modified: { on: "2026-06-15" } })).toBe(true)
+    expect(noteMatchesSearchFilters(row, { modified: { on: "2026-06-14" } })).toBe(false)
+    expect(noteMatchesSearchFilters(row, { modified: { on: "2026-06-16" } })).toBe(false)
   })
 
   it("modified.before matches strictly earlier days", () => {
@@ -724,9 +658,7 @@ describe("dayToEpochMsRange", () => {
       const HOUR_MS = 3_600_000
       // 2026-03-08: clocks spring forward 02:00 → 03:00, a 23-hour day
       const springForwardBounds = dayToEpochMsRange("2026-03-08")
-      expect(springForwardBounds.endMs - springForwardBounds.startMs).toBe(
-        23 * HOUR_MS,
-      )
+      expect(springForwardBounds.endMs - springForwardBounds.startMs).toBe(23 * HOUR_MS)
       // 2026-11-01: clocks fall back 02:00 → 01:00, a 25-hour day
       const fallBackBounds = dayToEpochMsRange("2026-11-01")
       expect(fallBackBounds.endMs - fallBackBounds.startMs).toBe(25 * HOUR_MS)
@@ -804,48 +736,30 @@ describe("escapeLikeWildcards", () => {
 
 describe("pathIsInFolder", () => {
   it("matches a path directly inside the folder", () => {
-    expect(pathIsInFolder({ path: "Docs/inside.txt", folder: "Docs" })).toBe(
-      true,
-    )
+    expect(pathIsInFolder({ path: "Docs/inside.txt", folder: "Docs" })).toBe(true)
   })
 
   it("matches a path nested below the folder", () => {
-    expect(pathIsInFolder({ path: "Docs/sub/deep.txt", folder: "Docs" })).toBe(
-      true,
-    )
+    expect(pathIsInFolder({ path: "Docs/sub/deep.txt", folder: "Docs" })).toBe(true)
   })
 
   it("ignores ASCII case, mirroring SQLite LIKE on the SQL legs", () => {
-    expect(
-      pathIsInFolder({ path: "Projects/plan.md", folder: "projects" }),
-    ).toBe(true)
-    expect(
-      pathIsInFolder({ path: "projects/plan.md", folder: "PROJECTS" }),
-    ).toBe(true)
+    expect(pathIsInFolder({ path: "Projects/plan.md", folder: "projects" })).toBe(true)
+    expect(pathIsInFolder({ path: "projects/plan.md", folder: "PROJECTS" })).toBe(true)
   })
 
   it("does not fold non-ASCII case, exactly like SQLite LIKE", () => {
-    expect(pathIsInFolder({ path: "Équipe/plan.md", folder: "équipe" })).toBe(
-      false,
-    )
-    expect(pathIsInFolder({ path: "Équipe/plan.md", folder: "Équipe" })).toBe(
-      true,
-    )
+    expect(pathIsInFolder({ path: "Équipe/plan.md", folder: "équipe" })).toBe(false)
+    expect(pathIsInFolder({ path: "Équipe/plan.md", folder: "Équipe" })).toBe(true)
   })
 
   it("requires a segment boundary so a folder prefix is not enough", () => {
-    expect(pathIsInFolder({ path: "Docs2/outside.txt", folder: "Docs" })).toBe(
-      false,
-    )
-    expect(
-      pathIsInFolder({ path: "Documents/outside.txt", folder: "Docs" }),
-    ).toBe(false)
+    expect(pathIsInFolder({ path: "Docs2/outside.txt", folder: "Docs" })).toBe(false)
+    expect(pathIsInFolder({ path: "Documents/outside.txt", folder: "Docs" })).toBe(false)
   })
 
   it("ignores trailing slashes on the folder filter", () => {
-    expect(pathIsInFolder({ path: "Docs/inside.txt", folder: "Docs//" })).toBe(
-      true,
-    )
+    expect(pathIsInFolder({ path: "Docs/inside.txt", folder: "Docs//" })).toBe(true)
   })
 
   it("does not match the folder's own path or a root-level file", () => {
@@ -868,9 +782,7 @@ describe("stripTrailingSlashes", () => {
   })
 
   it("preserves internal slashes", () => {
-    expect(stripTrailingSlashes("Projects/Alpha/Beta/")).toBe(
-      "Projects/Alpha/Beta",
-    )
+    expect(stripTrailingSlashes("Projects/Alpha/Beta/")).toBe("Projects/Alpha/Beta")
   })
 
   it("handles a bare folder name", () => {

@@ -8,6 +8,7 @@ const VERSION_IN_RANGE = /(\d+)\.(\d+)(?:\.(\d+))?/
  */
 export const minimumNodeVersion = (enginesRange: string): string => {
   const match = VERSION_IN_RANGE.exec(enginesRange)
+
   if (!match) throw new Error(`Cannot parse engines range: ${enginesRange}`)
   const [, major, minor, patch] = match
   return `${major}.${minor}.${patch ?? "0"}`
@@ -38,12 +39,8 @@ export const nodeVersionRefusalMessage = ({
  * The most significant differing segment decides; equal versions satisfy.
  */
 export const satisfiesMinimum = (current: string, minimum: string): boolean => {
-  const [currentMajor = 0, currentMinor = 0, currentPatch = 0] = current
-    .split(".")
-    .map(Number)
-  const [minimumMajor = 0, minimumMinor = 0, minimumPatch = 0] = minimum
-    .split(".")
-    .map(Number)
+  const [currentMajor = 0, currentMinor = 0, currentPatch = 0] = current.split(".").map(Number)
+  const [minimumMajor = 0, minimumMinor = 0, minimumPatch = 0] = minimum.split(".").map(Number)
 
   if (currentMajor !== minimumMajor) return currentMajor > minimumMajor
   if (currentMinor !== minimumMinor) return currentMinor > minimumMinor

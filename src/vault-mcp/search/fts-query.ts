@@ -24,10 +24,7 @@ const COMPOUND_TERM_REGEX = new RegExp(
 
 /** Matches a run of joiner punctuation inside a compound term, for
  *  replacement with a single space when the compound becomes a phrase. */
-const COMPOUND_JOINER_RUN_REGEX = new RegExp(
-  `${COMPOUND_JOINER_CHARACTER}+`,
-  "g",
-)
+const COMPOUND_JOINER_RUN_REGEX = new RegExp(`${COMPOUND_JOINER_CHARACTER}+`, "g")
 
 /** Matches every ASCII punctuation character except underscore. Used as the
  *  final sweep that turns stray punctuation (word-edge dots, unbalanced
@@ -50,6 +47,7 @@ const sanitizedFtsParts = (raw: string): string[] => {
   // alone — the unicode61 tokenizer splits it correctly in phrase queries.
   const remaining = raw.replace(/"([^"]+)"/g, (_, phrase: string) => {
     const cleaned = phrase.replace(/[*^():]/g, "").trim()
+
     if (cleaned.length > 0) phrases.push(`"${cleaned}"`)
     return " "
   })
@@ -68,9 +66,7 @@ const sanitizedFtsParts = (raw: string): string[] => {
   const tokens = afterCompounds
     .replace(ASCII_PUNCTUATION_REGEX, " ")
     .split(/\s+/)
-    .filter(
-      (token) => token.length > 0 && !FTS5_RESERVED.has(token.toUpperCase()),
-    )
+    .filter((token) => token.length > 0 && !FTS5_RESERVED.has(token.toUpperCase()))
 
   return [...phrases, ...tokens]
 }
@@ -107,8 +103,7 @@ const ANY_TERM_STOPWORDS = new Set([
 export const sanitizeFtsQueryAnyTerm = (raw: string): string => {
   const parts = sanitizedFtsParts(raw)
   const contentParts = parts.filter(
-    (part) =>
-      part.startsWith('"') || !ANY_TERM_STOPWORDS.has(part.toLowerCase()),
+    (part) => part.startsWith('"') || !ANY_TERM_STOPWORDS.has(part.toLowerCase()),
   )
   return contentParts.length === 0 ? '""' : contentParts.join(" OR ")
 }

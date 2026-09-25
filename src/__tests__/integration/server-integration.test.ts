@@ -1,17 +1,9 @@
 /** End-to-end integration tests — every tool and prompt called over real
  *  HTTP transport against a real server with a real vault on disk. */
 
-import {
-  describe,
-  it,
-  expect,
-  beforeAll,
-  afterAll,
-  onTestFinished,
-  vi,
-} from "vitest"
+import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
 import { DateTime } from "luxon"
-import { writeFile } from "node:fs/promises"
+import { stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import Database from "better-sqlite3"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
@@ -32,9 +24,7 @@ vi.setConfig({ testTimeout: 15_000 })
 /** Extract joined text from a prompt result's messages. */
 const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string =>
   result.messages
-    .map((message) =>
-      message.content.type === "text" ? message.content.text : "",
-    )
+    .map((message) => (message.content.type === "text" ? message.content.text : ""))
     .join("\n")
 
 // ── Default config (33 tools, 3 prompts) ──────────────────────
@@ -43,11 +33,13 @@ describe("default config", () => {
   let client: Client
   let cleanup: (() => Promise<void>) | undefined
   let port: number
+  let vaultPath: string
 
   beforeAll(async () => {
     port = await freePort()
     const server = await startServer(port)
     cleanup = server.cleanup
+    vaultPath = server.vaultPath
     client = await createTestClient(server.port)
   }, 30_000)
 
@@ -102,11 +94,7 @@ describe("default config", () => {
     it("lists 3 prompts", async () => {
       const names = await promptNames(client)
       expect(names).toHaveLength(3)
-      expect(names).toEqual([
-        "daily-review",
-        "memory-review",
-        "vault-orientation",
-      ])
+      expect(names).toEqual(["daily-review", "memory-review", "vault-orientation"])
     })
   })
 
@@ -118,7 +106,9 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md" },
       })
       expect(result.isError).not.toBe(true)
-      expect(textContent(result)).toContain("Project Alpha")
+      expect(textContent(result)).toBe(
+        '---\ntitle: Project Alpha\ntype: project\ntags:\n  - project\n  - active\nstatus: active\nrelated:\n  - "[[Projects/beta]]"\ncreated: 2026-01-10T10:00:00-05:00\n---\n\n# Project Alpha\n\nThis is a test project for integration testing.\n\n## Tasks\n\n- [ ] First task for Alpha ➕ 2026-01-10 📅 2026-02-20 ^alpha-task-1\n- [x] Completed task ➕ 2026-01-05 ✅ 2026-01-08 ^alpha-done-1\n- [ ] Second task ⏫ ➕ 2026-01-12 ^alpha-task-2\n\n## Notes\n\nSome notes about the project. Links to [[Projects/beta]] and [[About Me/Preferences]].\n',
+      )
     })
 
     it("vault_read_note — outline mode", async () => {
@@ -128,9 +118,25 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md", outline: true },
       })
       expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("Tasks")
-      expect(text).not.toContain("alpha-task-1")
+      const outline = JSON.parse(textContent(result))
+
+      if (typeof outline.modified !== "string") {
+        throw new Error("outline modified timestamp is missing")
+      }
+      expect(outline.modified).toMatch(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}(?:Z|[+-]\d{2}:\d{2})$/,
+      )
+      const fixtureStats = await stat(join(vaultPath, "Projects/alpha.md"))
+      expect(DateTime.fromISO(outline.modified).toMillis()).toBe(Math.round(fixtureStats.mtimeMs))
+      expect(outline).toEqual({
+        bytes: 518,
+        modified: outline.modified,
+        headings: [
+          { level: 1, text: "Project Alpha", bytes: 362 },
+          { level: 2, text: "Tasks", bytes: 198 },
+          { level: 2, text: "Notes", bytes: 97 },
+        ],
+      })
     })
 
     it("vault_read_note — heading mode", async () => {
@@ -140,9 +146,9 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md", heading: "Tasks" },
       })
       expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("alpha-task-1")
-      expect(text).not.toContain("Some notes about the project")
+      expect(textContent(result)).toBe(
+        "## Tasks\n\n- [ ] First task for Alpha ➕ 2026-01-10 📅 2026-02-20 ^alpha-task-1\n- [x] Completed task ➕ 2026-01-05 ✅ 2026-01-08 ^alpha-done-1\n- [ ] Second task ⏫ ➕ 2026-01-12 ^alpha-task-2\n",
+      )
     })
 
     it("vault_read_note — properties_only", async () => {
@@ -152,9 +158,14 @@ describe("default config", () => {
         args: { path: "Projects/alpha.md", properties_only: true },
       })
       expect(result.isError).not.toBe(true)
-      const text = textContent(result)
-      expect(text).toContain("active")
-      expect(text).not.toContain("Some notes about the project")
+      expect(JSON.parse(textContent(result))).toEqual({
+        title: "Project Alpha",
+        type: "project",
+        tags: ["project", "active"],
+        status: "active",
+        related: ["[[Projects/beta]]"],
+        created: "2026-01-10T10:00:00-05:00",
+      })
     })
 
     it("vault_list_notes", async () => {
@@ -321,6 +332,73 @@ describe("default config", () => {
       expect(textContent(result)).toContain("Vim keybindings")
     })
 
+    it("vault_get_memory — on_or_after returns structured entries", async () => {
+      const result = await callTool({
+        client,
+        name: "vault_get_memory",
+        args: {
+          file: "Preferences",
+          section: "Editor settings",
+          on_or_after: "2026-01-08",
+        },
+      })
+      expect(result.isError).not.toBe(true)
+      const parsed = JSON.parse(textContent(result))
+      expect(parsed).toEqual({
+        on_or_after: "2026-01-08",
+        total: 2,
+        entries: [
+          {
+            file: "Preferences",
+            section: "Editor settings (newest first)",
+            date: "2026-01-12",
+            text: "- **2026-01-12**: Prefers dark mode in all editors",
+          },
+          {
+            file: "Preferences",
+            section: "Editor settings (newest first)",
+            date: "2026-01-08",
+            text: "- **2026-01-08**: Uses Vim keybindings in VS Code",
+          },
+        ],
+      })
+    })
+
+    it("vault_get_memory — on_or_after without section reads every section in document order", async () => {
+      const result = await callTool({
+        client,
+        name: "vault_get_memory",
+        args: { file: "Preferences", on_or_after: "2026-01-08" },
+      })
+      expect(result.isError).not.toBe(true)
+      const parsed = JSON.parse(textContent(result))
+      // Dates run 12 → 08 → 10, so a global date sort would reorder them.
+      expect(parsed).toEqual({
+        on_or_after: "2026-01-08",
+        total: 3,
+        entries: [
+          {
+            file: "Preferences",
+            section: "Editor settings (newest first)",
+            date: "2026-01-12",
+            text: "- **2026-01-12**: Prefers dark mode in all editors",
+          },
+          {
+            file: "Preferences",
+            section: "Editor settings (newest first)",
+            date: "2026-01-08",
+            text: "- **2026-01-08**: Uses Vim keybindings in VS Code",
+          },
+          {
+            file: "Preferences",
+            section: "Workflow settings (newest first)",
+            date: "2026-01-10",
+            text: "- **2026-01-10**: Enables format on save",
+          },
+        ],
+      })
+    })
+
     it("vault_memory_recall", async () => {
       const result = await callTool({
         client,
@@ -351,9 +429,7 @@ describe("default config", () => {
         name: "vault_get_memory",
         args: { file: "Preferences", section: "Editor settings" },
       })
-      expect(textContent(verifyResult)).toContain(
-        "Integration test entry — SDK Client",
-      )
+      expect(textContent(verifyResult)).toContain("Integration test entry — SDK Client")
 
       const deleteResult = await callTool({
         client,
@@ -373,9 +449,7 @@ describe("default config", () => {
         name: "vault_get_memory",
         args: { file: "Preferences", section: "Editor settings" },
       })
-      expect(textContent(afterDelete)).not.toContain(
-        "Integration test entry — SDK Client",
-      )
+      expect(textContent(afterDelete)).not.toContain("Integration test entry — SDK Client")
     })
   })
 
@@ -386,6 +460,39 @@ describe("default config", () => {
       const text = textContent(result)
       expect(text).toContain("alpha-task-1")
       expect(text).toContain("alpha-task-2")
+    })
+
+    it("vault_list_tasks — boot-time status registry excludes NON_TASK checkboxes", async () => {
+      const result = await callTool({
+        client,
+        name: "vault_list_tasks",
+        args: {
+          path: "Projects/status-registry.md",
+          status: "all",
+          sort_by: "position",
+        },
+      })
+      expect(result.isError).not.toBe(true)
+      const json = JSON.parse(textContent(result))
+      expect(json).toEqual({
+        total: 1,
+        tasks: [
+          {
+            path: "Projects/status-registry.md",
+            line: 12,
+            status: "todo",
+            status_char: " ",
+            description: "Normal task",
+            heading: "Tasks",
+            folder: "Projects",
+            depends_on: [],
+            tags: [],
+            block_id: "normal-task",
+            depth: 0,
+            is_kanban_task: false,
+          },
+        ],
+      })
     })
 
     it("vault_create_task — creates a card and verifies via readback", async () => {
@@ -409,10 +516,7 @@ describe("default config", () => {
         description: "Integration test task",
         block_id: "integ-test-task",
         heading: "Tasks",
-        changes: [
-          `created: (none) → ${DateTime.now().toISODate()}`,
-          "priority: (none) → medium",
-        ],
+        changes: [`created: (none) → ${DateTime.now().toISODate()}`, "priority: (none) → medium"],
       })
 
       // Verify the created task is in the file via vault_read_note
@@ -456,11 +560,7 @@ describe("default config", () => {
       expect(topOnlyJson.total).toBe(3)
       expect(
         topOnlyJson.tasks.map(
-          (task: {
-            description: string
-            depth: number
-            is_kanban_task: boolean
-          }) => ({
+          (task: { description: string; depth: number; is_kanban_task: boolean }) => ({
             description: task.description,
             depth: task.depth,
             is_kanban_task: task.is_kanban_task,
@@ -491,14 +591,10 @@ describe("default config", () => {
       // checklist item; the other cards have no checklist, so the
       // serialized entries carry no subtask_progress key at all.
       expect(
-        json.tasks.map(
-          (task: { block_id: string; subtask_progress: unknown }) => ({
-            block_id: task.block_id,
-            ...("subtask_progress" in task
-              ? { subtask_progress: task.subtask_progress }
-              : {}),
-          }),
-        ),
+        json.tasks.map((task: { block_id: string; subtask_progress: unknown }) => ({
+          block_id: task.block_id,
+          ...("subtask_progress" in task ? { subtask_progress: task.subtask_progress } : {}),
+        })),
       ).toEqual([
         {
           block_id: "board-active-1",
@@ -591,9 +687,7 @@ describe("default config", () => {
       })
       // The ✅ date the server stamped, captured from the readback.
       const STAMPED_DONE_DATE_RE = /✅ (\d{4}-\d{2}-\d{2})/
-      const completionDate = STAMPED_DONE_DATE_RE.exec(
-        textContent(readback),
-      )?.[1]
+      const completionDate = STAMPED_DONE_DATE_RE.exec(textContent(readback))?.[1]
       expect([dateBeforeWrite, dateAfterWrite]).toContain(completionDate)
       expect(textContent(readback)).toBe(
         `## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ ${completionDate} ^water-plants\n- [ ] Temp task 🏁 delete ➕ 2026-01-01 ^temp-task\n`,
@@ -670,10 +764,7 @@ describe("default config", () => {
         description: "Disposable task",
         block_id: "disposable",
         heading: "Habits",
-        changes: [
-          `created: (none) → ${todayDate}`,
-          "on_completion: (none) → delete",
-        ],
+        changes: [`created: (none) → ${todayDate}`, "on_completion: (none) → delete"],
       })
 
       const readback = await callTool({
@@ -684,9 +775,75 @@ describe("default config", () => {
       // The section carries tasks mutated by prior integration tests in
       // the same server boot (the ✅ date from the recurrence test is not
       // available here), so only the created task's line is asserted.
-      expect(textContent(readback)).toContain(
-        `🏁 delete ➕ ${todayDate} ^disposable`,
-      )
+      expect(textContent(readback)).toContain(`🏁 delete ➕ ${todayDate} ^disposable`)
+    })
+
+    it("vault_create_task — integer position inserts at the specified slot", async () => {
+      const createResult = await callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "Projects/board.md",
+          description: "Position test card",
+          block_id: "pos-test",
+          heading: "Active",
+          position: 1,
+        },
+      })
+      expect(createResult.isError).not.toBe(true)
+      const createJson = JSON.parse(textContent(createResult))
+      expect(createJson.heading).toBe("Active")
+
+      const readback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/board.md", heading: "Active" },
+      })
+      const activeText = textContent(readback)
+      const topLevelCards = activeText.split("\n").filter((cardLine) => /^- \[/.test(cardLine))
+      expect(topLevelCards.map((cardLine) => cardLine.includes("Position test card"))).toEqual([
+        true,
+        false,
+      ])
+    })
+
+    it("vault_update_task — same-lane reorder via position", async () => {
+      const setupResult = await callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "Projects/board.md",
+          description: "Reorder test card",
+          block_id: "reorder-test",
+          heading: "Active",
+          position: 1,
+        },
+      })
+      expect(setupResult.isError).not.toBe(true)
+
+      const reorderResult = await callTool({
+        client,
+        name: "vault_update_task",
+        args: {
+          path: "Projects/board.md",
+          block_id: "reorder-test",
+          position: 2,
+        },
+      })
+      expect(reorderResult.isError).not.toBe(true)
+      const reorderJson = JSON.parse(textContent(reorderResult))
+      expect(reorderJson.changes).toEqual(["position: 1 → 2"])
+
+      const readback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/board.md", heading: "Active" },
+      })
+      const activeText = textContent(readback)
+      const topLevelCards = activeText.split("\n").filter((cardLine) => /^- \[/.test(cardLine))
+      expect(topLevelCards.length).toBeGreaterThanOrEqual(2)
+      expect(topLevelCards[0]?.includes("Reorder test card")).toBe(false)
+      expect(topLevelCards[1]?.includes("Reorder test card")).toBe(true)
     })
   })
 
@@ -1265,9 +1422,7 @@ describe("TRUST_FORWARDED_HOPS=2", () => {
 
   it("ignores a client-supplied prefix ahead of the two trusted elements", async () => {
     for (let i = 0; i < 5; i++) {
-      const response = await register(
-        "for=203.0.113.99, for=198.51.100.4, for=172.69.0.1",
-      )
+      const response = await register("for=203.0.113.99, for=198.51.100.4, for=172.69.0.1")
       expect(response.status).toBe(201)
     }
     // The exhausted bucket is keyed on 198.51.100.4 alone: neither the
@@ -1276,9 +1431,7 @@ describe("TRUST_FORWARDED_HOPS=2", () => {
     // in it.
     const sixth = await register("for=198.51.100.4, for=172.69.0.1")
     expect(sixth.status).toBe(429)
-    const otherPrefixAndEdge = await register(
-      "for=203.0.113.77, for=198.51.100.4, for=172.69.0.2",
-    )
+    const otherPrefixAndEdge = await register("for=203.0.113.77, for=198.51.100.4, for=172.69.0.2")
     expect(otherPrefixAndEdge.status).toBe(429)
     const prefixAsClient = await register("for=203.0.113.99, for=172.69.0.1")
     expect(prefixAsClient.status).toBe(201)
@@ -1388,11 +1541,7 @@ describe("DISABLED_TOOLS=vault_delete_note,vault_move_note,vault_delete_memory",
   it("all 3 prompts present", async () => {
     const names = await promptNames(client)
     expect(names).toHaveLength(3)
-    expect(names).toEqual([
-      "daily-review",
-      "memory-review",
-      "vault-orientation",
-    ])
+    expect(names).toEqual(["daily-review", "memory-review", "vault-orientation"])
   })
 
   it("surviving write tools work", async () => {
@@ -1524,11 +1673,7 @@ describe("FILE_TOOLS_ENABLED=false", () => {
   it("all 3 prompts present", async () => {
     const names = await promptNames(client)
     expect(names).toHaveLength(3)
-    expect(names).toEqual([
-      "daily-review",
-      "memory-review",
-      "vault-orientation",
-    ])
+    expect(names).toEqual(["daily-review", "memory-review", "vault-orientation"])
   })
 })
 
@@ -1573,10 +1718,9 @@ describe("DAILY_NOTES_FORMAT with unsupported token", () => {
 
 describe("boot rejection", () => {
   it("unknown DISABLED_TOOLS name exits with error", async () => {
-    const { exitCode, stderr } = await startServerExpectingFailure(
-      await freePort(),
-      { DISABLED_TOOLS: "vault_fake_tool" },
-    )
+    const { exitCode, stderr } = await startServerExpectingFailure(await freePort(), {
+      DISABLED_TOOLS: "vault_fake_tool",
+    })
     expect(exitCode).toBe(1)
     expect(stderr).toContain("vault_fake_tool")
   }, 15_000)
@@ -1584,27 +1728,21 @@ describe("boot rejection", () => {
   it.each(["/vault*path", "/vault?path", "/vault[path]"])(
     "VAULT_PATH=%s with glob characters exits with error",
     async (vaultPath) => {
-      const { exitCode, stderr } = await startServerExpectingFailure(
-        await freePort(),
-        { VAULT_PATH: vaultPath },
-      )
+      const { exitCode, stderr } = await startServerExpectingFailure(await freePort(), {
+        VAULT_PATH: vaultPath,
+      })
       expect(exitCode).toBe(1)
-      expect(stderr).toContain(
-        "VAULT_PATH must not contain glob characters (*, ?, [)",
-      )
+      expect(stderr).toContain("VAULT_PATH must not contain glob characters (*, ?, [)")
     },
     15_000,
   )
 
   it("PUBLIC_URL with embedded credentials exits with error", async () => {
-    const { exitCode, stderr } = await startServerExpectingFailure(
-      await freePort(),
-      { PUBLIC_URL: "https://user:fake-secret@127.0.0.1" },
-    )
+    const { exitCode, stderr } = await startServerExpectingFailure(await freePort(), {
+      PUBLIC_URL: "https://user:fake-secret@127.0.0.1",
+    })
     expect(exitCode).toBe(1)
-    expect(stderr).toContain(
-      "PUBLIC_URL must not contain credentials (user:password@)",
-    )
+    expect(stderr).toContain("PUBLIC_URL must not contain credentials (user:password@)")
   }, 15_000)
 
   // Express 5 hands bind failures to the listen callback instead of
@@ -1651,11 +1789,7 @@ describe("trash retention over real HTTP", () => {
     // The shared fixture pins trashOption "local"; blanking the config makes
     // the absent key read as "system" (Obsidian's default). Rewritten before
     // any delete so no "local" read has been cached.
-    await writeFile(
-      join(server.vaultPath, ".obsidian", "app.json"),
-      "{}",
-      "utf8",
-    )
+    await writeFile(join(server.vaultPath, ".obsidian", "app.json"), "{}", "utf8")
     const client = await createTestClient(server.port)
     onTestFinished(() => client.close())
 
@@ -1674,9 +1808,7 @@ describe("trash retention over real HTTP", () => {
     expect(textContent(deleteResult)).toBe(
       "Moved Scratch/system-trash.md to trash (.trash/Scratch/system-trash.md)",
     )
-    expect(readTrashEntryRows(server.dataDir)).toEqual([
-      ".trash/Scratch/system-trash.md",
-    ])
+    expect(readTrashEntryRows(server.dataDir)).toEqual([".trash/Scratch/system-trash.md"])
   }, 30_000)
 
   it("a delete under the explicit local option records no trash entry", async () => {

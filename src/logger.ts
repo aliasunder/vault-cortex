@@ -33,11 +33,9 @@ const LEVELS: Record<LogLevel, number> = {
   error: 3,
 }
 
-const isLogLevel = (value: string): value is LogLevel =>
-  Object.hasOwn(LEVELS, value)
+const isLogLevel = (value: string): value is LogLevel => Object.hasOwn(LEVELS, value)
 
-const isSourceOrigin = (value: SourceOrigin | object): value is SourceOrigin =>
-  "fileName" in value
+const isSourceOrigin = (value: SourceOrigin | object): value is SourceOrigin => "fileName" in value
 
 const envLevel = (env.LOG_LEVEL ?? "info").toLowerCase()
 const threshold = isLogLevel(envLevel) ? LEVELS[envLevel] : LEVELS.info
@@ -59,21 +57,22 @@ const getCallerSource = (): string => {
   if (!capturedStack) return "unknown"
   // V8 stack: [0] getCallerSource → [1] emit → [2] debug/info/warn/error → [3] actual caller
   const frame = capturedStack[3]
+
   if (!frame) return "unknown"
 
   const compiledFile = frame.getFileName()
   const compiledLine = frame.getLineNumber()
+
   if (!compiledFile || !compiledLine) return "unknown"
 
   // Resolve .js → .ts via source map (requires --enable-source-maps at startup).
   // findOrigin takes 1-indexed input (matching CallSite) and returns 1-indexed output.
   const sourceMap = findSourceMap(compiledFile)
-  const origin = sourceMap?.findOrigin(
-    compiledLine,
-    frame.getColumnNumber() ?? 1,
-  )
+  const origin = sourceMap?.findOrigin(compiledLine, frame.getColumnNumber() ?? 1)
+
   if (origin && isSourceOrigin(origin)) {
     const originalFile = URL.parse(origin.fileName)?.pathname?.split("/").pop()
+
     if (originalFile) return `${originalFile}:${origin.lineNumber}`
   }
 
@@ -93,15 +92,13 @@ const DEFAULT_RETENTION_DAYS = 90
 const todayDateString = (): string => DateTime.now().toISODate()
 
 /** Deletes log files older than retentionDays. */
-export const pruneOldLogFiles = (
-  logDir: string,
-  retentionDays: number,
-): void => {
+export const pruneOldLogFiles = (logDir: string, retentionDays: number): void => {
   const cutoffDate = DateTime.now().minus({ days: retentionDays }).toISODate()
 
   for (const filename of readdirSync(logDir)) {
     const logFileMatch = LOG_FILE_PATTERN.exec(filename)
     const [, fileDate] = logFileMatch ?? []
+
     if (fileDate && fileDate < cutoffDate) {
       unlinkSync(join(logDir, filename))
     }
@@ -128,9 +125,7 @@ export const createFileSinkExtension = (
 
 // ── Logger ──────────────────────────────────────────────────
 
-const parseRetentionDays = (
-  envValue: string | undefined,
-): number | undefined => {
+const parseRetentionDays = (envValue: string | undefined): number | undefined => {
   if (!envValue) return undefined
   const retentionDays = parseInt(envValue, 10)
   return Number.isNaN(retentionDays) ? undefined : retentionDays
@@ -145,9 +140,7 @@ const LOG_DIR_OFF = "none"
 /** Resolves the LOG_DIR setting to a directory, or undefined when file
  *  logging is off — unset, empty, or the `none` sentinel in any casing
  *  (a literal `NONE/` log directory is never what an operator meant). */
-export const resolveLogDir = (
-  logDirSetting: string | undefined,
-): string | undefined => {
+export const resolveLogDir = (logDirSetting: string | undefined): string | undefined => {
   if (!logDirSetting || logDirSetting.toLowerCase() === LOG_DIR_OFF) {
     return undefined
   }
@@ -159,22 +152,16 @@ const fileSinkExtension: LogExtension | undefined = logDir
   ? createFileSinkExtension(logDir, parseRetentionDays(env.LOG_RETENTION_DAYS))
   : undefined
 
-const defaultExtensions: LogExtension[] = fileSinkExtension
-  ? [fileSinkExtension]
-  : []
+const defaultExtensions: LogExtension[] = fileSinkExtension ? [fileSinkExtension] : []
 
 /** Resolves function-valued child props at emit time — lets a child logger
  *  carry context that doesn't exist yet at child creation (e.g. the MCP
  *  transport's session id, generated during the initialize request). */
-const resolveLazyProps = (
-  props: Record<string, unknown>,
-): Record<string, unknown> => {
-  const resolvedEntries = Object.entries(props).map(
-    ([key, value]): [string, unknown] => [
-      key,
-      typeof value === "function" ? value() : value,
-    ],
-  )
+const resolveLazyProps = (props: Record<string, unknown>): Record<string, unknown> => {
+  const resolvedEntries = Object.entries(props).map(([key, value]): [string, unknown] => [
+    key,
+    typeof value === "function" ? value() : value,
+  ])
   return Object.fromEntries(resolvedEntries)
 }
 
@@ -188,11 +175,7 @@ const createLogger = (
   const baseProps = options?.props ?? {}
   const extensions = options?.extensions ?? []
 
-  const emit = (
-    level: LogLevel,
-    message: string,
-    data?: Record<string, unknown>,
-  ): void => {
+  const emit = (level: LogLevel, message: string, data?: Record<string, unknown>): void => {
     if (LEVELS[level] < threshold) return
 
     // Capture source location for info/warn/error (skip debug to avoid overhead)
@@ -216,6 +199,7 @@ const createLogger = (
         ...(source ? { source } : {}),
         ...mergedData,
       }) + "\n"
+
     if (level === "error") process.stderr.write(line)
     else process.stdout.write(line)
 

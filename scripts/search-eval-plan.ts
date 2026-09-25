@@ -1,0 +1,184 @@
+// ── Eval run plan: judgment schema + CLI validation + reuse decisions ──
+
+import { existsSync } from "node:fs"
+import { join } from "node:path"
+import { tmpdir } from "node:os"
+import { z } from "zod"
+import { isHarnessSnapshot } from "./search-eval-snapshot.js"
+import { caseFoldPath } from "../src/utils/case-fold-path.js"
+import type { SearchResult } from "../src/vault-mcp/search/search-index.js"
+
+// The schemas are strict because a plain schema would strip a typoed key
+// (a misspelled expectation or filter field) and silently score a
+// different query shape than the judgment file describes.
+const judgmentQuerySchema = z
+  .strictObject({
+    id: z.string().min(1),
+    class: z.enum(["recall", "precision", "sentinel", "filtered"]),
+    query: z.string().min(1),
+    expected_any: z.array(z.string().min(1)).min(1).optional(),
+    expected_prefix: z.string().min(1).optional(),
+    filters: z.strictObject({ folder: z.string().min(1) }).optional(),
+  })
+  .refine((query) => Boolean(query.expected_any || query.expected_prefix), {
+    message: "each query needs expected_any or expected_prefix",
+  })
+  .refine((query) => query.class !== "filtered" || Boolean(query.filters), {
+    message: "a filtered query needs filters.folder",
+  })
+
+export const judgmentFileSchema = z.strictObject({
+  vault_path: z.string().min(1),
+  exclude_paths: z.array(z.string().min(1)),
+  exclude_prefixes: z.array(z.string().min(1)),
+  queries: z.array(judgmentQuerySchema).min(1),
+})
+
+export type JudgmentQuery = z.infer<typeof judgmentQuerySchema>
+
+// ── Scoring ────────────────────────────────────────────────────
+
+/** True when the path is one of the judgment entry's expected answers —
+ *  an exact `expected_any` match, or `expected_prefix` at a path-segment
+ *  boundary ("docs" never swallows "docs2/noise.txt"). Both sides are
+ *  case-folded like the snapshot exclusions, so a hand-typed "docs"
+ *  matches an on-disk "Docs/"; the cost is that paths differing only in
+ *  case both credit on a case-sensitive vault. */
+const matchesExpectedPath = (judgmentQuery: JudgmentQuery, path: string): boolean => {
+  const foldedPath = caseFoldPath(path)
+  const foldedExpectedPaths = judgmentQuery.expected_any?.map(caseFoldPath)
+
+  if (foldedExpectedPaths?.includes(foldedPath)) return true
+
+  const expectedPrefix = judgmentQuery.expected_prefix
+
+  if (!expectedPrefix) return false
+
+  // Trailing slash means this is a folder-membership test: paths inside the
+  // folder match, but the folder path itself never does.
+  const folderPrefix = expectedPrefix.endsWith("/") ? expectedPrefix : `${expectedPrefix}/`
+  return foldedPath.startsWith(caseFoldPath(folderPrefix))
+}
+
+export const rankOfFirstExpected = (
+  results: readonly SearchResult[],
+  judgmentQuery: JudgmentQuery,
+): number | null => {
+  const index = results.findIndex((result) => {
+    return matchesExpectedPath(judgmentQuery, result.path)
+  })
+  return index === -1 ? null : index + 1
+}
+
+/** File results in the window that are not themselves expected — for the
+ *  precision class no file is a correct answer, so every one is pollution. */
+export const countUnexpectedFilesInWindow = (
+  results: readonly SearchResult[],
+  judgmentQuery: JudgmentQuery,
+  windowSize: number,
+): number => {
+  return results.slice(0, windowSize).filter((result) => {
+    return result.kind === "file" && !matchesExpectedPath(judgmentQuery, result.path)
+  }).length
+}
+
+type EvalCliArgs = {
+  judgment?: string | undefined
+  "file-leg-weight"?: string | undefined
+  limits: string
+  "work-dir"?: string | undefined
+  "enrich-metadata": boolean
+  "reuse-snapshot": boolean
+  "reuse-index": boolean
+}
+
+type EvalRunPlan = {
+  judgmentPath: string
+  limits: number[]
+  fileLegWeight: number | undefined
+  workDir: string
+  snapshotDir: string
+  indexDbPath: string
+  snapshotReused: boolean
+  indexReused: boolean
+}
+
+/** Parses a --file-leg-weight value, throwing unless it is a finite number
+ *  >= 0. Blank and whitespace-only values are rejected explicitly because
+ *  Number() coerces them to 0, which would silently disable the file legs;
+ *  an actual 0 is valid and does exactly that on purpose. */
+const parseFileLegWeight = (rawWeight: string): number => {
+  const weight = Number(rawWeight)
+  const weightIsValid = rawWeight.trim() !== "" && Number.isFinite(weight) && weight >= 0
+
+  if (!weightIsValid) {
+    throw new Error("--file-leg-weight must be a finite number >= 0")
+  }
+  return weight
+}
+
+/** Validates the CLI arguments and decides snapshot/index reuse from the
+ *  work directory's current state, before anything opens the index
+ *  database — createSearchIndex creates the file, so a later existence
+ *  check would always report true. Throws on any invalid combination. */
+export const resolveEvalRunPlan = (cliArgs: EvalCliArgs): EvalRunPlan => {
+  if (!cliArgs.judgment) {
+    throw new Error("--judgment <path> is required (a local judgment JSON — see the file header)")
+  }
+
+  const limits = cliArgs.limits.split(",").map((limitText) => {
+    const limit = Number(limitText.trim())
+
+    if (!Number.isInteger(limit) || limit < 1) {
+      throw new Error(`--limits entries must be positive integers: ${limitText}`)
+    }
+    return limit
+  })
+
+  // An absent flag means the server default applies; a present flag must
+  // parse cleanly, so a blank value (--file-leg-weight= with an unset shell
+  // variable) rejects instead of silently falling back.
+  const rawFileLegWeight = cliArgs["file-leg-weight"]
+  const fileLegWeight =
+    rawFileLegWeight === undefined ? undefined : parseFileLegWeight(rawFileLegWeight)
+
+  // A reused index over a freshly copied snapshot would score a corpus the
+  // index never saw — the two reuse flags only make sense together.
+  if (cliArgs["reuse-index"] && !cliArgs["reuse-snapshot"]) {
+    throw new Error("--reuse-index requires --reuse-snapshot")
+  }
+
+  const workDir = cliArgs["work-dir"] ?? join(tmpdir(), "vault-cortex-search-eval")
+  const snapshotDir = join(workDir, "vault-snapshot")
+  // Enrichment changes every note chunk's text, so it gets its own index
+  // file — the plain index stays reusable for weight sweeps.
+  const indexDbPath = join(
+    workDir,
+    cliArgs["enrich-metadata"] ? "search-eval-enriched.db" : "search-eval.db",
+  )
+
+  // Only a directory the harness created may be adopted — an operator's own
+  // vault-snapshot folder must not silently become the scored corpus.
+  const snapshotReused = cliArgs["reuse-snapshot"] && isHarnessSnapshot(snapshotDir)
+
+  // An index can only be reused over the snapshot it was built from — when
+  // the snapshot is absent (or not harness-created) it gets rebuilt this
+  // run, and the index would describe a corpus that no longer exists.
+  if (cliArgs["reuse-index"] && !snapshotReused) {
+    throw new Error(
+      "--reuse-index requires the snapshot it was built from, but the snapshot would be rebuilt this run — re-run without --reuse-index",
+    )
+  }
+  const indexReused = cliArgs["reuse-index"] && existsSync(indexDbPath)
+
+  return {
+    judgmentPath: cliArgs.judgment,
+    limits,
+    fileLegWeight,
+    workDir,
+    snapshotDir,
+    indexDbPath,
+    snapshotReused,
+    indexReused,
+  }
+}

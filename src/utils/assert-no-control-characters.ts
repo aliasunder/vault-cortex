@@ -10,23 +10,19 @@ const CONTROL_CHARACTER_PATTERN = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/
  * stuck with an unmatchable character. Rejecting at the write boundary
  * prevents the stuck-byte scenario entirely.
  */
-export const assertNoControlCharacters = (
-  value: string,
-  paramName: string,
-): void => {
+export const assertNoControlCharacters = (value: string, paramName: string): void => {
   const match = CONTROL_CHARACTER_PATTERN.exec(value)
+
   if (!match) return
 
   const codePointValue = match[0].codePointAt(0)
+
   if (codePointValue === undefined) {
     throw new Error(
       `${paramName} contains a control character at position ${match.index} — control characters other than tab, LF, and CR are not allowed`,
     )
   }
-  const codePointHex = codePointValue
-    .toString(16)
-    .toUpperCase()
-    .padStart(4, "0")
+  const codePointHex = codePointValue.toString(16).toUpperCase().padStart(4, "0")
 
   throw new Error(
     `${paramName} contains a control character (U+${codePointHex} at position ${match.index}) — control characters other than tab, LF, and CR are not allowed`,

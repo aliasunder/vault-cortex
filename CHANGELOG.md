@@ -102,6 +102,98 @@
 
 
 
+
+
+
+
+
+## [0.54.2] — 2026-09-23
+
+### Bug Fixes
+
+- **auth:** Challenge expired access tokens (#603)
+
+### Documentation
+
+- Clarify specification citation boundary (#605)
+- Sync code standards into AGENTS.md (#604)
+- Update CHANGELOG.md for v0.54.1
+
+## [0.54.1] — 2026-09-21
+
+### Features
+
+- **memory:** Make section optional for on_or_after reads (#601)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.54.0
+
+## [0.54.0] — 2026-09-19
+
+### Features
+
+- **tasks:** Classify custom checkbox statuses from the Tasks plugin registry (#589)
+- **tasks:** Integer position param + same-lane reorder (#590)
+- **search:** Two-view chunking with Section paths, TOC chunks, and top-level aggregates (#597)
+
+### Bug Fixes
+
+- **tasks:** Align position counting with status registry exclusions (#600)
+- **search:** Cap Section-line ancestor path to prevent budget floor (#598)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.53.0
+
+### Maintenance
+
+- Bump umm-actually to v0.4.7 (#599)
+- **deps-dev:** Bump the development group across 1 directory with 4 updates (#594)
+- **deps:** Bump docker/setup-buildx-action from 4.3.0 to 4.4.0 (#596)
+- **deps:** Bump aws-actions/configure-aws-credentials from 6.2.4 to 6.3.0 (#595)
+- **deps:** Bump zod from 4.6.2 to 4.6.5 in the production group (#592)
+- **deps:** Bump docker/build-push-action from 7.3.0 to 7.4.0 (#591)
+- **deps:** Bump docker/setup-qemu-action from 4.3.0 to 4.4.0 (#593)
+
+## [0.53.0] — 2026-09-18
+
+### Features
+
+- **memory:** On_or_after date filter + fence-aware entry scans + multi-line delete (#585)
+- **search:** Down-weight file-content legs in RRF fusion (#584)
+- **vault:** Add file metadata to note outlines (#583)
+
+### Bug Fixes
+
+- **search:** Resolve KNN window-boundary ties by path order; pin eval error contracts (#588)
+- **search:** Deterministic tie-breaks in retrieval legs + eval harness guards (#586)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.52.1
+
+### Maintenance
+
+- **lint:** Enforce declaration-guard spacing via ESLint; pin Prettier at 120 columns (#587)
+- **ci:** Bump umm-actually to v0.4.6 (#581)
+
+## [0.52.1] — 2026-09-17
+
+### Features
+
+- **trash:** Purge orphaned trash_entries rows at boot (#578)
+
+### Documentation
+
+- Bring task docs current and revise README prose, config section, and sibling claims (#579)
+- Cap CLI README demo GIF at 720px, fix product name casing (#577)
+- Update CHANGELOG.md for v0.52.0
+
+### Maintenance
+
+- **ci:** Bump umm-actually to v0.4.5 (#580)
+
 ## [0.52.0] — 2026-09-16
 
 ### Features

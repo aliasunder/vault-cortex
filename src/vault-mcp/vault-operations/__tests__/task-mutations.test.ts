@@ -21,17 +21,17 @@ const writeTestNote = async (
   content: string,
 ): Promise<void> => {
   const dir = join(vaultPath, ...notePath.split("/").slice(0, -1))
+
   if (dir !== vaultPath) await mkdir(dir, { recursive: true })
   await writeFile(join(vaultPath, notePath), content, "utf8")
 }
 
-const readTestNote = async (
-  vaultPath: string,
-  notePath: string,
-): Promise<string> => readFile(join(vaultPath, notePath), "utf8")
+const readTestNote = async (vaultPath: string, notePath: string): Promise<string> =>
+  readFile(join(vaultPath, notePath), "utf8")
 
 const today = (): string => {
   const date = DateTime.now().toISODate()
+
   if (date === null) throw new Error("failed to get today's date")
   return date
 }
@@ -478,9 +478,7 @@ describe("task-mutations", () => {
       })
       const content = await readTestNote(vault, "board.md")
       // The raw line moves untouched — trailing hard break included.
-      expect(content).toBe(
-        "## Active\n\n\n## Done\n- [ ] Walk the dog ➕ 2026-07-01 ^walk  \n",
-      )
+      expect(content).toBe("## Active\n\n\n## Done\n- [ ] Walk the dog ➕ 2026-07-01 ^walk  \n")
     })
 
     it("moves a task with sub-items", async () => {
@@ -567,10 +565,7 @@ describe("task-mutations", () => {
       expect(doneSection).toBe(
         `\n- [x] In-progress task ➕ 2026-07-01 ✅ ${today()} ^active-task\n\n- [x] Completed ➕ 2026-06-01 ✅ 2026-06-15\n\n`,
       )
-      expect(result.changes).toEqual([
-        "status: in_progress → done",
-        "heading: Active → Done",
-      ])
+      expect(result.changes).toEqual(["status: in_progress → done", "heading: Active → Done"])
     })
 
     it("moves a task between headings in a non-Kanban note", async () => {
@@ -730,10 +725,7 @@ title: Tasks
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
       await expect(
-        taskMutations.updateTask(
-          { vaultPath: vault, path: "tasks.md", line: 5 },
-          logger,
-        ),
+        taskMutations.updateTask({ vaultPath: vault, path: "tasks.md", line: 5 }, logger),
       ).rejects.toThrow("at least one mutation")
     })
 
@@ -794,10 +786,7 @@ title: Tasks
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
 
       await expect(
-        taskMutations.updateTask(
-          { vaultPath: vault, path: "tasks.md", status: "done" },
-          logger,
-        ),
+        taskMutations.updateTask({ vaultPath: vault, path: "tasks.md", status: "done" }, logger),
       ).rejects.toThrow("exactly one of blockId or line is required")
     })
 
@@ -886,9 +875,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow(
-        'hidden path blocked: ".trash/tasks.md" targets a hidden file or folder',
-      )
+      ).rejects.toThrow('hidden path blocked: ".trash/tasks.md" targets a hidden file or folder')
       expect(await readTestNote(vault, ".trash/tasks.md")).toBe(SIMPLE_NOTE)
     })
   })
@@ -1511,9 +1498,7 @@ kanban-plugin: board
         changes: ["due: 2026-09-01 → (none)"],
       })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toBe(
-        "---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ^my-task\n",
-      )
+      expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ^my-task\n")
     })
 
     it("sets created with a corrected date", async () => {
@@ -1542,9 +1527,7 @@ kanban-plugin: board
         changes: ["created: 2026-07-01 → 2026-06-15"],
       })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toBe(
-        "---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-06-15 ^my-task\n",
-      )
+      expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-06-15 ^my-task\n")
     })
 
     it("clears created with null", async () => {
@@ -1967,9 +1950,7 @@ kanban-plugin: board
         ),
       ).rejects.toThrow('blockId "dup" already exists in this note')
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toBe(
-        "- [ ] Task A ➕ 2026-01-01 ^dup  \n- [ ] Task B ➕ 2026-01-02 ^other\n",
-      )
+      expect(content).toBe("- [ ] Task A ➕ 2026-01-01 ^dup  \n- [ ] Task B ➕ 2026-01-02 ^other\n")
     })
 
     it("replaces an existing block_id", async () => {
@@ -2029,9 +2010,7 @@ kanban-plugin: board
       const content = await readTestNote(vault, "board.md")
       // Sub-task completed in place under Active, not moved to Done
       const activeSection = content.split("## Active")[1]?.split("## ")[0] ?? ""
-      expect(activeSection).toContain(
-        `[x] Sub-stage ➕ ${today()} ✅ ${today()} ^sub-stage`,
-      )
+      expect(activeSection).toContain(`[x] Sub-stage ➕ ${today()} ✅ ${today()} ^sub-stage`)
       const doneSection = content.split("## Done")[1] ?? ""
       expect(doneSection).not.toContain("Sub-stage")
     })
@@ -2630,6 +2609,101 @@ kanban-plugin: board
 `)
       })
 
+      // ── integer position ──────────────────────────────────────
+
+      it("position=2 inserts the card as the 2nd top-level card", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] First ^first\n- [ ] Second ^second\n- [ ] Third ^third\n`
+        await writeTestNote(vault, "board.md", note)
+
+        const result = await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Inserted",
+            blockId: "inserted",
+            heading: "Active",
+            position: 2,
+          },
+          logger,
+        )
+
+        expect(result.heading).toBe("Active")
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] First ^first\n- [ ] Inserted ➕ ${today()} ^inserted\n- [ ] Second ^second\n- [ ] Third ^third\n`,
+        )
+      })
+
+      it("position past the card count clamps to the bottom", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Ideas\n\n- [ ] Only card ^only\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            description: "Clamped",
+            blockId: "clamped",
+            heading: "Ideas",
+            position: 10,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Ideas\n\n- [ ] Only card ^only\n- [ ] Clamped ➕ ${today()} ^clamped\n`,
+        )
+      })
+
+      it("position=1 on an empty lane inserts the card as the only entry", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n## Done\n`
+        await writeTestNote(vault, "board.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Solo",
+            blockId: "solo",
+            heading: "Active",
+            position: 1,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n- [ ] Solo ➕ ${today()} ^solo\n\n## Done\n`,
+        )
+      })
+
+      it("position=2 skips sub-items when counting top-level cards", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Card A ^card-a\n  - [ ] Sub-item 1\n  - [ ] Sub-item 2\n- [ ] Card B ^card-b\n`
+        await writeTestNote(vault, "board.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Between",
+            blockId: "between",
+            heading: "Active",
+            position: 2,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Card A ^card-a\n  - [ ] Sub-item 1\n  - [ ] Sub-item 2\n- [ ] Between ➕ ${today()} ^between\n- [ ] Card B ^card-b\n`,
+        )
+      })
+
       it("bottom insertion into a section ending with prose appends after the prose", async () => {
         const vault = await createVault()
         const note = `---\ntitle: Notes\n---\n\n## Tasks\n\n- [ ] First ^first\n\nSome notes about the tasks.\n\n## Other\n`
@@ -2649,6 +2723,28 @@ kanban-plugin: board
         const content = await readTestNote(vault, "notes.md")
         expect(content).toBe(
           `---\ntitle: Notes\n---\n\n## Tasks\n\n- [ ] First ^first\n\nSome notes about the tasks.\n- [ ] After prose ➕ ${today()} ^after-prose\n\n## Other\n`,
+        )
+      })
+
+      it("bottom insertion into a lane with a child heading stays above the child", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n\n### Sub\n\n- [ ] Beta ^beta\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            description: "Appended",
+            blockId: "appended",
+            heading: "Active",
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Appended ➕ ${today()} ^appended\n\n### Sub\n\n- [ ] Beta ^beta\n`,
         )
       })
     })
@@ -2780,6 +2876,562 @@ kanban-plugin: board
 `)
       })
 
+      // ── integer position ──────────────────────────────────────
+
+      it("same-lane reorder from position 1 to 3", async () => {
+        const vault = await createVault()
+        const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n- [ ] Charlie ^charlie\n- [ ] Delta ^delta\n\n## Done\n`
+        await writeTestNote(vault, "board.md", board)
+
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "alpha",
+            position: 3,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n- [ ] Charlie ^charlie\n- [ ] Alpha ^alpha\n- [ ] Delta ^delta\n\n## Done\n`,
+        )
+        expect(result.changes).toEqual(["position: 1 → 3"])
+      })
+
+      it("same-lane reorder is a no-op when already at the target position", async () => {
+        const vault = await createVault()
+        const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n\n## Done\n`
+        await writeTestNote(vault, "board.md", board)
+
+        const contentBefore = await readTestNote(vault, "board.md")
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "alpha",
+            position: 1,
+          },
+          logger,
+        )
+
+        const contentAfter = await readTestNote(vault, "board.md")
+        expect(contentAfter).toBe(contentBefore)
+        expect(result.changes).toEqual([])
+      })
+
+      it("cross-lane move with position=2 lands at the 2nd card in the target lane", async () => {
+        const vault = await createVault()
+        const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n\n## Up Next\n\n- [ ] Charlie ^charlie\n- [ ] Delta ^delta\n`
+        await writeTestNote(vault, "board.md", board)
+
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "alpha",
+            heading: "Up Next",
+            position: 2,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n\n## Up Next\n\n- [ ] Charlie ^charlie\n- [ ] Alpha ^alpha\n- [ ] Delta ^delta\n`,
+        )
+        expect(result.changes).toEqual(["heading: Active → Up Next", "position: 1 → 2"])
+      })
+
+      it("position-only call without heading or status succeeds", async () => {
+        const vault = await createVault()
+        const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n\n## Done\n`
+        await writeTestNote(vault, "board.md", board)
+
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "bravo",
+            position: 1,
+          },
+          logger,
+        )
+
+        expect(result.changes).toEqual(["position: 2 → 1"])
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n- [ ] Alpha ^alpha\n\n## Done\n`,
+        )
+      })
+
+      it("same-lane reorder preserves sub-items attached to their parent", async () => {
+        const vault = await createVault()
+        const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n  - [ ] Sub-A1\n  - [ ] Sub-A2\n- [ ] Bravo ^bravo\n  - [ ] Sub-B1\n- [ ] Charlie ^charlie\n\n## Done\n`
+        await writeTestNote(vault, "board.md", board)
+
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "bravo",
+            position: 1,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n  - [ ] Sub-B1\n- [ ] Alpha ^alpha\n  - [ ] Sub-A1\n  - [ ] Sub-A2\n- [ ] Charlie ^charlie\n\n## Done\n`,
+        )
+        expect(result.changes).toEqual(["position: 2 → 1"])
+      })
+
+      it("rejects position on a sub-task", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n- [ ] Parent ^parent\n  - [ ] Child ^child\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await expect(
+          taskMutations.updateTask(
+            {
+              vaultPath: vault,
+              path: "notes.md",
+              blockId: "child",
+              position: 1,
+            },
+            logger,
+          ),
+        ).rejects.toThrow(
+          "cannot reposition a sub-task — the parent's position determines placement",
+        )
+      })
+
+      it("same-lane reorder with position past card count clamps to bottom", async () => {
+        const vault = await createVault()
+        const board = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n- [ ] Charlie ^charlie\n\n## Done\n`
+        await writeTestNote(vault, "board.md", board)
+
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "alpha",
+            position: 99,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Active\n\n- [ ] Bravo ^bravo\n- [ ] Charlie ^charlie\n- [ ] Alpha ^alpha\n\n## Done\n`,
+        )
+        expect(result.changes).toEqual(["position: 1 → 3"])
+      })
+
+      it("same-lane reorder skips NON_TASK checkboxes in position count", async () => {
+        resetTaskFormatConfigCache()
+        onTestFinished(resetTaskFormatConfigCache)
+
+        const vault = await createVault()
+        const pluginDir = join(vault, ".obsidian", "plugins", "obsidian-tasks-plugin")
+        await mkdir(pluginDir, { recursive: true })
+        await writeFile(
+          join(pluginDir, "data.json"),
+          JSON.stringify({
+            statusSettings: {
+              coreStatuses: [
+                { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
+                { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
+              ],
+              customStatuses: [
+                { symbol: ">", name: "Forwarded", nextStatusSymbol: " ", type: "NON_TASK" },
+              ],
+            },
+          }),
+          "utf8",
+        )
+
+        const board = [
+          "---",
+          "title: Board",
+          "kanban-plugin: board",
+          "---",
+          "",
+          "## Active",
+          "",
+          "- [ ] Alpha ^alpha",
+          "- [>] Forwarded ref",
+          "- [ ] Bravo ^bravo",
+          "- [ ] Charlie ^charlie",
+          "",
+          "## Done",
+          "",
+        ].join("\n")
+        await writeTestNote(vault, "board.md", board)
+
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            blockId: "charlie",
+            position: 1,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          [
+            "---",
+            "title: Board",
+            "kanban-plugin: board",
+            "---",
+            "",
+            "## Active",
+            "",
+            "- [ ] Charlie ^charlie",
+            "- [ ] Alpha ^alpha",
+            "- [>] Forwarded ref",
+            "- [ ] Bravo ^bravo",
+            "",
+            "## Done",
+            "",
+          ].join("\n"),
+        )
+        expect(result.changes).toEqual(["position: 3 → 1"])
+      })
+
+      it("rejects position-only reorder on a task above all headings", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n\n## Later\n\n- [ ] Charlie ^charlie\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await expect(
+          taskMutations.updateTask(
+            {
+              vaultPath: vault,
+              path: "notes.md",
+              blockId: "alpha",
+              position: 2,
+            },
+            logger,
+          ),
+        ).rejects.toThrow(
+          "cannot reorder a task that sits above the first heading — pass a heading",
+        )
+      })
+
+      it("rejects same-lane reorder when the heading name is ambiguous", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Tasks\n\n- [ ] Alpha ^alpha\n\n## Tasks\n\n- [ ] Bravo ^bravo\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await expect(
+          taskMutations.updateTask(
+            {
+              vaultPath: vault,
+              path: "notes.md",
+              blockId: "alpha",
+              position: 2,
+            },
+            logger,
+          ),
+        ).rejects.toThrow(
+          `cannot reorder within "Tasks" — the heading appears 2 times; rename one section to make it unique`,
+        )
+      })
+
+      it("rejects cross-lane move with integer position when the target heading is ambiguous", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n\n## Done\n\n## Done\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await expect(
+          taskMutations.updateTask(
+            {
+              vaultPath: vault,
+              path: "notes.md",
+              blockId: "alpha",
+              heading: "Done",
+              position: 1,
+            },
+            logger,
+          ),
+        ).rejects.toThrow(
+          `cannot place at position 1 under "Done" — the heading appears 2 times; rename one section to make it unique`,
+        )
+      })
+
+      it("integer overshoot clamps to after last card, not trailing prose", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n\nSome trailing notes about the lane.\n\n## Done\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            description: "Charlie",
+            blockId: "charlie",
+            heading: "Active",
+            position: 99,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Bravo ^bravo\n- [ ] Charlie ➕ ${today()} ^charlie\n\nSome trailing notes about the lane.\n\n## Done\n`,
+        )
+      })
+
+      it("rejects integer position when heading name is duplicated (create)", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Tasks\n\n- [ ] Alpha ^alpha\n\n## Tasks\n\n- [ ] Bravo ^bravo\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await expect(
+          taskMutations.createTask(
+            {
+              vaultPath: vault,
+              path: "notes.md",
+              description: "Charlie",
+              blockId: "charlie",
+              heading: "Tasks",
+              position: 2,
+            },
+            logger,
+          ),
+        ).rejects.toThrow(
+          `cannot place at position 2 under "Tasks" — the heading appears 2 times; rename one section to make it unique`,
+        )
+      })
+
+      it("integer position stops at an ATX child heading", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n\n### In Progress\n\n- [ ] Beta ^beta\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            description: "Charlie",
+            blockId: "charlie",
+            heading: "Active",
+            position: 2,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Active\n\n- [ ] Alpha ^alpha\n- [ ] Charlie ➕ ${today()} ^charlie\n\n### In Progress\n\n- [ ] Beta ^beta\n`,
+        )
+      })
+
+      it("integer position stops at a setext child heading", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n# Active\n\n- [ ] Alpha ^alpha\n\nSub\n---\n\n- [ ] Beta ^beta\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            description: "Charlie",
+            blockId: "charlie",
+            heading: "Active",
+            position: 2,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n# Active\n\n- [ ] Alpha ^alpha\n- [ ] Charlie ➕ ${today()} ^charlie\n\nSub\n---\n\n- [ ] Beta ^beta\n`,
+        )
+      })
+
+      it("integer position in a Complete-marked lane inserts after the marker", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Archive\n\n**Complete**\n- [x] Old task ^old\n- [x] Older task ^older\n\n## Active\n\n- [ ] New task ^new\n`
+        await writeTestNote(vault, "board.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Archived item",
+            blockId: "archived",
+            heading: "Archive",
+            position: 1,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          `---\ntitle: Board\nkanban-plugin: board\n---\n\n## Archive\n\n**Complete**\n- [ ] Archived item ➕ ${today()} ^archived\n- [x] Old task ^old\n- [x] Older task ^older\n\n## Active\n\n- [ ] New task ^new\n`,
+        )
+      })
+
+      it("integer position skips fenced task-looking lines", async () => {
+        const vault = await createVault()
+        const note = [
+          "---",
+          "title: Board",
+          "kanban-plugin: board",
+          "---",
+          "",
+          "## Active",
+          "",
+          "- [ ] Card A ^card-a",
+          "```md",
+          "- [ ] Fenced example",
+          "```",
+          "- [ ] Card B ^card-b",
+          "",
+        ].join("\n")
+        await writeTestNote(vault, "board.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Inserted",
+            blockId: "inserted",
+            heading: "Active",
+            position: 2,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          [
+            "---",
+            "title: Board",
+            "kanban-plugin: board",
+            "---",
+            "",
+            "## Active",
+            "",
+            "- [ ] Card A ^card-a",
+            "```md",
+            "- [ ] Fenced example",
+            "```",
+            `- [ ] Inserted ➕ ${today()} ^inserted`,
+            "- [ ] Card B ^card-b",
+            "",
+          ].join("\n"),
+        )
+      })
+
+      it("integer position skips NON_TASK checkboxes", async () => {
+        resetTaskFormatConfigCache()
+        onTestFinished(resetTaskFormatConfigCache)
+
+        const vault = await createVault()
+        const pluginDir = join(vault, ".obsidian", "plugins", "obsidian-tasks-plugin")
+        await mkdir(pluginDir, { recursive: true })
+        await writeFile(
+          join(pluginDir, "data.json"),
+          JSON.stringify({
+            statusSettings: {
+              coreStatuses: [
+                { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
+                { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
+              ],
+              customStatuses: [
+                { symbol: ">", name: "Forwarded", nextStatusSymbol: " ", type: "NON_TASK" },
+              ],
+            },
+          }),
+          "utf8",
+        )
+
+        const note = [
+          "---",
+          "title: Board",
+          "kanban-plugin: board",
+          "---",
+          "",
+          "## Active",
+          "",
+          "- [ ] Card A ^card-a",
+          "- [>] Forwarded ref",
+          "  - [ ] Sub-item of forwarded",
+          "- [ ] Card B ^card-b",
+          "",
+        ].join("\n")
+        await writeTestNote(vault, "board.md", note)
+
+        await taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "board.md",
+            description: "Inserted",
+            blockId: "inserted",
+            heading: "Active",
+            position: 2,
+          },
+          logger,
+        )
+
+        const content = await readTestNote(vault, "board.md")
+        expect(content).toBe(
+          [
+            "---",
+            "title: Board",
+            "kanban-plugin: board",
+            "---",
+            "",
+            "## Active",
+            "",
+            "- [ ] Card A ^card-a",
+            "- [>] Forwarded ref",
+            "  - [ ] Sub-item of forwarded",
+            `- [ ] Inserted ➕ ${today()} ^inserted`,
+            "- [ ] Card B ^card-b",
+            "",
+          ].join("\n"),
+        )
+      })
+
+      it("spawn + position reports pre-spawn before-position", async () => {
+        const vault = await createVault()
+        const note = `---\ntitle: Notes\n---\n\n## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-05 ^water\n- [ ] Read for 30 min ^read\n\n## Done\n`
+        await writeTestNote(vault, "notes.md", note)
+
+        const result = await taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "notes.md",
+            blockId: "water",
+            status: "done",
+            position: 3,
+          },
+          logger,
+        )
+
+        // The spawn inserts a new occurrence above the completed task,
+        // pushing it from position 1 → 2 in the post-spawn lane.
+        // before-position 1 proves the count comes from the pre-spawn lane
+        // (2 cards); linesWithSpawn would report 2.
+        expect(result.changes).toEqual([
+          "status: todo → done",
+          "position: 1 → 3",
+          "next_occurrence: (none) → line 7",
+        ])
+        const content = await readTestNote(vault, "notes.md")
+        expect(content).toBe(
+          `---\ntitle: Notes\n---\n\n## Habits\n\n- [ ] Water plants 🔁 every week 📅 2026-01-12\n- [ ] Read for 30 min ^read\n- [x] Water plants 🔁 every week 📅 2026-01-05 ✅ ${today()} ^water\n\n## Done\n`,
+        )
+      })
+
       it("status=done auto-move + position=bottom → bottom of done lane", async () => {
         const vault = await createVault()
         await writeTestNote(vault, "board.md", KANBAN_BOARD)
@@ -2836,12 +3488,7 @@ const writeTasksPluginConfig = async (
 ): Promise<void> => {
   resetTaskFormatConfigCache()
   onTestFinished(resetTaskFormatConfigCache)
-  const pluginDir = join(
-    vaultPath,
-    ".obsidian",
-    "plugins",
-    "obsidian-tasks-plugin",
-  )
+  const pluginDir = join(vaultPath, ".obsidian", "plugins", "obsidian-tasks-plugin")
   await mkdir(pluginDir, { recursive: true })
   await writeFile(join(pluginDir, "data.json"), JSON.stringify(config), "utf8")
 }
@@ -2916,10 +3563,7 @@ title: Tasks
         description: "Water plants",
         due: "2026-01-12",
       },
-      changes: [
-        "status: in_progress → done",
-        "next_occurrence: (none) → line 5",
-      ],
+      changes: ["status: in_progress → done", "next_occurrence: (none) → line 5"],
     })
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
@@ -3557,10 +4201,7 @@ title: Tasks
       logger,
     )
 
-    expect(result.changes).toEqual([
-      "due: (none) → 2026-05-01",
-      "description: Old text → Ship it",
-    ])
+    expect(result.changes).toEqual(["due: (none) → 2026-05-01", "description: Old text → Ship it"])
     const content = await readTestNote(vault, "tasks.md")
     expect(content).toBe(
       "---\ntitle: Tasks\n---\n\n- [ ] Ship it ✅ 2026-01-01 ➕ 2026-01-01 📅 2026-05-01 ^prose\n",
@@ -4122,9 +4763,7 @@ describe("round-trip advisories", () => {
         changes: ["due: 2026-09-01 → (none)"],
       })
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toBe(
-        "---\ntitle: Tasks\n---\n\n- [ ] Deploy #project ^deploy\n",
-      )
+      expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Deploy #project ^deploy\n")
     })
 
     it("replaces the real dependency field, not a description signifier the parser read as metadata", async () => {
@@ -4208,9 +4847,7 @@ describe("round-trip advisories", () => {
         'tag: "#urgent" appeared in both the description and the metadata tail — deduplicated to one copy',
       ])
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toBe(
-        "---\ntitle: Tasks\n---\n\n- [ ] Fix bug #urgent 📅 2026-01-01 ^x\n",
-      )
+      expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Fix bug #urgent 📅 2026-01-01 ^x\n")
     })
 
     it("deduplicates multiple trailing tags that all match the metadata tail", async () => {
@@ -4288,9 +4925,7 @@ describe("round-trip advisories", () => {
 
       expect(result.advisories).toBeUndefined()
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toBe(
-        "---\ntitle: Tasks\n---\n\n- [ ] Fix crash 📅 2026-01-01 #urgent ^x\n",
-      )
+      expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Fix crash 📅 2026-01-01 #urgent ^x\n")
     })
 
     it("preserves a description date signifier through a combined status change and reports both divergences", async () => {
@@ -4398,9 +5033,7 @@ describe("round-trip advisories", () => {
 
       expect(result.advisories).toBeUndefined()
       const content = await readTestNote(vault, "tasks.md")
-      expect(content).toBe(
-        "---\ntitle: Tasks\n---\n\n- [ ] Water plants ➕ 2026-01-01 ^water\n",
-      )
+      expect(content).toBe("---\ntitle: Tasks\n---\n\n- [ ] Water plants ➕ 2026-01-01 ^water\n")
     })
 
     it("names a truncating add_subtasks item in the advisories", async () => {
@@ -4708,10 +5341,7 @@ title: Tasks
         description: "Delete on done",
         block_id: "delete-task",
         heading: "Active",
-        changes: [
-          "status: todo → done",
-          "on_completion: task removed (🏁 delete)",
-        ],
+        changes: ["status: todo → done", "on_completion: task removed (🏁 delete)"],
         on_completion_applied: "delete",
       })
 
@@ -4919,10 +5549,7 @@ title: Tasks
         description: "Parent with children",
         block_id: "parent-delete",
         heading: "Active",
-        changes: [
-          "status: todo → done",
-          "on_completion: task and 3 children removed (🏁 delete)",
-        ],
+        changes: ["status: todo → done", "on_completion: task and 3 children removed (🏁 delete)"],
         on_completion_applied: "delete",
       })
 
@@ -4957,10 +5584,7 @@ title: Tasks
         description: "Sub-task with delete",
         block_id: "sub-delete",
         heading: "Active",
-        changes: [
-          "status: todo → done",
-          "on_completion: task removed (🏁 delete)",
-        ],
+        changes: ["status: todo → done", "on_completion: task removed (🏁 delete)"],
         on_completion_applied: "delete",
       })
 
@@ -5047,10 +5671,7 @@ title: Tasks
         description: "Parent one child",
         block_id: "one-child",
         heading: "Active",
-        changes: [
-          "status: todo → done",
-          "on_completion: task and 1 child removed (🏁 delete)",
-        ],
+        changes: ["status: todo → done", "on_completion: task and 1 child removed (🏁 delete)"],
         on_completion_applied: "delete",
       })
 
@@ -5244,11 +5865,7 @@ title: Tasks
 `
       const vault = await createVault()
       await writeTasksPluginConfig(vault, { recurrenceOnNextLine: true })
-      await writeTestNote(
-        vault,
-        "tasks.md",
-        RECURRING_DELETE_NEXT_LINE_CHILDREN,
-      )
+      await writeTestNote(vault, "tasks.md", RECURRING_DELETE_NEXT_LINE_CHILDREN)
 
       const result = await taskMutations.updateTask(
         {
@@ -5332,14 +5949,14 @@ title: Tasks
       )
 
       // The plugin treats "D" as already done via the status registry —
-      // the doneStatusSymbols guard prevents deletion.
+      // the statusRegistry guard prevents deletion.
       expect(result).toEqual({
         path: "tasks.md",
         line: 7,
         description: "Deploy and clean up",
         block_id: "deploy-cleanup",
         heading: "Active",
-        changes: ["status: todo → done"],
+        changes: ["status: done → done"],
       })
 
       const content = await readTestNote(vault, "tasks.md")
@@ -5378,10 +5995,7 @@ title: Tasks
         description: "Fuzzy habit",
         block_id: "fuzzy",
         heading: "Active",
-        changes: [
-          "status: todo → done",
-          "on_completion: task removed (🏁 delete)",
-        ],
+        changes: ["status: todo → done", "on_completion: task removed (🏁 delete)"],
         advisories: [
           'The task was completed, but its recurrence rule "whenever" is not a rule the Tasks plugin recognizes, so no next occurrence was created.',
         ],
@@ -5392,6 +6006,375 @@ title: Tasks
       expect(content).toBe(
         `---\ntitle: Tasks\n---\n\n## Active\n\n- [ ] Other task ➕ 2026-07-02 ^other\n`,
       )
+    })
+  })
+
+  describe("NON_TASK guard", () => {
+    const writePluginConfig = async (
+      vaultPath: string,
+      config: Record<string, unknown>,
+    ): Promise<void> => {
+      const pluginDir = join(vaultPath, ".obsidian", "plugins", "obsidian-tasks-plugin")
+      await mkdir(pluginDir, { recursive: true })
+      await writeFile(join(pluginDir, "data.json"), JSON.stringify(config), "utf8")
+    }
+
+    const NON_TASK_CONFIG = {
+      statusSettings: {
+        coreStatuses: [
+          { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
+          { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
+        ],
+        customStatuses: [
+          { symbol: ">", name: "Forwarded", nextStatusSymbol: " ", type: "NON_TASK" },
+        ],
+      },
+    }
+
+    it("updateTask rejects a NON_TASK checkbox by block_id", async () => {
+      resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [ ] Normal task ➕ 2026-07-02 ^normal\n`,
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          { vaultPath: vault, path: "tasks.md", blockId: "fwd", heading: "Done" },
+          logger,
+        ),
+      ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
+    })
+
+    it("updateTask rejects a NON_TASK checkbox by line number", async () => {
+      resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [ ] Normal task ➕ 2026-07-02 ^normal\n`,
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          { vaultPath: vault, path: "tasks.md", line: 5, status: "done" },
+          logger,
+        ),
+      ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
+    })
+
+    it("createTask rejects a NON_TASK parent by block_id", async () => {
+      resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [ ] Normal task ➕ 2026-07-02 ^normal\n`,
+      )
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Sub-task",
+            blockId: "sub",
+            parentBlockId: "fwd",
+          },
+          logger,
+        ),
+      ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
+    })
+
+    it("createTask rejects a NON_TASK parent by line number", async () => {
+      resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [ ] Normal task ➕ 2026-07-02 ^normal\n`,
+      )
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Sub-task",
+            blockId: "sub",
+            parentLine: 5,
+          },
+          logger,
+        ),
+      ).rejects.toThrow('checkbox "[>]" is a NON_TASK status in the Tasks plugin registry')
+    })
+
+    it("allows updating a normal task when NON_TASK statuses exist", async () => {
+      resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [ ] Normal task ➕ 2026-07-02 ^normal\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        { vaultPath: vault, path: "tasks.md", blockId: "normal", status: "done" },
+        logger,
+      )
+
+      expect(result).toEqual({
+        path: "tasks.md",
+        line: 6,
+        description: "Normal task",
+        block_id: "normal",
+        changes: ["status: todo → done"],
+      })
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [>] Forwarded ref ➕ 2026-07-01 ^fwd\n- [x] Normal task ➕ 2026-07-02 ✅ ${today()} ^normal\n`,
+      )
+    })
+
+    it("appendSubtasks excludes NON_TASK children from the count", async () => {
+      resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
+      const vault = await createVault()
+      await writePluginConfig(vault, NON_TASK_CONFIG)
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [ ] Card ^card\n  - [>] Forwarded child\n  - [ ] Real child ^real\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          blockId: "card",
+          addSubtasks: ["New stage"],
+        },
+        logger,
+      )
+
+      expect(result.changes).toEqual(["subtasks: 1 → 2"])
+
+      const content = await readTestNote(vault, "tasks.md")
+      expect(content).toBe(
+        `---\ntitle: Tasks\n---\n\n- [ ] Card ^card\n  - [>] Forwarded child\n  - [ ] Real child ^real\n  - [ ] New stage\n`,
+      )
+    })
+  })
+
+  describe("charForStatus throw at mutation boundary", () => {
+    const writePluginConfig = async (
+      vaultPath: string,
+      config: Record<string, unknown>,
+    ): Promise<void> => {
+      const pluginDir = join(vaultPath, ".obsidian", "plugins", "obsidian-tasks-plugin")
+      await mkdir(pluginDir, { recursive: true })
+      await writeFile(join(pluginDir, "data.json"), JSON.stringify(config), "utf8")
+    }
+
+    it("updateTask rejects status change when the fallback char is retyped", async () => {
+      resetTaskFormatConfigCache()
+      onTestFinished(resetTaskFormatConfigCache)
+      const vault = await createVault()
+      await writePluginConfig(vault, {
+        statusSettings: {
+          coreStatuses: [
+            { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
+            { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
+            { symbol: "-", name: "Pending", nextStatusSymbol: " ", type: "TODO" },
+          ],
+          customStatuses: [],
+        },
+      })
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n- [ ] Task ➕ 2026-07-01 ^task\n`,
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          { vaultPath: vault, path: "tasks.md", blockId: "task", status: "cancelled" },
+          logger,
+        ),
+      ).rejects.toThrow(
+        'no checkbox symbol for status "cancelled" in the Tasks plugin registry (the default "-" is typed todo)',
+      )
+    })
+  })
+
+  describe("fenced/comment task guard", () => {
+    it("updateTask rejects a task inside a fenced code block", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Example task ^example\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`,
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          { vaultPath: vault, path: "tasks.md", blockId: "example", status: "done" },
+          logger,
+        ),
+      ).rejects.toThrow('blockId "example" is inside a fenced code block or comment in "tasks.md"')
+    })
+
+    it("createTask rejects a parent inside a fenced code block", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Fenced parent ^fenced\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`,
+      )
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Child",
+            blockId: "child",
+            parentBlockId: "fenced",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(
+        'parent task not found: blockId "fenced" is inside a fenced code block or comment',
+      )
+    })
+
+    it("allows updating a task outside the fence", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Example ^example\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        { vaultPath: vault, path: "tasks.md", blockId: "real", status: "done" },
+        logger,
+      )
+
+      expect(result.description).toBe("Real task")
+      expect(result.changes).toEqual(["status: todo → done"])
+    })
+
+    it("skips a fenced match and finds the real task with the same block-id", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Fenced example ^shared-id\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^shared-id\n`,
+      )
+
+      const result = await taskMutations.updateTask(
+        { vaultPath: vault, path: "tasks.md", blockId: "shared-id", status: "done" },
+        logger,
+      )
+
+      expect(result.description).toBe("Real task")
+      expect(result.changes).toEqual(["status: todo → done"])
+    })
+
+    it("skips a fenced match and finds the real parent with the same block-id", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Fenced parent ^shared-parent\n\`\`\`\n\n- [ ] Real parent ➕ 2026-07-01 ^shared-parent\n`,
+      )
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "Child task",
+          blockId: "child-of-shared",
+          parentBlockId: "shared-parent",
+        },
+        logger,
+      )
+
+      expect(result.description).toBe("Child task")
+    })
+
+    it("createTask succeeds when the block-id exists only inside a fenced block", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Example ^taken\n\`\`\`\n\n- [ ] Existing task ➕ 2026-07-01 ^real\n`,
+      )
+
+      const result = await taskMutations.createTask(
+        {
+          vaultPath: vault,
+          path: "tasks.md",
+          description: "New task",
+          blockId: "taken",
+        },
+        logger,
+      )
+
+      expect(result.description).toBe("New task")
+      expect(result.block_id).toBe("taken")
+    })
+
+    it("updateTask rejects a line-addressed task inside a fenced code block", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Fenced example\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`,
+      )
+
+      await expect(
+        taskMutations.updateTask(
+          { vaultPath: vault, path: "tasks.md", line: 6, status: "done" },
+          logger,
+        ),
+      ).rejects.toThrow("line 6 is inside a fenced code block or comment")
+    })
+
+    it("createTask rejects a line-addressed parent inside a fenced code block", async () => {
+      const vault = await createVault()
+      await writeTestNote(
+        vault,
+        "tasks.md",
+        `---\ntitle: Tasks\n---\n\n\`\`\`markdown\n- [ ] Fenced parent\n\`\`\`\n\n- [ ] Real task ➕ 2026-07-01 ^real\n`,
+      )
+
+      await expect(
+        taskMutations.createTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md",
+            description: "Child",
+            blockId: "child",
+            parentLine: 6,
+          },
+          logger,
+        ),
+      ).rejects.toThrow("parent task not found: line 6 is inside a fenced code block or comment")
     })
   })
 })

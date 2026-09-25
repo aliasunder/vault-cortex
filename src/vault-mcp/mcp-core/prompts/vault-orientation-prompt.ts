@@ -1,18 +1,12 @@
 /** vault-orientation prompt — zero-arg survey of vault structure and health. */
 
-import {
-  createMemoryStore,
-  type MemoryFileOutline,
-} from "../../vault-operations/memory-store.js"
+import { createMemoryStore, type MemoryFileOutline } from "../../vault-operations/memory-store.js"
 import { vaultFs } from "../../vault-operations/vault-filesystem.js"
 import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
 import { describeError } from "../../../utils/describe-error.js"
+import { compareByUtf8Bytes } from "../../../utils/compare-utf8-bytes.js"
 import type { ToolName } from "../tool-registry.js"
-import {
-  type PromptRegistrationContext,
-  textResult,
-  formatNoteLine,
-} from "./prompt-helpers.js"
+import { type PromptRegistrationContext, textResult, formatNoteLine } from "./prompt-helpers.js"
 
 const PROMPT_NAMES = {
   VAULT_ORIENTATION: "vault-orientation",
@@ -36,6 +30,7 @@ const deriveFolderCounts = (paths: readonly string[]): FolderCount[] => {
   const counts = new Map<string, number>()
   for (const path of paths) {
     const firstSlash = path.indexOf("/")
+
     if (firstSlash > 0) {
       const folder = path.slice(0, firstSlash)
       counts.set(folder, (counts.get(folder) ?? 0) + 1)
@@ -43,7 +38,7 @@ const deriveFolderCounts = (paths: readonly string[]): FolderCount[] => {
   }
   return [...counts.entries()]
     .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .toSorted((folderA, folderB) => compareByUtf8Bytes(folderA.name, folderB.name))
 }
 
 /** Formats a single property key with its adoption rate, sample values, and
@@ -53,16 +48,11 @@ const formatPropertyLine = (
   totalNotes: number,
   lowAdoptionThreshold: number,
 ): string => {
-  const percentage =
-    totalNotes > 0 ? Math.round((propertyKey.count / totalNotes) * 100) : 0
-  const displayPercentage =
-    propertyKey.count > 0 && percentage === 0 ? "<1" : String(percentage)
+  const percentage = totalNotes > 0 ? Math.round((propertyKey.count / totalNotes) * 100) : 0
+  const displayPercentage = propertyKey.count > 0 && percentage === 0 ? "<1" : String(percentage)
   const samples =
-    propertyKey.sample_values.length > 0
-      ? ` — e.g. ${propertyKey.sample_values.join(", ")}`
-      : ""
-  const isLowAdoption =
-    totalNotes > 0 && propertyKey.count / totalNotes < lowAdoptionThreshold
+    propertyKey.sample_values.length > 0 ? ` — e.g. ${propertyKey.sample_values.join(", ")}` : ""
+  const isLowAdoption = totalNotes > 0 && propertyKey.count / totalNotes < lowAdoptionThreshold
   const lowAdoptionFlag = isLowAdoption ? " (low adoption)" : ""
 
   return `- ${propertyKey.key} (${propertyKey.count}/${totalNotes} — ${displayPercentage}%)${samples}${lowAdoptionFlag}`
@@ -92,8 +82,7 @@ const formatMemoryOutlineEntry = (outline: MemoryFileOutline): string => {
   const sectionLines = outline.headings
     .filter((heading) => heading.level === 2)
     .map((heading) => {
-      const entryCount =
-        heading.entryCount != null ? ` (${heading.entryCount})` : ""
+      const entryCount = heading.entryCount != null ? ` (${heading.entryCount})` : ""
       return `  - ${heading.text}${entryCount}`
     })
   return [`- ${outline.file}`, ...sectionLines].join("\n")
@@ -116,6 +105,7 @@ const formatBrokenLinkSegment = (result: {
     excludedCount > 0
       ? `excludes ${excludedCount} forward-ref${excludedCount === 1 ? "" : "s"} in ${excludedFolder}/`
       : ""
+
   if (count === 0 && excludedNote.length === 0) return ""
 
   const linkCount = `${count} broken link${count === 1 ? "" : "s"}`
@@ -195,9 +185,7 @@ export const registerVaultOrientationPrompt = ({
         const statsLine = [
           `${stats.totalNotes} notes across ${folderCounts.length} folders, ${tags.length} tags, ${propertyKeys.length} property keys.`,
           stats.untaggedNotes > 0 ? `${stats.untaggedNotes} untagged.` : "",
-          stats.noPropertiesNotes > 0
-            ? `${stats.noPropertiesNotes} without properties.`
-            : "",
+          stats.noPropertiesNotes > 0 ? `${stats.noPropertiesNotes} without properties.` : "",
           brokenLinkSegment,
         ]
           .filter(Boolean)
@@ -205,9 +193,7 @@ export const registerVaultOrientationPrompt = ({
 
         const foldersSection =
           folderCounts.length > 0
-            ? folderCounts
-                .map((folder) => `- ${folder.name} (${folder.count})`)
-                .join("\n")
+            ? folderCounts.map((folder) => `- ${folder.name} (${folder.count})`).join("\n")
             : "No folders yet — notes live at the vault root."
 
         const tagsSection =
@@ -226,9 +212,7 @@ export const registerVaultOrientationPrompt = ({
         )
 
         const recentSection =
-          recent.length > 0
-            ? recent.map(formatNoteLine).join("\n")
-            : "No notes yet."
+          recent.length > 0 ? recent.map(formatNoteLine).join("\n") : "No notes yet."
 
         const orphanCountLabel = `${orphans.length}${hasMoreOrphans ? "+" : ""}`
         const orphanSection =
@@ -256,10 +240,7 @@ export const registerVaultOrientationPrompt = ({
             "vault_search",
             `- \`vault_search\` — ${config.embeddingEnabled ? "hybrid" : "full-text"} search across all notes`,
           ],
-          [
-            "vault_search_by_tag",
-            "- `vault_search_by_tag` — explore notes by tag",
-          ],
+          ["vault_search_by_tag", "- `vault_search_by_tag` — explore notes by tag"],
           [
             "vault_list_property_values",
             "- `vault_list_property_values` — explore values for any property key",
@@ -269,14 +250,8 @@ export const registerVaultOrientationPrompt = ({
             "- `vault_find_orphans` — full orphan list with exclusion control",
             orphans.length > 0,
           ],
-          [
-            "vault_get_memory",
-            "- `vault_get_memory` — read memory files in detail",
-          ],
-          [
-            "vault_read_note",
-            "- `vault_read_note` — read any note's full content",
-          ],
+          ["vault_get_memory", "- `vault_get_memory` — read memory files in detail"],
+          ["vault_read_note", "- `vault_read_note` — read any note's full content"],
           [
             "vault_list_files",
             "- `vault_list_files` — browse non-markdown files (images, canvases, data files)",
@@ -336,16 +311,12 @@ export const registerVaultOrientationPrompt = ({
           "vault_list_tags",
           "vault_list_property_keys",
           "vault_find_orphans",
-          ...(config.memoryEnabled
-            ? (["vault_list_memory_files"] as const)
-            : []),
+          ...(config.memoryEnabled ? (["vault_list_memory_files"] as const) : []),
         ])
         const fallbackHint = fallbackTools
           ? ` You can still explore it directly with the vault tools — try ${fallbackTools}.`
           : ""
-        return textResult(
-          `Could not fully survey the vault (${message}).${fallbackHint}`,
-        )
+        return textResult(`Could not fully survey the vault (${message}).${fallbackHint}`)
       }
     },
   )

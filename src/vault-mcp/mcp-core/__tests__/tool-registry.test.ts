@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest"
-import {
-  TOOL_NAMES,
-  TOOL_REGISTRY,
-  TOOL_REGISTRY_BY_NAME,
-} from "../tool-registry.js"
+import { TOOL_NAMES, TOOL_REGISTRY, TOOL_REGISTRY_BY_NAME } from "../tool-registry.js"
 
 describe("TOOL_REGISTRY", () => {
   it("registry names are unique", () => {
@@ -48,9 +44,7 @@ describe("TOOL_REGISTRY", () => {
   })
 
   it("vault_update_memory is an additive, replay-safe write", () => {
-    expect(
-      TOOL_REGISTRY_BY_NAME.get("vault_update_memory")?.annotations,
-    ).toEqual({
+    expect(TOOL_REGISTRY_BY_NAME.get("vault_update_memory")?.annotations).toEqual({
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: true,
@@ -59,9 +53,7 @@ describe("TOOL_REGISTRY", () => {
   })
 
   it("vault_update_properties is a destructive but idempotent write", () => {
-    expect(
-      TOOL_REGISTRY_BY_NAME.get("vault_update_properties")?.annotations,
-    ).toEqual({
+    expect(TOOL_REGISTRY_BY_NAME.get("vault_update_properties")?.annotations).toEqual({
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: true,
@@ -70,9 +62,7 @@ describe("TOOL_REGISTRY", () => {
   })
 
   it("vault_insert_at_anchor is an additive, non-idempotent write", () => {
-    expect(
-      TOOL_REGISTRY_BY_NAME.get("vault_insert_at_anchor")?.annotations,
-    ).toEqual({
+    expect(TOOL_REGISTRY_BY_NAME.get("vault_insert_at_anchor")?.annotations).toEqual({
       readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: false,
@@ -81,9 +71,7 @@ describe("TOOL_REGISTRY", () => {
   })
 
   it("vault_replace_span is a destructive, non-idempotent write", () => {
-    expect(
-      TOOL_REGISTRY_BY_NAME.get("vault_replace_span")?.annotations,
-    ).toEqual({
+    expect(TOOL_REGISTRY_BY_NAME.get("vault_replace_span")?.annotations).toEqual({
       readOnlyHint: false,
       destructiveHint: true,
       idempotentHint: false,
@@ -92,23 +80,21 @@ describe("TOOL_REGISTRY", () => {
   })
 
   it("vault_update_task is a destructive, non-idempotent write", () => {
-    expect(TOOL_REGISTRY_BY_NAME.get("vault_update_task")?.annotations).toEqual(
-      {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
-    )
+    expect(TOOL_REGISTRY_BY_NAME.get("vault_update_task")?.annotations).toEqual({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false,
+    })
   })
 
   it("the flag-gated groups contain exactly the memory and asset tools", () => {
-    const memoryTools = TOOL_REGISTRY.filter(
-      (entry) => entry.group === "memory",
-    ).map((entry) => entry.name)
-    const assetTools = TOOL_REGISTRY.filter(
-      (entry) => entry.group === "asset",
-    ).map((entry) => entry.name)
+    const memoryTools = TOOL_REGISTRY.filter((entry) => entry.group === "memory").map(
+      (entry) => entry.name,
+    )
+    const assetTools = TOOL_REGISTRY.filter((entry) => entry.group === "asset").map(
+      (entry) => entry.name,
+    )
     expect(memoryTools.toSorted()).toEqual([
       "vault_delete_memory",
       "vault_get_memory",
@@ -116,9 +102,6 @@ describe("TOOL_REGISTRY", () => {
       "vault_memory_recall",
       "vault_update_memory",
     ])
-    expect(assetTools.toSorted()).toEqual([
-      "vault_list_files",
-      "vault_read_file",
-    ])
+    expect(assetTools.toSorted()).toEqual(["vault_list_files", "vault_read_file"])
   })
 })

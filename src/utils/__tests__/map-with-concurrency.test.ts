@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { mapWithConcurrency } from "../map-with-concurrency.js"
 
-const delay = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms))
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 describe("mapWithConcurrency", () => {
   it("returns results in input order regardless of per-item completion order", async () => {
@@ -121,14 +120,14 @@ describe("mapWithConcurrency", () => {
 
   it("rejects when concurrency is not a positive integer", async () => {
     const mapper = async (item: number): Promise<number> => item
-    await expect(
-      mapWithConcurrency({ items: [1], concurrency: 0, mapper }),
-    ).rejects.toThrow("concurrency must be a positive integer, got 0")
-    await expect(
-      mapWithConcurrency({ items: [1], concurrency: -1, mapper }),
-    ).rejects.toThrow("concurrency must be a positive integer, got -1")
-    await expect(
-      mapWithConcurrency({ items: [1], concurrency: 1.5, mapper }),
-    ).rejects.toThrow("concurrency must be a positive integer, got 1.5")
+    await expect(mapWithConcurrency({ items: [1], concurrency: 0, mapper })).rejects.toThrow(
+      "concurrency must be a positive integer, got 0",
+    )
+    await expect(mapWithConcurrency({ items: [1], concurrency: -1, mapper })).rejects.toThrow(
+      "concurrency must be a positive integer, got -1",
+    )
+    await expect(mapWithConcurrency({ items: [1], concurrency: 1.5, mapper })).rejects.toThrow(
+      "concurrency must be a positive integer, got 1.5",
+    )
   })
 })

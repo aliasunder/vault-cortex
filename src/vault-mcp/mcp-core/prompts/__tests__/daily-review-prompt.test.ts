@@ -71,9 +71,7 @@ describe("daily-review handler", () => {
       "utf8",
     )
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
-    const text = textOf(
-      await handler({ date: "2026-06-16", max_chars: "30" }, fakeExtra),
-    )
+    const text = textOf(await handler({ date: "2026-06-16", max_chars: "30" }, fakeExtra))
 
     expect(text).toContain("truncated at 30 characters")
     expect(text).toContain("vault_get_daily_note")
@@ -89,9 +87,7 @@ describe("daily-review handler", () => {
       "utf8",
     )
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
-    const text = textOf(
-      await handler({ date: "2026-06-16", max_chars: "30" }, fakeExtra),
-    )
+    const text = textOf(await handler({ date: "2026-06-16", max_chars: "30" }, fakeExtra))
 
     expect(text).toContain(
       '<vault-content source="Daily Notes/2026-06-16.md" type="daily-note" date="2026-06-16">',
@@ -115,9 +111,7 @@ describe("daily-review handler", () => {
 
     const calls: RegisterPromptCall[] = []
     const server = {
-      registerPrompt: vi.fn((...args: unknown[]) =>
-        calls.push(args as RegisterPromptCall),
-      ),
+      registerPrompt: vi.fn((...args: unknown[]) => calls.push(args as RegisterPromptCall)),
     }
     registerPrompts({
       server: server as unknown as McpServer,
@@ -148,10 +142,7 @@ describe("daily-review handler", () => {
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
 
-    const instructionText = text.replace(
-      /<vault-content[^>]*>[\s\S]*?<\/vault-content>/g,
-      "",
-    )
+    const instructionText = text.replace(/<vault-content[^>]*>[\s\S]*?<\/vault-content>/g, "")
     expect(instructionText).not.toContain("</vault-content>")
   })
 
@@ -245,8 +236,7 @@ describe("daily-review handler", () => {
     search.upsertNote(
       {
         filePath: "meeting.md",
-        rawContent:
-          "---\ntitle: Meeting\n---\n# Meeting\n\nSee [[Daily Notes/2026-06-16]].\n",
+        rawContent: "---\ntitle: Meeting\n---\n# Meeting\n\nSee [[Daily Notes/2026-06-16]].\n",
         fileStat: { mtimeMs: JUNE_16_MIDDAY_MS, size: 80 },
       },
       logger,
@@ -263,11 +253,7 @@ describe("daily-review handler", () => {
     const { vault, search, calls } = await setupVault()
     await mkdir(join(vault, "Daily Notes"), { recursive: true })
     const dailyContent = "# 2026-06-16\n\nPlain text, no links.\n"
-    await writeFile(
-      join(vault, "Daily Notes", "2026-06-16.md"),
-      dailyContent,
-      "utf8",
-    )
+    await writeFile(join(vault, "Daily Notes", "2026-06-16.md"), dailyContent, "utf8")
     search.upsertNote(
       {
         filePath: "Daily Notes/2026-06-16.md",
@@ -415,8 +401,7 @@ describe("daily-review handler", () => {
   it("surfaces tasks in the daily note with heading but no path", async () => {
     const { calls } = await setupDailyReviewVault({
       date: "2026-06-16",
-      dailyContent:
-        "# 2026-06-16\n\n## Morning\n\n- [ ] Review PRs\n- [x] Standup ✅ 2026-06-16\n",
+      dailyContent: "# 2026-06-16\n\n## Morning\n\n- [ ] Review PRs\n- [x] Standup ✅ 2026-06-16\n",
     })
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2026-06-16" }, fakeExtra))
@@ -426,8 +411,7 @@ describe("daily-review handler", () => {
     expect(text).toContain("[x] Standup — Morning")
     // Daily-note tasks show heading but not the note path — extract the
     // section between the heading and the next ## to verify.
-    const taskSection =
-      text.split("## Tasks in the daily note")[1]?.split("##")[0] ?? ""
+    const taskSection = text.split("## Tasks in the daily note")[1]?.split("##")[0] ?? ""
     expect(taskSection).not.toContain("`Daily Notes/2026-06-16.md`")
   })
 
@@ -469,8 +453,7 @@ describe("daily-review handler", () => {
       extraNotes: [
         {
           path: "todo.md",
-          content:
-            "---\ntitle: Todo\n---\n# Todo\n\n- [ ] Urgent fix 📅 2026-06-16\n",
+          content: "---\ntitle: Todo\n---\n# Todo\n\n- [ ] Urgent fix 📅 2026-06-16\n",
         },
       ],
     })
@@ -656,8 +639,7 @@ describe("daily-review with READONLY_MODE=true", () => {
       extraNotes: [
         {
           path: "todo.md",
-          content:
-            "---\ntitle: Todo\n---\n# Todo\n\n- [ ] Urgent fix 📅 2026-06-16\n",
+          content: "---\ntitle: Todo\n---\n# Todo\n\n- [ ] Urgent fix 📅 2026-06-16\n",
         },
       ],
     })
@@ -677,9 +659,7 @@ describe("daily-review with READONLY_MODE=true", () => {
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2020-01-01" }, fakeExtra))
 
-    expect(text).toContain(
-      "No daily note found at `Daily Notes/2020-01-01.md`.",
-    )
+    expect(text).toContain("No daily note found at `Daily Notes/2020-01-01.md`.")
     for (const writeToolReference of WRITE_TOOL_REFERENCES) {
       expect(text).not.toContain(writeToolReference)
     }
@@ -694,8 +674,7 @@ describe("daily-review with READONLY_MODE=true", () => {
 describe("daily-review with DISABLED_TOOLS", () => {
   const taskNote = {
     path: "todo.md",
-    content:
-      "---\ntitle: Todo\n---\n# Todo\n\n- [ ] Urgent fix 📅 2026-06-16\n",
+    content: "---\ntitle: Todo\n---\n# Todo\n\n- [ ] Urgent fix 📅 2026-06-16\n",
   }
 
   it("names only the surviving reschedule tool when vault_patch_note is disabled", async () => {
@@ -713,9 +692,7 @@ describe("daily-review with DISABLED_TOOLS", () => {
     expect(text).not.toContain("vault_patch_note")
     // Writes are still on, so the unrelated memory directive is untouched —
     // this is a per-tool narrowing, not the read-only variant.
-    expect(text).toContain(
-      "propose saving it to About Me/ memory via vault_update_memory",
-    )
+    expect(text).toContain("propose saving it to About Me/ memory via vault_update_memory")
   })
 
   it("drops the reschedule sentence when both note-edit tools are disabled", async () => {
@@ -768,8 +745,7 @@ describe("daily-review with DISABLED_TOOLS", () => {
     const { calls } = await setupDailyReviewVault({
       date: "2026-06-16",
       config: loadConfig({
-        DISABLED_TOOLS:
-          "vault_update_task,vault_patch_note,vault_replace_in_note",
+        DISABLED_TOOLS: "vault_update_task,vault_patch_note,vault_replace_in_note",
       }),
       extraNotes: [taskNote],
     })
@@ -803,9 +779,7 @@ describe("daily-review with DISABLED_TOOLS", () => {
     const handler = findCall(calls, PROMPT_NAMES.DAILY_REVIEW)[2]
     const text = textOf(await handler({ date: "2020-01-01" }, fakeExtra))
 
-    expect(text).toContain(
-      "No daily note found at `Daily Notes/2020-01-01.md`.",
-    )
+    expect(text).toContain("No daily note found at `Daily Notes/2020-01-01.md`.")
     expect(text).not.toContain("vault_write_note")
   })
 })

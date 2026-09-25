@@ -52,8 +52,7 @@ export type InitDeps = {
 
 const DEFAULT_TARGET_DIR = "./vault-cortex"
 
-const isMode = (value: string): value is Mode =>
-  value === "local" || value === "remote"
+const isMode = (value: string): value is Mode => value === "local" || value === "remote"
 
 const askMode = async (prompts: Prompts): Promise<Mode> => {
   const selected = await prompts.select(
@@ -90,6 +89,7 @@ const offerSyncTokenCapture = async (
       "You can sign in to your Obsidian account now to generate one.",
   )
   const runNow = await prompts.confirm("Generate the token now?", true)
+
   if (!runNow) return undefined
   return captureObsidianToken({ prompts, fetchFn })
 }
@@ -106,15 +106,14 @@ const askVaultPath = async (prompts: Prompts): Promise<string> => {
     placeholder: "/Users/you/Documents/MyVault",
   })
   const validation = validateVaultPath(answer)
+
   if (validation.kind === "error") {
     prompts.error(validation.message)
     return askVaultPath(prompts)
   }
   if (validation.kind === "warn") {
-    const useAnyway = await prompts.confirm(
-      `${validation.message} Use it anyway?`,
-      true,
-    )
+    const useAnyway = await prompts.confirm(`${validation.message} Use it anyway?`, true)
+
     if (!useAnyway) return askVaultPath(prompts)
   }
   return validation.path
@@ -144,13 +143,13 @@ const parseHttpUrl = (value: string): URL | null => {
   }
 }
 
-export type PublicUrlValidation =
-  { kind: "ok"; url: string } | { kind: "error"; message: string }
+export type PublicUrlValidation = { kind: "ok"; url: string } | { kind: "error"; message: string }
 
 /** Validates a PUBLIC_URL value: must be a bare http(s) origin — no path, credentials, query, or fragment. */
 export const validatePublicUrl = (input: string): PublicUrlValidation => {
   const trimmed = input.trim()
   const url = parseHttpUrl(trimmed)
+
   if (!url) {
     return {
       kind: "error",
@@ -170,8 +169,7 @@ export const validatePublicUrl = (input: string): PublicUrlValidation => {
   if (trimmed.includes("?") || trimmed.includes("#")) {
     return {
       kind: "error",
-      message:
-        "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
     }
   }
   if (TRAILING_MCP_PATH.test(url.pathname)) {
@@ -202,6 +200,7 @@ const askPublicUrl = async (prompts: Prompts): Promise<string> => {
     },
   )
   const result = validatePublicUrl(answer)
+
   if (result.kind === "error") {
     prompts.error(result.message)
     return askPublicUrl(prompts)
@@ -211,13 +210,10 @@ const askPublicUrl = async (prompts: Prompts): Promise<string> => {
 
 /** Re-prompts until non-empty. */
 const askVaultName = async (prompts: Prompts): Promise<string> => {
-  const answer = await prompts.text(
-    "Exact name of your Obsidian vault (case-sensitive):",
-  )
+  const answer = await prompts.text("Exact name of your Obsidian vault (case-sensitive):")
+
   if (answer.trim() === "") {
-    prompts.error(
-      "VAULT_NAME is required — it must match your vault name in Obsidian Sync.",
-    )
+    prompts.error("VAULT_NAME is required — it must match your vault name in Obsidian Sync.")
     return askVaultName(prompts)
   }
   return answer.trim()
@@ -246,10 +242,8 @@ const confirmReinitOverExistingEnv = async (
 ): Promise<boolean> => {
   if (!existsSync(join(targetDir, ".env"))) return true
   prompts.log(`Found an existing deployment in ${targetDir}.`)
-  const reinitAnyway = await prompts.confirm(
-    "Re-run setup for this directory anyway?",
-    false,
-  )
+  const reinitAnyway = await prompts.confirm("Re-run setup for this directory anyway?", false)
+
   if (reinitAnyway) return true
   // No outro here: declining still exits 0, and the runInit wrapper owns the
   // closing outro (mirroring configure's declined-restart path).
@@ -289,6 +283,7 @@ const offerDockerRun = async (
   const { targetDir, port, mode, vaultPath } = params
   const { prompts, docker, fetchFn } = deps
   const daemonStatus = docker.daemonStatus()
+
   if (daemonStatus !== "running") {
     const startHint = startCommand(targetDir)
     prompts.warn(
@@ -301,6 +296,7 @@ const offerDockerRun = async (
     return "not-started"
   }
   const startNow = await prompts.confirm("Start the server now?", true)
+
   if (!startNow) return "not-started"
   const envFilePath = join(targetDir, ".env")
   stripEnvQuotedValues(envFilePath)
@@ -310,20 +306,17 @@ const offerDockerRun = async (
     port,
     vaultPath,
   })
+
   if (!containerStarted) {
     prompts.error("docker run failed — see output above.")
     return "not-started"
   }
 
   const spinner = prompts.spinner()
-  spinner.start(
-    "Waiting for the server to come up (first run may take a moment)",
-  )
+  spinner.start("Waiting for the server to come up (first run may take a moment)")
   const timeoutMs = healthPollTimeoutMs(mode)
-  const healthy = await pollHealth(
-    { url: `http://127.0.0.1:${port}/healthz`, timeoutMs },
-    fetchFn,
-  )
+  const healthy = await pollHealth({ url: `http://127.0.0.1:${port}/healthz`, timeoutMs }, fetchFn)
+
   if (!healthy) {
     spinner.stop(healthTimeoutMessage(mode, timeoutMs))
     return "starting"
@@ -335,19 +328,15 @@ const offerDockerRun = async (
 // Local flow: resolve vault path → resolve target dir → generate token →
 // write .env → optionally start the container → print connect instructions.
 // Returns a process exit code.
-const runLocalInit = async (
-  flags: InitFlags,
-  deps: InitDeps,
-): Promise<number> => {
+const runLocalInit = async (flags: InitFlags, deps: InitDeps): Promise<number> => {
   const { prompts } = deps
 
   // Vault path comes from --vault-path when given and valid; interactive
   // runs fall back to prompting on a bad flag, while --yes must fail hard
   // because there is no prompt to fall back to.
   const vaultPathResult =
-    flags.vaultPath === undefined
-      ? undefined
-      : validateVaultPath(flags.vaultPath)
+    flags.vaultPath === undefined ? undefined : validateVaultPath(flags.vaultPath)
+
   if (flags.yes) {
     if (!vaultPathResult || vaultPathResult.kind === "error") {
       prompts.error(vaultPathResult?.message ?? "--yes requires --vault-path.")
@@ -384,10 +373,8 @@ const runLocalInit = async (
   // --yes skips the guard: it's non-interactive by contract, and its own
   // conflict policy (refuse to overwrite, exit 1) already protects the dir.
   if (!flags.yes) {
-    const continueReinit = await confirmReinitOverExistingEnv(
-      targetDir,
-      prompts,
-    )
+    const continueReinit = await confirmReinitOverExistingEnv(targetDir, prompts)
+
     if (!continueReinit) return 0
   }
 
@@ -403,10 +390,7 @@ const runLocalInit = async (
   const defaultEnvContent = buildLocalEnv({ mcpAuthToken: token, vaultPath })
   const optionalOverrides = flags.yes
     ? {}
-    : await askOptionalSettings(
-        { mode: "local", envContent: defaultEnvContent },
-        prompts,
-      )
+    : await askOptionalSettings({ mode: "local", envContent: defaultEnvContent }, prompts)
   const envContent = applyOptionalSettings(
     defaultEnvContent,
     derivePublicUrlOverride(defaultEnvContent, optionalOverrides),
@@ -421,6 +405,7 @@ const runLocalInit = async (
   reportWrites({ targetDir, results }, prompts)
 
   const keptConflicts = results.filter((result) => result.status === "kept")
+
   if (flags.yes && keptConflicts.length > 0) {
     prompts.error(
       `Existing files differ (${keptConflicts.map((result) => result.name).join(", ")}) — refusing to overwrite in --yes mode.`,
@@ -432,8 +417,8 @@ const runLocalInit = async (
   // saved — the connect message must point at the token (and PORT) actually
   // on disk, or a pasted token fails auth with no hint why.
   const envResult = results.find((result) => result.name === ".env")
-  const tokenWritten =
-    envResult?.status === "created" || envResult?.status === "overwritten"
+  const tokenWritten = envResult?.status === "created" || envResult?.status === "overwritten"
+
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   const port = readEnvPort(join(targetDir, ".env"))
 
@@ -458,10 +443,7 @@ const runLocalInit = async (
 // E2E vault password → generate token → write .env → optionally start → print
 // connect instructions. Always interactive — the sync-token step can't be
 // defaulted.
-const runRemoteInit = async (
-  flags: InitFlags,
-  deps: InitDeps,
-): Promise<number> => {
+const runRemoteInit = async (flags: InitFlags, deps: InitDeps): Promise<number> => {
   const { prompts, fetchFn } = deps
 
   // expandTilde before resolve: resolve() treats a leading `~` as a literal
@@ -477,6 +459,7 @@ const runRemoteInit = async (
   )
 
   const continueReinit = await confirmReinitOverExistingEnv(targetDir, prompts)
+
   if (!continueReinit) return 0
 
   const publicUrl = await askPublicUrl(prompts)
@@ -489,6 +472,7 @@ const runRemoteInit = async (
   const capturedToken = await offerSyncTokenCapture(prompts, fetchFn)
   const existingEnvToken = readEnvObsidianToken(join(targetDir, ".env"))
   const hasExistingToken = Boolean(capturedToken ?? existingEnvToken)
+
   if (!hasExistingToken) {
     prompts.log(
       "No token yet — run this later to add it to your .env:\n" +
@@ -496,10 +480,7 @@ const runRemoteInit = async (
     )
   }
 
-  const usesEncryption = await prompts.confirm(
-    "Does your vault use end-to-end encryption?",
-    false,
-  )
+  const usesEncryption = await prompts.confirm("Does your vault use end-to-end encryption?", false)
   const vaultPassword = usesEncryption
     ? await prompts.password("Vault encryption password:")
     : undefined
@@ -527,10 +508,7 @@ const runRemoteInit = async (
     derivePublicUrlOverride(defaultEnvContent, optionalOverrides),
   )
   const files = buildFilesToWrite(envContent)
-  const results = await writeFiles(
-    { targetDir, files },
-    confirmOverwrite(prompts),
-  )
+  const results = await writeFiles({ targetDir, files }, confirmOverwrite(prompts))
   reportWrites({ targetDir, results }, prompts)
 
   // Same kept-.env handling as the local flow: the server only reads config
@@ -538,22 +516,22 @@ const runRemoteInit = async (
   // generated token was never saved (printing it would fail auth) and PORT
   // may differ from the default.
   const envResult = results.find((result) => result.name === ".env")
-  const tokenWritten =
-    envResult?.status === "created" || envResult?.status === "overwritten"
+  const tokenWritten = envResult?.status === "created" || envResult?.status === "overwritten"
+
   if (tokenWritten) prompts.log("Generated MCP auth token (saved to .env).")
   const port = readEnvPort(join(targetDir, ".env"))
   // Like PORT above, PUBLIC_URL comes from the .env actually on disk — a kept
   // existing file may hold a different URL than this run's prompt, and the
   // server only reads the file. The prompted value is the fallback for a kept
   // legacy .env that predates PUBLIC_URL.
-  const effectivePublicUrl =
-    readEnvPublicUrl(join(targetDir, ".env")) ?? publicUrl
+  const effectivePublicUrl = readEnvPublicUrl(join(targetDir, ".env")) ?? publicUrl
 
   // Without the sync token the container can't start (init-check-auth fails
   // and s6 stops it), so only offer docker run when it was provided.
   const startStatus: StartStatus = !hasExistingToken
     ? "not-started"
     : await offerDockerRun({ targetDir, port, mode: "remote" }, deps)
+
   // The container check above hit localhost on this machine; the public URL
   // is the ingress path clients actually use — probe it too, informationally.
   if (startStatus === "running") {
@@ -575,22 +553,15 @@ const runRemoteInit = async (
   return 0
 }
 
-export const runInit = async (
-  flags: InitFlags,
-  deps: InitDeps,
-): Promise<number> => {
+export const runInit = async (flags: InitFlags, deps: InitDeps): Promise<number> => {
   const { prompts } = deps
 
   if (flags.mode !== undefined && !isMode(flags.mode)) {
-    prompts.error(
-      `Unknown mode "${flags.mode}" — expected "local" or "remote".`,
-    )
+    prompts.error(`Unknown mode "${flags.mode}" — expected "local" or "remote".`)
     return 1
   }
   if (flags.yes && flags.mode === "remote") {
-    prompts.error(
-      "--yes only supports local mode — remote setup needs interactive token prompts.",
-    )
+    prompts.error("--yes only supports local mode — remote setup needs interactive token prompts.")
     return 1
   }
   if (flags.yes && flags.vaultPath === undefined) {
@@ -606,9 +577,8 @@ export const runInit = async (
   const mode: Mode = flagMode ?? (flags.yes ? "local" : await askMode(prompts))
 
   const exitCode =
-    mode === "local"
-      ? await runLocalInit(flags, deps)
-      : await runRemoteInit(flags, deps)
+    mode === "local" ? await runLocalInit(flags, deps) : await runRemoteInit(flags, deps)
+
   if (exitCode === 0) prompts.outro("Done.")
   return exitCode
 }

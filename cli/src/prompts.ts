@@ -30,11 +30,7 @@ export type Prompts = {
   log: (message: string) => void
   warn: (message: string) => void
   error: (message: string) => void
-  select: (
-    message: string,
-    options: SelectOption[],
-    initialValue: string,
-  ) => Promise<string>
+  select: (message: string, options: SelectOption[], initialValue: string) => Promise<string>
   /**
    * Zero-or-more chooser (space toggles, enter submits). Always optional —
    * submitting with nothing selected resolves to an empty array, so callers
@@ -51,13 +47,9 @@ export type Prompts = {
   spinner: () => Spinner
 }
 
-// User pressed ctrl-C mid-prompt: 130 = 128 + SIGINT, the shell convention.
-// Guard on typeof, not clack.isCancel: since @clack/prompts 1.8.0 isCancel
-// narrows to its unique CANCEL_SYMBOL, which cannot remove the broad `symbol`
-// from the `T | symbol` the prompt functions return — a typeof check does,
-// and the cancel sentinel is the only symbol a prompt ever resolves with.
-const exitOnCancel = <T>(value: T | symbol): T => {
-  if (typeof value === "symbol") {
+// 130 = 128 + SIGINT, the shell convention for ctrl-C.
+const exitOnCancel = <T>(value: T | typeof clack.CANCEL_SYMBOL): T => {
+  if (clack.isCancel(value)) {
     clack.cancel("Cancelled.")
     process.exit(130)
   }
@@ -87,9 +79,7 @@ export const createPrompts = (): Prompts => ({
   // required: false makes an empty submission legal — the Prompts contract
   // promises "no picks" resolves to [] instead of a re-prompt loop.
   multiselect: async (message, options) =>
-    exitOnCancel(
-      await clack.multiselect({ message, options, required: false }),
-    ),
+    exitOnCancel(await clack.multiselect({ message, options, required: false })),
   text: async (message, options = {}) =>
     exitOnCancel(
       await clack.text({

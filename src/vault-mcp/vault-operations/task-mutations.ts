@@ -9,11 +9,13 @@ import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
+import { parseHeadings, type HeadingInfo } from "../obsidian-markdown/headings.js"
 import {
-  parseHeadings,
-  type HeadingInfo,
-} from "../obsidian-markdown/headings.js"
-import { splitIntoLines } from "../obsidian-markdown/lines.js"
+  splitIntoLines,
+  advanceFence,
+  advanceComment,
+  type OpenFence,
+} from "../obsidian-markdown/lines.js"
 import { tasks } from "../obsidian-markdown/tasks.js"
 import type {
   TaskStatus,
@@ -31,6 +33,7 @@ import {
 import {
   readTaskFormatConfig,
   type TaskFormatConfig,
+  type StatusClassification,
 } from "./task-format-config.js"
 import type { Logger } from "../../logger.js"
 
@@ -44,7 +47,7 @@ type CreateTaskParams = {
   heading?: string | undefined
   parentBlockId?: string | undefined
   parentLine?: number | undefined
-  position?: "top" | "bottom" | undefined
+  position?: "top" | "bottom" | number | undefined
   priority?: TaskPriority | undefined
   recurrence?: string | undefined
   onCompletion?: string | undefined
@@ -88,7 +91,7 @@ type UpdateTaskParams = {
   recurrence?: string | null | undefined
   onCompletion?: string | null | undefined
   heading?: string | undefined
-  position?: "top" | "bottom" | undefined
+  position?: "top" | "bottom" | number | undefined
   description?: string | undefined
   due?: string | null | undefined
   scheduled?: string | null | undefined
@@ -144,9 +147,7 @@ const formatChange = ({
 }
 
 /** Joins a dependency list for a `changes` entry; an empty list is absent. */
-const formatDependsOn = (
-  dependsOn: readonly string[] | null | undefined,
-): string | null => {
+const formatDependsOn = (dependsOn: readonly string[] | null | undefined): string | null => {
   if (!dependsOn || dependsOn.length === 0) return null
   return dependsOn.join(",")
 }
@@ -180,9 +181,7 @@ const parsedDescriptionClause = ({
 
 /** One advisory sentence per divergence, keyed on where the expectation came
  *  from — a value submitted this call, the line's previous parse, or nothing. */
-const describeRoundTripDivergence = (
-  divergence: TaskRoundTripDivergence,
-): string => {
+const describeRoundTripDivergence = (divergence: TaskRoundTripDivergence): string => {
   if (divergence.field === "description") {
     const clause = parsedDescriptionClause({
       storedValue: divergence.storedValue,
@@ -192,6 +191,7 @@ const describeRoundTripDivergence = (
     return `description: the line was written as submitted, but ${clause}`
   }
   const storedDisplay = displayRoundTripValue(divergence.storedValue)
+
   if (divergence.expectedSource === "submitted") {
     return `${divergence.field}: submitted ${displayRoundTripValue(divergence.expected)} but the stored line parses back ${storedDisplay}`
   }
@@ -226,9 +226,8 @@ const buildSubtaskAdvisory = (subtaskText: string): string[] => {
     priorTaskLine: null,
     submitted: { description: subtaskText },
   })
-  const descriptionDivergence = divergences.find(
-    (divergence) => divergence.field === "description",
-  )
+  const descriptionDivergence = divergences.find((divergence) => divergence.field === "description")
+
   if (!descriptionDivergence) return []
   const clause = parsedDescriptionClause({
     storedValue: descriptionDivergence.storedValue,
@@ -241,9 +240,7 @@ const buildSubtaskAdvisory = (subtaskText: string): string[] => {
 /** Description-only advisories for newly written checklist lines — a
  *  checklist item carries no metadata params, so the only divergence worth
  *  reporting is its text truncating into fields. */
-const subtaskRoundTripAdvisories = (
-  subtaskDescriptions: readonly string[],
-): string[] => {
+const subtaskRoundTripAdvisories = (subtaskDescriptions: readonly string[]): string[] => {
   return subtaskDescriptions.flatMap(buildSubtaskAdvisory)
 }
 
@@ -286,6 +283,8 @@ const subtaskPositionsFrom = ({
   descriptions: readonly string[]
 }): SubtaskPosition[] => {
   return descriptions.map((description, offset) => ({
+    // frontmatter lines + body index of the first subtask + offset within
+    // the batch + 1 for the file's 1-based line numbering
     line: bodyStartLine + firstBodyIndex + offset + 1,
     description,
   }))
@@ -299,13 +298,7 @@ const BLOCK_ID_RE = /^[a-zA-Z0-9-]+$/
 
 /** Resolves a note path for mutation — `.md` extension + vault-root safety.
  *  No I/O: the note is read once, inside the file lock. */
-const resolveNotePath = ({
-  vaultPath,
-  path,
-}: {
-  vaultPath: string
-  path: string
-}): string => {
+const resolveNotePath = ({ vaultPath, path }: { vaultPath: string; path: string }): string => {
   assertPathHasExtension(path, ".md")
   return resolveSafePath(vaultPath, path)
 }
@@ -332,26 +325,28 @@ const readNoteContent = async ({
 /** Collects contiguous sub-items below a task line — lines with deeper
  *  indentation than the task itself. Returns the exclusive end index
  *  (the first line that is NOT a sub-item). */
-const findTaskBlockEnd = (
-  lines: readonly string[],
-  taskLineIndex: number,
-): number => {
+const findTaskBlockEnd = (lines: readonly string[], taskLineIndex: number): number => {
   const taskLine = lines[taskLineIndex]
+
   if (!taskLine) return taskLineIndex + 1
 
   // Structural indent — blockquote markers stripped, the same measure the
   // parser uses for depth, so a quoted card's block matches its sub-tasks.
   const taskIndent = tasks.getTaskIndent(taskLine)
+  // Walks forward with variable-length jumps (blank lines skipped,
+  // sub-items grouped), then trims trailing blanks — both loops mutate.
   let endIndex = taskLineIndex + 1
 
   while (endIndex < lines.length) {
     const line = lines[endIndex]
+
     if (line === undefined) break
     if (line.trim() === "") {
       endIndex++
       continue
     }
     const lineIndent = tasks.getTaskIndent(line)
+
     if (lineIndent <= taskIndent) break
     endIndex++
   }
@@ -359,6 +354,7 @@ const findTaskBlockEnd = (
   // Trim trailing blank lines from the block
   while (endIndex > taskLineIndex + 1) {
     const prevLine = lines[endIndex - 1]
+
     if (prevLine?.trim()) break
     endIndex--
   }
@@ -380,8 +376,8 @@ const subtaskIndentUnder = ({
   lines: readonly string[]
   parentLineIndex: number
 }): string => {
-  const parentPrefix =
-    LIST_ITEM_PREFIX_RE.exec(lines[parentLineIndex] ?? "")?.[0] ?? ""
+  const parentLine = lines[parentLineIndex]
+  const parentPrefix = parentLine ? (LIST_ITEM_PREFIX_RE.exec(parentLine)?.[0] ?? "") : ""
   const blockEnd = findTaskBlockEnd(lines, parentLineIndex)
   const firstChildIndex = parentLineIndex + 1
   const hasExistingChildren = firstChildIndex < blockEnd
@@ -392,9 +388,8 @@ const subtaskIndentUnder = ({
   return firstChildPrefix ?? `${parentPrefix}  `
 }
 
-/** Top-of-section insertion index: the heading's body start, or just past
- *  a `**Complete**` marker — inserting above the marker would break
- *  done-lane detection on later reads. */
+/** Skips past a `**Complete**` marker when present — inserting above it
+ *  would break done-lane detection on later reads. */
 const taskInsertIndexUnderHeading = ({
   lines,
   heading,
@@ -405,16 +400,15 @@ const taskInsertIndexUnderHeading = ({
   const firstContentIndex = lines.findIndex(
     (line, index) => index >= heading.bodyStartLine && line.trim() !== "",
   )
+
   if (firstContentIndex === -1) return heading.bodyStartLine
   const firstContent = lines[firstContentIndex]?.trim()
-  return firstContent === "**Complete**"
-    ? firstContentIndex + 1
-    : heading.bodyStartLine
+  return firstContent === "**Complete**" ? firstContentIndex + 1 : heading.bodyStartLine
 }
 
-/** Bottom-of-section insertion index: after the last non-blank line in
- *  the section body, so the task appends to the existing content without
- *  trailing blank-line gaps. Falls back to bodyStartLine for empty sections. */
+/** Appends after the last non-blank line in the section body so new tasks
+ *  land without trailing blank-line gaps. Falls back to bodyStartLine for
+ *  empty sections. */
 const taskAppendIndexUnderHeading = ({
   lines,
   heading,
@@ -423,29 +417,139 @@ const taskAppendIndexUnderHeading = ({
   heading: HeadingInfo
 }): number => {
   const sectionLines = lines.slice(heading.bodyStartLine, heading.bodyEndLine)
-  const lastContentOffset = sectionLines.findLastIndex(
-    (line) => line.trim() !== "",
-  )
+  const lastContentOffset = sectionLines.findLastIndex((line) => line.trim() !== "")
+
   if (lastContentOffset === -1) return heading.bodyStartLine
   return heading.bodyStartLine + lastContentOffset + 1
+}
+
+/** A task line that the index would exclude — inside a fence/comment or
+ *  typed NON_TASK in the status registry — is not a lane card for
+ *  position-counting purposes. */
+const isExcludedFromLane = ({
+  line,
+  lineIndex,
+  lines,
+  statusRegistry,
+}: {
+  line: string
+  lineIndex: number
+  lines: readonly string[]
+  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
+}): boolean => {
+  if (isInsideFenceOrComment(lines, lineIndex)) return true
+
+  if (!statusRegistry) return false
+
+  const charMatch = CHECKBOX_CHAR_RE.exec(line)
+  const statusChar = charMatch?.[1]
+
+  if (!statusChar) return false
+
+  return tasks.statusForChar(statusChar, statusRegistry) === "non_task"
+}
+
+/** Body-line index for inserting at position N (1-based) among a lane's
+ *  top-level cards — skipping sub-item blocks and fence/comment/NON_TASK
+ *  lines. An N past the last card clamps to the lane's end site rather than
+ *  its trailing-content position. */
+const headingInsertIndexAtPosition = ({
+  lines,
+  heading,
+  position,
+  statusRegistry,
+}: {
+  lines: readonly string[]
+  heading: HeadingInfo
+  position: number
+  statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
+}): number => {
+  // Start from bodyStartLine (not taskInsertIndexUnderHeading) so the
+  // integer walk and positionOfTaskInLane count from the same window.
+  // The **Complete** marker skip only matters for the "bottom" append.
+  const sectionStart = heading.bodyStartLine
+  const sectionEnd = heading.bodyEndLine
+
+  // Cards under child headings belong to those headings, not this lane.
+  const firstChildStart = parseHeadings(lines).find((childHeading) => {
+    return childHeading.startLine >= sectionStart && childHeading.startLine < sectionEnd
+  })?.startLine
+  const walkEnd = firstChildStart ?? sectionEnd
+
+  const cardStartIndices: number[] = []
+  // Variable-length jumps through the section: each card's sub-item block
+  // is skipped via findTaskBlockEnd, so the step size varies per iteration.
+  // lastCardBlockEnd tracks the end of the final card's block so an integer
+  // overshoot clamps to after the last card, not at the section's
+  // trailing-content position.
+  let walkIndex = sectionStart
+  let lastCardBlockEnd = -1
+
+  while (walkIndex < walkEnd) {
+    const line = lines[walkIndex]
+
+    if (!line?.trim() || !tasks.isTaskLine(line)) {
+      walkIndex++
+      continue
+    }
+    if (isExcludedFromLane({ line, lineIndex: walkIndex, lines, statusRegistry })) {
+      walkIndex = findTaskBlockEnd(lines, walkIndex)
+      continue
+    }
+    cardStartIndices.push(walkIndex)
+    const blockEnd = findTaskBlockEnd(lines, walkIndex)
+    lastCardBlockEnd = blockEnd
+    walkIndex = blockEnd
+  }
+
+  // An overshoot lands after the last card when cards exist, before the
+  // first child heading when the lane's own level has none, and at the
+  // lane's insert slot otherwise.
+  const overshootFallback =
+    lastCardBlockEnd >= 0
+      ? lastCardBlockEnd
+      : (firstChildStart ?? taskInsertIndexUnderHeading({ lines, heading }))
+  return cardStartIndices[position - 1] ?? overshootFallback
 }
 
 const headingInsertIndex = ({
   lines,
   heading,
   position,
+  statusRegistry,
 }: {
   lines: readonly string[]
   heading: HeadingInfo
-  position: "top" | "bottom"
+  position: "top" | "bottom" | number
+  statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
 }): number => {
-  return position === "top"
-    ? taskInsertIndexUnderHeading({ lines, heading })
-    : taskAppendIndexUnderHeading({ lines, heading })
+  if (typeof position === "number") {
+    return headingInsertIndexAtPosition({ lines, heading, position, statusRegistry })
+  }
+  if (position === "top") {
+    return taskInsertIndexUnderHeading({ lines, heading })
+  }
+  // "bottom" — append after the lane's own content, bounded at the first
+  // child heading so the card doesn't land inside a nested section.
+  const firstChildStart = parseHeadings(lines).find((childHeading) => {
+    return (
+      childHeading.startLine >= heading.bodyStartLine &&
+      childHeading.startLine < heading.bodyEndLine
+    )
+  })?.startLine
+
+  if (firstChildStart !== undefined) {
+    const sectionLines = lines.slice(heading.bodyStartLine, firstChildStart)
+    const lastContentOffset = sectionLines.findLastIndex((sectionLine) => sectionLine.trim() !== "")
+    return lastContentOffset >= 0
+      ? heading.bodyStartLine + lastContentOffset + 1
+      : heading.bodyStartLine
+  }
+  return taskAppendIndexUnderHeading({ lines, heading })
 }
 
 /** Resolves the effective insertion position for a new task under a heading.
- *  Priority: explicit param > Kanban setting > context default. */
+ *  The explicit param wins, then the Kanban setting, then the context default. */
 const resolveCreatePosition = ({
   explicitPosition,
   isKanbanBoard,
@@ -458,6 +562,7 @@ const resolveCreatePosition = ({
   if (explicitPosition) return explicitPosition
   if (isKanbanBoard) {
     const kanbanMethod = tasks.parseKanbanCardInsertionMethod(bodyLines)
+
     if (kanbanMethod === "prepend") return "top"
   }
   return "bottom"
@@ -483,6 +588,7 @@ const resolveNewTaskPlacement = ({
   heading,
   isKanbanBoard,
   position,
+  statusRegistry,
 }: {
   bodyLines: readonly string[]
   bodyStartLine: number
@@ -490,13 +596,15 @@ const resolveNewTaskPlacement = ({
   parentLocator: ParentLocator | undefined
   heading: string | undefined
   isKanbanBoard: boolean
-  position: "top" | "bottom" | undefined
+  position: "top" | "bottom" | number | undefined
+  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
 }): NewTaskPlacement => {
   if (parentLocator) {
     const parentLineIndex = findParentLineIndex({
       locator: parentLocator,
       bodyLines,
       bodyStartLine,
+      statusRegistry,
     })
     const nearestHeading = headings.findLast(
       (headingInfo) => headingInfo.startLine < parentLineIndex,
@@ -508,36 +616,43 @@ const resolveNewTaskPlacement = ({
     }
   }
   if (heading) {
-    const targetHeading = headings.find(
-      (headingInfo) => headingInfo.text === heading,
-    )
+    const targetHeading = headings.find((headingInfo) => headingInfo.text === heading)
+
     if (!targetHeading) {
-      const availableHeadings = headings
-        .map((headingInfo) => headingInfo.text)
-        .join(", ")
-      throw new Error(
-        `heading "${heading}" not found; available: ${availableHeadings}`,
-      )
+      const availableHeadings = headings.map((headingInfo) => headingInfo.text).join(", ")
+      throw new Error(`heading "${heading}" not found; available: ${availableHeadings}`)
     }
-    const resolvedPosition = resolveCreatePosition({
-      explicitPosition: position,
-      isKanbanBoard,
-      bodyLines,
-    })
+    if (typeof position === "number") {
+      const matchCount = headings.filter((headingInfo) => headingInfo.text === heading).length
+
+      if (matchCount > 1) {
+        throw new Error(
+          `cannot place at position ${position} under "${heading}" — the heading appears ${matchCount} times; rename one section to make it unique`,
+        )
+      }
+    }
+    // Integer positions bypass the Kanban default-resolution path
+    const resolvedPosition =
+      typeof position === "number"
+        ? position
+        : resolveCreatePosition({
+            explicitPosition: position,
+            isKanbanBoard,
+            bodyLines,
+          })
     return {
       insertAt: headingInsertIndex({
         lines: bodyLines,
         heading: targetHeading,
         position: resolvedPosition,
+        statusRegistry,
       }),
       indent: "",
       heading,
     }
   }
   if (isKanbanBoard) {
-    throw new Error(
-      "heading required for Kanban boards (note has kanban-plugin frontmatter)",
-    )
+    throw new Error("heading required for Kanban boards (note has kanban-plugin frontmatter)")
   }
   // End of body — under the note's last heading, if any
   return {
@@ -551,6 +666,7 @@ const resolveNewTaskPlacement = ({
  *  unreachable for a valid `now()`, so it throws rather than degrading. */
 const todayIsoDate = (): string => {
   const today = DateTime.now().toISODate()
+
   if (today === null) {
     throw new Error("failed to determine today's date")
   }
@@ -561,6 +677,58 @@ const todayIsoDate = (): string => {
 type LineEdit = {
   apply: (taskLine: string) => string
   change: string
+}
+
+/** Block-id search that skips fenced code blocks and comment blocks —
+ *  aligns lookup with validateBlockId's fence-skip uniqueness rule. */
+const findBlockIdSkippingFences = (
+  bodyLines: readonly string[],
+  blockId: string,
+): number | "fenced_only" | null => {
+  const suffix = ` ^${blockId}`
+  // Sequential parser state — fence and comment scanners are inherently stateful.
+  let openFence: OpenFence = null
+  let commentOpen = false
+  let hasFencedMatch = false
+
+  for (let index = 0; index < bodyLines.length; index++) {
+    const lineText = bodyLines[index]
+
+    // Empty strings are valid body lines (blank lines), so only undefined is skipped.
+    if (lineText === undefined) continue
+
+    // Fence scanner runs first; comment scanner only advances on non-fenced lines.
+    let isExcluded = false
+
+    if (!commentOpen) {
+      const fenceResult = advanceFence(lineText, openFence)
+      openFence = fenceResult.openFence
+
+      if (fenceResult.lineIsCode) {
+        isExcluded = true
+      }
+    }
+
+    if (!isExcluded) {
+      const commentResult = advanceComment(lineText, commentOpen)
+      commentOpen = commentResult.commentOpen
+
+      if (commentResult.lineIsComment) {
+        isExcluded = true
+      }
+    }
+
+    if (!lineText.trimEnd().endsWith(suffix) || !tasks.isTaskLine(lineText)) continue
+
+    if (isExcluded) {
+      hasFencedMatch = true
+      continue
+    }
+
+    return index
+  }
+
+  return hasFencedMatch ? "fenced_only" : null
 }
 
 /** Body index of the task an update names — by block id, or by 1-based file
@@ -579,88 +747,271 @@ const locateTaskLine = ({
   path: string
 }): number => {
   if (blockId) {
-    const foundIndex = tasks.findTaskByBlockId(bodyLines, blockId)
-    if (foundIndex === null) {
+    const result = findBlockIdSkippingFences(bodyLines, blockId)
+
+    if (result === null) {
       throw new Error(`blockId "${blockId}" not found in "${path}"`)
     }
-    return foundIndex
+    if (result === "fenced_only") {
+      throw new Error(`blockId "${blockId}" is inside a fenced code block or comment in "${path}"`)
+    }
+    return result
   }
   if (!line) {
     throw new Error("exactly one of blockId or line is required")
   }
+  // 1-based file line → 0-based body index (subtract 1 for 1-based, then
+  // subtract the frontmatter lines that precede the body array)
   const taskLineIndex = line - 1 - bodyStartLine
   const taskLineText = bodyLines[taskLineIndex]
+
   if (taskLineIndex < 0 || !taskLineText || !tasks.isTaskLine(taskLineText)) {
     throw new Error(`no task at line ${line}`)
+  }
+  if (isInsideFenceOrComment(bodyLines, taskLineIndex)) {
+    throw new Error(`line ${line} is inside a fenced code block or comment`)
   }
   return taskLineIndex
 }
 
-/** No-op when the task already sits under the target heading. */
+/** Extracts the single character between `[` and `]` from a task line. */
+const CHECKBOX_CHAR_RE = /\[(.)\]/u
+
+/** The Tasks plugin's NON_TASK status type marks checkboxes that are
+ *  excluded from the task system. The grammar regex still matches them,
+ *  so callers guard after locating the line. */
+const rejectNonTaskCheckbox = ({
+  taskLine,
+  statusRegistry,
+}: {
+  taskLine: string
+  statusRegistry: ReadonlyMap<string, StatusClassification>
+}): void => {
+  const charMatch = CHECKBOX_CHAR_RE.exec(taskLine)
+
+  if (!charMatch) return
+
+  const statusChar = charMatch[1]
+
+  if (!statusChar) return
+
+  const classification = tasks.statusForChar(statusChar, statusRegistry)
+
+  if (classification === "non_task") {
+    throw new Error(`checkbox "[${statusChar}]" is a NON_TASK status in the Tasks plugin registry`)
+  }
+}
+
+/** Returns true when the body-line index falls inside a fenced code block
+ *  or a `%% %%` comment block — the same exclusions extractTasks applies. */
+const isInsideFenceOrComment = (bodyLines: readonly string[], lineIndex: number): boolean => {
+  // Sequential parser state — fence and comment scanners are inherently
+  // stateful (same pattern as extractTasks in tasks.ts).
+  let openFence: OpenFence = null
+  let commentOpen = false
+
+  for (let index = 0; index <= lineIndex; index++) {
+    const lineText = bodyLines[index]
+
+    if (lineText === undefined) return false
+
+    if (!commentOpen) {
+      const fenceResult = advanceFence(lineText, openFence)
+      openFence = fenceResult.openFence
+
+      if (index === lineIndex) return fenceResult.lineIsCode
+      if (fenceResult.lineIsCode) continue
+    }
+
+    const commentResult = advanceComment(lineText, commentOpen)
+    commentOpen = commentResult.commentOpen
+
+    if (index === lineIndex) return commentResult.lineIsComment
+  }
+  return false
+}
+
+/** No-op when the task already sits under the target heading and no
+ *  explicit position is requested. With a position, same-lane reorders
+ *  go through the extract-reinsert cycle. */
 const moveTaskBlock = ({
   lines,
   taskLineIndex,
   targetLane,
   headings,
-  position = "top",
+  position,
+  beforePosition,
+  statusRegistry,
 }: {
   lines: readonly string[]
   taskLineIndex: number
   targetLane: string
   headings: readonly HeadingInfo[]
-  position?: "top" | "bottom"
+  position?: "top" | "bottom" | number
+  beforePosition?: number | undefined
+  statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
 }): {
   lines: readonly string[]
   taskLineIndex: number
-  change?: string
+  changes: string[]
   /** Lines the move relocated (task + sub-items) — how far the splices
    *  shifted every line between the block's old and new positions. Absent
    *  when the task already sat under the target heading and nothing moved. */
   movedBlockLength?: number
 } => {
   const targetHeading = headings.find((heading) => heading.text === targetLane)
+
   if (!targetHeading) {
     const availableHeadings = headings.map((heading) => heading.text).join(", ")
-    throw new Error(
-      `heading "${targetLane}" not found; available: ${availableHeadings}`,
-    )
+    throw new Error(`heading "${targetLane}" not found; available: ${availableHeadings}`)
   }
 
-  const currentHeading = headings.findLast(
-    (heading) => heading.startLine < taskLineIndex,
-  )
+  const currentHeading = headings.findLast((heading) => heading.startLine < taskLineIndex)
   const currentLane = currentHeading?.text ?? "(before first heading)"
-  if (currentLane === targetLane) return { lines, taskLineIndex }
+  const isSameLane = currentLane === targetLane
+
+  if (isSameLane && !position) return { lines, taskLineIndex, changes: [] }
 
   const taskBlockEnd = findTaskBlockEnd(lines, taskLineIndex)
   const taskBlock = lines.slice(taskLineIndex, taskBlockEnd)
-  const linesWithoutBlock = lines.toSpliced(
-    taskLineIndex,
-    taskBlockEnd - taskLineIndex,
-  )
+  const linesWithoutBlock = lines.toSpliced(taskLineIndex, taskBlockEnd - taskLineIndex)
 
   // Heading positions shift once the block is gone — re-parse before placing
-  const headingAfterRemoval = parseHeadings(linesWithoutBlock).find(
-    (heading) => heading.text === targetLane,
-  )
+  const headingsAfterRemoval = parseHeadings(linesWithoutBlock)
+  const matchingHeadings = headingsAfterRemoval.filter((heading) => heading.text === targetLane)
+
+  if (matchingHeadings.length > 1 && (isSameLane || typeof position === "number")) {
+    throw new Error(
+      isSameLane
+        ? `cannot reorder within "${targetLane}" — the heading appears ${matchingHeadings.length} times; rename one section to make it unique`
+        : `cannot place at position ${String(position)} under "${targetLane}" — the heading appears ${matchingHeadings.length} times; rename one section to make it unique`,
+    )
+  }
+
+  const headingAfterRemoval = matchingHeadings[0]
+
   if (!headingAfterRemoval) {
     throw new Error(`heading "${targetLane}" not found after line removal`)
   }
+  const resolvedPosition = position ?? "top"
   const insertAt = headingInsertIndex({
     lines: linesWithoutBlock,
     heading: headingAfterRemoval,
-    position,
+    position: resolvedPosition,
+    statusRegistry,
   })
+
+  // An unchanged raw index means the card is already at the target slot.
+  if (isSameLane && insertAt === taskLineIndex) return { lines, taskLineIndex, changes: [] }
+
+  const resultLines = linesWithoutBlock.toSpliced(insertAt, 0, ...taskBlock)
+
+  // The insertion shifts headings below insertAt — re-parse so
+  // positionOfTaskInLane sees the correct bodyEndLine.
+  const headingInResult = parseHeadings(resultLines).findLast(
+    (heading) => heading.startLine < insertAt,
+  )
+
+  const changes: string[] = []
+
+  if (!isSameLane) {
+    changes.push(formatChange({ field: "heading", before: currentLane, after: targetLane }))
+  }
+  if (isSameLane) {
+    const before =
+      beforePosition ??
+      positionOfTaskInLane({ lines, heading: targetHeading, taskLineIndex, statusRegistry })
+    const after = headingInResult
+      ? positionOfTaskInLane({
+          lines: resultLines,
+          heading: headingInResult,
+          taskLineIndex: insertAt,
+          statusRegistry,
+        })
+      : 1
+
+    // Compare the card's position in the move-input lines (not the
+    // pre-spawn before-value) with the result — a spawn shifts the
+    // card's slot, so pre-spawn equality would suppress a real move.
+    const currentSlot = positionOfTaskInLane({
+      lines,
+      heading: targetHeading,
+      taskLineIndex,
+      statusRegistry,
+    })
+
+    if (currentSlot === after) return { lines, taskLineIndex, changes: [] }
+    changes.push(formatChange({ field: "position", before, after }))
+  } else if (typeof position === "number") {
+    const before = currentHeading
+      ? (beforePosition ??
+        positionOfTaskInLane({ lines, heading: currentHeading, taskLineIndex, statusRegistry }))
+      : null
+    const after = headingInResult
+      ? positionOfTaskInLane({
+          lines: resultLines,
+          heading: headingInResult,
+          taskLineIndex: insertAt,
+          statusRegistry,
+        })
+      : 1
+    changes.push(formatChange({ field: "position", before, after }))
+  }
+
   return {
-    lines: linesWithoutBlock.toSpliced(insertAt, 0, ...taskBlock),
+    lines: resultLines,
     taskLineIndex: insertAt,
-    change: formatChange({
-      field: "heading",
-      before: currentLane,
-      after: targetLane,
-    }),
+    changes,
     movedBlockLength: taskBlock.length,
   }
+}
+
+/** 1-based position of a task among its lane's top-level cards. */
+const positionOfTaskInLane = ({
+  lines,
+  heading,
+  taskLineIndex,
+  statusRegistry,
+}: {
+  lines: readonly string[]
+  heading: HeadingInfo
+  taskLineIndex: number
+  statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
+}): number => {
+  // Scan from the heading's body start, not the insert slot — the insert
+  // slot skips past a **Complete** marker, but cards above the marker are
+  // still lane members for position-counting purposes.
+  const sectionStart = heading.bodyStartLine
+  const sectionEnd = heading.bodyEndLine
+
+  const firstChildStart = parseHeadings(lines).find((childHeading) => {
+    return childHeading.startLine >= sectionStart && childHeading.startLine < sectionEnd
+  })?.startLine
+  const walkEnd = firstChildStart ?? sectionEnd
+
+  // Each card's sub-items are skipped via findTaskBlockEnd, so the
+  // step size varies per iteration — both counters must be mutable.
+  let walkIndex = sectionStart
+  let cardPosition = 0
+
+  while (walkIndex < walkEnd) {
+    const line = lines[walkIndex]
+
+    if (!line?.trim() || !tasks.isTaskLine(line)) {
+      walkIndex++
+      continue
+    }
+    if (isExcludedFromLane({ line, lineIndex: walkIndex, lines, statusRegistry })) {
+      walkIndex = findTaskBlockEnd(lines, walkIndex)
+      continue
+    }
+    cardPosition++
+    if (walkIndex === taskLineIndex) return cardPosition
+    walkIndex = findTaskBlockEnd(lines, walkIndex)
+  }
+  throw new Error(
+    `task at line ${taskLineIndex} not found in the "${heading.text}" section (${cardPosition} cards scanned)`,
+  )
 }
 
 /** Appends checklist items under a task, after its existing sub-items. */
@@ -669,11 +1020,13 @@ const appendSubtasks = ({
   taskLineIndex,
   descriptions,
   bodyStartLine,
+  statusRegistry,
 }: {
   lines: readonly string[]
   taskLineIndex: number
   descriptions: readonly string[]
   bodyStartLine: number
+  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
 }): {
   lines: readonly string[]
   subtaskPositions: SubtaskPosition[]
@@ -684,12 +1037,17 @@ const appendSubtasks = ({
     lines,
     parentLineIndex: taskLineIndex,
   })
+  const todoChar = tasks.charForStatus("todo", statusRegistry)
   const subtaskLines = descriptions.map(
-    (subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`,
+    (subtaskText) => `${subtaskIndent}- [${todoChar}] ${subtaskText}`,
   )
-  const existingSubtaskCount = lines
-    .slice(taskLineIndex + 1, blockEnd)
-    .filter((blockLine) => tasks.isTaskLine(blockLine)).length
+  // Body-only content (lines has no frontmatter) so extractTasks line
+  // numbers are 1-based within the body, matching taskLineIndex + 1.
+  const bodyContent = lines.join("\n")
+  const taskBodyLine = taskLineIndex + 1
+  const existingSubtaskCount = tasks
+    .extractTasks(bodyContent, statusRegistry)
+    .filter((extractedTask) => extractedTask.parentLine === taskBodyLine).length
   return {
     lines: lines.toSpliced(blockEnd, 0, ...subtaskLines),
     subtaskPositions: subtaskPositionsFrom({
@@ -740,14 +1098,18 @@ const resolveRecurrenceSpawn = ({
 }): RecurrenceSpawn => {
   if (status !== "done") return { kind: "none" }
 
+  // taskBefore.status already reflects the registry (extractTasks receives
+  // it), so the registry lookup is belt-and-suspenders — guards against a
+  // caller that extracted tasks without the registry.
   const wasAlreadyDone =
-    taskBefore.status === "done" ||
-    config.doneStatusSymbols.includes(taskBefore.statusChar)
+    taskBefore.status === "done" || config.statusRegistry.get(taskBefore.statusChar) === "done"
+
   if (wasAlreadyDone) return { kind: "none" }
 
   // The note-level parser handles a bare task line: no frontmatter means a
   // body offset of zero and the one line parses to a one-element array.
-  const editedTask = tasks.extractTasks(editedTaskLine).at(0)
+  const editedTask = tasks.extractTasks(editedTaskLine, config.statusRegistry).at(0)
+
   if (!editedTask?.recurrence) return { kind: "none" }
   const recurrenceText = editedTask.recurrence
 
@@ -766,6 +1128,7 @@ const resolveRecurrenceSpawn = ({
     today,
     removeScheduledDateOnRecurrence: config.removeScheduledDateOnRecurrence,
   })
+
   if (nextDates === null) {
     return {
       kind: "advisory",
@@ -791,9 +1154,9 @@ const resolveRecurrenceSpawn = ({
  *  content search — a vault can hold two byte-identical recurring lines,
  *  and a search would find the wrong one.
  *
- *  Worked example: spawn at 5; the completed block [3, 5) moves to done
- *  lane at line 8. Removing the block shifts the spawn to 5 − 2 = 3;
- *  reinserting at 8 lands below 3, so no shift. A subtask append at or
+ *  Worked example — spawn at 5, the completed block [3, 5) moves to done
+ *  lane at line 8. Removing the block shifts the spawn to 5 − 2 = 3,
+ *  reinserting at 8 lands below 3 so no shift. A subtask append at or
  *  above the spawn (the on-next-line layout) shifts it once more. */
 const spawnIndexAfterSplices = ({
   spawnIndex,
@@ -801,9 +1164,7 @@ const spawnIndexAfterSplices = ({
   subtaskAppend,
 }: {
   spawnIndex: number
-  doneLaneMove?:
-    | { moveStart: number; movedBlockLength: number; insertAt: number }
-    | undefined
+  doneLaneMove?: { moveStart: number; movedBlockLength: number; insertAt: number } | undefined
   subtaskAppend?: { insertIndex: number; lineCount: number } | undefined
 }): number => {
   const indexAfterRemoval =
@@ -811,15 +1172,11 @@ const spawnIndexAfterSplices = ({
       ? spawnIndex
       : spawnIndex - doneLaneMove.movedBlockLength
   const doneLaneInsertShift =
-    doneLaneMove && doneLaneMove.insertAt <= indexAfterRemoval
-      ? doneLaneMove.movedBlockLength
-      : 0
+    doneLaneMove && doneLaneMove.insertAt <= indexAfterRemoval ? doneLaneMove.movedBlockLength : 0
   const indexAfterMove = indexAfterRemoval + doneLaneInsertShift
 
   const subtaskAppendShift =
-    subtaskAppend && subtaskAppend.insertIndex <= indexAfterMove
-      ? subtaskAppend.lineCount
-      : 0
+    subtaskAppend && subtaskAppend.insertIndex <= indexAfterMove ? subtaskAppend.lineCount : 0
   return indexAfterMove + subtaskAppendShift
 }
 
@@ -836,15 +1193,11 @@ const buildNextOccurrencePosition = ({
 }): NextOccurrencePosition => ({
   line: bodyStartLine + spawnIndex + 1,
   description: tasks.describeTaskLine(recurrenceSpawn.spawnedLine),
-  ...(recurrenceSpawn.nextDates.dueDate
-    ? { due: recurrenceSpawn.nextDates.dueDate }
-    : {}),
+  ...(recurrenceSpawn.nextDates.dueDate ? { due: recurrenceSpawn.nextDates.dueDate } : {}),
   ...(recurrenceSpawn.nextDates.scheduledDate
     ? { scheduled: recurrenceSpawn.nextDates.scheduledDate }
     : {}),
-  ...(recurrenceSpawn.nextDates.startDate
-    ? { start: recurrenceSpawn.nextDates.startDate }
-    : {}),
+  ...(recurrenceSpawn.nextDates.startDate ? { start: recurrenceSpawn.nextDates.startDate } : {}),
 })
 
 /** Detects the done lane for auto-completion: checks for **Complete**
@@ -861,12 +1214,16 @@ const detectDoneLane = (
 
   if (doneLanes.length === 1) {
     const lane = doneLanes[0]
-    if (!lane) throw new Error("unexpected empty done lanes")
+
+    if (!lane) {
+      throw new Error("unexpected empty done lanes")
+    }
     return lane
   }
 
-  // Fallback: look for a heading named "Done"
+  // No **Complete** marker found — fall back to a heading named "Done"
   const doneHeading = headings.find((heading) => heading.text === "Done")
+
   if (doneHeading) return "Done"
 
   throw new Error("no done lane detected")
@@ -885,10 +1242,12 @@ const validateBlockId = (
   }
   // trimEnd: a hard break's trailing spaces must not hide an existing
   // block link — an invisible duplicate would win every later id lookup.
-  const existingIndex = bodyLines.findIndex(
-    (bodyLine, index) =>
-      index !== excludeLineIndex && bodyLine.trimEnd().endsWith(` ^${blockId}`),
-  )
+  const existingIndex = bodyLines.findIndex((bodyLine, index) => {
+    if (index === excludeLineIndex) return false
+    if (!bodyLine.trimEnd().endsWith(` ^${blockId}`)) return false
+    return !isInsideFenceOrComment(bodyLines, index)
+  })
+
   if (existingIndex !== -1) {
     throw new Error(`blockId "${blockId}" already exists in this note`)
   }
@@ -909,9 +1268,8 @@ const assertTaskIdGrammar = ({
       `taskId "${taskId}" contains invalid characters (allowed: letters, digits, hyphens, underscores)`,
     )
   }
-  const invalidDependency = dependsOn?.find(
-    (dependencyId) => !tasks.isTaskId(dependencyId),
-  )
+  const invalidDependency = dependsOn?.find((dependencyId) => !tasks.isTaskId(dependencyId))
+
   if (invalidDependency !== undefined) {
     throw new Error(
       `dependsOn entry "${invalidDependency}" contains invalid characters (allowed: letters, digits, hyphens, underscores)`,
@@ -921,9 +1279,7 @@ const assertTaskIdGrammar = ({
 
 /** Rejects a recurrence rule the plugin's grammar cannot read — written
  *  as-is it would parse as a recurrence that silently never recurs. */
-const assertRecurrenceRuleGrammar = (
-  recurrenceText: string | null | undefined,
-): void => {
+const assertRecurrenceRuleGrammar = (recurrenceText: string | null | undefined): void => {
   if (!recurrenceText) return
   if (parseRecurrenceRule(recurrenceText) === null) {
     throw new Error(
@@ -944,8 +1300,7 @@ const validateDate = (date: string, fieldName: string): void => {
   }
 }
 
-type ParentLocator =
-  { kind: "blockId"; blockId: string } | { kind: "line"; line: number }
+type ParentLocator = { kind: "blockId"; blockId: string } | { kind: "line"; line: number }
 
 /** The parent locator a create call named, or undefined for a top-level task.
  *  Callers reject the both-given case before this runs. */
@@ -961,37 +1316,57 @@ const parentTaskLocatorFrom = ({
   return undefined
 }
 
-/** Returns the parent's body-line index; throws when the locator resolves to nothing or to a non-task line. */
+/** The parent's body-line index; throws when the locator resolves to
+ *  nothing, a non-task line, or a NON_TASK-typed checkbox. */
 const findParentLineIndex = ({
   locator,
   bodyLines,
   bodyStartLine,
+  statusRegistry,
 }: {
   locator: ParentLocator
   bodyLines: readonly string[]
   bodyStartLine: number
+  statusRegistry: ReadonlyMap<string, StatusClassification> | undefined
 }): number => {
   if (locator.kind === "blockId") {
-    const foundIndex = tasks.findTaskByBlockId(bodyLines, locator.blockId)
-    if (foundIndex === null) {
+    const result = findBlockIdSkippingFences(bodyLines, locator.blockId)
+
+    if (result === null) {
       throw new Error(`parent task not found: blockId "${locator.blockId}"`)
     }
-    return foundIndex
+    if (result === "fenced_only") {
+      throw new Error(
+        `parent task not found: blockId "${locator.blockId}" is inside a fenced code block or comment`,
+      )
+    }
+    const foundLine = bodyLines[result]
+
+    if (statusRegistry && foundLine) {
+      rejectNonTaskCheckbox({ taskLine: foundLine, statusRegistry })
+    }
+    return result
   }
   const parentLineIndex = locator.line - 1 - bodyStartLine
   const parentLineText = bodyLines[parentLineIndex]
+
   if (!parentLineText || !tasks.isTaskLine(parentLineText)) {
     throw new Error(`parent task not found: line ${locator.line}`)
+  }
+  if (isInsideFenceOrComment(bodyLines, parentLineIndex)) {
+    throw new Error(
+      `parent task not found: line ${locator.line} is inside a fenced code block or comment`,
+    )
+  }
+  if (statusRegistry) {
+    rejectNonTaskCheckbox({ taskLine: parentLineText, statusRegistry })
   }
   return parentLineIndex
 }
 
 // ── createTask ──────────────────────────────────────────────────
 
-const createTask = async (
-  params: CreateTaskParams,
-  logger: Logger,
-): Promise<CreateTaskResult> => {
+const createTask = async (params: CreateTaskParams, logger: Logger): Promise<CreateTaskResult> => {
   const {
     vaultPath,
     path,
@@ -1021,14 +1396,21 @@ const createTask = async (
   }
 
   // Validate dates
-  if (due) validateDate(due, "due")
-  if (scheduled) validateDate(scheduled, "scheduled")
-  if (start) validateDate(start, "start")
+  if (due) {
+    validateDate(due, "due")
+  }
+  if (scheduled) {
+    validateDate(scheduled, "scheduled")
+  }
+  if (start) {
+    validateDate(start, "start")
+  }
 
   if (parentBlockId && parentLine) {
     throw new Error("parentBlockId and parentLine are mutually exclusive")
   }
   const parentLocator = parentTaskLocatorFrom({ parentBlockId, parentLine })
+
   // A sub-task lives wherever its parent lives — a heading has nothing to
   // place, so a parent locator and a heading are exclusive.
   if (parentLocator && heading) {
@@ -1042,11 +1424,7 @@ const createTask = async (
   if (subtasks?.some((subtaskText) => !subtaskText.trim())) {
     throw new Error("subtasks cannot contain an empty item")
   }
-  if (
-    subtasks?.some((subtaskText) =>
-      TASK_TEXT_LINE_BREAK_PATTERN.test(subtaskText),
-    )
-  ) {
+  if (subtasks?.some((subtaskText) => TASK_TEXT_LINE_BREAK_PATTERN.test(subtaskText))) {
     throw new Error("subtasks items must be a single line")
   }
 
@@ -1091,9 +1469,7 @@ const createTask = async (
     ]
     const metadataChanges = metadataFields
       .filter(({ value }) => Boolean(value))
-      .map(({ field, value }) =>
-        formatChange({ field, before: null, after: value }),
-      )
+      .map(({ field, value }) => formatChange({ field, before: null, after: value }))
 
     const {
       insertAt,
@@ -1107,6 +1483,7 @@ const createTask = async (
       heading,
       isKanbanBoard,
       position,
+      statusRegistry: formatConfig.statusRegistry,
     })
 
     const taskLine = tasks.buildTaskLine(
@@ -1148,8 +1525,9 @@ const createTask = async (
     ]
 
     const subtaskIndent = `${indent}  `
+    const subtaskTodoChar = tasks.charForStatus("todo", formatConfig.statusRegistry)
     const subtaskLines = (subtasks ?? []).map(
-      (subtaskText) => `${subtaskIndent}- [ ] ${subtaskText}`,
+      (subtaskText) => `${subtaskIndent}- [${subtaskTodoChar}] ${subtaskText}`,
     )
     const changes =
       subtaskLines.length > 0
@@ -1163,12 +1541,7 @@ const createTask = async (
           ]
         : metadataChanges
 
-    const resultLines = bodyLines.toSpliced(
-      insertAt,
-      0,
-      taskLine,
-      ...subtaskLines,
-    )
+    const resultLines = bodyLines.toSpliced(insertAt, 0, taskLine, ...subtaskLines)
 
     // Checklist lines follow the card line, so the first one sits at insertAt + 1
     const subtaskPositions = subtasks?.length
@@ -1210,10 +1583,7 @@ const createTask = async (
 
 /** Applies every requested mutation to a task line in one atomic
  *  read-modify-write cycle. */
-const updateTask = async (
-  params: UpdateTaskParams,
-  logger: Logger,
-): Promise<UpdateTaskResult> => {
+const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<UpdateTaskResult> => {
   const {
     vaultPath,
     path,
@@ -1237,8 +1607,9 @@ const updateTask = async (
     assignBlockId: newBlockId,
   } = params
 
-  // Validation: exactly one identifier
-  const identifierCount = (blockId ? 1 : 0) + (line ? 1 : 0)
+  // Exactly one identifier required
+  const identifierCount = [blockId, line].filter(Boolean).length
+
   if (identifierCount === 0) {
     throw new Error("exactly one of blockId or line is required")
   }
@@ -1246,7 +1617,7 @@ const updateTask = async (
     throw new Error("blockId and line are mutually exclusive")
   }
 
-  // Validation: at least one mutation
+  // At least one mutation required
   const hasMutation =
     status !== undefined ||
     priority !== undefined ||
@@ -1261,10 +1632,12 @@ const updateTask = async (
     taskId !== undefined ||
     dependsOn !== undefined ||
     addSubtasks !== undefined ||
-    newBlockId !== undefined
+    newBlockId !== undefined ||
+    position !== undefined
+
   if (!hasMutation) {
     throw new Error(
-      "at least one mutation (status, priority, recurrence, onCompletion, heading, description, due, scheduled, start, created, taskId, dependsOn, addSubtasks, or assignBlockId) is required",
+      "at least one mutation (status, priority, recurrence, onCompletion, heading, position, description, due, scheduled, start, created, taskId, dependsOn, addSubtasks, or assignBlockId) is required",
     )
   }
 
@@ -1279,16 +1652,15 @@ const updateTask = async (
     { field: "created", value: created },
   ]
   for (const { field, value } of dateParams) {
-    if (typeof value === "string") validateDate(value, field)
+    if (typeof value === "string") {
+      validateDate(value, field)
+    }
   }
 
   if (newDescription !== undefined && !newDescription.trim()) {
     throw new Error("description cannot be empty")
   }
-  if (
-    newDescription !== undefined &&
-    TASK_TEXT_LINE_BREAK_PATTERN.test(newDescription)
-  ) {
+  if (newDescription !== undefined && TASK_TEXT_LINE_BREAK_PATTERN.test(newDescription)) {
     throw new Error("description must be a single line")
   }
 
@@ -1298,11 +1670,7 @@ const updateTask = async (
   if (addSubtasks?.some((subtaskText) => !subtaskText.trim())) {
     throw new Error("addSubtasks cannot contain an empty item")
   }
-  if (
-    addSubtasks?.some((subtaskText) =>
-      TASK_TEXT_LINE_BREAK_PATTERN.test(subtaskText),
-    )
-  ) {
+  if (addSubtasks?.some((subtaskText) => TASK_TEXT_LINE_BREAK_PATTERN.test(subtaskText))) {
     throw new Error("addSubtasks items must be a single line")
   }
 
@@ -1320,8 +1688,8 @@ const updateTask = async (
     const bodyLines = splitIntoLines(parsed.content)
     const headings = parseHeadings(bodyLines)
 
-    // Frontmatter offset — extractTasks uses the same formula:
-    // file_line = bodyStartLine + bodyLineIndex + 1.
+    // extractTasks uses the same formula (file_line = bodyStartLine +
+    // bodyLineIndex + 1), so the offset must match.
     const bodyStartLine = tasks.findBodyStartLine(splitIntoLines(fileContent))
 
     const taskLineIndex = locateTaskLine({
@@ -1332,65 +1700,70 @@ const updateTask = async (
       path,
     })
     const originalTaskLine = bodyLines[taskLineIndex]
+
     if (!originalTaskLine) {
       throw new Error(`task line index ${taskLineIndex} out of bounds`)
     }
     const isKanbanBoard = Boolean(parsed.data["kanban-plugin"])
-    // Prior field values, so every `changes` entry can state before → after.
-    // Parsed from the whole note so `depth` counts task ancestors the way
-    // the index does — raw indentation would call a checklist item under a
-    // plain bullet a sub-task while the index lists it as top-level.
-    const taskFileLine = bodyStartLine + taskLineIndex + 1
-    const taskBefore = tasks
-      .extractTasks(fileContent)
-      .find((task) => task.line === taskFileLine)
-    if (!taskBefore) {
-      throw new Error(
-        `task line index ${taskLineIndex} does not parse as a task`,
-      )
-    }
-    const isSubtask = taskBefore.depth > 0
 
-    // A sub-task's placement is its parent's — an explicit heading has
-    // nothing to move.
-    if (targetHeadingParam && isSubtask) {
-      throw new Error(
-        "cannot move a sub-task to a heading — the parent's heading determines placement",
-      )
-    }
-    if (newBlockId) {
-      validateBlockId(newBlockId, bodyLines, taskLineIndex)
-    }
-
-    // Resolve format config: explicit param > plugin config > emoji default
+    // Resolve format config early — the status registry is needed for
+    // extractTasks so taskBefore.status reflects custom classifications.
     const pluginConfig = await readTaskFormatConfig(vaultPath)
     const formatConfig = {
       ...pluginConfig,
       taskFormat: format ?? pluginConfig.taskFormat,
     }
 
+    rejectNonTaskCheckbox({
+      taskLine: originalTaskLine,
+      statusRegistry: formatConfig.statusRegistry,
+    })
+
+    // Prior field values, so every `changes` entry can state before → after.
+    // Parsed from the whole note so `depth` counts task ancestors the way
+    // the index does — raw indentation would call a checklist item under a
+    // plain bullet a sub-task while the index lists it as top-level.
+    const taskFileLine = bodyStartLine + taskLineIndex + 1
+    const taskBefore = tasks
+      .extractTasks(fileContent, formatConfig.statusRegistry)
+      .find((task) => task.line === taskFileLine)
+
+    if (!taskBefore) {
+      throw new Error(`task line index ${taskLineIndex} does not parse as a task`)
+    }
+    const isSubtask = taskBefore.depth > 0
+
+    // A sub-task's placement is its parent's — neither a heading move
+    // nor a position reorder applies.
+    if (targetHeadingParam && isSubtask) {
+      throw new Error(
+        "cannot move a sub-task to a heading — the parent's heading determines placement",
+      )
+    }
+    if (position && isSubtask) {
+      throw new Error("cannot reposition a sub-task — the parent's position determines placement")
+    }
+    if (newBlockId) {
+      validateBlockId(newBlockId, bodyLines, taskLineIndex)
+    }
+
     const today = todayIsoDate()
 
-    // In-line edits, in the order they are applied to the task line.
-    // Description must be LAST: every field edit splits the line at the
-    // description/metadata boundary, and a signifier in new description
-    // text would shift that boundary — see the comment on the description
-    // entry below. The recurrence spawn reads the fully edited line, so
-    // an update that changes dates or the rule and completes in one call
-    // advances from the edited values. Each edit carries its own `changes`
-    // entry; description's after-value is read through the parser so tags
-    // match the result's `description`.
+    // In-line edits applied to the task line in order. Description must
+    // be last: field edits split at the description/metadata boundary,
+    // and a signifier in new description text shifts that boundary.
     const lineEdits: LineEdit[] = [
       ...(status
         ? [
             {
-              apply: (taskLine: string) =>
-                tasks.updateTaskLineStatus({
+              apply: (taskLine: string) => {
+                return tasks.updateTaskLineStatus({
                   taskLine,
                   newStatus: status,
                   today,
                   config: formatConfig,
-                }),
+                })
+              },
               change: formatChange({
                 field: "status",
                 before: taskBefore.status,
@@ -1402,12 +1775,13 @@ const updateTask = async (
       ...(priority !== undefined
         ? [
             {
-              apply: (taskLine: string) =>
-                tasks.updateTaskLinePriority({
+              apply: (taskLine: string) => {
+                return tasks.updateTaskLinePriority({
                   taskLine,
                   newPriority: priority,
                   config: formatConfig,
-                }),
+                })
+              },
               change: formatChange({
                 field: "priority",
                 before: taskBefore.priority,
@@ -1416,35 +1790,36 @@ const updateTask = async (
             },
           ]
         : []),
-      ...dateParams.flatMap(({ field, value }) =>
-        value === undefined
-          ? []
-          : [
-              {
-                apply: (taskLine: string) =>
-                  tasks.updateTaskLineDate({
-                    taskLine,
-                    field,
-                    date: value,
-                    config: formatConfig,
-                  }),
-                change: formatChange({
-                  field,
-                  before: taskBefore[`${field}Date`],
-                  after: value,
-                }),
-              },
-            ],
-      ),
+      ...dateParams.flatMap(({ field, value }) => {
+        if (value === undefined) return []
+        return [
+          {
+            apply: (taskLine: string) => {
+              return tasks.updateTaskLineDate({
+                taskLine,
+                field,
+                date: value,
+                config: formatConfig,
+              })
+            },
+            change: formatChange({
+              field,
+              before: taskBefore[`${field}Date`],
+              after: value,
+            }),
+          },
+        ]
+      }),
       ...(recurrence !== undefined
         ? [
             {
-              apply: (taskLine: string) =>
-                tasks.updateTaskLineRecurrence({
+              apply: (taskLine: string) => {
+                return tasks.updateTaskLineRecurrence({
                   taskLine,
                   recurrenceText: recurrence,
                   config: formatConfig,
-                }),
+                })
+              },
               change: formatChange({
                 field: "recurrence",
                 before: taskBefore.recurrence,
@@ -1474,12 +1849,13 @@ const updateTask = async (
       ...(taskId !== undefined
         ? [
             {
-              apply: (taskLine: string) =>
-                tasks.updateTaskLineTaskId({
+              apply: (taskLine: string) => {
+                return tasks.updateTaskLineTaskId({
                   taskLine,
                   taskId,
                   config: formatConfig,
-                }),
+                })
+              },
               change: formatChange({
                 field: "task_id",
                 before: taskBefore.taskId,
@@ -1491,12 +1867,13 @@ const updateTask = async (
       ...(dependsOn !== undefined
         ? [
             {
-              apply: (taskLine: string) =>
-                tasks.updateTaskLineDependsOn({
+              apply: (taskLine: string) => {
+                return tasks.updateTaskLineDependsOn({
                   taskLine,
                   dependsOn,
                   config: formatConfig,
-                }),
+                })
+              },
               change: formatChange({
                 field: "depends_on",
                 before: formatDependsOn(taskBefore.dependsOn),
@@ -1508,8 +1885,7 @@ const updateTask = async (
       ...(newBlockId
         ? [
             {
-              apply: (taskLine: string) =>
-                tasks.assignBlockId({ taskLine, blockId: newBlockId }),
+              apply: (taskLine: string) => tasks.assignBlockId({ taskLine, blockId: newBlockId }),
               change: formatChange({
                 field: "block_id",
                 before: taskBefore.blockId,
@@ -1526,8 +1902,9 @@ const updateTask = async (
       ...(newDescription !== undefined
         ? [
             {
-              apply: (taskLine: string) =>
-                tasks.replaceTaskLineDescription({ taskLine, newDescription }),
+              apply: (taskLine: string) => {
+                return tasks.replaceTaskLineDescription({ taskLine, newDescription })
+              },
               // The after-value previews the swap on the ORIGINAL line. The
               // field edits above never move the description/metadata
               // boundary (the old description is still in place while they
@@ -1546,10 +1923,7 @@ const updateTask = async (
           ]
         : []),
     ]
-    const editedLine = lineEdits.reduce(
-      (taskLine, edit) => edit.apply(taskLine),
-      originalTaskLine,
-    )
+    const editedLine = lineEdits.reduce((taskLine, edit) => edit.apply(taskLine), originalTaskLine)
     // Deduplicate tags that appear in both the description and the metadata
     // tail — the round-trip artifact of the parser's tag re-append.
     const tagDedup = tasks.deduplicateDescriptionTags(editedLine)
@@ -1559,11 +1933,12 @@ const updateTask = async (
     // line, which predates dedup. When dedup strips a metadata tag, the
     // preview re-appends it via describeTaskLine, showing a doubled tag the
     // written line doesn't have. Recompute from the post-dedup line.
-    const descriptionChangedAndDeduped =
-      newDescription && tagDedup.deduplicatedTags.length > 0
+    const descriptionChangedAndDeduped = newDescription && tagDedup.deduplicatedTags.length > 0
 
     const lineChanges = descriptionChangedAndDeduped
       ? lineEdits.map((edit) => {
+          // Identify the description entry by its formatted prefix —
+          // formatChange produces "description: ..." strings.
           if (edit.change?.startsWith("description:")) {
             return formatChange({
               field: "description",
@@ -1597,16 +1972,10 @@ const updateTask = async (
     // Obsidian too) and the later done-lane move takes the completed line
     // alone. The spawn never rides that move: the next instance stays in
     // the source lane.
-    const spawnInsertIndex = formatConfig.recurrenceOnNextLine
-      ? taskLineIndex + 1
-      : taskLineIndex
+    const spawnInsertIndex = formatConfig.recurrenceOnNextLine ? taskLineIndex + 1 : taskLineIndex
     const linesWithSpawn =
       recurrenceSpawn.kind === "spawn"
-        ? linesWithEdits.toSpliced(
-            spawnInsertIndex,
-            0,
-            recurrenceSpawn.spawnedLine,
-          )
+        ? linesWithEdits.toSpliced(spawnInsertIndex, 0, recurrenceSpawn.spawnedLine)
         : linesWithEdits
     const completedIndexAfterSpawn =
       recurrenceSpawn.kind === "spawn" && !formatConfig.recurrenceOnNextLine
@@ -1616,9 +1985,7 @@ const updateTask = async (
     // The spawn insert shifts every heading below it by one line — the lane
     // move must see re-parsed positions or it lands on a stale boundary.
     const headingsAfterSpawn =
-      recurrenceSpawn.kind === "spawn"
-        ? parseHeadings(linesWithSpawn)
-        : headings
+      recurrenceSpawn.kind === "spawn" ? parseHeadings(linesWithSpawn) : headings
 
     const roundTripAndSubtaskAdvisories = [
       ...roundTripAdvisories({
@@ -1643,9 +2010,7 @@ const updateTask = async (
     ]
 
     const advisories = [
-      ...(recurrenceSpawn.kind === "advisory"
-        ? [recurrenceSpawn.advisory]
-        : []),
+      ...(recurrenceSpawn.kind === "advisory" ? [recurrenceSpawn.advisory] : []),
       ...roundTripAndSubtaskAdvisories,
     ]
 
@@ -1660,17 +2025,16 @@ const updateTask = async (
     // task must not delete the task.
     const effectiveOnCompletion =
       onCompletion !== undefined ? onCompletion : taskBefore.onCompletion
+    // Registry lookup mirrors resolveRecurrenceSpawn's belt-and-suspenders
+    // guard — taskBefore.status already reflects the registry.
     const shouldDeleteOnCompletion =
       status === "done" &&
       taskBefore.status !== "done" &&
-      !formatConfig.doneStatusSymbols.includes(taskBefore.statusChar) &&
+      formatConfig.statusRegistry.get(taskBefore.statusChar) !== "done" &&
       effectiveOnCompletion?.toLowerCase() === "delete"
 
     if (shouldDeleteOnCompletion) {
-      const taskBlockEnd = findTaskBlockEnd(
-        linesWithSpawn,
-        completedIndexAfterSpawn,
-      )
+      const taskBlockEnd = findTaskBlockEnd(linesWithSpawn, completedIndexAfterSpawn)
       const deleteCount = taskBlockEnd - completedIndexAfterSpawn
       const childCount = deleteCount - 1
       const childLabel = childCount === 1 ? "child" : "children"
@@ -1682,8 +2046,7 @@ const updateTask = async (
       // When the task also spawned, compute the spawn's final position
       // after the completed block is removed from linesWithSpawn.
       const spawnFinalIndexAfterDelete =
-        recurrenceSpawn.kind === "spawn" &&
-        completedIndexAfterSpawn < spawnInsertIndex
+        recurrenceSpawn.kind === "spawn" && completedIndexAfterSpawn < spawnInsertIndex
           ? spawnInsertIndex - deleteCount
           : spawnInsertIndex
 
@@ -1710,10 +2073,7 @@ const updateTask = async (
         deletionChange,
       ]
 
-      const resultLines = linesWithSpawn.toSpliced(
-        completedIndexAfterSpawn,
-        deleteCount,
-      )
+      const resultLines = linesWithSpawn.toSpliced(completedIndexAfterSpawn, deleteCount)
 
       const serialized = stringifyNote(resultLines.join("\n"), parsed.data)
       await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
@@ -1747,27 +2107,65 @@ const updateTask = async (
       }
     }
 
-    // Heading move — an explicit heading, or the done lane when completing
-    // a top-level card on a Kanban board.
-    const autoDoneLane =
-      !targetHeadingParam && status === "done" && isKanbanBoard && !isSubtask
+    // Three paths resolve the target lane:
+    //   1. Explicit heading param — the caller picks the destination.
+    //   2. Auto-done-lane — completing a top-level Kanban card with no
+    //      explicit heading detects the board's done lane.
+    //   3. Same-lane reorder — position without a heading or auto-done
+    //      resolves the card's current heading so it stays in place.
+    const autoDoneLane = !targetHeadingParam && status === "done" && isKanbanBoard && !isSubtask
+    // Path 3: look up the card's current heading for a position-only reorder.
+    // Kept as a HeadingInfo (not .text) so an empty-named heading is not
+    // misread as "above all headings."
+    const currentHeadingForReorder =
+      !targetHeadingParam && !autoDoneLane && position
+        ? headingsAfterSpawn.findLast((heading) => heading.startLine < completedIndexAfterSpawn)
+        : undefined
+
+    if (!targetHeadingParam && !autoDoneLane && position && !currentHeadingForReorder) {
+      throw new Error("cannot reorder a task that sits above the first heading — pass a heading")
+    }
+
+    // Pre-spawn position for accurate before/after reporting — the spawn
+    // may add a card to the lane, inflating the count. Applies to all three
+    // move paths (explicit heading, auto-done, same-lane) when an integer
+    // position is requested and the task has a heading to count against.
+    const preSpawnHeading =
+      recurrenceSpawn.kind === "spawn" && position
+        ? headings.findLast((heading) => heading.startLine < taskLineIndex)
+        : undefined
+    const beforePositionInLane = preSpawnHeading
+      ? positionOfTaskInLane({
+          lines: linesWithEdits,
+          heading: preSpawnHeading,
+          taskLineIndex,
+          statusRegistry: formatConfig.statusRegistry,
+        })
+      : undefined
+
     const targetLane = autoDoneLane
       ? detectDoneLane(linesWithSpawn, headingsAfterSpawn)
-      : targetHeadingParam
-    const moved = targetLane
-      ? moveTaskBlock({
-          lines: linesWithSpawn,
-          taskLineIndex: completedIndexAfterSpawn,
-          targetLane,
-          headings: headingsAfterSpawn,
-          position: position ?? "top",
-        })
-      : {
-          lines: linesWithSpawn,
-          taskLineIndex: completedIndexAfterSpawn,
-          change: undefined,
-          movedBlockLength: undefined,
-        }
+      : (targetHeadingParam ?? currentHeadingForReorder?.text)
+    const noMoveChanges: string[] = []
+    // Gate on presence, not truthiness — an empty-string heading text
+    // ("## ") is a valid lane name and must trigger the move.
+    const moved =
+      targetLane !== undefined
+        ? moveTaskBlock({
+            lines: linesWithSpawn,
+            taskLineIndex: completedIndexAfterSpawn,
+            targetLane,
+            headings: headingsAfterSpawn,
+            statusRegistry: formatConfig.statusRegistry,
+            ...(position && { position }),
+            ...(beforePositionInLane !== undefined && { beforePosition: beforePositionInLane }),
+          })
+        : {
+            lines: linesWithSpawn,
+            taskLineIndex: completedIndexAfterSpawn,
+            changes: noMoveChanges,
+            movedBlockLength: undefined,
+          }
 
     // Checklist items go after every parent-line edit and the move, so they
     // land under the card's final position.
@@ -1777,6 +2175,7 @@ const updateTask = async (
           taskLineIndex: moved.taskLineIndex,
           descriptions: addSubtasks,
           bodyStartLine,
+          statusRegistry: formatConfig.statusRegistry,
         })
       : { lines: moved.lines, subtaskPositions: undefined, change: undefined }
 
@@ -1820,7 +2219,7 @@ const updateTask = async (
 
     const changes = [
       ...lineChanges,
-      moved.change,
+      ...moved.changes,
       withSubtasks.change,
       ...(nextOccurrence
         ? [

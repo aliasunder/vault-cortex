@@ -12,12 +12,7 @@
  */
 
 import { parseHeadings } from "./headings.js"
-import {
-  advanceComment,
-  advanceFence,
-  type CommentResult,
-  type OpenFence,
-} from "./lines.js"
+import { advanceComment, advanceFence, type CommentResult, type OpenFence } from "./lines.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -63,14 +58,8 @@ type OpenEntry = { date: string; textLines: string[] }
  *  lines (the gap before the next entry belongs to neither). findLastIndex
  *  returns -1 when every line is blank, so +1 slices to empty — though the
  *  first line is always the dated bullet, so that case cannot arise here. */
-const closeEntry = (
-  openEntry: OpenEntry,
-  section: string,
-  entryIndex: number,
-): MemoryEntry => {
-  const lastContentIndex = openEntry.textLines.findLastIndex(
-    (textLine) => textLine.trim() !== "",
-  )
+const closeEntry = (openEntry: OpenEntry, section: string, entryIndex: number): MemoryEntry => {
+  const lastContentIndex = openEntry.textLines.findLastIndex((textLine) => textLine.trim() !== "")
   return {
     section,
     date: openEntry.date,
@@ -97,9 +86,7 @@ const closeEntry = (
  * entries legitimately contain code examples, and text is raw markdown.
  */
 export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
-  const sectionSpans = parseHeadings(lines).filter(
-    (heading) => heading.level === 2,
-  )
+  const sectionSpans = parseHeadings(lines).filter((heading) => heading.level === 2)
 
   const entries: MemoryEntry[] = []
   for (const span of sectionSpans) {
@@ -110,12 +97,9 @@ export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
     let commentOpen = false
     let openEntry: OpenEntry | null = null
 
-    for (
-      let lineIndex = span.bodyStartLine;
-      lineIndex < span.bodyEndLine;
-      lineIndex++
-    ) {
+    for (let lineIndex = span.bodyStartLine; lineIndex < span.bodyEndLine; lineIndex++) {
       const line = lines[lineIndex]
+
       if (line === undefined) continue
 
       // Fence/comment precedence, as in parseHeadings: fences advance only
@@ -129,14 +113,13 @@ export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
       const commentResult: CommentResult | null = fenceResult?.lineIsCode
         ? null
         : advanceComment(line, commentOpen)
-      commentOpen =
-        commentResult !== null ? commentResult.commentOpen : commentOpen
+      commentOpen = commentResult !== null ? commentResult.commentOpen : commentOpen
 
       // Inside code or a comment this line cannot START an entry, but it is
       // legitimate continuation content for one already open.
       const lineCannotStartEntry =
-        (fenceResult?.lineIsCode ?? false) ||
-        (commentResult?.lineIsComment ?? false)
+        (fenceResult?.lineIsCode ?? false) || (commentResult?.lineIsComment ?? false)
+
       if (lineCannotStartEntry) {
         if (openEntry !== null) openEntry.textLines.push(line)
         continue
@@ -144,6 +127,7 @@ export const parseMemoryEntries = (lines: readonly string[]): MemoryEntry[] => {
 
       const entryStartMatch = ENTRY_START_PATTERN.exec(line)
       const entryDate = entryStartMatch?.[1]
+
       if (entryDate) {
         if (openEntry !== null) {
           entries.push(closeEntry(openEntry, span.text, entries.length))

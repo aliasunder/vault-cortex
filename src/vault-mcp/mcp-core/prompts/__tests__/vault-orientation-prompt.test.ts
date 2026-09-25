@@ -63,6 +63,26 @@ describe("vault-orientation handler", () => {
     expect(text).toContain("- Reference (1)")
   })
 
+  it("orders the folder listing by code units, not locale collation", async () => {
+    const vault = await mkdtemp(join(tmpdir(), "prompt-folder-order-"))
+    onTestFinished(async () => {
+      await rm(vault, { recursive: true, force: true })
+    })
+    await mkdir(join(vault, "About Me"), { recursive: true })
+    // "Zeta" and "alpha" disagree between code-unit order (Z 0x5A before
+    // a 0x61) and en-US locale collation (alpha before Zeta) — the listing
+    // must not follow the runtime's locale.
+    await mkdir(join(vault, "alpha"))
+    await mkdir(join(vault, "Zeta"))
+    await writeFile(join(vault, "alpha", "one.md"), "# One\n")
+    await writeFile(join(vault, "Zeta", "two.md"), "# Two\n")
+    const calls = registerWithSearch(vault, createSearchIndex(":memory:"))
+    const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
+    const text = textOf(await handler(fakeExtra))
+
+    expect(text).toContain("## Folders\n- Zeta (1)\n- alpha (1)")
+  })
+
   it("shows orphan count and sample when orphans exist", async () => {
     const { calls } = await setupVault()
     const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
@@ -102,9 +122,7 @@ describe("vault-orientation handler", () => {
     const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
     const text = textOf(await handler(fakeExtra))
 
-    expect(text).toContain(
-      "No orphans found — every note has at least one incoming link.",
-    )
+    expect(text).toContain("No orphans found — every note has at least one incoming link.")
   })
 
   it("shows property adoption rates with count/total format", async () => {
@@ -240,11 +258,7 @@ describe("vault-orientation logging", () => {
         throw new Error("index unavailable")
       },
     } as unknown as SearchIndex
-    const calls = registerWithSearch(
-      vault,
-      throwingSearch,
-      recordingLogger(logs),
-    )
+    const calls = registerWithSearch(vault, throwingSearch, recordingLogger(logs))
     const handler = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)[2]
 
     await handler(fakeExtra)
@@ -354,9 +368,7 @@ describe("vault-orientation with MEMORY_ENABLED=false", () => {
     } as unknown as SearchIndex
     const calls: RegisterPromptCall[] = []
     const server = {
-      registerPrompt: vi.fn((...args: unknown[]) =>
-        calls.push(args as RegisterPromptCall),
-      ),
+      registerPrompt: vi.fn((...args: unknown[]) => calls.push(args as RegisterPromptCall)),
     }
     registerPrompts({
       server: server as unknown as McpServer,
@@ -403,9 +415,7 @@ describe("vault-orientation with READONLY_MODE=true", () => {
 
     // Guard against a silent no-op: the empty-memory sentinel is present,
     // only the write-tool suggestion is dropped.
-    expect(text).toContain(
-      `No memory files yet — the ${config.memoryDir}/ layer is empty.`,
-    )
+    expect(text).toContain(`No memory files yet — the ${config.memoryDir}/ layer is empty.`)
     expect(text).not.toContain("vault_update_memory")
   })
 })
@@ -440,9 +450,7 @@ describe("vault-orientation with DISABLED_TOOLS", () => {
     const [, , handler] = findCall(calls, PROMPT_NAMES.VAULT_ORIENTATION)
     const text = textOf(await handler(fakeExtra))
 
-    expect(text).toContain(
-      `No memory files yet — the ${config.memoryDir}/ layer is empty.`,
-    )
+    expect(text).toContain(`No memory files yet — the ${config.memoryDir}/ layer is empty.`)
     expect(text).not.toContain("vault_update_memory")
   })
 

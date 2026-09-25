@@ -14,9 +14,7 @@ describe("renderSetupPage — sign-in", () => {
     expect(html).toContain('<form method="POST" action="/setup">')
     expect(html).toContain('<input type="password" id="token" name="token"')
     expect(html).toContain('<input type="email" id="email" name="email"')
-    expect(html).toContain(
-      '<input type="password" id="password" name="password"',
-    )
+    expect(html).toContain('<input type="password" id="password" name="password"')
     expect(html).not.toContain("saved Obsidian login stopped working")
     expect(html).not.toContain("not using HTTPS")
   })
@@ -38,9 +36,7 @@ describe("renderSetupPage — sign-in", () => {
   it("escapes the error text", () => {
     const html = renderSetupPage({ ...SIGN_IN, error: `<script>"x"</script>` })
 
-    expect(html).toContain(
-      '<div class="error">&lt;script&gt;&quot;x&quot;&lt;/script&gt;</div>',
-    )
+    expect(html).toContain('<div class="error">&lt;script&gt;&quot;x&quot;&lt;/script&gt;</div>')
   })
 
   it("points the token hint at the Variables tab on Railway", () => {
@@ -72,9 +68,7 @@ describe("renderSetupPage — mfa", () => {
   it("carries the request id as a hidden field and asks for the code only", () => {
     const html = renderSetupPage({ kind: "mfa", requestId: 'id"1' })
 
-    expect(html).toContain(
-      '<input type="hidden" name="request_id" value="id&quot;1">',
-    )
+    expect(html).toContain('<input type="hidden" name="request_id" value="id&quot;1">')
     expect(html).toContain('name="mfa"')
     expect(html).not.toContain('name="password"')
     expect(html).not.toContain('name="token"')
@@ -283,9 +277,7 @@ describe("renderSetupPage — complete", () => {
       mcpUrl: undefined,
     })
 
-    expect(html).toContain(
-      "Connect your MCP client to this server's <code>/mcp</code> address",
-    )
+    expect(html).toContain("Connect your MCP client to this server's <code>/mcp</code> address")
   })
 })
 

@@ -12,8 +12,7 @@ import { fileURLToPath } from "node:url"
 
 const repoRoot = new URL("..", import.meta.url)
 
-const resolvePath = (repoRelative: string): string =>
-  fileURLToPath(new URL(repoRelative, repoRoot))
+const resolvePath = (repoRelative: string): string => fileURLToPath(new URL(repoRelative, repoRoot))
 
 // --- Optional env block sync (extract + embed) -------------------------------
 
@@ -34,6 +33,7 @@ const CLI_OPTIONAL_HEADER = `# Optional ─────────────�
 const extractOptionalSection = (envExampleContent: string): string => {
   const headerPattern = /^# Optional\b[^\n]*/m
   const match = headerPattern.exec(envExampleContent)
+
   if (!match) {
     throw new Error("could not find '# Optional' header in .env.example")
   }
@@ -56,16 +56,21 @@ const removeVaultPasswordBlock = (optionalContent: string): string => {
  * Replaces content between sync markers in env.ts. Markers are line comments
  * like `// sync:local-optional:begin` and `// sync:local-optional:end`.
  */
-const replaceSyncBlock = (
-  fileContent: string,
-  blockName: string,
-  newContent: string,
-): string => {
+const replaceSyncBlock = ({
+  fileContent,
+  blockName,
+  newContent,
+}: {
+  fileContent: string
+  blockName: string
+  newContent: string
+}): string => {
   const beginMarker = `// sync:${blockName}:begin`
   const endMarker = `// sync:${blockName}:end`
 
   const beginIndex = fileContent.indexOf(beginMarker)
   const endIndex = fileContent.indexOf(endMarker)
+
   if (beginIndex === -1 || endIndex === -1) {
     throw new Error(`sync markers for '${blockName}' not found in env.ts`)
   }
@@ -105,7 +110,11 @@ for (const { envExample, blockName, constName, transform } of envSources) {
   const blockContent = `const ${constName} = \`${CLI_OPTIONAL_HEADER}${escapedSection}\`
 `
 
-  envTsContent = replaceSyncBlock(envTsContent, blockName, blockContent)
+  envTsContent = replaceSyncBlock({
+    fileContent: envTsContent,
+    blockName,
+    newContent: blockContent,
+  })
   console.log(`synced ${envExample} optional section -> env.ts ${constName}`)
 }
 

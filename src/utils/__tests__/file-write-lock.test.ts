@@ -8,15 +8,10 @@ import {
   withExclusiveMultiFileLock,
 } from "../file-write-lock.js"
 
-const delay = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms))
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 describe("withFileLock", () => {
-  const testDir = join(
-    import.meta.dirname,
-    "__fixtures__",
-    `file-write-lock-${randomUUID()}`,
-  )
+  const testDir = join(import.meta.dirname, "__fixtures__", `file-write-lock-${randomUUID()}`)
 
   const counterPath = join(testDir, "counter.txt")
 
@@ -157,11 +152,7 @@ describe("withFileLock", () => {
 })
 
 describe("withExclusiveFileLock", () => {
-  const testDir = join(
-    import.meta.dirname,
-    "__fixtures__",
-    `exclusive-lock-${randomUUID()}`,
-  )
+  const testDir = join(import.meta.dirname, "__fixtures__", `exclusive-lock-${randomUUID()}`)
 
   it("rejects immediately when a write is already in progress on the same file", async () => {
     const filePath = join(testDir, "busy.txt")
@@ -221,10 +212,7 @@ describe("withExclusiveFileLock", () => {
     ).rejects.toThrow("boom")
 
     // Lock should be released — a new write should succeed.
-    const result = await withExclusiveFileLock(
-      filePath,
-      async () => "recovered",
-    )
+    const result = await withExclusiveFileLock(filePath, async () => "recovered")
     expect(result).toBe("recovered")
   })
 
@@ -244,20 +232,16 @@ describe("withExclusiveFileLock", () => {
     })
 
     // The redundant path resolves to the same file — should fail.
-    expect(() =>
-      withExclusiveFileLock(redundantPath, async () => "second"),
-    ).toThrow("concurrent write in progress")
+    expect(() => withExclusiveFileLock(redundantPath, async () => "second")).toThrow(
+      "concurrent write in progress",
+    )
 
     await firstWrite
   })
 })
 
 describe("withExclusiveMultiFileLock", () => {
-  const testDir = join(
-    import.meta.dirname,
-    "__fixtures__",
-    `multi-lock-${randomUUID()}`,
-  )
+  const testDir = join(import.meta.dirname, "__fixtures__", `multi-lock-${randomUUID()}`)
 
   it("locks every path for the duration of the operation", async () => {
     const pathA = join(testDir, "a.txt")
@@ -287,15 +271,12 @@ describe("withExclusiveMultiFileLock", () => {
       return "busy"
     })
 
-    expect(() =>
-      withExclusiveMultiFileLock([freePath, busyPath], async () => "multi"),
-    ).toThrow("concurrent write in progress")
+    expect(() => withExclusiveMultiFileLock([freePath, busyPath], async () => "multi")).toThrow(
+      "concurrent write in progress",
+    )
 
     // All-or-nothing: the failed acquisition must not have locked freePath.
-    const freeResult = await withExclusiveFileLock(
-      freePath,
-      async () => "still free",
-    )
+    const freeResult = await withExclusiveFileLock(freePath, async () => "still free")
     expect(freeResult).toBe("still free")
 
     expect(await holdBusyPath).toBe("busy")
@@ -305,10 +286,7 @@ describe("withExclusiveMultiFileLock", () => {
     const pathA = join(testDir, "release-a.txt")
     const pathB = join(testDir, "release-b.txt")
 
-    const multiWrite = withExclusiveMultiFileLock(
-      [pathA, pathB],
-      async () => "first",
-    )
+    const multiWrite = withExclusiveMultiFileLock([pathA, pathB], async () => "first")
     // Prove the locks were actually acquired — otherwise "released after" would
     // pass vacuously if the lock never registered anything.
     expect(() => withExclusiveFileLock(pathA, async () => "held")).toThrow(
@@ -351,15 +329,12 @@ describe("withExclusiveMultiFileLock", () => {
     })
 
     // [pathB, pathC] shares pathB with the in-flight lock — rejected.
-    expect(() =>
-      withExclusiveMultiFileLock([pathB, pathC], async () => "overlap"),
-    ).toThrow("concurrent write in progress")
+    expect(() => withExclusiveMultiFileLock([pathB, pathC], async () => "overlap")).toThrow(
+      "concurrent write in progress",
+    )
 
     // [pathC, pathD] shares nothing — runs concurrently.
-    const disjointResult = await withExclusiveMultiFileLock(
-      [pathC, pathD],
-      async () => "disjoint",
-    )
+    const disjointResult = await withExclusiveMultiFileLock([pathC, pathD], async () => "disjoint")
     expect(disjointResult).toBe("disjoint")
 
     expect(await multiWrite).toBe("first")
@@ -374,19 +349,15 @@ describe("withExclusiveMultiFileLock", () => {
       return "serialized"
     })
 
-    expect(() =>
-      withExclusiveMultiFileLock([otherPath, memberPath], async () => "multi"),
-    ).toThrow("concurrent write in progress")
+    expect(() => withExclusiveMultiFileLock([otherPath, memberPath], async () => "multi")).toThrow(
+      "concurrent write in progress",
+    )
 
     expect(await serializingWrite).toBe("serialized")
   })
 
   it("queues a serializing lock behind the multi-file lock on a member path", async () => {
-    const fixtureDir = join(
-      import.meta.dirname,
-      "__fixtures__",
-      `multi-queue-${randomUUID()}`,
-    )
+    const fixtureDir = join(import.meta.dirname, "__fixtures__", `multi-queue-${randomUUID()}`)
     await mkdir(fixtureDir, { recursive: true })
     onTestFinished(async () => {
       await rm(fixtureDir, { recursive: true, force: true })
@@ -399,14 +370,11 @@ describe("withExclusiveMultiFileLock", () => {
     // The delay makes a lost update detectable: without queueing, the
     // serializing write would read "0" while the multi write is still
     // sleeping, and the final value would be "1" instead of "2".
-    const multiWrite = withExclusiveMultiFileLock(
-      [counterPath, otherPath],
-      async () => {
-        const current = Number(await readFile(counterPath, "utf8"))
-        await delay(20)
-        await writeFile(counterPath, String(current + 1), "utf8")
-      },
-    )
+    const multiWrite = withExclusiveMultiFileLock([counterPath, otherPath], async () => {
+      const current = Number(await readFile(counterPath, "utf8"))
+      await delay(20)
+      await writeFile(counterPath, String(current + 1), "utf8")
+    })
     const serializingWrite = withFileLock(counterPath, async () => {
       const current = Number(await readFile(counterPath, "utf8"))
       await writeFile(counterPath, String(current + 1), "utf8")
@@ -425,18 +393,15 @@ describe("withExclusiveMultiFileLock", () => {
     // Only redundant forms go in the list, so the canonical-form check below
     // can pass only if the lock canonicalized them — not because the canonical
     // path was locked literally.
-    const multiWrite = withExclusiveMultiFileLock(
-      [redundantPath, redundantPath],
-      async () => {
-        await delay(50)
-        return "ran"
-      },
-    )
+    const multiWrite = withExclusiveMultiFileLock([redundantPath, redundantPath], async () => {
+      await delay(50)
+      return "ran"
+    })
 
     // …and while held, the canonical form is locked.
-    expect(() =>
-      withExclusiveFileLock(canonicalPath, async () => "second"),
-    ).toThrow("concurrent write in progress")
+    expect(() => withExclusiveFileLock(canonicalPath, async () => "second")).toThrow(
+      "concurrent write in progress",
+    )
 
     expect(await multiWrite).toBe("ran")
   })
@@ -445,10 +410,7 @@ describe("withExclusiveMultiFileLock", () => {
     const pathA = join(testDir, "result-a.txt")
     const pathB = join(testDir, "result-b.txt")
 
-    const result = await withExclusiveMultiFileLock(
-      [pathA, pathB],
-      async () => 42,
-    )
+    const result = await withExclusiveMultiFileLock([pathA, pathB], async () => 42)
     expect(result).toBe(42)
   })
 
@@ -476,11 +438,7 @@ describe("withExclusiveMultiFileLock", () => {
 })
 
 describe("case- and normalization-folded lock keys", () => {
-  const testDir = join(
-    import.meta.dirname,
-    "__fixtures__",
-    `folded-keys-${randomUUID()}`,
-  )
+  const testDir = join(import.meta.dirname, "__fixtures__", `folded-keys-${randomUUID()}`)
 
   it("serializes two casings of the same path in queue order", async () => {
     const executionOrder: number[] = []
@@ -501,17 +459,14 @@ describe("case- and normalization-folded lock keys", () => {
   })
 
   it("rejects a fail-fast lock while another casing of the path is held", async () => {
-    const heldWrite = withExclusiveFileLock(
-      join(testDir, "Busy Note.md"),
-      async () => {
-        await delay(50)
-        return "held"
-      },
-    )
+    const heldWrite = withExclusiveFileLock(join(testDir, "Busy Note.md"), async () => {
+      await delay(50)
+      return "held"
+    })
 
-    expect(() =>
-      withExclusiveFileLock(join(testDir, "busy note.md"), async () => "x"),
-    ).toThrow("concurrent write in progress")
+    expect(() => withExclusiveFileLock(join(testDir, "busy note.md"), async () => "x")).toThrow(
+      "concurrent write in progress",
+    )
 
     expect(await heldWrite).toBe("held")
   })
@@ -550,21 +505,18 @@ describe("case- and normalization-folded lock keys", () => {
       return "held"
     })
 
-    expect(() =>
-      withExclusiveFileLock(finalSigmaPath, async () => "x"),
-    ).toThrow("concurrent write in progress")
+    expect(() => withExclusiveFileLock(finalSigmaPath, async () => "x")).toThrow(
+      "concurrent write in progress",
+    )
 
     expect(await heldWrite).toBe("held")
   })
 
   it("still allows concurrent locks on genuinely different names", async () => {
-    const heldWrite = withExclusiveFileLock(
-      join(testDir, "First.md"),
-      async () => {
-        await delay(20)
-        return "first"
-      },
-    )
+    const heldWrite = withExclusiveFileLock(join(testDir, "First.md"), async () => {
+      await delay(20)
+      return "first"
+    })
 
     const differentNameResult = await withExclusiveFileLock(
       join(testDir, "Second.md"),
@@ -586,20 +538,16 @@ describe("case- and normalization-folded lock keys", () => {
       },
     )
 
-    expect(() =>
-      withExclusiveFileLock(join(testDir, "MOVED.MD"), async () => "x"),
-    ).toThrow("concurrent write in progress")
+    expect(() => withExclusiveFileLock(join(testDir, "MOVED.MD"), async () => "x")).toThrow(
+      "concurrent write in progress",
+    )
 
     expect(await multiWrite).toBe("moved")
   })
 })
 
 describe("cross-mode interaction", () => {
-  const testDir = join(
-    import.meta.dirname,
-    "__fixtures__",
-    `cross-mode-${randomUUID()}`,
-  )
+  const testDir = join(import.meta.dirname, "__fixtures__", `cross-mode-${randomUUID()}`)
 
   it("exclusive lock rejects when a serializing lock is held on the same file", async () => {
     const filePath = join(testDir, "cross.txt")
@@ -610,19 +558,15 @@ describe("cross-mode interaction", () => {
     })
 
     // Exclusive call should see the serializing lock and reject.
-    expect(() =>
-      withExclusiveFileLock(filePath, async () => "exclusive"),
-    ).toThrow("concurrent write in progress")
+    expect(() => withExclusiveFileLock(filePath, async () => "exclusive")).toThrow(
+      "concurrent write in progress",
+    )
 
     await serializingWrite
   })
 
   it("serializing lock queues behind an exclusive lock on the same file", async () => {
-    const fixtureDir = join(
-      import.meta.dirname,
-      "__fixtures__",
-      `cross-queue-${randomUUID()}`,
-    )
+    const fixtureDir = join(import.meta.dirname, "__fixtures__", `cross-queue-${randomUUID()}`)
     await mkdir(fixtureDir, { recursive: true })
     onTestFinished(async () => {
       await rm(fixtureDir, { recursive: true, force: true })

@@ -55,8 +55,7 @@ describe("parseNote", () => {
   })
 
   it("treats an opener with no closing dash line as body — Obsidian parses no properties from an unclosed fence", () => {
-    const unclosedFence =
-      "---\ntags:\n  - hello\n# Title\nsome text after, no closing dashes\n"
+    const unclosedFence = "---\ntags:\n  - hello\n# Title\nsome text after, no closing dashes\n"
     expect(parseNote(unclosedFence)).toEqual({
       data: {},
       content: unclosedFence,
@@ -73,9 +72,7 @@ describe("parseNote", () => {
   })
 
   it("parses a block closed by `---,`, matching Obsidian's metadata cache", () => {
-    expect(
-      parseNote("---\ntags:\n  - hello\n---,\n# Title\nsome text\n"),
-    ).toEqual({
+    expect(parseNote("---\ntags:\n  - hello\n---,\n# Title\nsome text\n")).toEqual({
       data: { tags: ["hello"] },
       content: ",\n# Title\nsome text\n",
     })
@@ -137,8 +134,7 @@ describe("parseNote", () => {
 
 describe("stringifyNote", () => {
   it("prepends a frontmatter block above a body that opens with plugin syntax", () => {
-    const pluginBody =
-      "--- start-multi-column: ExampleRegion1\ntext in column\n"
+    const pluginBody = "--- start-multi-column: ExampleRegion1\ntext in column\n"
     expect(stringifyNote(pluginBody, { title: "x" })).toBe(
       "---\ntitle: x\n---\n--- start-multi-column: ExampleRegion1\ntext in column\n",
     )
@@ -154,9 +150,7 @@ describe("stringifyNote", () => {
   })
 
   it("wraps an ordinary body", () => {
-    expect(stringifyNote("plain body\n", { title: "x" })).toBe(
-      "---\ntitle: x\n---\nplain body\n",
-    )
+    expect(stringifyNote("plain body\n", { title: "x" })).toBe("---\ntitle: x\n---\nplain body\n")
   })
 
   it("writes no frontmatter block for empty properties", () => {
@@ -164,8 +158,7 @@ describe("stringifyNote", () => {
   })
 
   it("round-trips a plugin-syntax body through parseNote", () => {
-    const pluginBody =
-      "--- start-multi-column: ExampleRegion1\ntext in column\n"
+    const pluginBody = "--- start-multi-column: ExampleRegion1\ntext in column\n"
     expect(parseNote(stringifyNote(pluginBody, { title: "x" }))).toEqual({
       data: { title: "x" },
       content: pluginBody,
@@ -177,15 +170,16 @@ describe("stringifyNote", () => {
 
 describe("mergeFrontmatter", () => {
   it("adds new keys and overwrites matching ones", () => {
-    expect(
-      mergeFrontmatter({ title: "old", type: "note" }, { title: "new" }),
-    ).toEqual({ title: "new", type: "note" })
+    expect(mergeFrontmatter({ title: "old", type: "note" }, { title: "new" })).toEqual({
+      title: "new",
+      type: "note",
+    })
   })
 
   it("removes keys explicitly set to null in updates", () => {
-    expect(
-      mergeFrontmatter({ title: "old", draft: true }, { draft: null }),
-    ).toEqual({ title: "old" })
+    expect(mergeFrontmatter({ title: "old", draft: true }, { draft: null })).toEqual({
+      title: "old",
+    })
   })
 
   it("preserves nulls already present in existing frontmatter", () => {

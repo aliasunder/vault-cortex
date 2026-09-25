@@ -6,12 +6,7 @@
  * parser: "read section X" and "edit section X" resolve to the exact same span.
  */
 
-import {
-  advanceComment,
-  advanceFence,
-  COMMENT_DELIMITER,
-  type OpenFence,
-} from "./lines.js"
+import { advanceComment, advanceFence, COMMENT_DELIMITER, type OpenFence } from "./lines.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -48,9 +43,7 @@ const BLOCK_LEVEL_LINE_REGEX = /^[-*+] |^\d+[.)] |^>/
  * exists. A block is "trailing" when only blank lines follow its closing `%%`
  * (or when an unclosed comment runs to EOF).
  */
-export const findTrailingCommentBlockStart = (
-  lines: readonly string[],
-): number => {
+export const findTrailingCommentBlockStart = (lines: readonly string[]): number => {
   // `let` carries fence + comment parser state and block-tracking across
   // lines — the block-tracking logic (where a comment opened/closed) is
   // domain-specific to trailing-block detection, layered on top of the
@@ -62,6 +55,7 @@ export const findTrailingCommentBlockStart = (
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
+
     if (line === undefined) continue
 
     // Fence/comment precedence: fence state advances only outside comments;
@@ -84,14 +78,12 @@ export const findTrailingCommentBlockStart = (
 
     if (wasOpen && !commentOpen) {
       const validCloser = line.trimEnd().endsWith(COMMENT_DELIMITER)
-      lastClosedBlock = validCloser
-        ? { startLine: commentOpenLine, endLine: i }
-        : null
+      lastClosedBlock = validCloser ? { startLine: commentOpenLine, endLine: i } : null
       continue
     }
 
-    const isInlineComment =
-      !wasOpen && !commentOpen && commentResult.lineIsComment
+    const isInlineComment = !wasOpen && !commentOpen && commentResult.lineIsComment
+
     if (isInlineComment) {
       const validCloser = line.trimEnd().endsWith(COMMENT_DELIMITER)
       lastClosedBlock = validCloser ? { startLine: i, endLine: i } : null
@@ -102,32 +94,22 @@ export const findTrailingCommentBlockStart = (
   // block is trailing only when nothing but blank lines follow it.
   const hasTrailingClosedBlock =
     lastClosedBlock &&
-    lines
-      .slice(lastClosedBlock.endLine + 1)
-      .every((trailingLine) => trailingLine.trim() === "")
+    lines.slice(lastClosedBlock.endLine + 1).every((trailingLine) => trailingLine.trim() === "")
   const closedTrailingBlock = hasTrailingClosedBlock ? lastClosedBlock : null
-  const trailingBlock = commentOpen
-    ? { startLine: commentOpenLine }
-    : closedTrailingBlock
+  const trailingBlock = commentOpen ? { startLine: commentOpenLine } : closedTrailingBlock
 
   if (!trailingBlock) return lines.length
 
   // The opener must start its own line.
   const blockOpenerLine = lines[trailingBlock.startLine]
-  if (
-    blockOpenerLine === undefined ||
-    !blockOpenerLine.trimStart().startsWith(COMMENT_DELIMITER)
-  ) {
+
+  if (blockOpenerLine === undefined || !blockOpenerLine.trimStart().startsWith(COMMENT_DELIMITER)) {
     return lines.length
   }
 
   // Absorb blank lines before the block so the section body keeps no dangling
   // blanks. findLastIndex returns -1 when only blanks precede it, so +1 → 0.
-  return (
-    lines
-      .slice(0, trailingBlock.startLine)
-      .findLastIndex((line) => line.trim() !== "") + 1
-  )
+  return lines.slice(0, trailingBlock.startLine).findLastIndex((line) => line.trim() !== "") + 1
 }
 
 // ── Exported parser ─────────────────────────────────────────────
@@ -157,6 +139,7 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
+
     if (line === undefined) continue
 
     // Fence/comment precedence: fence state advances only outside comments
@@ -180,6 +163,7 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
 
     const atxMatch = HEADING_REGEX.exec(line)
     const matchedHashes = atxMatch?.[1]
+
     if (matchedHashes) {
       const matchedText = atxMatch?.[2] ?? ""
       collectedHeadings.push({
@@ -198,6 +182,7 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
     if (setextCandidate !== null) {
       const setextMatch = SETEXT_UNDERLINE_REGEX.exec(line)
       const underlineChars = setextMatch?.[1]
+
       if (underlineChars) {
         collectedHeadings.push({
           text: setextCandidate.text.trim(),
@@ -236,8 +221,7 @@ export const parseHeadings = (lines: readonly string[]): HeadingInfo[] => {
       bodyStartLine: heading.bodyStartLine,
       // Math.max keeps bodyEndLine >= bodyStartLine for malformed input.
       bodyEndLine:
-        nextSameOrHigher?.startLine ??
-        Math.max(heading.bodyStartLine, trailingCommentBlockStart),
+        nextSameOrHigher?.startLine ?? Math.max(heading.bodyStartLine, trailingCommentBlockStart),
     }
   })
 }
@@ -263,8 +247,7 @@ export const linesBeforeFirstHeading = (
   lines: readonly string[],
   headings: readonly HeadingInfo[],
 ): readonly string[] => {
-  const regionEndLine =
-    headings[0]?.startLine ?? findTrailingCommentBlockStart(lines)
+  const regionEndLine = headings[0]?.startLine ?? findTrailingCommentBlockStart(lines)
   return lines.slice(0, regionEndLine)
 }
 
@@ -280,9 +263,7 @@ export const findHeading = (
 
   const searchText = text.trim()
   const matches = headings.filter(
-    (heading) =>
-      heading.text === searchText &&
-      (level === undefined || heading.level === level),
+    (heading) => heading.text === searchText && (level === undefined || heading.level === level),
   )
 
   if (matches.length === 0) {
@@ -297,14 +278,12 @@ export const findHeading = (
   if (matches.length > 1) {
     const matchedHeadings = matches
       .map(
-        (heading) =>
-          `${"#".repeat(heading.level)} ${heading.text} (line ${heading.startLine + 1})`,
+        (heading) => `${"#".repeat(heading.level)} ${heading.text} (line ${heading.startLine + 1})`,
       )
       .join(", ")
     const firstMatch = matches[0]
     const allSameLevel =
-      firstMatch !== undefined &&
-      matches.every((heading) => heading.level === firstMatch.level)
+      firstMatch !== undefined && matches.every((heading) => heading.level === firstMatch.level)
     const hint = allSameLevel
       ? "Rename one heading to make it unique, or target by text content instead."
       : "Use heading_level to disambiguate."
@@ -314,6 +293,7 @@ export const findHeading = (
   }
 
   const result = matches[0]
+
   if (result === undefined) {
     throw new Error(`heading not found: "${searchText}"`)
   }

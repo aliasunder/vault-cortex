@@ -5,8 +5,8 @@
 # Run with the s6 services bypassed:
 #   docker run --rm -it --entrypoint get-sync-token <image>
 #
-# The npx CLI (`npx vault-cortex get-sync-token`) captures the token file
-# through a volume mount instead and never runs this script.
+# The npx CLI (`npx vault-cortex get-sync-token`) signs in through
+# Obsidian's account API directly and never runs this script.
 
 set -eu
 

@@ -1,12 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  beforeEach,
-  afterEach,
-  vi,
-  onTestFinished,
-} from "vitest"
+import { describe, it, expect, beforeEach, afterEach, vi, onTestFinished } from "vitest"
 import type { Request, Response, NextFunction } from "express"
 import { mkdtemp, readdir, rm } from "node:fs/promises"
 import { join } from "node:path"
@@ -208,9 +200,7 @@ describe("createShutdownHandler", () => {
   })
 
   it("closes the server and exits 0 once draining completes", () => {
-    const exitSpy = vi
-      .spyOn(process, "exit")
-      .mockImplementation((() => undefined) as never)
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
     onTestFinished(() => exitSpy.mockRestore())
     // close() that immediately invokes its callback = drain completes at once.
     const close = vi.fn((callback: () => void) => callback())
@@ -222,9 +212,7 @@ describe("createShutdownHandler", () => {
   })
 
   it("forces exit 1 if the drain does not finish within the timeout", () => {
-    const exitSpy = vi
-      .spyOn(process, "exit")
-      .mockImplementation((() => undefined) as never)
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never)
     onTestFinished(() => exitSpy.mockRestore())
     // close() that never invokes its callback = drain hangs.
     const close = vi.fn()
@@ -274,10 +262,7 @@ describe("bootstrapMemoryIfEnabled", () => {
   it("creates nothing when the memory layer is disabled", async () => {
     const vault = await createTempVault()
 
-    await bootstrapMemoryIfEnabled(
-      loadConfig({ MEMORY_ENABLED: "false" }),
-      vault,
-    )
+    await bootstrapMemoryIfEnabled(loadConfig({ MEMORY_ENABLED: "false" }), vault)
 
     expect(await readdir(vault)).toEqual([])
   })

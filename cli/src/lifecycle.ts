@@ -8,10 +8,7 @@ import {
   probeHealth,
   type DockerRunner,
 } from "./docker.js"
-import {
-  buildDaemonNotRunningMessage,
-  buildDockerNotInstalledMessage,
-} from "./messages.js"
+import { buildDaemonNotRunningMessage, buildDockerNotInstalledMessage } from "./messages.js"
 import {
   detectMode,
   hasEnvPublicUrl,
@@ -83,10 +80,9 @@ export const requireInitializedDir = (
   const envFilePath = join(targetDir, ".env")
 
   const mode = detectMode(envFilePath)
+
   if (!mode) {
-    prompts.error(
-      `No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`,
-    )
+    prompts.error(`No .env found in ${targetDir} — run \`npx vault-cortex@latest init\` first.`)
     return undefined
   }
   return { targetDir, envFilePath, mode }
@@ -103,11 +99,13 @@ export const resolveDeployment = (
   prompts: Prompts,
 ): Deployment | undefined => {
   const initialized = requireInitializedDir(dirFlag, prompts)
+
   if (!initialized) return undefined
   const { targetDir, envFilePath, mode } = initialized
 
   const port = readEnvPort(envFilePath)
   const vaultPath = mode === "local" ? readEnvVaultPath(envFilePath) : undefined
+
   if (mode === "local" && !vaultPath) {
     prompts.error(
       `VAULT_PATH is empty or missing in ${targetDir}/.env — cannot start the container.`,
@@ -130,11 +128,9 @@ export const resolveDeployment = (
  * Verifies the container runtime is reachable, reporting the shared error
  * message when it isn't. Callers early-return on false.
  */
-export const ensureDaemonRunning = (
-  docker: DockerRunner,
-  prompts: Prompts,
-): boolean => {
+export const ensureDaemonRunning = (docker: DockerRunner, prompts: Prompts): boolean => {
   const daemonStatus = docker.daemonStatus()
+
   if (daemonStatus === "running") return true
   prompts.error(
     daemonStatus === "not-installed"
@@ -175,10 +171,9 @@ export const reportPublicUrlProbe = async (
   const spinner = prompts.spinner()
   spinner.start(`Checking the public URL (${healthUrl})`)
   const publicUrlResponded = await probeHealth({ url: healthUrl }, fetchFn)
+
   if (publicUrlResponded) {
-    spinner.stop(
-      `Public URL responds — ${healthUrl} answered from this machine.`,
-    )
+    spinner.stop(`Public URL responds — ${healthUrl} answered from this machine.`)
     return
   }
   spinner.stop(`No answer from ${healthUrl} yet.`)
@@ -209,9 +204,7 @@ export const recreateContainer = async (
   // Proceeding after a genuine failure would surface as a confusing
   // "container name already in use" from docker run.
   if (docker.containerExists() && !docker.stopAndRemoveContainer()) {
-    prompts.error(
-      `Could not remove the existing container — check: docker rm -f ${CONTAINER_NAME}`,
-    )
+    prompts.error(`Could not remove the existing container — check: docker rm -f ${CONTAINER_NAME}`)
     return 1
   }
 
@@ -223,6 +216,7 @@ export const recreateContainer = async (
     port: deployment.port,
     vaultPath: deployment.vaultPath,
   })
+
   if (!containerStarted) {
     prompts.error("docker run failed — see output above.")
     return 1
@@ -238,6 +232,7 @@ export const recreateContainer = async (
     },
     fetchFn,
   )
+
   if (!healthy) {
     spinner.stop(healthTimeoutMessage(deployment.mode, timeoutMs))
     return 1
@@ -257,10 +252,7 @@ export const recreateContainer = async (
  * settings all live outside the container (bind mount, named volumes, host
  * file), so this is always safe.
  */
-export const runDown = async (
-  flags: DownFlags,
-  deps: DownDeps,
-): Promise<number> => {
+export const runDown = async (flags: DownFlags, deps: DownDeps): Promise<number> => {
   const { prompts, docker } = deps
 
   prompts.intro("vault-cortex down")
@@ -268,6 +260,7 @@ export const runDown = async (
   // Teardown only needs to confirm this is an init'd directory — the full
   // .env validation (VAULT_PATH, PUBLIC_URL) guards container starts.
   const initialized = requireInitializedDir(flags.dir, prompts)
+
   if (!initialized) return 1
   if (!ensureDaemonRunning(docker, prompts)) return 1
 
@@ -278,18 +271,14 @@ export const runDown = async (
   }
 
   if (!docker.stopAndRemoveContainer()) {
-    prompts.error(
-      `Could not remove the container — check: docker rm -f ${CONTAINER_NAME}`,
-    )
+    prompts.error(`Could not remove the container — check: docker rm -f ${CONTAINER_NAME}`)
     return 1
   }
 
   prompts.log(
     "Container stopped and removed. Your vault data, search index, and settings are untouched.",
   )
-  prompts.outro(
-    `Start again with: npx vault-cortex@latest start --dir "${initialized.targetDir}"`,
-  )
+  prompts.outro(`Start again with: npx vault-cortex@latest start --dir "${initialized.targetDir}"`)
   return 0
 }
 
@@ -298,15 +287,13 @@ export const runDown = async (
  * code passes through as the command's exit code; no outro follows the raw
  * docker output.
  */
-export const runLogs = async (
-  flags: LogsFlags,
-  deps: LogsDeps,
-): Promise<number> => {
+export const runLogs = async (flags: LogsFlags, deps: LogsDeps): Promise<number> => {
   const { prompts, docker } = deps
 
   prompts.intro("vault-cortex logs")
 
   const initialized = requireInitializedDir(flags.dir, prompts)
+
   if (!initialized) return 1
   if (!ensureDaemonRunning(docker, prompts)) return 1
 
@@ -338,6 +325,7 @@ const runRecreateFromEnv = async (
   prompts.intro(labels.introTitle)
 
   const deployment = resolveDeployment(flags.dir, prompts)
+
   if (!deployment) return 1
   if (!ensureDaemonRunning(docker, prompts)) return 1
 
@@ -345,6 +333,7 @@ const runRecreateFromEnv = async (
     { deployment, healthTimeoutMs: deps.healthTimeoutMs },
     { prompts, docker, fetchFn },
   )
+
   if (exitCode !== 0) return exitCode
 
   prompts.log(labels.successLog)
@@ -358,10 +347,7 @@ const runRecreateFromEnv = async (
  * start offer). Same cycle as restart: if a container is already running it
  * is safely replaced, and `docker run` pulls the image when it's missing.
  */
-export const runStart = async (
-  flags: RestartFlags,
-  deps: RestartDeps,
-): Promise<number> => {
+export const runStart = async (flags: RestartFlags, deps: RestartDeps): Promise<number> => {
   return runRecreateFromEnv(flags, deps, {
     introTitle: "vault-cortex start",
     successLog: "Started with the settings from .env.",
@@ -375,10 +361,7 @@ export const runStart = async (
  * read at container creation); unlike upgrade, it never replaces an image
  * you already have (`docker run` still pulls when none exists locally).
  */
-export const runRestart = async (
-  flags: RestartFlags,
-  deps: RestartDeps,
-): Promise<number> => {
+export const runRestart = async (flags: RestartFlags, deps: RestartDeps): Promise<number> => {
   return runRecreateFromEnv(flags, deps, {
     introTitle: "vault-cortex restart",
     successLog: "Applied the current .env settings.",

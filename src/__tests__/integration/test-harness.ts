@@ -12,10 +12,7 @@ import type { ChildProcess } from "node:child_process"
 
 const AUTH_TOKEN = "test-integration-token"
 const FIXTURE_VAULT = resolve(import.meta.dirname, "fixtures/vault")
-const SERVER_ENTRY = resolve(
-  import.meta.dirname,
-  "../../../src/vault-mcp/server.ts",
-)
+const SERVER_ENTRY = resolve(import.meta.dirname, "../../../src/vault-mcp/server.ts")
 
 type ServerHandle = {
   port: number
@@ -49,6 +46,7 @@ export const freePort = (): Promise<number> =>
     probe.once("error", reject)
     probe.listen(0, "127.0.0.1", () => {
       const address = probe.address()
+
       if (!address || typeof address === "string") {
         probe.close()
         reject(new Error("port probe did not bind a TCP address"))
@@ -155,8 +153,10 @@ export const startServer = async (
   port: number,
   envOverrides: Record<string, string> = {},
 ): Promise<ServerHandle> => {
-  const { child, vaultPath, dataDir, stdout, stderr, started } =
-    await spawnServerProcess(port, envOverrides)
+  const { child, vaultPath, dataDir, stdout, stderr, started } = await spawnServerProcess(
+    port,
+    envOverrides,
+  )
 
   // Both watchdogs are detached once the boot races settle: a timer that
   // fires later, or the exit event that cleanup() itself triggers, would
@@ -170,9 +170,7 @@ export const startServer = async (
   const startTimeout = Promise.withResolvers<never>()
   const startTimeoutTimer = setTimeout(() => {
     startTimeout.reject(
-      new Error(
-        `Server on port ${port} did not log "server started" within 15000ms`,
-      ),
+      new Error(`Server on port ${port} did not log "server started" within 15000ms`),
     )
   }, 15_000)
   startTimeoutTimer.unref()
@@ -205,10 +203,7 @@ export const startServerExpectingFailure = async (
   port: number,
   envOverrides: Record<string, string> = {},
 ): Promise<{ exitCode: number | null; stderr: string }> => {
-  const { child, vaultPath, dataDir, stderr } = await spawnServerProcess(
-    port,
-    envOverrides,
-  )
+  const { child, vaultPath, dataDir, stderr } = await spawnServerProcess(port, envOverrides)
 
   const exitCode = await new Promise<number | null>((res) => {
     child.on("close", (code) => res(code))
@@ -226,14 +221,11 @@ export const startServerExpectingFailure = async (
 
 /** Connect an MCP SDK Client to the running server. */
 export const createTestClient = async (port: number): Promise<Client> => {
-  const transport = new StreamableHTTPClientTransport(
-    new URL(`http://127.0.0.1:${port}/mcp`),
-    {
-      requestInit: {
-        headers: { Authorization: `Bearer ${AUTH_TOKEN}` },
-      },
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+    requestInit: {
+      headers: { Authorization: `Bearer ${AUTH_TOKEN}` },
     },
-  )
+  })
   const client = new Client({ name: "integration-test", version: "1.0.0" })
   // SDK's StreamableHTTPClientTransport.sessionId is `string | undefined` but
   // the Transport interface declares `sessionId?: string` — incompatible under
@@ -276,10 +268,9 @@ export const callTool = async ({
   args?: Record<string, unknown>
 }): Promise<ToolResult> => {
   const result = await client.callTool({ name, arguments: args })
+
   if (!isContentResult(result)) {
-    throw new Error(
-      "unexpected toolResult response — server returned no content array",
-    )
+    throw new Error("unexpected toolResult response — server returned no content array")
   }
   return result
 }
@@ -292,13 +283,11 @@ export const textContent = (result: ToolResult): string =>
     .join("\n")
 
 /** Send an MCP initialize request with optional auth, return the HTTP status. */
-export const mcpInitStatus = async (
-  port: number,
-  authHeader?: string,
-): Promise<number> => {
+export const mcpInitStatus = async (port: number, authHeader?: string): Promise<number> => {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   }
+
   if (authHeader) headers["Authorization"] = authHeader
 
   const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
@@ -324,13 +313,12 @@ const pollHealthz = async (port: number, timeoutMs: number): Promise<void> => {
   while (Date.now() < deadline) {
     try {
       const response = await fetch(url)
+
       if (response.ok) return
     } catch {
       // Server not ready yet
     }
     await new Promise((res) => setTimeout(res, 200))
   }
-  throw new Error(
-    `Server on port ${port} did not become healthy within ${timeoutMs}ms`,
-  )
+  throw new Error(`Server on port ${port} did not become healthy within ${timeoutMs}ms`)
 }

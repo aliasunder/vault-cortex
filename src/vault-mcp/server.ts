@@ -2,12 +2,13 @@
 
 import express from "express"
 import type { Request, Response, NextFunction } from "express"
-import { resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createSearchIndex } from "./search/search-index.js"
 import { createEmbedder } from "./search/embedder.js"
 import { createReranker } from "./search/reranker.js"
 import { createMemoryStore } from "./vault-operations/memory-store.js"
+import { readTaskFormatConfig } from "./vault-operations/task-format-config.js"
 import { trashSweeper } from "./vault-operations/trash-sweeper.js"
 import { startFileWatcher } from "./search/file-watcher.js"
 import { createOAuthProvider } from "./oauth/oauth-provider.js"
@@ -49,10 +50,7 @@ export const createErrorMiddleware =
  * connection hangs the drain longer than `forceExitMs`.
  */
 export const createShutdownHandler =
-  (
-    httpServer: { close: (callback: () => void) => void },
-    forceExitMs = 10_000,
-  ): (() => void) =>
+  (httpServer: { close: (callback: () => void) => void }, forceExitMs = 10_000): (() => void) =>
   (): void => {
     logger.info("SIGTERM received, draining")
     httpServer.close(() => {
@@ -89,11 +87,13 @@ const startServer = async (): Promise<void> => {
   // surrounding whitespace.
   const authToken = env.get("MCP_AUTH_TOKEN").required().asString().trim()
   const vaultPath = env.get("VAULT_PATH").required().asString()
+
   if (GLOB_CHARS.test(vaultPath)) {
     throw new Error("VAULT_PATH must not contain glob characters (*, ?, [)")
   }
   const publicUrl = env.get("PUBLIC_URL").required().asString()
   const serverUrl = new URL(publicUrl)
+
   if (serverUrl.protocol !== "http:" && serverUrl.protocol !== "https:") {
     throw new Error(
       "PUBLIC_URL must be an http:// or https:// URL (e.g. https://vault.example.com)",
@@ -105,9 +105,7 @@ const startServer = async (): Promise<void> => {
     throw new Error("PUBLIC_URL must not contain credentials (user:password@)")
   }
   if (publicUrl.includes("?") || publicUrl.includes("#")) {
-    throw new Error(
-      "PUBLIC_URL must be a bare origin — no query string or fragment",
-    )
+    throw new Error("PUBLIC_URL must be a bare origin — no query string or fragment")
   }
   if (serverUrl.pathname.replace(/\/+$/, "") !== "") {
     throw new Error(
@@ -116,7 +114,8 @@ const startServer = async (): Promise<void> => {
   }
 
   const indexDbPath = env.get("INDEX_DB_PATH").asString()
-  const dataDir = indexDbPath ? indexDbPath.replace(/\/[^/]+$/, "") : "/data"
+  // /data is the Docker volume where the container persists indexes and logs
+  const dataDir = indexDbPath ? dirname(indexDbPath) : "/data"
   const searchDbPath = indexDbPath ?? `${dataDir}/search.db`
   const oauthDbPath = `${dataDir}/oauth.db`
   const port = env.get("PORT").default("8000").asPortNumber()
@@ -126,8 +125,7 @@ const startServer = async (): Promise<void> => {
     memoryEnabled: config.memoryEnabled,
     fileToolsEnabled: config.fileToolsEnabled,
     readOnlyMode: config.readOnlyMode,
-    disabledTools:
-      config.disabledTools.size > 0 ? [...config.disabledTools] : "none",
+    disabledTools: config.disabledTools.size > 0 ? [...config.disabledTools] : "none",
     memoryDir: config.memoryDir,
     embeddingEnabled: config.embeddingEnabled,
     rerankMode: config.rerankMode,
@@ -139,12 +137,12 @@ const startServer = async (): Promise<void> => {
 
   const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
   const reranker =
-    config.embeddingEnabled && config.rerankMode === "blended"
-      ? createReranker(logger)
-      : undefined
+    config.embeddingEnabled && config.rerankMode === "blended" ? createReranker(logger) : undefined
+  const taskFormatConfig = await readTaskFormatConfig(vaultPath)
   const search = createSearchIndex(searchDbPath, embedder, reranker, {
     memoryDir: config.memoryEnabled ? config.memoryDir : undefined,
     fileToolsEnabled: config.fileToolsEnabled,
+    statusRegistry: taskFormatConfig.statusRegistry,
   })
   const { count } = await search.rebuildFromVault({ vaultPath }, logger)
   logger.info("initial index built", { count })
@@ -202,9 +200,7 @@ const startServer = async (): Promise<void> => {
     }),
   )
 
-  app.use(
-    createErrorMiddleware({ trustForwardedHops: config.trustForwardedHops }),
-  )
+  app.use(createErrorMiddleware({ trustForwardedHops: config.trustForwardedHops }))
 
   // Express 5 reports a bind failure (EADDRINUSE, EACCES) through the
   // callback's error argument instead of throwing, so an unchecked callback
@@ -224,13 +220,27 @@ const startServer = async (): Promise<void> => {
   // Started after listen so a large trash backlog (unlinks at bind-mount
   // latency) can never stall /healthz past container health-check budgets.
   // Sync deploys never trash (the delete handler bypasses to "none") and a
-  // read-only server never modifies the vault, so neither sweeps.
+  // read-only server never modifies the vault, so neither runs.
+  const trashBookkeepingEnabled = !config.readOnlyMode && !config.obsidianSyncEnabled
+
+  process.on("SIGTERM", createShutdownHandler(httpServer))
+
+  // Orphan purge: drops rows whose .trash/ entry is gone — runs once at
+  // boot regardless of TRASH_RETENTION_DAYS.
+  if (trashBookkeepingEnabled) {
+    try {
+      await trashSweeper.purgeOrphanedTrashEntries({ vaultPath, trashEntryStore: search }, logger)
+    } catch (error) {
+      logger.error("orphaned trash entry purge failed", {
+        error: describeError(error),
+      })
+    }
+  }
+
+  // Retention sweep: unlinks expired files on a daily schedule.
   const { trashRetentionDays } = config
-  const trashSweepEnabled =
-    trashRetentionDays !== null &&
-    !config.readOnlyMode &&
-    !config.obsidianSyncEnabled
-  if (trashSweepEnabled) {
+
+  if (trashBookkeepingEnabled && trashRetentionDays !== null) {
     trashSweeper.startTrashSweepSchedule(
       {
         vaultPath,
@@ -240,14 +250,11 @@ const startServer = async (): Promise<void> => {
       logger,
     )
   }
-
-  process.on("SIGTERM", createShutdownHandler(httpServer))
 }
 
 // Node ESM has no `require.main` — compare argv[1] to this module's path
 // to avoid running the server when imported by tests
-const isEntryPoint =
-  resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)
+const isEntryPoint = resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)
 
 if (isEntryPoint) {
   startServer().catch((err) => {

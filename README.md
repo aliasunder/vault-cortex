@@ -41,7 +41,7 @@
 - **[Plugin-free](#how-it-works)** — Obsidian doesn't need to be running. The server works directly with `.md` files on disk. Headless sync keeps the vault current.
 - **[Hybrid search](#hybrid-search)** — FTS5 keyword matching + vector semantic similarity via RRF fusion, refined by cross-encoder reranking for intent-heavy queries. Keywords stay precise on exact terms and jargon; vectors find notes even when your words differ from the vault's.
 - **[Structured memory](#memory)** — dated, append-only entries accumulate into a personal knowledge layer, auto-initialized for AI personalization. Topic recall answers "what do I think about X?" with the current take and the dated history behind it — evolution included.
-- **[Tasks](#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
+- **[Tasks](#tasks)** — Kanban-aware task queries and updates: triage by status, dates, or priority, then complete, reprioritize, or move tasks between lanes in one call. Completing a recurring task spawns its next occurrence. Parses both [Tasks plugin](https://publish.obsidian.md/tasks/) emoji and [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline-field formats.
 - **[Link graph](#tools)** — backlinks, outgoing links, and orphan detection across the vault
 - **[Files](#files)** — read the vault's non-markdown files too: images arrive as actual images (shrunk to fit when needed), PDFs as structured text or rendered pages, canvases as readable outlines, data files as text
 - **[Obsidian-native](#properties)** — understands frontmatter, wikilinks, tags, headings, and daily notes
@@ -55,7 +55,7 @@
 
 ### Local (2 minutes — Docker + your vault folder)
 
-**Prerequisites:** [Docker](https://docs.docker.com/get-docker/) (or a Docker-compatible runtime, e.g. OrbStack, Colima, Podman), Node.js >= 22.12 (only for the CLI — the server itself runs in Docker), and an Obsidian vault (or any folder of `.md` files).
+**Prerequisites:** [Docker](https://docs.docker.com/get-docker/) (or a Docker-compatible runtime, e.g. OrbStack, Colima, Podman), [Node.js](https://nodejs.org/en/download) >= 22.12 (only for the CLI — the server itself runs in Docker), and an Obsidian vault (or any folder of `.md` files).
 
 ```bash
 npx vault-cortex@latest init
@@ -164,9 +164,9 @@ claude mcp add --scope user --transport http vault-cortex http://localhost:8000/
 `--scope user` registers the server for every project; omit it to scope it to the current directory only.
 
 <details>
-<summary><strong>Claude Desktop</strong> (localhost requires mcp-remote bridge)</summary>
+<summary><strong>Claude Desktop</strong> (http URLs require the mcp-remote bridge)</summary>
 
-The "Add custom connector" dialog only accepts `https` URLs. With an `https` PUBLIC_URL, add it directly in the connector dialog; for a localhost server, register it in `claude_desktop_config.json` through the [mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge instead:
+A remote server with a publicly reachable `https` URL adds directly in Claude Desktop's "Add custom connector" dialog — no file editing. Any `http` URL — localhost included — is rejected by that dialog, so register it in [`claude_desktop_config.json`](https://modelcontextprotocol.io/docs/develop/connect-local-servers) instead (Claude Desktop → Settings → Developer → Edit Config opens the file) through the [mcp-remote](https://github.com/geelen/mcp-remote) stdio bridge:
 
 ```json
 {
@@ -225,9 +225,9 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design, auth flow diagrams
 
 ## Hybrid Search
 
-Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your "references" file. In testing against a real vault, 30% of natural-language queries returned zero or tangential results with keywords alone. Hybrid search eliminated those misses — vectors bridge the vocabulary gap, and the reranker rescues intent-heavy queries where neither signal is strong on its own.
+Keyword search alone fails when your vocabulary doesn't match the vault's — "aspirations" won't find a note about "targets", "coworkers" won't surface your "references" file. In testing against a real vault, 30% of natural-language queries returned zero or tangential results with keywords alone. Hybrid search eliminated those misses in the same test.
 
-Hybrid search combines three ranking signals via [Reciprocal Rank Fusion](./ARCHITECTURE.md#hybrid-search):
+Hybrid search fuses the keyword and vector rankings via [Reciprocal Rank Fusion](./ARCHITECTURE.md#hybrid-search), then the reranker refines the fused result:
 
 - **Keywords** (FTS5) stay precise on exact terms, jargon, and property values
 - **Vectors** (sqlite-vec) bridge the vocabulary gap by matching on meaning
@@ -241,12 +241,12 @@ See [ARCHITECTURE.md → Hybrid Search](./ARCHITECTURE.md#hybrid-search) for mod
 
 ## Memory
 
-A memory layer that only grows is only useful if agents can retrieve the right entries without dumping everything into context. Once you have hundreds of dated entries across multiple files — preferences, principles, communication style, ongoing commitments — reading whole files wastes context on irrelevant material and buries the signal. The memory system is designed for targeted retrieval: agents accumulate knowledge over time and recall exactly what's relevant to the task at hand.
+A memory layer that only grows is only useful if agents can retrieve the right entries without reading everything back every time. Once you have hundreds of dated entries across multiple files — preferences, principles, communication style, ongoing commitments — whole-file reads bury the signal in irrelevant material. The memory system is designed for targeted retrieval.
 
 The layer is a folder of plain Markdown files (default: `About Me/`) holding dated entries under topic headings — auto-created with starter templates on first run, grown by agents through `vault_update_memory`. Three properties make it work:
 
 - **Append-only** — entries are never overwritten; corrections arrive as new dated entries. The layer becomes a personal knowledge base that captures your current state _and_ the evolution behind it
-- **Topic recall** — `vault_memory_recall` retrieves every relevant entry across all memory files at once, keyword- and semantically-matched, oldest first. Ask "what do I think about X?" and get the current take plus the dated history of how it developed — no need to read entire files or guess which file holds what
+- **Topic recall** — `vault_memory_recall` retrieves every relevant entry across all memory files at once, matched by keyword and by meaning, oldest first. Ask "what do I think about X?" and get the current take plus the dated history of how it developed — no need to read entire files or guess which file holds what
 - **Grows without degrading** — capping results (`limit`) drops the least-relevant entries, never a slice of the timeline. A memory layer with 500 entries serves a targeted query as well as one with 50
 
 Files that describe what's current rather than what has been true (routines, active commitments) can declare `entry-policy: living` in frontmatter — their expired entries are prunable rather than preserved, keeping the current-state picture accurate.
@@ -264,9 +264,12 @@ Task metadata lives in plain markdown — scattered across files, encoded in emo
 The task layer handles this so agents don't have to:
 
 - **Find** — filter by status, six date fields (due, scheduled, start, created, done, cancelled), priority, folder, or Kanban lane. Each result carries its note path, line number, and nearest heading when the task sits under one (the lane on a Kanban board) — no follow-up reads needed to locate a task
-- **Create** — add a correctly-formatted task in one call: description, priority, dates, block_id, and checklist sub-items, placed under a heading or nested under a parent task
-- **Update** — complete, reprioritize, edit the text, set or clear dates, add checklist items, and move tasks between headings in a single call. Marking a task done auto-detects the done lane and stamps the completion date; reversing it removes the date
-- **Both formats** — whichever format you use, [Tasks plugin](https://publish.obsidian.md/tasks/) emoji signifiers or [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, the server reads both and writes in the format your Tasks plugin is configured for
+- **Create** — add a correctly-formatted task in one call: description, priority, dates, recurrence, "On completion" action, block_id, and checklist sub-items, placed under a heading at its top, bottom, or an exact card slot, or nested under a parent task
+- **Update** — complete, reprioritize, edit the text, set or clear dates, recurrence, and the "On completion" action, add checklist items, move tasks between headings, and reorder within a lane in a single call
+- **Complete** — marking a task done auto-detects the done lane and stamps the completion date, honoring the plugin's "Set done date" setting; reversing it removes the date. Completion also runs the Tasks plugin's own behaviors:
+  - a recurring task spawns its next occurrence, dates advanced the way the plugin computes them
+  - a task set to delete "On completion" disappears from the note
+- **Both formats** — whichever format you use, [Tasks plugin](https://publish.obsidian.md/tasks/) emoji signifiers or [Dataview](https://blacksmithgu.github.io/obsidian-dataview/) inline fields, the server reads both and writes in the format your Tasks plugin is configured for — read from the plugin's settings when your vault syncs `.obsidian/`, with emoji signifiers as the default otherwise
 
 See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks) for the indexing model, date cascade sorting, and Kanban lane detection.
 
@@ -274,7 +277,7 @@ See [ARCHITECTURE.md → Tasks](./ARCHITECTURE.md#tasks) for the indexing model,
 
 ## Files
 
-Your notes embed screenshots, reference architecture diagrams, and link out to canvases and data files — but to an agent reading markdown, `![[diagram.png]]` is just text. Vault Cortex treats files as part of the vault rather than clutter around it — linked, sized, and readable, each in the form an agent can actually use:
+Your notes embed screenshots, reference architecture diagrams, and link out to canvases and data files — but to an agent reading markdown, `![[diagram.png]]` is just text. Vault Cortex treats files as part of the vault rather than clutter around it — linked, sized, and readable, each in the form an agent can use:
 
 - **Images** — the image itself, not the filename. Screenshots and diagrams are downscaled and recompressed server-side when they exceed what MCP clients accept, so even a phone session can look at a 5MB architecture diagram
 - **Canvases** — a [Canvas](https://help.obsidian.md/canvas) board arrives as a readable outline: its groups, each card's content in reading order, and the connections between them. Canvas content is full-text searchable, and file references on the board appear in the link graph — backlinks and outgoing links work just like note-to-note links. The exact JSON source is one flag away when full fidelity matters
@@ -290,41 +293,41 @@ See [ARCHITECTURE.md → Files](./ARCHITECTURE.md#files) for the image pipeline 
 
 ## Tools
 
-| Category        | Tool                         | Description                                                                               |
-| --------------- | ---------------------------- | ----------------------------------------------------------------------------------------- |
-| **Vault CRUD**  | `vault_read_note`            | Read a note — full body, properties, outline, or a section                                |
-|                 | `vault_write_note`           | Create a note (fails if it already exists; set `overwrite` to replace)                    |
-|                 | `vault_patch_note`           | Heading-targeted edit (append, prepend, replace with `include_children` guard, insert)    |
-|                 | `vault_replace_in_note`      | Find-and-replace text in a note (first match or `replace_all_occurrences`)                |
-|                 | `vault_delete_span`          | Delete a block of lines by short anchors, no full re-quote                                |
-|                 | `vault_replace_span`         | Replace a block of lines by short anchors with new content                                |
-|                 | `vault_insert_at_anchor`     | Insert content before or after a line identified by a short anchor                        |
-|                 | `vault_list_notes`           | List notes with optional glob/folder filter                                               |
-|                 | `vault_delete_note`          | Delete a note, honoring the vault's trash setting (protected paths enforced)              |
-|                 | `vault_move_note`            | Move or rename a note, rewriting links across the vault                                   |
-| **Search**      | `vault_search`               | Hybrid search with tag/folder/property/date filters                                       |
-|                 | `vault_search_by_tag`        | Find notes by tag (exact or prefix match)                                                 |
-|                 | `vault_search_by_folder`     | Browse notes in a folder with metadata                                                    |
-|                 | `vault_recent_notes`         | Recently modified or created notes                                                        |
-|                 | `vault_list_tags`            | All tags with usage counts                                                                |
-| **Tasks**       | `vault_list_tasks`           | Vault-wide task index with sub-task depth — Kanban-aware, date/priority/heading filters   |
-|                 | `vault_create_task`          | Create a correctly-formatted task — dates, priority, recurrence, sub-tasks, block_id      |
-|                 | `vault_update_task`          | Edit any task field in one call — completing a recurring task creates its next occurrence |
-| **Memory**      | `vault_get_memory`           | Read structured memory (file, section, or all)                                            |
-|                 | `vault_update_memory`        | Append a dated entry to a memory section                                                  |
-|                 | `vault_delete_memory`        | Remove a specific memory entry by date                                                    |
-|                 | `vault_list_memory_files`    | Discover memory files, their sections, and each file's entry policy                       |
-|                 | `vault_memory_recall`        | Entry-granular hybrid recall of a topic across memory files, oldest-first                 |
-| **Properties**  | `vault_list_property_keys`   | All property keys with sample values                                                      |
-|                 | `vault_list_property_values` | Distinct values for a property key                                                        |
-|                 | `vault_search_by_property`   | Find notes by property key-value                                                          |
-|                 | `vault_update_properties`    | Add or update properties without touching the body                                        |
-| **Links**       | `vault_get_backlinks`        | Notes linking to a given path                                                             |
-|                 | `vault_get_outgoing_links`   | Links from a given note                                                                   |
-|                 | `vault_find_orphans`         | Notes with no incoming links                                                              |
-| **Files**       | `vault_read_file`            | Read a non-markdown file — images delivered as images, canvases as readable outlines      |
-|                 | `vault_list_files`           | Browse the vault's non-markdown files with sizes and per-extension counts                 |
-| **Daily Notes** | `vault_get_daily_note`       | Today's (or any date's) daily note                                                        |
+| Category        | Tool                         | Description                                                                                         |
+| --------------- | ---------------------------- | --------------------------------------------------------------------------------------------------- |
+| **Vault CRUD**  | `vault_read_note`            | Read a note — full body, properties, outline, or a section                                          |
+|                 | `vault_write_note`           | Create a note (fails if it already exists; set `overwrite` to replace)                              |
+|                 | `vault_patch_note`           | Heading-targeted edit (append, prepend, replace with `include_children` guard, insert)              |
+|                 | `vault_replace_in_note`      | Find-and-replace text in a note (first match or `replace_all_occurrences`)                          |
+|                 | `vault_delete_span`          | Delete a block of lines by short anchors, no full re-quote                                          |
+|                 | `vault_replace_span`         | Replace a block of lines by short anchors with new content                                          |
+|                 | `vault_insert_at_anchor`     | Insert content before or after a line identified by a short anchor                                  |
+|                 | `vault_list_notes`           | List notes with optional glob/folder filter                                                         |
+|                 | `vault_delete_note`          | Delete a note, honoring the vault's trash setting (protected paths enforced)                        |
+|                 | `vault_move_note`            | Move or rename a note, rewriting links across the vault                                             |
+| **Search**      | `vault_search`               | Hybrid search with tag/folder/property/date filters                                                 |
+|                 | `vault_search_by_tag`        | Find notes by tag (exact or prefix match)                                                           |
+|                 | `vault_search_by_folder`     | Browse notes in a folder with metadata                                                              |
+|                 | `vault_recent_notes`         | Recently modified or created notes                                                                  |
+|                 | `vault_list_tags`            | All tags with usage counts                                                                          |
+| **Tasks**       | `vault_list_tasks`           | Vault-wide task index with sub-task depth — Kanban-aware, date/priority/heading filters             |
+|                 | `vault_create_task`          | Create a correctly-formatted task — dates, priority, recurrence, on_completion, sub-tasks, block_id |
+|                 | `vault_update_task`          | Edit any task field in one call — completing a recurring task creates its next occurrence           |
+| **Memory**      | `vault_get_memory`           | Read structured memory (file, section, or all)                                                      |
+|                 | `vault_update_memory`        | Append a dated entry to a memory section                                                            |
+|                 | `vault_delete_memory`        | Remove a specific memory entry by date                                                              |
+|                 | `vault_list_memory_files`    | Discover memory files, their sections, and each file's entry policy                                 |
+|                 | `vault_memory_recall`        | Entry-granular hybrid recall of a topic across memory files, oldest-first                           |
+| **Properties**  | `vault_list_property_keys`   | All property keys with sample values                                                                |
+|                 | `vault_list_property_values` | Distinct values for a property key                                                                  |
+|                 | `vault_search_by_property`   | Find notes by property key-value                                                                    |
+|                 | `vault_update_properties`    | Add or update properties without touching the body                                                  |
+| **Links**       | `vault_get_backlinks`        | Notes linking to a given path                                                                       |
+|                 | `vault_get_outgoing_links`   | Links from a given note                                                                             |
+|                 | `vault_find_orphans`         | Notes with no incoming links                                                                        |
+| **Files**       | `vault_read_file`            | Read a non-markdown file — images delivered as images, canvases as readable outlines                |
+|                 | `vault_list_files`           | Browse the vault's non-markdown files with sizes and per-extension counts                           |
+| **Daily Notes** | `vault_get_daily_note`       | Today's (or any date's) daily note                                                                  |
 
 ---
 
@@ -358,7 +361,7 @@ Vault Cortex indexes every [property](https://help.obsidian.md/Editing+and+forma
 
 **All other properties** are still fully queryable — use `vault_search` with `filters.properties` for combined text + metadata queries, or `vault_search_by_property` for metadata-only lookups. `vault_list_property_keys` and `vault_list_property_values` discover what properties exist across your vault.
 
-These are conventions, not requirements — Vault Cortex works with any property schema. Promoted properties just give you richer filtering and cleaner results out of the box.
+These are conventions, not requirements — Vault Cortex works with any property schema. Promoted properties give you richer filtering and cleaner results out of the box.
 
 **Leading callouts** get the same treatment. When a note's first body content is an Obsidian [callout](https://help.obsidian.md/Editing+and+formatting/Callouts) (`> [!type]`) — either right after frontmatter or right after the title heading — it's indexed and surfaced alongside every discovery result (on `vault_search`, ask for it with `include_leading_callout`). This makes notes self-describing: an agent scanning results can see what each note is _for_ before deciding which to read. The memory templates use `> [!info] Scope of this file` callouts for this, and any note in your vault can use the same pattern.
 
@@ -366,7 +369,7 @@ These are conventions, not requirements — Vault Cortex works with any property
 
 ## Configuration
 
-All settings are environment variables with sensible defaults. Remote deployments also forward Obsidian Sync's own settings — `DEVICE_NAME`, `SYNC_MODE`, `CONFLICT_STRATEGY`, `SYNC_CONFIGS`, `SYNC_EXCLUDED_FOLDERS`, `SYNC_FILE_TYPES` — documented in the [remote guide's configuration table](./deploy/remote/README.md#configuration).
+All settings are environment variables with sensible defaults. Some defaults derive from other settings — the Default column shows each derivation, and a value you set replaces the whole derived default. Remote deployments also forward Obsidian Sync's own settings — `DEVICE_NAME`, `SYNC_MODE`, `CONFLICT_STRATEGY`, `SYNC_CONFIGS`, `SYNC_EXCLUDED_FOLDERS`, `SYNC_FILE_TYPES` — documented in the [remote guide's configuration table](./deploy/remote/README.md#configuration).
 
 | Variable                    | Required?   | Default                                                                          | Description                                                                                                                                                                                                                                                                                                                                     |
 | --------------------------- | ----------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -379,13 +382,13 @@ All settings are environment variables with sensible defaults. Remote deployment
 | `STORAGE_ROOT`              | —           | —                                                                                | One directory for everything that must persist — the vault, the search index, and Obsidian Sync state — for container hosting platforms that allow a single persistent volume (Railway, Render). Mount the volume there and set this to the same path. Must not contain `*`, `?`, or `[` — rejected at startup.                                 |
 | `EMBEDDING_ENABLED`         | —           | `true`                                                                           | Set `false` to disable the embedding pipeline — skips model download, vector tables, embedding passes, and hybrid search. Search falls back to FTS5 keyword matching.                                                                                                                                                                           |
 | `RERANK_MODE`               | —           | `blended`                                                                        | Cross-encoder reranking mode: `blended` applies position-aware score blending after RRF fusion (~200ms added latency), `none` skips reranking. Only takes effect when `EMBEDDING_ENABLED` is true.                                                                                                                                              |
-| `MEMORY_ENABLED`            | —           | `true`                                                                           | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` is ignored when `false`.                                                                                                                                                                                   |
+| `MEMORY_ENABLED`            | —           | `true`                                                                           | Set `false` to fully disable the memory layer — hides memory tools, skips bootstrap, omits memory from server metadata. `MEMORY_DIR` still supplies the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS` when `false`.                                                                                                               |
 | `FILE_TOOLS_ENABLED`        | —           | `true`                                                                           | Set `false` to hide file tools (`vault_read_file`, `vault_list_files`) — useful for remote deployments where Obsidian Sync has attachment syncing disabled.                                                                                                                                                                                     |
 | `READONLY_MODE`             | —           | `false`                                                                          | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — connected clients can read and search but never edit.                                                                                                                                                                                               |
-| `DISABLED_TOOLS`            | —           | —                                                                                | Hide individual tools by name, comma-separated (e.g. `vault_delete_note,vault_move_note`). Names match the Name column in the [tools table](#tools). Subtractive only — it cannot re-enable a tool another setting hides. An unknown tool name stops the server at startup, so typos surface immediately.                                       |
+| `DISABLED_TOOLS`            | —           | —                                                                                | Hide individual tools by name, comma-separated (e.g. `vault_delete_note,vault_move_note`). Names match the Tool column in the [tools table](#tools). Subtractive only — it cannot re-enable a tool another setting hides. An unknown tool name stops the server at startup, so typos surface immediately.                                       |
 | `MEMORY_DIR`                | —           | `About Me`                                                                       | Vault folder for structured memory files                                                                                                                                                                                                                                                                                                        |
 | `PROTECTED_PATHS`           | —           | `MEMORY_DIR`, daily notes folder                                                 | Folders that `vault_delete_note` and `vault_move_note` refuse to touch. The default daily notes folder is read from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`). Overrides the default entirely when set.                                                                                                      |
-| `ORPHAN_EXCLUDE_FOLDERS`    | —           | `DAILY_NOTES_FOLDER, Templates, MEMORY_DIR`                                      | Folders excluded from orphan detection                                                                                                                                                                                                                                                                                                          |
+| `ORPHAN_EXCLUDE_FOLDERS`    | —           | `DAILY_NOTES_FOLDER, Templates, MEMORY_DIR`                                      | Folders excluded from orphan detection. The daily-notes part of the default comes from `DAILY_NOTES_FOLDER` only — this one doesn't read `daily-notes.json`.                                                                                                                                                                                    |
 | `DAILY_NOTES_FOLDER`        | —           | from vault config                                                                | Sets the folder your daily notes live in. When unset, read from the vault's `.obsidian/daily-notes.json`, falling back to `Daily Notes`. See [Daily notes](#daily-notes).                                                                                                                                                                       |
 | `DAILY_NOTES_FORMAT`        | —           | from vault config                                                                | Sets the daily note filename format — same tokens as Obsidian's daily note date format setting. When unset, read from the vault's `.obsidian/daily-notes.json`, falling back to `YYYY-MM-DD`. See [Daily notes](#daily-notes).                                                                                                                  |
 | `TZ`                        | —           | `UTC`                                                                            | IANA timezone for timestamps and daily note resolution                                                                                                                                                                                                                                                                                          |
@@ -401,14 +404,6 @@ All settings are environment variables with sensible defaults. Remote deployment
 | `TRUST_PROXY_HOPS`          | —           | `0`                                                                              | Number of trusted reverse-proxy hops used to derive the client IP from `X-Forwarded-For` (OAuth rate limiting, request logs). Set `1` when exactly one proxy you control sits in front of the server (Caddy, nginx, Cloudflare Tunnel, API Gateway). With `0`, injected forwarding headers are ignored.                                         |
 | `TRUST_FORWARDED_HOPS`      | —           | `0`                                                                              | How many trailing `for=` entries in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header belong to proxies you control. `0` ignores the header; `1` when the proxy in front writes it (e.g. AWS API Gateway); `2` when a CDN fronts that proxy and is the only way to reach it.                                            |
 
-- **Smart defaults** — `MEMORY_DIR` and the daily notes folder feed the defaults for `PROTECTED_PATHS` and `ORPHAN_EXCLUDE_FOLDERS`. Set one of those explicitly only when you want a fully custom list: the value replaces the whole default, daily notes folder included.
-  - `PROTECTED_PATHS` reads the daily notes folder from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`).
-  - `ORPHAN_EXCLUDE_FOLDERS` takes it from `DAILY_NOTES_FOLDER`, else `Daily Notes` — it doesn't read `daily-notes.json`.
-- **`MEMORY_ENABLED=false`** fully disables the memory layer — memory tools are hidden and the memory folder is not auto-created.
-- **`FILE_TOOLS_ENABLED=false`** hides file tools entirely — useful when Obsidian Sync has attachment syncing disabled and no files exist on disk.
-- **`READONLY_MODE=true`** hides every vault-writing tool and skips memory folder auto-creation — connected clients can read and search but never edit.
-- **`DISABLED_TOOLS`** hides exactly the tools you name — for finer control than the switches above, e.g. keep writes on but remove `vault_delete_note` and `vault_move_note`. Availability-keyed cross-references in tool descriptions and prompts adjust automatically.
-
 See [`templates/memory/`](./templates/memory/) for memory file examples and the dated-entry design philosophy.
 
 ### Daily notes
@@ -418,7 +413,12 @@ See [`templates/memory/`](./templates/memory/) for memory file examples and the 
 - **Local mode** reads the file straight from your bind-mounted vault — nothing to set up.
 - **Remote mode** receives it through Obsidian Sync's vault configuration syncing. The server pulls it by default (the `SYNC_CONFIGS` setting in `.env`), but you'll likely need to enable the push side: Obsidian Settings → Sync → **Vault configuration sync**, per device. Details: the [remote guide's Daily notes section](./deploy/remote/README.md#daily-notes).
 
-When the file isn't available — or you use the Periodic Notes plugin, whose settings it doesn't reflect — set `DAILY_NOTES_FOLDER` (any vault-relative path: `Journal`, `Planner/Daily`) and `DAILY_NOTES_FORMAT` (same tokens as Obsidian's date format setting: `YYYY-MM-DD-dddd`, `YYYY/MM/DD`, `MMM D, YYYY`, …). You can set one or both — a set value always wins over the config file. Without either source, the server falls back to `Daily Notes` and `YYYY-MM-DD`.
+When the file isn't available — or if you use the Periodic Notes plugin, whose settings it doesn't reflect — set the values yourself:
+
+- `DAILY_NOTES_FOLDER` — any vault-relative path: `Journal`, `Planner/Daily`
+- `DAILY_NOTES_FORMAT` — same tokens as Obsidian's date format setting: `YYYY-MM-DD-dddd`, `YYYY/MM/DD`, `MMM D, YYYY`, …
+
+You can set one or both — a set value always wins over the config file. Without either source, the server falls back to `Daily Notes` and `YYYY-MM-DD`.
 
 > **Note:** A few date format tokens are unsupported — ordinals (`Do`, `Mo`, `DDDo`, `wo`), `dd` (2-letter weekday), `d` (weekday number), `e`, `k`/`kk`, and the localized formats (`L`–`LLLL`, `LT`, `LTS`). The server can't reproduce the filenames Obsidian creates with these tokens, so it could never find the notes. If your format uses any of them, `vault_get_daily_note` returns a clear error — change the format in Obsidian or set `DAILY_NOTES_FORMAT` to a supported alternative.
 
@@ -432,10 +432,12 @@ Vault Cortex writes to personal notes — the file safety layer is built to prev
 - **Per-file mutex** — concurrent MCP tool calls serialize or fail-fast per file. Moves lock the source, destination, and every backlink source as one unit.
 - **Path traversal blocked** — `resolveSafePath()` resolves then prefix-checks every path. Protected-path deletion is refused after normalization. Memory file names reject separators at the boundary.
 - **Hidden paths are off-limits** — files and folders starting with a dot (`.obsidian/`, `.trash/`) never appear in listings or search, and any tool call that targets one directly is rejected, matching Obsidian. Plugin configs and their API keys stay out of reach.
-- **Deletes honor Obsidian's trash setting** — with "Deleted files" at Obsidian's default "Move to system trash" or at "Move to Obsidian trash", a deleted note moves to `.trash/` inside the vault instead of being removed (a container has no system trash; `.trash/` is Obsidian's own fallback for that). "Permanently delete" removes the note for good. On Obsidian Sync deployments deletes are always permanent and sync to every device — recovery is Sync's version history.
+- **Deletes honor Obsidian's trash setting** — with "Deleted files" at Obsidian's default "Move to system trash" or at "Move to Obsidian trash", a deleted note moves to `.trash/` inside the vault instead of being removed (a container has no system trash; `.trash/` is Obsidian's own fallback for that). "Permanently delete" removes the note for good.
+- **Obsidian Sync deployments delete permanently** — the delete syncs to every device, and recovery is Sync's version history rather than a trash folder.
 - **Bounded trash with a retention sweep** — notes the server moves to `.trash/` under the system-default setting are cleaned up after `TRASH_RETENTION_DAYS` (default 30 days; `none` keeps them forever). The sweep removes only files it recorded — notes Obsidian itself trashed, and "Move to Obsidian trash" deletes, are never touched.
 - **Injection prevention** — search queries are parameterized and FTS5-sanitized; prompt content is wrapped in XML data markers with closing-tag escaping to prevent tag-breakout injection.
 - **Container hardening** — non-root user, PID 1 init, no package managers in the runtime image, digest-pinned base, graceful shutdown.
+- **Read-only mode** — `READONLY_MODE=true` hides every tool that edits the vault, so a connected client can read and search but never change a note.
 
 See [ARCHITECTURE.md → Data Integrity](./ARCHITECTURE.md#data-integrity) for mechanism details and [SECURITY.md → Runtime Hardening](./SECURITY.md#runtime-hardening) for how each part of the server is hardened.
 
@@ -451,6 +453,8 @@ Two methods:
 | ----------------- | -------------------------------------------------------- | -------------------- |
 | **OAuth 2.1**     | Claude Desktop, Claude Code, claude.ai, any OAuth client | JWT (HS256, 6h)      |
 | **Static bearer** | Claude Code, MCP Inspector, curl                         | Raw `MCP_AUTH_TOKEN` |
+
+The method follows from your client — OAuth when it supports it, the raw token in a header otherwise ([Connect your MCP client](#connect-your-mcp-client) shows both).
 
 OAuth uses dynamic client registration — no manual Client ID or Secret needed:
 

@@ -64,10 +64,7 @@ const defaultParams = {
 /** Builds a single-page StructuredTextItem array from lines of text. Items
  *  are positioned vertically (descending y, like a real PDF) with the given
  *  fontSize and fontFamily. */
-const buildPageItems = (
-  lines: string[],
-  options?: { fontSize?: number; fontFamily?: string },
-) =>
+const buildPageItems = (lines: string[], options?: { fontSize?: number; fontFamily?: string }) =>
   lines.map((str, index) => ({
     str,
     x: 42,
@@ -148,9 +145,10 @@ describe("readAssetContent — PDF extraction", () => {
             fontSize: 10.5,
             fontFamily: "monospace",
           }).map((item) => ({ ...item, y: 735 })),
-          ...buildPageItems(["End of example."], { fontSize: 10.5 }).map(
-            (item) => ({ ...item, y: 720 }),
-          ),
+          ...buildPageItems(["End of example."], { fontSize: 10.5 }).map((item) => ({
+            ...item,
+            y: 720,
+          })),
         ],
       ],
     })
@@ -191,11 +189,7 @@ describe("readAssetContent — PDF extraction", () => {
       items: [[...buildPageItems(["Some text"])]],
     })
     mockExtractLinks.mockResolvedValue({
-      links: [
-        "https://example.com",
-        "https://other.com",
-        "https://example.com",
-      ],
+      links: ["https://example.com", "https://other.com", "https://example.com"],
       totalPages: 1,
     })
 
@@ -255,10 +249,7 @@ describe("readAssetContent — PDF extraction", () => {
     })
     mockExtractTextItems.mockResolvedValue({
       totalPages: 2,
-      items: [
-        [...buildPageItems(["Page one content"])],
-        [...buildPageItems(["Page two content"])],
-      ],
+      items: [[...buildPageItems(["Page one content"])], [...buildPageItems(["Page two content"])]],
     })
     mockExtractLinks.mockResolvedValue({ links: [], totalPages: 2 })
 
@@ -294,10 +285,7 @@ describe("readAssetContent — PDF extraction", () => {
     })
 
     await expect(
-      assetOperations.readAssetContent(
-        { ...defaultParams, path: "scans/receipt.pdf" },
-        logger,
-      ),
+      assetOperations.readAssetContent({ ...defaultParams, path: "scans/receipt.pdf" }, logger),
     ).rejects.toThrow(
       'PDF has no extractable text: "scans/receipt.pdf" exists ' +
         "(5000000 bytes, 12 pages) but contains no text content " +
@@ -317,10 +305,7 @@ describe("readAssetContent — PDF extraction", () => {
     })
 
     await expect(
-      assetOperations.readAssetContent(
-        { ...defaultParams, path: "empty.pdf" },
-        logger,
-      ),
+      assetOperations.readAssetContent({ ...defaultParams, path: "empty.pdf" }, logger),
     ).rejects.toThrow(
       'PDF has no extractable text: "empty.pdf" exists ' +
         "(1000 bytes, 1 pages) but contains no text content " +
@@ -345,13 +330,9 @@ describe("readAssetContent — PDF extraction", () => {
     mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
 
     await expect(
-      assetOperations.readAssetContent(
-        { ...defaultParams, path: "huge.pdf" },
-        logger,
-      ),
+      assetOperations.readAssetContent({ ...defaultParams, path: "huge.pdf" }, logger),
     ).rejects.toThrow(
-      'text output too large: "huge.pdf" renders to 200024 bytes ' +
-        "(cap 102400 bytes)",
+      'text output too large: "huge.pdf" renders to 200024 bytes ' + "(cap 102400 bytes)",
     )
   })
 
@@ -363,10 +344,7 @@ describe("readAssetContent — PDF extraction", () => {
     })
 
     await expect(
-      assetOperations.readAssetContent(
-        { ...defaultParams, path: "audio/song.mp3" },
-        logger,
-      ),
+      assetOperations.readAssetContent({ ...defaultParams, path: "audio/song.mp3" }, logger),
     ).rejects.toThrow(
       'unsupported file type ".mp3": "audio/song.mp3" exists ' +
         "(10000 bytes). Readable types: images " +
@@ -381,9 +359,7 @@ describe("readAssetContent — PDF extraction", () => {
       bytes: 14,
       extension: ".pdf",
     })
-    mockCreatePdfDocumentProxy.mockRejectedValue(
-      new Error("Invalid PDF structure"),
-    )
+    mockCreatePdfDocumentProxy.mockRejectedValue(new Error("Invalid PDF structure"))
     // Restore the default mock regardless of assertion outcome — without
     // this, a failing assertion leaves subsequent tests with a rejecting mock.
     onTestFinished(() => {
@@ -394,10 +370,7 @@ describe("readAssetContent — PDF extraction", () => {
     })
 
     await expect(
-      assetOperations.readAssetContent(
-        { ...defaultParams, path: "corrupt.pdf" },
-        logger,
-      ),
+      assetOperations.readAssetContent({ ...defaultParams, path: "corrupt.pdf" }, logger),
     ).rejects.toThrow("Invalid PDF structure")
   })
 
@@ -417,10 +390,7 @@ describe("readAssetContent — PDF extraction", () => {
     })
     mockExtractLinks.mockResolvedValue({ links: [], totalPages: 1 })
 
-    await assetOperations.readAssetContent(
-      { ...defaultParams, path: "test.pdf" },
-      logger,
-    )
+    await assetOperations.readAssetContent({ ...defaultParams, path: "test.pdf" }, logger)
 
     expect(mockDestroy).toHaveBeenCalledOnce()
   })
@@ -438,10 +408,7 @@ describe("readAssetContent — PDF extraction", () => {
     })
 
     await expect(
-      assetOperations.readAssetContent(
-        { ...defaultParams, path: "scanned.pdf" },
-        logger,
-      ),
+      assetOperations.readAssetContent({ ...defaultParams, path: "scanned.pdf" }, logger),
     ).rejects.toThrow("PDF has no extractable text")
 
     expect(mockDestroy).toHaveBeenCalledOnce()
@@ -523,12 +490,7 @@ describe("readAssetContent — PDF extraction", () => {
     expect(result).toEqual({
       kind: "text",
       path: "flat.pdf",
-      text: [
-        "Title: Flat Doc | Pages: 1",
-        "",
-        "Title Line",
-        "Body text here",
-      ].join("\n"),
+      text: ["Title: Flat Doc | Pages: 1", "", "Title Line", "Body text here"].join("\n"),
     })
   })
 })
@@ -946,22 +908,15 @@ describe("readAssetContent — line paging", () => {
         { ...defaultParams, path: "data.csv", startLine: 0 },
         logger,
       ),
-    ).rejects.toThrow(
-      'invalid line range: "data.csv" needs a start line and limit of at least 1',
-    )
+    ).rejects.toThrow('invalid line range: "data.csv" needs a start line and limit of at least 1')
   })
 
   it("rejects a limit below 1", async () => {
     stubReadAsset("alpha\nbeta\ngamma\n", ".csv")
 
     await expect(
-      assetOperations.readAssetContent(
-        { ...defaultParams, path: "data.csv", limit: 0 },
-        logger,
-      ),
-    ).rejects.toThrow(
-      'invalid line range: "data.csv" needs a start line and limit of at least 1',
-    )
+      assetOperations.readAssetContent({ ...defaultParams, path: "data.csv", limit: 0 }, logger),
+    ).rejects.toThrow('invalid line range: "data.csv" needs a start line and limit of at least 1')
   })
 
   it("rejects a start line past the end stating the total line count", async () => {
@@ -985,8 +940,7 @@ describe("readAssetContent — line paging", () => {
         logger,
       ),
     ).rejects.toThrow(
-      'text output too large: "big.log" lines 1–1 render to 102401 bytes ' +
-        "(cap 102400 bytes)",
+      'text output too large: "big.log" lines 1–1 render to 102401 bytes ' + "(cap 102400 bytes)",
     )
   })
 
@@ -1064,10 +1018,7 @@ describe("readAssetContent — line paging", () => {
     stubReadAsset("fake-png-bytes", ".png")
 
     await expect(
-      assetOperations.readAssetContent(
-        { ...defaultParams, path: "pic.png", limit: 10 },
-        logger,
-      ),
+      assetOperations.readAssetContent({ ...defaultParams, path: "pic.png", limit: 10 }, logger),
     ).rejects.toThrow(
       'line range is not available for images: "pic.png" is binary — ' +
         "its image block is the delivered form",

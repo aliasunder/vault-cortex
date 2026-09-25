@@ -17,8 +17,7 @@ const execFileAsync = promisify(execFile)
 /** Path of the real obsidian-headless CLI inside the image — the target of
  *  the `.bin/ob` symlink on PATH. Mounting the stub here (not over the
  *  symlink) keeps the override explicit about which file it replaces. */
-const OB_CLI_PATH_IN_IMAGE =
-  "/opt/obsidian-headless/node_modules/obsidian-headless/cli.js"
+const OB_CLI_PATH_IN_IMAGE = "/opt/obsidian-headless/node_modules/obsidian-headless/cli.js"
 
 const OB_STUB_PATH = resolve(import.meta.dirname, "fixtures/ob")
 
@@ -57,10 +56,9 @@ const isExecFileError = (error: unknown): error is ExecFileError =>
 /** Run `docker <argv>` and throw with the captured stderr when it fails. */
 export const dockerOrThrow = async (argv: string[]): Promise<string> => {
   const result = await docker(argv)
+
   if (result.code !== 0) {
-    throw new Error(
-      `docker ${argv.join(" ")} exited ${result.code}: ${result.stderr.trim()}`,
-    )
+    throw new Error(`docker ${argv.join(" ")} exited ${result.code}: ${result.stderr.trim()}`)
   }
   return result.stdout
 }
@@ -70,6 +68,7 @@ export const dockerOrThrow = async (argv: string[]): Promise<string> => {
  *  "No such image" message buried in a timeout. */
 export const assertImagePresent = async (image: string): Promise<void> => {
   const result = await docker(["image", "inspect", image])
+
   if (result.code !== 0) {
     throw new Error(
       `Remote image "${image}" not found — build it first: npm run build:remote-image (tags vault-cortex:remote-ci; set REMOTE_IMAGE to test another tag)`,
@@ -111,10 +110,7 @@ export const runContainer = async ({
   volumes,
   publishPort,
 }: RunContainerOptions): Promise<ContainerHandle> => {
-  const envArgs = Object.entries(env).flatMap(([key, value]) => [
-    "-e",
-    `${key}=${value}`,
-  ])
+  const envArgs = Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`])
   const volumeArgs = volumes.flatMap((spec) => ["-v", spec])
   // `127.0.0.1::<port>` leaves the host port to Docker; `publishedPort` reads
   // it back, so parallel runs never collide on a fixed port.
@@ -351,6 +347,7 @@ export const startFakeObsidianApiInContainer = async ({
   const probeScript = `fetch("http://127.0.0.1:${FAKE_OBSIDIAN_API_PORT}/vault/list", { method: "POST", body: "{}" }).then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))`
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const probe = await execInContainer(name, ["node", "-e", probeScript])
+
     if (probe.code === 0) return
     await sleep(250)
   }
@@ -359,12 +356,7 @@ export const startFakeObsidianApiInContainer = async ({
 
 /** The exit code Docker recorded for a stopped container. */
 export const containerExitCode = async (name: string): Promise<number> => {
-  const output = await dockerOrThrow([
-    "inspect",
-    "-f",
-    "{{.State.ExitCode}}",
-    name,
-  ])
+  const output = await dockerOrThrow(["inspect", "-f", "{{.State.ExitCode}}", name])
   return Number(output.trim())
 }
 
@@ -390,6 +382,7 @@ export const publishedPort = async (name: string): Promise<number> => {
   // loopback publish yields `127.0.0.1:NNNNN`.
   const firstLine = mapping.split("\n")[0] ?? ""
   const port = Number(firstLine.split(":").at(-1))
+
   if (!Number.isInteger(port) || port <= 0) {
     throw new Error(`could not parse published port from "${mapping.trim()}"`)
   }
@@ -397,12 +390,7 @@ export const publishedPort = async (name: string): Promise<number> => {
 }
 
 const isRunning = async (name: string): Promise<boolean> => {
-  const state = await dockerOrThrow([
-    "inspect",
-    "-f",
-    "{{.State.Running}}",
-    name,
-  ])
+  const state = await dockerOrThrow(["inspect", "-f", "{{.State.Running}}", name])
   return state.trim() === "true"
 }
 
@@ -414,15 +402,14 @@ const isRunning = async (name: string): Promise<boolean> => {
  *
  *  `since` narrows to lines after a Docker timestamp, which is how the
  *  restart scenarios ignore the first boot's output. */
-export const containerLogs = async (
-  name: string,
-  since?: string,
-): Promise<string> => {
+export const containerLogs = async (name: string, since?: string): Promise<string> => {
   const sinceArgs = since ? ["--since", since] : []
   const { stdout } = await execFileAsync(
     "sh",
     ["-c", 'docker logs "$@" 2>&1', "sh", ...sinceArgs, name],
-    { maxBuffer: 64 * 1024 * 1024 },
+    {
+      maxBuffer: 64 * 1024 * 1024,
+    },
   )
   return stdout
 }
@@ -460,6 +447,7 @@ export const waitForHealthz = async ({
       const response = await fetch(`http://127.0.0.1:${port}/healthz`, {
         signal: AbortSignal.timeout(attemptTimeoutMs),
       })
+
       if (response.ok) return
     } catch {
       // Connection refused while the server is still booting, or an attempt
@@ -496,10 +484,8 @@ export const waitForStopped = async ({
 
 /** Run a command inside the container and report its outcome — non-zero
  *  exits are data here (`test -e` on an absent path), not errors. */
-export const execInContainer = (
-  name: string,
-  argv: string[],
-): Promise<CommandResult> => docker(["exec", name, ...argv])
+export const execInContainer = (name: string, argv: string[]): Promise<CommandResult> =>
+  docker(["exec", name, ...argv])
 
 /** Raw bytes of a file inside the container — no trimming, so a stray
  *  trailing newline in a `container_environment` value fails an exact
@@ -533,26 +519,15 @@ export const listFilesInContainer = async ({
   name: string
   directory: string
 }): Promise<string[]> => {
-  const listing = await dockerOrThrow([
-    "exec",
-    name,
-    "find",
-    directory,
-    "-type",
-    "f",
-  ])
+  const listing = await dockerOrThrow(["exec", name, "find", directory, "-type", "f"])
   return listing.split("\n").filter(Boolean).sort()
 }
 
 /** Connect an MCP SDK Client to the container's published port. */
-export const createClient = async (
-  port: number,
-  token: string,
-): Promise<Client> => {
-  const transport = new StreamableHTTPClientTransport(
-    new URL(`http://127.0.0.1:${port}/mcp`),
-    { requestInit: { headers: { Authorization: `Bearer ${token}` } } },
-  )
+export const createClient = async (port: number, token: string): Promise<Client> => {
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+    requestInit: { headers: { Authorization: `Bearer ${token}` } },
+  })
   const client = new Client({ name: "remote-boot-test", version: "1.0.0" })
   // SDK's StreamableHTTPClientTransport.sessionId is `string | undefined` but
   // the Transport interface declares `sessionId?: string` — incompatible under

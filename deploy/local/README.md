@@ -286,7 +286,7 @@ Connected clients can read and search but never edit.
 
 Need finer control? `DISABLED_TOOLS` hides exactly the tools you name,
 comma-separated — e.g. `DISABLED_TOOLS=vault_delete_note,vault_move_note`
-keeps writes on but removes deleting and moving. Names match the Name column
+keeps writes on but removes deleting and moving. Names match the Tool column
 in the [README tools table](https://github.com/aliasunder/vault-cortex#tools).
 It only ever takes tools away: it can't bring back one that read-only mode
 or another setting has already hidden.

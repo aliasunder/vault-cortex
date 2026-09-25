@@ -20,16 +20,11 @@
  */
 
 import { execSync } from "node:child_process"
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { DEPLOYMENT_ENV_PATH, loadDeploymentEnv } from "./deployment-env.js"
 import {
   envContentWithPublicUrl,
   gatewayApiEndpointQuery,
@@ -37,25 +32,34 @@ import {
   type ResolvedPublicUrl,
 } from "./instance-env.js"
 
-const ENV_PATH = join(homedir(), ".config", "vault-cortex", ".env")
-
-const loadDotEnv = (): Record<string, string> => {
-  if (!existsSync(ENV_PATH)) return {}
-  const out: Record<string, string> = {}
-  for (const line of readFileSync(ENV_PATH, "utf8").split("\n")) {
-    const match = /^([A-Z0-9_]+)=(.*)$/i.exec(line.trim())
-    const key = match?.[1]
-    const value = match?.[2]
-    if (key !== undefined && value !== undefined)
-      out[key] = value.replace(/^['"]|['"]$/g, "")
-  }
-  return out
+const expandHome = (path: string): string => {
+  return path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path
 }
 
-const expandHome = (path: string): string =>
-  path.startsWith("~/") ? `${homedir()}${path.slice(1)}` : path
+const loadEnvForDeploy = ({ requireFile }: { requireFile: boolean }): NodeJS.ProcessEnv => {
+  try {
+    return loadDeploymentEnv({ requireFile })
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "could not load the deployment environment"
+    console.error(`✕ ${message}`)
+    process.exit(1)
+  }
+}
 
-const env: NodeJS.ProcessEnv = { ...loadDotEnv(), ...process.env }
+const SUBCOMMANDS = ["docker:build", "docker:push", "docker:publish", "lightsail:up"]
+const subcommand = process.argv[2]
+
+// Checked before GHCR_USER, so a mistyped subcommand prints the usage line
+// rather than a configuration error.
+if (!subcommand || !SUBCOMMANDS.includes(subcommand)) {
+  console.error(`Usage: tsx scripts/dev.ts <${SUBCOMMANDS.join("|")}>`)
+  process.exit(1)
+}
+
+// lightsail:up copies the file to the instance, so the file must exist. The
+// docker:* subcommands need only GHCR_USER, which the shell can supply.
+const env = loadEnvForDeploy({ requireFile: subcommand === "lightsail:up" })
 
 /** In GitHub Actions, masks a value so it appears as *** in logs. No-op locally. */
 const mask = (value: string): void => {
@@ -63,22 +67,25 @@ const mask = (value: string): void => {
 }
 
 const ghcrUser = env.GHCR_USER
+
 if (!ghcrUser) {
   console.error("✕  GHCR_USER not set. Set it in ~/.config/vault-cortex/.env")
   process.exit(1)
 }
 const image = `ghcr.io/${ghcrUser}/vault-cortex:remote`
 
-// Echoes the description, never the command string — the ssh/scp commands
-// carry the instance address and key path, and not printing them at all
-// beats relying on mask() (the same rule as lightsail:up's success line).
-const run = ({
-  cmd,
-  description,
-}: {
-  cmd: string
-  description: string
-}): void => {
+// sst.config.ts deploys to AWS_REGION, else us-east-1. Without the same
+// default, the AWS CLI would search its profile's region for the stack.
+const awsCliEnv = { ...env, AWS_REGION: env.AWS_REGION ?? "us-east-1" }
+
+const SSH_OPTS = "-o StrictHostKeyChecking=accept-new"
+
+/**
+ * Echoes the description, never the command string — the ssh/scp commands
+ * carry the instance address and key path, and not printing them at all
+ * beats relying on mask() (the same rule as lightsail:up's success line).
+ */
+const run = ({ cmd, description }: { cmd: string; description: string }): void => {
   console.log(`> ${description}`)
   try {
     execSync(cmd, { stdio: "inherit", env })
@@ -91,17 +98,30 @@ const run = ({
   }
 }
 
-// The target host is deliberately absent from both messages — matching the
-// success line at the end of lightsail:up. Tool output (ssh errors, compose
-// logs) can still print the address, so mask() keeps it out of public CI logs.
-const waitForDocker = (ip: string, id: string, timeoutSec = 120): void => {
+/**
+ * The target host is deliberately absent from both messages — matching the
+ * success line at the end of lightsail:up. Tool output (ssh errors, compose
+ * logs) can still print the address, so mask() keeps it out of public CI logs.
+ */
+const waitForDocker = ({
+  targetHost,
+  sshIdentityOption,
+  timeoutSec = 120,
+}: {
+  targetHost: string
+  sshIdentityOption: string
+  timeoutSec?: number
+}): void => {
   const deadline = Date.now() + timeoutSec * 1000
   console.log(`⏳ Waiting for Docker on the instance (up to ${timeoutSec}s)...`)
   while (Date.now() < deadline) {
     try {
       execSync(
-        `ssh ${id} ${sshOpts} ubuntu@${ip} 'docker --version' 2>/dev/null`,
-        { stdio: "pipe", env },
+        `ssh ${sshIdentityOption} ${SSH_OPTS} ubuntu@${targetHost} 'docker --version' 2>/dev/null`,
+        {
+          stdio: "pipe",
+          env,
+        },
       )
       console.log(`✓ Docker is ready`)
       return
@@ -118,13 +138,13 @@ const waitForDocker = (ip: string, id: string, timeoutSec = 120): void => {
 
 const readStage = (): string => {
   if (!existsSync(".sst/stage")) {
-    console.error("✕  .sst/stage not found. Run `npx sst deploy` first.")
+    console.error("✕  .sst/stage not found. Run `npm run deploy` first.")
     process.exit(1)
   }
   return readFileSync(".sst/stage", "utf8").trim()
 }
 
-const sshHost = (): string => {
+const resolveSshHost = (): string => {
   if (env.LIGHTSAIL_SSH_HOST) return env.LIGHTSAIL_SSH_HOST
 
   const stage = readStage()
@@ -133,26 +153,30 @@ const sshHost = (): string => {
   // public). The static-ip name matches sst.config.ts
   // (`vault-cortex-ip-${stage}`).
   const staticIpName = `vault-cortex-ip-${stage}`
-  const ip = execSync(
+  const staticIpAddress = execSync(
     `aws lightsail get-static-ip --static-ip-name ${staticIpName} ` +
       `--query staticIp.ipAddress --output text`,
-    { env },
+    { env: awsCliEnv },
   )
     .toString()
     .trim()
-  if (!ip || ip === "None") {
+
+  if (!staticIpAddress || staticIpAddress === "None") {
     console.error(`✕  Could not resolve ${staticIpName} from AWS.`)
     process.exit(1)
   }
-  return ip
+  return staticIpAddress
 }
 
-// Returns `-i <path>` for the SSH identity to use.
-// Defaults to ~/.ssh/vault-cortex (the dedicated deploy key that
-// matches the Lightsail KeyPair in sst.config.ts). Override with
-// LIGHTSAIL_SSH_KEY for a different keypair.
-const sshIdentity = (): string => {
+/**
+ * Returns `-i <path>` for the SSH identity to use.
+ * Defaults to ~/.ssh/vault-cortex (the dedicated deploy key that
+ * matches the Lightsail KeyPair in sst.config.ts). Override with
+ * LIGHTSAIL_SSH_KEY for a different keypair.
+ */
+const getSshIdentityOption = (): string => {
   const keyPath = expandHome(env.LIGHTSAIL_SSH_KEY ?? "~/.ssh/vault-cortex")
+
   if (!existsSync(keyPath)) {
     console.error(
       `✕  SSH key not found: ${keyPath}\n` +
@@ -164,13 +188,11 @@ const sshIdentity = (): string => {
   return `-i ${keyPath}`
 }
 
-const sshOpts = "-o StrictHostKeyChecking=accept-new"
-
 const fetchGatewayUrl = (): string => {
   const stage = readStage()
   return execSync(
     `aws apigatewayv2 get-apis --query "${gatewayApiEndpointQuery(stage)}" --output text`,
-    { env },
+    { env: awsCliEnv },
   )
     .toString()
     .trim()
@@ -189,9 +211,7 @@ const resolvePublicUrlForDeploy = (): ResolvedPublicUrl => {
   }
 }
 
-const sub = process.argv[2]
-
-switch (sub) {
+switch (subcommand) {
   case "docker:build":
     run({
       cmd: `docker build --target remote --platform linux/amd64 -t ${image} .`,
@@ -218,49 +238,45 @@ switch (sub) {
     break
 
   case "lightsail:up": {
-    if (!existsSync(ENV_PATH)) {
-      console.error(
-        `✕  ${ENV_PATH} not found.\n` +
-          `  Copy .env.example there and fill in values:\n` +
-          `  mkdir -p ~/.config/vault-cortex && cp .env.example ~/.config/vault-cortex/.env`,
-      )
-      process.exit(1)
-    }
     // The instance .env must carry the same PUBLIC_URL the Lambda authorizer
     // derived at `sst deploy` — a mismatch 403s every request at the gateway.
     // Resolved before anything touches the instance, so a failed resolution
     // copies nothing (no partial deploy of new compose + stale .env).
-    const { url: resolvedPublicUrl, source: publicUrlSource } =
-      resolvePublicUrlForDeploy()
+    const { url: resolvedPublicUrl, source: publicUrlSource } = resolvePublicUrlForDeploy()
     mask(resolvedPublicUrl)
     if (publicUrlSource !== "PUBLIC_URL") {
       console.log(`> PUBLIC_URL derived from ${publicUrlSource}`)
     }
-    const shippedEnvContent = envContentWithPublicUrl(
-      readFileSync(ENV_PATH, "utf8"),
-      resolvedPublicUrl,
-    )
-    const ip = sshHost()
-    mask(ip)
-    const id = sshIdentity()
+    const shippedEnvContent = envContentWithPublicUrl({
+      envFileContent: readFileSync(DEPLOYMENT_ENV_PATH, "utf8"),
+      publicUrl: resolvedPublicUrl,
+    })
+    const targetHost = resolveSshHost()
+    mask(targetHost)
+    const sshIdentityOption = getSshIdentityOption()
     run({
-      cmd: `ssh ${id} ${sshOpts} ubuntu@${ip} 'sudo mkdir -p /opt/vault-cortex && sudo chown ubuntu:ubuntu /opt/vault-cortex'`,
+      cmd: `ssh ${sshIdentityOption} ${SSH_OPTS} ubuntu@${targetHost} 'sudo mkdir -p /opt/vault-cortex && sudo chown ubuntu:ubuntu /opt/vault-cortex'`,
       description: "ssh: create /opt/vault-cortex on the instance",
     })
-    waitForDocker(ip, id)
+    waitForDocker({ targetHost, sshIdentityOption })
     // A public GHCR image pulls anonymously — GHCR_TOKEN is only needed when
     // the package is private (a fork's first push defaults to private).
     // Without one, clear any stored credential so a stale token can't 401
     // pulls that would succeed anonymously.
     const ghcrToken = env.GHCR_TOKEN
+
     if (ghcrToken) {
       console.log("> docker login ghcr.io (on the instance)")
       // stdin carries the token, stdout stays quiet on success, stderr is
       // inherited so a failure's cause is visible like every other step.
       try {
         execSync(
-          `ssh ${id} ${sshOpts} ubuntu@${ip} 'docker login ghcr.io -u ${ghcrUser} --password-stdin'`,
-          { input: ghcrToken, stdio: ["pipe", "pipe", "inherit"], env },
+          `ssh ${sshIdentityOption} ${SSH_OPTS} ubuntu@${targetHost} 'docker login ghcr.io -u ${ghcrUser} --password-stdin'`,
+          {
+            input: ghcrToken,
+            stdio: ["pipe", "pipe", "inherit"],
+            env,
+          },
         )
       } catch {
         // Same rule as run(): execSync's error message embeds the full
@@ -273,31 +289,35 @@ switch (sub) {
         "> GHCR_TOKEN not set — clearing any stored GHCR credential on the instance (public images pull anonymously)",
       )
       run({
-        cmd: `ssh ${id} ${sshOpts} ubuntu@${ip} 'docker logout ghcr.io || true'`,
+        cmd: `ssh ${sshIdentityOption} ${SSH_OPTS} ubuntu@${targetHost} 'docker logout ghcr.io || true'`,
         description: "ssh: docker logout ghcr.io on the instance",
       })
     }
     run({
-      cmd: `scp ${id} ${sshOpts} docker-compose.yml ubuntu@${ip}:/opt/vault-cortex/`,
+      cmd: `scp ${sshIdentityOption} ${SSH_OPTS} docker-compose.yml ubuntu@${targetHost}:/opt/vault-cortex/`,
       description: "scp docker-compose.yml to the instance",
     })
     // Ship a copy carrying the resolved PUBLIC_URL instead of the local file
     // verbatim, so a laptop deploy can't diverge from what CI would write.
     const shippedEnvDir = mkdtempSync(join(tmpdir(), "vault-cortex-env-"))
     const shippedEnvPath = join(shippedEnvDir, ".env")
-    try {
-      writeFileSync(shippedEnvPath, shippedEnvContent, { mode: 0o600 })
-      run({
-        cmd: `scp ${id} ${sshOpts} ${shippedEnvPath} ubuntu@${ip}:/opt/vault-cortex/.env`,
-        description: "scp .env (with the resolved PUBLIC_URL) to the instance",
-      })
-    } finally {
+    const removeShippedEnvDir = (): void => {
       rmSync(shippedEnvDir, { recursive: true, force: true })
     }
+
+    // The copy holds every secret in the env file. run() calls process.exit
+    // when scp fails, which skips finally blocks, so an exit listener removes
+    // the copy on that path.
+    process.once("exit", removeShippedEnvDir)
+    writeFileSync(shippedEnvPath, shippedEnvContent, { mode: 0o600 })
     run({
-      cmd: `ssh ${id} ${sshOpts} ubuntu@${ip} 'cd /opt/vault-cortex && docker compose pull && docker compose up -d --remove-orphans --wait --wait-timeout 300 && docker image prune -f'`,
-      description:
-        "ssh: docker compose pull && docker compose up -d on the instance",
+      cmd: `scp ${sshIdentityOption} ${SSH_OPTS} ${shippedEnvPath} ubuntu@${targetHost}:/opt/vault-cortex/.env`,
+      description: "scp .env (with the resolved PUBLIC_URL) to the instance",
+    })
+    removeShippedEnvDir()
+    run({
+      cmd: `ssh ${sshIdentityOption} ${SSH_OPTS} ubuntu@${targetHost} 'cd /opt/vault-cortex && docker compose pull && docker compose up -d --remove-orphans --wait --wait-timeout 300 && docker image prune -f'`,
+      description: "ssh: docker compose pull && docker compose up -d on the instance",
     })
     // Deliberately no IP in the success line — the instance IP is kept out
     // of logs (public CI) and is masked above, but not printing it at all is
@@ -305,10 +325,4 @@ switch (sub) {
     console.log("✓ vault-cortex deployed (port 8000)")
     break
   }
-
-  default:
-    console.error(
-      `Usage: tsx scripts/dev.ts <docker:build|docker:push|docker:publish|lightsail:up>`,
-    )
-    process.exit(1)
 }

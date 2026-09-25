@@ -52,21 +52,15 @@ export const buildServerMetadata = (
   config: VaultConfig,
   enabledToolNames: ReadonlySet<ToolName>,
 ): { instructions: string; description: string } => {
-  const { isToolEnabled, whenToolEnabledText } =
-    createToolAvailability(enabledToolNames)
+  const { isToolEnabled, whenToolEnabledText } = createToolAvailability(enabledToolNames)
 
-  const searchDescription = config.embeddingEnabled
-    ? "hybrid search"
-    : "full-text search"
+  const searchDescription = config.embeddingEnabled ? "hybrid search" : "full-text search"
   // Keyed on the enabled set, not config.readOnlyMode — the lint rule
   // enforces this; see tool-availability.ts.
   const servesWriteTools = TOOL_REGISTRY.some(
-    (entry) =>
-      enabledToolNames.has(entry.name) && !entry.annotations.readOnlyHint,
+    (entry) => enabledToolNames.has(entry.name) && !entry.annotations.readOnlyHint,
   )
-  const accessDescription = servesWriteTools
-    ? "Read, write, and search"
-    : "Read and search"
+  const accessDescription = servesWriteTools ? "Read, write, and search" : "Read and search"
   const markdownClause = servesWriteTools
     ? "Vault content is Obsidian Flavored Markdown. Write tools pass content through without escaping — be intentional about Obsidian syntax (#, [[, %%, etc.) in inputs."
     : "Vault content is Obsidian Flavored Markdown. No tools that modify the vault are available."
@@ -78,16 +72,13 @@ export const buildServerMetadata = (
     "vault_read_file",
     "vault_read_file for images, canvases, and other non-markdown files",
   )
-  const namedDiscoveryTools = (
-    ["vault_search", "vault_read_note"] as const
-  ).filter(isToolEnabled)
+  const namedDiscoveryTools = (["vault_search", "vault_read_note"] as const).filter(isToolEnabled)
 
   const sentences: string[] = []
+
   if (namedDiscoveryTools.length > 0) {
     const suffix = fileToolsFragment ? `; ${fileToolsFragment}` : ""
-    sentences.push(
-      `Use ${namedDiscoveryTools.join(" and ")} to find and read notes${suffix}.`,
-    )
+    sentences.push(`Use ${namedDiscoveryTools.join(" and ")} to find and read notes${suffix}.`)
   } else if (fileToolsFragment) {
     sentences.push(`Use ${fileToolsFragment}.`)
   }
@@ -96,9 +87,10 @@ export const buildServerMetadata = (
       `Use vault_get_memory to retrieve user preferences and context from ${config.memoryDir}/ files.`,
     )
   }
-  const namedWriteTools = (
-    ["vault_write_note", "vault_update_memory"] as const
-  ).filter(isToolEnabled)
+  const namedWriteTools = (["vault_write_note", "vault_update_memory"] as const).filter(
+    isToolEnabled,
+  )
+
   if (namedWriteTools.length > 0) {
     sentences.push(`Use ${namedWriteTools.join(" and ")} for writes.`)
   }
@@ -125,9 +117,7 @@ export const createMcpRouter = ({
   // pointed at the RFC 9728 path-suffixed URL for the /mcp resource.
   const bearerAuth = requireBearerAuth({
     verifier: provider,
-    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(
-      mcpResourceUrl(serverUrl),
-    ),
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpResourceUrl(serverUrl)),
   })
   const transports = new Map<string, StreamableHTTPServerTransport>()
 
@@ -137,6 +127,7 @@ export const createMcpRouter = ({
     logger.info("mcp_request", { sessionId, clientIp, method: "POST" })
 
     const existingTransport = sessionId ? transports.get(sessionId) : undefined
+
     if (existingTransport) {
       logger.info("mcp_response", {
         sessionId,
@@ -150,6 +141,7 @@ export const createMcpRouter = ({
 
     if (!sessionId) {
       const body = req.body
+
       if (isInitializeRequest(body)) {
         const transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
@@ -258,8 +250,7 @@ export const createMcpRouter = ({
       outcome: "standalone SSE stream not offered",
     })
     res.status(405).set("Allow", "POST, DELETE").json({
-      error:
-        "method not allowed: this server does not offer a standalone SSE stream",
+      error: "method not allowed: this server does not offer a standalone SSE stream",
     })
   })
 
@@ -268,6 +259,7 @@ export const createMcpRouter = ({
     const clientIp = extractClientIp(req, config.trustForwardedHops)
     logger.info("mcp_request", { sessionId, clientIp, method: "DELETE" })
     const transport = sessionId ? transports.get(sessionId) : undefined
+
     if (!sessionId || !transport) {
       logger.warn("mcp_response", {
         sessionId,

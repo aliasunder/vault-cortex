@@ -2,14 +2,7 @@
 // watching for prompts and sending keystrokes in response.
 
 import { createRequire } from "node:module"
-import {
-  cpSync,
-  mkdtempSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs"
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -58,17 +51,15 @@ const cleanTranscript = (strippedOutput: string): string => {
   const cleanedLines = strippedOutput.split("\n").flatMap((line) => {
     // Per-keystroke echo: everything before the last block cursor is a
     // stale partial render — the final state follows it.
-    const cursorTrimmed = line.includes("█")
-      ? line.slice(line.lastIndexOf("█") + 1)
-      : line
+    const cursorTrimmed = line.includes("█") ? line.slice(line.lastIndexOf("█") + 1) : line
+
     if (line.includes("█") && cursorTrimmed.trim() === "") return []
     // Spinner frames: identical text re-rendered behind a rotating
     // glyph — keep the first of each consecutive identical fragment.
     const fragments = cursorTrimmed.split(SPINNER_GLYPHS)
     const withoutRepeats = fragments.filter(
       (fragment, index) =>
-        index === 0 ||
-        fragment.slice(1).trim() !== fragments[index - 1]?.slice(1).trim(),
+        index === 0 || fragment.slice(1).trim() !== fragments[index - 1]?.slice(1).trim(),
     )
     return [withoutRepeats.join("")]
   })
@@ -83,13 +74,7 @@ const sleep = (ms: number): Promise<void> =>
  * answering prompts in order as they appear on screen.
  */
 const drivePty = (options: PtyOptions): Promise<PtyResult> => {
-  const {
-    args,
-    workDir,
-    timeoutMs = 30_000,
-    prompts,
-    env: extraEnv = {},
-  } = options
+  const { args, workDir, timeoutMs = 30_000, prompts, env: extraEnv = {} } = options
 
   return new Promise<PtyResult>((resolvePromise) => {
     let fullOutput = ""
@@ -141,6 +126,7 @@ const drivePty = (options: PtyOptions): Promise<PtyResult> => {
       if (promptIndex >= prompts.length || settled) return
       const cleanBuffer = stripAnsi(buffer)
       const currentPrompt = prompts[promptIndex]
+
       if (currentPrompt && cleanBuffer.includes(currentPrompt.match)) {
         settled = true
         // Wait for the prompt UI to fully render before sending keys
@@ -199,14 +185,14 @@ const seedEnv = (configDir: string): void => {
 const killHealthServer = (pidFile: string): void => {
   try {
     const pid = parseInt(readFileSync(pidFile, "utf8").trim(), 10)
+
     if (!Number.isNaN(pid)) {
       process.kill(pid, "SIGTERM")
     }
   } catch (error: unknown) {
-    const hasCode =
-      typeof error === "object" && error !== null && "code" in error
-    if (hasCode && error.code !== "ENOENT" && error.code !== "ESRCH")
-      throw error
+    const hasCode = typeof error === "object" && error !== null && "code" in error
+
+    if (hasCode && error.code !== "ENOENT" && error.code !== "ESRCH") throw error
     if (!hasCode) throw error
   }
 }

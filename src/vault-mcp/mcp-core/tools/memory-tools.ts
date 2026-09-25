@@ -49,43 +49,91 @@ export const registerMemoryTools = ({
       title: "Get Memory",
       description: `Read semantic memory from ${config.memoryDir}/ files. These are structured memory files containing dated bullet entries organized under H2 headings. With file: single file content. With file+section: just that H2 section's entries. No args: all files concatenated (frontmatter stripped) — can be large. Returns empty string when no memory files exist yet.
 
-Example: vault_get_memory({ file: "Principles", section: "Decision heuristics (newest first)" })
+With file+on_or_after: returns structured JSON entries dated on or after the boundary date (inclusive), in document order (newest first when the file lists new entries at the top, the default). Add section to scope to one H2 section; omit it to read every H2 section's entries in the file, each keeping its section attribution. Designed for reconciliation consumers that know a boundary date and need deterministic chronological coverage without re-parsing the section.
 
-When to use: Reading user preferences, principles, opinions, or other persistent context stored in ${config.memoryDir}/ files. Call vault_list_memory_files first to discover valid file and section names.
+Example: vault_get_memory({ file: "Principles", section: "Decision heuristics (newest first)" })
+Example: vault_get_memory({ file: "Opinions", section: "Code patterns", on_or_after: "2026-09-01" })
+Example: vault_get_memory({ file: "Opinions", on_or_after: "2026-09-01" }) — every section's entries since the date
+
+When to use: Reading user preferences, principles, opinions, or other persistent context stored in ${config.memoryDir}/ files. Call vault_list_memory_files first to discover valid file and section names. Use on_or_after when you need entries from a known date forward (e.g. reconciliation boundaries).
 Prefer vault_read_note for reading non-memory notes.
 
 Errors:
 - "section requires a file" — section was provided without file; pass both or just file
+- "on_or_after requires a file" — on_or_after needs a file to scope the filter
 - "memory file not found" — file does not exist in ${config.memoryDir}/; call vault_list_memory_files to discover valid names
 - "memory file must not start with a dot" — a dot-prefixed name would be a hidden file; memory files are always visible notes
 - "section not found: …" — no H2 heading matches; the error lists the file's available sections
+- "date must be a real ISO calendar date" — on_or_after must be a valid YYYY-MM-DD date
 
-Returns: Raw markdown text.`,
+Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entries, total, on_or_after } where each entry is { file, section, date, text } — text is the full raw entry markdown (bullet + continuation lines, wikilinks intact), same shape as vault_memory_recall entries. An empty match returns { entries: [], total: 0 }.`,
       inputSchema: {
         file: z
           .string()
           .min(1)
           .optional()
-          .describe(
-            'Memory file name without .md (e.g. "Principles", "Opinions")',
-          ),
+          .describe('Memory file name without .md (e.g. "Principles", "Opinions")'),
         section: z
           .string()
           .min(1)
           .optional()
           .describe(
-            'H2 section heading (e.g. "Decision heuristics (newest first)"). Matched case-insensitively, with or without the "(newest first)" suffix. Call vault_list_memory_files first to discover valid names.',
+            'H2 section heading (e.g. "Decision heuristics (newest first)"). Matched case-insensitively, with or without the "(newest first)" suffix. Omit to read the whole file (with on_or_after, every H2 section\'s entries). Call vault_list_memory_files first to discover valid names.',
+          ),
+        on_or_after: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Inclusive date filter (YYYY-MM-DD). When provided with file, returns structured JSON entries dated on or after this date instead of raw markdown. Requires a file; add section to scope to one H2 section.",
           ),
       },
     },
-    async ({ file, section }, extra) => {
+    async ({ file, section, on_or_after: onOrAfter }, extra) => {
       const reqLogger = sessionLogger.child({
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_GET_MEMORY,
       })
-      reqLogger.info("tool_call", { file, section })
+      reqLogger.info("tool_call", { file, section, onOrAfter })
 
-      if (section !== undefined && file === undefined) {
+      if (onOrAfter) {
+        if (!file) {
+          reqLogger.warn("tool_error", {
+            error: "on_or_after requires a file",
+          })
+          return {
+            content: [{ type: "text" as const, text: "on_or_after requires a file" }],
+            isError: true as const,
+          }
+        }
+
+        return safeHandler(
+          reqLogger,
+          () => {
+            return memoryStore.getMemoryEntries({ vaultPath, file, section, onOrAfter }, reqLogger)
+          },
+          (entries) => {
+            reqLogger.info("tool_result", {
+              mode: "entries",
+              total: entries.length,
+              onOrAfter,
+            })
+            const wireEntries = entries.map((entry) => ({
+              file,
+              section: entry.section,
+              date: entry.date,
+              text: entry.text,
+            }))
+            return JSON.stringify({
+              entries: wireEntries,
+              total: wireEntries.length,
+              on_or_after: onOrAfter,
+            })
+          },
+        )
+      }
+
+      if (section && !file) {
         reqLogger.warn("tool_error", {
           error: "section requires a file",
         })
@@ -99,8 +147,9 @@ Returns: Raw markdown text.`,
         reqLogger,
         () => memoryStore.getMemory({ vaultPath, file, section }, reqLogger),
         (text) => {
-          const scopeWithFile = !section ? "file" : "section"
-          const mode = !file ? "all" : scopeWithFile
+          // Three read modes: "all" (no file), "file" (file only), "section" (file + section).
+          const modeWithinFile = section ? "section" : "file"
+          const mode = file ? modeWithinFile : "all"
           reqLogger.info("tool_result", { mode })
           return text
         },
@@ -210,7 +259,7 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
       })
       reqLogger.info("tool_call", {
         query,
-        ...(file !== undefined ? { file } : {}),
+        ...(file ? { file } : {}),
         limit,
       })
       return safeHandler(
@@ -257,10 +306,7 @@ Errors:
 
 Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
       inputSchema: {
-        file: z
-          .string()
-          .min(1)
-          .describe('Memory file name without .md (e.g. "Principles")'),
+        file: z.string().min(1).describe('Memory file name without .md (e.g. "Principles")'),
         section: z
           .string()
           .min(1)
@@ -275,11 +321,7 @@ Returns: Confirmation message (notes when an identical entry already existed and
           ),
         options: z
           .object({
-            date: z
-              .string()
-              .min(1)
-              .optional()
-              .describe("ISO YYYY-MM-DD date (defaults to today)"),
+            date: z.string().min(1).optional().describe("ISO YYYY-MM-DD date (defaults to today)"),
             position: z
               .enum(["top", "bottom"])
               .optional()
@@ -298,8 +340,8 @@ Returns: Confirmation message (notes when an identical entry already existed and
       reqLogger.info("tool_call", { file, section })
       return safeHandler(
         reqLogger,
-        () =>
-          memoryStore.updateMemory(
+        () => {
+          return memoryStore.updateMemory(
             {
               vaultPath,
               file,
@@ -309,7 +351,8 @@ Returns: Confirmation message (notes when an identical entry already existed and
               position: options?.position,
             },
             reqLogger,
-          ),
+          )
+        },
         (outcome) => {
           reqLogger.info("tool_result", { outcome })
           if (outcome === "unchanged") {
@@ -351,10 +394,7 @@ Errors:
 
 Returns: Confirmation message.`,
       inputSchema: {
-        file: z
-          .string()
-          .min(1)
-          .describe('Memory file name without .md (e.g. "Principles")'),
+        file: z.string().min(1).describe('Memory file name without .md (e.g. "Principles")'),
         section: z
           .string()
           .min(1)
@@ -382,11 +422,9 @@ Returns: Confirmation message.`,
       reqLogger.info("tool_call", { file, section, date })
       return safeHandler(
         reqLogger,
-        () =>
-          memoryStore.deleteMemory(
-            { vaultPath, file, section, date, entry },
-            reqLogger,
-          ),
+        () => {
+          return memoryStore.deleteMemory({ vaultPath, file, section, date, entry }, reqLogger)
+        },
         () => {
           reqLogger.info("tool_result", { outcome: "entry_deleted" })
           return `Deleted entry from ${config.memoryDir}/${file}.md → ## ${section}`

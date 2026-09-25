@@ -1,7 +1,7 @@
 /** Error contract integration tests — every tool's documented error paths
  *  verified over real HTTP transport against a real server. */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest"
+import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
   startServer,
@@ -15,10 +15,7 @@ import type { ToolResult } from "./test-harness.js"
 
 vi.setConfig({ testTimeout: 15_000 })
 
-const expectToolError = (
-  result: ToolResult,
-  expectedSubstring: string,
-): void => {
+const expectToolError = (result: ToolResult, expectedSubstring: string): void => {
   expect(result.isError).toBe(true)
   expect(textContent(result)).toContain(expectedSubstring)
 }
@@ -56,10 +53,7 @@ describe("protected path refusals", () => {
       name: "vault_delete_note",
       args: { path: "About Me/Preferences.md" },
     })
-    expectToolError(
-      result,
-      'cannot delete protected path "About Me/Preferences.md"',
-    )
+    expectToolError(result, 'cannot delete protected path "About Me/Preferences.md"')
   })
 
   it("vault_move_note refuses a source under a protected folder", async () => {
@@ -68,10 +62,7 @@ describe("protected path refusals", () => {
       name: "vault_move_note",
       args: { old_path: "About Me/Preferences.md", new_path: "Elsewhere.md" },
     })
-    expectToolError(
-      result,
-      'cannot move protected path "About Me/Preferences.md"',
-    )
+    expectToolError(result, 'cannot move protected path "About Me/Preferences.md"')
   })
 })
 
@@ -722,10 +713,47 @@ describe("memory errors", () => {
       name: "vault_get_memory",
       args: { file: "Preferences", section: "No Such Section" },
     })
-    expectToolError(
-      result,
-      'section not found: "No Such Section" in About Me/Preferences.md',
-    )
+    expectToolError(result, 'section not found: "No Such Section" in About Me/Preferences.md')
+  })
+
+  it("vault_get_memory with section but no file", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_memory",
+      args: { section: "Editor settings" },
+    })
+    expectToolError(result, "section requires a file")
+  })
+
+  it("vault_get_memory on_or_after without file", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_memory",
+      args: { on_or_after: "2026-01-01" },
+    })
+    expectToolError(result, "on_or_after requires a file")
+  })
+
+  it("vault_get_memory on_or_after with section but no file", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_memory",
+      args: { section: "Editor settings", on_or_after: "2026-01-01" },
+    })
+    expectToolError(result, "on_or_after requires a file")
+  })
+
+  it("vault_get_memory on_or_after with invalid date", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_memory",
+      args: {
+        file: "Preferences",
+        section: "Editor settings",
+        on_or_after: "not-a-date",
+      },
+    })
+    expectToolError(result, "date must be a real ISO calendar date")
   })
 
   it("vault_update_memory rejects multi-line entries", async () => {
@@ -752,10 +780,7 @@ describe("memory errors", () => {
         entry: "anything",
       },
     })
-    expectToolError(
-      result,
-      'section not found: "Missing Section" in About Me/Preferences.md',
-    )
+    expectToolError(result, 'section not found: "Missing Section" in About Me/Preferences.md')
   })
 })
 
@@ -956,6 +981,92 @@ describe("task errors", () => {
     expectToolError(result, "cannot move a sub-task to a heading")
   })
 
+  it("vault_update_task — cannot reposition a sub-task", async () => {
+    const createResult = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/board.md",
+        description: "Sub for position test",
+        block_id: "sub-pos-test",
+        parent_block_id: "board-active-1",
+      },
+    })
+    expect(createResult.isError).not.toBe(true)
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/board.md",
+        block_id: "sub-pos-test",
+        position: 1,
+      },
+    })
+    expectToolError(result, "cannot reposition a sub-task")
+  })
+
+  it("vault_update_task — cannot reorder above the first heading", async () => {
+    const setupResult = await callTool({
+      client,
+      name: "vault_write_note",
+      args: {
+        path: "error-test-above-heading.md",
+        body: "- [ ] Orphan task ^orphan-above\n\n## Later\n\n- [ ] Under a heading ^under-heading\n",
+        properties: { title: "Above heading test" },
+      },
+    })
+    onTestFinished(async () => {
+      await callTool({
+        client,
+        name: "vault_delete_note",
+        args: { path: "error-test-above-heading.md" },
+      })
+    })
+    expect(setupResult.isError).not.toBe(true)
+
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "error-test-above-heading.md",
+        block_id: "orphan-above",
+        position: 2,
+      },
+    })
+    expectToolError(result, "cannot reorder a task that sits above the first heading")
+  })
+
+  it("vault_update_task — cannot reorder within an ambiguous heading", async () => {
+    const setupResult = await callTool({
+      client,
+      name: "vault_write_note",
+      args: {
+        path: "error-test-dup-heading.md",
+        body: "## Tasks\n\n- [ ] First ^dup-first\n\n## Tasks\n\n- [ ] Second ^dup-second\n",
+        properties: { title: "Dup heading test" },
+      },
+    })
+    onTestFinished(async () => {
+      await callTool({
+        client,
+        name: "vault_delete_note",
+        args: { path: "error-test-dup-heading.md" },
+      })
+    })
+    expect(setupResult.isError).not.toBe(true)
+
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "error-test-dup-heading.md",
+        block_id: "dup-first",
+        position: 2,
+      },
+    })
+    expectToolError(result, 'cannot reorder within "Tasks"')
+  })
+
   it("vault_create_task — description must be a single line", async () => {
     const result = await callTool({
       client,
@@ -995,10 +1106,7 @@ describe("task errors", () => {
         parent_line: 11,
       },
     })
-    expectToolError(
-      result,
-      "parentBlockId and parentLine are mutually exclusive",
-    )
+    expectToolError(result, "parentBlockId and parentLine are mutually exclusive")
   })
 
   it("vault_create_task with a parent_line and a heading", async () => {
@@ -1038,6 +1146,60 @@ describe("task errors", () => {
     })
     expectToolError(result, "blockId and line are mutually exclusive")
   })
+
+  it("vault_update_task rejects a NON_TASK checkbox", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/status-registry.md",
+        block_id: "forwarded-ref",
+        status: "done",
+      },
+    })
+    expectToolError(result, 'checkbox "[>]" is a NON_TASK status')
+  })
+
+  it("vault_update_task rejects a block_id inside a fenced code block", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: {
+        path: "Projects/status-registry.md",
+        block_id: "fenced-example",
+        status: "done",
+      },
+    })
+    expectToolError(result, "is inside a fenced code block or comment")
+  })
+
+  it("vault_create_task rejects a NON_TASK parent", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/status-registry.md",
+        description: "Child",
+        block_id: "child-of-nontask",
+        parent_block_id: "forwarded-ref",
+      },
+    })
+    expectToolError(result, 'checkbox "[>]" is a NON_TASK status')
+  })
+
+  it("vault_create_task rejects a parent inside a fenced code block", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/status-registry.md",
+        description: "Child",
+        block_id: "child-of-fenced",
+        parent_block_id: "fenced-example",
+      },
+    })
+    expectToolError(result, "is inside a fenced code block or comment")
+  })
 })
 
 // ── Path extension errors ────────────────────────────────────
@@ -1049,10 +1211,7 @@ describe("path extension errors", () => {
       name: "vault_read_note",
       args: { path: "Projects/alpha" },
     })
-    expectToolError(
-      result,
-      'path must end in ".md" (received "Projects/alpha")',
-    )
+    expectToolError(result, 'path must end in ".md" (received "Projects/alpha")')
   })
 
   it("vault_write_note rejects paths without .md extension", async () => {
@@ -1070,10 +1229,7 @@ describe("path extension errors", () => {
       name: "vault_move_note",
       args: { old_path: "Projects/alpha.md", new_path: "Projects/moved" },
     })
-    expectToolError(
-      result,
-      'path must end in ".md" (received "Projects/moved")',
-    )
+    expectToolError(result, 'path must end in ".md" (received "Projects/moved")')
   })
 
   it("vault_patch_note rejects paths without .md extension", async () => {
@@ -1082,10 +1238,7 @@ describe("path extension errors", () => {
       name: "vault_patch_note",
       args: { path: "Projects/alpha", operation: "append", content: "text" },
     })
-    expectToolError(
-      result,
-      'path must end in ".md" (received "Projects/alpha")',
-    )
+    expectToolError(result, 'path must end in ".md" (received "Projects/alpha")')
   })
 
   it("vault_replace_in_note rejects paths without .md extension", async () => {
@@ -1094,10 +1247,7 @@ describe("path extension errors", () => {
       name: "vault_replace_in_note",
       args: { path: "Projects/alpha", old_text: "old", new_text: "new" },
     })
-    expectToolError(
-      result,
-      'path must end in ".md" (received "Projects/alpha")',
-    )
+    expectToolError(result, 'path must end in ".md" (received "Projects/alpha")')
   })
 
   it("vault_delete_note rejects paths without .md extension", async () => {
@@ -1106,10 +1256,7 @@ describe("path extension errors", () => {
       name: "vault_delete_note",
       args: { path: "Projects/alpha" },
     })
-    expectToolError(
-      result,
-      'path must end in ".md" (received "Projects/alpha")',
-    )
+    expectToolError(result, 'path must end in ".md" (received "Projects/alpha")')
   })
 
   it("vault_delete_span rejects paths without .md extension", async () => {
@@ -1118,10 +1265,7 @@ describe("path extension errors", () => {
       name: "vault_delete_span",
       args: { path: "Projects/alpha", start_anchor: "anything" },
     })
-    expectToolError(
-      result,
-      'path must end in ".md" (received "Projects/alpha")',
-    )
+    expectToolError(result, 'path must end in ".md" (received "Projects/alpha")')
   })
 
   it("vault_replace_span rejects paths without .md extension", async () => {
@@ -1134,10 +1278,7 @@ describe("path extension errors", () => {
         content: "replaced",
       },
     })
-    expectToolError(
-      result,
-      'path must end in ".md" (received "Projects/alpha")',
-    )
+    expectToolError(result, 'path must end in ".md" (received "Projects/alpha")')
   })
 
   it("vault_insert_at_anchor rejects paths without .md extension", async () => {
@@ -1151,10 +1292,7 @@ describe("path extension errors", () => {
         content: "inserted",
       },
     })
-    expectToolError(
-      result,
-      'path must end in ".md" (received "Projects/alpha")',
-    )
+    expectToolError(result, 'path must end in ".md" (received "Projects/alpha")')
   })
 
   it("vault_update_properties rejects paths without .md extension", async () => {
@@ -1163,10 +1301,7 @@ describe("path extension errors", () => {
       name: "vault_update_properties",
       args: { path: "Projects/alpha", properties: { status: "active" } },
     })
-    expectToolError(
-      result,
-      'path must end in ".md" (received "Projects/alpha")',
-    )
+    expectToolError(result, 'path must end in ".md" (received "Projects/alpha")')
   })
 
   it("vault_move_note rejects old_path without extension", async () => {
@@ -1177,10 +1312,7 @@ describe("path extension errors", () => {
     })
     // old_path is validated by the backlinks lookup that runs before the move,
     // which accepts .md or .canvas — so the error uses the wider extension set
-    expectToolError(
-      result,
-      'path must end in ".md" or ".canvas" (received "Projects/alpha")',
-    )
+    expectToolError(result, 'path must end in ".md" or ".canvas" (received "Projects/alpha")')
   })
 
   it("vault_get_backlinks rejects paths without .md or .canvas extension", async () => {
@@ -1189,10 +1321,7 @@ describe("path extension errors", () => {
       name: "vault_get_backlinks",
       args: { path: "Projects/alpha" },
     })
-    expectToolError(
-      result,
-      'path must end in ".md" or ".canvas" (received "Projects/alpha")',
-    )
+    expectToolError(result, 'path must end in ".md" or ".canvas" (received "Projects/alpha")')
   })
 
   it("vault_get_outgoing_links rejects paths without .md or .canvas extension", async () => {
@@ -1201,10 +1330,7 @@ describe("path extension errors", () => {
       name: "vault_get_outgoing_links",
       args: { path: "Projects/alpha" },
     })
-    expectToolError(
-      result,
-      'path must end in ".md" or ".canvas" (received "Projects/alpha")',
-    )
+    expectToolError(result, 'path must end in ".md" or ".canvas" (received "Projects/alpha")')
   })
 
   it("vault_get_backlinks accepts .canvas paths", async () => {
@@ -1235,9 +1361,7 @@ describe("startup validation", () => {
       PUBLIC_URL: `http://127.0.0.1:${port}/vault/`,
     })
     expect(exitCode).not.toBe(0)
-    expect(stderr).toContain(
-      "PUBLIC_URL must be a bare origin — path prefixes are not supported",
-    )
+    expect(stderr).toContain("PUBLIC_URL must be a bare origin — path prefixes are not supported")
   })
 
   it("rejects a non-http(s) PUBLIC_URL at boot", async () => {
@@ -1255,8 +1379,6 @@ describe("startup validation", () => {
       PUBLIC_URL: `http://127.0.0.1:${port}?debug=1`,
     })
     expect(exitCode).not.toBe(0)
-    expect(stderr).toContain(
-      "PUBLIC_URL must be a bare origin — no query string or fragment",
-    )
+    expect(stderr).toContain("PUBLIC_URL must be a bare origin — no query string or fragment")
   })
 })

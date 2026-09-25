@@ -213,9 +213,7 @@ describe("runUpgrade", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.spinnerMessages).toContain(
-      "stop: Image pull failed — see output above.",
-    )
+    expect(scripted.spinnerMessages).toContain("stop: Image pull failed — see output above.")
   })
 
   it("exits 1 when docker run fails", async () => {
@@ -251,9 +249,7 @@ describe("runUpgrade", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.spinnerMessages).toContain(
-      "stop: Server is up — health check passed.",
-    )
+    expect(scripted.spinnerMessages).toContain("stop: Server is up — health check passed.")
   })
 
   it("reports failure when the health check times out", async () => {

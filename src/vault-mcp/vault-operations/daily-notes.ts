@@ -3,10 +3,7 @@ import { join } from "node:path"
 import { DateTime } from "luxon"
 import { logger, type Logger } from "../../logger.js"
 import { vaultFs } from "./vault-filesystem.js"
-import {
-  momentToLuxonFormat,
-  findUnsupportedTokens,
-} from "../obsidian-markdown/moment-format.js"
+import { momentToLuxonFormat, findUnsupportedTokens } from "../obsidian-markdown/moment-format.js"
 import { describeError } from "../../utils/describe-error.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 
@@ -42,9 +39,7 @@ let cachedFileConfig: DailyNotesConfig | null = null
 /** Reads .obsidian/daily-notes.json, caching only successful reads.
  *  Returns the fallback config (uncached — see cache comment) when the
  *  file is missing or malformed. */
-const readDailyNotesFileConfig = async (
-  vaultPath: string,
-): Promise<DailyNotesConfig> => {
+const readDailyNotesFileConfig = async (vaultPath: string): Promise<DailyNotesConfig> => {
   if (cachedFileConfig) return cachedFileConfig
 
   try {
@@ -55,13 +50,11 @@ const readDailyNotesFileConfig = async (
     const parsedConfig: Record<string, unknown> = JSON.parse(configFileContent)
     const fileConfig = {
       folder:
-        typeof parsedConfig.folder === "string" &&
-        parsedConfig.folder.length > 0
+        typeof parsedConfig.folder === "string" && parsedConfig.folder.length > 0
           ? parsedConfig.folder
           : FALLBACK_CONFIG.folder,
       format:
-        typeof parsedConfig.format === "string" &&
-        parsedConfig.format.length > 0
+        typeof parsedConfig.format === "string" && parsedConfig.format.length > 0
           ? parsedConfig.format
           : FALLBACK_CONFIG.format,
     }
@@ -114,6 +107,7 @@ export const getDailyNotePath = async (params: {
   const config = await readDailyNotesConfig(vaultPath, envSettings)
 
   const unsupportedTokens = findUnsupportedTokens(config.format)
+
   if (unsupportedTokens.length > 0) {
     throw new Error(
       `daily note format contains unsupported token(s): ${unsupportedTokens.join(", ")} — the server cannot reproduce the filenames Obsidian creates with these tokens; change the format in Obsidian or set DAILY_NOTES_FORMAT to a supported format`,
@@ -123,16 +117,13 @@ export const getDailyNotePath = async (params: {
   const luxonFormat = momentToLuxonFormat(config.format)
 
   if (date && !STRICT_ISO_DATE_RE.test(date)) {
-    throw new Error(
-      `invalid date "${date}" — use YYYY-MM-DD format (e.g. "2026-05-13")`,
-    )
+    throw new Error(`invalid date "${date}" — use YYYY-MM-DD format (e.g. "2026-05-13")`)
   }
 
   const dateTime = date ? DateTime.fromISO(date) : DateTime.now()
+
   if (!dateTime.isValid) {
-    throw new Error(
-      `invalid date "${date}" — use YYYY-MM-DD format (e.g. "2026-05-13")`,
-    )
+    throw new Error(`invalid date "${date}" — use YYYY-MM-DD format (e.g. "2026-05-13")`)
   }
 
   const filename = dateTime.toFormat(luxonFormat)
@@ -162,13 +153,11 @@ export const getDailyNote = async (
   })
 
   try {
-    const content = await vaultFs.readNote(
-      { vaultPath: params.vaultPath, path },
-      logger,
-    )
+    const content = await vaultFs.readNote({ vaultPath: params.vaultPath, path }, logger)
     return { path, content, exists: true }
   } catch (err) {
     const errorMessage = describeError(err)
+
     if (errorMessage.startsWith("[Error]: note not found")) {
       logger.info("daily note not found", { path })
       return { path, content: null, exists: false }

@@ -68,12 +68,9 @@ describe("linearizeCanvas", () => {
       textNode({ id: "top-left", x: 0, y: 0, text: "first" }),
     ])
     expect(linearizeCanvas(json)).toBe(
-      [
-        "# Canvas: 3 nodes, 0 edges",
-        "[text]\nfirst",
-        "[text]\nsecond",
-        "[text]\nthird",
-      ].join("\n\n"),
+      ["# Canvas: 3 nodes, 0 edges", "[text]\nfirst", "[text]\nsecond", "[text]\nthird"].join(
+        "\n\n",
+      ),
     )
   })
 
@@ -124,9 +121,7 @@ describe("linearizeCanvas", () => {
       textNode({ id: "straddler", x: 250, y: 10, width: 200, text: "outside" }),
     ])
     expect(linearizeCanvas(json)).toBe(
-      ["# Canvas: 2 nodes, 0 edges", "[text]\noutside", "## Group: Box"].join(
-        "\n\n",
-      ),
+      ["# Canvas: 2 nodes, 0 edges", "[text]\noutside", "## Group: Box"].join("\n\n"),
     )
   })
 
@@ -184,9 +179,7 @@ describe("linearizeCanvas", () => {
       },
     ])
     expect(linearizeCanvas(json)).toBe(
-      ["# Canvas: 1 node, 0 edges", "[file] → Notes/Plan.md#Goals"].join(
-        "\n\n",
-      ),
+      ["# Canvas: 1 node, 0 edges", "[file] → Notes/Plan.md#Goals"].join("\n\n"),
     )
   })
 
@@ -204,11 +197,7 @@ describe("linearizeCanvas", () => {
       [{ id: "half-edge", fromNode: "kept" }],
     )
     expect(linearizeCanvas(json)).toBe(
-      [
-        "# Canvas: 2 nodes, 0 edges",
-        "[text]\nkept",
-        "[text]\nwith extras",
-      ].join("\n\n"),
+      ["# Canvas: 2 nodes, 0 edges", "[text]\nkept", "[text]\nwith extras"].join("\n\n"),
     )
   })
 
@@ -306,9 +295,7 @@ describe("linearizeCanvas", () => {
   })
 
   it("throws on unparseable JSON", () => {
-    expect(() => linearizeCanvas("{not json")).toThrow(
-      /^invalid \.canvas JSON: /,
-    )
+    expect(() => linearizeCanvas("{not json")).toThrow(/^invalid \.canvas JSON: /)
   })
 })
 
@@ -335,10 +322,7 @@ describe("extractCanvasFileLinks", () => {
       },
     ])
 
-    expect(extractCanvasFileLinks(json)).toEqual([
-      "Notes/Plan.md",
-      "Diagrams/arch.png",
-    ])
+    expect(extractCanvasFileLinks(json)).toEqual(["Notes/Plan.md", "Diagrams/arch.png"])
   })
 
   it("does NOT extract wikilinks from text-type nodes", () => {
@@ -466,8 +450,6 @@ describe("extractCanvasFileLinks", () => {
   })
 
   it("throws on unparseable JSON", () => {
-    expect(() => extractCanvasFileLinks("{not json")).toThrow(
-      /^invalid \.canvas JSON: /,
-    )
+    expect(() => extractCanvasFileLinks("{not json")).toThrow(/^invalid \.canvas JSON: /)
   })
 })

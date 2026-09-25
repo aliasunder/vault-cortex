@@ -1,11 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { extractPdfText } from "../pdf.js"
-import {
-  buildPdf,
-  buildMinimalPdf,
-  buildEmptyStreamPdf,
-  toPdfData,
-} from "./pdf-fixture.js"
+import { buildPdf, buildMinimalPdf, buildEmptyStreamPdf, toPdfData } from "./pdf-fixture.js"
 
 const HEADER = "Title: (untitled) | Pages: 1"
 
@@ -57,9 +52,7 @@ describe("extractPdfText", () => {
         { text: "Third line", x: 72, y: 680, fontSize: 12 },
       ])
       const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(
-        `${HEADER}\n\nFirst line\nSecond line\nThird line`,
-      )
+      expect(result.text).toBe(`${HEADER}\n\nFirst line\nSecond line\nThird line`)
     })
 
     it("resolves a volume tie by treating the larger size as body", async () => {
@@ -84,9 +77,7 @@ describe("extractPdfText", () => {
       ])
       const result = await extractPdfText(toPdfData(pdfBuffer))
       expect(result.text).toBe(
-        `${HEADER}\n\n` +
-          "# Heading\n" +
-          "The body text of this line keeps its size dominant !",
+        `${HEADER}\n\n` + "# Heading\n" + "The body text of this line keeps its size dominant !",
       )
     })
 
@@ -146,9 +137,7 @@ describe("extractPdfText", () => {
     })
 
     it("does not collapse spaced digit runs", async () => {
-      const pdfBuffer = buildPdf([
-        { text: "12 34 56", x: 100, y: 700, fontSize: 12 },
-      ])
+      const pdfBuffer = buildPdf([{ text: "12 34 56", x: 100, y: 700, fontSize: 12 }])
       const result = await extractPdfText(toPdfData(pdfBuffer))
       expect(result.text).toBe(`${HEADER}\n\n12 34 56`)
     })
@@ -170,9 +159,7 @@ describe("extractPdfText", () => {
         { text: "return x", x: 72, y: 680, fontSize: 12, font: "courier" },
       ])
       const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(
-        `${HEADER}\n\n\`\`\`\nconst x = 1\nreturn x\n\`\`\``,
-      )
+      expect(result.text).toBe(`${HEADER}\n\n\`\`\`\nconst x = 1\nreturn x\n\`\`\``)
     })
 
     it("wraps a monospace run inside a mixed line in inline backticks, not a fence", async () => {
@@ -222,9 +209,7 @@ describe("extractPdfText", () => {
         },
       ])
       const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(
-        `${HEADER}\n\n\`\`\`\ndef check():\n    return True\n\`\`\``,
-      )
+      expect(result.text).toBe(`${HEADER}\n\n\`\`\`\ndef check():\n    return True\n\`\`\``)
     })
 
     it("measures fence indentation from the block's leftmost line, not its first", async () => {
@@ -241,9 +226,7 @@ describe("extractPdfText", () => {
         { text: "at margin", x: 72, y: 680, fontSize: 12, font: "courier" },
       ])
       const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(
-        `${HEADER}\n\n\`\`\`\n  indented first\nat margin\n\`\`\``,
-      )
+      expect(result.text).toBe(`${HEADER}\n\n\`\`\`\n  indented first\nat margin\n\`\`\``)
     })
 
     it("lengthens the fence when block content contains backtick runs", async () => {
@@ -252,9 +235,7 @@ describe("extractPdfText", () => {
         { text: "const x = 1", x: 72, y: 680, fontSize: 12, font: "courier" },
       ])
       const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(
-        `${HEADER}\n\n\`\`\`\`\n\`\`\`js\nconst x = 1\n\`\`\`\``,
-      )
+      expect(result.text).toBe(`${HEADER}\n\n\`\`\`\`\n\`\`\`js\nconst x = 1\n\`\`\`\``)
     })
 
     it("closes an open fence before a mixed line and reopens after it", async () => {
@@ -295,9 +276,7 @@ describe("extractPdfText", () => {
         { text: "Upper item", x: 115, y: 660, fontSize: 12 },
       ])
       const result = await extractPdfText(toPdfData(pdfBuffer))
-      expect(result.text).toBe(
-        `${HEADER}\n\nclosing line\na. Alpha item\nA. Upper item`,
-      )
+      expect(result.text).toBe(`${HEADER}\n\nclosing line\na. Alpha item\nA. Upper item`)
     })
 
     it("rejoins bullet-glyph markers to their items", async () => {

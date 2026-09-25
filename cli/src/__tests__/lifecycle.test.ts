@@ -85,9 +85,7 @@ describe("runDown", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(scripted.errors).toEqual([
-      buildDockerNotInstalledMessage({ nextStep: "" }),
-    ])
+    expect(scripted.errors).toEqual([buildDockerNotInstalledMessage({ nextStep: "" })])
   })
 
   it("succeeds without removing anything when no container exists", async () => {
@@ -111,19 +109,14 @@ describe("runDown", () => {
 
     expect(exitCode).toBe(0)
     expect(removeCalls).toEqual([])
-    expect(scripted.logs).toEqual([
-      "No vault-cortex container found — nothing to stop.",
-    ])
+    expect(scripted.logs).toEqual(["No vault-cortex container found — nothing to stop."])
   })
 
   it("tears down a local .env lacking PUBLIC_URL without rejecting it", async () => {
     const targetDir = makeTempTargetDir("vault-cli-down-")
     // A compose-era .env that upgrade/restart would reject — teardown
     // must still work on it.
-    writeFileSync(
-      join(targetDir, ".env"),
-      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\n",
-    )
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\n")
     const removeCalls: string[] = []
     const dockerWithRemoveSpy: DockerRunner = {
       ...dockerReady,
@@ -329,13 +322,8 @@ describe("runStart", () => {
     expect(exitCode).toBe(0)
     // The health-check spinner proves the cycle actually ran — the labels
     // alone could pass on an early return.
-    expect(scripted.spinnerMessages).toContain(
-      "stop: Server is up — health check passed.",
-    )
-    expect(scripted.logs).toEqual([
-      "Starting container...",
-      "Started with the settings from .env.",
-    ])
+    expect(scripted.spinnerMessages).toContain("stop: Server is up — health check passed.")
+    expect(scripted.logs).toEqual(["Starting container...", "Started with the settings from .env."])
     expect(scripted.outros).toEqual(["Start complete."])
   })
 
@@ -406,10 +394,7 @@ describe("runRestart", () => {
 
   it("exits 1 when local .env has no PUBLIC_URL", async () => {
     const targetDir = makeTempTargetDir("vault-cli-restart-")
-    writeFileSync(
-      join(targetDir, ".env"),
-      "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\n",
-    )
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=abc123\nVAULT_PATH=/home/user/MyVault\n")
     const scripted = createScriptedPrompts()
 
     const exitCode = await runRestart(
@@ -492,10 +477,7 @@ describe("runRestart", () => {
         },
       ],
     ])
-    expect(scripted.logs).toEqual([
-      "Starting container...",
-      "Applied the current .env settings.",
-    ])
+    expect(scripted.logs).toEqual(["Starting container...", "Applied the current .env settings."])
     expect(scripted.outros).toEqual(["Restart complete."])
   })
 

@@ -22,10 +22,14 @@ export default $config({
     const { readFileSync, existsSync } = await import("node:fs")
     const { homedir } = await import("node:os")
     const env = (await import("env-var")).get
-    const { urlHasCredentials } =
-      await import("./src/utils/url-has-credentials.js")
+    const { urlHasCredentials } = await import("./src/utils/url-has-credentials.js")
 
     // ── Environment ──────────────────────────────────────────────
+    // process.env holds ~/.config/vault-cortex/.env only when SST runs through
+    // `npm run sst` (scripts/run-sst.ts). A bare `npx sst deploy` sees only the
+    // shell plus any repo-root `.env` / `.env.<stage>` (SST loads those itself),
+    // so a setting found in neither falls back to its default.
+    //
     // SSH key fallback chain: SSH_PUBKEY (CI) → SSH_PUBKEY_PATH → ~/.ssh/vault-cortex.pub
     // Neither is individually required — readSshPublicKey errors if all three miss.
     const sshPubkey = env("SSH_PUBKEY").asString()
@@ -58,8 +62,7 @@ export default $config({
     // and asBool() rejects.
     const originAccessServiceTokenEnabled =
       Boolean(originUrl) &&
-      env("ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED").asString()?.toLowerCase() ===
-        "true"
+      env("ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED").asString()?.toLowerCase() === "true"
 
     // Optional custom domain on API Gateway (e.g. mcp.example.com), replacing
     // the auto-generated execute-api URL. DNS stays external (any provider):
@@ -80,9 +83,7 @@ export default $config({
     // A bare hostname or a non-http(s) scheme (whose origin is "null")
     // can never match a minted token, so it would 403 every client at
     // runtime — fail the deploy instead.
-    const parsedPublicUrlOverride = publicUrlOverride
-      ? URL.parse(publicUrlOverride)
-      : undefined
+    const parsedPublicUrlOverride = publicUrlOverride ? URL.parse(publicUrlOverride) : undefined
 
     const publicUrlIsHttp =
       parsedPublicUrlOverride?.protocol === "https:" ||
@@ -90,8 +91,7 @@ export default $config({
 
     if (publicUrlOverride && !publicUrlIsHttp) {
       throw new Error(
-        "PUBLIC_URL must be an absolute http(s) URL, e.g. " +
-          "https://mcp.example.com",
+        "PUBLIC_URL must be an absolute http(s) URL, e.g. " + "https://mcp.example.com",
       )
     }
 
@@ -102,9 +102,7 @@ export default $config({
       : false
 
     if (publicUrlHasCredentials) {
-      throw new Error(
-        "PUBLIC_URL must not contain credentials (user:password@)",
-      )
+      throw new Error("PUBLIC_URL must not contain credentials (user:password@)")
     }
 
     if (customDomain && !customDomainCertArn) {
@@ -118,6 +116,7 @@ export default $config({
     // default execute-api hostname, so the custom domain is the only way in.
     const disableExecuteApiEndpoint =
       env("DISABLE_EXECUTE_API_ENDPOINT").asString()?.toLowerCase() === "true"
+
     if (disableExecuteApiEndpoint && !customDomain) {
       throw new Error(
         "DISABLE_EXECUTE_API_ENDPOINT requires CUSTOM_DOMAIN — without a " +
@@ -133,7 +132,8 @@ export default $config({
      * Resolution order:
      *   1. SSH_PUBKEY env var (literal key contents) — for CI / GH Actions.
      *   2. SSH_PUBKEY_PATH env var (path) — for local overrides.
-     *   3. ~/.ssh/vault-cortex.pub — dedicated deploy key (same key local + CI).
+     *   3. ~/.ssh/vault-cortex.pub, only when SSH_PUBKEY_PATH is unset —
+     *      dedicated deploy key (same key local + CI).
      */
     const readSshPublicKey = (): string => {
       if (sshPubkey) return sshPubkey
@@ -153,8 +153,8 @@ export default $config({
 
     // ── Secrets ────────────────────────────────────────────────────
     // Set once, then deploy:
-    //   sst secret set McpAuthToken "$(openssl rand -hex 32)"
-    //   sst deploy
+    //   npm run sst -- secret set McpAuthToken "$(openssl rand -hex 32)"
+    //   npm run deploy
     //
     // SST encrypts to S3 in your account. Names MUST be PascalCase.
     // OBSIDIAN_AUTH_TOKEN and VAULT_NAME are NOT SST secrets — they
@@ -204,12 +204,13 @@ export default $config({
     // protect + retainOnDelete are the IaC seatbelt. `protect` refuses
     // any Pulumi operation that would destroy or replace this resource;
     // `retainOnDelete` orphans the AWS resource if SST ever does decide
-    // to delete it (e.g. stage rename) instead of actually destroying.
-    // These pair with `removal: "retain"` at the app level — that one
-    // only fires on `sst remove`; these fire on every operation.
+    // to delete it (e.g. `sst remove` once `protect` is cleared) instead of
+    // actually destroying. The app-level `removal: "retain"` keeps only data
+    // stores (S3, DynamoDB), so it does not cover the VM.
     //
-    // GOTCHA #1: Changing userData, bundleId, or keyPairName WOULD
-    //            normally replace the instance. With protect:true,
+    // GOTCHA #1: Changing bundleId or keyPairName WOULD normally replace
+    //            the instance (userData would too, but ignoreChanges below
+    //            makes deploys skip it). With protect:true,
     //            Pulumi refuses and the deploy fails loudly. For
     //            bundle upgrades, use a snapshot-based upgrade
     //            (preserves all state) then reconcile SST state
@@ -353,6 +354,11 @@ export default $config({
       },
     })
 
+    /**
+     * The same precedence as resolvePublicUrl in scripts/instance-env.ts
+     * (laptop lightsail:up) and deploy.yml's "Resolve public URL" step (CI):
+     * the Lambda rejects tokens minted for any other URL.
+     */
     const resolvePublicUrl = (): $util.Output<string> => {
       if (publicUrlOverride) return $output(publicUrlOverride)
       if (customDomain) return $output(`https://${customDomain}`)
@@ -385,13 +391,13 @@ export default $config({
       },
     })
 
-    // ORIGIN_URL: when set, API GW routes through a tunnel/proxy (HTTPS)
-    // instead of directly to the Lightsail IP (plaintext HTTP). Pair with
-    // MCP_PORT_CIDRS=none to close port 8000 on the firewall.
+    /**
+     * ORIGIN_URL: when set, API GW routes through a tunnel/proxy (HTTPS)
+     * instead of directly to the Lightsail IP (plaintext HTTP). Pair with
+     * MCP_PORT_CIDRS=none to close port 8000 on the firewall.
+     */
     const target = (path: string) =>
-      originUrl
-        ? `${originUrl}${path}`
-        : $interpolate`http://${staticIp.ipAddress}:8000${path}`
+      originUrl ? `${originUrl}${path}` : $interpolate`http://${staticIp.ipAddress}:8000${path}`
 
     // Service-token headers on every integration. `overwrite:` so a
     // client-supplied copy of either header is replaced, never joined.
@@ -400,10 +406,8 @@ export default $config({
         ? {
             integration: {
               requestParameters: {
-                "overwrite:header.CF-Access-Client-Id":
-                  originAccessClientId.value,
-                "overwrite:header.CF-Access-Client-Secret":
-                  originAccessClientSecret.value,
+                "overwrite:header.CF-Access-Client-Id": originAccessClientId.value,
+                "overwrite:header.CF-Access-Client-Secret": originAccessClientSecret.value,
               },
             },
           }
@@ -415,13 +419,7 @@ export default $config({
     // validation, and 5 req/min rate limiting. API Gateway always picks
     // the most specific matching route, so these win over the protected
     // catch-alls below regardless of declaration order.
-    for (const path of [
-      "/authorize",
-      "/token",
-      "/register",
-      "/revoke",
-      "/healthz",
-    ]) {
+    for (const path of ["/authorize", "/token", "/register", "/revoke", "/healthz"]) {
       api.routeUrl(`ANY ${path}`, target(path), {
         transform: originAccessHeaders,
       })

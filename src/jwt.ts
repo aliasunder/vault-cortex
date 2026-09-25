@@ -1,11 +1,11 @@
 /**
  * Minimal JWT (HS256) sign/verify — shared by Lambda authorizer and Express.
- * Custom instead of a library (e.g. jose): ~50 lines using only node:crypto,
- * keeps the Lambda esbuild bundle small, and avoids adding a dependency to
- * two deployment targets. HS256-only — the only algorithm we need.
+ * Custom instead of a library (e.g. jose): uses only node:crypto, keeps the
+ * Lambda esbuild bundle small, and avoids adding a dependency to two deployment
+ * targets. HS256-only — the only algorithm we need.
  *
  * Intentionally avoids Luxon (and any other runtime dep). The Lambda
- * authorizer imports verifyJwt — every dependency here enlarges that bundle.
+ * authorizer imports this module — every dependency here enlarges that bundle.
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto"
@@ -29,22 +29,25 @@ export type JwtPayload = JwtBaseClaims & {
 type VerifyJwtOptions = {
   token: string
   secret: string
-  /** The value `iss` must equal; a token from another issuer is rejected. */
+  /** `tokenBindingForServer(new URL(PUBLIC_URL)).issuer` must equal `iss`. */
   expectedIssuer: string
-  /** The value `aud` must equal; a token minted for another server is
-   *  rejected even when it carries a valid signature under `secret`. */
+  /** `tokenBindingForServer(new URL(PUBLIC_URL)).audience` must equal `aud`. */
   expectedAudience: string
 }
 
-type VerifyUnboundJwtOptions = {
+type DeploymentJwtVerification =
+  | { status: "valid"; payload: JwtPayload }
+  | { status: "expired"; payload: JwtPayload }
+  | { status: "invalid" }
+
+type VerifyLegacyJwtOptions = {
   token: string
   secret: string
 }
 
 const b64url = (buf: Buffer): string => buf.toString("base64url")
 
-const b64urlEncode = (obj: object): string =>
-  b64url(Buffer.from(JSON.stringify(obj)))
+const b64urlEncode = (obj: object): string => b64url(Buffer.from(JSON.stringify(obj)))
 
 const HEADER = b64urlEncode({ alg: "HS256", typ: "JWT" })
 
@@ -82,22 +85,22 @@ const isExpired = (claims: JwtBaseClaims): boolean => {
 
 /** The decoded payload of a token whose signature verifies under `secret`,
  *  with no claim checked yet; null when the signature or encoding is bad. */
-const payloadWithVerifiedSignature = (
-  token: string,
-  secret: string,
-): unknown => {
+const payloadWithVerifiedSignature = (token: string, secret: string): unknown => {
   // A valid JWT is exactly three base64url segments: header.payload.signature
   const parts = token.split(".")
+
   if (parts.length !== 3) return null
   const [header, payload, sig] = parts
+
   if (!header || !payload || !sig) return null
 
   const expected = hmac(`${header}.${payload}`, secret)
 
   const sigBuf = Buffer.from(sig, "base64url")
-  const expBuf = Buffer.from(expected, "base64url")
-  if (sigBuf.length !== expBuf.length) return null
-  if (!timingSafeEqual(sigBuf, expBuf)) return null
+  const expectedSignatureBuffer = Buffer.from(expected, "base64url")
+
+  if (sigBuf.length !== expectedSignatureBuffer.length) return null
+  if (!timingSafeEqual(sigBuf, expectedSignatureBuffer)) return null
 
   try {
     return JSON.parse(Buffer.from(payload, "base64url").toString())
@@ -106,33 +109,37 @@ const payloadWithVerifiedSignature = (
   }
 }
 
-/** Returns the payload when the signature, expiry, issuer, and audience all
- *  check out; null otherwise. Issuer and audience are compared as exact
- *  strings — callers canonicalize before passing them in. */
-export const verifyJwt = ({
+/** Checks signature and deployment binding before reporting expiry. */
+export const getDeploymentJwtVerification = ({
   token,
   secret,
   expectedIssuer,
   expectedAudience,
-}: VerifyJwtOptions): JwtPayload | null => {
+}: VerifyJwtOptions): DeploymentJwtVerification => {
   const decoded = payloadWithVerifiedSignature(token, secret)
-  if (!isJwtPayload(decoded)) return null
-  if (isExpired(decoded)) return null
-  if (decoded.iss !== expectedIssuer) return null
-  if (decoded.aud !== expectedAudience) return null
-  return decoded
+
+  if (!isJwtPayload(decoded)) return { status: "invalid" }
+  if (decoded.iss !== expectedIssuer) return { status: "invalid" }
+  if (decoded.aud !== expectedAudience) return { status: "invalid" }
+  if (isExpired(decoded)) return { status: "expired", payload: decoded }
+  return { status: "valid", payload: decoded }
 }
 
-/** Accepts a token minted before access tokens carried `aud`: signature and
- *  expiry are checked, and the token must carry no `aud` at all — a token
- *  that names any audience goes through `verifyJwt`. Lets clients holding a
- *  pre-binding token reach the server that rejects it with a 401, which is
- *  the signal they refresh on; a gateway-level deny would strand them. */
-export const verifyUnboundJwt = ({
+/** Verifies a JWT against the issuer and audience derived from its PUBLIC_URL. */
+export const verifyJwt = (options: VerifyJwtOptions): JwtPayload | null => {
+  const verification = getDeploymentJwtVerification(options)
+
+  if (verification.status !== "valid") return null
+  return verification.payload
+}
+
+/** Verifies a legacy JWT minted before issuer and audience binding was added. */
+export const verifyLegacyJwt = ({
   token,
   secret,
-}: VerifyUnboundJwtOptions): JwtBaseClaims | null => {
+}: VerifyLegacyJwtOptions): JwtBaseClaims | null => {
   const decoded = payloadWithVerifiedSignature(token, secret)
+
   if (!isJwtBaseClaims(decoded)) return null
   if ("aud" in decoded) return null
   if (isExpired(decoded)) return null

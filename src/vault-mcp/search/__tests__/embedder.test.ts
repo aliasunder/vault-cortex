@@ -106,9 +106,7 @@ describe("createEmbedder", () => {
       const warnSpy = vi.spyOn(logger, "warn")
       const embedder = await loadEmbedder()
 
-      await expect(embedder.embedText("test")).rejects.toThrow(
-        "model download failed",
-      )
+      await expect(embedder.embedText("test")).rejects.toThrow("model download failed")
       expect(warnSpy).toHaveBeenCalledWith(
         "embedding model failed to load",
         expect.objectContaining({ model: "Xenova/bge-small-en-v1.5" }),

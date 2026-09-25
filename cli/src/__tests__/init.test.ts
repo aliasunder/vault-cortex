@@ -1,10 +1,4 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
@@ -29,8 +23,7 @@ const makeVault = (): string => {
   return vaultDir
 }
 
-const makeTargetDir = (): string =>
-  join(mkdtempSync(join(tmpdir(), "vault-cli-target-")), "out")
+const makeTargetDir = (): string => join(mkdtempSync(join(tmpdir(), "vault-cli-target-")), "out")
 
 describe("runInit flag validation", () => {
   const invalidFlagScenarios = [
@@ -131,9 +124,7 @@ describe("runInit --yes (non-interactive local)", () => {
     )
 
     expect(exitCode).toBe(1)
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
-      "MCP_AUTH_TOKEN=existing\n",
-    )
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=existing\n")
     expect(scripted.errors).toEqual([
       "Existing files differ (.env) — refusing to overwrite in --yes mode.",
     ])
@@ -160,9 +151,7 @@ describe("local connect message client routing", () => {
     expect(connectMessage).toContain(
       "claude mcp add --scope user --transport http vault-cortex http://localhost:8000/mcp",
     )
-    expect(connectMessage).toContain(
-      '"mcp-remote", "http://localhost:8000/mcp"',
-    )
+    expect(connectMessage).toContain('"mcp-remote", "http://localhost:8000/mcp"')
     expect(connectMessage).toContain("only accepts https URLs")
     // Claude Desktop must not be grouped with the add-as-remote-server flow —
     // its connector dialog rejects http URLs.
@@ -184,9 +173,7 @@ describe("local connect message client routing", () => {
     )
 
     expect(exitCode).toBe(0)
-    const token = /MCP_AUTH_TOKEN=(.+)/.exec(
-      readFileSync(join(targetDir, ".env"), "utf8"),
-    )?.[1]
+    const token = /MCP_AUTH_TOKEN=(.+)/.exec(readFileSync(join(targetDir, ".env"), "utf8"))?.[1]
     expect(token).toMatch(/^[0-9a-f]{64}$/)
     const connectMessage = scripted.prints[0]
     // The token must be on a line by itself (so a line-select grabs only it),
@@ -246,6 +233,7 @@ describe("remote connect message https routing", () => {
     const connectMessage = scripted.prints.find((message) =>
       message.includes("Connect your MCP client"),
     )
+
     if (!connectMessage) throw new Error("connect message was not printed")
     return connectMessage
   }
@@ -361,9 +349,7 @@ describe("remote connect message https routing", () => {
     )
 
     expect(exitCode).toBe(0)
-    const token = /MCP_AUTH_TOKEN=(.+)/.exec(
-      readFileSync(join(targetDir, ".env"), "utf8"),
-    )?.[1]
+    const token = /MCP_AUTH_TOKEN=(.+)/.exec(readFileSync(join(targetDir, ".env"), "utf8"))?.[1]
     expect(token).toMatch(/^[0-9a-f]{64}$/)
     const connectMessage = scripted.prints[0]
     // The token must be on a line by itself (so a line-select grabs only it),
@@ -435,9 +421,7 @@ describe("runInit interactive local flow", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.errors).toEqual([`Path does not exist: ${missingPath}`])
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
-      `VAULT_PATH=${vaultDir}\n`,
-    )
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(`VAULT_PATH=${vaultDir}\n`)
   })
 
   it("warns and skips the start offer when Docker is installed but the daemon is down", async () => {
@@ -515,9 +499,7 @@ describe("runInit interactive local flow", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.asked[2]).toContain("Use it anyway?")
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
-      `VAULT_PATH=${plainDir}\n`,
-    )
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(`VAULT_PATH=${plainDir}\n`)
   })
 })
 
@@ -655,8 +637,7 @@ describe("runInit remote flow", () => {
           { status: 200, headers: { "Content-Type": "application/json" } },
         )
       }
-      if (requestUrl.includes("127.0.0.1"))
-        return new Response(null, { status: 200 })
+      if (requestUrl.includes("127.0.0.1")) return new Response(null, { status: 200 })
       throw new Error("ECONNREFUSED")
     }
     const scripted = createScriptedPrompts([
@@ -736,9 +717,7 @@ describe("runInit remote flow", () => {
     const envContent = readFileSync(join(targetDir, ".env"), "utf8")
     // Exact line match — a substring check would also pass for a commented
     // or prefixed entry (e.g. "# OBSIDIAN_AUTH_TOKEN=captured-token").
-    expect(envContent.split("\n")).toContain(
-      "OBSIDIAN_AUTH_TOKEN=captured-token",
-    )
+    expect(envContent.split("\n")).toContain("OBSIDIAN_AUTH_TOKEN=captured-token")
   })
 
   it("skips the start offer when the sync token was left blank", async () => {
@@ -762,9 +741,7 @@ describe("runInit remote flow", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.asked).not.toContain("Start the server now?")
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(
-      /^OBSIDIAN_AUTH_TOKEN=$/m,
-    )
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
   })
 
   it("preserves existing token and offers start when capture is declined on re-init", async () => {
@@ -867,9 +844,7 @@ describe("runInit re-init guard", () => {
       `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`,
     ])
     expect(scripted.outros).toEqual(["Done."])
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
-      "MCP_AUTH_TOKEN=existing\n",
-    )
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=existing\n")
   })
 
   it("backs out of local init after the dir prompt when it already holds a deployment", async () => {
@@ -906,9 +881,7 @@ describe("runInit re-init guard", () => {
       `Nothing changed. To adjust settings instead: npx vault-cortex@latest configure --dir "${targetDir}"`,
     ])
     expect(scripted.outros).toEqual(["Done."])
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
-      "MCP_AUTH_TOKEN=existing\n",
-    )
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=existing\n")
   })
 })
 
@@ -940,24 +913,17 @@ describe("runInit with a kept existing .env", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.prints).toHaveLength(1)
-    expect(scripted.prints[0]).toContain(
-      `use the existing MCP_AUTH_TOKEN in ${targetDir}/.env`,
-    )
+    expect(scripted.prints[0]).toContain(`use the existing MCP_AUTH_TOKEN in ${targetDir}/.env`)
     // The freshly generated (never saved) token must not appear anywhere.
     expect(scripted.prints[0]).not.toMatch(/[0-9a-f]{64}/)
-    expect(scripted.logs).not.toContain(
-      "Generated MCP auth token (saved to .env).",
-    )
+    expect(scripted.logs).not.toContain("Generated MCP auth token (saved to .env).")
   })
 
   it("polls health and prints URLs on the PORT from the .env on disk", async () => {
     const vaultDir = makeVault()
     const targetDir = makeTargetDir()
     mkdirSync(targetDir, { recursive: true })
-    writeFileSync(
-      join(targetDir, ".env"),
-      "MCP_AUTH_TOKEN=existing\nPORT=9000\n",
-    )
+    writeFileSync(join(targetDir, ".env"), "MCP_AUTH_TOKEN=existing\nPORT=9000\n")
     const scripted = createScriptedPrompts([
       ...keepEnvAnswers(vaultDir, targetDir),
       true, // start the server now
@@ -1005,9 +971,7 @@ describe("runInit --vault-path flag in interactive mode", () => {
     )
 
     expect(exitCode).toBe(0)
-    expect(scripted.errors).toEqual([
-      `--vault-path: Path does not exist: ${missingPath}`,
-    ])
+    expect(scripted.errors).toEqual([`--vault-path: Path does not exist: ${missingPath}`])
     expect(scripted.asked).toContain("Path to your Obsidian vault:")
   })
 })
@@ -1034,9 +998,7 @@ describe("runInit remote encryption password", () => {
 
     expect(exitCode).toBe(0)
     expect(scripted.asked).toContain("Vault encryption password:")
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain(
-      "VAULT_PASSWORD=hunter2\n",
-    )
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toContain("VAULT_PASSWORD=hunter2\n")
   })
 })
 
@@ -1129,12 +1091,8 @@ describe("runInit sync-token auto-capture fallback", () => {
       },
     )
 
-    expect(scripted.warnings[0]).toBe(
-      "Could not sign in: Invalid email or password",
-    )
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(
-      /^OBSIDIAN_AUTH_TOKEN=$/m,
-    )
+    expect(scripted.warnings[0]).toBe("Could not sign in: Invalid email or password")
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toMatch(/^OBSIDIAN_AUTH_TOKEN=$/m)
     expect(scripted.logs).toContain(
       "No token yet — run this later to add it to your .env:\n" +
         `  npx vault-cortex@latest get-sync-token --dir "${targetDir}"`,
@@ -1232,9 +1190,7 @@ describe("runInit guided optional settings", () => {
       "PORT must be a whole number between 1 and 65535.",
       "PORT must be a whole number between 1 and 65535.",
     ])
-    expect(readFileSync(join(targetDir, ".env"), "utf8").split("\n")).toContain(
-      "PORT=9000",
-    )
+    expect(readFileSync(join(targetDir, ".env"), "utf8").split("\n")).toContain("PORT=9000")
   })
 
   it("offers the settings chooser on a consented re-init over an existing .env", async () => {
@@ -1273,9 +1229,7 @@ describe("runInit guided optional settings", () => {
     ])
     // Keeping at the conflict prompt still protects the file (the write
     // report states the discard); no configure-pointer log remains.
-    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe(
-      "MCP_AUTH_TOKEN=existing\n",
-    )
+    expect(readFileSync(join(targetDir, ".env"), "utf8")).toBe("MCP_AUTH_TOKEN=existing\n")
   })
 
   it("applies chooser answers when a consented re-init overwrites the existing .env", async () => {
@@ -1334,9 +1288,10 @@ describe("runInit guided optional settings", () => {
     expect(exitCode).toBe(0)
     // --mode remote skips the mode select, so this is the flow's only select.
     // The option list itself is pinned in optional-settings.test.ts.
-    const selectsAsked = scripted.selectCalls.map(
-      ({ message, initialValue }) => ({ message, initialValue }),
-    )
+    const selectsAsked = scripted.selectCalls.map(({ message, initialValue }) => ({
+      message,
+      initialValue,
+    }))
     expect(selectsAsked).toEqual([
       {
         message: "Obsidian Sync direction:",
@@ -1383,6 +1338,7 @@ describe("runInit health-timeout returns starting status", () => {
     const fetchedUrls: string[] = []
     const fetchWithSignin: typeof fetch = async (input) => {
       const requestUrl = String(input)
+
       if (requestUrl.includes("api.obsidian.md")) {
         return new Response(
           JSON.stringify({
@@ -1497,32 +1453,28 @@ describe("validatePublicUrl", () => {
   it("rejects a URL with a query string", () => {
     expect(validatePublicUrl("https://vault.example.com/?tab=2")).toEqual({
       kind: "error",
-      message:
-        "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
     })
   })
 
   it("rejects a URL with a hash fragment", () => {
     expect(validatePublicUrl("https://vault.example.com/#section")).toEqual({
       kind: "error",
-      message:
-        "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
     })
   })
 
   it("rejects a bare trailing query delimiter", () => {
     expect(validatePublicUrl("https://vault.example.com/?")).toEqual({
       kind: "error",
-      message:
-        "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
     })
   })
 
   it("rejects a bare trailing hash delimiter", () => {
     expect(validatePublicUrl("https://vault.example.com/#")).toEqual({
       kind: "error",
-      message:
-        "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
+      message: "PUBLIC_URL must be a bare origin — no query string (?...) or fragment (#...).",
     })
   })
 

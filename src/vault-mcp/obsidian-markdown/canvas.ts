@@ -62,6 +62,7 @@ const optionalString = (value: unknown): string | undefined =>
 const parseNode = (raw: unknown): CanvasNode | null => {
   if (!isRecord(raw)) return null
   const { id, type, x, y, width, height } = raw
+
   if (typeof id !== "string" || typeof type !== "string") return null
   if (
     typeof x !== "number" ||
@@ -89,6 +90,7 @@ const parseNode = (raw: unknown): CanvasNode | null => {
 const parseEdge = (raw: unknown): CanvasEdge | null => {
   if (!isRecord(raw)) return null
   const { fromNode, toNode } = raw
+
   if (typeof fromNode !== "string" || typeof toNode !== "string") return null
   return { fromNode, toNode, label: optionalString(raw.label) }
 }
@@ -115,26 +117,25 @@ const smallestContainingGroup = (
     // containment one deterministic direction (higher id contains lower)
     // so one nests under the other. Content nodes are exempt — they never
     // become parents, so mutual containment is harmless there.
-    const mutuallyContained =
-      node.type === "group" && isContainedIn(group, node)
+    const mutuallyContained = node.type === "group" && isContainedIn(group, node)
     return !mutuallyContained || group.id > node.id
   })
+
   if (containing.length === 0) return undefined
   // Equal-area ties break on the lower id so ownership is a property of the
   // canvas content, not of JSON array order.
   return containing.reduce((smallest, candidate) => {
     const candidateArea = candidate.width * candidate.height
     const smallestArea = smallest.width * smallest.height
+
     if (candidateArea < smallestArea) return candidate
-    if (candidateArea === smallestArea && candidate.id < smallest.id)
-      return candidate
+    if (candidateArea === smallestArea && candidate.id < smallest.id) return candidate
     return smallest
   })
 }
 
 /** Spatial reading order: top-to-bottom, then left-to-right. */
-const byReadingOrder = (a: CanvasNode, b: CanvasNode): number =>
-  a.y - b.y || a.x - b.x
+const byReadingOrder = (a: CanvasNode, b: CanvasNode): number => a.y - b.y || a.x - b.x
 
 /** Display name for the edge list: first line of a text node, filename of a
  *  file node, a group's label, a link's url. */
@@ -199,6 +200,7 @@ const groupBy = <Key, Item>(
   for (const item of items) {
     const key = keyOf(item)
     const bucket = buckets.get(key)
+
     if (bucket) {
       bucket.push(item)
       continue
@@ -227,10 +229,8 @@ const parseCanvasJson = (canvasJson: string): unknown => {
 export const linearizeCanvas = (canvasJson: string): string => {
   const parsed = parseCanvasJson(canvasJson)
 
-  const rawNodes =
-    isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
-  const rawEdges =
-    isRecord(parsed) && Array.isArray(parsed.edges) ? parsed.edges : []
+  const rawNodes = isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
+  const rawEdges = isRecord(parsed) && Array.isArray(parsed.edges) ? parsed.edges : []
   const nodes = rawNodes
     .map(parseNode)
     .filter((node) => node !== null)
@@ -267,9 +267,7 @@ export const linearizeCanvas = (canvasJson: string): string => {
     ...topLevelGroups.map((group) =>
       renderGroup(group, 0, membersByGroupId, childGroupsByParentId),
     ),
-    ...(edgeLines.length > 0
-      ? [["## Connections", ...edgeLines].join("\n\n")]
-      : []),
+    ...(edgeLines.length > 0 ? [["## Connections", ...edgeLines].join("\n\n")] : []),
   ]
   return sections.join("\n\n")
 }
@@ -281,11 +279,11 @@ export const linearizeCanvas = (canvasJson: string): string => {
 export const extractCanvasFileLinks = (canvasJson: string): string[] => {
   const parsed = parseCanvasJson(canvasJson)
 
-  const rawNodes =
-    isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
+  const rawNodes = isRecord(parsed) && Array.isArray(parsed.nodes) ? parsed.nodes : []
   const filePaths: string[] = []
   for (const rawNode of rawNodes) {
     const node = parseNode(rawNode)
+
     if (node !== null && node.type === "file" && node.file) {
       filePaths.push(node.file)
     }

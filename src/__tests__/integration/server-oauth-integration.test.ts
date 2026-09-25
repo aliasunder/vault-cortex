@@ -1,5 +1,4 @@
-/** OAuth integration tests — token rotation, client sweep, and reuse
- *  detection exercised over real HTTP against a real server. */
+/** OAuth challenge, rotation, sweep, reuse, and scope behavior over real HTTP. */
 
 import { describe, it, expect, onTestFinished } from "vitest"
 import { createHash, randomBytes } from "node:crypto"
@@ -8,6 +7,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import Database from "better-sqlite3"
 import { DateTime } from "luxon"
+import { signJwt } from "../../jwt.js"
 import { startServer, freePort } from "./test-harness.js"
 
 const REDIRECT_URI = "http://127.0.0.1/callback"
@@ -15,34 +15,21 @@ const TOKEN_A = "integration-token-before-rotation"
 const TOKEN_B = "integration-token-after-rotation"
 
 const base64Url = (buffer: Buffer): string =>
-  buffer
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "")
+  buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 
 type RegisteredClient = { client_id: string; client_secret: string }
 type IssuedTokens = { access_token: string; refresh_token: string }
 
 const isRegisteredClient = (value: unknown): value is RegisteredClient =>
-  typeof value === "object" &&
-  value !== null &&
-  "client_id" in value &&
-  "client_secret" in value
+  typeof value === "object" && value !== null && "client_id" in value && "client_secret" in value
 
 const isIssuedTokens = (value: unknown): value is IssuedTokens =>
-  typeof value === "object" &&
-  value !== null &&
-  "access_token" in value &&
-  "refresh_token" in value
+  typeof value === "object" && value !== null && "access_token" in value && "refresh_token" in value
 
 /** Initialize over /mcp with the transport's required Accept header, so
  *  a valid bearer is distinguishable (200) from a rejected one (401). */
-const mcpStatusWithBearer = async (
-  port: number,
-  bearer: string,
-): Promise<number> => {
-  const response = await fetch(`http://127.0.0.1:${port}/mcp`, {
+const mcpResponseWithBearer = (port: number, bearer: string): Promise<Response> => {
+  return fetch(`http://127.0.0.1:${port}/mcp`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -60,6 +47,10 @@ const mcpStatusWithBearer = async (
       },
     }),
   })
+}
+
+const mcpStatusWithBearer = async (port: number, bearer: string): Promise<number> => {
+  const response = await mcpResponseWithBearer(port, bearer)
   return response.status
 }
 
@@ -75,8 +66,10 @@ const registerClient = async (port: number): Promise<RegisteredClient> => {
       token_endpoint_auth_method: "none",
     }),
   })
+
   if (response.status !== 201) throw new Error(`register: ${response.status}`)
   const registered: unknown = await response.json()
+
   if (!isRegisteredClient(registered)) throw new Error("malformed client")
   return registered
 }
@@ -104,6 +97,7 @@ const authorize = async ({
   }).toString()
   const consentHtml = await (await fetch(authorizeUrl)).text()
   const requestId = /name="request_id"\s+value="([^"]+)"/.exec(consentHtml)?.[1]
+
   if (!requestId) throw new Error("consent page carried no request_id")
 
   const decision = await fetch(`http://127.0.0.1:${port}/oauth/decide`, {
@@ -118,6 +112,7 @@ const authorize = async ({
   })
   const location = decision.headers.get("location")
   const code = location ? new URL(location).searchParams.get("code") : null
+
   if (!code) {
     throw new Error(`consent did not redirect with a code: ${decision.status}`)
   }
@@ -134,10 +129,12 @@ const authorize = async ({
       redirect_uri: REDIRECT_URI,
     }),
   })
+
   if (tokenResponse.status !== 200) {
     throw new Error(`token exchange: ${tokenResponse.status}`)
   }
   const issued: unknown = await tokenResponse.json()
+
   if (!isIssuedTokens(issued)) throw new Error("malformed token response")
   return issued
 }
@@ -159,6 +156,7 @@ const refresh = ({
     client_id: client.client_id,
     client_secret: client.client_secret,
   })
+
   if (scope) params.set("scope", scope)
   return fetch(`http://127.0.0.1:${port}/token`, {
     method: "POST",
@@ -166,6 +164,33 @@ const refresh = ({
     body: params,
   })
 }
+
+// ── Expired access token challenge ─────────────────────────────
+
+describe("expired access token challenge", () => {
+  it("returns the OAuth resource challenge for an expired bound JWT", async () => {
+    const port = await freePort()
+    const server = await startServer(port, { MCP_AUTH_TOKEN: TOKEN_A })
+    onTestFinished(() => server.cleanup())
+    const token = signJwt(
+      {
+        sub: "expired-client",
+        scope: "vault",
+        exp: DateTime.now().minus({ minutes: 1 }).toUnixInteger(),
+        iss: `http://127.0.0.1:${port}/`,
+        aud: `http://127.0.0.1:${port}/mcp`,
+      },
+      TOKEN_A,
+    )
+
+    const response = await mcpResponseWithBearer(port, token)
+
+    expect(response.status).toBe(401)
+    expect(response.headers.get("www-authenticate")).toBe(
+      `Bearer error="invalid_token", error_description="Token expired or invalid", resource_metadata="http://127.0.0.1:${port}/.well-known/oauth-protected-resource/mcp"`,
+    )
+  })
+})
 
 // ── Rotating MCP_AUTH_TOKEN ends every OAuth session ───────────
 
@@ -195,6 +220,7 @@ describe("rotating MCP_AUTH_TOKEN", () => {
     })
     expect(rotated.status).toBe(200)
     const rotatedTokens: unknown = await rotated.json()
+
     if (!isIssuedTokens(rotatedTokens)) throw new Error("malformed refresh")
     await before.cleanup()
 
@@ -220,18 +246,14 @@ describe("rotating MCP_AUTH_TOKEN", () => {
       error: "invalid_grant",
       error_description: "Refresh token expired or invalid",
     })
-    expect(
-      await mcpStatusWithBearer(rotatedPort, rotatedTokens.access_token),
-    ).toBe(401)
+    expect(await mcpStatusWithBearer(rotatedPort, rotatedTokens.access_token)).toBe(401)
 
     const reissued = await authorize({
       port: rotatedPort,
       client,
       authToken: TOKEN_B,
     })
-    expect(await mcpStatusWithBearer(rotatedPort, reissued.access_token)).toBe(
-      200,
-    )
+    expect(await mcpStatusWithBearer(rotatedPort, reissued.access_token)).toBe(200)
     const refreshedAgain = await refresh({
       port: rotatedPort,
       client,
@@ -321,6 +343,7 @@ describe("refresh-token reuse detection", () => {
     })
     expect(rotated.status).toBe(200)
     const rotatedTokens: unknown = await rotated.json()
+
     if (!isIssuedTokens(rotatedTokens)) throw new Error("malformed refresh")
 
     // Replay the original (consumed) — triggers reuse detection

@@ -84,7 +84,7 @@ jobs:
       # missing-file error on top of the real outcome.
       - name: Upload SARIF to the Security tab
         if: always() && hashFiles('trivy-results.sarif') != ''
-        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
           sarif_file: trivy-results.sarif
           category: trivy-published-image
@@ -105,7 +105,7 @@ jobs:
 
       - name: Upload remote SARIF to the Security tab
         if: always() && hashFiles('trivy-results-remote.sarif') != ''
-        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
           sarif_file: trivy-results-remote.sarif
           category: trivy-published-image-remote
@@ -122,7 +122,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
 
       # The base stage's apt-get upgrade layer is content-addressed — it
       # caches indefinitely until the Dockerfile or base image changes.
@@ -136,7 +136,7 @@ jobs:
       # its job ID is the required-status-check context in the branch
       # ruleset, so adding a job would need a ruleset update.
       - name: Build image from branch (local target)
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           target: local
@@ -149,7 +149,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build image from branch (remote target)
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           target: remote
@@ -190,7 +190,7 @@ jobs:
       # hashFiles guard: no SARIF exists if the build failed before the scan.
       - name: Upload SARIF to the Security tab
         if: always() && hashFiles('trivy-results.sarif') != '' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
           sarif_file: trivy-results.sarif
           category: trivy-published-image
@@ -199,7 +199,7 @@ jobs:
       # gates the job first (exit-code 1) or the remote build fails.
       - name: Upload remote SARIF to the Security tab
         if: always() && hashFiles('trivy-results-remote.sarif') != '' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
           sarif_file: trivy-results-remote.sarif
           category: trivy-published-image-remote

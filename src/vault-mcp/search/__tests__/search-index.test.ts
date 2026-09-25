@@ -1,12 +1,4 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-  onTestFinished,
-} from "vitest"
+import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir, symlink } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
@@ -14,16 +6,9 @@ import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import * as sqliteVec from "sqlite-vec"
 vi.mock("sqlite-vec", { spy: true })
-import {
-  createSearchIndex,
-  INDEXABLE_TEXT_EXTENSIONS,
-} from "../search-index.js"
-import type {
-  NoteMetadata,
-  OutgoingLinkEntry,
-  SearchIndex,
-  TaskEntry,
-} from "../search-index.js"
+import { createSearchIndex, INDEXABLE_TEXT_EXTENSIONS } from "../search-index.js"
+import type { NoteMetadata, OutgoingLinkEntry, SearchIndex, TaskEntry } from "../search-index.js"
+import type { StatusClassification } from "../../obsidian-markdown/tasks.js"
 import { logger } from "../../../logger.js"
 
 let index: SearchIndex
@@ -69,10 +54,7 @@ title: Me
 `
 
 /** Builds a fileStat object for upsertNote. Defaults to size 100. */
-const testStat = (
-  mtimeMs: number,
-  size = 100,
-): { mtimeMs: number; size: number } => ({
+const testStat = (mtimeMs: number, size = 100): { mtimeMs: number; size: number } => ({
   mtimeMs,
   size,
 })
@@ -81,6 +63,7 @@ const testStat = (
  *  conversion the index performs, computed independently in the test's zone. */
 const isoFromMillis = (mtimeMs: number): string => {
   const iso = DateTime.fromMillis(mtimeMs).toISO()
+
   if (iso === null) throw new Error(`invalid test mtime: ${mtimeMs}`)
   return iso
 }
@@ -94,26 +77,26 @@ const installStatementPoison = (sqlFragment: string) => {
   const message = `injected failure on: ${sqlFragment}`
   // Concrete function type: prepare's generic conditional return type doesn't
   // resolve through .call, so pin the default instantiation explicitly.
-  const realPrepare: (
-    this: Database.Database,
-    source: string,
-  ) => Database.Statement = Database.prototype.prepare
+  const realPrepare: (this: Database.Database, source: string) => Database.Statement =
+    Database.prototype.prepare
   // Mutable arming flag: the patched .run closes over this object so tests
   // can trigger the failure long after the statement was prepared.
   const poisonState = { armed: false }
-  const prepareSpy = vi
-    .spyOn(Database.prototype, "prepare")
-    .mockImplementation(function (this: Database.Database, source: string) {
-      const statement = realPrepare.call(this, source)
-      if (source.includes(sqlFragment)) {
-        const realRun = statement.run.bind(statement)
-        statement.run = (...runParams: unknown[]) => {
-          if (poisonState.armed) throw new Error(message)
-          return realRun(...runParams)
-        }
+  const prepareSpy = vi.spyOn(Database.prototype, "prepare").mockImplementation(function (
+    this: Database.Database,
+    source: string,
+  ) {
+    const statement = realPrepare.call(this, source)
+
+    if (source.includes(sqlFragment)) {
+      const realRun = statement.run.bind(statement)
+      statement.run = (...runParams: unknown[]) => {
+        if (poisonState.armed) throw new Error(message)
+        return realRun(...runParams)
       }
-      return statement
-    })
+    }
+    return statement
+  })
   onTestFinished(() => prepareSpy.mockRestore())
   return {
     message,
@@ -213,6 +196,494 @@ describe("schema creation", () => {
     sqliteVec.load(db)
     const row = db.prepare("SELECT vec_version() AS version").get()
     expect(row).toHaveProperty("version")
+  })
+})
+
+describe("equal-score tie-breaking in retrieval legs", () => {
+  const IDENTICAL_NOTE = "# Shared\n\nwalrus habitat survey notes\n"
+
+  it("orders equal-bm25 notes by path regardless of insertion order", () => {
+    const tieIndex = createSearchIndex(":memory:")
+    // Reverse-alphabetical insertion — without the path tie-break, equal
+    // bm25 scores return in insertion order and zzz.md would rank first.
+    tieIndex.upsertNote(
+      {
+        filePath: "zzz.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    tieIndex.upsertNote(
+      {
+        filePath: "aaa.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const results = tieIndex.fullTextSearch({ query: "walrus" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-mtime folder listings by path regardless of insertion order", () => {
+    const tieIndex = createSearchIndex(":memory:")
+    tieIndex.upsertNote(
+      {
+        filePath: "docs/zzz.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    tieIndex.upsertNote(
+      {
+        filePath: "docs/aaa.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const results = tieIndex.searchByFolder({ folder: "docs" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["docs/aaa.md", "docs/zzz.md"])
+  })
+
+  const TAGGED_NOTE = "---\ntags: [project]\n---\n\n# Tagged\n"
+
+  /** Two same-mtime notes sharing content, zzz.md inserted first. */
+  const createReverseInsertedPair = (rawContent: string): SearchIndex => {
+    const tieIndex = createSearchIndex(":memory:")
+    tieIndex.upsertNote({ filePath: "zzz.md", rawContent, fileStat: testStat(1000) }, logger)
+    tieIndex.upsertNote({ filePath: "aaa.md", rawContent, fileStat: testStat(1000) }, logger)
+    return tieIndex
+  }
+
+  it("orders equal-mtime tag search results by path", () => {
+    const tieIndex = createReverseInsertedPair(TAGGED_NOTE)
+    const results = tieIndex.searchByTag({ tag: "project" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-count tags alphabetically in the tag listing", () => {
+    const tieIndex = createReverseInsertedPair("---\ntags: [zzz-tag, aaa-tag]\n---\n\n# Tags\n")
+    const results = tieIndex.listAllTags({}, logger)
+    expect(results.map((tagCount) => tagCount.tag)).toEqual(["aaa-tag", "zzz-tag"])
+  })
+
+  it("orders equal-mtime recent notes by path", () => {
+    const tieIndex = createReverseInsertedPair(IDENTICAL_NOTE)
+    const results = tieIndex.recentNotes({}, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-created recent notes by path in created sort", () => {
+    const tieIndex = createReverseInsertedPair(
+      "---\ncreated: 2026-01-01T00:00:00-05:00\n---\n\n# Created\n",
+    )
+    const results = tieIndex.recentNotes({ sort_by: "created" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-count property keys alphabetically", () => {
+    const tieIndex = createReverseInsertedPair("---\nzz_last: 1\naa_first: 1\n---\n\n# Props\n")
+    const results = tieIndex.listPropertyKeys({}, logger)
+    expect(results.map((keyInfo) => keyInfo.key)).toEqual(["aa_first", "zz_last"])
+  })
+
+  it("orders equal-count sample values alphabetically within a property key", () => {
+    // Each note contributes a different status value (one note each), so all
+    // three sample values tie at count 1 — the alphabetical tie-break in the
+    // sample-values sub-query decides their order.
+    const tieIndex = createSearchIndex(":memory:")
+    tieIndex.upsertNote(
+      {
+        filePath: "a.md",
+        rawContent: "---\nstatus: zzz-status\n---\n\n# A\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    tieIndex.upsertNote(
+      {
+        filePath: "b.md",
+        rawContent: "---\nstatus: aaa-status\n---\n\n# B\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    tieIndex.upsertNote(
+      {
+        filePath: "c.md",
+        rawContent: "---\nstatus: mmm-status\n---\n\n# C\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    const results = tieIndex.listPropertyKeys({}, logger)
+    const statusKey = results.find((keyInfo) => keyInfo.key === "status")
+    expect(statusKey?.sample_values).toEqual(["aaa-status", "mmm-status", "zzz-status"])
+  })
+
+  it("orders equal-count property values alphabetically", () => {
+    const tieIndex = createReverseInsertedPair(
+      "---\nstatus: [zzz-value, aaa-value]\n---\n\n# Values\n",
+    )
+    const results = tieIndex.listPropertyValues({ key: "status" }, logger)
+    expect(results.map((valueCount) => valueCount.value)).toEqual(["aaa-value", "zzz-value"])
+  })
+
+  it("orders equal-mtime property search results by path", () => {
+    const tieIndex = createReverseInsertedPair("---\nstatus: active\n---\n\n# Status\n")
+    const results = tieIndex.searchByProperty({ key: "status", value: "active" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders same-title backlinks by source path", () => {
+    const tieIndex = createSearchIndex(":memory:")
+    tieIndex.upsertNote(
+      {
+        filePath: "Target.md",
+        rawContent: "# Target\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    const linkingNote = "---\ntitle: Same Title\n---\n\n[[Target]]\n"
+    tieIndex.upsertNote(
+      { filePath: "zzz.md", rawContent: linkingNote, fileStat: testStat(1000) },
+      logger,
+    )
+    tieIndex.upsertNote(
+      { filePath: "aaa.md", rawContent: linkingNote, fileStat: testStat(1000) },
+      logger,
+    )
+
+    const backlinks = tieIndex.getBacklinks({ path: "Target.md" }, logger)
+    expect(backlinks.map((backlink) => backlink.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-mtime orphans by path", () => {
+    const tieIndex = createReverseInsertedPair(IDENTICAL_NOTE)
+    const results = tieIndex.findOrphans({}, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-mtime notes by path in the modified-on-date listing", () => {
+    const middayMtime = DateTime.fromISO("2026-06-15T12:00:00").toMillis()
+    const tieIndex = createSearchIndex(":memory:")
+    tieIndex.upsertNote(
+      {
+        filePath: "zzz.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(middayMtime),
+      },
+      logger,
+    )
+    tieIndex.upsertNote(
+      {
+        filePath: "aaa.md",
+        rawContent: IDENTICAL_NOTE,
+        fileStat: testStat(middayMtime),
+      },
+      logger,
+    )
+
+    const results = tieIndex.modifiedOnDate({ date: "2026-06-15" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "zzz.md"])
+  })
+
+  it("orders equal-bm25 file results by path in FTS-only hybrid search", async () => {
+    const tieIndex = createSearchIndex(":memory:", undefined, undefined, {
+      fileToolsEnabled: true,
+    })
+    const identicalFileContent = "walrus habitat survey notes"
+    tieIndex.upsertNonMdFile("zzz.txt", 100)
+    tieIndex.upsertFileContent(
+      {
+        filePath: "zzz.txt",
+        rawContent: identicalFileContent,
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+    tieIndex.upsertNonMdFile("aaa.txt", 100)
+    tieIndex.upsertFileContent(
+      {
+        filePath: "aaa.txt",
+        rawContent: identicalFileContent,
+        fileStat: testStat(1000, 100),
+      },
+      logger,
+    )
+
+    // With no embedder, fusion runs over the FTS legs alone — the file leg's
+    // internal order decides which tied file takes RRF rank 1, so this
+    // exercises the leg-level tie-break, not the fusion one.
+    const { results } = await tieIndex.hybridSearch({ query: "walrus" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.txt", "zzz.txt"])
+  })
+
+  /** Every text embeds to the same vector, so all KNN distances tie. */
+  const createUniformEmbedder = () => ({
+    embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+    embedBatch: vi.fn().mockImplementation((texts: string[]) => {
+      return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
+    }),
+  })
+
+  it("orders tied-distance note vector hits by path regardless of insertion order", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder())
+    // Insertion order (mmm, zzz, aaa) differs from both path order and its
+    // reverse, so the asserted order can come only from the secondary sort
+    // keys — whichever way a vec0 build returns tied distances.
+    for (const notePath of ["mmm.md", "zzz.md", "aaa.md"]) {
+      tieIndex.upsertNote(
+        {
+          filePath: notePath,
+          rawContent: IDENTICAL_NOTE,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+    }
+
+    // "orca" shares no stems with the note content, so the FTS leg is empty
+    // and the ranking comes from the vector leg's tied distances alone.
+    const { results } = await tieIndex.hybridSearch({ query: "orca" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "mmm.md", "zzz.md"])
+  })
+
+  it("orders tied-distance file vector hits by path regardless of insertion order", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder(), undefined, {
+      fileToolsEnabled: true,
+    })
+    const identicalFileContent = "walrus habitat survey notes"
+    // Insertion order (mmm, zzz, aaa) differs from both path order and its
+    // reverse, so the asserted order can come only from the secondary sort
+    // keys — whichever way a vec0 build returns tied distances.
+    for (const filePath of ["mmm.txt", "zzz.txt", "aaa.txt"]) {
+      tieIndex.upsertNonMdFile(filePath, 100)
+      tieIndex.upsertFileContent(
+        {
+          filePath,
+          rawContent: identicalFileContent,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await tieIndex.embedFileContent({ filePath }, logger)
+    }
+
+    // "orca" shares no stems with the file content, so the FTS legs are
+    // empty and the ranking comes from the file vector leg's tied distances.
+    const { results } = await tieIndex.hybridSearch({ query: "orca" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.txt", "mmm.txt", "zzz.txt"])
+  })
+
+  it("orders tied-distance note vector hits by path under a folder filter", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder())
+    // In-folder insertion order (mmm, zzz, aaa) differs from both path order
+    // and its reverse, so the asserted order can come only from the secondary
+    // sort keys — whichever way a vec0 build returns tied distances. The
+    // equally-tied note outside the folder is dropped by hybrid-search's
+    // post-SQL note filter under either KNN statement — this pins the
+    // in-folder statement's ordering keys, not which statement ran.
+    for (const notePath of ["docs/mmm.md", "docs/zzz.md", "other/out.md", "docs/aaa.md"]) {
+      tieIndex.upsertNote(
+        {
+          filePath: notePath,
+          rawContent: IDENTICAL_NOTE,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch(
+      { query: "orca", filters: { folder: "docs" } },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual([
+      "docs/aaa.md",
+      "docs/mmm.md",
+      "docs/zzz.md",
+    ])
+  })
+
+  it("orders tied-distance file vector hits by path under a folder filter", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder(), undefined, {
+      fileToolsEnabled: true,
+    })
+    const identicalFileContent = "walrus habitat survey notes"
+    // Same three-way seeding as the note test above — file legs scope to the
+    // folder in SQL alone, so the outside seed here genuinely proves the
+    // in-folder statement ran.
+    for (const filePath of ["docs/mmm.txt", "docs/zzz.txt", "other/out.txt", "docs/aaa.txt"]) {
+      tieIndex.upsertNonMdFile(filePath, 100)
+      tieIndex.upsertFileContent(
+        {
+          filePath,
+          rawContent: identicalFileContent,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await tieIndex.embedFileContent({ filePath }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch(
+      { query: "orca", filters: { folder: "docs" } },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual([
+      "docs/aaa.txt",
+      "docs/mmm.txt",
+      "docs/zzz.txt",
+    ])
+  })
+
+  it("keeps path order for note ties straddling the KNN window boundary", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder())
+    // Eight tied notes against a window of six (limit 2 → candidateLimit 6):
+    // without over-fetch, vec0's tie order chooses which six enter, and
+    // aaa.md is inserted first so reverse-insertion emission drops it at the
+    // boundary. With over-fetch all eight are path-ordered before the window
+    // truncates, so aaa and bbb must top the results.
+    for (const notePath of [
+      "aaa.md",
+      "bbb.md",
+      "ccc.md",
+      "ddd.md",
+      "eee.md",
+      "fff.md",
+      "ggg.md",
+      "hhh.md",
+    ]) {
+      tieIndex.upsertNote(
+        {
+          filePath: notePath,
+          rawContent: IDENTICAL_NOTE,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch({ query: "orca", limit: 2 }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.md", "bbb.md"])
+  })
+
+  it("keeps path order for file ties straddling the KNN window boundary", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder(), undefined, {
+      fileToolsEnabled: true,
+    })
+    const identicalFileContent = "walrus habitat survey notes"
+    // Same eight-versus-six construction as the note test above.
+    for (const filePath of [
+      "aaa.txt",
+      "bbb.txt",
+      "ccc.txt",
+      "ddd.txt",
+      "eee.txt",
+      "fff.txt",
+      "ggg.txt",
+      "hhh.txt",
+    ]) {
+      tieIndex.upsertNonMdFile(filePath, 100)
+      tieIndex.upsertFileContent(
+        {
+          filePath,
+          rawContent: identicalFileContent,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await tieIndex.embedFileContent({ filePath }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch({ query: "orca", limit: 2 }, logger)
+    expect(results.map((result) => result.path)).toEqual(["aaa.txt", "bbb.txt"])
+  })
+
+  it("keeps path order for note ties straddling the folder-scoped KNN window boundary", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder())
+    // Eight tied in-folder notes against a window of six (limit 2 →
+    // candidateLimit 6): docs/aaa and docs/bbb are inserted first, so if the
+    // folder statement's over-fetch reverts, reverse-insertion emission drops
+    // both at the boundary. The equally-tied note outside the folder is
+    // excluded by the folder filter.
+    for (const notePath of [
+      "docs/aaa.md",
+      "docs/bbb.md",
+      "docs/ccc.md",
+      "other/out.md",
+      "docs/ddd.md",
+      "docs/eee.md",
+      "docs/fff.md",
+      "docs/ggg.md",
+      "docs/hhh.md",
+    ]) {
+      tieIndex.upsertNote(
+        {
+          filePath: notePath,
+          rawContent: IDENTICAL_NOTE,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+      await tieIndex.embedNote({ notePath, rawContent: IDENTICAL_NOTE }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch(
+      { query: "orca", filters: { folder: "docs" }, limit: 2 },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["docs/aaa.md", "docs/bbb.md"])
+  })
+
+  it("keeps path order for file ties straddling the folder-scoped KNN window boundary", async () => {
+    const tieIndex = createSearchIndex(":memory:", createUniformEmbedder(), undefined, {
+      fileToolsEnabled: true,
+    })
+    const identicalFileContent = "walrus habitat survey notes"
+    // Same eight-versus-six construction as the folder-scoped note test
+    // above. File legs scope to the folder in SQL alone, and assets/out.txt
+    // sorts before every docs/ path — with folder scoping intact the window
+    // never contains it, while the plain KNN statement would rank it first
+    // and fail the assertion.
+    for (const filePath of [
+      "docs/aaa.txt",
+      "docs/bbb.txt",
+      "docs/ccc.txt",
+      "assets/out.txt",
+      "docs/ddd.txt",
+      "docs/eee.txt",
+      "docs/fff.txt",
+      "docs/ggg.txt",
+      "docs/hhh.txt",
+    ]) {
+      tieIndex.upsertNonMdFile(filePath, 100)
+      tieIndex.upsertFileContent(
+        {
+          filePath,
+          rawContent: identicalFileContent,
+          fileStat: testStat(1000, 100),
+        },
+        logger,
+      )
+      await tieIndex.embedFileContent({ filePath }, logger)
+    }
+
+    const { results } = await tieIndex.hybridSearch(
+      { query: "orca", filters: { folder: "docs" }, limit: 2 },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["docs/aaa.txt", "docs/bbb.txt"])
   })
 })
 
@@ -514,6 +985,59 @@ describe("upsertNote", () => {
     const tags = index.listAllTags({}, logger)
     expect(tags).toEqual([{ tag: "single-tag", count: 1 }])
   })
+
+  it("threads the status registry to classify custom task statuses", () => {
+    const statusRegistry: ReadonlyMap<string, StatusClassification> = new Map([
+      [" ", "todo"],
+      ["x", "done"],
+      ["D", "done"],
+      [">", "non_task"],
+    ])
+    const registryIndex = createSearchIndex(":memory:", undefined, undefined, {
+      statusRegistry,
+    })
+    registryIndex.upsertNote(
+      {
+        filePath: "tasks.md",
+        rawContent:
+          "---\ntitle: Tasks\n---\n\n- [D] Deployed task\n- [>] Forwarded ref\n- [ ] Normal task\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const result = registryIndex.listTasks({ status: "all" }, logger)
+
+    expect(result).toEqual({
+      total: 2,
+      tasks: [
+        {
+          path: "tasks.md",
+          line: 5,
+          status: "done",
+          status_char: "D",
+          description: "Deployed task",
+          folder: "",
+          depends_on: [],
+          tags: [],
+          depth: 0,
+          is_kanban_task: false,
+        },
+        {
+          path: "tasks.md",
+          line: 7,
+          status: "todo",
+          status_char: " ",
+          description: "Normal task",
+          folder: "",
+          depends_on: [],
+          tags: [],
+          depth: 0,
+          is_kanban_task: false,
+        },
+      ],
+    })
+  })
 })
 
 describe("upsertNote atomicity", () => {
@@ -547,29 +1071,20 @@ describe("upsertNote atomicity", () => {
     taskInsertPoison.disarm()
 
     expect(atomicIndex.recentNotes({}, logger)).toEqual([versionAMetadata()])
-    const versionAHits = atomicIndex.fullTextSearch(
-      { query: "penguins" },
-      logger,
-    )
-    expect(versionAHits.map((result) => result.path)).toEqual([
-      "atomic/target.md",
-    ])
-    expect(atomicIndex.fullTextSearch({ query: "walruses" }, logger)).toEqual(
-      [],
-    )
+    const versionAHits = atomicIndex.fullTextSearch({ query: "penguins" }, logger)
+    expect(versionAHits.map((result) => result.path)).toEqual(["atomic/target.md"])
+    expect(atomicIndex.fullTextSearch({ query: "walruses" }, logger)).toEqual([])
     expect(atomicIndex.listTasks({ status: "all" }, logger)).toEqual({
       total: 1,
       tasks: [versionATask()],
     })
-    expect(
-      atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger),
-    ).toEqual([versionALink()])
+    expect(atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger)).toEqual([
+      versionALink(),
+    ])
   })
 
   it("rolls back the link phase when a link statement fails mid-upsert", () => {
-    const linkInsertPoison = installStatementPoison(
-      "INSERT OR IGNORE INTO links",
-    )
+    const linkInsertPoison = installStatementPoison("INSERT OR IGNORE INTO links")
     const atomicIndex = createSearchIndex(":memory:")
     atomicIndex.upsertNote(
       {
@@ -599,23 +1114,16 @@ describe("upsertNote atomicity", () => {
     linkInsertPoison.disarm()
 
     expect(atomicIndex.recentNotes({}, logger)).toEqual([versionAMetadata()])
-    const versionAHits = atomicIndex.fullTextSearch(
-      { query: "penguins" },
-      logger,
-    )
-    expect(versionAHits.map((result) => result.path)).toEqual([
-      "atomic/target.md",
-    ])
-    expect(atomicIndex.fullTextSearch({ query: "walruses" }, logger)).toEqual(
-      [],
-    )
+    const versionAHits = atomicIndex.fullTextSearch({ query: "penguins" }, logger)
+    expect(versionAHits.map((result) => result.path)).toEqual(["atomic/target.md"])
+    expect(atomicIndex.fullTextSearch({ query: "walruses" }, logger)).toEqual([])
     expect(atomicIndex.listTasks({ status: "all" }, logger)).toEqual({
       total: 1,
       tasks: [versionATask()],
     })
-    expect(
-      atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger),
-    ).toEqual([versionALink()])
+    expect(atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger)).toEqual([
+      versionALink(),
+    ])
   })
 
   it("leaves no trace when a statement fails on a first-ever upsert", () => {
@@ -660,23 +1168,14 @@ describe("upsertNote atomicity", () => {
       leading_callout: null,
     }
     expect(atomicIndex.recentNotes({}, logger)).toEqual([controlMetadata])
-    expect(atomicIndex.fullTextSearch({ query: "penguins" }, logger)).toEqual(
-      [],
-    )
-    const controlHits = atomicIndex.fullTextSearch(
-      { query: "flamingos" },
-      logger,
-    )
-    expect(controlHits.map((result) => result.path)).toEqual([
-      "atomic/control.md",
-    ])
+    expect(atomicIndex.fullTextSearch({ query: "penguins" }, logger)).toEqual([])
+    const controlHits = atomicIndex.fullTextSearch({ query: "flamingos" }, logger)
+    expect(controlHits.map((result) => result.path)).toEqual(["atomic/control.md"])
     expect(atomicIndex.listTasks({ status: "all" }, logger)).toEqual({
       total: 0,
       tasks: [],
     })
-    expect(
-      atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger),
-    ).toEqual([])
+    expect(atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger)).toEqual([])
   })
 })
 
@@ -718,26 +1217,19 @@ describe("removeNote atomicity", () => {
     )
 
     taskDeletePoison.arm()
-    expect(() => atomicIndex.removeNote("atomic/target.md")).toThrow(
-      taskDeletePoison.message,
-    )
+    expect(() => atomicIndex.removeNote("atomic/target.md")).toThrow(taskDeletePoison.message)
     taskDeletePoison.disarm()
 
     expect(atomicIndex.recentNotes({}, logger)).toEqual([versionAMetadata()])
-    const versionAHits = atomicIndex.fullTextSearch(
-      { query: "penguins" },
-      logger,
-    )
-    expect(versionAHits.map((result) => result.path)).toEqual([
-      "atomic/target.md",
-    ])
+    const versionAHits = atomicIndex.fullTextSearch({ query: "penguins" }, logger)
+    expect(versionAHits.map((result) => result.path)).toEqual(["atomic/target.md"])
     expect(atomicIndex.listTasks({ status: "all" }, logger)).toEqual({
       total: 1,
       tasks: [versionATask()],
     })
-    expect(
-      atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger),
-    ).toEqual([versionALink()])
+    expect(atomicIndex.getOutgoingLinks({ path: "atomic/target.md" }, logger)).toEqual([
+      versionALink(),
+    ])
   })
 })
 
@@ -818,17 +1310,9 @@ describe("fullTextSearch", () => {
   })
 
   it("respects custom snippet_tokens", () => {
-    const short = index.fullTextSearch(
-      { query: "burnout", snippet_tokens: 5 },
-      logger,
-    )
-    const long = index.fullTextSearch(
-      { query: "burnout", snippet_tokens: 60 },
-      logger,
-    )
-    expect(long[0]?.snippet?.length).toBeGreaterThan(
-      short[0]?.snippet?.length ?? 0,
-    )
+    const short = index.fullTextSearch({ query: "burnout", snippet_tokens: 5 }, logger)
+    const long = index.fullTextSearch({ query: "burnout", snippet_tokens: 60 }, logger)
+    expect(long[0]?.snippet?.length).toBeGreaterThan(short[0]?.snippet?.length ?? 0)
   })
 
   it("respects folder filter", () => {
@@ -850,19 +1334,13 @@ describe("fullTextSearch", () => {
   })
 
   it("respects tags filter", () => {
-    const results = index.fullTextSearch(
-      { query: "notes", filters: { tags: ["project"] } },
-      logger,
-    )
+    const results = index.fullTextSearch({ query: "notes", filters: { tags: ["project"] } }, logger)
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe("Projects/notes.md")
   })
 
   it("respects type filter", () => {
-    const results = index.fullTextSearch(
-      { query: "notes", filters: { type: "project" } },
-      logger,
-    )
+    const results = index.fullTextSearch({ query: "notes", filters: { type: "project" } }, logger)
     expect(results).toHaveLength(1)
   })
 
@@ -891,10 +1369,7 @@ describe("fullTextSearch", () => {
   })
 
   it("multi-word query matches notes containing both terms (implicit AND)", () => {
-    const results = index.fullTextSearch(
-      { query: "burnout boundaries" },
-      logger,
-    )
+    const results = index.fullTextSearch({ query: "burnout boundaries" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe("About Me/Principles.md")
   })
@@ -930,24 +1405,14 @@ describe("fullTextSearch", () => {
       },
       logger,
     )
-    const phraseResults = index.fullTextSearch(
-      { query: '"machine learning"' },
-      logger,
-    )
-    expect(phraseResults.some((result) => result.path === "phrase.md")).toBe(
-      true,
-    )
-    expect(phraseResults.some((result) => result.path === "separate.md")).toBe(
-      false,
-    )
+    const phraseResults = index.fullTextSearch({ query: '"machine learning"' }, logger)
+    expect(phraseResults.some((result) => result.path === "phrase.md")).toBe(true)
+    expect(phraseResults.some((result) => result.path === "separate.md")).toBe(false)
   })
 
   it("query with FTS5 operators does not throw", () => {
     expect(() =>
-      index.fullTextSearch(
-        { query: 'test "quoted" AND (grouped) OR NOT *wild*' },
-        logger,
-      ),
+      index.fullTextSearch({ query: 'test "quoted" AND (grouped) OR NOT *wild*' }, logger),
     ).not.toThrow()
   })
 
@@ -989,10 +1454,7 @@ describe("fullTextSearch", () => {
 
   it("query with stray punctuation does not throw", () => {
     expect(() =>
-      index.fullTextSearch(
-        { query: "what's new in deploy/local, server.json & .env?" },
-        logger,
-      ),
+      index.fullTextSearch({ query: "what's new in deploy/local, server.json & .env?" }, logger),
     ).not.toThrow()
   })
 })
@@ -1172,18 +1634,12 @@ describe("searchByTag", () => {
   })
 
   it("exact match mode", () => {
-    const results = index.searchByTag(
-      { tag: "project", exactMatch: true },
-      logger,
-    )
+    const results = index.searchByTag({ tag: "project", exactMatch: true }, logger)
     expect(results).toHaveLength(0)
   })
 
   it("exact match finds specific tag", () => {
-    const results = index.searchByTag(
-      { tag: "project/vault-mcp", exactMatch: true },
-      logger,
-    )
+    const results = index.searchByTag({ tag: "project/vault-mcp", exactMatch: true }, logger)
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe("a.md")
   })
@@ -1247,18 +1703,12 @@ describe("searchByFolder", () => {
   })
 
   it("recursive mode includes nested files", () => {
-    const results = index.searchByFolder(
-      { folder: "About Me", recursive: true },
-      logger,
-    )
+    const results = index.searchByFolder({ folder: "About Me", recursive: true }, logger)
     expect(results).toHaveLength(2)
   })
 
   it("non-recursive mode excludes nested files", () => {
-    const results = index.searchByFolder(
-      { folder: "About Me", recursive: false },
-      logger,
-    )
+    const results = index.searchByFolder({ folder: "About Me", recursive: false }, logger)
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe("About Me/Principles.md")
   })
@@ -1454,15 +1904,15 @@ describe("listPropertyKeys", () => {
     expect(keys.length).toBeGreaterThan(0)
     const titleKey = keys.find((entry) => entry.key === "title")
     expect(titleKey).toBeDefined()
-    expect(titleKey!.count).toBe(3)
+    expect(titleKey?.count).toBe(3)
   })
 
   it("includes sample_values for each key", () => {
     const keys = index.listPropertyKeys({}, logger)
     const statusKey = keys.find((entry) => entry.key === "status")
     expect(statusKey).toBeDefined()
-    expect(statusKey!.sample_values).toContain("in-progress")
-    expect(statusKey!.sample_values).toContain("done")
+    expect(statusKey?.sample_values).toContain("in-progress")
+    expect(statusKey?.sample_values).toContain("done")
   })
 
   it("returns at most 3 sample values", () => {
@@ -1478,7 +1928,7 @@ describe("listPropertyKeys", () => {
     }
     const keys = index.listPropertyKeys({}, logger)
     const varietyKey = keys.find((entry) => entry.key === "variety")
-    expect(varietyKey!.sample_values.length).toBeLessThanOrEqual(3)
+    expect(varietyKey?.sample_values.length).toBeLessThanOrEqual(3)
   })
 
   it("sorts by count descending", () => {
@@ -1486,6 +1936,7 @@ describe("listPropertyKeys", () => {
     for (let i = 1; i < keys.length; i++) {
       const prev = keys[i - 1]
       const curr = keys[i]
+
       if (prev === undefined || curr === undefined) continue
       expect(prev.count).toBeGreaterThanOrEqual(curr.count)
     }
@@ -1495,7 +1946,7 @@ describe("listPropertyKeys", () => {
     const keys = index.listPropertyKeys({ folder: "Projects" }, logger)
     const statusKey = keys.find((entry) => entry.key === "status")
     expect(statusKey).toBeDefined()
-    expect(statusKey!.count).toBe(2)
+    expect(statusKey?.count).toBe(2)
   })
 
   it("folder filter excludes notes outside the folder", () => {
@@ -1516,7 +1967,7 @@ describe("listPropertyKeys", () => {
     const keys = index.listPropertyKeys({ folder: "Projects" }, logger)
     const statusKey = keys.find((entry) => entry.key === "status")
     expect(statusKey).toBeDefined()
-    expect(statusKey!.sample_values).not.toContain("blocked")
+    expect(statusKey?.sample_values).not.toContain("blocked")
   })
 })
 
@@ -1573,6 +2024,7 @@ describe("listPropertyValues", () => {
     for (let i = 1; i < values.length; i++) {
       const prev = values[i - 1]
       const curr = values[i]
+
       if (prev === undefined || curr === undefined) continue
       expect(prev.count).toBeGreaterThanOrEqual(curr.count)
     }
@@ -1592,10 +2044,7 @@ describe("listPropertyValues", () => {
       },
       logger,
     )
-    const values = index.listPropertyValues(
-      { key: "status", folder: "Projects" },
-      logger,
-    )
+    const values = index.listPropertyValues({ key: "status", folder: "Projects" }, logger)
     expect(values).toHaveLength(2)
     const blockedValue = values.find((entry) => entry.value === "blocked")
     expect(blockedValue).toBeUndefined()
@@ -1636,28 +2085,19 @@ describe("searchByProperty", () => {
   })
 
   it("finds notes by scalar property value", () => {
-    const results = index.searchByProperty(
-      { key: "status", value: "in-progress" },
-      logger,
-    )
+    const results = index.searchByProperty({ key: "status", value: "in-progress" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe("Projects/active.md")
   })
 
   it("finds notes by array property value", () => {
-    const results = index.searchByProperty(
-      { key: "tags", value: "active" },
-      logger,
-    )
+    const results = index.searchByProperty({ key: "tags", value: "active" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe("Projects/active.md")
   })
 
   it("returns NoteMetadata with all fields", () => {
-    const results = index.searchByProperty(
-      { key: "status", value: "done" },
-      logger,
-    )
+    const results = index.searchByProperty({ key: "status", value: "done" }, logger)
     expect(results).toHaveLength(1)
     const result = results[0]
     expect(result).toBeDefined()
@@ -1667,24 +2107,16 @@ describe("searchByProperty", () => {
     expect(result?.folder).toBe("Projects")
     expect(result?.type).toBe("project")
     expect(result?.bytes).toBe(100)
-    expect(result?.properties).toEqual(
-      expect.objectContaining({ status: "done", priority: "low" }),
-    )
+    expect(result?.properties).toEqual(expect.objectContaining({ status: "done", priority: "low" }))
   })
 
   it("returns empty for non-matching value", () => {
-    const results = index.searchByProperty(
-      { key: "status", value: "archived" },
-      logger,
-    )
+    const results = index.searchByProperty({ key: "status", value: "archived" }, logger)
     expect(results).toHaveLength(0)
   })
 
   it("returns empty for non-existent key", () => {
-    const results = index.searchByProperty(
-      { key: "nonexistent", value: "any" },
-      logger,
-    )
+    const results = index.searchByProperty({ key: "nonexistent", value: "any" }, logger)
     expect(results).toHaveLength(0)
   })
 
@@ -1730,10 +2162,7 @@ describe("searchByProperty", () => {
       },
       logger,
     )
-    const results = index.searchByProperty(
-      { key: "due", value: "2026-05-13" },
-      logger,
-    )
+    const results = index.searchByProperty({ key: "due", value: "2026-05-13" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe("dated.md")
   })
@@ -1742,14 +2171,14 @@ describe("searchByProperty", () => {
 describe("markdown path requirement", () => {
   it("getBacklinks rejects a path without .md or .canvas extension", () => {
     expect(() => index.getBacklinks({ path: "Projects/Plan" }, logger)).toThrow(
-      'path must end in ".md" or ".canvas" (received "Projects/Plan")',
+      /^path must end in "\.md" or "\.canvas" \(received "Projects\/Plan"\)$/,
     )
   })
 
   it("getOutgoingLinks rejects a path without .md or .canvas extension", () => {
-    expect(() =>
-      index.getOutgoingLinks({ path: "Projects/Plan" }, logger),
-    ).toThrow('path must end in ".md" or ".canvas" (received "Projects/Plan")')
+    expect(() => index.getOutgoingLinks({ path: "Projects/Plan" }, logger)).toThrow(
+      /^path must end in "\.md" or "\.canvas" \(received "Projects\/Plan"\)$/,
+    )
   })
 })
 
@@ -1760,11 +2189,7 @@ describe("rebuildFromVault", () => {
     vaultDir = await mkdtemp(join(tmpdir(), "vault-idx-test-"))
     await mkdir(join(vaultDir, "About Me"), { recursive: true })
     await mkdir(join(vaultDir, ".obsidian"), { recursive: true })
-    await writeFile(
-      join(vaultDir, "About Me/Principles.md"),
-      NOTE_WITH_FRONTMATTER,
-      "utf8",
-    )
+    await writeFile(join(vaultDir, "About Me/Principles.md"), NOTE_WITH_FRONTMATTER, "utf8")
     await writeFile(join(vaultDir, "root.md"), NOTE_MINIMAL, "utf8")
     await writeFile(join(vaultDir, ".obsidian/config.md"), "hidden\n", "utf8")
   })
@@ -1774,18 +2199,12 @@ describe("rebuildFromVault", () => {
   })
 
   it("indexes all visible .md files", async () => {
-    const { count } = await index.rebuildFromVault(
-      { vaultPath: vaultDir },
-      logger,
-    )
+    const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     expect(count).toBe(2)
   })
 
   it("skips hidden directories", async () => {
-    const { count: indexedCount } = await index.rebuildFromVault(
-      { vaultPath: vaultDir },
-      logger,
-    )
+    const { count: indexedCount } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     expect(indexedCount).toBe(2)
     const hidden = index.fullTextSearch({ query: "hidden" }, logger)
     expect(hidden).toHaveLength(0)
@@ -1820,10 +2239,7 @@ describe("rebuildFromVault", () => {
       "---\ntitle: [unclosed\n---\nbroken body text\n",
       "utf8",
     )
-    const { count } = await index.rebuildFromVault(
-      { vaultPath: vaultDir },
-      logger,
-    )
+    const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     expect(count).toBe(2)
     expect(warnSpy).toHaveBeenCalledWith(
       "skipped malformed note during rebuild",
@@ -1842,10 +2258,7 @@ describe("rebuildFromVault", () => {
       "--- start-multi-column: ExampleRegion1\ncolumn snippet text\n\n--- end-multi-column\n",
       "utf8",
     )
-    const { count } = await index.rebuildFromVault(
-      { vaultPath: vaultDir },
-      logger,
-    )
+    const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     expect(count).toBe(3)
     // The plugin line stays in the indexed content — it would vanish if
     // it were parsed as frontmatter
@@ -1868,11 +2281,7 @@ describe("rebuildFromVault", () => {
       "---\ntitle: [unclosed\n---\nbroken body text\n",
       "utf8",
     )
-    await writeFile(
-      join(vaultDir, "linker.md"),
-      "# Linker\n\nSee [[broken]].\n",
-      "utf8",
-    )
+    await writeFile(join(vaultDir, "linker.md"), "# Linker\n\nSee [[broken]].\n", "utf8")
     await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     // exists: false proves the skip happened — an indexed broken.md
     // would have resolved the link to "broken.md"
@@ -1897,11 +2306,7 @@ describe("rebuildFromVault", () => {
       '---\ntitle: Source\nrelated: ["[[z-target]]"]\n---\n\n# Source\n\nProse only.\n',
       "utf8",
     )
-    await writeFile(
-      join(vaultDir, "z-target.md"),
-      "# Z Target\n\nBody.\n",
-      "utf8",
-    )
+    await writeFile(join(vaultDir, "z-target.md"), "# Z Target\n\nBody.\n", "utf8")
     await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     const backlinks = index.getBacklinks({ path: "z-target.md" }, logger)
     expect(backlinks).toHaveLength(1)
@@ -1920,11 +2325,11 @@ describe("rebuildFromVault", () => {
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "Trip Route.canvas")
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "missing-note")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -1971,14 +2376,12 @@ describe("rebuildFromVault", () => {
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
-    const asset = outgoing.find(
-      (link) => link.path === "canvases/Dashboard.canvas",
-    )
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    const asset = outgoing.find((link) => link.path === "canvases/Dashboard.canvas")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -1989,47 +2392,35 @@ describe("rebuildFromVault", () => {
       "# Source\n\nSee [[views/Inventory]] and [[genuinely-missing]].\n",
       "utf8",
     )
-    await writeFile(
-      join(vaultDir, "views/Inventory.base"),
-      "filters: []\n",
-      "utf8",
-    )
+    await writeFile(join(vaultDir, "views/Inventory.base"), "filters: []\n", "utf8")
     await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "views/Inventory.base")
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
   it("does not match a folder-qualified target against a same-named file in a different folder", async () => {
     await mkdir(join(vaultDir, "other"), { recursive: true })
-    await writeFile(
-      join(vaultDir, "source.md"),
-      "# Source\n\nSee [[views/Inventory]].\n",
-      "utf8",
-    )
+    await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[views/Inventory]].\n", "utf8")
     await writeFile(join(vaultDir, "other/Inventory.canvas"), "{}", "utf8")
     await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("views/Inventory")
+    expect(outgoing[0]?.path).toBe("views/Inventory")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
   it("does not let LIKE wildcards in the target match unrelated files", async () => {
     await mkdir(join(vaultDir, "foo/aXb"), { recursive: true })
-    await writeFile(
-      join(vaultDir, "source.md"),
-      "# Source\n\nSee [[a_b/c]].\n",
-      "utf8",
-    )
+    await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[a_b/c]].\n", "utf8")
     await writeFile(join(vaultDir, "foo/aXb/c.canvas"), "{}", "utf8")
     await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
@@ -2049,20 +2440,16 @@ describe("rebuildFromVault", () => {
     const outgoing = index.getOutgoingLinks({ path: "sub/source.md" }, logger)
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "Route.canvas")
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
   it("skips non-md files in hidden directories", async () => {
-    await writeFile(
-      join(vaultDir, "source.md"),
-      "# Source\n\nSee [[config]].\n",
-      "utf8",
-    )
+    await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[config]].\n", "utf8")
     await writeFile(join(vaultDir, ".obsidian/config.json"), "{}", "utf8")
     await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
@@ -2081,32 +2468,41 @@ describe("rebuildFromVault", () => {
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "photo.png")
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "genuinely-missing")
-    expect(broken!.exists).toBe(false)
+    expect(broken?.exists).toBe(false)
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
   it("resolves an extensionless target to a note when both note and non-md file share the same base name", async () => {
-    await writeFile(
-      join(vaultDir, "Report.md"),
-      "# Report\n\nNote content.\n",
-      "utf8",
-    )
+    await writeFile(join(vaultDir, "Report.md"), "# Report\n\nNote content.\n", "utf8")
     await writeFile(join(vaultDir, "Report.pdf"), "binary", "utf8")
-    await writeFile(
-      join(vaultDir, "source.md"),
-      "# Source\n\nSee [[Report]].\n",
-      "utf8",
-    )
+    await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[Report]].\n", "utf8")
     await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("Report.md")
-    expect(outgoing[0]!.kind).toBe("note")
-    expect(outgoing[0]!.exists).toBe(true)
+    expect(outgoing[0]?.path).toBe("Report.md")
+    expect(outgoing[0]?.kind).toBe("note")
+    expect(outgoing[0]?.exists).toBe(true)
+    expect(index.brokenLinkCount({}, logger).count).toBe(0)
+  })
+
+  it("resolves a case-differing asset target through the SQL suffix tier's fold", async () => {
+    // The stored path differs from the link target only in case — the SQL
+    // suffix tier must match via LIKE's ASCII fold, mirroring the JS
+    // resolver's foldAsciiCase.
+    await mkdir(join(vaultDir, "photos"), { recursive: true })
+    await writeFile(join(vaultDir, "source.md"), "# Source\n\n![[sunset.png]]\n", "utf8")
+    await writeFile(join(vaultDir, "photos", "Sunset.png"), "binary", "utf8")
+    await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
+
+    const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
+    expect(outgoing).toHaveLength(1)
+    expect(outgoing[0]?.path).toBe("photos/Sunset.png")
+    expect(outgoing[0]?.kind).toBe("file")
+    expect(outgoing[0]?.exists).toBe(true)
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
   })
 
@@ -2119,16 +2515,10 @@ describe("rebuildFromVault", () => {
     )
     await symlink("real/original.md", join(vaultDir, "linked.md"))
 
-    const { count } = await index.rebuildFromVault(
-      { vaultPath: vaultDir },
-      logger,
-    )
+    const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     expect(count).toBe(4)
 
-    const results = index.fullTextSearch(
-      { query: "symlink target content" },
-      logger,
-    )
+    const results = index.fullTextSearch({ query: "symlink target content" }, logger)
     expect(results).toHaveLength(2)
     const paths = results.map((result) => result.path).sort()
     expect(paths).toEqual(["linked.md", "real/original.md"])
@@ -2138,11 +2528,7 @@ describe("rebuildFromVault", () => {
     await mkdir(join(vaultDir, "boards"), { recursive: true })
     await writeFile(join(vaultDir, "boards/real-board.canvas"), "{}", "utf8")
     await symlink("boards/real-board.canvas", join(vaultDir, "Board.canvas"))
-    await writeFile(
-      join(vaultDir, "source.md"),
-      "# Source\n\nSee [[Board]].\n",
-      "utf8",
-    )
+    await writeFile(join(vaultDir, "source.md"), "# Source\n\nSee [[Board]].\n", "utf8")
 
     await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
 
@@ -2161,20 +2547,10 @@ describe("rebuildFromVault", () => {
     // symlinked into the vault for browsing), so vault-cortex follows suit
     const outsideDir = await mkdtemp(join(tmpdir(), "vault-outside-"))
     onTestFinished(async () => rm(outsideDir, { recursive: true }))
-    await writeFile(
-      join(outsideDir, "external.md"),
-      "# External\n\nExternal content.\n",
-      "utf8",
-    )
-    await symlink(
-      join(outsideDir, "external.md"),
-      join(vaultDir, "linked-external.md"),
-    )
+    await writeFile(join(outsideDir, "external.md"), "# External\n\nExternal content.\n", "utf8")
+    await symlink(join(outsideDir, "external.md"), join(vaultDir, "linked-external.md"))
 
-    const { count } = await index.rebuildFromVault(
-      { vaultPath: vaultDir },
-      logger,
-    )
+    const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     expect(count).toBe(3)
 
     const results = index.fullTextSearch({ query: "external content" }, logger)
@@ -2187,10 +2563,7 @@ describe("rebuildFromVault", () => {
     await symlink("root.md", join(vaultDir, "valid-link.md"))
     await symlink("nonexistent/target.md", join(vaultDir, "broken.md"))
 
-    const { count } = await index.rebuildFromVault(
-      { vaultPath: vaultDir },
-      logger,
-    )
+    const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     expect(count).toBe(3) // 2 baseline + valid-link.md (broken.md filtered)
 
     const results = index.fullTextSearch({ query: "burnout" }, logger)
@@ -2205,10 +2578,7 @@ describe("rebuildFromVault", () => {
     await writeFile(join(vaultDir, "realdir/inner.md"), "inner\n", "utf8")
     await symlink(join(vaultDir, "realdir"), join(vaultDir, "dirlink.md"))
 
-    const { count } = await index.rebuildFromVault(
-      { vaultPath: vaultDir },
-      logger,
-    )
+    const { count } = await index.rebuildFromVault({ vaultPath: vaultDir }, logger)
     expect(count).toBe(4) // 2 baseline + valid-link.md + inner.md (dirlink.md filtered)
 
     const results = index.fullTextSearch({ query: "inner" }, logger)
@@ -2311,35 +2681,34 @@ describe("getOutgoingLinks", () => {
 
     const existing = links.find((link) => link.path === "target-exists.md")
     expect(existing).toBeDefined()
-    expect(existing!.exists).toBe(true)
-    expect(existing!.kind).toBe("note")
-    expect(existing!.title).toBe("Target")
+    expect(existing?.exists).toBe(true)
+    expect(existing?.kind).toBe("note")
+    expect(existing?.title).toBe("Target")
   })
 
   it("marks unresolved links as exists: false with kind note", () => {
     const links = index.getOutgoingLinks({ path: "source.md" }, logger)
     const missing = links.find((link) => link.path === "NonExistent")
     expect(missing).toBeDefined()
-    expect(missing!.exists).toBe(false)
-    expect(missing!.kind).toBe("note")
-    expect(missing!.title).toBeNull()
-    expect(missing!.bytes).toBeNull()
+    expect(missing?.exists).toBe(false)
+    expect(missing?.kind).toBe("note")
+    expect(missing?.title).toBeNull()
+    expect(missing?.bytes).toBeNull()
   })
 
   it("includes bytes for existing targets, null for broken links", () => {
     const links = index.getOutgoingLinks({ path: "source.md" }, logger)
     const existing = links.find((link) => link.path === "target-exists.md")
-    expect(existing!.bytes).toBe(222)
+    expect(existing?.bytes).toBe(222)
     const broken = links.find((link) => link.path === "NonExistent")
-    expect(broken!.bytes).toBeNull()
+    expect(broken?.bytes).toBeNull()
   })
 
   it("flags daily note forward-refs when the folder is passed", () => {
     index.upsertNote(
       {
         filePath: "Daily Notes/2026-06-24.md",
-        rawContent:
-          "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing]].\n",
+        rawContent: "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing]].\n",
         fileStat: testStat(1000),
       },
       logger,
@@ -2349,15 +2718,13 @@ describe("getOutgoingLinks", () => {
       { path: "Daily Notes/2026-06-24.md", dailyNotesFolder: "Daily Notes" },
       logger,
     )
-    const forwardRef = links.find(
-      (link) => link.path === "Daily Notes/2026-06-25",
-    )
-    expect(forwardRef!.exists).toBe(false)
-    expect(forwardRef!.daily_note_forward_ref).toBe(true)
+    const forwardRef = links.find((link) => link.path === "Daily Notes/2026-06-25")
+    expect(forwardRef?.exists).toBe(false)
+    expect(forwardRef?.daily_note_forward_ref).toBe(true)
 
     const genuinelyBroken = links.find((link) => link.path === "missing")
-    expect(genuinelyBroken!.exists).toBe(false)
-    expect(genuinelyBroken!.daily_note_forward_ref).toBe(false)
+    expect(genuinelyBroken?.exists).toBe(false)
+    expect(genuinelyBroken?.daily_note_forward_ref).toBe(false)
   })
 
   it("returns empty for notes with no outgoing links", () => {
@@ -2430,19 +2797,13 @@ describe("findOrphans", () => {
   })
 
   it("excludes Daily Notes when passed in excludeFolders", () => {
-    const orphans = index.findOrphans(
-      { excludeFolders: ["Daily Notes"] },
-      logger,
-    )
+    const orphans = index.findOrphans({ excludeFolders: ["Daily Notes"] }, logger)
     const orphanPaths = orphans.map((orphan) => orphan.path)
     expect(orphanPaths).not.toContain("Daily Notes/2026-05-13.md")
   })
 
   it("strips trailing slashes from excludeFolders before matching", () => {
-    const orphans = index.findOrphans(
-      { excludeFolders: ["Daily Notes/"] },
-      logger,
-    )
+    const orphans = index.findOrphans({ excludeFolders: ["Daily Notes/"] }, logger)
     const orphanPaths = orphans.map((orphan) => orphan.path)
     expect(orphanPaths).not.toContain("Daily Notes/2026-05-13.md")
     expect(orphanPaths).toContain("Projects/orphan.md")
@@ -2455,15 +2816,13 @@ describe("findOrphans", () => {
 
   it("returns NoteMetadata with all fields", () => {
     const orphans = index.findOrphans({}, logger)
-    const projectOrphan = orphans.find(
-      (orphan) => orphan.path === "Projects/orphan.md",
-    )
+    const projectOrphan = orphans.find((orphan) => orphan.path === "Projects/orphan.md")
     expect(projectOrphan).toBeDefined()
-    expect(projectOrphan!.title).toBe("Orphan")
-    expect(projectOrphan!.tags).toEqual(["project"])
-    expect(projectOrphan!.folder).toBe("Projects")
-    expect(projectOrphan!.bytes).toBe(100)
-    expect(typeof projectOrphan!.modified).toBe("string")
+    expect(projectOrphan?.title).toBe("Orphan")
+    expect(projectOrphan?.tags).toEqual(["project"])
+    expect(projectOrphan?.folder).toBe("Projects")
+    expect(projectOrphan?.bytes).toBe(100)
+    expect(typeof projectOrphan?.modified).toBe("string")
   })
 
   it("treats self-linking notes as orphans", () => {
@@ -2520,9 +2879,7 @@ describe("forward reference resolution", () => {
       logger,
     )
     // Target absent → link stored unresolved → no backlink yet.
-    expect(
-      index.getBacklinks({ path: "folder/target.md" }, logger),
-    ).toHaveLength(0)
+    expect(index.getBacklinks({ path: "folder/target.md" }, logger)).toHaveLength(0)
 
     index.upsertNote(
       {
@@ -2549,9 +2906,7 @@ describe("forward reference resolution", () => {
       },
       logger,
     )
-    expect(
-      index.getBacklinks({ path: "Areas/Health/later.md" }, logger),
-    ).toHaveLength(0)
+    expect(index.getBacklinks({ path: "Areas/Health/later.md" }, logger)).toHaveLength(0)
 
     index.upsertNote(
       {
@@ -2561,13 +2916,46 @@ describe("forward reference resolution", () => {
       },
       logger,
     )
-    const backlinks = index.getBacklinks(
-      { path: "Areas/Health/later.md" },
+    const backlinks = index.getBacklinks({ path: "Areas/Health/later.md" }, logger)
+    expect(backlinks).toEqual([{ path: "Areas/Work/early.md", title: "early", bytes: 100 }])
+  })
+
+  it("keeps a ../ forward reference unresolved past a same-basename note in another folder", () => {
+    // A ../ target resolves only through the relative tier (exact membership of
+    // the path computed from the link's source), so a same-basename note
+    // elsewhere must neither capture the link nor evict it from the unresolved
+    // set before the intended target exists.
+    index.upsertNote(
+      {
+        filePath: "Areas/Work/early.md",
+        rawContent: "# Early\n\nLinks to [[../Health/later]].\n",
+        fileStat: testStat(1000),
+      },
       logger,
     )
-    expect(backlinks).toEqual([
-      { path: "Areas/Work/early.md", title: "early", bytes: 100 },
-    ])
+    index.upsertNote(
+      {
+        filePath: "Health/later.md",
+        rawContent: "# Decoy\n\nBody.\n",
+        fileStat: testStat(1500),
+      },
+      logger,
+    )
+    // The decoy's write swept the unresolved set; the link must not have
+    // attached to it.
+    expect(index.getBacklinks({ path: "Health/later.md" }, logger)).toHaveLength(0)
+
+    index.upsertNote(
+      {
+        filePath: "Areas/Health/later.md",
+        rawContent: "# Later\n\nBody.\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    const backlinks = index.getBacklinks({ path: "Areas/Health/later.md" }, logger)
+    expect(backlinks).toEqual([{ path: "Areas/Work/early.md", title: "early", bytes: 100 }])
+    expect(index.getBacklinks({ path: "Health/later.md" }, logger)).toHaveLength(0)
   })
 })
 
@@ -2650,9 +3038,7 @@ describe("frontmatter links in the graph", () => {
       },
       logger,
     )
-    const orphanPaths = index
-      .findOrphans({}, logger)
-      .map((orphan) => orphan.path)
+    const orphanPaths = index.findOrphans({}, logger).map((orphan) => orphan.path)
     // referenced only via frontmatter → connected, not an orphan
     expect(orphanPaths).not.toContain("referenced.md")
     // genuinely unreferenced → still an orphan (proves exclusion is selective)
@@ -2707,20 +3093,12 @@ describe("relative links (path from current file)", () => {
   })
 
   it("resolves the ../ link so the target lists the source as a backlink", () => {
-    const backlinks = index.getBacklinks(
-      { path: "Areas/Health/target.md" },
-      logger,
-    )
-    expect(backlinks).toEqual([
-      { path: "Areas/Work/note.md", title: "note", bytes: 100 },
-    ])
+    const backlinks = index.getBacklinks({ path: "Areas/Health/target.md" }, logger)
+    expect(backlinks).toEqual([{ path: "Areas/Work/note.md", title: "note", bytes: 100 }])
   })
 
   it("resolves the ../ link so the source lists the target as an outgoing link", () => {
-    const outgoing = index.getOutgoingLinks(
-      { path: "Areas/Work/note.md" },
-      logger,
-    )
+    const outgoing = index.getOutgoingLinks({ path: "Areas/Work/note.md" }, logger)
     expect(outgoing).toEqual([
       {
         path: "Areas/Health/target.md",
@@ -2808,9 +3186,9 @@ describe("brokenLinkCount", () => {
     )
     const outgoing = index.getOutgoingLinks({ path: "dashboard.md" }, logger)
     expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("sessions/log-a.md")
-    expect(outgoing[0]!.exists).toBe(true)
-    expect(outgoing[0]!.kind).toBe("note")
+    expect(outgoing[0]?.path).toBe("sessions/log-a.md")
+    expect(outgoing[0]?.exists).toBe(true)
+    expect(outgoing[0]?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
   })
 
@@ -2820,8 +3198,7 @@ describe("brokenLinkCount", () => {
     index.upsertNote(
       {
         filePath: "source.md",
-        rawContent:
-          "# Source\n\n![[photo.png]] and [[report.pdf]] and [[real-note]].\n",
+        rawContent: "# Source\n\n![[photo.png]] and [[report.pdf]] and [[real-note]].\n",
         fileStat: testStat(1000),
       },
       logger,
@@ -2829,14 +3206,14 @@ describe("brokenLinkCount", () => {
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(3)
     const photo = outgoing.find((link) => link.path === "photo.png")
-    expect(photo!.exists).toBe(true)
-    expect(photo!.kind).toBe("file")
+    expect(photo?.exists).toBe(true)
+    expect(photo?.kind).toBe("file")
     const pdf = outgoing.find((link) => link.path === "report.pdf")
-    expect(pdf!.exists).toBe(true)
-    expect(pdf!.kind).toBe("file")
+    expect(pdf?.exists).toBe(true)
+    expect(pdf?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "real-note")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -2853,11 +3230,11 @@ describe("brokenLinkCount", () => {
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(2)
     const asset = outgoing.find((link) => link.path === "Trip Route.canvas")
-    expect(asset!.exists).toBe(true)
-    expect(asset!.kind).toBe("file")
+    expect(asset?.exists).toBe(true)
+    expect(asset?.kind).toBe("file")
     const broken = outgoing.find((link) => link.path === "missing")
-    expect(broken!.exists).toBe(false)
-    expect(broken!.kind).toBe("note")
+    expect(broken?.exists).toBe(false)
+    expect(broken?.kind).toBe("note")
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
   })
 
@@ -2876,9 +3253,9 @@ describe("brokenLinkCount", () => {
     expect(index.brokenLinkCount({}, logger).count).toBe(0)
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.path).toBe("Route.canvas")
-    expect(outgoing[0]!.exists).toBe(true)
-    expect(outgoing[0]!.kind).toBe("file")
+    expect(outgoing[0]?.path).toBe("Route.canvas")
+    expect(outgoing[0]?.exists).toBe(true)
+    expect(outgoing[0]?.kind).toBe("file")
   })
 
   it("removeNonMdFile makes previously resolved file links broken again", () => {
@@ -2897,8 +3274,8 @@ describe("brokenLinkCount", () => {
     expect(index.brokenLinkCount({}, logger).count).toBe(1)
     const outgoing = index.getOutgoingLinks({ path: "source.md" }, logger)
     expect(outgoing).toHaveLength(1)
-    expect(outgoing[0]!.exists).toBe(false)
-    expect(outgoing[0]!.kind).toBe("note")
+    expect(outgoing[0]?.exists).toBe(false)
+    expect(outgoing[0]?.kind).toBe("note")
   })
 
   it("excludes forward-reference links that are valid dates under the daily note folder", () => {
@@ -2911,24 +3288,19 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    expect(
-      index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count,
-    ).toBe(1)
+    expect(index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count).toBe(1)
   })
 
   it("excludes .md-suffixed forward-reference targets", () => {
     index.upsertNote(
       {
         filePath: "Daily Notes/2026-06-24.md",
-        rawContent:
-          "# 2026-06-24\n\n[[Daily Notes/2026-06-25.md|Tomorrow >>]].\n",
+        rawContent: "# 2026-06-24\n\n[[Daily Notes/2026-06-25.md|Tomorrow >>]].\n",
         fileStat: testStat(1000),
       },
       logger,
     )
-    expect(
-      index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count,
-    ).toBe(0)
+    expect(index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count).toBe(0)
   })
 
   it("still counts broken links outside the daily note folder", () => {
@@ -2940,25 +3312,19 @@ describe("brokenLinkCount", () => {
       },
       logger,
     )
-    expect(
-      index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count,
-    ).toBe(2)
+    expect(index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger).count).toBe(2)
   })
 
   it("excludes all broken links under the daily notes folder, not just dates", () => {
     index.upsertNote(
       {
         filePath: "source.md",
-        rawContent:
-          "# Source\n\n[[Daily Notes/random-text]] and [[missing]].\n",
+        rawContent: "# Source\n\n[[Daily Notes/random-text]] and [[missing]].\n",
         fileStat: testStat(1000),
       },
       logger,
     )
-    const result = index.brokenLinkCount(
-      { dailyNotesFolder: "Daily Notes" },
-      logger,
-    )
+    const result = index.brokenLinkCount({ dailyNotesFolder: "Daily Notes" }, logger)
     expect(result.count).toBe(1)
     expect(result.excludedCount).toBe(1)
   })
@@ -2967,8 +3333,7 @@ describe("brokenLinkCount", () => {
     index.upsertNote(
       {
         filePath: "Daily Notes/2026-06-24.md",
-        rawContent:
-          "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing]].\n",
+        rawContent: "# 2026-06-24\n\n[[Daily Notes/2026-06-25|Tomorrow >>]] and [[missing]].\n",
         fileStat: testStat(1000),
       },
       logger,
@@ -2985,8 +3350,7 @@ describe("markdown-style links to non-md targets", () => {
     index.upsertNote(
       {
         filePath: "source.md",
-        rawContent:
-          "# Source\n\n![photo](pics/photo.png) and [[genuinely-missing]].\n",
+        rawContent: "# Source\n\n![photo](pics/photo.png) and [[genuinely-missing]].\n",
         fileStat: testStat(1000),
       },
       logger,
@@ -3483,10 +3847,7 @@ describe("modifiedOnDate", () => {
   })
 
   it("respects the limit parameter", () => {
-    const results = index.modifiedOnDate(
-      { date: "2026-06-15", limit: 1 },
-      logger,
-    )
+    const results = index.modifiedOnDate({ date: "2026-06-15", limit: 1 }, logger)
     const paths = results.map((note) => note.path)
     expect(paths).toEqual(["today-late.md"])
   })
@@ -3580,15 +3941,11 @@ describe("embedding pipeline", () => {
 
   /** Creates a mock embedder that returns deterministic embeddings. */
   const createMockEmbedder = () => ({
-    embedText: vi
-      .fn()
-      .mockResolvedValue(new Float32Array(DIMENSIONS).fill(0.1)),
+    embedText: vi.fn().mockResolvedValue(new Float32Array(DIMENSIONS).fill(0.1)),
     embedBatch: vi
       .fn()
       .mockImplementation((texts: string[]) =>
-        Promise.resolve(
-          texts.map(() => new Float32Array(DIMENSIONS).fill(0.1)),
-        ),
+        Promise.resolve(texts.map(() => new Float32Array(DIMENSIONS).fill(0.1))),
       ),
   })
 
@@ -3612,6 +3969,64 @@ It has multiple sentences to verify chunking works correctly.
       )
 
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
+    })
+
+    it("prefixes chunk text with type and tags when enrichChunkMetadata is set", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const enrichedIndex = createSearchIndex(":memory:", mockEmbedder, undefined, {
+        ranking: { enrichChunkMetadata: true },
+      })
+
+      await enrichedIndex.embedNote(
+        {
+          notePath: "typed.md",
+          rawContent:
+            "---\ntitle: Typed Note\ntype: reference\ntags: [search, ranking]\n---\n\nBody content for enrichment.\n",
+        },
+        logger,
+      )
+
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
+      expect(mockEmbedder.embedText).toHaveBeenCalledWith(
+        "Typed Note\nType: reference. Tags: search, ranking.\n\n\nBody content for enrichment.",
+      )
+    })
+
+    it("embeds unprefixed chunk text under enrichment when the note has no type or tags", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const enrichedIndex = createSearchIndex(":memory:", mockEmbedder, undefined, {
+        ranking: { enrichChunkMetadata: true },
+      })
+
+      await enrichedIndex.embedNote(
+        {
+          notePath: "bare.md",
+          rawContent: "---\ntitle: Bare Note\n---\n\nBody without metadata.\n",
+        },
+        logger,
+      )
+
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
+      expect(mockEmbedder.embedText).toHaveBeenCalledWith("Bare Note\n\n\nBody without metadata.")
+    })
+
+    it("leaves chunk text unprefixed by default even when frontmatter has type and tags", async () => {
+      const mockEmbedder = createMockEmbedder()
+      const defaultIndex = createSearchIndex(":memory:", mockEmbedder)
+
+      await defaultIndex.embedNote(
+        {
+          notePath: "typed.md",
+          rawContent:
+            "---\ntitle: Typed Note\ntype: reference\ntags: [search, ranking]\n---\n\nBody content for enrichment.\n",
+        },
+        logger,
+      )
+
+      expect(mockEmbedder.embedText).toHaveBeenCalledTimes(1)
+      expect(mockEmbedder.embedText).toHaveBeenCalledWith(
+        "Typed Note\n\n\nBody content for enrichment.",
+      )
     })
 
     it("content-hash gating skips unchanged chunks on re-embed", async () => {
@@ -3647,10 +4062,7 @@ It has multiple sentences to verify chunking works correctly.
         "multiple sentences",
         "different content entirely",
       )
-      await embeddingIndex.embedNote(
-        { notePath: "test.md", rawContent: updatedNote },
-        logger,
-      )
+      await embeddingIndex.embedNote({ notePath: "test.md", rawContent: updatedNote }, logger)
       expect(mockEmbedder.embedText).toHaveBeenCalledTimes(2)
     })
 
@@ -3695,10 +4107,7 @@ It has multiple sentences to verify chunking works correctly.
       const mockEmbedder = createMockEmbedder()
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
-      await embeddingIndex.embedNote(
-        { notePath: "empty.md", rawContent: "" },
-        logger,
-      )
+      await embeddingIndex.embedNote({ notePath: "empty.md", rawContent: "" }, logger)
 
       // chunker returns at least one chunk (the title-only fallback), so
       // embedText is called even for empty content
@@ -3707,16 +4116,11 @@ It has multiple sentences to verify chunking works correctly.
 
     it("embedNote propagates embedder errors to the caller", async () => {
       const mockEmbedder = createMockEmbedder()
-      mockEmbedder.embedText.mockRejectedValueOnce(
-        new Error("embedding failed"),
-      )
+      mockEmbedder.embedText.mockRejectedValueOnce(new Error("embedding failed"))
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
       await expect(
-        embeddingIndex.embedNote(
-          { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
-          logger,
-        ),
+        embeddingIndex.embedNote({ notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING }, logger),
       ).rejects.toThrow("embedding failed")
     })
   })
@@ -3726,10 +4130,7 @@ It has multiple sentences to verify chunking works correctly.
       const noEmbedIndex = createSearchIndex(":memory:")
 
       await expect(
-        noEmbedIndex.embedNote(
-          { notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING },
-          logger,
-        ),
+        noEmbedIndex.embedNote({ notePath: "test.md", rawContent: NOTE_FOR_EMBEDDING }, logger),
       ).resolves.toBeUndefined()
     })
 
@@ -3748,10 +4149,7 @@ It has multiple sentences to verify chunking works correctly.
       noEmbedIndex.removeNote("test.md")
 
       // Verify the note was actually removed from the FTS index
-      const results = noEmbedIndex.fullTextSearch(
-        { query: "test note" },
-        logger,
-      )
+      const results = noEmbedIndex.fullTextSearch({ query: "test note" }, logger)
       expect(results).toHaveLength(0)
     })
   })
@@ -3789,9 +4187,7 @@ It has multiple sentences to verify chunking works correctly.
     it("continues embedding remaining notes when one fails during rebuild", async () => {
       const mockEmbedder = createMockEmbedder()
       // First embedText call rejects, subsequent calls use the default (resolve)
-      mockEmbedder.embedText.mockRejectedValueOnce(
-        new Error("embedding failed"),
-      )
+      mockEmbedder.embedText.mockRejectedValueOnce(new Error("embedding failed"))
       const embeddingIndex = createSearchIndex(":memory:", mockEmbedder)
 
       const vaultDir = await mkdtemp(join(tmpdir(), "embed-err-"))
@@ -3799,14 +4195,8 @@ It has multiple sentences to verify chunking works correctly.
         await rm(vaultDir, { recursive: true })
       })
 
-      await writeFile(
-        join(vaultDir, "note1.md"),
-        "---\ntitle: Note 1\n---\nFirst note content.",
-      )
-      await writeFile(
-        join(vaultDir, "note2.md"),
-        "---\ntitle: Note 2\n---\nSecond note content.",
-      )
+      await writeFile(join(vaultDir, "note1.md"), "---\ntitle: Note 1\n---\nFirst note content.")
+      await writeFile(join(vaultDir, "note2.md"), "---\ntitle: Note 2\n---\nSecond note content.")
 
       const warnSpy = vi.spyOn(logger, "warn")
       const { count, embedding } = await embeddingIndex.rebuildFromVault(
@@ -3835,12 +4225,9 @@ It has multiple sentences to verify chunking works correctly.
         await rm(dbDir, { recursive: true })
       })
       const dbPath = join(dbDir, "search.db")
-      const embeddingIndex = createSearchIndex(
-        dbPath,
-        mockEmbedder,
-        undefined,
-        { fileToolsEnabled: true },
-      )
+      const embeddingIndex = createSearchIndex(dbPath, mockEmbedder, undefined, {
+        fileToolsEnabled: true,
+      })
 
       await writeFile(
         join(vaultDir, "note1.md"),
@@ -3851,10 +4238,7 @@ It has multiple sentences to verify chunking works correctly.
         "Comprehensive deployment guide covering infrastructure setup.",
       )
 
-      const { embedding } = await embeddingIndex.rebuildFromVault(
-        { vaultPath: vaultDir },
-        logger,
-      )
+      const { embedding } = await embeddingIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
       await embedding
 
       const inspectDb = new Database(dbPath, { readonly: true })
@@ -3869,9 +4253,7 @@ It has multiple sentences to verify chunking works correctly.
         .get("guide.txt")
       expect(fileChunks?.count).toBe(1)
       const fileVectors = inspectDb
-        .prepare<unknown[], { count: number }>(
-          "SELECT COUNT(*) as count FROM file_content_vectors",
-        )
+        .prepare<unknown[], { count: number }>("SELECT COUNT(*) as count FROM file_content_vectors")
         .get()
       expect(fileVectors?.count).toBe(1)
     })
@@ -3885,19 +4267,13 @@ It has multiple sentences to verify chunking works correctly.
         await rm(dbDir, { recursive: true })
       })
       const dbPath = join(dbDir, "search.db")
-      const embeddingIndex = createSearchIndex(
-        dbPath,
-        mockEmbedder,
-        undefined,
-        { fileToolsEnabled: true },
-      )
+      const embeddingIndex = createSearchIndex(dbPath, mockEmbedder, undefined, {
+        fileToolsEnabled: true,
+      })
 
       await writeFile(join(vaultDir, "ephemeral.txt"), "Transient file body.")
 
-      const firstRebuild = await embeddingIndex.rebuildFromVault(
-        { vaultPath: vaultDir },
-        logger,
-      )
+      const firstRebuild = await embeddingIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
       await firstRebuild.embedding
 
       const inspectDb = new Database(dbPath, { readonly: true })
@@ -3905,26 +4281,20 @@ It has multiple sentences to verify chunking works correctly.
       onTestFinished(() => {
         inspectDb.close()
       })
-      const selectChunkCountStmt = inspectDb.prepare<
-        [string],
-        { count: number }
-      >("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
+      const selectChunkCountStmt = inspectDb.prepare<[string], { count: number }>(
+        "SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?",
+      )
       // Trigger guard: the first rebuild actually embedded the file, so the
       // cleanup assertion below can't pass by the file never being indexed
       expect(selectChunkCountStmt.get("ephemeral.txt")?.count).toBe(1)
 
       await rm(join(vaultDir, "ephemeral.txt"))
-      const secondRebuild = await embeddingIndex.rebuildFromVault(
-        { vaultPath: vaultDir },
-        logger,
-      )
+      const secondRebuild = await embeddingIndex.rebuildFromVault({ vaultPath: vaultDir }, logger)
       await secondRebuild.embedding
 
       expect(selectChunkCountStmt.get("ephemeral.txt")?.count).toBe(0)
       const fileVectors = inspectDb
-        .prepare<unknown[], { count: number }>(
-          "SELECT COUNT(*) as count FROM file_content_vectors",
-        )
+        .prepare<unknown[], { count: number }>("SELECT COUNT(*) as count FROM file_content_vectors")
         .get()
       expect(fileVectors?.count).toBe(0)
     })
@@ -4068,9 +4438,7 @@ Shared datefilter content for boundary tests.
         { query: "datefilter", filters: { created: { on: "March 10" } } },
         logger,
       ),
-    ).toThrow(
-      'invalid created.on date: "March 10". Use YYYY-MM-DD (e.g. 2026-07-03).',
-    )
+    ).toThrow(/^invalid created\.on date: "March 10"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/)
   })
 
   it("rejects a calendar-invalid created date", () => {
@@ -4084,7 +4452,7 @@ Shared datefilter content for boundary tests.
         logger,
       ),
     ).toThrow(
-      'invalid created.before date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).',
+      /^invalid created\.before date: "2026-02-31"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
     )
   })
 })
@@ -4176,7 +4544,7 @@ Shared datefilter content for mtime boundary tests.
         logger,
       ),
     ).toThrow(
-      'invalid modified.after date: "yesterday". Use YYYY-MM-DD (e.g. 2026-07-03).',
+      /^invalid modified\.after date: "yesterday"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
     )
   })
 
@@ -4191,7 +4559,7 @@ Shared datefilter content for mtime boundary tests.
         logger,
       ),
     ).toThrow(
-      'invalid modified.before date: "2026-02-31". Use YYYY-MM-DD (e.g. 2026-07-03).',
+      /^invalid modified\.before date: "2026-02-31"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
     )
   })
 
@@ -4206,9 +4574,7 @@ Shared datefilter content for mtime boundary tests.
       },
       logger,
     )
-    expect(tagMatchedResults.map((result) => result.path)).toEqual([
-      "during.md",
-    ])
+    expect(tagMatchedResults.map((result) => result.path)).toEqual(["during.md"])
     // And the reverse: during.md matches the modified bound but lacks the
     // required tag — the tag filter must exclude it despite the date match
     const tagExcludedResults = dateIndex.fullTextSearch(
@@ -4306,18 +4672,14 @@ describe("canvas file content and links", () => {
         },
         logger,
       )
-      const { results } = await fileIndex.hybridSearch(
-        { query: "architecture deployment" },
-        logger,
-      )
-      const canvasResult = results.find(
-        (result) => result.path === "Diagrams/arch.canvas",
-      )
+      const { results } = await fileIndex.hybridSearch({ query: "architecture deployment" }, logger)
+      const canvasResult = results.find((result) => result.path === "Diagrams/arch.canvas")
       expect(canvasResult).toEqual({
         path: "Diagrams/arch.canvas",
         title: "arch",
         snippet: expect.any(String),
-        score: 0.06639,
+        // Rank-1 RRF (1/61 + 0.05) scaled by the shipped file-leg weight 0.5
+        score: 0.0332,
         tags: [],
         folder: "Diagrams",
         type: null,
@@ -4349,13 +4711,8 @@ describe("canvas file content and links", () => {
         },
         logger,
       )
-      const backlinks = fileIndex.getBacklinks(
-        { path: "Projects/vault-cortex.md" },
-        logger,
-      )
-      expect(backlinks.map((backlink) => backlink.path)).toEqual([
-        "Diagrams/arch.canvas",
-      ])
+      const backlinks = fileIndex.getBacklinks({ path: "Projects/vault-cortex.md" }, logger)
+      expect(backlinks.map((backlink) => backlink.path)).toEqual(["Diagrams/arch.canvas"])
     })
 
     it("canvas outgoing links show file-node targets", () => {
@@ -4379,15 +4736,9 @@ describe("canvas file content and links", () => {
         },
         logger,
       )
-      const outgoing = fileIndex.getOutgoingLinks(
-        { path: "Diagrams/arch.canvas" },
-        logger,
-      )
+      const outgoing = fileIndex.getOutgoingLinks({ path: "Diagrams/arch.canvas" }, logger)
       const targetPaths = outgoing.map((link) => link.path)
-      expect(targetPaths).toEqual([
-        "Notes/design-doc.md",
-        "Projects/vault-cortex.md",
-      ])
+      expect(targetPaths).toEqual(["Notes/design-doc.md", "Projects/vault-cortex.md"])
     })
 
     it("canvas outgoing link to non-existent file shows exists: false", () => {
@@ -4403,13 +4754,8 @@ describe("canvas file content and links", () => {
         },
         logger,
       )
-      const outgoing = fileIndex.getOutgoingLinks(
-        { path: "Diagrams/arch.canvas" },
-        logger,
-      )
-      const brokenLink = outgoing.find(
-        (link) => link.path === "Notes/design-doc.md",
-      )
+      const outgoing = fileIndex.getOutgoingLinks({ path: "Diagrams/arch.canvas" }, logger)
+      const brokenLink = outgoing.find((link) => link.path === "Notes/design-doc.md")
       expect(brokenLink?.exists).toBe(false)
     })
 
@@ -4435,18 +4781,10 @@ describe("canvas file content and links", () => {
         logger,
       )
       fileIndex.removeFileContent({ filePath: "Diagrams/arch.canvas" }, logger)
-      const backlinks = fileIndex.getBacklinks(
-        { path: "Projects/vault-cortex.md" },
-        logger,
-      )
+      const backlinks = fileIndex.getBacklinks({ path: "Projects/vault-cortex.md" }, logger)
       expect(backlinks).toEqual([])
-      const { results } = await fileIndex.hybridSearch(
-        { query: "architecture deployment" },
-        logger,
-      )
-      const canvasResult = results.find(
-        (result) => result.path === "Diagrams/arch.canvas",
-      )
+      const { results } = await fileIndex.hybridSearch({ query: "architecture deployment" }, logger)
+      const canvasResult = results.find((result) => result.path === "Diagrams/arch.canvas")
       expect(canvasResult).toBeUndefined()
     })
   })
@@ -4470,13 +4808,8 @@ describe("canvas file content and links", () => {
         },
         logger,
       )
-      const backlinks = index.getBacklinks(
-        { path: "Projects/vault-cortex.md" },
-        logger,
-      )
-      expect(backlinks.map((backlink) => backlink.path)).toEqual([
-        "Diagrams/arch.canvas",
-      ])
+      const backlinks = index.getBacklinks({ path: "Projects/vault-cortex.md" }, logger)
+      expect(backlinks.map((backlink) => backlink.path)).toEqual(["Diagrams/arch.canvas"])
     })
 
     it("canvas content is NOT indexed into FTS without fileToolsEnabled", async () => {
@@ -4489,13 +4822,8 @@ describe("canvas file content and links", () => {
         },
         logger,
       )
-      const { results } = await index.hybridSearch(
-        { query: "architecture deployment" },
-        logger,
-      )
-      const canvasResult = results.find(
-        (result) => result.path === "Diagrams/arch.canvas",
-      )
+      const { results } = await index.hybridSearch({ query: "architecture deployment" }, logger)
+      const canvasResult = results.find((result) => result.path === "Diagrams/arch.canvas")
       expect(canvasResult).toBeUndefined()
     })
   })
@@ -4522,10 +4850,7 @@ describe("canvas file content and links", () => {
         },
         logger,
       )
-      const backlinks = fileIndex.getBacklinks(
-        { path: "Projects/vault-cortex.md" },
-        logger,
-      )
+      const backlinks = fileIndex.getBacklinks({ path: "Projects/vault-cortex.md" }, logger)
       expect(backlinks).toEqual([])
     })
   })
@@ -4538,20 +4863,14 @@ describe("canvas file content and links", () => {
       fileIndex.upsertNote(
         {
           filePath: "Notes/overview.md",
-          rawContent:
-            "# Overview\n\nSee [[Diagrams/arch.canvas]] for the diagram.\n",
+          rawContent: "# Overview\n\nSee [[Diagrams/arch.canvas]] for the diagram.\n",
           fileStat: testStat(1000),
         },
         logger,
       )
       fileIndex.upsertNonMdFile("Diagrams/arch.canvas", 500)
-      const backlinks = fileIndex.getBacklinks(
-        { path: "Diagrams/arch.canvas" },
-        logger,
-      )
-      expect(backlinks.map((backlink) => backlink.path)).toEqual([
-        "Notes/overview.md",
-      ])
+      const backlinks = fileIndex.getBacklinks({ path: "Diagrams/arch.canvas" }, logger)
+      expect(backlinks.map((backlink) => backlink.path)).toEqual(["Notes/overview.md"])
     })
   })
 
@@ -4604,10 +4923,7 @@ describe("canvas file content and links", () => {
         logger,
       )
       // JSON content IS indexed into FTS — searchable as raw text
-      const { results } = await fileIndex.hybridSearch(
-        { query: "searchable deployment" },
-        logger,
-      )
+      const { results } = await fileIndex.hybridSearch({ query: "searchable deployment" }, logger)
       expect(results).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -4618,10 +4934,7 @@ describe("canvas file content and links", () => {
         ]),
       )
       // No graph links created — link extraction is canvas-only
-      const backlinks = fileIndex.getBacklinks(
-        { path: "Notes/architecture.md" },
-        logger,
-      )
+      const backlinks = fileIndex.getBacklinks({ path: "Notes/architecture.md" }, logger)
       expect(backlinks).toEqual([])
     })
 
@@ -4638,10 +4951,7 @@ describe("canvas file content and links", () => {
         },
         logger,
       )
-      const { results } = await fileIndex.hybridSearch(
-        { query: "database cluster alpha" },
-        logger,
-      )
+      const { results } = await fileIndex.hybridSearch({ query: "database cluster alpha" }, logger)
       expect(results).toHaveLength(1)
       expect(results[0]).toEqual(
         expect.objectContaining({
@@ -4727,8 +5037,7 @@ describe("canvas file content and links", () => {
       fileIndex.upsertNote(
         {
           filePath: "Projects/plan.md",
-          rawContent:
-            "---\ntags: [project]\n---\n# Plan\n\nArchitecture overview.\n",
+          rawContent: "---\ntags: [project]\n---\n# Plan\n\nArchitecture overview.\n",
           fileStat: testStat(1000),
         },
         logger,
@@ -4760,8 +5069,7 @@ describe("canvas file content and links", () => {
       fileIndex.upsertNote(
         {
           filePath: "Projects/plan.md",
-          rawContent:
-            "---\ntype: reference\n---\n# Plan\n\nArchitecture overview.\n",
+          rawContent: "---\ntype: reference\n---\n# Plan\n\nArchitecture overview.\n",
           fileStat: testStat(1000),
         },
         logger,
@@ -4791,20 +5099,15 @@ describe("canvas file content and links", () => {
 describe("file content vector embeddings", () => {
   const DIMENSIONS = 384
   const createMockEmbedder = () => ({
-    embedText: vi
-      .fn()
-      .mockResolvedValue(new Float32Array(DIMENSIONS).fill(0.1)),
+    embedText: vi.fn().mockResolvedValue(new Float32Array(DIMENSIONS).fill(0.1)),
     embedBatch: vi
       .fn()
       .mockImplementation((texts: string[]) =>
-        Promise.resolve(
-          texts.map(() => new Float32Array(DIMENSIONS).fill(0.1)),
-        ),
+        Promise.resolve(texts.map(() => new Float32Array(DIMENSIONS).fill(0.1))),
       ),
   })
 
-  const TEXT_FILE_CONTENT =
-    "System design overview with diagrams and architecture notes."
+  const TEXT_FILE_CONTENT = "System design overview with diagrams and architecture notes."
 
   describe("embedFileContent", () => {
     it("calls the embedder when file content is in the FTS table", async () => {
@@ -4870,8 +5173,7 @@ describe("file content vector embeddings", () => {
       index.upsertFileContent(
         {
           filePath: "docs/overview.txt",
-          rawContent:
-            "Completely different content about networking protocols.",
+          rawContent: "Completely different content about networking protocols.",
           fileStat: testStat(2000, 100),
         },
         logger,
@@ -4942,18 +5244,14 @@ describe("file content vector embeddings", () => {
       })
 
       const chunksBefore = inspectDb
-        .prepare(
-          "SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?",
-        )
+        .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
         .get("docs/overview.txt") as { count: number }
       expect(chunksBefore.count).toBe(1)
 
       index.removeFileContent({ filePath: "docs/overview.txt" }, logger)
 
       const chunksAfter = inspectDb
-        .prepare(
-          "SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?",
-        )
+        .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
         .get("docs/overview.txt") as { count: number }
       expect(chunksAfter.count).toBe(0)
 
@@ -5003,9 +5301,7 @@ describe("file content vector embeddings", () => {
       })
 
       const chunkCountBefore = inspectDb
-        .prepare(
-          "SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?",
-        )
+        .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
         .get("docs/long.txt") as { count: number }
       expect(chunkCountBefore.count).toBeGreaterThan(1)
 
@@ -5021,9 +5317,7 @@ describe("file content vector embeddings", () => {
       await index.embedFileContent({ filePath: "docs/long.txt" }, logger)
 
       const chunkCountAfter = inspectDb
-        .prepare(
-          "SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?",
-        )
+        .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
         .get("docs/long.txt") as { count: number }
       expect(chunkCountAfter.count).toBe(1)
 
@@ -5036,6 +5330,23 @@ describe("file content vector embeddings", () => {
 })
 
 describe("trash entries (retention-sweep bookkeeping)", () => {
+  it("listAllTrashEntries returns every recorded entry", () => {
+    const trashIndex = createSearchIndex(":memory:")
+    trashIndex.recordTrashEntry(".trash/a.md")
+    trashIndex.recordTrashEntry(".trash/sub/b.md")
+
+    const allEntries = trashIndex.listAllTrashEntries()
+
+    const trashPaths = allEntries.map((entry) => entry.trashPath).toSorted()
+    expect(trashPaths).toEqual([".trash/a.md", ".trash/sub/b.md"])
+  })
+
+  it("listAllTrashEntries returns an empty array when no entries exist", () => {
+    const trashIndex = createSearchIndex(":memory:")
+
+    expect(trashIndex.listAllTrashEntries()).toEqual([])
+  })
+
   it("round-trips a recorded entry through get and list", () => {
     const trashIndex = createSearchIndex(":memory:")
     trashIndex.recordTrashEntry(".trash/Notes/gone.md")
@@ -5043,18 +5354,15 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
     const entry = trashIndex.getTrashEntry(".trash/Notes/gone.md")
     expect(entry?.trashPath).toBe(".trash/Notes/gone.md")
     // Every recorded entry is "expired" against a cutoff after its stamp.
-    const listed = trashIndex.listExpiredTrashEntries(
-      (entry?.trashedAt ?? 0) + 1,
-    )
-    expect(listed.map((listedEntry) => listedEntry.trashPath)).toEqual([
-      ".trash/Notes/gone.md",
-    ])
+    const listed = trashIndex.listExpiredTrashEntries((entry?.trashedAt ?? 0) + 1)
+    expect(listed.map((listedEntry) => listedEntry.trashPath)).toEqual([".trash/Notes/gone.md"])
   })
 
   it("treats the cutoff as exclusive — a row stamped exactly at the cutoff is not expired", () => {
     const trashIndex = createSearchIndex(":memory:")
     trashIndex.recordTrashEntry(".trash/boundary.md")
     const entry = trashIndex.getTrashEntry(".trash/boundary.md")
+
     if (!entry) throw new Error("entry missing after record")
 
     expect(trashIndex.listExpiredTrashEntries(entry.trashedAt)).toEqual([])
@@ -5096,13 +5404,9 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
 
     const farFutureCutoff = DateTime.now().plus({ days: 1 }).toUnixInteger()
     const listed = trashIndex.listExpiredTrashEntries(farFutureCutoff)
-    expect(listed.map((listedEntry) => listedEntry.trashPath)).toEqual([
-      ".trash/note.md",
-    ])
+    expect(listed.map((listedEntry) => listedEntry.trashPath)).toEqual([".trash/note.md"])
     // Both spellings resolve to the surviving row.
-    expect(trashIndex.getTrashEntry(".trash/Note.md")?.trashPath).toBe(
-      ".trash/note.md",
-    )
+    expect(trashIndex.getTrashEntry(".trash/Note.md")?.trashPath).toBe(".trash/note.md")
   })
 
   it("deleteTrashEntry removes the row under any case alias", () => {
@@ -5124,8 +5428,91 @@ describe("trash entries (retention-sweep bookkeeping)", () => {
 
     await trashIndex.rebuildFromVault({ vaultPath: emptyVault }, logger)
 
-    expect(trashIndex.getTrashEntry(".trash/survivor.md")?.trashPath).toBe(
-      ".trash/survivor.md",
+    expect(trashIndex.getTrashEntry(".trash/survivor.md")?.trashPath).toBe(".trash/survivor.md")
+  })
+})
+
+describe("TOC source-path forwarding at the embed call sites", () => {
+  /** The chunker unit tests pass sourcePath by hand, so they cannot see this
+   *  wiring — deleting the sourcePath argument at either embed call site must
+   *  fail here, or every split TOC chunk silently loses its folder line. */
+  it("gives note and file TOC chunks their folder segments end-to-end", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "toc-forwarding-"))
+    onTestFinished(() => rm(dir, { recursive: true, force: true }))
+    const dbPath = join(dir, "index.db")
+
+    const uniformEmbedder = {
+      embedText: vi.fn().mockResolvedValue(new Float32Array(384).fill(0.1)),
+      embedBatch: vi.fn().mockImplementation((texts: string[]) => {
+        return Promise.resolve(texts.map(() => new Float32Array(384).fill(0.1)))
+      }),
+    }
+    const forwardingIndex = createSearchIndex(dbPath, uniformEmbedder, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    const activeContent = Array.from({ length: 300 }, (_, wordIndex) => `active${wordIndex}`).join(
+      " ",
     )
+    const doneContent = Array.from({ length: 300 }, (_, wordIndex) => `done${wordIndex}`).join(" ")
+    const noteContent = `## Active\n${activeContent}\n\n## Done\n${doneContent}`
+    forwardingIndex.upsertNote(
+      {
+        filePath: "Folder Alpha/Sub/TASKS.md",
+        rawContent: noteContent,
+        fileStat: { mtimeMs: 1000, size: 100 },
+      },
+      logger,
+    )
+    await forwardingIndex.embedNote(
+      { notePath: "Folder Alpha/Sub/TASKS.md", rawContent: noteContent },
+      logger,
+    )
+
+    const metricsContent = Array.from(
+      { length: 300 },
+      (_, wordIndex) => `metrics${wordIndex}`,
+    ).join(" ")
+    const notesContent = Array.from({ length: 300 }, (_, wordIndex) => `notes${wordIndex}`).join(
+      " ",
+    )
+    forwardingIndex.upsertNonMdFile("Folder Alpha/data.csv", 100)
+    forwardingIndex.upsertFileContent(
+      {
+        filePath: "Folder Alpha/data.csv",
+        rawContent: `## Metrics\n${metricsContent}\n\n## Notes\n${notesContent}`,
+        fileStat: { mtimeMs: 1000, size: 100 },
+      },
+      logger,
+    )
+    await forwardingIndex.embedFileContent({ filePath: "Folder Alpha/data.csv" }, logger)
+
+    const inspect = new Database(dbPath, { readonly: true })
+    onTestFinished(() => {
+      inspect.close()
+    })
+    const noteChunkTexts = inspect
+      .prepare<[string], { chunk_text: string }>(
+        `SELECT chunk_text FROM note_chunks WHERE note_path = ? ORDER BY chunk_index`,
+      )
+      .all("Folder Alpha/Sub/TASKS.md")
+      .map((chunkRow) => chunkRow.chunk_text)
+    const fileChunkTexts = inspect
+      .prepare<[string], { chunk_text: string }>(
+        `SELECT chunk_text FROM file_content_chunks WHERE file_path = ? ORDER BY chunk_index`,
+      )
+      .all("Folder Alpha/data.csv")
+      .map((chunkRow) => chunkRow.chunk_text)
+
+    expect(noteChunkTexts).toEqual([
+      `TASKS\nSection: Active\n\n${activeContent}`,
+      `TASKS\nSection: Done\n\n${doneContent}`,
+      "Folder Alpha > Sub > TASKS\n\nActive\nDone",
+    ])
+    expect(fileChunkTexts).toEqual([
+      `data\nSection: Metrics\n\n${metricsContent}`,
+      `data\nSection: Notes\n\n${notesContent}`,
+      "Folder Alpha > data.csv\n\nMetrics\nNotes",
+    ])
   })
 })

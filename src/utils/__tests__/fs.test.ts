@@ -1,5 +1,5 @@
 import { describe, it, expect, onTestFinished } from "vitest"
-import { mkdtemp, realpath, rm, writeFile, mkdir } from "node:fs/promises"
+import { mkdtemp, realpath, rm, symlink, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import {
@@ -7,6 +7,7 @@ import {
   readdirOrNull,
   realpathOrNull,
   fileExists,
+  lstatOrNull,
   statOrNull,
 } from "../fs.js"
 
@@ -79,6 +80,37 @@ describe("statOrNull", () => {
   })
 })
 
+describe("lstatOrNull", () => {
+  it("returns Stats when the path exists", async () => {
+    const dir = await makeTempDir()
+    const path = join(dir, "file.txt")
+    await writeFile(path, "12345", "utf8")
+    const stats = await lstatOrNull(path)
+    expect(stats?.isFile()).toBe(true)
+    expect(stats?.size).toBe(5)
+  })
+
+  it("returns Stats for a dangling symlink instead of following it", async () => {
+    const dir = await makeTempDir()
+    const link = join(dir, "dangling")
+    await symlink(join(dir, "nonexistent-target"), link)
+    const stats = await lstatOrNull(link)
+    expect(stats?.isSymbolicLink()).toBe(true)
+  })
+
+  it("returns null when the path does not exist", async () => {
+    const dir = await makeTempDir()
+    expect(await lstatOrNull(join(dir, "ghost.txt"))).toBeNull()
+  })
+
+  it("rethrows a non-ENOENT error rather than swallowing it", async () => {
+    const dir = await makeTempDir()
+    const filePath = join(dir, "file.txt")
+    await writeFile(filePath, "x", "utf8")
+    await expect(lstatOrNull(join(filePath, "child"))).rejects.toThrow(/ENOTDIR/)
+  })
+})
+
 describe("realpathOrNull", () => {
   it("returns the canonical path when the path exists", async () => {
     const dir = await makeTempDir()
@@ -100,9 +132,7 @@ describe("realpathOrNull", () => {
     const dir = await makeTempDir()
     const filePath = join(dir, "file.txt")
     await writeFile(filePath, "x", "utf8")
-    await expect(realpathOrNull(join(filePath, "child"))).rejects.toThrow(
-      /ENOTDIR/,
-    )
+    await expect(realpathOrNull(join(filePath, "child"))).rejects.toThrow(/ENOTDIR/)
   })
 })
 

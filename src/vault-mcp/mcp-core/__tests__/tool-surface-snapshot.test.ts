@@ -33,9 +33,7 @@ describe("tool surface baseline", () => {
       new URL("./__snapshots__/tool-surface/", import.meta.url),
     )
     const committedFiles = readdirSync(snapshotDirectory).toSorted()
-    const expectedFiles = SURFACE_COMBOS.map(
-      (combo) => `${combo.name}.json`,
-    ).toSorted()
+    const expectedFiles = SURFACE_COMBOS.map((combo) => `${combo.name}.json`).toSorted()
     expect(committedFiles).toEqual(expectedFiles)
   })
 })

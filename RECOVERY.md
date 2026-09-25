@@ -7,12 +7,11 @@ replace it on purpose. Companion to `sst.config.ts`.
 
 Three layers cover different failure classes:
 
-| Layer                                 | What it does                                                                                    | Where                         |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------- |
-| App-level `removal: "retain"`         | Blocks `sst remove` from destroying the stack                                                   | `sst.config.ts` `app()`       |
-| Resource-level `protect: true`        | Refuses any Pulumi op that would destroy/replace the Instance                                   | `sst.config.ts` instance opts |
-| Resource-level `retainOnDelete: true` | If SST ever does decide to delete (stage rename), orphan the AWS resource instead of destroying | `sst.config.ts` instance opts |
-| Lightsail auto-snapshot               | Daily disk image at 03:00 UTC, 7-day rolling retention                                          | `addOn` on the Instance       |
+| Layer                                 | What it does                                                                                                              | Where                         |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Resource-level `protect: true`        | Refuses any Pulumi op that would destroy/replace the Instance                                                             | `sst.config.ts` instance opts |
+| Resource-level `retainOnDelete: true` | If SST ever does decide to delete (`sst remove` once `protect` is cleared), orphan the AWS resource instead of destroying | `sst.config.ts` instance opts |
+| Lightsail auto-snapshot               | Daily disk image at 03:00 UTC, 7-day rolling retention                                                                    | `addOn` on the Instance       |
 
 The auto-snapshot is the only one that protects against AWS-side events
 (hardware failure, AZ outage) and against in-VM mistakes (fat-finger
@@ -37,6 +36,10 @@ Pulumi-driven replacement.
 
 ## Restore scenarios
 
+The `npm run` commands in this guide load `~/.config/vault-cortex/.env` and
+stop if it is missing. On a machine without it, create it first as in
+[DEPLOY.md one-time setup](./DEPLOY.md#one-time-setup) step 2.
+
 ### Scenario A — VM alive, container crashed
 
 Don't restore from snapshot. Just bring the stack back up.
@@ -58,6 +61,7 @@ stage:
 ```bash
 STAGE=<your-stage>                                # e.g. "production"
 INSTANCE_NAME="vault-cortex-${STAGE}"
+export AWS_REGION=<deployment-region>             # AWS_REGION from ~/.config/vault-cortex/.env; us-east-1 if unset
 
 aws lightsail get-auto-snapshots \
   --resource-name "${INSTANCE_NAME}" \
@@ -74,7 +78,7 @@ RESTORE_NAME="${INSTANCE_NAME}-restore-$(date +%s)"
 
 aws lightsail create-instances-from-snapshot \
   --instance-names "${RESTORE_NAME}" \
-  --availability-zone us-east-1a \
+  --availability-zone "${AWS_REGION}a" \
   --bundle-id medium_3_0 \
   --source-instance-name "${INSTANCE_NAME}" \
   --restore-date "${SNAPSHOT_DATE}" \
@@ -113,10 +117,10 @@ Auto-snapshots expire after 7 days. If the VM has been gone longer and
 you have no manual snapshot, you're rebuilding from scratch:
 
 ```bash
-# Unprotect (since the existing state still claims the VM exists)
-sst state remove --target 'aws:lightsail:Instance::VaultCortexVm'
+# Remove the stale state entry (the existing state still claims the VM exists)
+npm run sst -- state remove VaultCortexVm --stage "${STAGE}"
 # Then a normal deploy provisions a fresh VM
-npx sst deploy --stage "${STAGE}"
+npm run deploy -- --stage "${STAGE}"
 ```
 
 You'll need to re-run the post-provision steps from the README
@@ -150,11 +154,14 @@ survive — only on-disk state carries over.
 8. Update `sst.config.ts` with the new `bundleId` (and `blueprintId`
    if the OS was upgraded in-place)
 9. Remove the old instance from SST state:
-   `sst state remove 'VaultCortexVm'`
+   `npm run sst -- state remove VaultCortexVm --stage "${STAGE}"`
 10. Import the new instance: add `import: "<instance-name>"` to the
-    resource options in `sst.config.ts`, then `sst deploy`
-11. Clean up the import: remove the `import` line, run `sst refresh`,
-    then `sst deploy` again to confirm a clean no-diff deploy
+    resource options in `sst.config.ts`, then
+    `npm run deploy -- --stage "${STAGE}"`
+11. Clean up the import: remove the `import` line, run
+    `npm run sst -- refresh --stage "${STAGE}"`, then
+    `npm run deploy -- --stage "${STAGE}"` again to confirm a clean no-diff
+    deploy
 12. Delete the old instance after verification
 
 If the new instance name differs from the canonical name (`vault-cortex-<stage>`),
@@ -172,35 +179,34 @@ you're comfortable re-provisioning from scratch.
 To intentionally replace (e.g. changing `bundleId` or `blueprintId`):
 
 ```bash
+STAGE=<your-stage>                                # the name in .sst/stage
+
 # 1. Take a manual snapshot first — the auto-snapshot from up to 23h ago
 #    may not be recent enough for what you're about to do.
+SNAPSHOT_NAME="pre-upgrade-$(date +%Y%m%d-%H%M%S)"
 aws lightsail create-instance-snapshot \
   --instance-name "vault-cortex-${STAGE}" \
-  --instance-snapshot-name "pre-upgrade-$(date +%Y%m%d-%H%M%S)"
+  --instance-snapshot-name "${SNAPSHOT_NAME}"
 
-# 2. Unprotect the resource in Pulumi state
-sst state unprotect --target 'aws:lightsail:Instance::VaultCortexVm'
+# 2. Lightsail creates the snapshot in the background. Repeat this until it
+#    prints "available"; stop if it prints "error".
+aws lightsail get-instance-snapshot \
+  --instance-snapshot-name "${SNAPSHOT_NAME}" \
+  --query 'instanceSnapshot.state' --output text
 
-# 3. Make the change in sst.config.ts (e.g. bundleId: "medium_3_0")
-# 4. Deploy — this is the one and only time replacement is allowed.
-npx sst deploy --stage "${STAGE}"
+# 3. SST has no unprotect command. In sst.config.ts, remove `protect: true`
+#    and `retainOnDelete: true` from the VaultCortexVm options, then deploy
+#    with no other change so SST state drops both:
+npm run deploy -- --stage "${STAGE}"
 
-# 5. Re-protect on the next normal deploy. The protect:true line in
-#    sst.config.ts is still there, so deploy with no changes:
-npx sst deploy --stage "${STAGE}"
+# 4. Make the change in sst.config.ts (e.g. bundleId: "large_3_0")
+# 5. Deploy — this is the one and only time replacement is allowed.
+npm run deploy -- --stage "${STAGE}"
+
+# 6. Restore `protect: true` and `retainOnDelete: true`, then deploy once more
+#    so the new instance is protected:
+npm run deploy -- --stage "${STAGE}"
 ```
-
-If `sst state unprotect` isn't available in your SST version, drop to
-Pulumi directly:
-
-```bash
-# SST stores Pulumi state in S3 under the SST-managed bucket.
-# The Pulumi CLI inherits credentials from the same AWS profile.
-pulumi state unprotect 'urn:pulumi:<stage>::vault-cortex::aws:lightsail/instance:Instance::VaultCortexVm'
-```
-
-The URN follows the pattern
-`urn:pulumi:<stage>::<app-name>::<resource-type>::<logical-name>`.
 
 ## Reconciling SST state after a restore
 
@@ -216,8 +222,8 @@ invariant. Costs another ~5 minutes and a brief downtime window.
 
 **Path 2 — Adopt the restored instance into state.**
 Update `sst.config.ts` to point at the restored name (e.g. via a stage
-override), `sst refresh` to pick up actual cloud state, then deploy. SST
-state and AWS reality converge without further AWS-side changes.
+override), run `npm run sst -- refresh` to pick up actual cloud state, then
+deploy. SST state and AWS reality converge without further AWS-side changes.
 
 For a personal single-stage setup, Path 1 is usually cleanest. For
 production-style multi-stage, Path 2 is faster and avoids the second
@@ -261,7 +267,7 @@ aws lightsail get-auto-snapshots \
 
 # 2. Confirm protect blocks a replace-triggering change:
 #    (Temporarily tweak userData in sst.config.ts, then:)
-npx sst deploy --stage "${DRILL_STAGE}"
+npm run deploy -- --stage "${DRILL_STAGE}"
 #    Expected: deploy fails with a protected-resource error. Revert the change.
 
 # 3. Confirm the restore path:

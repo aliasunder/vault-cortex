@@ -44,9 +44,7 @@ export type ScriptedPrompts = {
  * an unexpected question fails loudly instead of receiving a silent default —
  * commands with no interactive prompts call this with no arguments.
  */
-export const createScriptedPrompts = (
-  answers: ScriptedAnswer[] = [],
-): ScriptedPrompts => {
+export const createScriptedPrompts = (answers: ScriptedAnswer[] = []): ScriptedPrompts => {
   const remaining = [...answers]
   const asked: string[] = []
   const errors: string[] = []
@@ -64,8 +62,8 @@ export const createScriptedPrompts = (
   const nextAnswer = (message: string): ScriptedAnswer => {
     asked.push(message)
     const answer = remaining.shift()
-    if (answer === undefined)
-      throw new Error(`No scripted answer for prompt: ${message}`)
+
+    if (answer === undefined) throw new Error(`No scripted answer for prompt: ${message}`)
     return answer
   }
 
@@ -74,18 +72,16 @@ export const createScriptedPrompts = (
   // "false" into a text prompt or truthy-cast an array into a confirm.
   const nextStringAnswer = (message: string): string => {
     const answer = nextAnswer(message)
+
     if (typeof answer === "string") return answer
-    throw new Error(
-      `prompt "${message}" needs a string scripted answer, got: ${String(answer)}`,
-    )
+    throw new Error(`prompt "${message}" needs a string scripted answer, got: ${String(answer)}`)
   }
 
   const nextBooleanAnswer = (message: string): boolean => {
     const answer = nextAnswer(message)
+
     if (typeof answer === "boolean") return answer
-    throw new Error(
-      `prompt "${message}" needs a boolean scripted answer, got: ${String(answer)}`,
-    )
+    throw new Error(`prompt "${message}" needs a boolean scripted answer, got: ${String(answer)}`)
   }
 
   const prompts: Prompts = {
@@ -115,10 +111,9 @@ export const createScriptedPrompts = (
     multiselect: async (message, options) => {
       multiselectCalls.push({ message, options })
       const answer = nextAnswer(message)
+
       if (!Array.isArray(answer)) {
-        throw new Error(
-          `multiselect needs a string[] scripted answer, got: ${String(answer)}`,
-        )
+        throw new Error(`multiselect needs a string[] scripted answer, got: ${String(answer)}`)
       }
       return answer
     },
@@ -129,9 +124,9 @@ export const createScriptedPrompts = (
         placeholder: options?.placeholder,
       })
       const answer = nextStringAnswer(message)
+
       // Mirrors @clack/prompts: an empty submission resolves to defaultValue.
-      if (answer === "" && options?.defaultValue !== undefined)
-        return options.defaultValue
+      if (answer === "" && options?.defaultValue !== undefined) return options.defaultValue
       return answer
     },
     password: async (message) => nextStringAnswer(message),
@@ -202,8 +197,7 @@ export const dockerDaemonOnly: DockerRunner = {
 }
 
 /** Health check passes immediately. */
-export const fetchOk: typeof fetch = async () =>
-  new Response(null, { status: 200 })
+export const fetchOk: typeof fetch = async () => new Response(null, { status: 200 })
 
 /** Fails the test if the flow under test reaches the network at all. */
 export const fetchNever: typeof fetch = async () => {

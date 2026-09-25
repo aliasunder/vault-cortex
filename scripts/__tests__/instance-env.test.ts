@@ -124,10 +124,10 @@ describe("envContentWithPublicUrl", () => {
     const envFileContent =
       "MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=https://old.example.com\nVAULT_NAME=My Vault\n"
 
-    const rewritten = envContentWithPublicUrl(
+    const rewritten = envContentWithPublicUrl({
       envFileContent,
-      "https://new.example.com",
-    )
+      publicUrl: "https://new.example.com",
+    })
 
     expect(rewritten).toBe(
       "MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=https://new.example.com\nVAULT_NAME=My Vault\n",
@@ -137,49 +137,43 @@ describe("envContentWithPublicUrl", () => {
   it("fills in an empty PUBLIC_URL= line", () => {
     const envFileContent = "MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=\n"
 
-    const rewritten = envContentWithPublicUrl(
+    const rewritten = envContentWithPublicUrl({
       envFileContent,
-      "https://mcp.example.com",
-    )
+      publicUrl: "https://mcp.example.com",
+    })
 
-    expect(rewritten).toBe(
-      "MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=https://mcp.example.com\n",
-    )
+    expect(rewritten).toBe("MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=https://mcp.example.com\n")
   })
 
   it("appends when no PUBLIC_URL line exists", () => {
     const envFileContent = "MCP_AUTH_TOKEN=fake-token\n"
 
-    const rewritten = envContentWithPublicUrl(
+    const rewritten = envContentWithPublicUrl({
       envFileContent,
-      "https://mcp.example.com",
-    )
+      publicUrl: "https://mcp.example.com",
+    })
 
-    expect(rewritten).toBe(
-      "MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=https://mcp.example.com\n",
-    )
+    expect(rewritten).toBe("MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=https://mcp.example.com\n")
   })
 
   it("appends on its own line when the content lacks a trailing newline", () => {
     const envFileContent = "MCP_AUTH_TOKEN=fake-token"
 
-    const rewritten = envContentWithPublicUrl(
+    const rewritten = envContentWithPublicUrl({
       envFileContent,
-      "https://mcp.example.com",
-    )
+      publicUrl: "https://mcp.example.com",
+    })
 
-    expect(rewritten).toBe(
-      "MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=https://mcp.example.com\n",
-    )
+    expect(rewritten).toBe("MCP_AUTH_TOKEN=fake-token\nPUBLIC_URL=https://mcp.example.com\n")
   })
 
   it("leaves a commented # PUBLIC_URL line alone and appends the real one", () => {
     const envFileContent = "# PUBLIC_URL=https://commented.example.com\n"
 
-    const rewritten = envContentWithPublicUrl(
+    const rewritten = envContentWithPublicUrl({
       envFileContent,
-      "https://mcp.example.com",
-    )
+      publicUrl: "https://mcp.example.com",
+    })
 
     expect(rewritten).toBe(
       "# PUBLIC_URL=https://commented.example.com\nPUBLIC_URL=https://mcp.example.com\n",
@@ -187,7 +181,10 @@ describe("envContentWithPublicUrl", () => {
   })
 
   it("appends to empty content without a leading blank line", () => {
-    const rewritten = envContentWithPublicUrl("", "https://mcp.example.com")
+    const rewritten = envContentWithPublicUrl({
+      envFileContent: "",
+      publicUrl: "https://mcp.example.com",
+    })
 
     expect(rewritten).toBe("PUBLIC_URL=https://mcp.example.com\n")
   })
@@ -195,28 +192,23 @@ describe("envContentWithPublicUrl", () => {
   it("appends with CRLF endings when the file uses CRLF", () => {
     const envFileContent = "MCP_AUTH_TOKEN=fake-token\r\n"
 
-    const rewritten = envContentWithPublicUrl(
+    const rewritten = envContentWithPublicUrl({
       envFileContent,
-      "https://mcp.example.com",
-    )
+      publicUrl: "https://mcp.example.com",
+    })
 
-    expect(rewritten).toBe(
-      "MCP_AUTH_TOKEN=fake-token\r\nPUBLIC_URL=https://mcp.example.com\r\n",
-    )
+    expect(rewritten).toBe("MCP_AUTH_TOKEN=fake-token\r\nPUBLIC_URL=https://mcp.example.com\r\n")
   })
 
   it("keeps CRLF line endings intact when replacing", () => {
-    const envFileContent =
-      "MCP_AUTH_TOKEN=fake-token\r\nPUBLIC_URL=https://old.example.com\r\n"
+    const envFileContent = "MCP_AUTH_TOKEN=fake-token\r\nPUBLIC_URL=https://old.example.com\r\n"
 
-    const rewritten = envContentWithPublicUrl(
+    const rewritten = envContentWithPublicUrl({
       envFileContent,
-      "https://new.example.com",
-    )
+      publicUrl: "https://new.example.com",
+    })
 
-    expect(rewritten).toBe(
-      "MCP_AUTH_TOKEN=fake-token\r\nPUBLIC_URL=https://new.example.com\r\n",
-    )
+    expect(rewritten).toBe("MCP_AUTH_TOKEN=fake-token\r\nPUBLIC_URL=https://new.example.com\r\n")
   })
 })
 
@@ -242,15 +234,10 @@ describe("gatewayApiEndpointQuery", () => {
   // as source fragments so an edit to the Lambda's derivation fails here
   // instead of shipping a silent PUBLIC_URL mismatch that 403s every request.
   it("matches the resolution chain sst.config.ts applies for the Lambda", () => {
-    const sstConfigSource = readFileSync(
-      new URL("../../sst.config.ts", import.meta.url),
-      "utf8",
-    )
+    const sstConfigSource = readFileSync(new URL("../../sst.config.ts", import.meta.url), "utf8")
 
-    const publicUrlClause =
-      "if (publicUrlOverride) return $output(publicUrlOverride)"
-    const customDomainClause =
-      "if (customDomain) return $output(`https://${customDomain}`)"
+    const publicUrlClause = "if (publicUrlOverride) return $output(publicUrlOverride)"
+    const customDomainClause = "if (customDomain) return $output(`https://${customDomain}`)"
     const gatewayClause = "return api.url"
 
     expect(sstConfigSource).toContain(publicUrlClause)
@@ -261,8 +248,7 @@ describe("gatewayApiEndpointQuery", () => {
     // CUSTOM_DOMAIN, which must win over the gateway fallback — swapped
     // clauses would pass the existence checks while inverting precedence.
     const publicUrlClausePosition = sstConfigSource.indexOf(publicUrlClause)
-    const customDomainClausePosition =
-      sstConfigSource.indexOf(customDomainClause)
+    const customDomainClausePosition = sstConfigSource.indexOf(customDomainClause)
     const gatewayClausePosition = sstConfigSource.indexOf(gatewayClause)
     expect(publicUrlClausePosition).toBeLessThan(customDomainClausePosition)
     expect(customDomainClausePosition).toBeLessThan(gatewayClausePosition)

@@ -29,11 +29,9 @@ describe("matchLinksInLine", () => {
 
   it("does not match scheme-prefixed or anchor targets even when they end in .md", () => {
     // .md targets so the scheme/anchor guard — not the .md filter — excludes them.
-    expect(
-      links.matchLinksInLine(
-        "[g](https://x.com/g.md) [m](mailto:m@x.md) [a](#a.md)",
-      ),
-    ).toEqual([])
+    expect(links.matchLinksInLine("[g](https://x.com/g.md) [m](mailto:m@x.md) [a](#a.md)")).toEqual(
+      [],
+    )
   })
 
   it("finds a markdown asset embed with kind markdown, offsets excluding the embed marker", () => {
@@ -47,9 +45,7 @@ describe("matchLinksInLine", () => {
 
 describe("inlineCodeSpans", () => {
   it("returns the character range of an inline code span", () => {
-    expect(links.inlineCodeSpans("use `code` here")).toEqual([
-      { start: 4, end: 10 },
-    ])
+    expect(links.inlineCodeSpans("use `code` here")).toEqual([{ start: 4, end: 10 }])
   })
 
   it("returns every span on the line", () => {
@@ -305,24 +301,18 @@ describe("extractFromBody", () => {
   it("excludes a scheme-prefixed URL even when it ends in .md", () => {
     // .md target so the https:// guard — not the .md filter — is what excludes it;
     // the [[Internal]] link proves extraction still happens.
-    const targets = links.extractFromBody(
-      "[Google](https://google.com/page.md) and [[Internal]]",
-    )
+    const targets = links.extractFromBody("[Google](https://google.com/page.md) and [[Internal]]")
     expect(targets).toEqual(["Internal"])
   })
 
   it("excludes a mailto target even when it ends in .md", () => {
     // .md target so the mailto: guard — not the .md filter — is what excludes it.
-    const targets = links.extractFromBody(
-      "[email](mailto:hi@example.md) and [[Reach Out]]",
-    )
+    const targets = links.extractFromBody("[email](mailto:hi@example.md) and [[Reach Out]]")
     expect(targets).toEqual(["Reach Out"])
   })
 
   it("excludes same-page anchors", () => {
-    const targets = links.extractFromBody(
-      "[section](#heading) — see [[Details]]",
-    )
+    const targets = links.extractFromBody("[section](#heading) — see [[Details]]")
     expect(targets).toEqual(["Details"])
   })
 
@@ -344,22 +334,13 @@ describe("extractFromBody", () => {
   })
 
   it("skips links inside tilde fenced blocks", () => {
-    const content = ["[[Before]]", "~~~", "[[Fake]]", "~~~", "[[After]]"].join(
-      "\n",
-    )
+    const content = ["[[Before]]", "~~~", "[[Fake]]", "~~~", "[[After]]"].join("\n")
     const targets = links.extractFromBody(content)
     expect(targets).toEqual(["Before", "After"])
   })
 
   it("handles nested fences correctly", () => {
-    const content = [
-      "````",
-      "```",
-      "[[Inside Nested]]",
-      "```",
-      "````",
-      "[[Outside]]",
-    ].join("\n")
+    const content = ["````", "```", "[[Inside Nested]]", "```", "````", "[[Outside]]"].join("\n")
     const targets = links.extractFromBody(content)
     expect(targets).toEqual(["Outside"])
   })
@@ -369,41 +350,31 @@ describe("extractFromBody", () => {
   })
 
   it("skips wikilinks inside inline code spans", () => {
-    const targets = links.extractFromBody(
-      "See [[Live Note]] but not the `[[Code Note]]` example.",
-    )
+    const targets = links.extractFromBody("See [[Live Note]] but not the `[[Code Note]]` example.")
     expect(targets).toEqual(["Live Note"])
   })
 
   it("skips markdown links inside inline code spans", () => {
-    const targets = links.extractFromBody(
-      "Real [link](real.md) but `[code](code.md)` is inert.",
-    )
+    const targets = links.extractFromBody("Real [link](real.md) but `[code](code.md)` is inert.")
     expect(targets).toEqual(["real.md"])
   })
 
   it("skips links inside indented fences (CommonMark §4.5)", () => {
-    const content = [
-      "- list item:",
-      "  ```",
-      "  [[Fake Link]]",
-      "  ```",
-      "[[Real Link]]",
-    ].join("\n")
+    const content = ["- list item:", "  ```", "  [[Fake Link]]", "  ```", "[[Real Link]]"].join(
+      "\n",
+    )
     const targets = links.extractFromBody(content)
     expect(targets).toEqual(["Real Link"])
   })
 
   it("skips wikilink-like patterns inside Templater expressions", () => {
-    const content =
-      "[[Real Link]] and <% tp.file.include('[[Daily Template]]') %>"
+    const content = "[[Real Link]] and <% tp.file.include('[[Daily Template]]') %>"
     const targets = links.extractFromBody(content)
     expect(targets).toEqual(["Real Link"])
   })
 
   it("skips links inside <%+ output expressions", () => {
-    const content =
-      "[[Before]] <%+ tp.file.include('[[Template]]') %> [[After]]"
+    const content = "[[Before]] <%+ tp.file.include('[[Template]]') %> [[After]]"
     const targets = links.extractFromBody(content)
     expect(targets).toEqual(["Before", "After"])
   })
@@ -492,9 +463,7 @@ describe("extractFromBody", () => {
   })
 
   it("extracts embedded assets with folder paths", () => {
-    const targets = links.extractFromBody(
-      "![[attachments/diagram.svg]] and [[Real Note]]",
-    )
+    const targets = links.extractFromBody("![[attachments/diagram.svg]] and [[Real Note]]")
     expect(targets).toEqual(["attachments/diagram.svg", "Real Note"])
   })
 
@@ -513,45 +482,36 @@ describe("extractFromBody", () => {
 
 describe("extractFromFrontmatter", () => {
   it("extracts a wikilink from a string property value", () => {
-    expect(links.extractFromFrontmatter({ up: "[[Parent Note]]" })).toEqual([
-      "Parent Note",
-    ])
+    expect(links.extractFromFrontmatter({ up: "[[Parent Note]]" })).toEqual(["Parent Note"])
   })
 
   it("extracts wikilinks from an array property (e.g. related)", () => {
-    expect(
-      links.extractFromFrontmatter({ related: ["[[Note A]]", "[[Note B]]"] }),
-    ).toEqual(["Note A", "Note B"])
+    expect(links.extractFromFrontmatter({ related: ["[[Note A]]", "[[Note B]]"] })).toEqual([
+      "Note A",
+      "Note B",
+    ])
   })
 
   it("strips alias and heading from a frontmatter wikilink", () => {
-    expect(
-      links.extractFromFrontmatter({ related: ["[[Note A#Section|display]]"] }),
-    ).toEqual(["Note A"])
+    expect(links.extractFromFrontmatter({ related: ["[[Note A#Section|display]]"] })).toEqual([
+      "Note A",
+    ])
   })
 
   it("extracts a wikilink embedded in surrounding text", () => {
-    expect(
-      links.extractFromFrontmatter({ note: "see [[Note A]] for context" }),
-    ).toEqual(["Note A"])
+    expect(links.extractFromFrontmatter({ note: "see [[Note A]] for context" })).toEqual(["Note A"])
   })
 
   it("walks nested object property values", () => {
-    expect(
-      links.extractFromFrontmatter({ meta: { parent: "[[Note A]]" } }),
-    ).toEqual(["Note A"])
+    expect(links.extractFromFrontmatter({ meta: { parent: "[[Note A]]" } })).toEqual(["Note A"])
   })
 
   it("returns empty for plain-string values with no wikilinks", () => {
-    expect(
-      links.extractFromFrontmatter({ related: ["Routines", "Career"] }),
-    ).toEqual([])
+    expect(links.extractFromFrontmatter({ related: ["Routines", "Career"] })).toEqual([])
   })
 
   it("ignores non-string scalar values", () => {
-    expect(
-      links.extractFromFrontmatter({ count: 3, draft: true, missing: null }),
-    ).toEqual([])
+    expect(links.extractFromFrontmatter({ count: 3, draft: true, missing: null })).toEqual([])
   })
 
   it("deduplicates a target repeated across properties", () => {
@@ -598,19 +558,41 @@ describe("resolve", () => {
   })
 
   it("resolves exact path with .md extension", () => {
-    expect(
-      links.resolve({ target: "Projects/vault-cortex.md", allPaths }),
-    ).toBe("Projects/vault-cortex.md")
+    expect(links.resolve({ target: "Projects/vault-cortex.md", allPaths })).toBe(
+      "Projects/vault-cortex.md",
+    )
   })
 
   it("resolves basename match", () => {
-    expect(links.resolve({ target: "Principles", allPaths })).toBe(
-      "About Me/Principles.md",
-    )
+    expect(links.resolve({ target: "Principles", allPaths })).toBe("About Me/Principles.md")
   })
 
   it("resolves to shortest path when multiple basename matches exist", () => {
     expect(links.resolve({ target: "note", allPaths })).toBe("note.md")
+  })
+
+  it("breaks an equal-length basename tie lexicographically, not by input order", () => {
+    // zzz/Note.md first in the list — without the tie-break, input order
+    // (an unordered SQL scan at the call sites) would decide the winner.
+    const equalLengthPaths = ["zzz/Note.md", "aaa/Note.md"]
+    expect(links.resolve({ target: "Note", allPaths: equalLengthPaths })).toBe("aaa/Note.md")
+  })
+
+  it("measures shortest by code points, matching the SQL resolver's length()", () => {
+    // "📚/a.md" is 6 code points but 7 UTF-16 units — under a String.length
+    // metric it ties with "ab/a.md" and loses the tie, diverging from
+    // SQLite's ORDER BY length(path), which counts code points.
+    const paths = ["ab/a.md", "📚/a.md"]
+    expect(links.resolve({ target: "a", allPaths: paths })).toBe("📚/a.md")
+  })
+
+  it("breaks equal-length ties in UTF-8 byte order, matching BINARY collation", () => {
+    // Both paths hold the same two characters in opposite order, so both
+    // length metrics tie. UTF-16 code units put the emoji (surrogates,
+    // 0xD83D…) before U+FFFD, but UTF-8 bytes put U+FFFD (0xEF…) before
+    // the emoji (0xF0…) — SQLite's BINARY collation compares bytes.
+    const paths = ["😀�/a.md", "�😀/a.md"]
+    expect(links.resolve({ target: "a", allPaths: paths })).toBe("�😀/a.md")
   })
 
   it("returns null for unresolvable target", () => {
@@ -653,9 +635,7 @@ describe("resolve", () => {
   })
 
   it("cannot resolve an upward relative path without a source note", () => {
-    expect(
-      links.resolve({ target: "../C/target", allPaths: ["A/C/target.md"] }),
-    ).toBeNull()
+    expect(links.resolve({ target: "../C/target", allPaths: ["A/C/target.md"] })).toBeNull()
   })
 
   it("does not let an upward ../ path escape to a same-named vault-root note", () => {
@@ -675,15 +655,11 @@ describe("resolve", () => {
 
 describe("stripExtension", () => {
   it("strips the extension after the last dot in the filename", () => {
-    expect(links.stripExtension("boards/Trip Route.canvas")).toBe(
-      "boards/Trip Route",
-    )
+    expect(links.stripExtension("boards/Trip Route.canvas")).toBe("boards/Trip Route")
   })
 
   it("keeps the inner dots of a multi-dot filename", () => {
-    expect(links.stripExtension("assets/photo.png.canvas")).toBe(
-      "assets/photo.png",
-    )
+    expect(links.stripExtension("assets/photo.png.canvas")).toBe("assets/photo.png")
   })
 
   it("returns the path unchanged when the filename has no dot", () => {
@@ -737,10 +713,43 @@ describe("resolveAsset", () => {
     "app/views/Inventory.base",
   ]
 
-  it("resolves an exact path with extension", () => {
+  it("folds ASCII case in the path-suffix tier, matching the SQL twin's LIKE", () => {
+    // The indexer's suffix statements compare with LIKE (ASCII-case-
+    // insensitive), so the array resolver must fold too or the two
+    // resolvers pick different files for one target.
     expect(
-      links.resolveAsset({ target: "assets/photo.png", allAssetPaths }),
-    ).toBe("assets/photo.png")
+      links.resolveAsset({
+        target: "sunset.png",
+        allAssetPaths: ["photos/Sunset.png"],
+      }),
+    ).toBe("photos/Sunset.png")
+  })
+
+  it("folds ASCII case in the folder-qualified stem tier, matching the SQL twin's LIKE", () => {
+    expect(
+      links.resolveAsset({
+        target: "views/Inventory",
+        allAssetPaths: ["app/Views/Inventory.base"],
+      }),
+    ).toBe("app/Views/Inventory.base")
+  })
+
+  it("keeps the exact-path tier case-sensitive, matching the SQL twin's =", () => {
+    // A full-path target with different casing misses the case-sensitive
+    // exact tier, and the suffix tier's leading "/" can never match a path
+    // from the vault root — null on both resolvers.
+    expect(
+      links.resolveAsset({
+        target: "photos/sunset.png",
+        allAssetPaths: ["photos/Sunset.png"],
+      }),
+    ).toBeNull()
+  })
+
+  it("resolves an exact path with extension", () => {
+    expect(links.resolveAsset({ target: "assets/photo.png", allAssetPaths })).toBe(
+      "assets/photo.png",
+    )
   })
 
   it("resolves a path relative to the source note's directory", () => {
@@ -754,24 +763,20 @@ describe("resolveAsset", () => {
   })
 
   it("resolves a full-filename suffix to the shortest match", () => {
-    expect(links.resolveAsset({ target: "photo.png", allAssetPaths })).toBe(
-      "assets/photo.png",
-    )
+    expect(links.resolveAsset({ target: "photo.png", allAssetPaths })).toBe("assets/photo.png")
   })
 
   it("prefers the full-filename match over a stem match (family ordering)", () => {
     // "photo.png" stem-matches "b/photo.png.canvas", but the full-filename
     // family runs first and wins with "a/photo.png".
     const paths = ["b/photo.png.canvas", "a/photo.png"]
-    expect(
-      links.resolveAsset({ target: "photo.png", allAssetPaths: paths }),
-    ).toBe("a/photo.png")
+    expect(links.resolveAsset({ target: "photo.png", allAssetPaths: paths })).toBe("a/photo.png")
   })
 
   it("resolves an extensionless target by exact stem", () => {
-    expect(
-      links.resolveAsset({ target: "boards/Trip Route", allAssetPaths }),
-    ).toBe("boards/Trip Route.canvas")
+    expect(links.resolveAsset({ target: "boards/Trip Route", allAssetPaths })).toBe(
+      "boards/Trip Route.canvas",
+    )
   })
 
   it("resolves an extensionless target relative to the source by stem", () => {
@@ -786,15 +791,13 @@ describe("resolveAsset", () => {
 
   it("resolves a bare-name stem to the shortest basename match", () => {
     const paths = ["deep/nested/photo.png", "a/photo.png"]
-    expect(links.resolveAsset({ target: "photo", allAssetPaths: paths })).toBe(
-      "a/photo.png",
-    )
+    expect(links.resolveAsset({ target: "photo", allAssetPaths: paths })).toBe("a/photo.png")
   })
 
   it("resolves a stem with folder segments as a suffix match", () => {
-    expect(
-      links.resolveAsset({ target: "views/Inventory", allAssetPaths }),
-    ).toBe("app/views/Inventory.base")
+    expect(links.resolveAsset({ target: "views/Inventory", allAssetPaths })).toBe(
+      "app/views/Inventory.base",
+    )
   })
 
   it("resolves a multi-dot stem when no full-filename match exists", () => {
@@ -810,20 +813,14 @@ describe("resolveAsset", () => {
     // Matches the SQL resolver's ORDER BY length(path), path — deterministic
     // regardless of array order.
     const paths = ["a/photo.png", "a/photo.jpg"]
-    expect(links.resolveAsset({ target: "photo", allAssetPaths: paths })).toBe(
-      "a/photo.jpg",
-    )
+    expect(links.resolveAsset({ target: "photo", allAssetPaths: paths })).toBe("a/photo.jpg")
   })
 
   it("returns null when nothing matches", () => {
-    expect(
-      links.resolveAsset({ target: "missing.png", allAssetPaths }),
-    ).toBeNull()
+    expect(links.resolveAsset({ target: "missing.png", allAssetPaths })).toBeNull()
   })
 
   it("cannot resolve a relative target without a source path", () => {
-    expect(
-      links.resolveAsset({ target: "../assets/photo.png", allAssetPaths }),
-    ).toBeNull()
+    expect(links.resolveAsset({ target: "../assets/photo.png", allAssetPaths })).toBeNull()
   })
 })

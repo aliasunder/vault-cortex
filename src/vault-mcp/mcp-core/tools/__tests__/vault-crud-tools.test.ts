@@ -14,10 +14,7 @@ const makeConfig = (
   overrides: Partial<
     Pick<
       VaultConfig,
-      | "memoryDir"
-      | "protectedPathsOverride"
-      | "dailyNotesFolder"
-      | "dailyNotesFormat"
+      "memoryDir" | "protectedPathsOverride" | "dailyNotesFolder" | "dailyNotesFormat"
     >
   > = {},
 ): VaultConfig =>

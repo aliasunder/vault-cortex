@@ -57,10 +57,9 @@ export type ParsedRecurrenceRule = {
 /** Parses a 🔁 / `[repeat:: ]` rule's text, or null when the text is not a
  *  rule the plugin could read — the plugin treats such a task as
  *  non-recurring. */
-export const parseRecurrenceRule = (
-  recurrenceText: string,
-): ParsedRecurrenceRule | null => {
+export const parseRecurrenceRule = (recurrenceText: string): ParsedRecurrenceRule | null => {
   const ruleMatch = RECURRENCE_RULE_RE.exec(recurrenceText.trim())
+
   if (!ruleMatch?.[1]) return null
 
   const naturalLanguageRule = ruleMatch[1].trim()
@@ -70,6 +69,7 @@ export const parseRecurrenceRule = (
   // text it half-recognizes and returns null on text it doesn't.
   try {
     const rruleOptions = RRule.parseText(naturalLanguageRule)
+
     if (rruleOptions === null) return null
     return { advanceFromCompletionDay, rruleOptions }
   } catch {
@@ -84,6 +84,7 @@ export const parseRecurrenceRule = (
  *  conversion ever happens on the rrule leg (the plugin's `.utc(true)` trick). */
 const utcMidnight = (isoDate: string): Date => {
   const day = DateTime.fromISO(isoDate, { zone: "utc" })
+
   if (!day.isValid) throw new Error(`invalid date: "${isoDate}"`)
   return day.toJSDate()
 }
@@ -92,6 +93,7 @@ const utcMidnight = (isoDate: string): Date => {
  *  "strictly after this day". */
 const utcEndOfDay = (isoDate: string): Date => {
   const day = DateTime.fromISO(isoDate, { zone: "utc" })
+
   if (!day.isValid) throw new Error(`invalid date: "${isoDate}"`)
   return day.endOf("day").toJSDate()
 }
@@ -99,6 +101,7 @@ const utcEndOfDay = (isoDate: string): Date => {
 /** The calendar day of a UTC-midnight Date as a `YYYY-MM-DD` string. */
 const isoDateFromUtcDate = (date: Date): string => {
   const isoDate = DateTime.fromJSDate(date, { zone: "utc" }).toISODate()
+
   if (isoDate === null) throw new Error("invalid rrule result date")
   return isoDate
 }
@@ -119,13 +122,7 @@ const MONTHLY_RULE_TEXT_RE = /every( \d+)? month(?:s)?(?:.*)?/
 const YEARLY_RULE_TEXT_RE = /every( \d+)? year(?:s)?(?:.*)?/
 
 /** Months from `after` to `next`, counted on UTC calendar components. */
-const monthsSkipped = ({
-  after,
-  next,
-}: {
-  after: DateTime
-  next: DateTime
-}): number => {
+const monthsSkipped = ({ after, next }: { after: DateTime; next: DateTime }): number => {
   return next.month - after.month + (next.year - after.year) * 12
 }
 
@@ -169,6 +166,7 @@ const correctedNextHit = ({
   rruleOptions: Partial<Options>
 }): Date | null => {
   const uncorrectedHit = rule.after(after)
+
   if (uncorrectedHit === null) return null
 
   const canonicalRuleText = rule.toText()
@@ -184,12 +182,9 @@ const correctedNextHit = ({
   const ruleFixesAnExplicitDay = canonicalRuleText.includes(" on ")
 
   const monthIntervalToEnforce =
-    monthMatch && !ruleFixesAnExplicitDay
-      ? Number.parseInt(monthMatch[1]?.trim() ?? "1", 10)
-      : null
-  const yearIntervalToEnforce = yearMatch
-    ? Number.parseInt(yearMatch[1]?.trim() ?? "1", 10)
-    : null
+    monthMatch && !ruleFixesAnExplicitDay ? Number.parseInt(monthMatch[1]?.trim() ?? "1", 10) : null
+  const yearIntervalToEnforce = yearMatch ? Number.parseInt(yearMatch[1]?.trim() ?? "1", 10) : null
+
   if (monthIntervalToEnforce === null && yearIntervalToEnforce === null) {
     return uncorrectedHit
   }
@@ -207,15 +202,14 @@ const correctedNextHit = ({
 
     const skipsTooManyMonths =
       monthIntervalToEnforce !== null &&
-      monthsSkipped({ after: queryDay, next: candidateDay }) >
-        monthIntervalToEnforce
+      monthsSkipped({ after: queryDay, next: candidateDay }) > monthIntervalToEnforce
     const skipsTooManyYears =
-      yearIntervalToEnforce !== null &&
-      candidateDay.year - queryDay.year > yearIntervalToEnforce
+      yearIntervalToEnforce !== null && candidateDay.year - queryDay.year > yearIntervalToEnforce
 
     if (!skipsTooManyMonths && !skipsTooManyYears) return candidateHit
 
     const walkedBack = walkBackOneDay({ queryDay, rruleOptions })
+
     if (walkedBack.candidateHit === null) return null
 
     queryDay = walkedBack.queryDay
@@ -293,6 +287,7 @@ const shiftByReferenceOffset = ({
   const shifted = DateTime.fromISO(nextReferenceDate, { zone })
     .plus({ days: dayDistance })
     .toISODate()
+
   if (shifted === null) throw new Error("invalid shifted occurrence date")
   return shifted
 }
@@ -302,10 +297,9 @@ const shiftByReferenceOffset = ({
  *  exhausted — the caller completes the task without spawning). A recurring
  *  task with no dates at all returns all-null dates: the plugin spawns a
  *  dateless copy. */
-export const nextOccurrenceDates = (
-  params: NextOccurrenceParams,
-): NextOccurrenceDates | null => {
+export const nextOccurrenceDates = (params: NextOccurrenceParams): NextOccurrenceDates | null => {
   const parsedRule = parseRecurrenceRule(params.recurrenceText)
+
   if (parsedRule === null) return null
 
   const referenceDate = resolvedReferenceDate(params)
@@ -313,9 +307,7 @@ export const nextOccurrenceDates = (
   // The rule's dtstart anchors the series: the reference date normally, the
   // completion day for "when done" rules or when the task has no dates.
   const seriesAnchor =
-    parsedRule.advanceFromCompletionDay || referenceDate === null
-      ? params.today
-      : referenceDate
+    parsedRule.advanceFromCompletionDay || referenceDate === null ? params.today : referenceDate
   const rule = new RRule({
     ...parsedRule.rruleOptions,
     dtstart: utcMidnight(seriesAnchor),
@@ -328,6 +320,7 @@ export const nextOccurrenceDates = (
     rule,
     rruleOptions: parsedRule.rruleOptions,
   })
+
   if (nextHit === null) return null
 
   // No reference date → the plugin spawns a dateless copy (it computes the
@@ -352,14 +345,11 @@ export const nextOccurrenceDates = (
   // The scheduled date is dropped from the new occurrence when the setting
   // is on and another date survives to carry the series.
   const shouldDropScheduledDate =
-    params.removeScheduledDateOnRecurrence &&
-    (params.startDate !== null || params.dueDate !== null)
+    params.removeScheduledDateOnRecurrence && (params.startDate !== null || params.dueDate !== null)
 
   return {
     startDate: shiftedDate(params.startDate),
-    scheduledDate: shouldDropScheduledDate
-      ? null
-      : shiftedDate(params.scheduledDate),
+    scheduledDate: shouldDropScheduledDate ? null : shiftedDate(params.scheduledDate),
     dueDate: shiftedDate(params.dueDate),
   }
 }

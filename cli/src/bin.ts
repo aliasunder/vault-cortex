@@ -2,17 +2,10 @@
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
-import {
-  minimumNodeVersion,
-  nodeVersionRefusalMessage,
-  satisfiesMinimum,
-} from "./node-version.js"
+import { minimumNodeVersion, nodeVersionRefusalMessage, satisfiesMinimum } from "./node-version.js"
 
 const pkg: { version: string; engines: { node: string } } = JSON.parse(
-  readFileSync(
-    fileURLToPath(new URL("../package.json", import.meta.url)),
-    "utf8",
-  ),
+  readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"),
 )
 const { version, engines } = pkg
 
@@ -21,6 +14,7 @@ const { version, engines } = pkg
 // clear message instead — and only import dependency-laden code after the
 // check passes.
 const requiredNodeVersion = minimumNodeVersion(engines.node)
+
 if (!satisfiesMinimum(process.versions.node, requiredNodeVersion)) {
   console.error(
     nodeVersionRefusalMessage({

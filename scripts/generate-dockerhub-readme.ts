@@ -11,12 +11,10 @@ import { fileURLToPath } from "node:url"
 
 const repoRoot = new URL("..", import.meta.url)
 
-const resolvePath = (repoRelative: string): string =>
-  fileURLToPath(new URL(repoRelative, repoRoot))
+const resolvePath = (repoRelative: string): string => fileURLToPath(new URL(repoRelative, repoRoot))
 
 const GITHUB_REPO = "https://github.com/aliasunder/vault-cortex"
-const GITHUB_RAW =
-  "https://raw.githubusercontent.com/aliasunder/vault-cortex/main"
+const GITHUB_RAW = "https://raw.githubusercontent.com/aliasunder/vault-cortex/main"
 
 const HEADER = `<!-- AUTO-GENERATED from README.md — do not edit manually. Run: npm run generate:dockerhub-readme -->\n`
 
@@ -65,11 +63,7 @@ const REPLACED_H2 = new Set(["License"])
 
 // Sections where we keep only the heading, intro sentence, and tables — strip
 // verbose paragraphs that add bulk without adding Docker Hub value
-const COMPACT_H2 = new Set([
-  "Properties",
-  "Configuration",
-  "Deployment Options",
-])
+const COMPACT_H2 = new Set(["Properties", "Configuration", "Deployment Options"])
 
 // Directories that need /tree/ instead of /blob/ in GitHub links
 const DIRECTORY_PATHS = [
@@ -114,10 +108,9 @@ const compressTableRow = (line: string): string => {
 const isContentsLine = (line: string): boolean =>
   line.startsWith("**Contents**") || line.startsWith("**Contents** —")
 
-const parseHeading = (
-  line: string,
-): { level: number; text: string } | undefined => {
+const parseHeading = (line: string): { level: number; text: string } | undefined => {
   const match = line.match(/^(#{2,3})\s+(.+)$/)
+
   if (!match?.[1] || !match[2]) return undefined
   return { level: match[1].length, text: match[2] }
 }
@@ -159,6 +152,7 @@ const generate = (): void => {
     if (isContentsLine(line)) continue
 
     const heading = parseHeading(line)
+
     if (heading) {
       if (heading.level === 2) {
         if (EXCLUDED_H2.has(heading.text)) {
@@ -202,17 +196,17 @@ const generate = (): void => {
     // In compact sections, keep heading + intro + tables, drop post-table prose
     if (compactSection && !heading) {
       const isTableRow = line.startsWith("|")
+
       if (isTableRow) {
         compactTableDone = false
       } else if (compactTableDone) {
         continue
       } else if (line.trim() !== "") {
-        const lastTableIdx = output.findLastIndex((outputLine) =>
-          outputLine.startsWith("|"),
-        )
+        const lastTableIdx = output.findLastIndex((outputLine) => outputLine.startsWith("|"))
         const lastHeadingIdx = output.findLastIndex(
           (outputLine) => parseHeading(outputLine) !== undefined,
         )
+
         if (lastTableIdx > lastHeadingIdx) {
           compactTableDone = true
           continue
@@ -256,9 +250,7 @@ const generate = (): void => {
 
   console.log(`generated DOCKERHUB.md (${byteCount} bytes)`)
   if (byteCount > 24_000) {
-    console.warn(
-      `warning: output is ${byteCount} bytes — Docker Hub truncates at 25000`,
-    )
+    console.warn(`warning: output is ${byteCount} bytes — Docker Hub truncates at 25000`)
   }
 }
 

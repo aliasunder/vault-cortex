@@ -21,6 +21,7 @@ const seededEmbedding = (seed: number): Float32Array => {
  *  the lexical-hit-with-distant-vector case needs that separation. */
 const topicSeedFor = (text: string): number => {
   const lowered = text.toLowerCase()
+
   if (lowered.includes("testing")) return 2
   if (
     lowered.includes("pacing") ||
@@ -36,9 +37,7 @@ const topicSeedFor = (text: string): number => {
 const createTopicMockEmbedder = () => ({
   embedText: vi
     .fn()
-    .mockImplementation((text: string) =>
-      Promise.resolve(seededEmbedding(topicSeedFor(text))),
-    ),
+    .mockImplementation((text: string) => Promise.resolve(seededEmbedding(topicSeedFor(text)))),
   embedBatch: vi
     .fn()
     .mockImplementation((texts: string[]) =>
@@ -51,25 +50,23 @@ const createTopicMockEmbedder = () => ({
  *  floor; everything else — including every document under an off-topic
  *  query — is confidently irrelevant. */
 const createTopicMockReranker = (): Reranker => ({
-  rerankPairs: vi
-    .fn()
-    .mockImplementation((query: string, documents: string[]) => {
-      const loweredQuery = query.toLowerCase()
-      const queryIsOnTopic =
-        loweredQuery.includes("pacing") || loweredQuery.includes("recovery")
-      return Promise.resolve(
-        documents.map((document) => {
-          if (!queryIsOnTopic) return -8
-          const lowered = document.toLowerCase()
-          if (lowered.includes("walk")) return -1 // sigmoid ≈ 0.27 — kept, least relevant
-          const documentIsOnTopic =
-            lowered.includes("pacing") ||
-            lowered.includes("recovery") ||
-            lowered.includes("rest blocks")
-          return documentIsOnTopic ? 6 : -8 // -8: sigmoid ≈ 0.0003 — dropped
-        }),
-      )
-    }),
+  rerankPairs: vi.fn().mockImplementation((query: string, documents: string[]) => {
+    const loweredQuery = query.toLowerCase()
+    const queryIsOnTopic = loweredQuery.includes("pacing") || loweredQuery.includes("recovery")
+    return Promise.resolve(
+      documents.map((document) => {
+        if (!queryIsOnTopic) return -8
+        const lowered = document.toLowerCase()
+
+        if (lowered.includes("walk")) return -1 // sigmoid ≈ 0.27 — kept, least relevant
+        const documentIsOnTopic =
+          lowered.includes("pacing") ||
+          lowered.includes("recovery") ||
+          lowered.includes("rest blocks")
+        return documentIsOnTopic ? 6 : -8 // -8: sigmoid ≈ 0.0003 — dropped
+      }),
+    )
+  }),
 })
 
 /** Fresh index with the given memory files upserted and embedded. */
@@ -78,8 +75,7 @@ const createRecallIndex = async (options?: {
   withEmbedder?: boolean
   files?: Record<string, string>
 }) => {
-  const embedder =
-    (options?.withEmbedder ?? true) ? createTopicMockEmbedder() : undefined
+  const embedder = (options?.withEmbedder ?? true) ? createTopicMockEmbedder() : undefined
   const index = createSearchIndex(":memory:", embedder, options?.reranker, {
     memoryDir: "About Me",
   })
@@ -124,10 +120,7 @@ describe("memoryRecall", () => {
     const index = await createRecallIndex()
     // "rest blocks between sprints" phrases the topic with no stem overlap
     // with the query — FTS cannot match it, only the vector leg can.
-    const { entries, search_mode } = await index.memoryRecall(
-      { query: "pacing recovery" },
-      logger,
-    )
+    const { entries, search_mode } = await index.memoryRecall({ query: "pacing recovery" }, logger)
     expect(search_mode).toBe("hybrid")
     expect(entries.map((entry) => entry.date)).toContain("2026-06-20")
   })
@@ -150,22 +143,13 @@ describe("memoryRecall", () => {
     // The testing entry embeds on the testing topic (distance 1 from the
     // query, far outside best + 0.15) but matches both query words lexically
     // — the FTS-unconditional rule must keep it.
-    const { entries } = await index.memoryRecall(
-      { query: "pacing recovery" },
-      logger,
-    )
-    expect(entries.map((entry) => entry.date)).toEqual([
-      "2026-05-07",
-      "2026-07-02",
-    ])
+    const { entries } = await index.memoryRecall({ query: "pacing recovery" }, logger)
+    expect(entries.map((entry) => entry.date)).toEqual(["2026-05-07", "2026-07-02"])
   })
 
   it("returns the evidence set ascending by date across files", async () => {
     const index = await createRecallIndex()
-    const { entries } = await index.memoryRecall(
-      { query: "pacing recovery" },
-      logger,
-    )
+    const { entries } = await index.memoryRecall({ query: "pacing recovery" }, logger)
     // Files store newest-first; output must read oldest-first, cross-file.
     expect(entries.map((entry) => [entry.date, entry.file])).toEqual([
       ["2026-06-20", "Opinions"],
@@ -192,13 +176,8 @@ describe("memoryRecall", () => {
 `,
       },
     })
-    const { entries } = await index.memoryRecall(
-      { query: "pacing recovery" },
-      logger,
-    )
-    expect(
-      entries.map((entry) => [entry.file, entry.text.includes("note one")]),
-    ).toEqual([
+    const { entries } = await index.memoryRecall({ query: "pacing recovery" }, logger)
+    expect(entries.map((entry) => [entry.file, entry.text.includes("note one")])).toEqual([
       ["Alpha", false],
       ["Alpha", true],
       ["Zeta", false],
@@ -224,10 +203,7 @@ describe("memoryRecall", () => {
     // "Sustainable packaging" is a semantic neighbor (same topic seed via
     // "sustainable") and no lexical hit — exactly the plausible-but-wrong
     // candidate only cross-attention can reject (mock logit -8).
-    const { entries, reranked } = await index.memoryRecall(
-      { query: "pacing recovery" },
-      logger,
-    )
+    const { entries, reranked } = await index.memoryRecall({ query: "pacing recovery" }, logger)
     expect(reranked).toBe(true)
     expect(entries.map((entry) => entry.date)).toEqual(["2026-07-02"])
   })
@@ -259,10 +235,7 @@ describe("memoryRecall", () => {
     // dropped — proof the fallback path ran, not a silently-empty rerank.
     expect(reranked).toBe(false)
     expect(search_mode).toBe("hybrid")
-    expect(entries.map((entry) => entry.date)).toEqual([
-      "2026-03-01",
-      "2026-07-02",
-    ])
+    expect(entries.map((entry) => entry.date)).toEqual(["2026-03-01", "2026-07-02"])
   })
 
   it("truncates the least-relevant entries first and reports the full total", async () => {
@@ -279,10 +252,7 @@ describe("memoryRecall", () => {
     )
     expect(total).toBe(3)
     expect(truncated).toBe(true)
-    expect(entries.map((entry) => entry.date)).toEqual([
-      "2026-06-20",
-      "2026-07-02",
-    ])
+    expect(entries.map((entry) => entry.date)).toEqual(["2026-06-20", "2026-07-02"])
   })
 
   it("restricts recall to one file when file is given", async () => {
@@ -292,9 +262,7 @@ describe("memoryRecall", () => {
       { query: "pacing recovery", file: "Routines" },
       logger,
     )
-    expect(entries.map((entry) => [entry.file, entry.date])).toEqual([
-      ["Routines", "2026-07-10"],
-    ])
+    expect(entries.map((entry) => [entry.file, entry.date])).toEqual([["Routines", "2026-07-10"]])
   })
 
   it("returns an empty result rather than an error when nothing matches", async () => {
@@ -324,10 +292,7 @@ describe("memoryRecall", () => {
 
   it("does not throw on FTS metacharacters in the query", async () => {
     const index = await createRecallIndex()
-    const result = await index.memoryRecall(
-      { query: 'pacing") AND (recovery OR NEAR' },
-      logger,
-    )
+    const result = await index.memoryRecall({ query: 'pacing") AND (recovery OR NEAR' }, logger)
     expect(result.search_mode).toBe("hybrid")
   })
 
@@ -342,10 +307,7 @@ describe("memoryRecall", () => {
     // Lexical matches only — the drifted-vocabulary entry (2026-06-20,
     // "rest blocks") is invisible without vectors, the documented cost of
     // embeddings-off mode.
-    expect(entries.map((entry) => entry.date)).toEqual([
-      "2026-07-02",
-      "2026-07-10",
-    ])
+    expect(entries.map((entry) => entry.date)).toEqual(["2026-07-02", "2026-07-10"])
   })
 
   it("degrades to fts mode when the embedder fails during the query", async () => {
@@ -371,38 +333,223 @@ describe("memoryRecall", () => {
     // the error and returns [], triggering the lexical-only early return.
     failingEmbedder.embedText.mockRejectedValue(new Error("ONNX runtime error"))
 
-    const result = await index.memoryRecall(
-      { query: "pacing recovery" },
-      logger,
-    )
+    const result = await index.memoryRecall({ query: "pacing recovery" }, logger)
     expect(result.search_mode).toBe("fts")
     expect(result.reranked).toBe(false)
     // Only keyword hits survive — the semantic-only entry (2026-06-20,
     // "rest blocks") is invisible without vectors, same as embeddings-off.
-    expect(result.entries.map((entry) => entry.date)).toEqual([
-      "2026-07-02",
-      "2026-07-10",
-    ])
+    expect(result.entries.map((entry) => entry.date)).toEqual(["2026-07-02", "2026-07-10"])
   })
 
   it("floors limit to 1 so the result is never artificially empty", async () => {
     const index = await createRecallIndex()
-    const result = await index.memoryRecall(
-      { query: "pacing recovery", limit: 0 },
-      logger,
-    )
+    const result = await index.memoryRecall({ query: "pacing recovery", limit: 0 }, logger)
     // Three entries match but limit: 0 floors to 1 — exactly 1 survives.
     expect(result.entries).toHaveLength(1)
     expect(result.total).toBe(3)
     expect(result.truncated).toBe(true)
   })
 
+  it("ranks tied FTS matches by file and entry position, not insertion order", async () => {
+    const identicalEntry = "- **2026-07-02**: Pacing beats crunch every time."
+    // Zzz is upserted before Aaa — without the tie-break, equal-bm25 entries
+    // return in insertion order and Zzz's copy would win the limit cut.
+    const index = await createRecallIndex({
+      withEmbedder: false,
+      files: {
+        Zzz: `# Zzz\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+        Aaa: `# Aaa\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+      },
+    })
+
+    const result = await index.memoryRecall({ query: "pacing crunch", limit: 1 }, logger)
+    expect(result.entries.map((entry) => entry.file)).toEqual(["Aaa"])
+  })
+
+  it("keeps the lower entry_index entry when identical same-file entries tie", async () => {
+    // Two identical entries in one file tie on rank and file, so entry_index
+    // decides the limit cut. Within one file, entry ids ascend with
+    // entry_index by construction, so this pins the first-entry-wins
+    // contract and a wrong sort direction — a dropped entry_index key alone
+    // is not observable here.
+    const identicalEntry = "- **2026-07-02**: Pacing beats crunch every time."
+    const index = await createRecallIndex({
+      withEmbedder: false,
+      files: {
+        Solo: `# Solo\n\n## First section (newest first)\n\n${identicalEntry}\n\n## Second section (newest first)\n\n${identicalEntry}\n`,
+      },
+    })
+
+    const result = await index.memoryRecall({ query: "pacing crunch", limit: 1 }, logger)
+    expect(result.entries.map((entry) => entry.section)).toEqual(["First section (newest first)"])
+  })
+
+  it("ranks tied-distance vector hits by file, not insertion order", async () => {
+    const identicalEntry = "- **2026-07-02**: Pacing beats crunch every time."
+    // All three entries embed to the same topic vector, so the KNN leg ties
+    // on distance; "recovery rhythm" shares no stems with the entry text, so
+    // the FTS leg is empty and the tie-break decides the limit cut. Aaa is
+    // upserted in the middle so neither insertion order nor its reverse puts
+    // it first — only the (file, entry_index) sort keys can, whichever way a
+    // vec0 build returns tied distances.
+    const index = await createRecallIndex({
+      files: {
+        Zzz: `# Zzz\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+        Aaa: `# Aaa\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+        Mmm: `# Mmm\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+      },
+    })
+
+    const result = await index.memoryRecall({ query: "recovery rhythm", limit: 1 }, logger)
+    expect(result.entries.map((entry) => entry.file)).toEqual(["Aaa"])
+  })
+
+  it("fills a boundary-straddling vector tie window in entry order", async () => {
+    // 101 identically-embedded entries against the 100-entry KNN window: the
+    // window still holds 100, but over-fetch orders the tie by
+    // (file, entry_index) before truncating, so entry 0 survives and the
+    // LAST entry drops. Without over-fetch, vec0's tie order chooses — under
+    // reverse-insertion emission the first-inserted entry 0 is the one that
+    // drops, and the chronological output then starts at a later entry.
+    const numberedEntries = Array.from(
+      { length: 101 },
+      (_, entryNumber) => `- **2026-07-02**: Pacing beats crunch entry ${String(entryNumber)}.`,
+    ).join("\n")
+    const index = await createRecallIndex({
+      files: {
+        Ledger: `# Ledger\n\n## Working style (newest first)\n\n${numberedEntries}\n`,
+      },
+    })
+
+    // limit 101 lifts the output cap past the KNN window, so the returned
+    // entries expose which side of the 100-entry window the tie drop took.
+    const result = await index.memoryRecall({ query: "recovery rhythm", limit: 101 }, logger)
+    expect(result.total).toBe(100)
+    const survivingEntryTexts = Array.from(
+      { length: 100 },
+      (_, entryNumber) => `- **2026-07-02**: Pacing beats crunch entry ${String(entryNumber)}.`,
+    )
+    expect(result.entries.map((entry) => entry.text)).toEqual(survivingEntryTexts)
+  })
+
+  it("orders same-date evidence entries by code units, not locale collation", async () => {
+    const identicalEntry = "- **2026-07-02**: Pacing beats crunch every time."
+    // "Zeta" and "alpha" disagree between code-unit order (Z 0x5A before
+    // a 0x61) and en-US locale collation (alpha before Zeta) — the
+    // chronological sort's file tie-break must not follow the runtime's
+    // locale.
+    const index = await createRecallIndex({
+      withEmbedder: false,
+      files: {
+        alpha: `# alpha\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+        Zeta: `# Zeta\n\n## Working style (newest first)\n\n${identicalEntry}\n`,
+      },
+    })
+
+    const result = await index.memoryRecall({ query: "pacing crunch" }, logger)
+    expect(result.entries.map((entry) => entry.file)).toEqual(["Zeta", "alpha"])
+  })
+
+  it("resolves fused-score ties by content key, not index rowids", async () => {
+    // Aaa and Zzz swap ranks between the legs — identical BM25 stats put
+    // Aaa first in the FTS leg, while the embedder puts Zzz's vector on the
+    // query's dimension and Aaa's orthogonal — so their RRF sums tie
+    // exactly and the fusion identifier decides the limit cut. Zzz is
+    // upserted first to take the lower rowid; a rowid-keyed fusion would
+    // return Zzz's entry.
+    const embedderFavoringZzz = {
+      embedText: vi
+        .fn()
+        .mockImplementation((text: string) =>
+          Promise.resolve(seededEmbedding(text.includes("alpha-topic") ? 6 : 5)),
+        ),
+      embedBatch: vi
+        .fn()
+        .mockImplementation((texts: string[]) =>
+          Promise.resolve(
+            texts.map((text) => seededEmbedding(text.includes("alpha-topic") ? 6 : 5)),
+          ),
+        ),
+    }
+    const index = createSearchIndex(":memory:", embedderFavoringZzz, undefined, {
+      memoryDir: "About Me",
+    })
+    const seededFiles = [
+      ["Zzz", "beta-topic"],
+      ["Aaa", "alpha-topic"],
+    ] as const
+    for (const [fileName, topicMarker] of seededFiles) {
+      const filePath = `About Me/${fileName}.md`
+      const content = `# ${fileName}\n\n## Working style (newest first)\n\n- **2026-07-02**: Pacing beats crunch on ${topicMarker}.\n`
+      index.upsertNote(
+        {
+          filePath,
+          rawContent: content,
+          fileStat: { mtimeMs: 1000, size: 100 },
+        },
+        logger,
+      )
+      await index.embedNote({ notePath: filePath, rawContent: content }, logger)
+    }
+
+    const result = await index.memoryRecall({ query: "pacing crunch", limit: 1 }, logger)
+    expect(result.entries.map((entry) => entry.file)).toEqual(["Aaa"])
+  })
+
+  it("breaks a same-file fused-score tie by numeric entry order past nine entries", async () => {
+    // Entries 9 (alpha) and 10 (beta) swap ranks between the legs: FTS ties
+    // them on BM25 and orders by entry_index (9 first), while the embedder
+    // puts beta on the query's vector and alpha slightly off it (10 first).
+    // Their RRF sums tie exactly and the fusion identifier decides the limit
+    // cut — an unpadded index serializes "10" before "9" in byte order and
+    // returns the wrong entry.
+    const queryAlignedEmbedding = (): Float32Array => seededEmbedding(5)
+    const nearQueryEmbedding = (): Float32Array => {
+      const embedding = new Float32Array(DIMENSIONS).fill(0)
+      embedding[5] = 0.8
+      embedding[6] = 0.6
+      return embedding
+    }
+    const embeddingFor = (text: string): Float32Array => {
+      if (text.includes("beta-topic")) return queryAlignedEmbedding()
+      if (text.includes("alpha-topic")) return nearQueryEmbedding()
+      if (text.toLowerCase().includes("pacing")) return queryAlignedEmbedding()
+      return seededEmbedding(7)
+    }
+    const tieEmbedder = {
+      embedText: vi.fn().mockImplementation((text: string) => Promise.resolve(embeddingFor(text))),
+      embedBatch: vi
+        .fn()
+        .mockImplementation((texts: string[]) => Promise.resolve(texts.map(embeddingFor))),
+    }
+    const index = createSearchIndex(":memory:", tieEmbedder, undefined, {
+      memoryDir: "About Me",
+    })
+    const fillerEntries = Array.from(
+      { length: 9 },
+      (_, fillerIndex) => `- **2026-07-02**: Background logistics note ${String(fillerIndex)}.`,
+    ).join("\n")
+    const content = `# Ledger\n\n## Working style (newest first)\n\n${fillerEntries}\n- **2026-07-02**: Pacing beats crunch on alpha-topic.\n- **2026-07-02**: Pacing beats crunch on beta-topic.\n`
+    index.upsertNote(
+      {
+        filePath: "About Me/Ledger.md",
+        rawContent: content,
+        fileStat: { mtimeMs: 1000, size: 500 },
+      },
+      logger,
+    )
+    await index.embedNote({ notePath: "About Me/Ledger.md", rawContent: content }, logger)
+
+    const result = await index.memoryRecall({ query: "pacing crunch", limit: 1 }, logger)
+    expect(result.entries.map((entry) => entry.text)).toEqual([
+      "- **2026-07-02**: Pacing beats crunch on alpha-topic.",
+    ])
+  })
+
   it("rejects with a remediation message when no memory dir is configured", async () => {
     const index = createSearchIndex(":memory:")
-    await expect(
-      index.memoryRecall({ query: "anything" }, logger),
-    ).rejects.toThrow(
-      "memory recall is not available: the memory layer is disabled (MEMORY_ENABLED=false)",
+    await expect(index.memoryRecall({ query: "anything" }, logger)).rejects.toThrow(
+      /^memory recall is not available: the memory layer is disabled \(MEMORY_ENABLED=false\)$/,
     )
   })
 
@@ -415,10 +562,7 @@ describe("memoryRecall", () => {
     // all three stems) and the off-topic mock reranker rejects every vector
     // candidate — exactly the live zero-result defect. The any-term rescue
     // must surface the entry matching "testing".
-    const result = await index.memoryRecall(
-      { query: "opinions on testing" },
-      logger,
-    )
+    const result = await index.memoryRecall({ query: "opinions on testing" }, logger)
     // rerankPairs ran once: proof the hybrid rerank path rejected the
     // candidates — not the vector-empty early return producing "fts" mode.
     expect(vi.mocked(reranker.rerankPairs)).toHaveBeenCalledTimes(1)
@@ -462,18 +606,17 @@ describe("memoryRecall", () => {
     // 0.05), and an irrelevant logit (-8). The adaptive floor lowers to
     // ~0.027 (10% of 0.27), rescuing the borderline entry.
     const moderateReranker: Reranker = {
-      rerankPairs: vi
-        .fn()
-        .mockImplementation((_query: string, documents: string[]) =>
-          Promise.resolve(
-            documents.map((document) => {
-              const lowered = document.toLowerCase()
-              if (lowered.includes("direct")) return -1
-              if (lowered.includes("structured")) return -3
-              return -8
-            }),
-          ),
+      rerankPairs: vi.fn().mockImplementation((_query: string, documents: string[]) =>
+        Promise.resolve(
+          documents.map((document) => {
+            const lowered = document.toLowerCase()
+
+            if (lowered.includes("direct")) return -1
+            if (lowered.includes("structured")) return -3
+            return -8
+          }),
         ),
+      ),
     }
     const index = await createRecallIndex({
       reranker: moderateReranker,
@@ -516,15 +659,11 @@ describe("memoryRecall", () => {
     // Both communication entries survive: "structured" at sigmoid(-3) ≈ 0.047
     // would be cut by the old absolute floor (0.05) but the adaptive floor
     // lowers to ~0.027 when the best probability is only ~0.27.
-    expect(entries.map((entry) => entry.date)).toEqual([
-      "2026-06-15",
-      "2026-07-01",
-    ])
+    expect(entries.map((entry) => entry.date)).toEqual(["2026-06-15", "2026-07-01"])
     // The reranker must receive file-prefixed documents matching the
     // embedding format — a regression that drops the file name from
     // the reranker input silently degrades relevance scoring.
-    const rerankerDocuments = vi.mocked(moderateReranker.rerankPairs).mock
-      .calls[0]?.[1]
+    const rerankerDocuments = vi.mocked(moderateReranker.rerankPairs).mock.calls[0]?.[1]
     expect(rerankerDocuments).toBeDefined()
     for (const document of rerankerDocuments ?? []) {
       expect(document).toMatch(/^Communication > /)
@@ -538,16 +677,14 @@ describe("memoryRecall", () => {
     // query mentions "agents", proving the file name prefix is the
     // relevance differentiator, not the entry text.
     const fileNameAwareReranker: Reranker = {
-      rerankPairs: vi
-        .fn()
-        .mockImplementation((_query: string, documents: string[]) =>
-          Promise.resolve(
-            documents.map((document) => {
-              if (document.startsWith("Agents > ")) return 2
-              return -4
-            }),
-          ),
+      rerankPairs: vi.fn().mockImplementation((_query: string, documents: string[]) =>
+        Promise.resolve(
+          documents.map((document) => {
+            if (document.startsWith("Agents > ")) return 2
+            return -4
+          }),
         ),
+      ),
     }
     const index = await createRecallIndex({
       reranker: fileNameAwareReranker,
@@ -590,18 +727,17 @@ describe("memoryRecall", () => {
     // threshold (0.095) exceeds MAX_FLOOR (0.05) — the ceiling must bind
     // so good queries behave identically to the old absolute cutoff.
     const confidentReranker: Reranker = {
-      rerankPairs: vi
-        .fn()
-        .mockImplementation((_query: string, documents: string[]) =>
-          Promise.resolve(
-            documents.map((document) => {
-              const lowered = document.toLowerCase()
-              if (lowered.includes("focused")) return 3
-              if (lowered.includes("borderline")) return -3
-              return -8
-            }),
-          ),
+      rerankPairs: vi.fn().mockImplementation((_query: string, documents: string[]) =>
+        Promise.resolve(
+          documents.map((document) => {
+            const lowered = document.toLowerCase()
+
+            if (lowered.includes("focused")) return 3
+            if (lowered.includes("borderline")) return -3
+            return -8
+          }),
         ),
+      ),
     }
     const index = await createRecallIndex({
       reranker: confidentReranker,
@@ -653,9 +789,7 @@ describe("memoryRecall", () => {
         .fn()
         .mockImplementation((_query: string, documents: string[]) =>
           Promise.resolve(
-            documents.map((document) =>
-              document.toLowerCase().includes("recovery") ? 6 : -8,
-            ),
+            documents.map((document) => (document.toLowerCase().includes("recovery") ? 6 : -8)),
           ),
         ),
     }
@@ -675,10 +809,7 @@ describe("memoryRecall", () => {
     // but the rerank cut keeps the recovery entry, so the rescue must NOT
     // fire: the decoy is an any-term hit on "pacing" and would appear if it
     // did.
-    const result = await index.memoryRecall(
-      { query: "pacing recuperation" },
-      logger,
-    )
+    const result = await index.memoryRecall({ query: "pacing recuperation" }, logger)
     expect(result.entries.map((entry) => entry.date)).toEqual(["2026-07-02"])
     expect(result.search_mode).toBe("hybrid")
     expect(result.reranked).toBe(true)
@@ -704,10 +835,7 @@ describe("memoryRecall", () => {
     })
     // Both files hold an any-term hit on "testing" — the filter must
     // exclude Beta, not just include Alpha.
-    const result = await index.memoryRecall(
-      { query: "opinions on testing", file: "Alpha" },
-      logger,
-    )
+    const result = await index.memoryRecall({ query: "opinions on testing", file: "Alpha" }, logger)
     expect(result.entries.map((entry) => [entry.file, entry.date])).toEqual([
       ["Alpha", "2026-05-01"],
     ])
@@ -738,10 +866,7 @@ describe("memoryRecall", () => {
     })
     const infoSpy = vi.spyOn(logger, "info")
     onTestFinished(() => infoSpy.mockRestore())
-    const result = await index.memoryRecall(
-      { query: "opinions on testing", file: "Alpha" },
-      logger,
-    )
+    const result = await index.memoryRecall({ query: "opinions on testing", file: "Alpha" }, logger)
     // The filter empties the rescue set — a filtered-to-empty result keeps
     // the genuine no-match shape and never logs the rescue fingerprint.
     expect(result.entries).toEqual([])
@@ -760,10 +885,7 @@ describe("memoryRecall", () => {
     onTestFinished(() => infoSpy.mockRestore())
     // Without vectors the all-terms leg is the only leg — an empty result
     // there must degrade to any-term matching too.
-    const result = await index.memoryRecall(
-      { query: "opinions on testing" },
-      logger,
-    )
+    const result = await index.memoryRecall({ query: "opinions on testing" }, logger)
     expect(result.entries).toEqual([
       {
         file: "Opinions",

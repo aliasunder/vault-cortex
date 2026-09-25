@@ -145,15 +145,12 @@ export const classifyDaemonStatus = (spawnResult: {
 }): DaemonStatus => {
   if (spawnResult.status === 0) return "running"
   const spawnErrorCode =
-    spawnResult.error && "code" in spawnResult.error
-      ? spawnResult.error.code
-      : undefined
+    spawnResult.error && "code" in spawnResult.error ? spawnResult.error.code : undefined
   return spawnErrorCode === "ENOENT" ? "not-installed" : "not-running"
 }
 
 export const createDockerRunner = (): DockerRunner => ({
-  daemonStatus: () =>
-    classifyDaemonStatus(spawnSync("docker", ["info"], { timeout: 5_000 })),
+  daemonStatus: () => classifyDaemonStatus(spawnSync("docker", ["info"], { timeout: 5_000 })),
   // stdout is discarded: `docker run -d` prints only the container ID there,
   // which lands as a raw hex line between the wizard's prompts. stderr stays
   // inherited — image-pull progress and error output print live, which the
@@ -162,16 +159,13 @@ export const createDockerRunner = (): DockerRunner => ({
     spawnSync("docker", buildDockerRunArgs(params), {
       stdio: ["ignore", "ignore", "inherit"],
     }).status === 0,
-  pullImage: (image) =>
-    spawnSync("docker", ["pull", image], { stdio: "inherit" }).status === 0,
-  stopAndRemoveContainer: () =>
-    spawnSync("docker", ["rm", "-f", CONTAINER_NAME]).status === 0,
+  pullImage: (image) => spawnSync("docker", ["pull", image], { stdio: "inherit" }).status === 0,
+  stopAndRemoveContainer: () => spawnSync("docker", ["rm", "-f", CONTAINER_NAME]).status === 0,
   // `docker rm -f` on a missing container exits 1 on engines < 23 and 0 on
   // >= 23, so stopAndRemoveContainer's status can't distinguish "already
   // gone" from "failed" — callers needing idempotent messaging probe
   // existence first. Output stays piped (discarded): this is a boolean probe.
-  containerExists: () =>
-    spawnSync("docker", ["container", "inspect", CONTAINER_NAME]).status === 0,
+  containerExists: () => spawnSync("docker", ["container", "inspect", CONTAINER_NAME]).status === 0,
   // Async spawn, not spawnSync: --follow streams until interrupted, and the
   // exit code must be observable after the stream closes.
   streamLogs: (params) =>
@@ -188,9 +182,7 @@ export const createDockerRunner = (): DockerRunner => ({
       child.once("error", (spawnError) => {
         // Event handler, not a catch — but the same "never swallow" rule
         // applies: without this line a spawn failure is a bare exit 1.
-        process.stderr.write(
-          `vault-cortex: could not run docker logs — ${spawnError.message}\n`,
-        )
+        process.stderr.write(`vault-cortex: could not run docker logs — ${spawnError.message}\n`)
         resolveExitCode(1)
       })
       // A null code means the child died to a signal — report the shell
@@ -243,6 +235,7 @@ export const healthPollTimeoutMs = (mode: Mode): number => {
  *  server failed — it may flip healthy after the CLI stops waiting. */
 export const healthTimeoutMessage = (mode: Mode, timeoutMs: number): string => {
   const baseMessage = `Server did not respond within ${timeoutMs / 60_000} minutes — check: docker logs ${CONTAINER_NAME}`
+
   if (mode === "remote") {
     return `${baseMessage} (a long first sync may still be running — the container keeps starting in the background)`
   }
@@ -271,10 +264,12 @@ export const pollHealth = async (
   // "did not respond within N minutes" message stays accurate.
   while (Date.now() < deadline) {
     const attemptTimeoutMs = Math.min(PROBE_TIMEOUT_MS, deadline - Date.now())
+
     if (await probeHealth({ url, timeoutMs: attemptTimeoutMs }, fetchFn)) {
       return true
     }
     const pauseMs = Math.min(intervalMs, deadline - Date.now())
+
     if (pauseMs > 0) {
       await new Promise((resolvePause) => setTimeout(resolvePause, pauseMs))
     }

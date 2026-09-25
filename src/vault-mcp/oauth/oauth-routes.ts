@@ -2,17 +2,10 @@
 
 import express, { Router } from "express"
 import type { NextFunction, Request, Response } from "express"
-import {
-  createOAuthMetadata,
-  mcpAuthRouter,
-} from "@modelcontextprotocol/sdk/server/auth/router.js"
+import { createOAuthMetadata, mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js"
 import { metadataHandler } from "@modelcontextprotocol/sdk/server/auth/handlers/metadata.js"
 import type { OAuthProtectedResourceMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
-import {
-  extractClientIp,
-  safeEqual,
-  tokenBindingForServer,
-} from "../../auth.js"
+import { extractClientIp, safeEqual, tokenBindingForServer } from "../../auth.js"
 import { renderConsentPage } from "./consent-page.js"
 import { DEFAULT_SCOPE, type OAuthProvider } from "./oauth-provider.js"
 import type { Logger } from "../../logger.js"
@@ -41,8 +34,7 @@ export const createOAuthRoutes = ({
   logger,
 }: OAuthRoutesOptions): Router => {
   const routeLogger = logger.child({ component: "oauth-routes" })
-  const { provider, getPendingRequest, approveRequest, deletePendingRequest } =
-    oauthProvider
+  const { provider, getPendingRequest, approveRequest, deletePendingRequest } = oauthProvider
   const router = Router()
 
   // 5 req/min per client IP on each flow endpoint (/authorize, /token,
@@ -72,8 +64,7 @@ export const createOAuthRoutes = ({
       options: { statusCode: number; message: unknown },
     ) => {
       const requestPath =
-        URL.parse(req.originalUrl, "http://localhost")?.pathname ??
-        req.originalUrl
+        URL.parse(req.originalUrl, "http://localhost")?.pathname ?? req.originalUrl
       routeLogger.warn("oauth_rate_limited", {
         clientIp: extractClientIp(req, trustForwardedHops),
         path: requestPath,
@@ -104,10 +95,7 @@ export const createOAuthRoutes = ({
     scopes_supported: scopesSupported,
     resource_documentation: new URL(serviceDocumentationUrl).href,
   }
-  router.use(
-    "/.well-known/oauth-protected-resource/mcp",
-    metadataHandler(mcpResourceMetadata),
-  )
+  router.use("/.well-known/oauth-protected-resource/mcp", metadataHandler(mcpResourceMetadata))
 
   // The SDK includes public-client auth, but our registrations require a secret.
   router.use(
@@ -146,9 +134,8 @@ export const createOAuthRoutes = ({
       const body: Record<string, unknown> = req.body
       const { request_id, token, action } = body
       const hasStringFields =
-        typeof request_id === "string" &&
-        typeof token === "string" &&
-        typeof action === "string"
+        typeof request_id === "string" && typeof token === "string" && typeof action === "string"
+
       if (!hasStringFields) {
         res.status(400).send("Invalid form submission.")
         return
@@ -180,8 +167,7 @@ export const createOAuthRoutes = ({
         deletePendingRequest(request_id)
         const redirectUrl = new URL(pending.params.redirectUri)
         redirectUrl.searchParams.set("error", "access_denied")
-        if (pending.params.state)
-          redirectUrl.searchParams.set("state", pending.params.state)
+        if (pending.params.state) redirectUrl.searchParams.set("state", pending.params.state)
         res.redirect(redirectUrl.toString())
         return
       }
@@ -194,6 +180,7 @@ export const createOAuthRoutes = ({
       // and keeps the consent flow forgiving — mirroring the trim()
       // already applied to bearer-header auth in parseBearer().
       const submittedToken = token?.replace(/\s+/g, "") ?? ""
+
       if (!submittedToken || !safeEqual(submittedToken, authToken)) {
         consentLogger.warn("oauth_consent_bad_token")
         res.type("html").send(
@@ -212,8 +199,7 @@ export const createOAuthRoutes = ({
       consentLogger.info("oauth_consent_completed")
       const redirectUrl = new URL(pending.params.redirectUri)
       redirectUrl.searchParams.set("code", code)
-      if (pending.params.state)
-        redirectUrl.searchParams.set("state", pending.params.state)
+      if (pending.params.state) redirectUrl.searchParams.set("state", pending.params.state)
       res.redirect(redirectUrl.toString())
     },
   )

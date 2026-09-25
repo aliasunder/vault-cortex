@@ -22,9 +22,7 @@ export const createReranker = (logger: Logger) => {
     ReturnType<TransformersModule["AutoTokenizer"]["from_pretrained"]>
   >
   type ModelInstance = Awaited<
-    ReturnType<
-      TransformersModule["AutoModelForSequenceClassification"]["from_pretrained"]
-    >
+    ReturnType<TransformersModule["AutoModelForSequenceClassification"]["from_pretrained"]>
   >
 
   let tokenizer: TokenizerInstance | null = null
@@ -88,10 +86,7 @@ export const createReranker = (logger: Logger) => {
    *  score per document — higher means more relevant. Scores are
    *  unnormalized (typically in the range -10 to +10 for ms-marco models);
    *  call `normalizeScores` before blending with RRF scores. */
-  const rerankPairs = async (
-    query: string,
-    documents: readonly string[],
-  ): Promise<number[]> => {
+  const rerankPairs = async (query: string, documents: readonly string[]): Promise<number[]> => {
     if (documents.length === 0) return []
 
     const crossEncoder = await getModel()
@@ -116,6 +111,7 @@ export const createReranker = (logger: Logger) => {
       // Number() accepts `any`, so it would silently convert an undefined
       // indexed access to NaN — extract and guard explicitly.
       const logitValue = output.logits.data[0]
+
       if (logitValue === undefined) {
         throw new Error("reranker output tensor has no data")
       }
@@ -176,6 +172,7 @@ export const blendScores = (params: {
   return normalizedRrf.map((rrfNorm, index) => {
     const rerankNorm = normalizedRerank[index]
     const rank = params.rrfRanks[index]
+
     if (rerankNorm === undefined || rank === undefined) {
       throw new Error(`score array length mismatch at index ${index}`)
     }
@@ -184,8 +181,6 @@ export const blendScores = (params: {
     const rrfWeight = rank <= 3 ? 0.75 : midOrLowWeight
     const rerankWeight = 1 - rrfWeight
 
-    return Number(
-      (rrfNorm * rrfWeight + rerankNorm * rerankWeight).toPrecision(4),
-    )
+    return Number((rrfNorm * rrfWeight + rerankNorm * rerankWeight).toPrecision(4))
   })
 }
