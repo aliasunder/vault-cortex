@@ -1063,10 +1063,11 @@ The runtime image (`Dockerfile`) minimizes the attack surface:
 
 ### Durability
 
-Three layers cover different failure classes:
+Four layers cover different failure classes:
 
 | Layer                                 | What it does                                                                                                                | Where                         |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| App-level `protect: true`             | Refuses `sst remove` and `sst dev` on the stage before any resource is touched                                              | `sst.config.ts` `app()`       |
 | Resource-level `protect: true`        | Refuses any Pulumi op that would destroy or replace the Instance                                                            | `sst.config.ts` instance opts |
 | Resource-level `retainOnDelete: true` | If SST does decide to delete (`sst remove` once `protect` is cleared), orphan the AWS resource instead of destroying        | `sst.config.ts` instance opts |
 | Lightsail auto-snapshot (`addOn`)     | Daily disk image at 03:00 UTC, 7-day rolling retention. Captures the full boot disk including ad-hoc SSH-installed packages | `addOn` on the Instance       |

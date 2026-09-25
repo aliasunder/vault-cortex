@@ -5,10 +5,11 @@ replace it on purpose. Companion to `sst.config.ts`.
 
 ## What's protecting the VM
 
-Three layers cover different failure classes:
+Four layers cover different failure classes:
 
 | Layer                                 | What it does                                                                                                              | Where                         |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| App-level `protect: true`             | Refuses `sst remove` and `sst dev` on the stage before any resource is touched                                            | `sst.config.ts` `app()`       |
 | Resource-level `protect: true`        | Refuses any Pulumi op that would destroy/replace the Instance                                                             | `sst.config.ts` instance opts |
 | Resource-level `retainOnDelete: true` | If SST ever does decide to delete (`sst remove` once `protect` is cleared), orphan the AWS resource instead of destroying | `sst.config.ts` instance opts |
 | Lightsail auto-snapshot               | Daily disk image at 03:00 UTC, 7-day rolling retention                                                                    | `addOn` on the Instance       |

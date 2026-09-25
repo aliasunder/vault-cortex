@@ -205,7 +205,7 @@ aws logs tail /aws/lambda/<authorizer-function> --since 24h
 | `npm run docker:publish`   | Builds the vault-cortex `:remote` image (linux/amd64) and pushes to GHCR.                                                                                                                      |
 | `npm run lightsail:up`     | Resolves `PUBLIC_URL` (explicit value, else `CUSTOM_DOMAIN`, else the gateway), bootstraps the VM (mkdir, Docker wait, GHCR login), SCPs config, pulls + restarts containers. Volumes persist. |
 | `npm run deploy:dev`       | Full chain: `deploy` → `docker:publish` → `lightsail:up`.                                                                                                                                      |
-| `npm run remove`           | **Destructive** — deletes Lightsail VM, API Gateway, Lambda. Frees the ~$12–24 USD/mo Lightsail cost. Fails while the VM is protected; see [Tearing down](#tearing-down).                      |
+| `npm run remove`           | **Destructive** — deletes Lightsail VM, API Gateway, Lambda. Frees the ~$12–24 USD/mo Lightsail cost. Refuses to run while the stage is protected; see [Tearing down](#tearing-down).          |
 
 All commands are idempotent and safe to run repeatedly.
 
@@ -221,17 +221,19 @@ Infra changes (anything in `sst.config.ts`): use `npm run deploy:dev` (full chai
 
 ## Tearing down
 
-`npm run remove` fails while the VM keeps `protect: true` and
-`retainOnDelete: true`. Clear both first by following
+`npm run remove` refuses to run while `app()` in `sst.config.ts` sets
+`protect: true`, and fails while the VM keeps `protect: true` and
+`retainOnDelete: true`. Set `protect: false` in `app()` first, then clear
+the VM's two lines by following
 [RECOVERY.md Option B](./RECOVERY.md#option-b--sst-replace-clean-provision)
-steps 1–3 (take a snapshot, wait for it, clear the two lines and deploy),
-then run:
+steps 1–3 (take a snapshot, wait for it, clear the two lines and deploy), so
+that deploy records all three changes. Then run:
 
 ```bash
 npm run remove   # removes Lightsail, API Gateway, Lambda
 ```
 
-Afterwards restore the two lines (`git checkout sst.config.ts`) so the edit
+Afterwards restore the three lines (`git checkout sst.config.ts`) so the edit
 is never committed.
 
 ---
@@ -807,9 +809,9 @@ curl https://mcp.example.com/healthz
 
 ## Troubleshooting
 
-- **`npm run build` fails with `Property 'McpAuthToken' does not exist`** — `sst-env.d.ts` hasn't been generated. Create `~/.config/vault-cortex/.env` (one-time setup step 2), then run `npm run deploy` (or `npm run dev:sst`) once for your stage.
+- **`npm run build` fails with `Property 'McpAuthToken' does not exist`** — `sst-env.d.ts` hasn't been generated. Create `~/.config/vault-cortex/.env` (one-time setup step 2), then run `npm run deploy` once for your stage.
 - **Every request gets `403` at the gateway while the instance is healthy** — the Lambda authorizer is rejecting every token, and clients do not recover on their own (they refresh on 401, not 403). Either the Lambda and Express disagree on `PUBLIC_URL` — the Lambda derives its value at `sst deploy` (the `PUBLIC_URL` env var, else `CUSTOM_DOMAIN`, else the gateway URL), and Express reads the instance `.env`, which CI and `npm run lightsail:up` write with the same rule, so a disagreement means the instance `.env` was edited by hand or written by an older deploy; re-run the deploy (or `npm run lightsail:up`) so both derive the same value — or connected clients still hold tokens minted before audience binding (an upgrade that skipped the release that accepts them): each client recovers when its own token timer refreshes it, at most one access-token lifetime, or reconnect it now.
-- **`npm run dev:sst` errors with `SecretMissingError`** — set the secret first (one-time setup step 3).
+- **`npm run deploy` errors with `SecretMissingError`** — set the secret first (one-time setup step 3).
 - **`curl <lightsailIp>` hangs** — use `:8000`. The firewall only allows ports 22 and 8000 by default (port 22 may be blocked if `SSH_CIDRS=none`, port 8000 may be blocked if `MCP_PORT_CIDRS=none`).
 - **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Verify `~/.ssh/vault-cortex` exists (generate with `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`), then redeploy. To also use your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.
 - **`docker: command not found` on `lightsail:up`** — cloud-init hasn't finished installing Docker. The script waits up to 120s automatically; if it still times out, SSH in and check `tail /var/log/cloud-init-output.log`.
