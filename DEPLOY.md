@@ -487,13 +487,13 @@ ssh -i ~/.ssh/vault-cortex ubuntu@vault-cortex
 
 This connects via MagicDNS. You can also use the Tailscale IP directly (`100.x.y.z` from `tailscale status`).
 
-**3. Close public SSH** — set `SSH_CIDRS=none` and deploy:
+**3. Close public SSH** — add `SSH_CIDRS=none` to `~/.config/vault-cortex/.env`, then deploy:
 
 ```bash
-SSH_CIDRS=none npm run deploy
+npm run deploy
 ```
 
-This blocks port 22 on the Lightsail firewall (non-routable CIDR — same mechanism as [`MCP_PORT_CIDRS`](#port-8000-hardening-optional)). SSH via the public IP is now blocked; SSH via Tailscale continues to work.
+This blocks port 22 on the Lightsail firewall (non-routable CIDR — same mechanism as [`MCP_PORT_CIDRS`](#port-8000-hardening-optional)). SSH via the public IP is now blocked; SSH via Tailscale continues to work. Keep the line in the file: every deploy sets the firewall from the current value, and an unset `SSH_CIDRS` reopens port 22.
 
 **4. Update local dev** — add to `~/.config/vault-cortex/.env`:
 
@@ -562,8 +562,9 @@ If the VM is replaced (key rotation, bundle upgrade) and `SSH_CIDRS=none`, port 
 To revert to public SSH at any time:
 
 ```bash
-# Re-open port 22 via SST (no SSH needed — runs from your laptop)
-SSH_CIDRS=0.0.0.0/0 npm run deploy
+# Re-open port 22 via SST (no SSH needed — runs from your laptop).
+# First delete SSH_CIDRS=none from ~/.config/vault-cortex/.env, or the next deploy closes it again.
+npm run deploy
 ```
 
 Or via AWS CLI for immediate effect (overwritten on next SST deploy). This command replaces every firewall rule, so it sets both ports. If you restrict port 8000 with `MCP_PORT_CIDRS`, replace its `0.0.0.0/0` with your configured CIDRs (`192.0.2.1/32` for `none`), or the command reopens port 8000 to the internet:
@@ -678,11 +679,13 @@ curl -o /dev/null -w "%{http_code}\n" https://<subdomain>.<yourdomain>/healthz
 curl -H "CF-Access-Client-Id: <client-id>" -H "CF-Access-Client-Secret: <client-secret>" https://<subdomain>.<yourdomain>/healthz
 ```
 
-**8. Route through the tunnel and block port 8000** — set `ORIGIN_URL`, `MCP_PORT_CIDRS=none`, and `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true`, then deploy:
+**8. Route through the tunnel and block port 8000** — add `ORIGIN_URL=https://<subdomain>.<yourdomain>`, `MCP_PORT_CIDRS=none`, and `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` to `~/.config/vault-cortex/.env`, then deploy:
 
 ```bash
-ORIGIN_URL=https://<subdomain>.<yourdomain> MCP_PORT_CIDRS=none ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true npm run deploy
+npm run deploy
 ```
+
+Keep them in the file: a deploy without them routes the gateway back to port 8000 and reopens it.
 
 **9. Verify the new path:**
 
@@ -699,7 +702,7 @@ curl https://<api-gateway-url>/healthz
 **Already running `ORIGIN_URL` with an open tunnel?** Until the lock exists, keep `TRUST_FORWARDED_HOPS=0` — the open tunnel hostname passes any client-written `Forwarded` header through unverified. To lock it:
 
 1. Create and apply the service token (steps 5–7)
-2. Redeploy with `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` (step 8's command)
+2. Redeploy with `ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED=true` (step 8)
 3. Verify the new path (step 9)
 4. Set the trust values (step 10)
 
@@ -746,8 +749,10 @@ The tunnel token doesn't change when the VM is replaced — it's tied to the Clo
 To revert to direct port 8000 access at any time:
 
 ```bash
-# Remove ORIGIN_URL and re-open port 8000 (no SSH needed — runs from your laptop)
-ORIGIN_URL= MCP_PORT_CIDRS=0.0.0.0/0 npm run deploy
+# Remove ORIGIN_URL and re-open port 8000 (no SSH needed — runs from your laptop).
+# First delete ORIGIN_URL, MCP_PORT_CIDRS, and ORIGIN_ACCESS_SERVICE_TOKEN_ENABLED
+# from ~/.config/vault-cortex/.env, or the next deploy restores them.
+npm run deploy
 ```
 
 Or via AWS CLI for immediate firewall change (overwritten on next SST deploy). This command replaces every firewall rule, so it sets both ports. If you restrict SSH with `SSH_CIDRS`, replace port 22's `0.0.0.0/0` with your configured CIDRs (`192.0.2.1/32` for `none`), or the command reopens SSH to the internet:

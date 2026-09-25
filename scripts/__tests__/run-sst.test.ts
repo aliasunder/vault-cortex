@@ -73,6 +73,24 @@ describe("runSst", () => {
     expect(errorLog).toHaveBeenCalledWith("✕ Could not start the local SST CLI.")
   })
 
+  it("reports a fixed error without spawning when the sst package.json names no sst command", () => {
+    const envFilePath = writeEnvFile("WRAPPER_SETTING=value\n")
+    const packageDirectory = mkdtempSync(join(tmpdir(), "vault-cortex-broken-sst-"))
+    onTestFinished(() => rmSync(packageDirectory, { recursive: true, force: true }))
+    const packageJsonPath = join(packageDirectory, "package.json")
+    writeFileSync(packageJsonPath, '{ "name": "sst", "bin": {} }\n')
+    vi.mocked(findPackageJSON).mockReturnValueOnce(packageJsonPath)
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined)
+
+    const exitCode = runSst({ args: ["deploy"], envFilePath })
+
+    expect(exitCode).toBe(1)
+    expect(spawnSync).toHaveBeenCalledTimes(0)
+    expect(findPackageJSON).toHaveBeenCalledTimes(1)
+    expect(errorLog).toHaveBeenCalledTimes(1)
+    expect(errorLog).toHaveBeenCalledWith("✕ Could not start the local SST CLI.")
+  })
+
   it("does not spawn SST when the external file is missing", () => {
     const missingDirectory = mkdtempSync(join(tmpdir(), "vault-cortex-missing-run-sst-"))
     onTestFinished(() => rmSync(missingDirectory, { recursive: true, force: true }))
