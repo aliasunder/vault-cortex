@@ -47,7 +47,8 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
 The tree lists the main folders and the files an agent most often needs:
 entry points and core modules. Small self-explanatory helpers and routine
-files (READMEs, compose files, config files) are left out; run `ls` on a
+files (READMEs, compose files, build configs such as `package.json` and
+`tsconfig.json`) are left out; run `ls` on a
 folder for the full list.
 
 ```text
