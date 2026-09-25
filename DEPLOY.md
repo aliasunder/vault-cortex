@@ -465,9 +465,9 @@ Changing the deploy keypair **triggers a VM replacement**. The `SSH_PUBKEY` GitH
 2. Wait for the snapshot to finish. Lightsail creates it in the background, so repeat `aws lightsail get-instance-snapshot --instance-snapshot-name pre-key-rotation --query 'instanceSnapshot.state' --output text` until it prints `available`. Stop if it prints `error`
 3. In `sst.config.ts`, remove `protect: true` and `retainOnDelete: true` from the `VaultCortexVm` options, then run `npm run deploy` with no other change. `protect` blocks the replacement, and `retainOnDelete` would leave the old VM holding the instance name
 4. Regenerate the key: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`
-5. Run `npm run deploy:dev` — the old VM is deleted, a fresh one is created with the new key, and the container starts on it
-6. Restore the two lines (`git checkout sst.config.ts`), then run `npm run deploy` once more so the new VM is protected
-7. Update both `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets, so CI deploys use the new key
+5. Update both `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets now, so a CI deploy during the next steps uses the new key instead of replacing the VM again
+6. Run `npm run deploy:dev` — the old VM is deleted, a fresh one is created with the new key, and the container starts on it
+7. Restore the two lines (`git checkout sst.config.ts`), then run `npm run deploy` once more so the new VM is protected
 
 **Data implications:** vault re-syncs from Obsidian and the search index rebuilds automatically, so the MCP server recovers quickly. What you lose: OAuth state (`oauth.db` — clients re-authenticate on next use), accumulated Docker logs, and anything manually installed on the VM outside of IaC (ad-hoc `apt install`, Tailscale, cron jobs, etc.).
 
