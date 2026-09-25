@@ -43,8 +43,10 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
 ## Structure
 
-The tree lists every folder and most files; some files with self-explanatory
-names are left out. Run `ls` on a folder for the full list.
+The tree lists every folder and the files an agent most often needs: entry
+points, core modules, and files other sections refer to. Small
+self-explanatory helpers and routine files (READMEs, compose files) are left
+out; run `ls` on a folder for the full list.
 
 ```text
 server.json # MCP server registry manifest
