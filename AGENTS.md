@@ -43,8 +43,8 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
 ## Structure
 
-The tree lists every folder, plus each file whose name alone doesn't say
-what it does. Run `ls` on a folder for the full file list.
+The tree lists every folder and most files; some files with self-explanatory
+names are left out. Run `ls` on a folder for the full list.
 
 ```text
 server.json # MCP server registry manifest
