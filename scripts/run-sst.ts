@@ -33,12 +33,6 @@ const readJsonOrNull = (filePath: string): unknown => {
   }
 }
 
-/**
- * Returns the Node script that SST's package.json declares as its `sst`
- * command. Running that script with this Node binary needs no shell, so it
- * works on Windows, where npm's `sst` shim is a .cmd file that Node cannot
- * start without one.
- */
 const findSstPackageJsonOrNull = (): string | null => {
   try {
     // Resolves the package directory directly, because SST's exports map
@@ -51,6 +45,12 @@ const findSstPackageJsonOrNull = (): string | null => {
   }
 }
 
+/**
+ * Returns the Node script that SST's package.json declares as its `sst`
+ * command. Running that script with this Node binary needs no shell, so it
+ * works on Windows, where npm's `sst` shim is a .cmd file that Node cannot
+ * start without one.
+ */
 const resolveSstLauncherPath = (): string | null => {
   const packageJsonPath = findSstPackageJsonOrNull()
 

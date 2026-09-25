@@ -303,15 +303,20 @@ switch (subcommand) {
     // verbatim, so a laptop deploy can't diverge from what CI would write.
     const shippedEnvDir = mkdtempSync(join(tmpdir(), "vault-cortex-env-"))
     const shippedEnvPath = join(shippedEnvDir, ".env")
-    try {
-      writeFileSync(shippedEnvPath, shippedEnvContent, { mode: 0o600 })
-      run({
-        cmd: `scp ${sshIdentityOption} ${sshOpts} ${shippedEnvPath} ubuntu@${targetHost}:/opt/vault-cortex/.env`,
-        description: "scp .env (with the resolved PUBLIC_URL) to the instance",
-      })
-    } finally {
+    const removeShippedEnvDir = (): void => {
       rmSync(shippedEnvDir, { recursive: true, force: true })
     }
+
+    // The copy holds every secret in the env file. run() calls process.exit
+    // when scp fails, which skips finally blocks, so an exit listener removes
+    // the copy on that path.
+    process.once("exit", removeShippedEnvDir)
+    writeFileSync(shippedEnvPath, shippedEnvContent, { mode: 0o600 })
+    run({
+      cmd: `scp ${sshIdentityOption} ${sshOpts} ${shippedEnvPath} ubuntu@${targetHost}:/opt/vault-cortex/.env`,
+      description: "scp .env (with the resolved PUBLIC_URL) to the instance",
+    })
+    removeShippedEnvDir()
     run({
       cmd: `ssh ${sshIdentityOption} ${sshOpts} ubuntu@${targetHost} 'cd /opt/vault-cortex && docker compose pull && docker compose up -d --remove-orphans --wait --wait-timeout 300 && docker image prune -f'`,
       description: "ssh: docker compose pull && docker compose up -d on the instance",

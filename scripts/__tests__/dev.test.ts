@@ -1,5 +1,13 @@
 import { spawnSync } from "node:child_process"
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { delimiter, join, resolve } from "node:path"
 import { describe, expect, it, onTestFinished } from "vitest"
@@ -176,5 +184,48 @@ describe("dev deployment helper", () => {
     expect(result.status).toBe(1)
     expect(result.stderr).toBe("✕  Could not resolve vault-cortex-ip-teststage from AWS.\n")
     expect(readFileSync(awsRegionPath, "utf8")).toBe(expectedRegion)
+  })
+
+  it("removes the temporary .env copy when copying it to the instance fails", () => {
+    const directory = createTempDirectory()
+    const tempDirectory = join(directory, "tmp")
+    mkdirSync(tempDirectory)
+    const scpArgumentsPath = join(directory, "scp-arguments.txt")
+    const sshKeyPath = join(directory, "deploy-key")
+    writeFileSync(sshKeyPath, "fake-key\n")
+    const deploymentEnvDirectory = join(directory, ".config", "vault-cortex")
+    mkdirSync(deploymentEnvDirectory, { recursive: true })
+    writeFileSync(
+      join(deploymentEnvDirectory, ".env"),
+      "GHCR_USER=file-user\nPUBLIC_URL=https://mcp.example.com\n" +
+        `LIGHTSAIL_SSH_HOST=instance.example\nLIGHTSAIL_SSH_KEY=${sshKeyPath}\n`,
+    )
+    const sshPath = join(directory, "ssh")
+    writeFileSync(sshPath, "#!/bin/sh\nexit 0\n")
+    chmodSync(sshPath, 0o755)
+    // Records each copy's arguments and fails only the .env copy.
+    const scpPath = join(directory, "scp")
+    writeFileSync(
+      scpPath,
+      '#!/bin/sh\nprintf "%s\\n" "$@" >> "$SCP_ARGUMENTS_PATH"\n' +
+        'case "$*" in *:/opt/vault-cortex/.env) exit 1 ;; esac\nexit 0\n',
+    )
+    chmodSync(scpPath, 0o755)
+
+    const result = runDev({
+      subcommand: "lightsail:up",
+      homeDirectory: directory,
+      additionalEnv: { SCP_ARGUMENTS_PATH: scpArgumentsPath, TMPDIR: tempDirectory },
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toBe("✕ scp .env (with the resolved PUBLIC_URL) to the instance failed\n")
+    const envCopyPath = readFileSync(scpArgumentsPath, "utf8")
+      .split("\n")
+      .find((argument) => argument.startsWith(join(tempDirectory, "vault-cortex-env-")))
+    expect(envCopyPath).toMatch(/\/vault-cortex-env-[^/]+\/\.env$/)
+    // tsx keeps its own cache in TMPDIR, so only the helper's directories count.
+    const isEnvCopyDirectory = (entry: string): boolean => entry.startsWith("vault-cortex-env-")
+    expect(readdirSync(tempDirectory).filter(isEnvCopyDirectory)).toEqual([])
   })
 })
