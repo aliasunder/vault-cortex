@@ -17,7 +17,7 @@ Four layers cover different failure classes:
 The auto-snapshot is the only one that protects against AWS-side events
 (hardware failure, AZ outage) and against in-VM mistakes (fat-finger
 `rm -rf`, container compromise). The IaC seatbelts only protect against
-Pulumi-driven replacement.
+Pulumi-driven replacement and `sst remove`.
 
 ## Snapshot policy
 
