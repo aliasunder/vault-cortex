@@ -326,9 +326,11 @@ and gating is derived once rather than re-decided per call site:
   sibling surfaces, not a layer stack; a helper both need is either generic
   enough for `utils/` or belongs in that group's own helpers module.
 
-Before editing these rules, read the comments in `eslint.config.ts`: selector
-options replace rather than merge across blocks, and import patterns match the
-string as written. Validate any new rule with a planted violation.
+Before editing these rules, read the comments in `eslint.config.ts`. Selector
+options replace rather than merge across blocks, so a narrower block must
+restate every selector it still wants. Import patterns match the string as
+written, so a pattern written against the full path matches nothing and the
+rule sits inert. Validate any new rule with a planted violation.
 
 **`utils/` admission:** a helper belongs here only if it is **generic with zero
 domain knowledge** (no vault, Markdown, or MCP concepts) **and** clears one of two
@@ -495,13 +497,19 @@ throughout the codebase.
 <!-- distilled from vault Reference/code-standards-* on 2026-09-23; refresh: run the sync-code-standards skill -->
 
 These rules are authoring guidance, not a review checklist — apply them
-while writing, not after. These are lint-enforced in `eslint.config.ts`:
-arrow functions, `type` over `interface`, no `any` / `as` casts / `!`,
-no nested ternaries, no `else` after return, single-char identifier ban,
-blank lines between a declaration and the guard that consumes it, Luxon
-over `Date` and no `console` in `src/`, env access only via `config.ts`,
-and the Module layering import bans. The rest are the author's
-responsibility at write time.
+while writing, not after. `eslint.config.ts` enforces this subset:
+
+- Arrow functions, and `type` over `interface`.
+- No `any`, `as` casts, or `!` non-null assertions.
+- No nested ternaries, and no `else` after `return`.
+- No single-character identifiers.
+- A blank line between a declaration and the guard that consumes it.
+- Luxon over `Date`, and no `console`, in `src/`.
+- Env access only through `config.ts`.
+- The Module layering import bans.
+
+The rest are the author's responsibility at write time. All rules, enforced
+ones included:
 
 - Functional over OOP. Arrow functions over `function` declarations.
 - Factory/closure pattern for stateful modules (see search-index.ts).
@@ -555,8 +563,9 @@ responsibility at write time.
 - Required inputs enforced at every entry point — fail fast at
   boot/load, not only the friendliest launcher. Making an
   already-expected value mandatory is a bug fix, not a breaking change.
-- Luxon `DateTime` over the native `Date` API: `DateTime.now()`,
-  `.toISO()`, `.toISODate()`, `.toUnixInteger()`.
+- Luxon `DateTime` over the native `Date` API, because Luxon is immutable
+  and avoids manual millisecond arithmetic and `setDate()` mutation: use
+  `DateTime.now()`, `.toISO()`, `.toISODate()`, `.toUnixInteger()`.
 - Platform built-ins over manual string parsing — before hand-rolling
   `split`/slice/regex over structured data (URLs, paths, headers,
   dates), check Node 24's stdlib (e.g. static `URL.parse` returning
@@ -681,8 +690,9 @@ responsibility at write time.
   incident dates, deployment names, task-board IDs, remediation
   narration, and investigation chronology never enter any public
   artifact — committed files, PR descriptions, or comments.
-- No nested ternaries — decompose into named const steps or an
-  early-return guard with a trailing ternary.
+- No nested ternaries — a chained `a ? b : c ? d : e` forces the reader to
+  simulate branches. Decompose into named const steps or an early-return
+  guard with a trailing ternary.
 - Early returns over nested `if/else` — reduces indentation depth
   and cognitive load. Prefer `if (done) return` over wrapping 15
   lines in `if (!done) { ... }`. In loops, prefer `if (cond) { …;
@@ -749,8 +759,9 @@ continue }` over `if/else if` chains — each branch is
   dependencies, and files. Remove a flagged `export` rather than adding
   an ignore comment.
 - **markdownlint** (`.markdownlint-cli2.jsonc`, lint-staged with
-  `--fix` + CI) enforces markdown structure; ignores are documented in
-  the config.
+  `--fix` + CI) enforces markdown structure: blank lines around fences,
+  a language on every fenced block, no bare URLs. Ignores are documented
+  in the config.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload. Working is the floor, not the bar — if
@@ -1289,8 +1300,9 @@ match their siblings' length and shape.
   reference.
 
 Contributor and release conventions live in
-[`CONTRIBUTING.md`](./CONTRIBUTING.md), including how to flag a **breaking
-change** for the generated release notes.
+[`CONTRIBUTING.md`](./CONTRIBUTING.md). Flag a **breaking change** with a
+`BREAKING CHANGE:` footer in the PR description, so the generated release
+notes list it (other accepted flags are in `CONTRIBUTING.md`).
 
 ### Files that track feature surface
 
