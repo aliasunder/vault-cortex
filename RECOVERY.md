@@ -131,7 +131,7 @@ container start, and the FTS5 index rebuilds itself once the MCP
 server boots. OAuth state is gone — clients will re-auth on
 their next token refresh.
 
-## Intentional replace (bundle upgrade, blueprint change, etc.)
+## Intentional replace (bundle upgrade, etc.)
 
 The `protect: true` seatbelt blocks any deploy that would replace the
 Instance. Two approaches depending on how much state you want to preserve:
@@ -177,7 +177,7 @@ but destroys all on-disk state: installed packages, Docker volumes,
 Claude Code, etc.). Only use this if you don't have state worth preserving or
 you're comfortable re-provisioning from scratch.
 
-To intentionally replace (e.g. changing `bundleId` or `blueprintId`):
+To intentionally replace (e.g. changing `bundleId`):
 
 ```bash
 STAGE=<your-stage>                                # the name in .sst/stage
@@ -267,7 +267,7 @@ aws lightsail get-auto-snapshots \
   --resource-name "vault-cortex-${DRILL_STAGE}"
 
 # 2. Confirm protect blocks a replace-triggering change:
-#    (Temporarily tweak userData in sst.config.ts, then:)
+#    (Temporarily change bundleId in sst.config.ts, then:)
 npm run deploy -- --stage "${DRILL_STAGE}"
 #    Expected: deploy fails with a protected-resource error. Revert the change.
 
