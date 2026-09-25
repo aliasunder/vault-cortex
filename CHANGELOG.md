@@ -105,6 +105,30 @@
 
 
 
+
+
+## [0.54.2] — 2026-09-23
+
+### Bug Fixes
+
+- **auth:** Challenge expired access tokens (#603)
+
+### Documentation
+
+- Clarify specification citation boundary (#605)
+- Sync code standards into AGENTS.md (#604)
+- Update CHANGELOG.md for v0.54.1
+
+## [0.54.1] — 2026-09-21
+
+### Features
+
+- **memory:** Make section optional for on_or_after reads (#601)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.54.0
+
 ## [0.54.0] — 2026-09-19
 
 ### Features
