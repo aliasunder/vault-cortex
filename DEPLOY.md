@@ -233,8 +233,7 @@ that deploy records all three changes. Then run:
 npm run remove   # removes Lightsail, API Gateway, Lambda
 ```
 
-Afterwards restore the three lines (`git checkout sst.config.ts`) so the edit
-is never committed.
+Afterwards restore the three lines so the edit is never committed.
 
 ---
 

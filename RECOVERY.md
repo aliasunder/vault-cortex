@@ -176,6 +176,8 @@ you're comfortable re-provisioning from scratch.
 To intentionally replace (e.g. changing `bundleId` or `blueprintId`):
 
 ```bash
+STAGE=<your-stage>                                # the name in .sst/stage
+
 # 1. Take a manual snapshot first — the auto-snapshot from up to 23h ago
 #    may not be recent enough for what you're about to do.
 SNAPSHOT_NAME="pre-upgrade-$(date +%Y%m%d-%H%M%S)"
