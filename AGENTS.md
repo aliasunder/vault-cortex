@@ -48,8 +48,7 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 The tree lists the main folders and the files an agent most often needs:
 entry points and core modules. Small self-explanatory helpers and routine
 files (READMEs, compose files, build configs such as `package.json` and
-`tsconfig.json`) are left out; run `ls` on a
-folder for the full list.
+`tsconfig.json`) are left out; run `ls` on a folder for the full list.
 
 ```text
 server.json # MCP server registry manifest
@@ -76,17 +75,17 @@ deploy/ # End-user quickstart (no clone needed)
 assets/ # Static assets (not shipped in Docker)
   fonts/
     DejaVuSans.ttf # Embedded in render script for deterministic text rendering
-scripts/                               # Dev/ops helpers (not shipped in Docker)
-  dev.ts                               # Deployment helper (subcommands for SSH, sync, etc.)
-  instance-env.ts                      # PUBLIC_URL resolution for lightsail:up (same rule as deploy.yml + sst.config.ts)
-  sync-cli-env-blocks.ts               # Syncs deploy/ .env.example optional blocks into cli/src/env.ts
-  lobehub-manifest.ts                  # Builds lhm.plugin.json from the live MCP tool/prompt registry
-  sync-lobehub-manifest.ts             # Writes the gitignored lhm.plugin.json (npm run sync:lobehub-manifest)
-  generate-dockerhub-readme.ts         # Generates DOCKERHUB.md (WAF-safe Docker Hub README) from README.md
-  render-social-preview.ts             # Renders social-preview.svg → .png via Puppeteer
-  search-eval.ts                       # Search ranking eval harness (judgment-file A/B scoring)
-  search-eval-plan.ts                  # Judgment schema + CLI validation + reuse decisions for the harness
-  search-eval-snapshot.ts              # Vault copy for the eval harness (hidden/prefix exclusions)
+scripts/ # Dev/ops helpers (not shipped in Docker)
+  dev.ts # Deployment helper (subcommands for SSH, sync, etc.)
+  instance-env.ts # PUBLIC_URL for lightsail:up; must resolve like sst.config.ts and deploy.yml, or the authorizer rejects tokens
+  sync-cli-env-blocks.ts # Syncs deploy/ .env.example optional blocks into cli/src/env.ts
+  lobehub-manifest.ts # Builds lhm.plugin.json from the live MCP tool/prompt registry
+  sync-lobehub-manifest.ts # Writes the gitignored lhm.plugin.json (npm run sync:lobehub-manifest)
+  generate-dockerhub-readme.ts # Generates DOCKERHUB.md from README.md, stripping content Cloudflare's WAF in front of Docker Hub blocks
+  render-social-preview.ts # Renders social-preview.svg → .png via Puppeteer
+  search-eval.ts # Search ranking eval: scores hybrid search against a local judgment file of queries and expected results
+  search-eval-plan.ts # Judgment-file schema, CLI validation, and whether to reuse the snapshot and index
+  search-eval-snapshot.ts # Vault copy the eval runs against, skipping hidden paths and configured prefixes
 cli/ # npx vault-cortex CLI (published as vault-cortex npm package)
   src/
     bin.ts # Entry point (version injection + run)
