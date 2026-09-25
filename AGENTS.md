@@ -11,7 +11,7 @@ target (`:latest`, the default stage) is tini + the MCP server alone; the
 (bidirectional Obsidian Sync via the `obsidian-headless` npm CLI) and the MCP
 server in a single container — s6 service definitions live in `rootfs/`, and
 the init chain registers the initial Sync device under the `DEVICE_NAME` env
-var (else the container hostname). Both
+var, or the container hostname when unset. Both
 processes run as UID 1000 (PUID/PGID-adjustable). Production runs the
 `:remote` image on Lightsail as a single Compose service, fronted by API
 Gateway with a Lambda authorizer (path-aware: OAuth endpoints pass
@@ -19,8 +19,10 @@ through, /mcp validates static token or JWT). IaC via SST v4.
 
 The server provides vault CRUD, hybrid search (FTS5 keyword and sqlite-vec
 vector results fused by Reciprocal Rank Fusion, then reranked by a
-cross-encoder; see ARCHITECTURE.md → Hybrid Search), and a memory layer
-(dated-entry notes in the vault's `About Me/` folder). The Docker image uses Debian
+cross-encoder; the vector and rerank stages are optional via
+`EMBEDDING_ENABLED` and `RERANK_MODE`; see ARCHITECTURE.md → Hybrid Search),
+and an optional memory layer (dated-entry notes in the vault's `About Me/`
+folder by default, set by `MEMORY_DIR`). The Docker image uses Debian
 slim (`node:24-trixie-slim`) because `onnxruntime-node` requires glibc,
 and specifically trixie because better-sqlite3 v13's bundled linux-arm64
 prebuild needs glibc >= 2.38 (bookworm's 2.36 crash-loops arm64 images).
@@ -47,8 +49,10 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
 The tree lists the main folders and the files an agent most often needs:
 entry points and core modules. Small self-explanatory helpers and routine
-files (READMEs, compose files, build configs such as `package.json` and
-`tsconfig.json`) are left out; run `ls` on a folder for the full list.
+files (READMEs and other top-level docs, compose files, tool configs such as
+`package.json`, `tsconfig.json`, and `eslint.config.ts`, and the `.github/`,
+`.devin/`, and `.husky/` folders) are left out; run `ls` on a folder for the
+full list.
 
 ```text
 server.json # MCP server registry manifest
@@ -207,9 +211,10 @@ src/
 
 ### Module layering
 
-The `vault-mcp/` tree is organized in dependency layers — parsers
-(`obsidian-markdown/`, `utils/`) → I/O and use-cases (`vault-operations/`,
-`search/`) → protocol (`mcp-core/`, `oauth/`, `setup/`) → wiring (`server.ts`).
+The `vault-mcp/` tree is organized in dependency layers — leaf layers
+(`obsidian-markdown/` parsers, plus `src/utils/`) → I/O and use-cases
+(`vault-operations/`, `search/`) → protocol (`mcp-core/`, `oauth/`, `setup/`)
+→ wiring (`server.ts`).
 A module's folder is decided by **what it depends on**, not just its topic:
 
 - **`obsidian-markdown/`** — pure parsers/transforms over Obsidian's file
@@ -239,8 +244,8 @@ A module's folder is decided by **what it depends on**, not just its topic:
   decides it from the user's Tasks plugin settings (`taskFormat` in
   `.obsidian/plugins/obsidian-tasks-plugin/data.json`, emoji by default), and
   its `setDoneDate`/`setCancelledDate` switches control whether completion
-  dates are stamped at all. When `.obsidian/` is not synced to the server, it
-  defaults to emoji.
+  dates are stamped at all. When `.obsidian/` is not synced to the server,
+  `task-format-config.ts` falls back to emoji.
 - **`vault-operations/`** — everything that reads/writes the vault.
   `vault-filesystem.ts` is the base I/O primitive (atomic writes, path-safety,
   read/list/delete); `vault-patcher`, `note-mover`, `memory-store`, and
@@ -272,9 +277,8 @@ A module's folder is decided by **what it depends on**, not just its topic:
   server metadata — build on that one view, so a cross-reference disappears
   whenever its target does. It sits at `mcp-core/` root precisely because
   `tools/` and `prompts/` both need it and cannot import each other. Each group
-  module is
-  self-contained: one register function and its data-layer imports, with
-  tool names imported from the registry. Shared helpers
+  module is self-contained: one register function and its data-layer imports,
+  with tool names imported from the registry. Shared helpers
   (`safeHandler`, `formatNoteMetadata`, `ToolRegistrationContext` type) live in
   `tool-helpers.ts`.
   **Tool handlers stay thin**: schema, wire mapping (snake_case ↔ camelCase),
@@ -300,7 +304,8 @@ A module's folder is decided by **what it depends on**, not just its topic:
   and `utils/`; nothing lower imports it (lint-enforced: each lower layer's
   `no-restricted-imports` bans `setup/` and `oauth/`).
   `svc-vault-mcp/run` starts `setup-server.ts` instead of `server.ts`
-  when `init-check-auth` sets `SETUP_MODE` (no working Sync token).
+  when the init chain sets `SETUP_MODE`: `init-check-auth` when no token
+  exists, `init-obsidian-login` when the saved token's login is rejected.
 - **`utils/`** (at `src/`) — generic cross-cutting helpers.
 
 Three rules keep this honest:
@@ -463,7 +468,7 @@ All data-layer functions use named params + required logger:
 ```typescript
 vaultFs.readNote({ vaultPath, path }, reqLogger)
 memoryStore.getMemory({ vaultPath, file, section }, reqLogger)
-search.fullTextSearch({ query, filters }, reqLogger) // search = the context's SearchIndex
+search.fullTextSearch({ query, filters }, reqLogger) // search: the SearchIndex on ToolRegistrationContext
 ```
 
 **Log levels:**
@@ -523,13 +528,15 @@ These rules are authoring guidance, not a review checklist — apply them
 while writing, not after. `eslint.config.ts` enforces this subset:
 
 - No `function` declarations, and `type` over `interface`.
-- No `any`, `as` casts other than `as const`, or `!` non-null assertions.
+- No `any`, `as` casts other than `as const`, or `!` non-null assertions
+  (warnings only in tests).
 - No nested ternaries, and no `else` after `return`.
 - No single-character identifiers (lint allows `i`, `a`/`b`, `k`, `_`).
-- No empty `catch {}` blocks (`.catch(() => {})` is not caught).
+- No empty `catch {}` blocks (lint does not flag `.catch(() => {})`).
 - A blank line between a declaration and the guard that consumes it.
 - In `src/` only: no `console`; Luxon over `Date` and no `process.env`
-  access outside `config.ts` (tests exempt).
+  member access outside `config.ts` (tests exempt). The rule misses a
+  destructured `import { env } from "node:process"`, which `logger.ts` uses.
 - The Module layering bans (layer imports, `config.readOnlyMode`, a local
   `TOOL_NAMES`).
 
@@ -714,8 +721,8 @@ covers both kinds, with reasons:
   explaining the overall strategy before the query.
 - Regex constants get doc comments explaining what they match.
 - Durable rationale only — never transition history, decision
-  narrative, or the maintainer's own infrastructure details. OSS boundary: issue/PR numbers,
-  incident dates, deployment names, task-board IDs, remediation
+  narrative, or the maintainer's own infrastructure details. OSS boundary:
+  issue/PR numbers, incident dates, deployment names, task-board IDs, remediation
   narration, and investigation chronology never enter any public
   artifact — committed files, PR descriptions, or comments.
 - No nested ternaries — a chained `a ? b : c ? d : e` forces the reader to
@@ -784,8 +791,8 @@ covers both kinds, with reasons:
   never adopt a rule that fights an established idiom; a justified
   `eslint-disable` + why-comment beats weakening the rule.
 - **knip** (`knip.json`, pre-commit + CI) flags unused exports, types,
-  dependencies, and files. Remove a flagged `export` (nothing imports it) rather than adding
-  an ignore comment.
+  dependencies, and files. Remove a flagged `export` (nothing imports it)
+  rather than adding an ignore comment.
 - **markdownlint** (`.markdownlint-cli2.jsonc`, lint-staged with
   `--fix` + CI) enforces markdown structure: blank lines around fences,
   a language on every fenced block, no bare URLs. Ignores are documented
@@ -809,8 +816,8 @@ covers both kinds, with reasons:
 ### Adding a new tool
 
 1. **Registry entry** — add the name to `TOOL_NAMES`, then an entry to
-   `TOOL_REGISTRY` in `tool-registry.ts`: name, group, and annotations. The registry is a leaf module with
-   zero imports.
+   `TOOL_REGISTRY` in `tool-registry.ts`: name, group, and annotations. The
+   registry is a leaf module with zero imports.
 2. **Handler** — add the tool in the appropriate `tools/*.ts` group
    module. The `registerTool` wrapper auto-injects annotations from
    the registry and enforces the enabled-tool gate.
@@ -1000,8 +1007,8 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   `src/vault-mcp/__tests__/` (`init-check-auth.test.ts`,
   `init-obsidian-login.test.ts`, `init-first-sync.test.ts`,
   `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
-  `print-derived-env.test.ts`, which covers the pure half of
-  `init-derive-env`). These script tests run the real
+  `print-derived-env.test.ts`, which covers the derivation that
+  `init-derive-env` publishes). These script tests run the real
   script under `sh` with stub binaries on `PATH`, and name the script
   they cover — don't move them under `rootfs/` or widen vitest's
   include for them. Whole-image behaviour (the init chain's ordering,
@@ -1132,9 +1139,10 @@ Remote image boot tests (`src/__tests__/docker/`) boot the built
 `:remote` image with the Sync CLI replaced by the `fixtures/ob` stub.
 They catch what a single script's test file cannot: the ordering of
 init scripts, the `container_environment` files the init chain
-writes, the volume layout, and the checks that stop the container
-on bad state (guards). Run via `npm run test:remote-boot` (builds the image,
-then runs a separate vitest config excluded from `npm test`).
+writes, the volume layout, and the guards that stop the container on bad
+state (such as the deletion-storm guard). Run via `npm run test:remote-boot`
+(builds the image, then runs a separate vitest config excluded from
+`npm test`).
 
 Tests in a `describe` block share one booted container. Two places boot
 more often, because each scenario sets a different environment or
@@ -1168,8 +1176,8 @@ own `it()`, and the failing-sync block boots once per sub-`describe`
   other IaC tools or older SST versions.
 - Plain configuration a Lambda needs (`PUBLIC_URL`) goes in the function's
   `environment:`, read with `env-var`; `link:` is for SST resources a
-  handler reads through `Resource.*` (the `McpAuthToken` secret). Type-generation timing is in "Build pipeline
-  gotcha" below.
+  handler reads through `Resource.*` (the `McpAuthToken` secret).
+  Type-generation timing is in "Build pipeline gotcha" below.
 - `$interpolate` for `Output<string>` composition.
 - Raw Pulumi `aws.*` for Lightsail (no SST component exists).
 - `sst.aws.ApiGatewayV2` + `routeUrl()` for HTTP proxy.
@@ -1239,11 +1247,11 @@ re-verify each contract against the new source before merging:
   nothing but `.sync.lock` as an empty vault.
 - The device's file record is
   `obsidian-headless/sync/<vaultId>/state.db` under `$XDG_CONFIG_HOME`,
-  table `local_files`. The deletion-storm guard in `init-first-sync` reads
-  this table: it stops the container when the record lists files but the
-  vault is empty, because the engine would push each missing file as a
-  deletion. The
-  engine loads it at startup and compares it against the files on disk.
+  table `local_files`. The engine loads this record at startup and compares
+  it against the files on disk. The deletion-storm guard in `init-first-sync`
+  reads the same table: it stops the container when the record lists files
+  but the vault is empty, because the engine would push each missing file as
+  a deletion.
 - Files delivered by `sync --continuous` are recorded in that same
   table as they arrive, and a file deleted locally has its row removed.
   The stub's `sync-record` and `sync-forget` verbs mirror the two.
@@ -1381,15 +1389,15 @@ changed:
 
 **Env var update checklist** — when adding, removing, or changing an
 env var that the server reads (defined in `config.ts`, `server.ts`,
-`setup/setup-server.ts`, or `logger.ts`), update every downstream surface. Not every var goes in
-every file — container-internal vars (HOST, INDEX_DB_PATH) are hardcoded
+`setup/setup-server.ts`, or `logger.ts`), update every downstream surface.
+Not every var goes in every file — container-internal vars (HOST, INDEX_DB_PATH) are hardcoded
 in compose and skip .env.example; remote-only vars (OBSIDIAN_AUTH_TOKEN,
 PUID, etc.) only go in the remote surfaces. Use existing entries as a
 pattern:
 
 1. **Server source** (`config.ts`, `server.ts`, `setup/setup-server.ts`, or
-   `logger.ts`) —
-   authoritative definition via `env-var` package
+   `logger.ts`) — authoritative definition via the `env-var` package
+   (`logger.ts` reads `LOG_*` from `node:process` `env` directly)
 2. **Deploy compose** (`deploy/local/docker-compose.yml` and/or
    `deploy/remote/docker-compose.yml`) — add `${VAR:-default}` passthrough
    in `environment:`
