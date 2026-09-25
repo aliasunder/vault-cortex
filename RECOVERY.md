@@ -5,10 +5,11 @@ replace it on purpose. Companion to `sst.config.ts`.
 
 ## What's protecting the VM
 
-Three layers cover different failure classes:
+Four layers cover different failure classes:
 
 | Layer                                 | What it does                                                                                                              | Where                         |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| App-level `protect: true`             | Refuses `sst remove` and `sst dev` on the stage before any resource is touched                                            | `sst.config.ts` `app()`       |
 | Resource-level `protect: true`        | Refuses any Pulumi op that would destroy/replace the Instance                                                             | `sst.config.ts` instance opts |
 | Resource-level `retainOnDelete: true` | If SST ever does decide to delete (`sst remove` once `protect` is cleared), orphan the AWS resource instead of destroying | `sst.config.ts` instance opts |
 | Lightsail auto-snapshot               | Daily disk image at 03:00 UTC, 7-day rolling retention                                                                    | `addOn` on the Instance       |
@@ -16,7 +17,7 @@ Three layers cover different failure classes:
 The auto-snapshot is the only one that protects against AWS-side events
 (hardware failure, AZ outage) and against in-VM mistakes (fat-finger
 `rm -rf`, container compromise). The IaC seatbelts only protect against
-Pulumi-driven replacement.
+Pulumi-driven replacement and `sst remove`.
 
 ## Snapshot policy
 
@@ -130,7 +131,7 @@ container start, and the FTS5 index rebuilds itself once the MCP
 server boots. OAuth state is gone — clients will re-auth on
 their next token refresh.
 
-## Intentional replace (bundle upgrade, blueprint change, etc.)
+## Intentional replace (bundle upgrade, etc.)
 
 The `protect: true` seatbelt blocks any deploy that would replace the
 Instance. Two approaches depending on how much state you want to preserve:
@@ -176,7 +177,7 @@ but destroys all on-disk state: installed packages, Docker volumes,
 Claude Code, etc.). Only use this if you don't have state worth preserving or
 you're comfortable re-provisioning from scratch.
 
-To intentionally replace (e.g. changing `bundleId` or `blueprintId`):
+To intentionally replace (e.g. changing `bundleId`):
 
 ```bash
 STAGE=<your-stage>                                # the name in .sst/stage
@@ -266,7 +267,7 @@ aws lightsail get-auto-snapshots \
   --resource-name "vault-cortex-${DRILL_STAGE}"
 
 # 2. Confirm protect blocks a replace-triggering change:
-#    (Temporarily tweak userData in sst.config.ts, then:)
+#    (Temporarily change bundleId in sst.config.ts, then:)
 npm run deploy -- --stage "${DRILL_STAGE}"
 #    Expected: deploy fails with a protected-resource error. Revert the change.
 
