@@ -43,6 +43,9 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
 ## Structure
 
+The tree lists every folder, plus each file whose name alone doesn't say
+what it does. Run `ls` on a folder for the full file list.
+
 ```text
 server.json # MCP server registry manifest
 render.yaml # Render Blueprint (repo root — Render reads it only from there); backs the Deploy to Render button
@@ -108,14 +111,19 @@ src/
   jwt.ts # Minimal JWT sign/verify (HS256, used by Lambda + Express)
   utils/ # Cross-cutting helpers (no domain logic)
     file-write-lock.ts # Per-file write locks — serializing, fail-fast, and multi-file fail-fast modes (TOCTOU prevention)
+    map-with-concurrency.ts # Bounded-concurrency async map (batch-based)
+    describe-error.ts # describeError — message from an unknown throw
     fs.ts # readFileOrNull / readdirOrNull / fileExists / statOrNull / lstatOrNull / realpathOrNull (ENOENT-safe)
+    assert-path-has-extension.ts # Generic path extension assertion (used by note-path validation)
     case-fold-path.ts # Case- and Unicode-normalization-fold a path for comparison (macOS/Windows bind mounts)
     compare-utf8-bytes.ts # compareByUtf8Bytes — SQLite-BINARY (UTF-8 byte) string ordering for deterministic tie-breaks
     has-hidden-path-segment.ts # Shared "is hidden path" predicate (listings, watcher, index, path guard)
+    levenshtein-distance.ts # Levenshtein edit distance (case-sensitive; callers fold case first)
   __tests__/
     integration/ # End-to-end: SDK Client + StreamableHTTPClientTransport over real HTTP
       test-harness.ts # Server lifecycle (spawn, healthz poll, cleanup) + client factory
       server-integration.test.ts # Every tool + prompt exercised per config (default, READONLY, DISABLED_TOOLS, etc.)
+      server-error-contracts.test.ts # Documented error paths verified over real HTTP
       server-oauth-integration.test.ts # OAuth flows: token rotation, client sweep, reuse detection, scope widening
       fixtures/vault/ # Fixture vault copied to tempdir per server boot
     docker/ # Remote image boot tests (npm run test:remote-boot; excluded from npm test)
@@ -130,6 +138,7 @@ src/
     obsidian-markdown/ # Pure Obsidian/Markdown parsers + transforms (no I/O)
       lines.ts # splitIntoLines (CRLF) + fence state machine + classifyLines + pageTextByLines (line paging)
       frontmatter.ts # gray-matter parse/stringify + frontmatter merge
+      callouts.ts # Leading-callout parser (> [!type] blocks)
       headings.ts # Shared H1–H6 section-span parser — ATX + setext (read + patch)
       links.ts # Link grammar: parse, extract, resolve (wikilinks + md; notes + assets)
       tasks.ts # Tasks-plugin task-line grammar + mutation (emoji + Dataview fields)
