@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process"
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -22,6 +23,21 @@ const writeDockerStub = (directory: string): void => {
   const dockerPath = join(directory, "docker")
   writeFileSync(dockerPath, '#!/bin/sh\nprintf "%s\\n" "$@" > "$DOCKER_ARGUMENTS_PATH"\n')
   chmodSync(dockerPath, 0o755)
+}
+
+/** Writes an executable shell script named `name` into `directory`, which runDev puts first on PATH. */
+const writeCommandStub = ({
+  directory,
+  name,
+  script,
+}: {
+  directory: string
+  name: string
+  script: string
+}): void => {
+  const stubPath = join(directory, name)
+  writeFileSync(stubPath, `#!/bin/sh\n${script}`)
+  chmodSync(stubPath, 0o755)
 }
 
 /** PATH starts with homeDirectory, so a Docker stub written there replaces the real docker. */
@@ -224,5 +240,65 @@ describe("dev deployment helper", () => {
     // tsx keeps its own cache in TMPDIR, so only the helper's directories count.
     const isEnvCopyDirectory = (entry: string): boolean => entry.startsWith("vault-cortex-env-")
     expect(readdirSync(tempDirectory).filter(isEnvCopyDirectory)).toEqual([])
+  })
+
+  it("stops before touching the instance when the API Gateway lookup fails", () => {
+    const directory = createTempDirectory()
+    const sshCallsPath = join(directory, "ssh-calls.txt")
+    const deploymentEnvDirectory = join(directory, ".config", "vault-cortex")
+    mkdirSync(deploymentEnvDirectory, { recursive: true })
+    // Without PUBLIC_URL or CUSTOM_DOMAIN, lightsail:up asks API Gateway for the URL.
+    writeFileSync(join(deploymentEnvDirectory, ".env"), "GHCR_USER=file-user\n")
+    const workingDirectory = join(directory, "repo")
+    mkdirSync(join(workingDirectory, ".sst"), { recursive: true })
+    writeFileSync(join(workingDirectory, ".sst", "stage"), "teststage\n")
+    writeCommandStub({ directory, name: "aws", script: "exit 1\n" })
+    writeCommandStub({ directory, name: "ssh", script: 'echo called >> "$SSH_CALLS_PATH"\n' })
+
+    const result = runDev({
+      subcommand: "lightsail:up",
+      homeDirectory: directory,
+      workingDirectory,
+      additionalEnv: { SSH_CALLS_PATH: sshCallsPath },
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toBe(
+      `✕  Command failed: aws apigatewayv2 get-apis --query "sort_by(Items[?starts_with(Name, 'vault-cortex-teststage-VaultCortexApi')], &CreatedDate)[-1].ApiEndpoint" --output text\n`,
+    )
+    expect(existsSync(sshCallsPath)).toBe(false)
+  })
+
+  it("stops before copying files when logging the instance in to GHCR fails", () => {
+    const directory = createTempDirectory()
+    const loginInputPath = join(directory, "docker-login-input.txt")
+    const scpCallsPath = join(directory, "scp-calls.txt")
+    const sshKeyPath = join(directory, "deploy-key")
+    writeFileSync(sshKeyPath, "fake-key\n")
+    const deploymentEnvDirectory = join(directory, ".config", "vault-cortex")
+    mkdirSync(deploymentEnvDirectory, { recursive: true })
+    writeFileSync(
+      join(deploymentEnvDirectory, ".env"),
+      "GHCR_USER=file-user\nGHCR_TOKEN=fake-ghcr-token\nPUBLIC_URL=https://mcp.example.com\n" +
+        `LIGHTSAIL_SSH_HOST=instance.example\nLIGHTSAIL_SSH_KEY=${sshKeyPath}\n`,
+    )
+    // Records what the login reads on stdin, then fails only the login.
+    writeCommandStub({
+      directory,
+      name: "ssh",
+      script: 'case "$*" in *"docker login"*) cat > "$LOGIN_INPUT_PATH"; exit 1 ;; esac\nexit 0\n',
+    })
+    writeCommandStub({ directory, name: "scp", script: 'echo called >> "$SCP_CALLS_PATH"\n' })
+
+    const result = runDev({
+      subcommand: "lightsail:up",
+      homeDirectory: directory,
+      additionalEnv: { LOGIN_INPUT_PATH: loginInputPath, SCP_CALLS_PATH: scpCallsPath },
+    })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toBe("✕ docker login ghcr.io failed on the instance\n")
+    expect(readFileSync(loginInputPath, "utf8")).toBe("fake-ghcr-token")
+    expect(existsSync(scpCallsPath)).toBe(false)
   })
 })
