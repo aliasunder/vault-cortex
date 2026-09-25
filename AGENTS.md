@@ -10,15 +10,19 @@ target (`:latest`, the default stage) is tini + the MCP server alone; the
 `remote` target (`:remote`) adds s6-overlay supervising both obsidian-sync
 (bidirectional Obsidian Sync via the `obsidian-headless` npm CLI) and the MCP
 server in a single container — s6 service definitions live in `rootfs/`, and
-the init chain registers the initial Sync device under DEVICE_NAME. Both
+the init chain registers the initial Sync device under the `DEVICE_NAME` env
+var, or the container hostname when unset. Both
 processes run as UID 1000 (PUID/PGID-adjustable). Production runs the
 `:remote` image on Lightsail as a single Compose service, fronted by API
-Gateway with a smart Lambda authorizer (path-aware: OAuth endpoints pass
+Gateway with a Lambda authorizer (path-aware: OAuth endpoints pass
 through, /mcp validates static token or JWT). IaC via SST v4.
 
-The server provides vault CRUD, hybrid search (FTS5 keyword + sqlite-vec
-vector + cross-encoder reranking via RRF fusion and position-aware score
-blending), and the About Me/ memory layer. The Docker image uses Debian
+The server provides vault CRUD, hybrid search (FTS5 keyword and sqlite-vec
+vector results fused by Reciprocal Rank Fusion, then reranked by a
+cross-encoder; the vector and rerank stages are optional via
+`EMBEDDING_ENABLED` and `RERANK_MODE`; see ARCHITECTURE.md → Hybrid Search),
+and an optional memory layer (dated-entry notes in the vault's `About Me/`
+folder by default, set by `MEMORY_DIR`). The Docker image uses Debian
 slim (`node:24-trixie-slim`) because `onnxruntime-node` requires glibc,
 and specifically trixie because better-sqlite3 v13's bundled linux-arm64
 prebuild needs glibc >= 2.38 (bookworm's 2.36 crash-loops arm64 images).
@@ -43,192 +47,175 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
 ## Structure
 
+The tree lists the main folders and the files an agent most often needs:
+entry points and core modules. Small self-explanatory helpers and routine
+files (READMEs and other top-level docs, compose files, tool configs such as
+`package.json`, `tsconfig.json`, and `eslint.config.ts`, and the `.github/`,
+`.devin/`, and `.husky/` folders) are left out; run `ls` on a folder for the
+full list.
+
 ```text
-sst.config.ts                          # SST v4 IaC (fully implemented)
-package.json                           # single package, all deps
-tsconfig.json                          # single config
-server.json                            # MCP server registry manifest
-render.yaml                            # Render Blueprint (repo root — Render reads it only from there); backs the Deploy to Render button
-Dockerfile                             # Two-target build: local (default) + remote
-Brewfile                               # Homebrew dev dependencies (optipng)
-.claude/                               # Committed Claude Code session hooks (rest of .claude/ is gitignored)
-  settings.json                        #   SessionStart + PostToolUse(EnterWorktree) → install-deps.sh
+server.json # MCP server registry manifest
+render.yaml # Render Blueprint (repo root — Render reads it only from there); backs the Deploy to Render button
+Dockerfile # Two-target build: local (default) + remote
+.claude/ # Committed Claude Code session hooks (rest of .claude/ is gitignored)
+  settings.json # SessionStart + PostToolUse(EnterWorktree) → install-deps.sh
   hooks/
-    install-deps.sh                    #   nvm + npm ci guard for fresh clones and worktrees
-obsidian-headless/                     # Lockfile-pinned obsidian-headless for Docker remote target
-  package.json                         #   pins obsidian-headless version
-  package-lock.json                    #   sha512 integrity hashes (supply-chain security)
-rootfs/                                # Container filesystem overlay (remote target)
-  etc/s6-overlay/                      #   init chain + svc-obsidian-sync + svc-vault-mcp (run + finish: the setup-mode restart)
-  usr/local/bin/get-sync-token         #   interactive Obsidian Sync token helper (manual flow)
-docker-compose.yml                     # Lightsail: single vault-cortex:remote service
-docker-compose.local.yml               # Contributor dev: builds from source
-.env.example                           # template for Lightsail .env
-templates/                             # Bootstrap templates for new vaults
-  memory/                              #   About Me/ memory file templates
-deploy/                                # End-user quickstart (no clone needed)
-  local/                               #   vault-cortex:latest + bind-mounted vault
-    README.md                          #     quickstart walkthrough
-    docker-compose.yml                 #     just: docker compose up
-    .env.example                       #     MCP_AUTH_TOKEN + VAULT_PATH
-  remote/                              #   vault-cortex:remote + named volumes
-    README.md                          #     quickstart walkthrough (VPS, HTTPS, etc.)
-    docker-compose.yml                 #     just: docker compose up
-    .env.example                       #     + OBSIDIAN_AUTH_TOKEN, VAULT_NAME, PUBLIC_URL
-  render/                              #   Render one-click guide (render.yaml lives at the repo root)
-    README.md
-  railway/                             #   Railway one-click guide (template definition lives in CONTRIBUTING.md; template itself in Railway)
-    README.md
-assets/                                # Static assets (not shipped in Docker)
+    install-deps.sh # nvm + npm ci guard for fresh clones and worktrees
+obsidian-headless/ # Lockfile-pinned obsidian-headless for Docker remote target
+rootfs/ # Container filesystem overlay (remote target)
+  etc/s6-overlay/ # init chain + svc-obsidian-sync + svc-vault-mcp (run + finish: restart after setup mode's sign-in; see setup/ below)
+  usr/local/bin/get-sync-token # interactive Obsidian Sync token helper (terminal alternative to setup mode's browser sign-in)
+.env.example # template for Lightsail .env
+templates/ # Bootstrap templates for new vaults
+  memory/ # About Me/ memory file templates
+deploy/ # End-user quickstart (no clone needed)
+  local/ # vault-cortex:latest + bind-mounted vault
+    .env.example # MCP_AUTH_TOKEN + VAULT_PATH
+  remote/ # vault-cortex:remote + named volumes
+    .env.example # + OBSIDIAN_AUTH_TOKEN, VAULT_NAME, PUBLIC_URL
+  render/ # Render one-click guide (render.yaml lives at the repo root)
+  railway/ # Railway one-click guide (template definition lives in CONTRIBUTING.md; template itself in Railway)
+assets/ # Static assets (not shipped in Docker)
   fonts/
-    DejaVuSans.ttf                     #   Embedded in render script for deterministic text rendering
-scripts/                               # Dev/ops helpers (not shipped in Docker)
-  dev.ts                               # Deployment helper (subcommands for SSH, sync, etc.)
-  instance-env.ts                      # PUBLIC_URL resolution for lightsail:up (same rule as deploy.yml + sst.config.ts)
-  sync-cli-env-blocks.ts               # Syncs deploy/ .env.example optional blocks into cli/src/env.ts
-  lobehub-manifest.ts                  # Builds lhm.plugin.json from the live MCP tool/prompt registry
-  sync-lobehub-manifest.ts             # Writes the gitignored lhm.plugin.json (npm run sync:lobehub-manifest)
-  generate-dockerhub-readme.ts         # Generates DOCKERHUB.md (WAF-safe Docker Hub README) from README.md
-  render-social-preview.ts             # Renders social-preview.svg → .png via Puppeteer
-  search-eval.ts                       # Search ranking eval harness (judgment-file A/B scoring)
-  search-eval-plan.ts                  # Judgment schema + CLI validation + reuse decisions for the harness
-  search-eval-snapshot.ts              # Vault copy for the eval harness (hidden/prefix exclusions)
-cli/                                   # npx vault-cortex CLI (published as vault-cortex npm package)
+    DejaVuSans.ttf # Embedded in render script for deterministic text rendering
+scripts/ # Dev/ops helpers (not shipped in Docker)
+  dev.ts # Deployment helper (subcommands for SSH, sync, etc.)
+  instance-env.ts # PUBLIC_URL for lightsail:up; must resolve like sst.config.ts and deploy.yml, or the authorizer rejects tokens
+  sync-cli-env-blocks.ts # Syncs deploy/ .env.example optional blocks into cli/src/env.ts
+  lobehub-manifest.ts # Builds lhm.plugin.json from the live MCP tool/prompt registry
+  sync-lobehub-manifest.ts # Writes the gitignored lhm.plugin.json (npm run sync:lobehub-manifest)
+  generate-dockerhub-readme.ts # Generates DOCKERHUB.md from README.md, stripping content Cloudflare's WAF in front of Docker Hub blocks
+  render-social-preview.ts # Renders social-preview.svg → .png via Puppeteer
+  search-eval.ts # Search ranking eval: scores hybrid search against a local judgment file of queries and expected results
+  search-eval-plan.ts # Judgment-file schema, CLI validation, and whether to reuse the snapshot and index
+  search-eval-snapshot.ts # Vault copy the eval runs against, skipping hidden paths and configured prefixes
+cli/ # npx vault-cortex CLI (published as vault-cortex npm package)
   src/
-    bin.ts                             # Entry point (version injection + run)
-    main.ts                            # Top-level wiring (program + init + prompts + docker)
-    program.ts                         # Commander program definition
-    init.ts                            # Init command orchestration
-    configure.ts                       # Configure command (guided settings edit + restart offer)
-    prompts.ts                         # Interactive prompt flow (mode, vault path, token)
-    optional-settings.ts               # Guided optional-settings flow (curated vars, chooser, .env patching)
-    scaffold.ts                        # File generation (.env)
-    docker.ts                          # Container management (docker run, health-check wait)
-    upgrade.ts                         # Upgrade command (pull + re-create + health check)
-    lifecycle.ts                       # Down/logs/restart commands + shared deployment resolution and re-create plumbing
-    get-sync-token.ts                  # Get-sync-token subcommand (Sync token capture via Obsidian API)
-    env.ts                             # Environment file handling (.env generation)
-    token.ts                           # Secure token generation (openssl rand)
-    vault.ts                           # Vault path validation
-    node-version.ts                    # Node.js version compatibility check
-    messages.ts                        # User-facing output formatting
+    bin.ts # Entry point (version injection + run)
+    main.ts # Top-level wiring (program + init + prompts + docker)
+    program.ts # Commander program definition
+    configure.ts # Configure command (guided settings edit + restart offer)
+    prompts.ts # Interactive prompt flow (mode, vault path, token)
+    optional-settings.ts # Guided optional-settings flow (curated vars, chooser, .env patching)
+    scaffold.ts # File generation (.env)
+    docker.ts # Container management (docker run, health-check wait)
+    lifecycle.ts # Down/logs/restart commands + shared deployment resolution and re-create plumbing
+    env.ts # Environment file handling (.env generation)
+    token.ts # Secure token generation (openssl rand)
+    vault.ts # Vault path validation
+    init.ts # Init command orchestration
+    upgrade.ts # Upgrade command (pull + re-create + health check)
+    get-sync-token.ts # Get-sync-token subcommand (Sync token capture via Obsidian API)
     __tests__/
-      integration/                     # Interactive flows via node-pty in a real PTY
-        pty-harness.ts                 #   PTY spawn + sequential prompt matching + transcript
-        cli-pty.test.ts                #   init (local + remote), configure, optional settings, non-interactive wiring
+      integration/ # Interactive flows via node-pty in a real PTY
+        pty-harness.ts # PTY spawn + sequential prompt matching + transcript
+        cli-pty.test.ts # init (local + remote), configure, optional settings, non-interactive wiring
         fixtures/
-          docker                       #   Fake docker binary (bash, configurable via env vars)
-          .obsidian/daily-notes.json   #   Vault path validation fixture
+          docker # Fake docker binary (bash, configurable via env vars)
+          .obsidian/daily-notes.json # Vault path validation fixture
 src/
-  logger.ts                            # Root logger (structured JSON, source location)
-  auth.ts                              # Shared auth utilities (safeEqual, parseBearer)
-  jwt.ts                               # Minimal JWT sign/verify (HS256, used by Lambda + Express)
-  utils/                               # Cross-cutting helpers (no domain logic)
-    file-write-lock.ts                 # Per-file write locks — serializing, fail-fast, and multi-file fail-fast modes (TOCTOU prevention)
-    map-with-concurrency.ts            # Bounded-concurrency async map (batch-based)
-    describe-error.ts                  # describeError — message from an unknown throw
-    escape-html.ts                     # escapeHtml — the four characters that break out of HTML text or a quoted attribute
-    fs.ts                              # readFileOrNull / readdirOrNull / fileExists / statOrNull / lstatOrNull / realpathOrNull (ENOENT-safe)
-    assert-no-control-characters.ts    # Rejects C0 controls (except tab/LF/CR), DEL, and C1 controls in write params
-    assert-path-has-extension.ts       # Generic path extension assertion (used by note-path validation)
-    case-fold-path.ts                  # Case- and Unicode-normalization-fold a path for comparison (macOS/Windows bind mounts)
-    compare-utf8-bytes.ts              # compareByUtf8Bytes — SQLite-BINARY (UTF-8 byte) string ordering for deterministic tie-breaks
-    has-hidden-path-segment.ts         # Shared "is hidden path" predicate (listings, watcher, index, path guard)
-    filter-valid-symlinks.ts           # Filters out broken symlinks from directory listings
-    fit-image-to-byte-budget.ts        # Downscale/recompress an image buffer to fit a byte budget (sharp)
-    is-errno-exception.ts              # isErrnoException — type guard for Node fs errors, optionally narrowed to one code
-    levenshtein-distance.ts            # Levenshtein edit distance (case-sensitive; callers fold case first)
-    mtime-to-iso.ts                    # mtimeToIso — fractional filesystem mtime → ISO 8601, throwing on invalid values
-    url-has-credentials.ts             # urlHasCredentials — does a URL carry userinfo (username/password)
+  logger.ts # Root logger (structured JSON, source location)
+  auth.ts # Shared auth utilities (safeEqual, parseBearer)
+  jwt.ts # Minimal JWT sign/verify (HS256, used by Lambda + Express)
+  utils/ # Cross-cutting helpers (no domain logic)
+    file-write-lock.ts # Per-file write locks — serializing, fail-fast, and multi-file fail-fast modes (TOCTOU prevention)
+    map-with-concurrency.ts # Bounded-concurrency async map (batch-based)
+    describe-error.ts # describeError — message from an unknown throw
+    fs.ts # readFileOrNull / readdirOrNull / fileExists / statOrNull / lstatOrNull / realpathOrNull (ENOENT-safe)
+    assert-path-has-extension.ts # Generic path extension assertion (used by note-path validation)
+    case-fold-path.ts # Case- and Unicode-normalization-fold a path for comparison (macOS/Windows bind mounts)
+    compare-utf8-bytes.ts # compareByUtf8Bytes — SQLite-BINARY (UTF-8 byte) string ordering for deterministic tie-breaks
+    has-hidden-path-segment.ts # Shared "is hidden path" predicate (listings, watcher, index, path guard)
+    levenshtein-distance.ts # Levenshtein edit distance (case-sensitive; callers fold case first)
   __tests__/
-    integration/                       # End-to-end: SDK Client + StreamableHTTPClientTransport over real HTTP
-      test-harness.ts                  #   Server lifecycle (spawn, healthz poll, cleanup) + client factory
-      server-integration.test.ts       #   Every tool + prompt exercised per config (default, READONLY, DISABLED_TOOLS, etc.)
-      server-error-contracts.test.ts   #   Documented error paths verified over real HTTP
-      server-oauth-integration.test.ts #   OAuth flows: token rotation, client sweep, reuse detection, scope widening
-      fixtures/vault/                  #   Fixture vault copied to tempdir per server boot
-    docker/                            # Remote image boot tests (npm run test:remote-boot; excluded from npm test)
-      docker-harness.ts                #   docker run/exec/logs/healthz helpers + MCP client factory
-      remote-image-boot.test.ts        #   s6 init chain end-to-end against the built :remote image, ob stubbed
-      fixtures/ob                      #   POSIX stub for the obsidian-headless CLI, bind-mounted over its cli.js
+    integration/ # End-to-end: SDK Client + StreamableHTTPClientTransport over real HTTP
+      test-harness.ts # Server lifecycle (spawn, healthz poll, cleanup) + client factory
+      server-integration.test.ts # Every tool + prompt exercised per config (default, READONLY, DISABLED_TOOLS, etc.)
+      server-error-contracts.test.ts # Documented error paths verified over real HTTP
+      server-oauth-integration.test.ts # OAuth flows: token rotation, client sweep, reuse detection, scope widening
+      fixtures/vault/ # Fixture vault copied to tempdir per server boot
+    docker/ # Remote image boot tests (npm run test:remote-boot; excluded from npm test)
+      docker-harness.ts # docker run/exec/logs/healthz helpers + MCP client factory
+      remote-image-boot.test.ts # s6 init chain end-to-end against the built :remote image, `ob` (the obsidian-headless CLI) stubbed
+      fixtures/ob # POSIX stub for the obsidian-headless CLI, bind-mounted over its cli.js
   functions/
-    authorizer.ts                      # Lambda: path-aware auth (OAuth pass-through, JWT + static)
+    authorizer.ts # Lambda: path-aware auth (OAuth pass-through, JWT + static)
   vault-mcp/
-    server.ts                          # Entry point — config, mount routes, listen
-    config.ts                          # Env-var loader + ServerConfig type (loadConfig)
-    obsidian-markdown/                 # Pure Obsidian/Markdown parsers + transforms (no I/O)
-      lines.ts                         # splitIntoLines (CRLF) + fence state machine + classifyLines + pageTextByLines (line paging)
-      frontmatter.ts                   # gray-matter parse/stringify + frontmatter merge
-      callouts.ts                      # Leading-callout parser (> [!type] blocks)
-      headings.ts                      # Shared H1–H6 section-span parser — ATX + setext (read + patch)
-      links.ts                         # Link grammar: parse, extract, resolve (wikilinks + md; notes + assets)
-      tasks.ts                         # Tasks-plugin task-line grammar + mutation (emoji + Dataview fields)
-      recurrence.ts                    # Tasks-plugin 🔁 rule parsing + next-occurrence dates (rrule, pinned to the plugin's version)
-      memory-entries.ts                # Memory-entry grammar (dated bullets in About Me/ files)
-      canvas.ts                        # .canvas linearizer (JSON Canvas 1.0 → readable markdown)
-      pdf-engine.ts                    # pdfjs bootstrap — swaps in the pdfjs-dist Node build, font-independent proxies
-      pdf.ts                           # PDF text extraction: extractPdfText(Uint8Array → { text, totalPages }) + markdown reconstruction
-      plaintext.ts                     # Strip Obsidian/Markdown syntax → plain text
-      moment-format.ts                 # Moment.js → Luxon format-string conversion (pure, zero imports)
-    vault-operations/                  # Vault content read/write/patch (filesystem I/O)
-      vault-filesystem.ts              # Read/write/list/delete .md files; read/list/stat non-md assets; outline + section reads
-      vault-patcher.ts                 # Surgical edits: heading-targeted patch + find-and-replace
-      note-mover.ts                    # Move/rename a note + rewrite every vault-wide link to it
-      memory-store.ts                  # About Me/ heading-aware read/append/delete
-      daily-notes.ts                   # Daily note config reader + path resolver (env settings > daily-notes.json)
-      task-mutations.ts                # Task create + state mutations (status, priority, heading moves, sub-tasks)
-      task-format-config.ts            # Tasks-plugin format config reader (emoji vs Dataview) + status registry
-      trash-config.ts                  # Obsidian "Deleted files" config reader (trashOption from .obsidian/app.json)
-      trash-sweeper.ts                 # Trash bookkeeping: orphan purge (boot) + retention sweep (boot + daily); row store injected from search
-      asset-operations.ts              # Asset read dispatch + browsing (image fit, canvas linearize/raw, extension filter, statted slice)
-    mcp-core/                          # MCP protocol surface
-      mcp-router.ts                    # /mcp session routes + transport lifecycle
-      tool-registry.ts                 # Declarative registry — tool names, groups, MCP annotations (leaf, zero imports)
-      tool-availability.ts             # Enabled-set view shared by tools, prompts, and router — isToolEnabled / whenToolEnabled / tool-name lists
-      tool-definitions.ts              # Tool orchestrator — enabled-set filter chain + gated registration wrapper
-      prompt-definitions.ts            # Prompt orchestrator — PROMPT_NAMES + conditional group registration
-      tools/                           # Tool group modules (one per data-layer domain)
-        tool-helpers.ts                # Shared ToolRegistrationContext type + safeHandler/safeHandlerContent + describeTextWindow
-        vault-crud-tools.ts            # 11 tools: read, list, write, patch, replace, delete, move, update-properties, anchor-targeted delete/replace/insert
-        search-tools.ts                # 11 tools: search, tags, properties, graph queries
-        task-tools.ts                  # 3 tools: list-tasks, create-task, update-task
-        memory-tools.ts                # 5 tools: get/update/list/delete memory + memory recall
-        daily-note-tools.ts            # 1 tool: get daily note
-        asset-tools.ts                 # 2 tools: read-file, list-files
-      prompts/                         # Prompt group modules (one per prompt)
-        prompt-helpers.ts              # Shared PromptRegistrationContext type + formatting helpers
-        vault-orientation-prompt.ts    # 1 prompt: vault structure + health survey
-        memory-review-prompt.ts        # 1 prompt: memory layer reflection
-        daily-review-prompt.ts         # 1 prompt: daily note review + reconciliation
-    search/                            # SQLite FTS5 + hybrid search + file watching + embedding
-      search-index.ts                  # Factory: schema, write ops, types, context wiring
-      search-queries.ts                # 16 query methods (FTS, memory recall, tags, tasks, links, etc.) + SearchQueryContext
-      hybrid-search.ts                 # hybridSearch — note/file FTS + vector legs fused by RRF, cross-encoder rerank
-      search-helpers.ts                # Pure data transforms (row mappers, filters, link extraction)
-      fts-query.ts                     # FTS5 query sanitization (sanitizeFtsQuery)
-      rrf.ts                           # Reciprocal Rank Fusion scoring (computeRrfScores)
-      embedder.ts                      # Embedding pipeline factory (bge-small-en-v1.5, ONNX)
-      reranker.ts                      # Cross-encoder reranker factory (ms-marco-MiniLM, ONNX)
-      chunker.ts                       # Heading-aware chunking for embedding
-      file-watcher.ts                  # chokidar → keeps FTS + vector index current
-    oauth/                             # OAuth 2.1 (provider, routes, consent)
-      oauth-provider.ts                # OAuthServerProvider — JWT tokens, SQLite persistence
-      oauth-routes.ts                  # SDK auth router + consent form handler
-      consent-page.ts                  # HTML consent page for OAuth authorization
-    setup/                             # Setup mode — browser sign-in to Obsidian Sync when the :remote image boots without a working token
-      setup-server.ts                  # Entry point svc-vault-mcp runs in setup mode (/setup + /healthz; every other path 503)
-      setup-routes.ts                  # Public GET /setup page + token-gated POST /setup, 2FA, vault pre-flight, token write, restart signal
-      setup-page.ts                    # HTML for the flow (sign-in, 2FA, blocked, complete, already configured)
-      obsidian-api.ts                  # Obsidian's account API as the obsidian-headless CLI calls it (sign-in, vault list, vault key check)
-      vault-key.ts                     # Vault password → key hash, the derivation `ob sync-setup` uses (scrypt + HKDF; pure)
-      sync-token-store.ts              # Writes the token where the Sync client reads it (dir 0700, file 0600)
+    server.ts # Entry point — config, mount routes, listen
+    config.ts # Env-var loader + ServerConfig type (loadConfig)
+    obsidian-markdown/ # Pure Obsidian/Markdown parsers + transforms (no I/O)
+      lines.ts # splitIntoLines (CRLF) + fence state machine + classifyLines + pageTextByLines (line paging)
+      frontmatter.ts # gray-matter parse/stringify + frontmatter merge
+      callouts.ts # Leading-callout parser (> [!type] blocks)
+      headings.ts # Shared H1–H6 section-span parser — ATX + setext (read + patch)
+      links.ts # Link grammar: parse, extract, resolve (wikilinks + md; notes + assets)
+      tasks.ts # Tasks-plugin task-line grammar + mutation (emoji + Dataview fields)
+      recurrence.ts # Tasks-plugin 🔁 rule parsing + next-occurrence dates (rrule, pinned to the plugin's version)
+      memory-entries.ts # Memory-entry grammar (dated bullets in About Me/ files)
+      canvas.ts # .canvas linearizer (JSON Canvas 1.0 → readable markdown)
+      pdf-engine.ts # pdfjs bootstrap — swaps in the pdfjs-dist Node build, font-independent proxies
+      pdf.ts # PDF text extraction: extractPdfText(Uint8Array → { text, totalPages }) + markdown reconstruction
+      moment-format.ts # Moment.js → Luxon format-string conversion (pure, zero imports)
+    vault-operations/ # Vault content read/write/patch (filesystem I/O)
+      vault-filesystem.ts # Read/write/list/delete .md files; read/list/stat non-md assets; outline + section reads
+      vault-patcher.ts # Surgical edits: heading-targeted patch + find-and-replace
+      note-mover.ts # Move/rename a note + rewrite every vault-wide link to it
+      memory-store.ts # About Me/ heading-aware read/append/delete
+      daily-notes.ts # Daily note config reader + path resolver (env settings > daily-notes.json)
+      task-mutations.ts # Task create + state mutations (status, priority, heading moves, sub-tasks)
+      task-format-config.ts # Tasks-plugin format config reader (emoji vs Dataview) + status registry
+      trash-config.ts # Obsidian "Deleted files" config reader (trashOption from .obsidian/app.json)
+      trash-sweeper.ts # Trash bookkeeping: orphan purge (boot) + retention sweep (boot + daily); trash rows via an injected `TrashEntryStore` (search/ owns the table)
+      asset-operations.ts # Asset read dispatch + browsing (image fit, canvas linearize/raw, extension filter, statted slice)
+    mcp-core/ # MCP protocol surface
+      mcp-router.ts # /mcp session routes + transport lifecycle
+      tool-registry.ts # Declarative registry — tool names, groups, MCP annotations (leaf, zero imports)
+      tool-availability.ts # Enabled-set view shared by tools, prompts, and router — isToolEnabled / whenToolEnabledText / tool-name lists
+      tool-definitions.ts # Tool orchestrator — enabled-set filter chain + gated registration wrapper
+      prompt-definitions.ts # Prompt orchestrator — PROMPT_NAMES + conditional group registration
+      tools/ # Tool group modules (one per data-layer domain)
+        tool-helpers.ts # Shared ToolRegistrationContext type + safeHandler/safeHandlerContent + formatNoteMetadata/describeTextWindow
+        vault-crud-tools.ts # 11 tools: read, list, write, patch, replace, delete, move, update-properties, anchor-targeted delete/replace/insert
+        search-tools.ts # 11 tools: search, tags, properties, graph queries
+        task-tools.ts # 3 tools: list-tasks, create-task, update-task
+        memory-tools.ts # 5 tools: get/update/list/delete memory + memory recall
+        daily-note-tools.ts # 1 tool: get daily note
+        asset-tools.ts # 2 tools: read-file, list-files
+      prompts/ # Prompt group modules (one per prompt)
+        prompt-helpers.ts # Shared PromptRegistrationContext type + formatting helpers
+        vault-orientation-prompt.ts # 1 prompt: vault structure + health survey
+        memory-review-prompt.ts # 1 prompt: memory layer reflection
+        daily-review-prompt.ts # 1 prompt: daily note review + reconciliation
+    search/ # SQLite FTS5 + hybrid search + file watching + embedding
+      search-index.ts # Factory: schema, write ops, types, context wiring
+      search-queries.ts # 16 query methods (FTS, memory recall, tags, tasks, links, etc.) + SearchQueryContext
+      hybrid-search.ts # hybridSearch — note/file FTS + vector legs fused by RRF, cross-encoder rerank
+      search-helpers.ts # Pure data transforms (row mappers, filters, link extraction)
+      rrf.ts # Reciprocal Rank Fusion scoring (computeRrfScores)
+      embedder.ts # Embedding pipeline factory (bge-small-en-v1.5, ONNX)
+      reranker.ts # Cross-encoder reranker factory (ms-marco-MiniLM, ONNX)
+      chunker.ts # Heading-aware chunking for embedding
+      file-watcher.ts # chokidar → keeps FTS + vector index current
+    oauth/ # OAuth 2.1 (provider, routes, consent)
+      oauth-provider.ts # OAuthServerProvider — JWT tokens, SQLite persistence
+      oauth-routes.ts # SDK auth router + consent form handler
+    setup/ # Setup mode — browser sign-in to Obsidian Sync when the :remote image boots without a working token
+      setup-server.ts # Entry point svc-vault-mcp runs in setup mode (/setup + /healthz; every other path 503)
+      setup-routes.ts # Public GET /setup page + token-gated POST /setup, 2FA, vault pre-flight, token write, restart signal
+      setup-page.ts # HTML for the flow (sign-in, 2FA, blocked, complete, already configured)
+      obsidian-api.ts # Obsidian's account API as the obsidian-headless CLI calls it (sign-in, vault list, vault key check)
+      vault-key.ts # Vault password → key hash, the derivation `ob sync-setup` uses (scrypt + HKDF; pure)
+      sync-token-store.ts # Writes the token where the Sync client reads it (dir 0700, file 0600)
 ```
 
 ### Module layering
 
-The `vault-mcp/` tree is organized in dependency layers — parsers → I/O →
-use-cases → protocol → wiring. A module's folder is decided by **what it depends
-on**, not just its topic:
+The `vault-mcp/` tree is organized in dependency layers — leaf layers
+(`obsidian-markdown/` parsers, plus `src/utils/`) → I/O and use-cases
+(`vault-operations/`, `search/`) → protocol (`mcp-core/`, `oauth/`, `setup/`)
+→ wiring (`server.ts`).
+A module's folder is decided by **what it depends on**, not just its topic:
 
 - **`obsidian-markdown/`** — pure parsers/transforms over Obsidian's file
   formats (frontmatter, lines, headings, callouts, links). **No fs, no SQLite,
@@ -246,19 +233,19 @@ on**, not just its topic:
   that performs side effects — it resolves `pdfjs-dist` package paths from disk
   via `createRequire` and mutates `globalThis` (canvas polyfill injection). It
   lives here because it is PDF domain logic: the bootstrap that configures pdfjs
-  so `pdf.ts`'s extraction pipeline works — same relationship as if canvas.ts
-  needed a JSON parser configuration step. The two PDF modules are a unit and
+  so `pdf.ts`'s extraction pipeline works. The two PDF modules are a unit and
   belong together in the parser layer.
   `pdf.ts` imports it as a sibling for the `extractPdfText` pipeline.
   **Dual-format task mutations:** `tasks.ts` reads **and writes** both emoji
   signifiers (`✅`, `📅`, `⏫`) and Dataview inline fields (`[completion:: date]`,
   `[priority:: high]`). Mutation functions must strip both formats when removing
-  a field (a Dataview-formatted task must not get fields orphaned). New fields
-  are written in the format configured by the user's Tasks plugin
-  (`taskFormat` in `.obsidian/plugins/obsidian-tasks-plugin/data.json`) — emoji
-  by default. The `setDoneDate`/`setCancelledDate` settings control whether
-  completion dates are stamped at all. When `.obsidian/` is not synced to the
-  server, the tool defaults to emoji format.
+  a field (a Dataview-formatted task must not get fields orphaned). `tasks.ts`
+  takes the format as a parameter; `vault-operations/task-format-config.ts`
+  decides it from the user's Tasks plugin settings (`taskFormat` in
+  `.obsidian/plugins/obsidian-tasks-plugin/data.json`, emoji by default), and
+  its `setDoneDate`/`setCancelledDate` switches control whether completion
+  dates are stamped at all. When `.obsidian/` is not synced to the server,
+  `task-format-config.ts` falls back to emoji.
 - **`vault-operations/`** — everything that reads/writes the vault.
   `vault-filesystem.ts` is the base I/O primitive (atomic writes, path-safety,
   read/list/delete); `vault-patcher`, `note-mover`, `memory-store`, and
@@ -284,15 +271,14 @@ on**, not just its topic:
   inline is a compile error). A new gating axis is one new predicate, never
   new branching in group modules. `tool-availability.ts` is where "given the
   enabled set, how do you talk about tools" lives — `isToolEnabled`,
-  `whenToolEnabled`, and `formatEnabledToolList` (which narrows a list of tool
+  `whenToolEnabledText`, and `formatEnabledToolList` (which narrows a list of tool
   names to the served ones and renders it as prose, empty when none survives).
   All three text surfaces — tool descriptions, prompt steps, and the router's
   server metadata — build on that one view, so a cross-reference disappears
   whenever its target does. It sits at `mcp-core/` root precisely because
   `tools/` and `prompts/` both need it and cannot import each other. Each group
-  module is
-  self-contained: one register function and its data-layer imports, with
-  tool names imported from the registry. Shared helpers
+  module is self-contained: one register function and its data-layer imports,
+  with tool names imported from the registry. Shared helpers
   (`safeHandler`, `formatNoteMetadata`, `ToolRegistrationContext` type) live in
   `tool-helpers.ts`.
   **Tool handlers stay thin**: schema, wire mapping (snake_case ↔ camelCase),
@@ -305,8 +291,9 @@ on**, not just its topic:
   `prompt-definitions.ts` is the orchestrator that composes `PROMPT_NAMES` from
   three group modules under `mcp-core/prompts/` (vault-orientation, memory-review,
   daily-review) — mirroring the `tools/` pattern. Shared helpers
-  (`PromptRegistrationContext` type, `textResult`, `wrapWithDataMarkers`) live in
-  `prompt-helpers.ts`.
+  (`PromptRegistrationContext` type, `textResult`, and `wrapWithDataMarkers`,
+  which wraps vault content in `<vault-content>` tags so the model treats it as
+  data) live in `prompt-helpers.ts`.
 - **`search/`** — SQLite FTS5 + sqlite-vec index, embedding pipeline, file watcher.
 - **`oauth/`** — the OAuth 2.1 server (distinct from the shared `src/auth.ts`
   token utilities).
@@ -314,12 +301,14 @@ on**, not just its topic:
   page served while the container has no working Obsidian Sync token, the
   Obsidian account API client, and the token store. A sibling surface to
   `oauth/`, not a layer below it: builds on `config.ts`, `src/auth.ts`,
-  and `utils/`; nothing lower imports it (lint-enforced like `oauth/`).
+  and `utils/`; nothing lower imports it (lint-enforced: each lower layer's
+  `no-restricted-imports` bans `setup/` and `oauth/`).
   `svc-vault-mcp/run` starts `setup-server.ts` instead of `server.ts`
-  when `SETUP_MODE` is set.
+  when the init chain sets `SETUP_MODE`: `init-check-auth` when no token
+  exists, `init-obsidian-login` when the saved token's login is rejected.
 - **`utils/`** (at `src/`) — generic cross-cutting helpers.
 
-Two rules keep this honest:
+Three rules keep this honest:
 
 - **Dependency direction.** `obsidian-markdown/` and `utils/` depend on nothing
   internal (leaf layers); `vault-operations/` and `search/` depend on those;
@@ -348,34 +337,29 @@ and gating is derived once rather than re-decided per call site:
 - **`config.readOnlyMode` is banned throughout `mcp-core/`** except
   `tool-definitions.ts`, which is where the predicate lives. Everything
   downstream — descriptions, prompt steps, router metadata — keys on the enabled
-  set through `isToolEnabled` / `whenToolEnabled`. The flag knows nothing about
+  set through `isToolEnabled` / `whenToolEnabledText`. The flag knows nothing about
   `DISABLED_TOOLS` or any axis added later, so branching on it is how a prompt
   ends up naming a tool the server never registered. Banned as a member access
   and as a destructured binding.
 - **A local `TOOL_NAMES` in `mcp-core/tools/` or `mcp-core/prompts/` is an
-  error** — import it from `tool-registry.ts`. Per-group name constants were a
-  real duplicate source of truth before the registry replaced them, and a local
-  copy compiles and passes tests while drifting.
+  error** — import it from `tool-registry.ts`. A local copy compiles and passes
+  tests while drifting.
 - **`prompts/` and `tools/` cannot import each other at runtime.** They are
   sibling surfaces, not a layer stack; a helper both need is either generic
   enough for `utils/` or belongs in that group's own helpers module.
 
-Two mechanics worth knowing before editing these rules. `no-restricted-syntax`
-options **replace** rather than merge across overlapping config blocks, so a
-block that narrows the file set must restate every selector it still wants —
-the shared selector arrays at the top of `eslint.config.ts` exist so a new
-restriction cannot silently lapse in the narrower block. And
-`no-restricted-imports` patterns match the **import string as written**, not the
-resolved path, so a sibling-import pattern keys on the folder segment the
-specifier actually carries (`**/tools/**`, matching `"../tools/…"`) — a pattern
-written against the full path (`**/mcp-core/tools/**`) matches nothing and the
-rule sits inert. Validate any new rule with a planted violation.
+Before editing these rules, read the comments in `eslint.config.ts`.
+`no-restricted-syntax` options replace rather than merge across blocks, so a
+narrower block must restate every selector it still wants.
+`no-restricted-imports` patterns match the import string as written, so a
+pattern must key on the segment the specifier carries: `**/tools/**` matches
+`"../tools/x"`, while `**/mcp-core/tools/**` matches nothing and the rule sits
+inert.
+Validate any new rule with a planted violation.
 
 **`utils/` admission:** a helper belongs here only if it is **generic with zero
 domain knowledge** (no vault, Markdown, or MCP concepts) **and** clears one of two
-bars. `import type` from infrastructure modules (`Logger`, config types) is fine —
-type-only imports are erased at compile time and don't create runtime coupling.
-Don't reinvent a type with a structural stand-in when the real type exists:
+bars:
 
 - **(1) It removes real duplication** — already called from more than one place
   (`describeError`, `readFileOrNull`).
@@ -388,6 +372,11 @@ Premature-abstraction guard: if the only way to explain the helper is "the part 
 `someFunction` that does X," it fails bar (2) — it's a _fragment_, not a primitive,
 so keep it private until a second caller appears. Markdown logic is domain — it
 goes in `obsidian-markdown/`, never `utils/`.
+
+`import type` from infrastructure modules (`Logger`, config types) is fine in
+`utils/` — type-only imports are erased at compile time and don't create runtime
+coupling. Don't reinvent a type with a structural stand-in when the real type
+exists.
 
 **Export style** depends on what kind of module it is:
 
@@ -479,7 +468,7 @@ All data-layer functions use named params + required logger:
 ```typescript
 vaultFs.readNote({ vaultPath, path }, reqLogger)
 memoryStore.getMemory({ vaultPath, file, section }, reqLogger)
-search.fullTextSearch({ query, filters }, reqLogger)
+search.fullTextSearch({ query, filters }, reqLogger) // search: the SearchIndex on ToolRegistrationContext
 ```
 
 **Log levels:**
@@ -502,11 +491,11 @@ log would produce N lines during a vault rebuild (one per note), it's
 
 - Never log PII, credentials, tokens, or secrets — not in messages,
   not in structured fields, not in tests (fake fixtures only). Log
-  identifiers (`userId`), never identity payloads.
+  identifiers (`sessionId`), never identity payloads.
 - Redact via destructuring: `const { password, token, ...safe } = payload`
   — no `any`, no `delete` on copies.
 - Every catch logs or re-throws — `.catch(() => {})` and empty catch
-  blocks are banned; a swallowed error is worse than an uncaught one.
+  blocks are banned; a swallowed error hides the failure.
 - If a child-process command contains sensitive values, catch a failure
   at the call site and log a sanitized description. The original error
   message and a rethrow with `{ cause }` can expose the full command.
@@ -536,11 +525,23 @@ throughout the codebase.
 <!-- distilled from vault Reference/code-standards-* on 2026-09-23; refresh: run the sync-code-standards skill -->
 
 These rules are authoring guidance, not a review checklist — apply them
-while writing, not after. Several are lint-enforced in `eslint.config.ts`
-(arrow functions, `type` over `interface`, no `else` after return,
-single-char identifier ban, Luxon over `Date` and no `console` in `src/`,
-env access only via `config.ts`); the rest are the author's responsibility
-at write time.
+while writing, not after. `eslint.config.ts` enforces this subset:
+
+- No `function` declarations, and `type` over `interface`.
+- No `any`, `as` casts other than `as const`, or `!` non-null assertions
+  (warnings only in tests).
+- No nested ternaries, and no `else` after `return`.
+- No single-character identifiers (lint allows `i`, `a`/`b`, `k`, `_`).
+- No empty `catch {}` blocks (lint does not flag `.catch(() => {})`).
+- A blank line between a declaration and the guard that consumes it.
+- In `src/` only: no `console`; Luxon over `Date` and no `process.env`
+  member access outside `config.ts` (tests exempt). The rule misses a
+  destructured `import { env } from "node:process"`, which `logger.ts` uses.
+- The Module layering bans (layer imports, `config.readOnlyMode`, a local
+  `TOOL_NAMES`).
+
+The rest are the author's responsibility at write time. The list below
+covers both kinds, with reasons:
 
 - Functional over OOP. Arrow functions over `function` declarations.
 - Factory/closure pattern for stateful modules (see search-index.ts).
@@ -557,32 +558,29 @@ at write time.
   second copy of a guard the data layer must enforce regardless (drift
   risk). `.min(1)` is the floor because it does serialize (`minLength`)
   and its default failure message is self-explanatory.
-- No `any`, general `as` casts, or `!` (non-null assertion) — these bypass
-  type checking. `as const` is allowed for literal narrowing. Use runtime
-  guards (`if (x === undefined) return`) or schema validation instead.
-  When a library method returns `T | null` but the null case is
-  unreachable (e.g. `DateTime.now().toISO()`), throw on null — never
-  fall back to an empty string or other sentinel. `?? ""` is a code
-  smell: it silently degrades data instead of failing fast, it
-  propagates a meaningless value downstream where it can cause
-  harder-to-debug failures far from the source, it passes the type
-  checker without proving correctness, and it masks the real invariant
-  ("this can't be null") behind an expression that looks like "null is
-  fine, just use empty." A throw documents the invariant explicitly and
-  surfaces the bug immediately if the assumption ever breaks.
+- No `any`, `as` casts, or `!` (`as const` is allowed); use runtime
+  guards or schema validation instead. When a library method returns
+  `T | null` but the null case is unreachable (e.g.
+  `DateTime.now().toISO()`), throw on null — never fall back to `?? ""` or
+  another sentinel, which passes the type checker and hides the bug
+  downstream.
+- Blank lines separate logical sections — a declaration never runs
+  straight into the guard that consumes it.
 - Model states in the type system — reach for a discriminated union, a
   user-defined [type predicate](https://www.typescriptlang.org/docs/handbook/2/narrowing.html#using-type-predicates)
   (`value is Type`), or `never`-exhaustiveness before reshaping
   an API to route around the checker. Optional fields doc-commented
   "present only in mode X" are the cue for a discriminated union; a
   callback param with a closed set of instantiations becomes a
-  discriminated field naming the domain choice. Reuse type predicates
+  discriminated field naming the domain choice (every caller passes one of
+  two formatters → `format: "date" | "datetime"`). Reuse type predicates
   in filters over union members. Keep `x is T` guard bodies simple —
   predicates are compiler-trusted, not verified. A
   short `&&` chain is fine; when checks need a negated `in` or `||`
   branches, early returns read clearer.
 - One discriminant represents one outcome. When two result shapes encode
-  the same statuses and need a converter between them, use one
+  the same statuses and need a converter between them (a boolean `ok` result
+  beside a `status` result for the same outcomes), use one
   status-discriminated union instead.
 - Prefer `async/await` over `.then()`/`.catch()`. When `.then()` or
   `.finally()` is the natural idiom (e.g. promise-chain serialization
@@ -594,17 +592,15 @@ at write time.
   blocks are banned; a swallowed error hides the failure.
 - Three tiers at input boundaries: invalid input → reject with a
   clear error; valid input with a surprising structural consequence →
-  non-blocking advisory; machine-derived values (byte-exact match) →
+  non-blocking advisory; machine-derived values (the stored value
+  byte-exactly matches the tool's own earlier output) →
   auto-correct and report. User-authored values never auto-corrected.
 - Required inputs enforced at every entry point — fail fast at
   boot/load, not only the friendliest launcher. Making an
   already-expected value mandatory is a bug fix, not a breaking change.
-- Luxon `DateTime` over the native `Date` API. Luxon is declarative
-  (`DateTime.now().minus({ days: 7 }).toISODate()`), immutable, and
-  avoids manual arithmetic (`Date.now() - 7 * 86_400_000`) and
-  mutation (`date.setDate()`). Use `DateTime.now()` for current time,
-  `.toISO()` for timestamps, `.toISODate()` for date-only strings,
-  `.toUnixInteger()` for epoch seconds.
+- Luxon `DateTime` over the native `Date` API, because Luxon is immutable
+  and avoids manual millisecond arithmetic and `setDate()` mutation: use
+  `DateTime.now()`, `.toISO()`, `.toISODate()`, `.toUnixInteger()`.
 - Platform built-ins over manual string parsing — before hand-rolling
   `split`/slice/regex over structured data (URLs, paths, headers,
   dates), check Node 24's stdlib (e.g. static `URL.parse` returning
@@ -629,7 +625,7 @@ at write time.
   code into a more "functional" shape for its own sake.
 - Helpers do not mutate their inputs. Type collection parameters as
   `ReadonlyArray`, `ReadonlySet`, or `Readonly<T>` views and return new
-  values. A `const` local collection may be mutated in an honest loop.
+  values. A `const` local collection may be mutated in a plain `for…of` loop.
 - Don't disguise mutation as a fold. A `reduce` that mutates its
   accumulator (`acc.push(...)`, `acc.count += …`, then `return acc`) is
   the worst of both worlds — it reads as declarative but isn't, so a
@@ -725,18 +721,17 @@ at write time.
   explaining the overall strategy before the query.
 - Regex constants get doc comments explaining what they match.
 - Durable rationale only — never transition history, decision
-  narrative, or operator internals. OSS boundary: issue/PR numbers,
-  incident dates, deployment names, task-board IDs, remediation
+  narrative, or the maintainer's own infrastructure details. OSS boundary:
+  issue/PR numbers, incident dates, deployment names, task-board IDs, remediation
   narration, and investigation chronology never enter any public
   artifact — committed files, PR descriptions, or comments.
-- No nested ternaries — a chained `a ? b : c ? d : e` forces the
-  reader to simulate branches. Decompose into named const steps or
-  use an early-return guard with a trailing ternary. Lint-enforced
-  via `no-nested-ternary`.
+- No nested ternaries — a chained `a ? b : c ? d : e` forces the reader to
+  simulate branches. Decompose into named const steps or an early-return
+  guard with a trailing ternary.
 - Early returns over nested `if/else` — reduces indentation depth
   and cognitive load. Prefer `if (done) return` over wrapping 15
-  lines in `if (!done) { ... }`. In loops, prefer `if (cond) { …;
-continue }` over `if/else if` chains — each branch is
+  lines in `if (!done) { ... }`. In loops, prefer
+  `if (cond) { …; continue }` over `if/else if` chains — each branch is
   self-contained and the reader doesn't have to track mutual
   exclusivity across the chain.
 - Extract multi-clause conditionals into a named boolean when the `if`
@@ -795,17 +790,13 @@ continue }` over `if/else if` chains — each branch is
   against the codebase first; curated exceptions over blanket bans;
   never adopt a rule that fights an established idiom; a justified
   `eslint-disable` + why-comment beats weakening the rule.
-- **knip** detects unused exports, types, dependencies, and files.
-  Runs in the pre-commit hook (after `tsc`, before `lint-staged`) and
-  in CI. Config in `knip.json`. When knip flags an export, remove
-  `export` rather than adding a knip ignore comment — the export was
-  genuinely dead.
-- **markdownlint** (`markdownlint-cli2`) enforces markdown structure
-  rules (blank lines around fences, fenced code language, no bare
-  URLs). Runs in lint-staged with `--fix` on staged `.md` files
-  (before Prettier) and in CI without `--fix`. Config in
-  `.markdownlint-cli2.jsonc`. Disabled rules and ignores documented
-  in the config file.
+- **knip** (`knip.json`, pre-commit + CI) flags unused exports, types,
+  dependencies, and files. Remove a flagged `export` (nothing imports it)
+  rather than adding an ignore comment.
+- **markdownlint** (`.markdownlint-cli2.jsonc`, lint-staged with
+  `--fix` + CI) enforces markdown structure: blank lines around fences,
+  a language on every fenced block, no bare URLs. Ignores are documented
+  in the config.
 - Simple code over clever code when the same outcome is achievable.
   A person should be able to read and follow the code without
   unnecessary cognitive overload. Working is the floor, not the bar — if
@@ -824,14 +815,15 @@ continue }` over `if/else if` chains — each branch is
 
 ### Adding a new tool
 
-1. **Registry entry** — add to `TOOL_REGISTRY` in `tool-registry.ts`:
-   name, group, and annotations. The registry is a leaf module with
-   zero imports.
+1. **Registry entry** — add the name to `TOOL_NAMES`, then an entry to
+   `TOOL_REGISTRY` in `tool-registry.ts`: name, group, and annotations. The
+   registry is a leaf module with zero imports.
 2. **Handler** — add the tool in the appropriate `tools/*.ts` group
    module. The `registerTool` wrapper auto-injects annotations from
    the registry and enforces the enabled-tool gate.
-3. **Tests** — co-located at `tools/__tests__/` (or the group's
-   `__tests__/`). Cover the handler's behavior, not just the schema.
+3. **Tests** — unit tests in `tools/__tests__/`, plus a happy-path case in
+   `server-integration.test.ts` (see "Integration tests — when to add").
+   Cover the handler's behavior, not just the schema.
 4. **Availability keying** — if the tool's description names other
    tools, use `whenToolEnabledText` so references disappear when their
    target is disabled.
@@ -839,7 +831,7 @@ continue }` over `if/else if` chains — each branch is
    regenerated `__snapshots__/tool-surface/` files; any change to the
    tool surface fails the drift test until the baseline matches.
 6. **Feature-surface docs** — see the "Files that track feature
-   surface" table below for which files to update (README tools table,
+   surface" list below for which files to update (README tools table,
    ARCHITECTURE.md, DOCKERHUB regen, etc.).
 
 ### Adding a new prompt
@@ -849,9 +841,9 @@ continue }` over `if/else if` chains — each branch is
    `PromptRegistrationContext`.
 2. **Registration** — add the register call in
    `prompt-definitions.ts`. If the prompt depends on a specific tool,
-   gate it on `enabledToolNames.has(TOOL_NAMES.*)`.
+   gate it on `context.isToolEnabled(TOOL_NAMES.*)`.
 3. **Tests** — co-located at `prompts/__tests__/`. Use the shared
-   `prompt-test-harness.ts` for registration capture.
+   `prompt-test-harness.ts` in that folder for registration capture.
 4. **Availability keying** — use `whenToolEnabledText`,
    `isToolEnabled`, and `formatEnabledToolList` from the context for
    any tool references in the prompt text or fallback paths.
@@ -873,8 +865,7 @@ from tools:
   one or two sentences.
 - **A prompt earns its place only through live content** — assembled at
   invocation time from the data layer — plus thin, durable instruction.
-  Never re-encode a procedure that can drift (a prior `memory-checkpoint`
-  slash command was removed for exactly this). Zero-arg prompts **omit**
+  Never re-encode a procedure that can drift. Zero-arg prompts **omit**
   `argsSchema` so the SDK calls back as `(extra) =>`.
 - **Handlers degrade, never throw** — wrap data gathering so a failure
   returns a valid fallback message; a prompt must not hard-fail the client.
@@ -907,7 +898,8 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
 ### MCP path conventions
 
 - **Note-path tool inputs must end in `.md`.** Inputs naming a single markdown
-  note — `path` on read/write/patch/replace/delete/delete_span/update_properties,
+  note — `path` on read/write/patch/replace/delete/update_properties, the anchor
+  tools (delete_span/replace_span/insert_at_anchor), and the task tools,
   `new_path` on move — require the full filename with extension; a bare
   `Projects/Plan` is rejected. Enforced by the generic
   `assertPathHasExtension(path, ".md")` util
@@ -934,8 +926,8 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
   regressed without reading the body.
 - `const` per test over `let` in `beforeEach` — this is the strong
   default, not a soft preference. When setup is cheap (in-memory DB,
-  small fixtures), use a factory helper and `const index =
-createTestIndex()` at the top of each test. `beforeEach` is only
+  small fixtures), use a factory helper and
+  `const index = createTestIndex()` at the top of each test. `beforeEach` is only
   justified when per-test creation is genuinely impractical (expensive
   resources, complex multi-step setup that would obscure the test body).
 - Every test must actually verify the behavior it claims to test.
@@ -966,15 +958,17 @@ createTestIndex()` at the top of each test. `beforeEach` is only
     before reaching it. Assert a side effect that only the intended
     path produces (e.g. the expected `warn` was logged) so the
     happy-accident return can't pass.
-    When in doubt, mutate the code (break the specific behavior) and
-    confirm the test fails for _that_ reason — not a compile error or
-    an unrelated assertion.
   - **Wrong-item pass.** Seeding multiple items, querying one, then
     asserting only "something came back" — assert the specific
     expected item (path/id/content).
   - **Coincidental-equality hazard.** When production and test read
     the same source (e.g. `err.stack`), both being `undefined` passes
     trivially — set a predictable value and assert it exactly.
+
+  For any of these, when in doubt, mutate the code (break the specific
+  behavior) and confirm the test fails for _that_ reason — not a compile
+  error or an unrelated assertion.
+
 - Exact assertions (`toHaveLength(2)`, `toBe("value")`) over
   loose matchers (`toBeGreaterThanOrEqual(1)`, `toBeDefined()`)
   when the expected value is known.
@@ -1013,7 +1007,8 @@ createTestIndex()` at the top of each test. `beforeEach` is only
   `src/vault-mcp/__tests__/` (`init-check-auth.test.ts`,
   `init-obsidian-login.test.ts`, `init-first-sync.test.ts`,
   `init-setup-user.test.ts`, `init-setup-vault.test.ts`,
-  `print-derived-env.test.ts`). These script tests run the real
+  `print-derived-env.test.ts`, which covers the derivation that
+  `init-derive-env` publishes). These script tests run the real
   script under `sh` with stub binaries on `PATH`, and name the script
   they cover — don't move them under `rootfs/` or widen vitest's
   include for them. Whole-image behaviour (the init chain's ordering,
@@ -1128,8 +1123,8 @@ from `npm test`).
 - New interactive command → happy-path test driving the full prompt
   sequence.
 - New prompt in an existing command → extend or add a scenario.
-- Docker start/health-check changes → test with the docker shim's
-  health server.
+- Docker start/health-check changes → test with the fake `docker`
+  binary's `/healthz` server.
 
 **Never add:**
 
@@ -1144,9 +1139,10 @@ Remote image boot tests (`src/__tests__/docker/`) boot the built
 `:remote` image with the Sync CLI replaced by the `fixtures/ob` stub.
 They catch what a single script's test file cannot: the ordering of
 init scripts, the `container_environment` files the init chain
-writes, the volume layout, and the checks that stop the container
-on bad state. Run via `npm run test:remote-boot` (builds the image,
-then runs a separate vitest config excluded from `npm test`).
+writes, the volume layout, and the guards that stop the container on bad
+state (such as the deletion-storm guard). Run via `npm run test:remote-boot`
+(builds the image, then runs a separate vitest config excluded from
+`npm test`).
 
 Tests in a `describe` block share one booted container. Two places boot
 more often, because each scenario sets a different environment or
@@ -1179,9 +1175,9 @@ own `it()`, and the failing-sync block boots once per sub-`describe`
   haven't used in this repo (linking, secrets, outputs) — don't infer from
   other IaC tools or older SST versions.
 - Plain configuration a Lambda needs (`PUBLIC_URL`) goes in the function's
-  `environment:`, read with `env-var`; `sst.Linkable` follows SST v4's own
-  guidance on what to link. Type-generation timing is in "Build pipeline
-  gotcha" above.
+  `environment:`, read with `env-var`; `link:` is for SST resources a
+  handler reads through `Resource.*` (the `McpAuthToken` secret).
+  Type-generation timing is in "Build pipeline gotcha" below.
 - `$interpolate` for `Output<string>` composition.
 - Raw Pulumi `aws.*` for Lightsail (no SST component exists).
 - `sst.aws.ApiGatewayV2` + `routeUrl()` for HTTP proxy.
@@ -1220,8 +1216,9 @@ release — re-check each of these against the plugin source before merging:
   `parseText` try/null handling.
 - Reference-date priority (due → scheduled → start; flipped to due →
   start → scheduled under `removeScheduledDateOnRecurrence`).
-- The month/year overflow walk-back: dtstart moves with each step, and
-  the `" on "` exemption applies to the month branch only.
+- The month/year overflow walk-back: dtstart moves with each step, and a
+  rule whose text contains `" on "` (an explicit day, "every month on the
+  31st") skips the walk-back — month rules only.
 - The spawn's field handling in `createNextOccurrence`: block link, 🆔,
   and ⛔ cleared; created date replaced per `setCreatedDate`, never
   carried forward.
@@ -1250,8 +1247,11 @@ re-verify each contract against the new source before merging:
   nothing but `.sync.lock` as an empty vault.
 - The device's file record is
   `obsidian-headless/sync/<vaultId>/state.db` under `$XDG_CONFIG_HOME`,
-  table `local_files`. The deletion-storm guard reads this table. The
-  engine loads it at startup and compares it against the files on disk.
+  table `local_files`. The engine loads this record at startup and compares
+  it against the files on disk. The deletion-storm guard in `init-first-sync`
+  reads the same table: it stops the container when the record lists files
+  but the vault is empty, because the engine would push each missing file as
+  a deletion.
 - Files delivered by `sync --continuous` are recorded in that same
   table as they arrive, and a file deleted locally has its row removed.
   The stub's `sync-record` and `sync-forget` verbs mirror the two.
@@ -1260,7 +1260,7 @@ re-verify each contract against the new source before merging:
   end-to-end encrypted vault comes back with `password: ""`) and
   `/vault/access` with the key hash — scrypt over the NFKC-normalized
   password and salt (N 32768, r 8, p 1, 32 bytes), then HKDF-SHA256 with
-  info `ObsidianKeyHash` for versions 2 and 3, SHA-256 for version 0. The
+  info `ObsidianKeyHash` for `encryption_version` 2 and 3, SHA-256 for 0. The
   vectors in `vault-key.test.ts` were produced by the pinned CLI's own
   functions; recompute them on a bump.
 
@@ -1301,8 +1301,9 @@ match their siblings' length and shape.
 
 **Doc quality rules:**
 
-- Before calling a doc done, pick each supported reader persona and
-  walk the entire document start to finish — line-level fact-checking
+- Before calling a doc done, pick each reader the doc serves (the
+  Obsidian user, a self-hoster deploying it, a contributor) and walk the
+  entire document start to finish — line-level fact-checking
   cannot validate a doc; each sentence can be true while the doc
   as a whole misleads.
 - When a doc offers multiple paths (install methods, tools, runtimes),
@@ -1345,12 +1346,9 @@ match their siblings' length and shape.
   reference.
 
 Contributor and release conventions live in
-[`CONTRIBUTING.md`](./CONTRIBUTING.md) — notably, flag a **breaking change**
-for the generated release notes with a `BREAKING CHANGE:` footer in the PR
-description (primary: it carries the descriptive line and is read from the
-merged PR via the API, so it survives even when the squash body is dropped).
-A `breaking-change` PR label or a `!` type marker (`feat(scope)!:`) also work
-as flags.
+[`CONTRIBUTING.md`](./CONTRIBUTING.md). Flag a **breaking change** with a
+`BREAKING CHANGE:` footer in the PR description, so the generated release
+notes list it (other accepted flags are in `CONTRIBUTING.md`).
 
 ### Files that track feature surface
 
@@ -1368,39 +1366,38 @@ Several files outside `src/` reflect the project's feature surface and
 need updating alongside code changes. What to check depends on what
 changed:
 
-| File                                                           | Update when…                                                                                                                                                                                                                                                                                                                                                            |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `README.md`                                                    | New deployment mode, new feature worth mentioning in the value prop                                                                                                                                                                                                                                                                                                     |
-| `ARCHITECTURE.md`                                              | New component, requirement, or design decision; component diagram changes. Write for scannability: bullet lists and numbered pipelines over dense prose — a reader landing on this page should grasp the flow at a glance, not parse nested parentheticals.                                                                                                             |
-| `ROADMAP.md`                                                   | Direction genuinely changes — a priority shifts between Planned and Exploring, or a non-goal is decided. Refreshed in periodic passes (roughly once or twice a year) that remove completed Planned entries; not updated per feature PR, and shipped items are never promoted into Delivered — that section is a static foundations sketch, not a changelog              |
-| `server.json`                                                  | Description changes. `description` has a 100-character limit per the MCP registry schema — counted in code points, not bytes, so em dashes are safe here (CI guards it).                                                                                                                                                                                                |
-| `Dockerfile`                                                   | OCI `image.description` label — keep in sync with `server.json` and `deploy.yml` descriptions                                                                                                                                                                                                                                                                           |
-| `assets/social-preview.svg` + `.png`                           | Feature category changes (rendered in the image); regenerate PNG after SVG edits (run `npm run render:social-preview`)                                                                                                                                                                                                                                                  |
-| `.devin/wiki.json`                                             | New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references). Purposes stay structural — what the page covers and which modules — never capability narratives, counts, or tuning values; those live in README/ARCHITECTURE and DeepWiki derives them at index time.                                                            |
-| `src/vault-mcp/mcp-core/__tests__/__snapshots__/tool-surface/` | Any change to tool schemas, descriptions, annotations, prompts, or server instructions — run `npm run snapshot:update` and commit the regenerated baseline in the same PR (the drift test fails until it matches). A dependency bump that changes the MCP SDK's schema serialization needs the same regen commit: that CI failure is the gate working, not flake.       |
-| `deploy/local/` + `deploy/remote/`                             | New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory                                                                                                                                                                                                                   |
-| `render.yaml` + `deploy/render/` + `deploy/railway/`           | A variable the image needs at boot is added or renamed, a shipped default changes (plan, disk size, hop count, health path, port), or the image tag changes. `templates.test.ts` pins `render.yaml`; the Railway template is re-published by hand from the definition table in `CONTRIBUTING.md` — existing deployments keep their settings until their owners redeploy |
-| `.env.example` (root)                                          | New env var or changed default for the Lightsail reference deployment                                                                                                                                                                                                                                                                                                   |
-| `cli/README.md`                                                | Feature description or search capability changes — this is the npmjs.com landing page                                                                                                                                                                                                                                                                                   |
-| `cli/src/env.ts`                                               | Auto-synced optional blocks from `deploy/*/.env.example` via `npm run sync:cli-env-blocks` — run the script after editing deploy/ env files                                                                                                                                                                                                                             |
-| `CONTRIBUTING.md`                                              | CI pipeline, repo settings, or release conventions change                                                                                                                                                                                                                                                                                                               |
-| `DEPLOY.md`                                                    | Infrastructure, env vars, or deployment procedure changes                                                                                                                                                                                                                                                                                                               |
-| `GOVERNANCE.md`                                                | Access to a sensitive resource changes — a registry, bot, or workflow credential is added or dropped, or a collaborator gains rights. The Access list and Continuity paragraph name concrete credentials, so they must track the workflows' secrets                                                                                                                     |
-| `SECURITY.md`                                                  | The attack surface or its protections change — a new endpoint, auth layer, guard, scanner, or credential kind. The scope, hardening, setup-mode, and Secrets Management sections state what the code and CI actually do, and a stale claim here misleads vulnerability reporters                                                                                        |
-| `DOCKERHUB.md`                                                 | Auto-generated — regenerate via `npm run generate:dockerhub-readme` when README.md changes tool/prompt tables, feature descriptions, env var table, or deployment options. Do not edit manually.                                                                                                                                                                        |
-| `.github/workflows/dockerhub-description.yml`                  | Description changes. Reads from `DOCKERHUB.md`. Docker Hub limits short descriptions to 100 UTF-8 **bytes**, not characters — an em dash costs 3 (CI guards the byte length).                                                                                                                                                                                           |
-| `lhm.plugin.json`                                              | Generated and gitignored — never edit or commit it. `npm run publish:lobehub` regenerates it from the live tool/prompt registry and publishes the LobeHub listing; that command is the only thing that needs running when tools, prompts, the `server.json` description, or the `package.json` keywords change (keywords become the listing's tags).                    |
+- `README.md`: New deployment mode, new feature worth mentioning in the value prop
+- `ARCHITECTURE.md`: New component, requirement, or design decision; component diagram changes. Write for scannability: bullet lists and numbered pipelines over dense prose — a reader landing on this page should grasp the flow at a glance, not parse nested parentheticals.
+- `ROADMAP.md`: Direction genuinely changes — a priority shifts between Planned and Exploring, or a non-goal is decided. Refreshed in periodic passes (roughly once or twice a year) that remove completed Planned entries; not updated per feature PR, and shipped items are never promoted into Delivered — that section is a static foundations sketch, not a changelog
+- `server.json`: Description changes. `description` has a 100-character limit per the MCP registry schema — counted in code points, not bytes, so em dashes are safe here (CI guards it).
+- `Dockerfile`: OCI `image.description` label — keep in sync with `server.json` and `deploy.yml` descriptions
+- `assets/social-preview.svg` + `.png`: Feature category changes (rendered in the image); regenerate PNG after SVG edits (run `npm run render:social-preview`)
+- `.devin/wiki.json`: New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references). Purposes stay structural — what the page covers and which modules — never capability narratives, counts, or tuning values; those live in README/ARCHITECTURE and DeepWiki derives them at index time.
+- `src/vault-mcp/mcp-core/__tests__/__snapshots__/tool-surface/`: Any change to tool schemas, descriptions, annotations, prompts, or server instructions — run `npm run snapshot:update` and commit the regenerated baseline in the same PR (the drift test fails until it matches). A dependency bump that changes the MCP SDK's schema serialization needs the same regen commit: that CI failure is the gate working, not flake.
+- `deploy/local/` + `deploy/remote/`: New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory
+- `render.yaml` + `deploy/render/` + `deploy/railway/`: A variable the image needs at boot is added or renamed, a shipped default changes (plan, disk size, hop count, health path, port), or the image tag changes. `templates.test.ts` pins `render.yaml`; the Railway template is re-published by hand from the definition table in `CONTRIBUTING.md` — existing deployments keep their settings until their owners redeploy
+- `.env.example` (root): New env var or changed default for the Lightsail reference deployment
+- `cli/README.md`: Feature description or search capability changes — this is the npmjs.com landing page
+- `cli/src/env.ts`: Auto-synced optional blocks from `deploy/*/.env.example` via `npm run sync:cli-env-blocks` — run the script after editing deploy/ env files
+- `CONTRIBUTING.md`: CI pipeline, repo settings, or release conventions change
+- `DEPLOY.md`: Infrastructure, env vars, or deployment procedure changes
+- `GOVERNANCE.md`: Access to a sensitive resource changes — a registry, bot, or workflow credential is added or dropped, or a collaborator gains rights. The Access list and Continuity paragraph name concrete credentials, so they must track the workflows' secrets
+- `SECURITY.md`: The attack surface or its protections change — a new endpoint, auth layer, guard, scanner, or credential kind. The scope, hardening, setup-mode, and Secrets Management sections state what the code and CI actually do, and a stale claim here misleads vulnerability reporters
+- `DOCKERHUB.md`: Auto-generated — regenerate via `npm run generate:dockerhub-readme` when README.md changes tool/prompt tables, feature descriptions, env var table, or deployment options. Do not edit manually.
+- `.github/workflows/dockerhub-description.yml`: Description changes. Reads from `DOCKERHUB.md`. Docker Hub limits short descriptions to 100 UTF-8 **bytes**, not characters — an em dash costs 3 (CI guards the byte length).
+- `lhm.plugin.json`: Generated and gitignored — never edit or commit it. `npm run publish:lobehub` regenerates it from the live tool/prompt registry and publishes the LobeHub listing; that command is the only thing that needs running when tools, prompts, the `server.json` description, or the `package.json` keywords change (keywords become the listing's tags).
 
 **Env var update checklist** — when adding, removing, or changing an
-env var that the server reads (defined in `config.ts`, `server.ts`, or
-`logger.ts`), update every downstream surface. Not every var goes in
-every file — container-internal vars (HOST, INDEX_DB_PATH) are hardcoded
+env var that the server reads (defined in `config.ts`, `server.ts`,
+`setup/setup-server.ts`, or `logger.ts`), update every downstream surface.
+Not every var goes in every file — container-internal vars (HOST, INDEX_DB_PATH) are hardcoded
 in compose and skip .env.example; remote-only vars (OBSIDIAN_AUTH_TOKEN,
 PUID, etc.) only go in the remote surfaces. Use existing entries as a
 pattern:
 
-1. **Server source** (`config.ts`, `server.ts`, or `logger.ts`) —
-   authoritative definition via `env-var` package
+1. **Server source** (`config.ts`, `server.ts`, `setup/setup-server.ts`, or
+   `logger.ts`) — authoritative definition via the `env-var` package
+   (`logger.ts` reads `LOG_*` from `node:process` `env` directly)
 2. **Deploy compose** (`deploy/local/docker-compose.yml` and/or
    `deploy/remote/docker-compose.yml`) — add `${VAR:-default}` passthrough
    in `environment:`
@@ -1425,8 +1422,9 @@ pattern:
    the remote guide's table. Re-publish the Railway template after editing
    its definition.
 
-CI drift tests in `cli/src/__tests__/templates.test.ts` catch omissions across steps 2–4
-and pin the committed hosted templates (step 8), but the checklist prevents them.
+CI drift tests in `cli/src/__tests__/templates.test.ts` catch omissions across
+steps 2–4 after the fact and pin the committed hosted templates (step 8);
+following the checklist avoids the omissions in the first place.
 
 **Regenerating `social-preview.png`:** Run `npm run render:social-preview`.
 The script uses Puppeteer's pinned Chrome for Testing build with an embedded
@@ -1438,7 +1436,8 @@ on demand, so the first run downloads it (~350MB on disk). It losslessly
 optimizes the PNG with `optipng` if available (not required).
 
 Not every PR touches these. A new tool in an existing category updates
-the README tools table and the tool-surface snapshot. Update the
+the README tools table, `DOCKERHUB.md` (regenerated), and the tool-surface
+snapshot. Update the
 `server.json` description only when the category description changes. A
 module rename updates `.devin/wiki.json` and `ARCHITECTURE.md`. Use the
-table as a checklist, not a mandate to touch every file.
+list as a checklist, not a mandate to touch every file.
