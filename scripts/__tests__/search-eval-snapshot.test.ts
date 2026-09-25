@@ -16,7 +16,7 @@ const createTempVault = (): { vaultPath: string; snapshotDir: string } => {
   return { vaultPath, snapshotDir: join(rootDir, "snapshot") }
 }
 
-const writeVaultFile = (vaultPath: string, notePath: string): void => {
+const writeVaultFile = ({ vaultPath, notePath }: { vaultPath: string; notePath: string }): void => {
   const absolutePath = join(vaultPath, notePath)
   mkdirSync(dirname(absolutePath), { recursive: true })
   writeFileSync(absolutePath, `content of ${notePath}\n`)
@@ -36,9 +36,9 @@ const listSnapshotFiles = (snapshotDir: string): string[] => {
 describe("createVaultSnapshot", () => {
   it("skips files under an excluded prefix but copies a sibling whose name merely starts with it", () => {
     const { vaultPath, snapshotDir } = createTempVault()
-    writeVaultFile(vaultPath, join("sessions", "log.md"))
-    writeVaultFile(vaultPath, "sessions-archive.md")
-    writeVaultFile(vaultPath, join("notes", "keep.md"))
+    writeVaultFile({ vaultPath, notePath: join("sessions", "log.md") })
+    writeVaultFile({ vaultPath, notePath: "sessions-archive.md" })
+    writeVaultFile({ vaultPath, notePath: join("notes", "keep.md") })
 
     createVaultSnapshot({
       vaultPath,
@@ -56,8 +56,8 @@ describe("createVaultSnapshot", () => {
 
   it("matches exclusions case-insensitively for case-insensitive vault mounts", () => {
     const { vaultPath, snapshotDir } = createTempVault()
-    writeVaultFile(vaultPath, join("Sessions", "log.md"))
-    writeVaultFile(vaultPath, join("notes", "keep.md"))
+    writeVaultFile({ vaultPath, notePath: join("Sessions", "log.md") })
+    writeVaultFile({ vaultPath, notePath: join("notes", "keep.md") })
 
     createVaultSnapshot({
       vaultPath,
@@ -71,9 +71,9 @@ describe("createVaultSnapshot", () => {
 
   it("skips files with a hidden segment at any depth", () => {
     const { vaultPath, snapshotDir } = createTempVault()
-    writeVaultFile(vaultPath, join(".obsidian", "app.json"))
-    writeVaultFile(vaultPath, join("notes", ".hidden.md"))
-    writeVaultFile(vaultPath, join("notes", "keep.md"))
+    writeVaultFile({ vaultPath, notePath: join(".obsidian", "app.json") })
+    writeVaultFile({ vaultPath, notePath: join("notes", ".hidden.md") })
+    writeVaultFile({ vaultPath, notePath: join("notes", "keep.md") })
 
     createVaultSnapshot({
       vaultPath,
@@ -87,8 +87,8 @@ describe("createVaultSnapshot", () => {
 
   it("skips exactly the excluded paths and copies everything else", () => {
     const { vaultPath, snapshotDir } = createTempVault()
-    writeVaultFile(vaultPath, join("research", "judgment-notes.md"))
-    writeVaultFile(vaultPath, join("research", "keep.md"))
+    writeVaultFile({ vaultPath, notePath: join("research", "judgment-notes.md") })
+    writeVaultFile({ vaultPath, notePath: join("research", "keep.md") })
 
     createVaultSnapshot({
       vaultPath,
@@ -102,7 +102,7 @@ describe("createVaultSnapshot", () => {
 
   it("replaces an existing harness snapshot so stale files from a prior run cannot survive", () => {
     const { vaultPath, snapshotDir } = createTempVault()
-    writeVaultFile(vaultPath, "current.md")
+    writeVaultFile({ vaultPath, notePath: "current.md" })
     mkdirSync(snapshotDir, { recursive: true })
     writeFileSync(join(snapshotDir, SNAPSHOT_MARKER), "")
     writeFileSync(join(snapshotDir, "stale.md"), "from a prior run\n")
@@ -119,7 +119,7 @@ describe("createVaultSnapshot", () => {
 
   it("records provenance a matching reuse accepts, in any exclusion order", () => {
     const { vaultPath, snapshotDir } = createTempVault()
-    writeVaultFile(vaultPath, "current.md")
+    writeVaultFile({ vaultPath, notePath: "current.md" })
 
     createVaultSnapshot({
       vaultPath,
@@ -139,7 +139,7 @@ describe("createVaultSnapshot", () => {
 
   it("reports a mismatch for different exclusions and for a pre-provenance marker", () => {
     const { vaultPath, snapshotDir } = createTempVault()
-    writeVaultFile(vaultPath, "current.md")
+    writeVaultFile({ vaultPath, notePath: "current.md" })
 
     createVaultSnapshot({
       vaultPath,
@@ -168,7 +168,7 @@ describe("createVaultSnapshot", () => {
 
   it("reports a mismatch when the recorded vault path differs", () => {
     const { vaultPath, snapshotDir } = createTempVault()
-    writeVaultFile(vaultPath, "current.md")
+    writeVaultFile({ vaultPath, notePath: "current.md" })
 
     createVaultSnapshot({
       vaultPath,
@@ -209,7 +209,7 @@ describe("createVaultSnapshot", () => {
     ).toBe(false)
 
     // The ownership marker lets a plain re-run rebuild in place.
-    writeVaultFile(vaultPath, "current.md")
+    writeVaultFile({ vaultPath, notePath: "current.md" })
     createVaultSnapshot({
       vaultPath,
       snapshotDir,
@@ -221,7 +221,7 @@ describe("createVaultSnapshot", () => {
 
   it("refuses to delete a directory that is not a harness snapshot", () => {
     const { vaultPath, snapshotDir } = createTempVault()
-    writeVaultFile(vaultPath, "current.md")
+    writeVaultFile({ vaultPath, notePath: "current.md" })
     mkdirSync(snapshotDir, { recursive: true })
     writeFileSync(join(snapshotDir, "operator-data.md"), "not ours to delete\n")
 
