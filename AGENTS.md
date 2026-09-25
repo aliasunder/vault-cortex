@@ -43,10 +43,9 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full design.
 
 ## Structure
 
-The tree lists every folder and the files an agent most often needs: entry
-points, core modules, and files other sections refer to. Small
-self-explanatory helpers and routine files (READMEs, compose files) are left
-out; run `ls` on a folder for the full list.
+The tree maps the main folders and the files agents most often open; it is
+not a full listing. Most tests, config files, READMEs, and small helpers are
+left out, so run `ls` on a folder before concluding a file doesn't exist.
 
 ```text
 server.json # MCP server registry manifest
@@ -337,11 +336,12 @@ and gating is derived once rather than re-decided per call site:
   sibling surfaces, not a layer stack; a helper both need is either generic
   enough for `utils/` or belongs in that group's own helpers module.
 
-Before editing these rules, read the comments in `eslint.config.ts`. Selector
-options replace rather than merge across blocks, so a narrower block must
-restate every selector it still wants. Import patterns match the string as
-written, so a pattern written against the full path matches nothing and the
-rule sits inert. Validate any new rule with a planted violation.
+Before editing these rules, read the comments in `eslint.config.ts`.
+`no-restricted-syntax` options replace rather than merge across blocks, so a
+narrower block must restate every selector it still wants.
+`no-restricted-imports` patterns match the import string as written, so a
+pattern written against the full path matches nothing and the rule sits inert.
+Validate any new rule with a planted violation.
 
 **`utils/` admission:** a helper belongs here only if it is **generic with zero
 domain knowledge** (no vault, Markdown, or MCP concepts) **and** clears one of two
@@ -515,9 +515,9 @@ while writing, not after. `eslint.config.ts` enforces this subset:
 - No nested ternaries, and no `else` after `return`.
 - No single-character identifiers.
 - A blank line between a declaration and the guard that consumes it.
-- Luxon over `Date`, and no `console`, in `src/`.
-- Env access only through `config.ts`.
-- The Module layering import bans.
+- In `src/` only: Luxon over `Date`, no `console`, env access only through
+  `config.ts`.
+- The Module layering import and tool-surface bans.
 
 The rest are the author's responsibility at write time. All rules, enforced
 ones included:
@@ -1147,7 +1147,7 @@ own `it()`, and the failing-sync block boots once per sub-`describe`
 - Plain configuration a Lambda needs (`PUBLIC_URL`) goes in the function's
   `environment:`, read with `env-var`; `sst.Linkable` follows SST v4's own
   guidance on what to link. Type-generation timing is in "Build pipeline
-  gotcha" above.
+  gotcha" below.
 - `$interpolate` for `Output<string>` composition.
 - Raw Pulumi `aws.*` for Lightsail (no SST component exists).
 - `sst.aws.ApiGatewayV2` + `routeUrl()` for HTTP proxy.
