@@ -100,6 +100,9 @@ cli/ # npx vault-cortex CLI (published as vault-cortex npm package)
     env.ts # Environment file handling (.env generation)
     token.ts # Secure token generation (openssl rand)
     vault.ts # Vault path validation
+    init.ts # Init command orchestration
+    upgrade.ts # Upgrade command (pull + re-create + health check)
+    get-sync-token.ts # Get-sync-token subcommand (Sync token capture via Obsidian API)
     __tests__/
       integration/ # Interactive flows via node-pty in a real PTY
         pty-harness.ts # PTY spawn + sequential prompt matching + transcript
@@ -164,7 +167,7 @@ src/
     mcp-core/ # MCP protocol surface
       mcp-router.ts # /mcp session routes + transport lifecycle
       tool-registry.ts # Declarative registry — tool names, groups, MCP annotations (leaf, zero imports)
-      tool-availability.ts # Enabled-set view shared by tools, prompts, and router — isToolEnabled / whenToolEnabled / tool-name lists
+      tool-availability.ts # Enabled-set view shared by tools, prompts, and router — isToolEnabled / whenToolEnabledText / tool-name lists
       tool-definitions.ts # Tool orchestrator — enabled-set filter chain + gated registration wrapper
       prompt-definitions.ts # Prompt orchestrator — PROMPT_NAMES + conditional group registration
       tools/ # Tool group modules (one per data-layer domain)
@@ -262,7 +265,7 @@ on**, not just its topic:
   inline is a compile error). A new gating axis is one new predicate, never
   new branching in group modules. `tool-availability.ts` is where "given the
   enabled set, how do you talk about tools" lives — `isToolEnabled`,
-  `whenToolEnabled`, and `formatEnabledToolList` (which narrows a list of tool
+  `whenToolEnabledText`, and `formatEnabledToolList` (which narrows a list of tool
   names to the served ones and renders it as prose, empty when none survives).
   All three text surfaces — tool descriptions, prompt steps, and the router's
   server metadata — build on that one view, so a cross-reference disappears
@@ -297,7 +300,7 @@ on**, not just its topic:
   when `SETUP_MODE` is set.
 - **`utils/`** (at `src/`) — generic cross-cutting helpers.
 
-Two rules keep this honest:
+Three rules keep this honest:
 
 - **Dependency direction.** `obsidian-markdown/` and `utils/` depend on nothing
   internal (leaf layers); `vault-operations/` and `search/` depend on those;
@@ -326,7 +329,7 @@ and gating is derived once rather than re-decided per call site:
 - **`config.readOnlyMode` is banned throughout `mcp-core/`** except
   `tool-definitions.ts`, which is where the predicate lives. Everything
   downstream — descriptions, prompt steps, router metadata — keys on the enabled
-  set through `isToolEnabled` / `whenToolEnabled`. The flag knows nothing about
+  set through `isToolEnabled` / `whenToolEnabledText`. The flag knows nothing about
   `DISABLED_TOOLS` or any axis added later, so branching on it is how a prompt
   ends up naming a tool the server never registered. Banned as a member access
   and as a destructured binding.
@@ -341,7 +344,9 @@ Before editing these rules, read the comments in `eslint.config.ts`.
 `no-restricted-syntax` options replace rather than merge across blocks, so a
 narrower block must restate every selector it still wants.
 `no-restricted-imports` patterns match the import string as written, so a
-pattern written against the full path matches nothing and the rule sits inert.
+pattern must key on the segment the specifier carries: `**/tools/**` matches
+`"../tools/x"`, while `**/mcp-core/tools/**` matches nothing and the rule sits
+inert.
 Validate any new rule with a planted violation.
 
 **`utils/` admission:** a helper belongs here only if it is **generic with zero
@@ -511,18 +516,19 @@ throughout the codebase.
 These rules are authoring guidance, not a review checklist — apply them
 while writing, not after. `eslint.config.ts` enforces this subset:
 
-- Arrow functions, and `type` over `interface`.
-- No `any`, `as` casts, or `!` non-null assertions.
+- No `function` declarations, and `type` over `interface`.
+- No `any`, `as` casts other than `as const`, or `!` non-null assertions.
 - No nested ternaries, and no `else` after `return`.
-- No single-character identifiers.
+- No single-character identifiers (lint allows `i`, `a`/`b`, `k`, `_`).
+- No empty `catch {}` blocks (`.catch(() => {})` is not caught).
 - A blank line between a declaration and the guard that consumes it.
-- In `src/` only: Luxon over `Date`, no `console`, env access only through
-  `config.ts`.
+- In `src/` only: no `console`; Luxon over `Date` and no `process.env`
+  access outside `config.ts` (tests exempt).
 - The Module layering bans (layer imports, `config.readOnlyMode`, a local
   `TOOL_NAMES`).
 
-The rest are the author's responsibility at write time. All rules, enforced
-ones included:
+The rest are the author's responsibility at write time. The list below
+covers both kinds, with reasons:
 
 - Functional over OOP. Arrow functions over `function` declarations.
 - Factory/closure pattern for stateful modules (see search-index.ts).
@@ -539,7 +545,7 @@ ones included:
   second copy of a guard the data layer must enforce regardless (drift
   risk). `.min(1)` is the floor because it does serialize (`minLength`)
   and its default failure message is self-explanatory.
-- No `any`, general `as` casts, or `!` (`as const` is allowed); use runtime
+- No `any`, `as` casts, or `!` (`as const` is allowed); use runtime
   guards or schema validation instead. When a library method returns
   `T | null` but the null case is unreachable (e.g.
   `DateTime.now().toISO()`), throw on null — never fall back to `?? ""` or
@@ -769,7 +775,7 @@ continue }` over `if/else if` chains — each branch is
   never adopt a rule that fights an established idiom; a justified
   `eslint-disable` + why-comment beats weakening the rule.
 - **knip** (`knip.json`, pre-commit + CI) flags unused exports, types,
-  dependencies, and files. Remove a flagged `export` rather than adding
+  dependencies, and files. Remove a flagged `export` (nothing imports it) rather than adding
   an ignore comment.
 - **markdownlint** (`.markdownlint-cli2.jsonc`, lint-staged with
   `--fix` + CI) enforces markdown structure: blank lines around fences,
@@ -793,14 +799,15 @@ continue }` over `if/else if` chains — each branch is
 
 ### Adding a new tool
 
-1. **Registry entry** — add to `TOOL_REGISTRY` in `tool-registry.ts`:
-   name, group, and annotations. The registry is a leaf module with
+1. **Registry entry** — add the name to `TOOL_NAMES`, then an entry to
+   `TOOL_REGISTRY` in `tool-registry.ts`: name, group, and annotations. The registry is a leaf module with
    zero imports.
 2. **Handler** — add the tool in the appropriate `tools/*.ts` group
    module. The `registerTool` wrapper auto-injects annotations from
    the registry and enforces the enabled-tool gate.
-3. **Tests** — co-located at `tools/__tests__/` (or the group's
-   `__tests__/`). Cover the handler's behavior, not just the schema.
+3. **Tests** — unit tests in `tools/__tests__/`, plus a happy-path case in
+   `server-integration.test.ts` (see "Integration tests — when to add").
+   Cover the handler's behavior, not just the schema.
 4. **Availability keying** — if the tool's description names other
    tools, use `whenToolEnabledText` so references disappear when their
    target is disabled.
@@ -818,7 +825,7 @@ continue }` over `if/else if` chains — each branch is
    `PromptRegistrationContext`.
 2. **Registration** — add the register call in
    `prompt-definitions.ts`. If the prompt depends on a specific tool,
-   gate it on `enabledToolNames.has(TOOL_NAMES.*)`.
+   gate it on `context.isToolEnabled(TOOL_NAMES.*)`.
 3. **Tests** — co-located at `prompts/__tests__/`. Use the shared
    `prompt-test-harness.ts` for registration capture.
 4. **Availability keying** — use `whenToolEnabledText`,
@@ -875,7 +882,8 @@ Two naming layers — MCP (JSON wire format) and TypeScript (internal):
 ### MCP path conventions
 
 - **Note-path tool inputs must end in `.md`.** Inputs naming a single markdown
-  note — `path` on read/write/patch/replace/delete/delete_span/update_properties,
+  note — `path` on read/write/patch/replace/delete/update_properties, the anchor
+  tools (delete_span/replace_span/insert_at_anchor), and the task tools,
   `new_path` on move — require the full filename with extension; a bare
   `Projects/Plan` is rejected. Enforced by the generic
   `assertPathHasExtension(path, ".md")` util
@@ -1333,36 +1341,37 @@ Several files outside `src/` reflect the project's feature surface and
 need updating alongside code changes. What to check depends on what
 changed:
 
-- `README.md` — New deployment mode, new feature worth mentioning in the value prop
-- `ARCHITECTURE.md` — New component, requirement, or design decision; component diagram changes. Write for scannability: bullet lists and numbered pipelines over dense prose — a reader landing on this page should grasp the flow at a glance, not parse nested parentheticals.
-- `ROADMAP.md` — Direction genuinely changes — a priority shifts between Planned and Exploring, or a non-goal is decided. Refreshed in periodic passes (roughly once or twice a year) that remove completed Planned entries; not updated per feature PR, and shipped items are never promoted into Delivered — that section is a static foundations sketch, not a changelog
-- `server.json` — Description changes. `description` has a 100-character limit per the MCP registry schema — counted in code points, not bytes, so em dashes are safe here (CI guards it).
-- `Dockerfile` — OCI `image.description` label — keep in sync with `server.json` and `deploy.yml` descriptions
-- `assets/social-preview.svg` + `.png` — Feature category changes (rendered in the image); regenerate PNG after SVG edits (run `npm run render:social-preview`)
-- `.devin/wiki.json` — New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references). Purposes stay structural — what the page covers and which modules — never capability narratives, counts, or tuning values; those live in README/ARCHITECTURE and DeepWiki derives them at index time.
-- `src/vault-mcp/mcp-core/__tests__/__snapshots__/tool-surface/` — Any change to tool schemas, descriptions, annotations, prompts, or server instructions — run `npm run snapshot:update` and commit the regenerated baseline in the same PR (the drift test fails until it matches). A dependency bump that changes the MCP SDK's schema serialization needs the same regen commit: that CI failure is the gate working, not flake.
-- `deploy/local/` + `deploy/remote/` — New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory
-- `render.yaml` + `deploy/render/` + `deploy/railway/` — A variable the image needs at boot is added or renamed, a shipped default changes (plan, disk size, hop count, health path, port), or the image tag changes. `templates.test.ts` pins `render.yaml`; the Railway template is re-published by hand from the definition table in `CONTRIBUTING.md` — existing deployments keep their settings until their owners redeploy
-- `.env.example` (root) — New env var or changed default for the Lightsail reference deployment
-- `cli/README.md` — Feature description or search capability changes — this is the npmjs.com landing page
-- `cli/src/env.ts` — Auto-synced optional blocks from `deploy/*/.env.example` via `npm run sync:cli-env-blocks` — run the script after editing deploy/ env files
-- `CONTRIBUTING.md` — CI pipeline, repo settings, or release conventions change
-- `DEPLOY.md` — Infrastructure, env vars, or deployment procedure changes
-- `GOVERNANCE.md` — Access to a sensitive resource changes — a registry, bot, or workflow credential is added or dropped, or a collaborator gains rights. The Access list and Continuity paragraph name concrete credentials, so they must track the workflows' secrets
-- `SECURITY.md` — The attack surface or its protections change — a new endpoint, auth layer, guard, scanner, or credential kind. The scope, hardening, setup-mode, and Secrets Management sections state what the code and CI actually do, and a stale claim here misleads vulnerability reporters
-- `DOCKERHUB.md` — Auto-generated — regenerate via `npm run generate:dockerhub-readme` when README.md changes tool/prompt tables, feature descriptions, env var table, or deployment options. Do not edit manually.
-- `.github/workflows/dockerhub-description.yml` — Description changes. Reads from `DOCKERHUB.md`. Docker Hub limits short descriptions to 100 UTF-8 **bytes**, not characters — an em dash costs 3 (CI guards the byte length).
-- `lhm.plugin.json` — Generated and gitignored — never edit or commit it. `npm run publish:lobehub` regenerates it from the live tool/prompt registry and publishes the LobeHub listing; that command is the only thing that needs running when tools, prompts, the `server.json` description, or the `package.json` keywords change (keywords become the listing's tags).
+- `README.md`: New deployment mode, new feature worth mentioning in the value prop
+- `ARCHITECTURE.md`: New component, requirement, or design decision; component diagram changes. Write for scannability: bullet lists and numbered pipelines over dense prose — a reader landing on this page should grasp the flow at a glance, not parse nested parentheticals.
+- `ROADMAP.md`: Direction genuinely changes — a priority shifts between Planned and Exploring, or a non-goal is decided. Refreshed in periodic passes (roughly once or twice a year) that remove completed Planned entries; not updated per feature PR, and shipped items are never promoted into Delivered — that section is a static foundations sketch, not a changelog
+- `server.json`: Description changes. `description` has a 100-character limit per the MCP registry schema — counted in code points, not bytes, so em dashes are safe here (CI guards it).
+- `Dockerfile`: OCI `image.description` label — keep in sync with `server.json` and `deploy.yml` descriptions
+- `assets/social-preview.svg` + `.png`: Feature category changes (rendered in the image); regenerate PNG after SVG edits (run `npm run render:social-preview`)
+- `.devin/wiki.json`: New architectural area (new page), module renamed/moved (update `repo_notes` or `purpose` references). Purposes stay structural — what the page covers and which modules — never capability narratives, counts, or tuning values; those live in README/ARCHITECTURE and DeepWiki derives them at index time.
+- `src/vault-mcp/mcp-core/__tests__/__snapshots__/tool-surface/`: Any change to tool schemas, descriptions, annotations, prompts, or server instructions — run `npm run snapshot:update` and commit the regenerated baseline in the same PR (the drift test fails until it matches). A dependency bump that changes the MCP SDK's schema serialization needs the same regen commit: that CI failure is the gate working, not flake.
+- `deploy/local/` + `deploy/remote/`: New env var, changed default, new deployment step, or Docker Compose service change — update `.env.example` and `README.md` in the affected directory
+- `render.yaml` + `deploy/render/` + `deploy/railway/`: A variable the image needs at boot is added or renamed, a shipped default changes (plan, disk size, hop count, health path, port), or the image tag changes. `templates.test.ts` pins `render.yaml`; the Railway template is re-published by hand from the definition table in `CONTRIBUTING.md` — existing deployments keep their settings until their owners redeploy
+- `.env.example` (root): New env var or changed default for the Lightsail reference deployment
+- `cli/README.md`: Feature description or search capability changes — this is the npmjs.com landing page
+- `cli/src/env.ts`: Auto-synced optional blocks from `deploy/*/.env.example` via `npm run sync:cli-env-blocks` — run the script after editing deploy/ env files
+- `CONTRIBUTING.md`: CI pipeline, repo settings, or release conventions change
+- `DEPLOY.md`: Infrastructure, env vars, or deployment procedure changes
+- `GOVERNANCE.md`: Access to a sensitive resource changes — a registry, bot, or workflow credential is added or dropped, or a collaborator gains rights. The Access list and Continuity paragraph name concrete credentials, so they must track the workflows' secrets
+- `SECURITY.md`: The attack surface or its protections change — a new endpoint, auth layer, guard, scanner, or credential kind. The scope, hardening, setup-mode, and Secrets Management sections state what the code and CI actually do, and a stale claim here misleads vulnerability reporters
+- `DOCKERHUB.md`: Auto-generated — regenerate via `npm run generate:dockerhub-readme` when README.md changes tool/prompt tables, feature descriptions, env var table, or deployment options. Do not edit manually.
+- `.github/workflows/dockerhub-description.yml`: Description changes. Reads from `DOCKERHUB.md`. Docker Hub limits short descriptions to 100 UTF-8 **bytes**, not characters — an em dash costs 3 (CI guards the byte length).
+- `lhm.plugin.json`: Generated and gitignored — never edit or commit it. `npm run publish:lobehub` regenerates it from the live tool/prompt registry and publishes the LobeHub listing; that command is the only thing that needs running when tools, prompts, the `server.json` description, or the `package.json` keywords change (keywords become the listing's tags).
 
 **Env var update checklist** — when adding, removing, or changing an
-env var that the server reads (defined in `config.ts`, `server.ts`, or
-`logger.ts`), update every downstream surface. Not every var goes in
+env var that the server reads (defined in `config.ts`, `server.ts`,
+`setup/setup-server.ts`, or `logger.ts`), update every downstream surface. Not every var goes in
 every file — container-internal vars (HOST, INDEX_DB_PATH) are hardcoded
 in compose and skip .env.example; remote-only vars (OBSIDIAN_AUTH_TOKEN,
 PUID, etc.) only go in the remote surfaces. Use existing entries as a
 pattern:
 
-1. **Server source** (`config.ts`, `server.ts`, or `logger.ts`) —
+1. **Server source** (`config.ts`, `server.ts`, `setup/setup-server.ts`, or
+   `logger.ts`) —
    authoritative definition via `env-var` package
 2. **Deploy compose** (`deploy/local/docker-compose.yml` and/or
    `deploy/remote/docker-compose.yml`) — add `${VAR:-default}` passthrough
@@ -1401,7 +1410,8 @@ on demand, so the first run downloads it (~350MB on disk). It losslessly
 optimizes the PNG with `optipng` if available (not required).
 
 Not every PR touches these. A new tool in an existing category updates
-the README tools table and the tool-surface snapshot. Update the
+the README tools table, `DOCKERHUB.md` (regenerated), and the tool-surface
+snapshot. Update the
 `server.json` description only when the category description changes. A
 module rename updates `.devin/wiki.json` and `ARCHITECTURE.md`. Use the
 list as a checklist, not a mandate to touch every file.
