@@ -14,7 +14,7 @@ SST manages the AWS infrastructure declared in `sst.config.ts`, with each develo
 
 - AWS credentials configured (`aws configure` or `AWS_PROFILE`)
 - Docker installed locally
-- A GitHub PAT with `read:packages` + `write:packages` scopes — only for pushing images from your machine with `npm run deploy:dev` (GitHub Actions uses its built-in `GITHUB_TOKEN` instead, and a public GHCR package pulls anonymously)
+- A GitHub PAT with `read:packages` + `write:packages` scopes — needed for the first deploy, because `npm run deploy:dev` pushes the image from your machine (GitHub Actions uses its built-in `GITHUB_TOKEN` instead, and a public GHCR package pulls anonymously)
 - A dedicated deploy SSH keypair at `~/.ssh/vault-cortex`. If you don't have one: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`. SST uploads the public key to Lightsail. Both local dev and CI use the same key so deploys never trigger an instance replacement.
 - An [Obsidian](https://obsidian.md) vault (the data this server exposes)
 - An [Obsidian Sync](https://obsidian.md/sync) subscription (the remote deploy bundles a sync process that mirrors the vault between this VM and your Obsidian apps)
@@ -43,10 +43,8 @@ chmod 600 ~/.config/vault-cortex/.env
 If you deploy outside `us-east-1`, uncomment and set `AWS_REGION` in this file before the next step. The `aws` commands in this guide don't read this file, so export the deployment region (`us-east-1` unless you set one) in any shell where you run them:
 
 ```bash
-export AWS_REGION=<deployment-region> AWS_DEFAULT_REGION=<deployment-region>
+export AWS_REGION=<deployment-region>
 ```
-
-If you followed an earlier version of this guide, delete the `.env` symlink it had you create in the repository root (`rm .env`). SST itself loads any `.env` in the repository root on every command, so the symlink would keep a secret-bearing file inside the repository.
 
 **3. Generate the MCP auth token, write it to `.env`, and set the SST secret:**
 
@@ -75,8 +73,6 @@ Then open `~/.config/vault-cortex/.env` and fill in the remaining values:
 | `VAULT_PASSWORD`      | Only if vault has E2E encryption                                                                                                                                                    |
 | `OBSIDIAN_AUTH_TOKEN` | Generate with the command below                                                                                                                                                     |
 
-The [`.env.example`](./.env.example) file also includes optional configuration for the embedding pipeline (`EMBEDDING_ENABLED`), the reranker (`RERANK_MODE`), the memory system (`MEMORY_ENABLED`, `MEMORY_DIR`, `PROTECTED_PATHS`, `ORPHAN_EXCLUDE_FOLDERS`), file tools (`FILE_TOOLS_ENABLED`), read-only mode (`READONLY_MODE`), daily notes (`DAILY_NOTES_FOLDER`, `DAILY_NOTES_FORMAT`, `SYNC_CONFIGS`), timezone (`TZ`), and OAuth metadata (`SERVICE_DOCUMENTATION_URL`). All have sensible defaults — see the [Configuration](./README.md#configuration) section in the README.
-
 ```bash
 npx vault-cortex@latest get-sync-token
 ```
@@ -87,7 +83,9 @@ Or run the Docker image directly:
 docker run --rm -it --entrypoint get-sync-token ghcr.io/aliasunder/vault-cortex:remote
 ```
 
-**4. Authenticate to GHCR** (once per machine — only needed for pushing images from your machine with `npm run deploy:dev`; skip it if you deploy exclusively through CI, which authenticates with its built-in `GITHUB_TOKEN`):
+The [`.env.example`](./.env.example) file also includes optional configuration for the embedding pipeline (`EMBEDDING_ENABLED`), the reranker (`RERANK_MODE`), the memory system (`MEMORY_ENABLED`, `MEMORY_DIR`, `PROTECTED_PATHS`, `ORPHAN_EXCLUDE_FOLDERS`), file tools (`FILE_TOOLS_ENABLED`), read-only mode (`READONLY_MODE`), daily notes (`DAILY_NOTES_FOLDER`, `DAILY_NOTES_FORMAT`, `SYNC_CONFIGS`), timezone (`TZ`), and OAuth metadata (`SERVICE_DOCUMENTATION_URL`). All have sensible defaults — see the [Configuration](./README.md#configuration) section in the README.
+
+**4. Authenticate to GHCR** (once per machine — needed for pushing images from your machine with `npm run deploy:dev`; skip it only if you will deploy exclusively through CI, set up later in [CI/CD](#cicd), which authenticates with its built-in `GITHUB_TOKEN`):
 
 ```bash
 echo "<your-github-pat>" | docker login ghcr.io -u <your-github-username> --password-stdin
@@ -103,7 +101,7 @@ That runs, in order:
 
 1. `npm run deploy` — provisions Lightsail VM, API Gateway, smart Lambda authorizer
 2. `npm run docker:publish` — builds (targeting linux/amd64) + pushes to GHCR
-3. `npm run lightsail:up` — ensures `/opt/vault-cortex` exists, waits for Docker (cloud-init), logs into GHCR on the instance, resolves `PUBLIC_URL` (explicit value, else `CUSTOM_DOMAIN`, else the gateway URL — the same rule the Lambda authorizer uses), SCPs `docker-compose.yml` + `.env` carrying that value, then `docker compose pull && up -d`
+3. `npm run lightsail:up` — ensures `/opt/vault-cortex` exists, waits for Docker (cloud-init), logs into GHCR on the instance, resolves `PUBLIC_URL` (explicit value, else `CUSTOM_DOMAIN`, else the gateway URL — the same rule the Lambda authorizer uses), SCPs `docker-compose.yml` and a copy of `~/.config/vault-cortex/.env` (every value in that file, with `PUBLIC_URL` set to the resolved value; shell overrides are not copied), then `docker compose pull && up -d`
 
 On startup, Compose runs one `vault-cortex` container (the `:remote` image). Inside it, s6-overlay runs the init chain (Obsidian login → vault setup → first sync to completion) and then supervises two processes in order: the sync process (mirrors your vault) → the MCP server. Both drop to the same UID (1000, adjustable via PUID/PGID) so they share the `/vault` volume. See [ARCHITECTURE.md § Container Startup](./ARCHITECTURE.md#container-startup) for the full diagram.
 
@@ -131,6 +129,8 @@ aws lightsail get-static-ip --static-ip-name vault-cortex-ip-<stage> \
   --query staticIp.ipAddress --output text
 ```
 
+`<stage>` is the name in `.sst/stage` (`cat .sst/stage`).
+
 ## Monitoring
 
 ### SSH into the server
@@ -142,6 +142,8 @@ ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp>
 `<lightsailIp>` comes from `aws lightsail get-static-ip` (see [Verify](#verify) — it is deliberately not an SST output). Uses the dedicated deploy key (`~/.ssh/vault-cortex`). To also SSH with your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.
 
 ### Tailing logs
+
+Run these commands on the instance (see [SSH into the server](#ssh-into-the-server)); the instance bootstrap installs `jq`. The container also keeps daily log files under `/data/logs` (`LOG_DIR`), which survive container re-creates.
 
 The container writes to stdout/stderr, captured by Docker's `json-file` log driver (10MB per file, 3 rotated files — ~30MB retained). One stream carries both processes: MCP server lines are structured JSON; the init chain's lifecycle lines carry an `[obsidian-sync]` or `[vault-cortex]` prefix, while the continuous sync process's own output is plain (unprefixed) text.
 
@@ -429,7 +431,7 @@ To find your stage: `cat .sst/stage` (after one-time setup).
 | Secret                   | Purpose                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `AWS_DEPLOY_ROLE_ARN`    | IAM role ARN from the [OIDC setup](#github-oidc-setup-for-forkers) above.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `AWS_REGION`             | AWS region for SST deployment (default: `us-east-1`). Must match the region in `sst.config.ts`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `AWS_REGION`             | AWS region for SST deployment (default: `us-east-1`). If you also deploy from your laptop, it must match `AWS_REGION` in `~/.config/vault-cortex/.env`, so both deploys target the same stack.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `SST_STAGE`              | SST stage name — see [SST stage](#sst-stage) above. Must match your local `.sst/stage` so CI and laptop deploys target the same infrastructure.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `PUBLIC_URL`             | Optional. The URL clients reach the server at. When unset, the deploy derives it: `https://<CUSTOM_DOMAIN>` if that secret is set, otherwise the gateway's own `https://<id>.execute-api.<region>.amazonaws.com`. Set it to pin a hostname, for example to keep the execute-api URL through a [custom-domain](#custom-domain-optional) cutover. Whatever the value, it is written into the instance `.env`, used for the healthcheck, and set on the Lambda authorizer, which rejects any access token whose issuer or audience was minted for a different URL. Changing it on a live deployment therefore invalidates every access token (403) — every connected client stays cut off until you reconnect it. |
 | `VAULT_NAME`             | Exact (case-sensitive) Obsidian vault name.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
@@ -462,9 +464,10 @@ Changing the deploy keypair **triggers a VM replacement**. The `SSH_PUBKEY` GitH
 1. Take a manual snapshot first (rollback point if the replacement goes wrong — see [RECOVERY.md](./RECOVERY.md) Scenario B): `aws lightsail create-instance-snapshot --instance-name vault-cortex-<stage> --instance-snapshot-name pre-key-rotation`
 2. Wait for the snapshot to finish. Lightsail creates it in the background, so repeat `aws lightsail get-instance-snapshot --instance-snapshot-name pre-key-rotation --query 'instanceSnapshot.state' --output text` until it prints `available`. Stop if it prints `error`
 3. Regenerate the key: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`
-4. [Unprotect the instance](./RECOVERY.md#intentional-replace-bundle-upgrade-blueprint-change-etc) (required — `protect: true` blocks replacement)
+4. In `sst.config.ts`, remove `protect: true` and `retainOnDelete: true` from the `VaultCortexVm` options, then deploy with no other change. `protect` blocks the replacement, and `retainOnDelete` would leave the old VM holding the instance name
 5. Update both `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets
-6. Deploy — the VM is replaced with a fresh disk
+6. Deploy — the old VM is deleted and a fresh one is created
+7. Restore `protect: true` and `retainOnDelete: true`, then deploy once more with no other change so the new VM is protected
 
 **Data implications:** vault re-syncs from Obsidian and the search index rebuilds automatically, so the MCP server recovers quickly. What you lose: OAuth state (`oauth.db` — clients re-authenticate on next use), accumulated Docker logs, and anything manually installed on the VM outside of IaC (ad-hoc `apt install`, Tailscale, cron jobs, etc.).
 
@@ -481,12 +484,25 @@ ssh -i ~/.ssh/vault-cortex ubuntu@<lightsailIp> \
 
 Rotation ends every OAuth session — each connected client goes back through the consent page on its next request, and clients that use the token directly need the new value.
 
-The token must stay in sync across three places: the SST secret (`sst secret set McpAuthToken`), the GitHub repo secret, and the instance `.env`. CI writes the instance `.env` from the GitHub secret on every deploy, so the laptop rotation procedure becomes:
+The token must stay in sync across four places:
+
+- the SST secret (`npm run sst -- secret set McpAuthToken`)
+- the GitHub repo secret
+- `~/.config/vault-cortex/.env`, which a later `npm run lightsail:up` copies to the instance
+- the instance `.env`
+
+CI writes the instance `.env` from the GitHub secret on every deploy, so the laptop rotation procedure becomes:
 
 ```bash
 NEW_TOKEN=$(openssl rand -hex 32)
 npm run sst -- secret set McpAuthToken "$NEW_TOKEN"
 gh secret set MCP_AUTH_TOKEN --body "$NEW_TOKEN"
+
+if [ "$(uname)" = "Darwin" ]; then
+  sed -i '' "s/^MCP_AUTH_TOKEN=.*/MCP_AUTH_TOKEN=$NEW_TOKEN/" ~/.config/vault-cortex/.env
+else
+  sed -i "s/^MCP_AUTH_TOKEN=.*/MCP_AUTH_TOKEN=$NEW_TOKEN/" ~/.config/vault-cortex/.env
+fi
 # Then dispatch manual_release.yml or push a new tag — CI takes care of the rest.
 ```
 
@@ -612,7 +628,7 @@ To revert to public SSH at any time:
 npm run deploy
 ```
 
-Or via AWS CLI for immediate effect (overwritten on next SST deploy):
+Or via AWS CLI for immediate effect (overwritten on next SST deploy). This command replaces every firewall rule, so it sets both ports. If you use `MCP_PORT_CIDRS=none`, replace port 8000's `0.0.0.0/0` with `192.0.2.1/32`, or the command reopens port 8000 to the internet:
 
 ```bash
 aws lightsail put-instance-public-ports \
@@ -772,7 +788,7 @@ If the VM is replaced (key rotation, bundle upgrade) and `MCP_PORT_CIDRS=none`, 
    SSH_CIDRS=0.0.0.0/0 ORIGIN_URL= MCP_PORT_CIDRS=0.0.0.0/0 npm run deploy
    ```
 
-2. SSH in via public IP, install Tailscale (see [SSH Hardening](#ssh-hardening-with-tailscale-optional))
+2. SSH in via the public IP. If you use SSH Hardening, reinstall Tailscale (see [SSH Hardening](#ssh-hardening-with-tailscale-optional))
 3. Install `cloudflared` and register with the existing tunnel token:
 
    ```bash
@@ -801,7 +817,7 @@ To revert to direct port 8000 access at any time:
 npm run deploy
 ```
 
-Or via AWS CLI for immediate firewall change (overwritten on next SST deploy):
+Or via AWS CLI for immediate firewall change (overwritten on next SST deploy). This command replaces every firewall rule, so it sets both ports. If you use `SSH_CIDRS=none`, replace port 22's `0.0.0.0/0` with `192.0.2.1/32`, or the command reopens SSH to the internet:
 
 ```bash
 aws lightsail put-instance-public-ports \
@@ -847,14 +863,16 @@ curl https://mcp.example.com/healthz
 
 **4. Move clients to the custom domain.** A CI deploy with `CUSTOM_DOMAIN` set derives `PUBLIC_URL` from it (unless the `PUBLIC_URL` secret pins another value), so OAuth discovery metadata advertises the custom domain and every access token is minted for it. Access tokens are bound to that URL: a client still connected through the execute-api URL is rejected on its next request (its token names the old audience) and reconnects on the custom domain, where it consents once. To stage the cutover, set the `PUBLIC_URL` secret to the execute-api URL until the CNAME resolves, then clear it and redeploy. A laptop deploy follows the same rule — `npm run lightsail:up` resolves `PUBLIC_URL` identically and writes it into the instance `.env`, so the Lambda and Express stay in agreement; stage the cutover by setting `PUBLIC_URL` in `~/.config/vault-cortex/.env` instead of the secret, and re-run both `npm run deploy` and `npm run lightsail:up` when you clear it.
 
-**5. Close the default hostname (optional)** — once every client connects through the custom domain, set `DISABLE_EXECUTE_API_ENDPOINT=true` (a repo Variable for CI deploys, or on the command line) and redeploy. The gateway then answers only on the custom domain; a client still pointed at the execute-api URL gets a connection error until it is re-pointed. This is the precondition for `TRUST_FORWARDED_HOPS=2` when a CDN fronts the domain (see the **Client-IP trust with ORIGIN_URL** callout under [Port 8000 Hardening](#port-8000-hardening-optional)).
+**5. Close the default hostname (optional)** — once every client connects through the custom domain, set `DISABLE_EXECUTE_API_ENDPOINT=true` (a repo Variable for CI deploys, or a line in `~/.config/vault-cortex/.env` for laptop deploys) and redeploy. The gateway then answers only on the custom domain; a client still pointed at the execute-api URL gets a connection error until it is re-pointed. This is the precondition for `TRUST_FORWARDED_HOPS=2` when a CDN fronts the domain (see the **Client-IP trust with ORIGIN_URL** callout under [Port 8000 Hardening](#port-8000-hardening-optional)).
 
 ---
 
 ## Troubleshooting
 
 - **`npm run build` fails with `Property 'McpAuthToken' does not exist`** — `sst-env.d.ts` hasn't been generated. Complete one-time setup step 2 to create `~/.config/vault-cortex/.env`, then run `npm run deploy` (or `npm run dev:sst`) once for your stage.
-- **Every request gets `403` at the gateway while the instance is healthy** — the Lambda authorizer is rejecting every token, and clients do not recover on their own (they refresh on 401, not 403). Either the Lambda and Express disagree on `PUBLIC_URL` — the Lambda derives its value at `sst deploy` (the `PUBLIC_URL` env var, else `CUSTOM_DOMAIN`, else the gateway URL), and Express reads the instance `.env`, which CI and `npm run lightsail:up` write with the same rule, so a disagreement means the instance `.env` was edited by hand or written by an older deploy; re-run the deploy (or `npm run lightsail:up`) so both derive the same value — or connected clients still hold tokens minted before audience binding (an upgrade that skipped the release that accepts them): each client recovers when its own token timer refreshes it, at most one access-token lifetime, or reconnect it now.
+- **Every request gets `403` at the gateway while the instance is healthy** — the Lambda authorizer is rejecting every token, and clients do not recover on their own (they refresh on 401, not 403). There are two causes:
+  - **The Lambda and Express disagree on `PUBLIC_URL`.** The Lambda derives its value at `sst deploy` (the `PUBLIC_URL` env var, else `CUSTOM_DOMAIN`, else the gateway URL). Express reads the instance `.env`, which CI and `npm run lightsail:up` write with the same rule, so a disagreement means the instance `.env` was edited by hand or written by an older deploy. Re-run the deploy (or `npm run lightsail:up`) so both derive the same value.
+  - **Connected clients still hold tokens minted before audience binding** (an upgrade that skipped the release that accepts them). Each client recovers when its own token timer refreshes it, within one access-token lifetime, or you can reconnect it now.
 - **`npm run dev:sst` errors with `SecretMissingError`** — set the secret first (one-time setup step 3).
 - **`curl <lightsailIp>` hangs** — use `:8000`. The firewall only allows ports 22 and 8000 by default (port 22 may be blocked if `SSH_CIDRS=none`, port 8000 may be blocked if `MCP_PORT_CIDRS=none`).
 - **`scp` / `ssh` fails with `Permission denied (publickey)`** — your local SSH key doesn't match what SST deployed to the Lightsail KeyPair. Verify `~/.ssh/vault-cortex` exists (generate with `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`), then redeploy. To also use your personal key, add it post-provision: `ssh -i ~/.ssh/vault-cortex ubuntu@<IP> "cat >> ~/.ssh/authorized_keys" < ~/.ssh/id_ed25519.pub`.

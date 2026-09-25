@@ -7,16 +7,16 @@ replace it on purpose. Companion to `sst.config.ts`.
 
 Three layers cover different failure classes:
 
-| Layer                                 | What it does                                                                                    | Where                         |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------- | ----------------------------- |
-| Resource-level `protect: true`        | Refuses any Pulumi op that would destroy/replace the Instance                                   | `sst.config.ts` instance opts |
-| Resource-level `retainOnDelete: true` | If SST ever does decide to delete (stage rename), orphan the AWS resource instead of destroying | `sst.config.ts` instance opts |
-| Lightsail auto-snapshot               | Daily disk image at 03:00 UTC, 7-day rolling retention                                          | `addOn` on the Instance       |
+| Layer                                 | What it does                                                                                                                                           | Where                         |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- |
+| Resource-level `protect: true`        | Refuses any Pulumi op that would destroy/replace the Instance                                                                                          | `sst.config.ts` instance opts |
+| Resource-level `retainOnDelete: true` | If SST deletes the Instance once `protect` is cleared (`sst remove`, or removing it from the config), orphan the AWS resource instead of destroying it | `sst.config.ts` instance opts |
+| Lightsail auto-snapshot               | Daily disk image at 03:00 UTC, 7-day rolling retention                                                                                                 | `addOn` on the Instance       |
 
 The auto-snapshot is the only one that protects against AWS-side events
 (hardware failure, AZ outage) and against in-VM mistakes (fat-finger
-`rm -rf`, container compromise). The IaC seatbelts only protect against
-Pulumi-driven replacement.
+`rm -rf`, container compromise). `protect` and `retainOnDelete` only protect
+against Pulumi-driven replacement.
 
 ## Snapshot policy
 
@@ -42,8 +42,6 @@ region used by the deployment (`AWS_REGION` in
 
 ```bash
 export AWS_REGION=<deployment-region>
-# AWS CLI v1 ignores AWS_REGION and reads only AWS_DEFAULT_REGION.
-export AWS_DEFAULT_REGION="${AWS_REGION}"
 ```
 
 ## Restore scenarios
@@ -60,11 +58,10 @@ docker compose up -d
 curl -sf http://localhost:8000/healthz
 ```
 
-### Scenario B — VM gone, restore from latest auto-snapshot
+### Scenario B — VM broken, restore from latest auto-snapshot
 
-Lightsail auto-snapshots use a deterministic name format
-(`<instance-name>-auto-<timestamp>`). Find the most recent one for your
-stage:
+Lightsail deletes an instance's automatic snapshots when the instance is
+deleted, so don't delete the broken instance until the restore is verified.
 
 ```bash
 STAGE=<your-stage>                                # e.g. "production"
@@ -77,18 +74,12 @@ AVAILABILITY_ZONE="${AWS_REGION}a"
 BUNDLE_ID="medium_3_0"
 aws lightsail get-regions --include-availability-zones --region "${AWS_REGION}" --output table
 aws lightsail get-bundles --region "${AWS_REGION}" --output table
-
-aws lightsail get-auto-snapshots \
-  --resource-name "${INSTANCE_NAME}" \
-  --output json \
-  | jq -r '.autoSnapshots[0].date'                # date of newest snapshot
 ```
 
-Restore into a temporary name (Lightsail can't reuse the original name
-while SST still has the old resource in state):
+Restore the newest automatic snapshot into a temporary name (the
+reconciliation section below then either renames it back or adopts it):
 
 ```bash
-SNAPSHOT_DATE=<from above>
 RESTORE_NAME="${INSTANCE_NAME}-restore-$(date +%s)"
 
 aws lightsail create-instances-from-snapshot \
@@ -96,7 +87,7 @@ aws lightsail create-instances-from-snapshot \
   --availability-zone "${AVAILABILITY_ZONE}" \
   --bundle-id "${BUNDLE_ID}" \
   --source-instance-name "${INSTANCE_NAME}" \
-  --restore-date "${SNAPSHOT_DATE}" \
+  --use-latest-restorable-auto-snapshot \
   --key-pair-name "vault-cortex-key-${STAGE}"
 
 # Wait for the new instance to become running before reattaching IP.
@@ -104,11 +95,22 @@ aws lightsail get-instance --instance-name "${RESTORE_NAME}" \
   --query 'instance.state.name' --output text
 ```
 
+The restored instance gets only Lightsail's default firewall rules (SSH and
+HTTP open), so port 8000 is closed until the reconcile deploy below restores
+the configured rules. If API Gateway reaches the VM on port 8000 (no
+`ORIGIN_URL`), open it now:
+
+```bash
+aws lightsail open-instance-public-ports --instance-name "${RESTORE_NAME}" \
+  --port-info fromPort=8000,toPort=8000,protocol=TCP
+```
+
 Reattach the StaticIp (it survives independently of the instance):
 
 ```bash
 STATIC_IP_NAME="vault-cortex-ip-${STAGE}"
 
+# `|| true`: the IP may already be detached from the broken instance.
 aws lightsail detach-static-ip --static-ip-name "${STATIC_IP_NAME}" || true
 aws lightsail attach-static-ip \
   --static-ip-name "${STATIC_IP_NAME}" \
@@ -126,21 +128,22 @@ curl -sf http://localhost:8000/healthz
 Reconcile SST state so the next deploy uses the new instance — see
 "Reconciling SST state after a restore" below.
 
-### Scenario C — VM gone AND the auto-snapshot has aged out
+### Scenario C — VM deleted, or no snapshot to restore
 
-Auto-snapshots expire after 7 days. If the VM has been gone longer and
-you have no manual snapshot, you're rebuilding from scratch:
+Automatic snapshots expire after 7 days and are deleted along with their
+instance. Without a manual snapshot, you're rebuilding from scratch:
 
 ```bash
 STAGE=<your-stage>                                # the name in .sst/stage
 # Remove the stale state entry (the existing state still claims the VM exists)
-npm run sst -- state remove --target 'aws:lightsail:Instance::VaultCortexVm' --stage "${STAGE}"
+npm run sst -- state remove VaultCortexVm --stage "${STAGE}"
 # Then a normal deploy provisions a fresh VM
 npm run deploy -- --stage "${STAGE}"
 ```
 
-You'll need to re-run the post-provision steps from the README
-(populate `.env`, `docker compose up -d`, etc.). Vault content
+Then run `npm run docker:publish && npm run lightsail:up`
+([DEPLOY.md § Deploy](./DEPLOY.md#deploy)), which copies
+`~/.config/vault-cortex/.env` to the new VM and starts the container. Vault content
 repopulates automatically via Obsidian Sync on first `vault-cortex`
 container start, and the FTS5 index rebuilds itself once the MCP
 server boots. OAuth state is gone — clients will re-auth on
@@ -148,7 +151,7 @@ their next token refresh.
 
 ## Intentional replace (bundle upgrade, blueprint change, etc.)
 
-The `protect: true` seatbelt blocks any deploy that would replace the
+`protect: true` blocks any deploy that would replace the
 Instance. Two approaches depending on how much state you want to preserve:
 
 ### Option A — Snapshot-based upgrade (recommended)
@@ -167,10 +170,11 @@ survive — only on-disk state carries over.
 6. If Tailscale is installed: reset state and re-authenticate (snapshot
    restore creates a duplicate node key)
 7. Start Docker Compose and verify
-8. Update `sst.config.ts` with the new `bundleId` (and `blueprintId`
-   if the OS was upgraded in-place)
+8. Update `bundleId` in `sst.config.ts` to the new bundle. (`blueprintId`
+   is in `ignoreChanges`, so deploys never act on it; change it only to keep
+   the config accurate after an in-place OS upgrade.)
 9. Remove the old instance from SST state:
-   `npm run sst -- state remove --target 'aws:lightsail:Instance::VaultCortexVm' --stage "${STAGE}"`
+   `npm run sst -- state remove VaultCortexVm --stage "${STAGE}"`
 10. In `sst.config.ts`, find `new aws.lightsail.Instance("VaultCortexVm", …)`.
     Set `name` in its instance settings (the first object) to the new
     instance's name. In its options object (the second object, which holds
@@ -201,7 +205,7 @@ but destroys all on-disk state: installed packages, Docker volumes,
 Claude Code, etc.). Only use this if you don't have state worth preserving or
 you're comfortable re-provisioning from scratch.
 
-To intentionally replace (e.g. changing `bundleId` or `blueprintId`):
+To intentionally replace (e.g. changing `bundleId`):
 
 ```bash
 # 1. Take a manual snapshot first — the auto-snapshot from up to 23h ago
@@ -217,29 +221,23 @@ aws lightsail get-instance-snapshot \
   --instance-snapshot-name "${SNAPSHOT_NAME}" \
   --query 'instanceSnapshot.state' --output text
 
-# 3. Unprotect the resource in Pulumi state
-npm run sst -- state unprotect --target 'aws:lightsail:Instance::VaultCortexVm' --stage "${STAGE}"
-
-# 4. Make the change in sst.config.ts (e.g. bundleId: "medium_3_0")
-# 5. Deploy — this is the one and only time replacement is allowed.
+# 3. In sst.config.ts, remove `protect: true` and `retainOnDelete: true` from
+#    the VaultCortexVm options, then deploy with no other change so SST state
+#    drops both:
 npm run deploy -- --stage "${STAGE}"
 
-# 6. Re-protect on the next normal deploy. The protect:true line in
-#    sst.config.ts is still there, so deploy with no changes:
+# 4. Make the change in sst.config.ts (e.g. bundleId: "large_3_0")
+# 5. Deploy — the old instance is deleted and a new one is created.
+npm run deploy -- --stage "${STAGE}"
+
+# 6. Restore `protect: true` and `retainOnDelete: true`, then deploy once more
+#    so the new instance is protected:
 npm run deploy -- --stage "${STAGE}"
 ```
 
-If `npm run sst -- state unprotect` isn't available in your SST version, drop to
-Pulumi directly:
-
-```bash
-# SST stores Pulumi state in S3 under the SST-managed bucket.
-# The Pulumi CLI inherits credentials from the same AWS profile.
-pulumi state unprotect 'urn:pulumi:<stage>::vault-cortex::aws:lightsail/instance:Instance::VaultCortexVm'
-```
-
-The URN follows the pattern
-`urn:pulumi:<stage>::<app-name>::<resource-type>::<logical-name>`.
+The replacing deploy deletes the old instance and its automatic snapshots, so
+the manual snapshot from step 1 is your only rollback point until the new
+instance's first automatic snapshot.
 
 ## Reconciling SST state after a restore
 
@@ -293,7 +291,7 @@ This preserves the restored name, so configure it explicitly before import:
 1. Remove the stale state entry:
 
    ```bash
-   npm run sst -- state remove --target 'aws:lightsail:Instance::VaultCortexVm' --stage "${STAGE}"
+   npm run sst -- state remove VaultCortexVm --stage "${STAGE}"
    ```
 
 2. In `sst.config.ts`, find `new aws.lightsail.Instance("VaultCortexVm", …)`
@@ -311,9 +309,9 @@ This preserves the restored name, so configure it explicitly before import:
 SST state and AWS reality now use the restored name. Use Path 1 instead when
 the canonical `vault-cortex-<stage>` name must remain the configured name.
 
-For a personal single-stage setup, Path 1 is usually cleanest. For
-production-style multi-stage, Path 2 is faster and avoids the second
-downtime.
+For a personal single-stage setup, Path 1 is usually cleanest. For a setup
+with several stages sharing one account, Path 2 is faster and avoids the
+second downtime.
 
 ## Auth implications after any restore
 
@@ -330,8 +328,9 @@ downtime.
     starts empty, so every client re-auths via the consent page on its next
     token refresh — minor inconvenience, no data loss.
 - **`MCP_AUTH_TOKEN`** signs access JWTs and keys the lookup of stored
-  refresh tokens. It's in SST secrets and gets redeployed to
-  `/opt/vault-cortex/.env` on any fresh boot. If you also rotated it during
+  refresh tokens. The Lambda reads it from the `McpAuthToken` SST secret; the
+  instance reads it from `/opt/vault-cortex/.env`, which a restored disk
+  already holds and `npm run lightsail:up` or a CI deploy rewrites. If you also rotated it during
   the outage, the rotation rules apply on top of the restore:
   - Existing access JWTs are rejected on their next request — their
     signatures were made with the old secret. Without a rotation they stay
@@ -340,24 +339,30 @@ downtime.
   - You approve each client again on the consent page the next time it
     connects.
 
-## Verifying the seatbelts work
+## Verifying the protections work
 
-End-to-end drill. Do this once on a throwaway stage and record the RTO:
+End-to-end drill. Do this once on a throwaway stage and record the RTO.
+Afterwards, delete the drill stage as [DEPLOY.md § Tearing down](./DEPLOY.md#tearing-down)
+describes, passing `--stage recovery-drill`.
 
 ```bash
 DRILL_STAGE=recovery-drill
+
+# 0. Deploy the drill stage and wait a day for its first auto-snapshot:
+npm run deploy -- --stage "${DRILL_STAGE}"
 
 # 1. Confirm auto-snapshot is wired up (after first 24h):
 aws lightsail get-auto-snapshots \
   --resource-name "vault-cortex-${DRILL_STAGE}"
 
 # 2. Confirm protect blocks a replace-triggering change:
-#    (Temporarily tweak userData in sst.config.ts, then:)
+#    (Temporarily change bundleId in sst.config.ts, then:)
 npm run deploy -- --stage "${DRILL_STAGE}"
 #    Expected: deploy fails with a protected-resource error. Revert the change.
 
 # 3. Confirm the restore path:
-#    Delete the VM via console (after unprotect, since protect:true is on).
+#    Stop the VM in the Lightsail console. (Deleting it would also delete
+#    its automatic snapshots.)
 #    Run Scenario B above.
 #    Time the elapsed minutes from "create-instances-from-snapshot" to
 #    "/healthz returns 200". Record here:

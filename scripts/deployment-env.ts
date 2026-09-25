@@ -48,7 +48,7 @@ export const loadDeploymentEnv = ({
       return { ...parentEnv }
     }
 
-    throw new Error(`could not read or parse the deployment environment file at ${envFilePath}`)
+    throw new Error(`could not read the deployment environment file at ${envFilePath}`)
   }
 
   // Shell values override the file so CI and one-off deploys can vary

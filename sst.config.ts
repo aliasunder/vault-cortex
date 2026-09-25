@@ -203,10 +203,11 @@ export default $config({
     // /opt/vault-cortex, /etc edits, ad-hoc apt installs). snapshotTime
     // is UTC. Restore path is in RECOVERY.md.
     //
-    // protect + retainOnDelete are the IaC seatbelt. `protect` refuses
+    // protect + retainOnDelete guard the VM's disk. `protect` refuses
     // any Pulumi operation that would destroy or replace this resource;
-    // `retainOnDelete` orphans the AWS resource if SST ever does decide
-    // to delete it (e.g. stage rename) instead of actually destroying.
+    // `retainOnDelete` orphans the AWS resource instead of destroying it if
+    // SST deletes it once `protect` is cleared (`sst remove`, or removing it
+    // from this config).
     // The app-level `removal: "retain"` retains only data stores (S3,
     // DynamoDB), so these two options are the VM's only IaC protection.
     //

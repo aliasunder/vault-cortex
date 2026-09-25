@@ -134,7 +134,7 @@ describe("loadDeploymentEnv", () => {
   it("rejects an unreadable external file without leaking its read error", () => {
     const envDirectory = createTempDirectory()
     const expectedError = new Error(
-      `could not read or parse the deployment environment file at ${envDirectory}`,
+      `could not read the deployment environment file at ${envDirectory}`,
     )
 
     expect(() => loadDeploymentEnv({ envFilePath: envDirectory, parentEnv: {} })).toThrowError(

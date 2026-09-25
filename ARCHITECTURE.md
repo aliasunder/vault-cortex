@@ -1056,26 +1056,27 @@ The runtime image (`Dockerfile`) minimizes the attack surface:
 
 Three layers cover different failure classes:
 
-| Layer                                 | What it does                                                                                                                | Where                         |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| Resource-level `protect: true`        | Refuses any Pulumi op that would destroy or replace the Instance                                                            | `sst.config.ts` instance opts |
-| Resource-level `retainOnDelete: true` | If SST does decide to delete (stage rename), orphan the AWS resource instead of destroying                                  | `sst.config.ts` instance opts |
-| Lightsail auto-snapshot (`addOn`)     | Daily disk image at 03:00 UTC, 7-day rolling retention. Captures the full boot disk including ad-hoc SSH-installed packages | `addOn` on the Instance       |
+| Layer                                 | What it does                                                                                                                                           | Where                         |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- |
+| Resource-level `protect: true`        | Refuses any Pulumi op that would destroy or replace the Instance                                                                                       | `sst.config.ts` instance opts |
+| Resource-level `retainOnDelete: true` | If SST deletes the Instance once `protect` is cleared (`sst remove`, or removing it from the config), orphan the AWS resource instead of destroying it | `sst.config.ts` instance opts |
+| Lightsail auto-snapshot (`addOn`)     | Daily disk image at 03:00 UTC, 7-day rolling retention. Captures the full boot disk including ad-hoc SSH-installed packages                            | `addOn` on the Instance       |
 
 The auto-snapshot is the only one that protects against AWS-side events
 (hardware failure, AZ outage) and against in-VM mistakes (fat-finger
-`rm -rf`, container compromise). The IaC seatbelts only protect against
-Pulumi-driven replacement.
+`rm -rf`, container compromise). `protect` and `retainOnDelete` only protect
+against Pulumi-driven replacement.
 
-Restore procedures, the intentional-replace flow (unprotect → deploy →
-re-protect, e.g. for a bundle upgrade), SST state reconciliation,
+Restore procedures, the intentional-replace flows (a snapshot-based
+upgrade, recommended; or unprotect → deploy → re-protect), SST state
+reconciliation,
 and auth implications post-restore live in [`RECOVERY.md`](./RECOVERY.md).
 
 ### Data integrity
 
 The vault is source of truth — every write path is built to prevent
 corruption, not just errors. These patterns complement the authentication,
-Docker hardening, and durability seatbelts above.
+Docker hardening, and durability protections above.
 
 #### File I/O safety
 
@@ -1270,7 +1271,7 @@ Any VPS with comparable specs works — the table above prices the Lightsail ref
 | JWT over opaque tokens                      | Verifiable at Lambda edge without shared state. HS256 with MCP_AUTH_TOKEN.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | 60-day sliding refresh                      | Active clients never re-auth; leaked tokens bounded. Standard OAuth practice.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Auto-snapshot (`addOn`)                     | Native Lightsail primitive over hand-rolled cron + S3. Daily, 7-day retention, captures full boot disk including SSH-installed state.                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| Pulumi `protect` + `retainOnDelete`         | IaC seatbelt over `replaceOnChanges` gymnastics. Intentional replaces require explicit unprotect — the friction is the feature.                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Pulumi `protect` + `retainOnDelete`         | Resource options that block deletion, over `replaceOnChanges` gymnastics. Intentional replaces require explicit unprotect — the friction is the feature.                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | Debian slim over Alpine                     | `onnxruntime-node` (bundled by `@huggingface/transformers` for local embeddings) requires glibc. Alpine uses musl — no musl build exists. Hard architectural constraint, not a preference.                                                                                                                                                                                                                                                                                                                                                                                                        |
 | SQLite FTS5                                 | The [personal-scale, zero-services](#design-constraints) constraint applied to search — embedded in-process, no search service to run.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | sqlite-vec over pgvector/Pinecone           | Vectors live alongside FTS5 in the same SQLite database — loaded as an extension into the same connection (`sqliteVec.load(db)`), not a separate datastore or service. No network hop, no second process, no API key. Keeps vector search inside the [personal-scale, zero-services](#design-constraints) constraint.                                                                                                                                                                                                                                                                             |

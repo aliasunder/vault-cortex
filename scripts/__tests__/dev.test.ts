@@ -90,6 +90,17 @@ describe("dev deployment helper", () => {
     )
   })
 
+  it("prints the usage line for an unknown subcommand before checking GHCR_USER", () => {
+    const directory = createTempDirectory()
+
+    const result = runDev({ subcommand: "docker:bild", homeDirectory: directory })
+
+    expect(result.status).toBe(1)
+    expect(result.stderr).toBe(
+      "Usage: tsx scripts/dev.ts <docker:build|docker:push|docker:publish|lightsail:up>\n",
+    )
+  })
+
   it("rejects an image build when neither the external env file nor the shell sets GHCR_USER", () => {
     const directory = createTempDirectory()
     const deploymentEnvPath = join(directory, ".config", "vault-cortex", ".env")
@@ -123,7 +134,7 @@ describe("dev deployment helper", () => {
 
     expect(result.status).toBe(1)
     expect(result.stderr).toBe(
-      `✕ could not read or parse the deployment environment file at ${deploymentEnvPath}\n`,
+      `✕ could not read the deployment environment file at ${deploymentEnvPath}\n`,
     )
   })
 
@@ -152,10 +163,7 @@ describe("dev deployment helper", () => {
     writeFileSync(join(workingDirectory, ".sst", "stage"), "teststage\n")
     // An empty lookup result ("None") stops the helper before it runs ssh.
     const awsPath = join(directory, "aws")
-    writeFileSync(
-      awsPath,
-      '#!/bin/sh\nprintf "%s %s" "$AWS_REGION" "$AWS_DEFAULT_REGION" > "$AWS_REGION_PATH"\necho None\n',
-    )
+    writeFileSync(awsPath, '#!/bin/sh\nprintf "%s" "$AWS_REGION" > "$AWS_REGION_PATH"\necho None\n')
     chmodSync(awsPath, 0o755)
 
     const result = runDev({
@@ -167,7 +175,6 @@ describe("dev deployment helper", () => {
 
     expect(result.status).toBe(1)
     expect(result.stderr).toBe("✕  Could not resolve vault-cortex-ip-teststage from AWS.\n")
-    // AWS CLI v2 reads AWS_REGION; v1 reads only AWS_DEFAULT_REGION.
-    expect(readFileSync(awsRegionPath, "utf8")).toBe(`${expectedRegion} ${expectedRegion}`)
+    expect(readFileSync(awsRegionPath, "utf8")).toBe(expectedRegion)
   })
 })

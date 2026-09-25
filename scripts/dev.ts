@@ -47,7 +47,16 @@ const loadEnvForDeploy = ({ requireFile }: { requireFile: boolean }): NodeJS.Pro
   }
 }
 
+const SUBCOMMANDS = ["docker:build", "docker:push", "docker:publish", "lightsail:up"]
 const subcommand = process.argv[2]
+
+// Checked before GHCR_USER, so a mistyped subcommand prints the usage line
+// rather than a configuration error.
+if (!subcommand || !SUBCOMMANDS.includes(subcommand)) {
+  console.error(`Usage: tsx scripts/dev.ts <${SUBCOMMANDS.join("|")}>`)
+  process.exit(1)
+}
+
 // lightsail:up copies the file to the instance, so the file must exist. The
 // docker:* subcommands need only GHCR_USER, which the shell can supply.
 const env = loadEnvForDeploy({ requireFile: subcommand === "lightsail:up" })
@@ -67,9 +76,7 @@ const image = `ghcr.io/${ghcrUser}/vault-cortex:remote`
 
 // sst.config.ts deploys to AWS_REGION, else us-east-1. Without the same
 // default, the AWS CLI would search its profile's region for the stack.
-// AWS CLI v1 ignores AWS_REGION and reads only AWS_DEFAULT_REGION.
-const stackRegion = env.AWS_REGION ?? "us-east-1"
-const awsCliEnv = { ...env, AWS_REGION: stackRegion, AWS_DEFAULT_REGION: stackRegion }
+const awsCliEnv = { ...env, AWS_REGION: env.AWS_REGION ?? "us-east-1" }
 
 const sshOpts = "-o StrictHostKeyChecking=accept-new"
 
@@ -307,10 +314,4 @@ switch (subcommand) {
     console.log("✓ vault-cortex deployed (port 8000)")
     break
   }
-
-  default:
-    console.error(
-      `Usage: tsx scripts/dev.ts <docker:build|docker:push|docker:publish|lightsail:up>`,
-    )
-    process.exit(1)
 }
