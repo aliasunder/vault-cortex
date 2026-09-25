@@ -67,7 +67,9 @@ const image = `ghcr.io/${ghcrUser}/vault-cortex:remote`
 
 // sst.config.ts deploys to AWS_REGION, else us-east-1. Without the same
 // default, the AWS CLI would search its profile's region for the stack.
-const awsCliEnv = { ...env, AWS_REGION: env.AWS_REGION ?? "us-east-1" }
+// AWS CLI v1 ignores AWS_REGION and reads only AWS_DEFAULT_REGION.
+const stackRegion = env.AWS_REGION ?? "us-east-1"
+const awsCliEnv = { ...env, AWS_REGION: stackRegion, AWS_DEFAULT_REGION: stackRegion }
 
 const sshOpts = "-o StrictHostKeyChecking=accept-new"
 

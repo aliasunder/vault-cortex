@@ -1,12 +1,25 @@
 import { spawnSync } from "node:child_process"
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { findPackageJSON } from "node:module"
 import { tmpdir } from "node:os"
-import { delimiter, join } from "node:path"
+import { dirname, join } from "node:path"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { runSst } from "../run-sst.js"
 
 vi.mock("node:child_process", () => ({ spawnSync: vi.fn() }))
+vi.mock("node:module", { spy: true })
+
+/** The script SST's package.json names as its `sst` command. */
+const resolveExpectedSstLauncherPath = (): string => {
+  const packageJsonPath = findPackageJSON("sst", import.meta.url)
+
+  if (!packageJsonPath) throw new Error("the sst package is not installed")
+
+  const packageJson: { bin: { sst: string } } = JSON.parse(readFileSync(packageJsonPath, "utf8"))
+
+  return join(dirname(packageJsonPath), packageJson.bin.sst)
+}
 
 const writeEnvFile = (content: string): string => {
   const directory = mkdtempSync(join(tmpdir(), "vault-cortex-run-sst-"))
@@ -38,10 +51,24 @@ describe("runSst", () => {
 
     expect(exitCode).toBe(0)
     expect(spawnSync).toHaveBeenCalledTimes(1)
-    expect(spawnSync).toHaveBeenCalledWith("sst", ["deploy", "--stage", "test"], {
-      env: { WRAPPER_SECRET: "fake-secret", ...process.env },
-      stdio: "inherit",
-    })
+    expect(spawnSync).toHaveBeenCalledWith(
+      process.execPath,
+      [resolveExpectedSstLauncherPath(), "deploy", "--stage", "test"],
+      { env: { WRAPPER_SECRET: "fake-secret", ...process.env }, stdio: "inherit" },
+    )
+  })
+
+  it("reports a fixed error without spawning when the sst package is missing", () => {
+    const envFilePath = writeEnvFile("WRAPPER_SETTING=value\n")
+    vi.mocked(findPackageJSON).mockReturnValueOnce(undefined)
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => undefined)
+
+    const exitCode = runSst({ args: ["deploy"], envFilePath })
+
+    expect(exitCode).toBe(1)
+    expect(spawnSync).toHaveBeenCalledTimes(0)
+    expect(errorLog).toHaveBeenCalledTimes(1)
+    expect(errorLog).toHaveBeenCalledWith("✕ Could not start the local SST CLI.")
   })
 
   it("does not spawn SST when the external file is missing", () => {
@@ -122,7 +149,9 @@ type EntryScriptRun = {
 
 /**
  * Starts run-sst.ts as `npm run sst` does, leading its own process group so a
- * group signal reaches the wrapper and the SST stub together, as Ctrl-C does.
+ * group signal reaches the wrapper, SST's launcher, and the stub together, as
+ * Ctrl-C does. The real launcher runs; SST_BIN_PATH, its own override for the
+ * platform binary, points it at the stub.
  */
 const startEntryScript = async ({
   args,
@@ -135,27 +164,26 @@ const startEntryScript = async ({
   const inheritedPath = process.env.PATH
 
   if (!inheritedPath) {
-    throw new Error("PATH is required to run the SST stub")
+    throw new Error("PATH is required for the commands the SST stub runs")
   }
 
   const homeDirectory = mkdtempSync(join(tmpdir(), "vault-cortex-run-sst-entry-"))
   onTestFinished(() => rmSync(homeDirectory, { recursive: true, force: true }))
-  const binDirectory = join(homeDirectory, "bin")
-  mkdirSync(binDirectory)
-  const sstStubPath = join(binDirectory, "sst")
+  const sstStubPath = join(homeDirectory, "sst-stub")
   writeFileSync(sstStubPath, `#!/bin/sh\n${sstStubBody}`)
   chmodSync(sstStubPath, 0o755)
   const deploymentEnvDirectory = join(homeDirectory, ".config", "vault-cortex")
   mkdirSync(deploymentEnvDirectory, { recursive: true })
   writeFileSync(
     join(deploymentEnvDirectory, ".env"),
-    `SST_ARGUMENTS_PATH=${join(homeDirectory, "sst-arguments.txt")}\n`,
+    `SST_ARGUMENTS_PATH=${join(homeDirectory, "sst-arguments.txt")}\n` +
+      `SST_SHUTDOWN_PATH=${join(homeDirectory, "sst-shutdown.txt")}\n`,
   )
 
   const wrapper = spawn(process.execPath, ["--import", "tsx", "scripts/run-sst.ts", ...args], {
     cwd: process.cwd(),
     detached: true,
-    env: { HOME: homeDirectory, PATH: [binDirectory, inheritedPath].join(delimiter) },
+    env: { HOME: homeDirectory, PATH: inheritedPath, SST_BIN_PATH: sstStubPath },
     stdio: ["ignore", "pipe", "inherit"],
   })
   const processGroupId = wrapper.pid
@@ -183,15 +211,15 @@ const startEntryScript = async ({
 }
 
 describe("run-sst entry script", () => {
-  it("passes its arguments and the external env file to SST, then exits with SST's status", async () => {
+  it("passes its arguments and the external env file through SST's launcher", async () => {
     const entryScript = await startEntryScript({
       args: ["deploy", "--stage", "test"],
-      sstStubBody: 'printf "%s\\n" "$@" > "$SST_ARGUMENTS_PATH"\nexit 4\n',
+      sstStubBody: 'printf "%s\\n" "$@" > "$SST_ARGUMENTS_PATH"\n',
     })
 
     const exit = await entryScript.exited
 
-    expect(exit).toEqual({ code: 4, signal: null })
+    expect(exit).toEqual({ code: 0, signal: null })
     expect(readFileSync(join(entryScript.homeDirectory, "sst-arguments.txt"), "utf8")).toBe(
       "deploy\n--stage\ntest\n",
     )
@@ -199,16 +227,22 @@ describe("run-sst entry script", () => {
 
   it("stays running through Ctrl-C until SST finishes shutting down", async () => {
     // The stub models SST's graceful shutdown: on SIGINT it takes a moment,
-    // then exits with its own status.
+    // records that it finished, then exits non-zero. SST's launcher reports
+    // any non-zero exit as 1.
     const entryScript = await startEntryScript({
       args: ["dev"],
-      sstStubBody: "trap 'sleep 0.3; exit 3' INT\necho ready\nwhile :; do sleep 0.05; done\n",
+      sstStubBody:
+        "trap 'sleep 0.3; echo finished > \"$SST_SHUTDOWN_PATH\"; exit 3' INT\n" +
+        "echo ready\nwhile :; do sleep 0.05; done\n",
     })
     await entryScript.sstStarted
 
     process.kill(-entryScript.processGroupId, "SIGINT")
     const exit = await entryScript.exited
 
-    expect(exit).toEqual({ code: 3, signal: null })
+    expect(exit).toEqual({ code: 1, signal: null })
+    expect(readFileSync(join(entryScript.homeDirectory, "sst-shutdown.txt"), "utf8")).toBe(
+      "finished\n",
+    )
   })
 })

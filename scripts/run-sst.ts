@@ -6,8 +6,11 @@
  */
 
 import { spawnSync } from "node:child_process"
-import { resolve } from "node:path"
+import { readFileSync } from "node:fs"
+import { findPackageJSON } from "node:module"
+import { dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
+import { z } from "zod"
 
 import { DEPLOYMENT_ENV_PATH, loadDeploymentEnv } from "./deployment-env.js"
 
@@ -17,6 +20,39 @@ type RunSstParams = {
 }
 
 const SST_START_FAILURE_MESSAGE = "✕ Could not start the local SST CLI."
+
+const sstPackageJsonSchema = z.object({ bin: z.object({ sst: z.string() }) })
+
+const readJsonOrNull = (filePath: string): unknown => {
+  try {
+    return JSON.parse(readFileSync(filePath, "utf8"))
+  } catch {
+    // The caller treats a missing or malformed package.json as a broken SST
+    // install and reports that SST could not start.
+    return null
+  }
+}
+
+/**
+ * Returns the Node script that SST's package.json declares as its `sst`
+ * command. Running that script with this Node binary needs no shell, so it
+ * works on Windows, where npm's `sst` shim is a .cmd file that Node cannot
+ * start without one.
+ */
+const resolveSstLauncherPath = (): string | null => {
+  // Resolves the package directory directly: SST's exports map hides
+  // bin/ from require.resolve.
+  const packageJsonPath = findPackageJSON("sst", import.meta.url)
+
+  if (!packageJsonPath) return null
+
+  const packageJson = readJsonOrNull(packageJsonPath)
+  const parsedPackageJson = sstPackageJsonSchema.safeParse(packageJson)
+
+  if (!parsedPackageJson.success) return null
+
+  return resolve(dirname(packageJsonPath), parsedPackageJson.data.bin.sst)
+}
 
 const loadSstEnv = (envFilePath: string): NodeJS.ProcessEnv | null => {
   try {
@@ -34,13 +70,21 @@ export const runSst = ({ args, envFilePath = DEPLOYMENT_ENV_PATH }: RunSstParams
 
   if (!env) return 1
 
-  try {
-    // A bare "sst" resolves to the repo's own SST install because npm puts
-    // node_modules/.bin on PATH for package.json scripts.
-    const result = spawnSync("sst", args, { env, stdio: "inherit" })
+  const sstLauncherPath = resolveSstLauncherPath()
 
-    // spawnSync reports a process that never started (no `sst` on PATH, for
-    // example) in result.error instead of throwing.
+  if (!sstLauncherPath) {
+    console.error(SST_START_FAILURE_MESSAGE)
+    return 1
+  }
+
+  try {
+    const result = spawnSync(process.execPath, [sstLauncherPath, ...args], {
+      env,
+      stdio: "inherit",
+    })
+
+    // spawnSync reports a process that never started in result.error
+    // instead of throwing.
     if (result.error) {
       console.error(SST_START_FAILURE_MESSAGE)
       return 1

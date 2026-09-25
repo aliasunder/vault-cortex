@@ -130,8 +130,11 @@ export default $config({
      * Resolve the SSH public key to upload to Lightsail.
      * Resolution order:
      *   1. SSH_PUBKEY env var (literal key contents) — for CI / GH Actions.
-     *   2. SSH_PUBKEY_PATH env var (path) — for local overrides.
-     *   3. ~/.ssh/vault-cortex.pub — dedicated deploy key (same key local + CI).
+     *   2. SSH_PUBKEY_PATH env var (path) — for local overrides. A set path
+     *      must exist, so a stale override fails instead of uploading a
+     *      different key.
+     *   3. ~/.ssh/vault-cortex.pub, used only when SSH_PUBKEY_PATH is unset —
+     *      dedicated deploy key (same key local + CI).
      */
     const readSshPublicKey = (): string => {
       if (sshPubkey) return sshPubkey

@@ -42,6 +42,8 @@ region used by the deployment (`AWS_REGION` in
 
 ```bash
 export AWS_REGION=<deployment-region>
+# AWS CLI v1 ignores AWS_REGION and reads only AWS_DEFAULT_REGION.
+export AWS_DEFAULT_REGION="${AWS_REGION}"
 ```
 
 ## Restore scenarios
@@ -204,18 +206,25 @@ To intentionally replace (e.g. changing `bundleId` or `blueprintId`):
 ```bash
 # 1. Take a manual snapshot first — the auto-snapshot from up to 23h ago
 #    may not be recent enough for what you're about to do.
+SNAPSHOT_NAME="pre-upgrade-$(date +%Y%m%d-%H%M%S)"
 aws lightsail create-instance-snapshot \
   --instance-name "vault-cortex-${STAGE}" \
-  --instance-snapshot-name "pre-upgrade-$(date +%Y%m%d-%H%M%S)"
+  --instance-snapshot-name "${SNAPSHOT_NAME}"
 
-# 2. Unprotect the resource in Pulumi state
+# 2. Lightsail creates the snapshot in the background. Repeat this until it
+#    prints "available"; stop if it prints "error".
+aws lightsail get-instance-snapshot \
+  --instance-snapshot-name "${SNAPSHOT_NAME}" \
+  --query 'instanceSnapshot.state' --output text
+
+# 3. Unprotect the resource in Pulumi state
 npm run sst -- state unprotect --target 'aws:lightsail:Instance::VaultCortexVm' --stage "${STAGE}"
 
-# 3. Make the change in sst.config.ts (e.g. bundleId: "medium_3_0")
-# 4. Deploy — this is the one and only time replacement is allowed.
+# 4. Make the change in sst.config.ts (e.g. bundleId: "medium_3_0")
+# 5. Deploy — this is the one and only time replacement is allowed.
 npm run deploy -- --stage "${STAGE}"
 
-# 5. Re-protect on the next normal deploy. The protect:true line in
+# 6. Re-protect on the next normal deploy. The protect:true line in
 #    sst.config.ts is still there, so deploy with no changes:
 npm run deploy -- --stage "${STAGE}"
 ```
@@ -250,6 +259,12 @@ RESTORED_SNAPSHOT="${RESTORE_NAME}-canonical-$(date +%Y%m%d-%H%M%S)"
 aws lightsail create-instance-snapshot \
   --instance-name "${RESTORE_NAME}" \
   --instance-snapshot-name "${RESTORED_SNAPSHOT}"
+
+# Lightsail creates the snapshot in the background. Continue after this
+# reports "available"; stop if it reports "error".
+aws lightsail get-instance-snapshot \
+  --instance-snapshot-name "${RESTORED_SNAPSHOT}" \
+  --query 'instanceSnapshot.state' --output text
 
 aws lightsail create-instances-from-snapshot \
   --instance-names "${INSTANCE_NAME}" \

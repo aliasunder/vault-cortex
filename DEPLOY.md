@@ -38,9 +38,15 @@ cp .env.example ~/.config/vault-cortex/.env
 chmod 600 ~/.config/vault-cortex/.env
 ```
 
-`npm run deploy`, `npm run dev:sst`, `npm run remove`, and `npm run sst -- <command>` load this file into SST, and `npm run lightsail:up` reads it directly. A value like `AWS_REGION`, `CUSTOM_DOMAIN`, or a pinned `PUBLIC_URL` therefore reaches every local deployment command without placing a secret-bearing file in the repository.
+`npm run deploy`, `npm run dev:sst`, `npm run remove`, and `npm run sst -- <command>` load this file into SST, and `npm run lightsail:up` reads it directly. A value like `AWS_REGION`, `CUSTOM_DOMAIN`, or a pinned `PUBLIC_URL` therefore reaches every npm deployment command without placing a secret-bearing file in the repository.
 
-If you deploy outside `us-east-1`, uncomment and set `AWS_REGION` in this file before the next step.
+If you deploy outside `us-east-1`, uncomment and set `AWS_REGION` in this file before the next step. The `aws` commands in this guide don't read this file, so export the deployment region (`us-east-1` unless you set one) in any shell where you run them:
+
+```bash
+export AWS_REGION=<deployment-region> AWS_DEFAULT_REGION=<deployment-region>
+```
+
+If you followed an earlier version of this guide, delete the `.env` symlink it had you create in the repository root (`rm .env`). SST itself loads any `.env` in the repository root on every command, so the symlink would keep a secret-bearing file inside the repository.
 
 **3. Generate the MCP auth token, write it to `.env`, and set the SST secret:**
 
@@ -241,19 +247,30 @@ To delete the deployment on purpose:
 1. Take a manual snapshot of the VM. `<stage>` is the name in `.sst/stage`:
 
    ```bash
+   SNAPSHOT_NAME="pre-teardown-$(date +%Y%m%d-%H%M%S)"
    aws lightsail create-instance-snapshot \
      --instance-name vault-cortex-<stage> \
-     --instance-snapshot-name "pre-teardown-$(date +%Y%m%d-%H%M%S)"
+     --instance-snapshot-name "${SNAPSHOT_NAME}"
    ```
 
-2. In `sst.config.ts`, delete the `protect: true` and `retainOnDelete: true`
+2. Wait for the snapshot to finish. Lightsail creates it in the background, so
+   repeat this command until it prints `available`. Stop if it prints `error`:
+   the VM would then have no backup.
+
+   ```bash
+   aws lightsail get-instance-snapshot \
+     --instance-snapshot-name "${SNAPSHOT_NAME}" \
+     --query 'instanceSnapshot.state' --output text
+   ```
+
+3. In `sst.config.ts`, delete the `protect: true` and `retainOnDelete: true`
    lines. They sit in the options object of
    `new aws.lightsail.Instance("VaultCortexVm", …)`, the object that follows
    the instance settings.
-3. Run `npm run deploy`. `npm run remove` reads these settings from SST state,
+4. Run `npm run deploy`. `npm run remove` reads these settings from SST state,
    not from `sst.config.ts`, so the change must be deployed first.
-4. Run `npm run remove`.
-5. Restore the two lines (`git checkout sst.config.ts`), so the edit is never
+5. Run `npm run remove`.
+6. Restore the two lines (`git checkout sst.config.ts`), so the edit is never
    committed and any later deployment is protected again.
 
 This destroys the VM and its disk data. Keep the manual snapshot until you are
@@ -443,10 +460,11 @@ Changing the deploy keypair **triggers a VM replacement**. The `SSH_PUBKEY` GitH
 **Steps:**
 
 1. Take a manual snapshot first (rollback point if the replacement goes wrong — see [RECOVERY.md](./RECOVERY.md) Scenario B): `aws lightsail create-instance-snapshot --instance-name vault-cortex-<stage> --instance-snapshot-name pre-key-rotation`
-2. Regenerate the key: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`
-3. [Unprotect the instance](./RECOVERY.md#intentional-replace-bundle-upgrade-blueprint-change-etc) (required — `protect: true` blocks replacement)
-4. Update both `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets
-5. Deploy — the VM is replaced with a fresh disk
+2. Wait for the snapshot to finish. Lightsail creates it in the background, so repeat `aws lightsail get-instance-snapshot --instance-snapshot-name pre-key-rotation --query 'instanceSnapshot.state' --output text` until it prints `available`. Stop if it prints `error`
+3. Regenerate the key: `ssh-keygen -t ed25519 -f ~/.ssh/vault-cortex -C vault-cortex-deploy -N ""`
+4. [Unprotect the instance](./RECOVERY.md#intentional-replace-bundle-upgrade-blueprint-change-etc) (required — `protect: true` blocks replacement)
+5. Update both `SSH_PUBKEY` and `SSH_PRIVATE_KEY` GitHub secrets
+6. Deploy — the VM is replaced with a fresh disk
 
 **Data implications:** vault re-syncs from Obsidian and the search index rebuilds automatically, so the MCP server recovers quickly. What you lose: OAuth state (`oauth.db` — clients re-authenticate on next use), accumulated Docker logs, and anything manually installed on the VM outside of IaC (ad-hoc `apt install`, Tailscale, cron jobs, etc.).
 
