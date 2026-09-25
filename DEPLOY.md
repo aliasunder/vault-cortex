@@ -231,8 +231,7 @@ then run:
 npm run remove   # removes Lightsail, API Gateway, Lambda
 ```
 
-Afterwards restore the two lines (`git checkout sst.config.ts`) so the edit
-is never committed.
+Afterwards restore the two lines so the edit is never committed.
 
 ---
 
