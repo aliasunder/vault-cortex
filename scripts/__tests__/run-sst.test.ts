@@ -228,9 +228,10 @@ describe("run-sst entry script", () => {
   })
 
   it("stays running through Ctrl-C until SST finishes shutting down", async () => {
-    // The stub models SST's graceful shutdown: on SIGINT it takes a moment,
-    // records that it finished, then exits non-zero. SST's launcher reports
-    // any non-zero exit as 1.
+    // The stub models SST's graceful shutdown. On SIGINT it takes a moment,
+    // records that it finished, then exits 3. The stub stands in for SST's
+    // platform binary, so SST's launcher (bin/sst.mjs) sits between it and the
+    // wrapper and exits 1 for any non-zero exit. runSst passes that 1 through.
     const entryScript = await startEntryScript({
       args: ["dev"],
       sstStubBody:
