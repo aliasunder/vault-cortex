@@ -16,10 +16,21 @@ import { describeError } from "../../../utils/describe-error.js"
  *  config disables the tool, and injects the registry's annotations so group
  *  modules never restate them — the config type carries no annotations key,
  *  making an inline block a compile error. Throws on a name missing from the
- *  registry (a typo'd registration would otherwise be invisible forever). */
-export type RegisterGatedTool = <InputArgs extends undefined | ZodRawShapeCompat = undefined>(
+ *  registry (a typo'd registration would otherwise be invisible forever).
+ *  OutputArgs defaults to the constraint rather than undefined because the
+ *  SDK's registerTool constrains its output generic without an undefined arm
+ *  (unlike its input generic). */
+export type RegisterGatedTool = <
+  InputArgs extends undefined | ZodRawShapeCompat = undefined,
+  OutputArgs extends ZodRawShapeCompat = ZodRawShapeCompat,
+>(
   name: ToolName,
-  config: { title: string; description: string; inputSchema?: InputArgs },
+  config: {
+    title: string
+    description: string
+    inputSchema?: InputArgs
+    outputSchema?: OutputArgs
+  },
   handler: ToolCallback<InputArgs>,
 ) => void
 
@@ -90,6 +101,22 @@ export const describeTextWindow = (path: string, lineWindow: LineWindow): string
   return `${path} — lines ${startLine}–${endLine} of ${totalLines} ${continuation}`
 }
 
+/** The one home of the tool error contract — describeError text, a
+ *  tool_error log, and isError — shared by every safe-handler variant.
+ *  It never carries structuredContent — the SDK skips output-schema
+ *  validation on isError results, so error responses stay schema-free. */
+const toolErrorResult = (
+  logger: Logger,
+  err: unknown,
+): { content: CallToolResult["content"]; isError: true } => {
+  const message = describeError(err)
+  logger.warn("tool_error", { error: message })
+  return {
+    content: [{ type: "text" as const, text: message }],
+    isError: true as const,
+  }
+}
+
 /** Wraps a handler with try/catch, returning isError on failure. The format
  *  callback produces the full content-block array — text, image, or mixed
  *  (the SDK union) — for tools whose results aren't a single text block. */
@@ -105,18 +132,44 @@ export const safeHandlerContent = async <T>(
     const result = await fn()
     return { content: format(result) }
   } catch (err) {
-    const message = describeError(err)
-    logger.warn("tool_error", { error: message })
+    return toolErrorResult(logger, err)
+  }
+}
+
+/** Wraps a JSON-result handler with try/catch, returning the text block and
+ *  structuredContent for tools that declare an outputSchema. One canonical
+ *  wire object feeds both fields so they can never disagree:
+ *  - schema.parse strips any key the schema doesn't declare. The advertised
+ *    JSON Schema forbids additional properties, so an undeclared key would
+ *    pass server-side validation (zod strips it) yet fail client-side
+ *    validation on the raw wire object.
+ *  - The JSON round-trip drops explicitly-undefined optional keys, which
+ *    zod's parse output retains but the wire must not carry. */
+export const safeHandlerStructured = async <Wire extends Record<string, unknown>>(
+  logger: Logger,
+  fn: () => Promise<Wire>,
+  schema: z.ZodType<Wire>,
+): Promise<{
+  content: CallToolResult["content"]
+  structuredContent?: Wire
+  isError?: true
+}> => {
+  try {
+    const result = await fn()
+    const text = JSON.stringify(schema.parse(result))
+    const wireValue: unknown = JSON.parse(text)
     return {
-      content: [{ type: "text" as const, text: message }],
-      isError: true as const,
+      content: [{ type: "text" as const, text }],
+      structuredContent: schema.parse(wireValue),
     }
+  } catch (err) {
+    return toolErrorResult(logger, err)
   }
 }
 
 /** Wraps a handler with try/catch, returning isError on failure — the common
- *  single-text-block case. Delegates to safeHandlerContent so the error
- *  contract (describeError, tool_error log, isError) has exactly one home. */
+ *  single-text-block case. Delegates to safeHandlerContent, whose failure
+ *  path is the shared toolErrorResult. */
 export const safeHandler = <T>(
   logger: Logger,
   fn: () => Promise<T>,

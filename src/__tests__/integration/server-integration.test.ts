@@ -27,6 +27,34 @@ const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string =>
     .map((message) => (message.content.type === "text" ? message.content.text : ""))
     .join("\n")
 
+const localIsoDate = (): string => {
+  const isoDate = DateTime.now().toISODate()
+
+  if (!isoDate) throw new Error("DateTime.now().toISODate() returned null")
+  return isoDate
+}
+
+/** Matches a create result's created-date change entry and captures the
+ *  stamped YYYY-MM-DD date. */
+const CREATED_CHANGE_PATTERN = /created: \(none\) → (\d{4}-\d{2}-\d{2})/
+
+/** The server stamps ➕ created with its own clock during the write, so a
+ *  test-side date read can disagree with it across a midnight crossing.
+ *  Extracts the stamped date from a create result (any value whose JSON
+ *  carries the created-date change entry), verifies it falls inside the
+ *  caller's [before, after] local-date bracket, and returns it so exact
+ *  assertions can reuse the server's own value. */
+const stampedCreatedDate = (
+  createResult: unknown,
+  bracket: { before: string; after: string },
+): string => {
+  const match = CREATED_CHANGE_PATTERN.exec(JSON.stringify(createResult))
+
+  if (!match?.[1]) throw new Error("create result carries no created-date change entry")
+  expect([bracket.before, bracket.after]).toContain(match[1])
+  return match[1]
+}
+
 // ── Default config (33 tools, 3 prompts) ──────────────────────
 
 describe("default config", () => {
@@ -496,6 +524,7 @@ describe("default config", () => {
     })
 
     it("vault_create_task — creates a card and verifies via readback", async () => {
+      const dateBeforeCreate = localIsoDate()
       const createResult = await callTool({
         client,
         name: "vault_create_task",
@@ -507,8 +536,13 @@ describe("default config", () => {
           priority: "medium",
         },
       })
+      const dateAfterCreate = localIsoDate()
       expect(createResult.isError).not.toBe(true)
       const createJson = JSON.parse(textContent(createResult))
+      const createdDate = stampedCreatedDate(createJson, {
+        before: dateBeforeCreate,
+        after: dateAfterCreate,
+      })
       // Non-Kanban note: default position is bottom of the Tasks section
       expect(createJson).toEqual({
         path: "Projects/alpha.md",
@@ -516,7 +550,7 @@ describe("default config", () => {
         description: "Integration test task",
         block_id: "integ-test-task",
         heading: "Tasks",
-        changes: [`created: (none) → ${DateTime.now().toISODate()}`, "priority: (none) → medium"],
+        changes: [`created: (none) → ${createdDate}`, "priority: (none) → medium"],
       })
 
       // Verify the created task is in the file via vault_read_note
@@ -744,7 +778,7 @@ describe("default config", () => {
     })
 
     it("vault_create_task — on_completion appears in the created line", async () => {
-      const todayDate = DateTime.now().toISODate()
+      const dateBeforeCreate = localIsoDate()
       const result = await callTool({
         client,
         name: "vault_create_task",
@@ -756,15 +790,20 @@ describe("default config", () => {
           on_completion: "delete",
         },
       })
+      const dateAfterCreate = localIsoDate()
       expect(result.isError).not.toBe(true)
       const json = JSON.parse(textContent(result))
+      const createdDate = stampedCreatedDate(json, {
+        before: dateBeforeCreate,
+        after: dateAfterCreate,
+      })
       expect(json).toEqual({
         path: "Projects/recurring.md",
         line: 10,
         description: "Disposable task",
         block_id: "disposable",
         heading: "Habits",
-        changes: [`created: (none) → ${todayDate}`, "on_completion: (none) → delete"],
+        changes: [`created: (none) → ${createdDate}`, "on_completion: (none) → delete"],
       })
 
       const readback = await callTool({
@@ -775,7 +814,7 @@ describe("default config", () => {
       // The section carries tasks mutated by prior integration tests in
       // the same server boot (the ✅ date from the recurrence test is not
       // available here), so only the created task's line is asserted.
-      expect(textContent(readback)).toContain(`🏁 delete ➕ ${todayDate} ^disposable`)
+      expect(textContent(readback)).toContain(`🏁 delete ➕ ${createdDate} ^disposable`)
     })
 
     it("vault_create_task — integer position inserts at the specified slot", async () => {
@@ -844,6 +883,169 @@ describe("default config", () => {
       expect(topLevelCards.length).toBeGreaterThanOrEqual(2)
       expect(topLevelCards[0]?.includes("Reorder test card")).toBe(false)
       expect(topLevelCards[1]?.includes("Reorder test card")).toBe(true)
+    })
+  })
+
+  describe("task tool output schemas", () => {
+    /** The SDK client validates every callTool result against the schema it
+     *  cached from listTools — so after this arming call, every task-tool
+     *  test in this suite is also an end-to-end schema-validation check. */
+    const armClientValidator = async (): Promise<
+      Map<string, Awaited<ReturnType<Client["listTools"]>>["tools"][number]>
+    > => {
+      const { tools } = await client.listTools()
+      return new Map(tools.map((tool) => [tool.name, tool]))
+    }
+
+    it("tools/list advertises outputSchema with the expected required keys", async () => {
+      const toolsByName = await armClientValidator()
+
+      expect(toolsByName.get("vault_list_tasks")?.outputSchema?.required).toEqual([
+        "total",
+        "tasks",
+      ])
+      expect(toolsByName.get("vault_create_task")?.outputSchema?.required).toEqual([
+        "path",
+        "line",
+        "description",
+        "block_id",
+        "changes",
+      ])
+      expect(toolsByName.get("vault_update_task")?.outputSchema?.required).toEqual([
+        "path",
+        "line",
+        "description",
+        "changes",
+      ])
+    })
+
+    it("vault_list_tasks — structuredContent matches the text block exactly", async () => {
+      await armClientValidator()
+
+      const result = await callTool({
+        client,
+        name: "vault_list_tasks",
+        args: { path: "Projects/status-registry.md", status: "all", sort_by: "position" },
+      })
+
+      expect(result.isError).not.toBe(true)
+      expect(result.structuredContent).toEqual(JSON.parse(textContent(result)))
+      expect(result.structuredContent).toEqual({
+        total: 1,
+        tasks: [
+          {
+            path: "Projects/status-registry.md",
+            line: 12,
+            status: "todo",
+            status_char: " ",
+            description: "Normal task",
+            heading: "Tasks",
+            folder: "Projects",
+            depends_on: [],
+            tags: [],
+            block_id: "normal-task",
+            depth: 0,
+            is_kanban_task: false,
+          },
+        ],
+      })
+    })
+
+    it("vault_create_task with optional fields — structuredContent passes client validation", async () => {
+      await armClientValidator()
+
+      const writeResult = await callTool({
+        client,
+        name: "vault_write_note",
+        args: {
+          path: "Projects/output-schemas-create.md",
+          body: "# Output Schemas Create\n\n## Tasks\n",
+        },
+      })
+      expect(writeResult.isError).not.toBe(true)
+
+      const dateBeforeCreate = localIsoDate()
+      const createResult = await callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "Projects/output-schemas-create.md",
+          description: "Structured create",
+          block_id: "structured-create",
+          heading: "Tasks",
+          priority: "high",
+          subtasks: ["Design", "Implement"],
+        },
+      })
+      const dateAfterCreate = localIsoDate()
+
+      expect(createResult.isError).not.toBe(true)
+      const createdDate = stampedCreatedDate(createResult.structuredContent, {
+        before: dateBeforeCreate,
+        after: dateAfterCreate,
+      })
+      expect(createResult.structuredContent).toEqual(JSON.parse(textContent(createResult)))
+      expect(createResult.structuredContent).toEqual({
+        path: "Projects/output-schemas-create.md",
+        line: 4,
+        description: "Structured create",
+        block_id: "structured-create",
+        heading: "Tasks",
+        subtasks: [
+          { line: 5, description: "Design" },
+          { line: 6, description: "Implement" },
+        ],
+        changes: [`created: (none) → ${createdDate}`, "priority: (none) → high", "subtasks: 0 → 2"],
+      })
+    })
+
+    it("vault_update_task delete-on-completion — structuredContent passes client validation", async () => {
+      await armClientValidator()
+
+      const writeResult = await callTool({
+        client,
+        name: "vault_write_note",
+        args: {
+          path: "Projects/output-schemas-update.md",
+          body: "# Output Schemas Update\n\n## Tasks\n",
+        },
+      })
+      expect(writeResult.isError).not.toBe(true)
+
+      const createResult = await callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "Projects/output-schemas-update.md",
+          description: "Structured disposable",
+          block_id: "structured-disposable",
+          heading: "Tasks",
+          on_completion: "delete",
+        },
+      })
+      expect(createResult.isError).not.toBe(true)
+
+      const updateResult = await callTool({
+        client,
+        name: "vault_update_task",
+        args: {
+          path: "Projects/output-schemas-update.md",
+          block_id: "structured-disposable",
+          status: "done",
+        },
+      })
+
+      expect(updateResult.isError).not.toBe(true)
+      expect(updateResult.structuredContent).toEqual(JSON.parse(textContent(updateResult)))
+      expect(updateResult.structuredContent).toEqual({
+        path: "Projects/output-schemas-update.md",
+        line: 4,
+        description: "Structured disposable",
+        block_id: "structured-disposable",
+        heading: "Tasks",
+        changes: ["status: todo → done", "on_completion: task removed (🏁 delete)"],
+        on_completion_applied: "delete",
+      })
     })
   })
 

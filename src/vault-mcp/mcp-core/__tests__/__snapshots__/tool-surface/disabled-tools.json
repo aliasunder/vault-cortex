@@ -138,6 +138,66 @@
         ],
         "$schema": "http://json-schema.org/draft-07/schema#"
       },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "line": {
+            "type": "number"
+          },
+          "description": {
+            "type": "string"
+          },
+          "block_id": {
+            "type": "string"
+          },
+          "heading": {
+            "type": "string"
+          },
+          "subtasks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "line": {
+                  "type": "number"
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "line",
+                "description"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "advisories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "path",
+          "line",
+          "description",
+          "block_id",
+          "changes"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
+      },
       "annotations": {
         "readOnlyHint": false,
         "destructiveHint": false,
@@ -894,6 +954,151 @@
           }
         },
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "line": {
+                  "type": "number"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "todo",
+                    "in_progress",
+                    "done",
+                    "cancelled"
+                  ]
+                },
+                "status_char": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "heading": {
+                  "type": "string"
+                },
+                "folder": {
+                  "type": "string"
+                },
+                "created": {
+                  "type": "string"
+                },
+                "scheduled": {
+                  "type": "string"
+                },
+                "start": {
+                  "type": "string"
+                },
+                "due": {
+                  "type": "string"
+                },
+                "done": {
+                  "type": "string"
+                },
+                "cancelled": {
+                  "type": "string"
+                },
+                "priority": {
+                  "type": "string",
+                  "enum": [
+                    "highest",
+                    "high",
+                    "medium",
+                    "low",
+                    "lowest"
+                  ]
+                },
+                "recurrence": {
+                  "type": "string"
+                },
+                "on_completion": {
+                  "type": "string"
+                },
+                "task_id": {
+                  "type": "string"
+                },
+                "depends_on": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "block_id": {
+                  "type": "string"
+                },
+                "depth": {
+                  "type": "number"
+                },
+                "parent_block_id": {
+                  "type": "string"
+                },
+                "subtask_progress": {
+                  "type": "object",
+                  "properties": {
+                    "done": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "done",
+                    "total"
+                  ],
+                  "additionalProperties": false
+                },
+                "is_kanban_task": {
+                  "type": "boolean"
+                },
+                "done_lanes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "path",
+                "line",
+                "status",
+                "status_char",
+                "description",
+                "folder",
+                "depends_on",
+                "tags",
+                "depth",
+                "is_kanban_task"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "total",
+          "tasks"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": true,
@@ -1785,6 +1990,93 @@
           "path"
         ],
         "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "line": {
+            "type": "number"
+          },
+          "description": {
+            "type": "string"
+          },
+          "block_id": {
+            "type": "string"
+          },
+          "heading": {
+            "type": "string"
+          },
+          "subtasks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "line": {
+                  "type": "number"
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "line",
+                "description"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next_occurrence": {
+            "type": "object",
+            "properties": {
+              "line": {
+                "type": "number"
+              },
+              "description": {
+                "type": "string"
+              },
+              "due": {
+                "type": "string"
+              },
+              "scheduled": {
+                "type": "string"
+              },
+              "start": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "line",
+              "description"
+            ],
+            "additionalProperties": false
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "advisories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "on_completion_applied": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "line",
+          "description",
+          "changes"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false
       },
       "annotations": {
         "readOnlyHint": false,

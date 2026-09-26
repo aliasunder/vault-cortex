@@ -67,7 +67,7 @@ type SubtaskPosition = {
   description: string
 }
 
-type CreateTaskResult = {
+export type CreateTaskResult = {
   path: string
   line: number
   description: string
@@ -115,7 +115,7 @@ type NextOccurrencePosition = {
   start?: string | undefined
 }
 
-type UpdateTaskResult = {
+export type UpdateTaskResult = {
   path: string
   line: number
   description: string
