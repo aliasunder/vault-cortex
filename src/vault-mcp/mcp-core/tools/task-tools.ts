@@ -3,7 +3,15 @@
 import { z } from "zod"
 import { TOOL_NAMES } from "../tool-registry.js"
 import type { ToolRegistrationContext } from "./tool-helpers.js"
-import { safeHandler, dateFilterSchema } from "./tool-helpers.js"
+import { safeHandlerStructured, dateFilterSchema } from "./tool-helpers.js"
+import {
+  listTasksOutputShape,
+  listTasksOutputSchema,
+  createTaskOutputShape,
+  createTaskOutputSchema,
+  updateTaskOutputShape,
+  updateTaskOutputSchema,
+} from "./task-output-schemas.js"
 import { taskMutations } from "../../vault-operations/task-mutations.js"
 
 export const registerTaskTools = ({
@@ -126,6 +134,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
             'Sort direction. Default per field: "asc" for due/scheduled/priority/position, "desc" for start/created/done/note_mtime. Within a date cascade, each fallback uses its own default; an explicit value overrides all fields uniformly.',
           ),
       },
+      outputSchema: listTasksOutputShape,
     },
     async (
       {
@@ -170,10 +179,10 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
         sortBy: sort_by,
         sortDirection: sort_direction,
       })
-      return safeHandler(
+      return safeHandlerStructured(
         reqLogger,
-        async () =>
-          search.listTasks(
+        async () => {
+          const result = await search.listTasks(
             {
               status,
               due,
@@ -193,17 +202,15 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
               sortDirection: sort_direction,
             },
             reqLogger,
-          ),
-        (result) => {
+          )
+
           reqLogger.info("tool_result", {
             resultCount: result.tasks.length,
             total: result.total,
           })
-          return JSON.stringify({
-            total: result.total,
-            tasks: result.tasks,
-          })
+          return { total: result.total, tasks: result.tasks }
         },
+        listTasksOutputSchema,
       )
     },
   )
@@ -367,6 +374,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
             "Field format. Default: auto-detected from .obsidian/ config, falling back to emoji.",
           ),
       },
+      outputSchema: createTaskOutputShape,
     },
     async (
       {
@@ -412,10 +420,10 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
         subtaskCount: subtasks?.length,
         format,
       })
-      return safeHandler(
+      return safeHandlerStructured(
         reqLogger,
-        async () =>
-          taskMutations.createTask(
+        async () => {
+          const result = await taskMutations.createTask(
             {
               vaultPath,
               path,
@@ -437,8 +445,8 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
               format,
             },
             reqLogger,
-          ),
-        (result) => {
+          )
+
           reqLogger.info("tool_result", {
             path: result.path,
             line: result.line,
@@ -446,8 +454,9 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
             heading: result.heading,
             changes: result.changes,
           })
-          return JSON.stringify(result)
+          return result
         },
+        createTaskOutputSchema,
       )
     },
   )
@@ -652,6 +661,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
             "Field format for new metadata. Default: auto-detected from .obsidian/ config, falling back to emoji.",
           ),
       },
+      outputSchema: updateTaskOutputShape,
     },
     async (
       {
@@ -701,10 +711,10 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
         position,
         format,
       })
-      return safeHandler(
+      return safeHandlerStructured(
         reqLogger,
-        async () =>
-          taskMutations.updateTask(
+        async () => {
+          const result = await taskMutations.updateTask(
             {
               vaultPath,
               path,
@@ -728,15 +738,16 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
               format,
             },
             reqLogger,
-          ),
-        (result) => {
+          )
+
           reqLogger.info("tool_result", {
             path: result.path,
             line: result.line,
             changes: result.changes,
           })
-          return JSON.stringify(result)
+          return result
         },
+        updateTaskOutputSchema,
       )
     },
   )

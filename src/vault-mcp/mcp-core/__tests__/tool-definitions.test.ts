@@ -7,6 +7,11 @@ import { DateTime } from "luxon"
 import type { z } from "zod"
 import { computeEnabledToolNames, registerTools } from "../tool-definitions.js"
 import { TOOL_NAMES, TOOL_REGISTRY } from "../tool-registry.js"
+import {
+  listTasksOutputShape,
+  createTaskOutputShape,
+  updateTaskOutputShape,
+} from "../tools/task-output-schemas.js"
 import { loadConfig } from "../../config.js"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { createSearchIndex } from "../../search/search-index.js"
@@ -51,6 +56,7 @@ type RegisterToolCall = [
     title?: string
     description?: string
     inputSchema?: Record<string, z.ZodType>
+    outputSchema?: Record<string, z.ZodType>
     annotations?: Record<string, boolean>
   },
   handler: (...args: unknown[]) => Promise<unknown>,
@@ -372,6 +378,20 @@ describe("annotations", () => {
     for (const [, config] of calls) {
       expect(config.annotations?.openWorldHint).toBe(false)
     }
+  })
+})
+
+describe("output schemas", () => {
+  it("the task tools forward their output shapes to server.registerTool", () => {
+    const [, listConfig] = requireCall(TOOL_NAMES.VAULT_LIST_TASKS)
+    const [, createConfig] = requireCall(TOOL_NAMES.VAULT_CREATE_TASK)
+    const [, updateConfig] = requireCall(TOOL_NAMES.VAULT_UPDATE_TASK)
+
+    // Reference equality pins that the registered shape IS the module's
+    // shape, not a restated copy that could drift from it.
+    expect(listConfig.outputSchema).toBe(listTasksOutputShape)
+    expect(createConfig.outputSchema).toBe(createTaskOutputShape)
+    expect(updateConfig.outputSchema).toBe(updateTaskOutputShape)
   })
 })
 

@@ -847,6 +847,167 @@ describe("default config", () => {
     })
   })
 
+  describe("task tool output schemas", () => {
+    /** The SDK client validates every callTool result against the schema it
+     *  cached from listTools — so after this arming call, every task-tool
+     *  test in this suite is also an end-to-end schema-validation check. */
+    const armClientValidator = async (): Promise<
+      Map<string, Awaited<ReturnType<Client["listTools"]>>["tools"][number]>
+    > => {
+      const { tools } = await client.listTools()
+      return new Map(tools.map((tool) => [tool.name, tool]))
+    }
+
+    it("tools/list advertises outputSchema with the expected required keys", async () => {
+      const toolsByName = await armClientValidator()
+
+      expect(toolsByName.get("vault_list_tasks")?.outputSchema?.required).toEqual([
+        "total",
+        "tasks",
+      ])
+      expect(toolsByName.get("vault_create_task")?.outputSchema?.required).toEqual([
+        "path",
+        "line",
+        "description",
+        "block_id",
+        "changes",
+      ])
+      expect(toolsByName.get("vault_update_task")?.outputSchema?.required).toEqual([
+        "path",
+        "line",
+        "description",
+        "changes",
+      ])
+    })
+
+    it("vault_list_tasks — structuredContent matches the text block exactly", async () => {
+      await armClientValidator()
+
+      const result = await callTool({
+        client,
+        name: "vault_list_tasks",
+        args: { path: "Projects/status-registry.md", status: "all", sort_by: "position" },
+      })
+
+      expect(result.isError).not.toBe(true)
+      expect(result.structuredContent).toEqual(JSON.parse(textContent(result)))
+      expect(result.structuredContent).toEqual({
+        total: 1,
+        tasks: [
+          {
+            path: "Projects/status-registry.md",
+            line: 12,
+            status: "todo",
+            status_char: " ",
+            description: "Normal task",
+            heading: "Tasks",
+            folder: "Projects",
+            depends_on: [],
+            tags: [],
+            block_id: "normal-task",
+            depth: 0,
+            is_kanban_task: false,
+          },
+        ],
+      })
+    })
+
+    it("vault_create_task with optional fields — structuredContent passes client validation", async () => {
+      await armClientValidator()
+
+      const writeResult = await callTool({
+        client,
+        name: "vault_write_note",
+        args: {
+          path: "Projects/output-schemas-create.md",
+          body: "# Output Schemas Create\n\n## Tasks\n",
+        },
+      })
+      expect(writeResult.isError).not.toBe(true)
+
+      const createResult = await callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "Projects/output-schemas-create.md",
+          description: "Structured create",
+          block_id: "structured-create",
+          heading: "Tasks",
+          priority: "high",
+          subtasks: ["Design", "Implement"],
+        },
+      })
+
+      expect(createResult.isError).not.toBe(true)
+      expect(createResult.structuredContent).toEqual(JSON.parse(textContent(createResult)))
+      expect(createResult.structuredContent).toEqual({
+        path: "Projects/output-schemas-create.md",
+        line: 4,
+        description: "Structured create",
+        block_id: "structured-create",
+        heading: "Tasks",
+        subtasks: [
+          { line: 5, description: "Design" },
+          { line: 6, description: "Implement" },
+        ],
+        changes: [
+          `created: (none) → ${DateTime.now().toISODate()}`,
+          "priority: (none) → high",
+          "subtasks: 0 → 2",
+        ],
+      })
+    })
+
+    it("vault_update_task delete-on-completion — structuredContent passes client validation", async () => {
+      await armClientValidator()
+
+      const writeResult = await callTool({
+        client,
+        name: "vault_write_note",
+        args: {
+          path: "Projects/output-schemas-update.md",
+          body: "# Output Schemas Update\n\n## Tasks\n",
+        },
+      })
+      expect(writeResult.isError).not.toBe(true)
+
+      const createResult = await callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "Projects/output-schemas-update.md",
+          description: "Structured disposable",
+          block_id: "structured-disposable",
+          heading: "Tasks",
+          on_completion: "delete",
+        },
+      })
+      expect(createResult.isError).not.toBe(true)
+
+      const updateResult = await callTool({
+        client,
+        name: "vault_update_task",
+        args: {
+          path: "Projects/output-schemas-update.md",
+          block_id: "structured-disposable",
+          status: "done",
+        },
+      })
+
+      expect(updateResult.isError).not.toBe(true)
+      expect(updateResult.structuredContent).toEqual(JSON.parse(textContent(updateResult)))
+      expect(updateResult.structuredContent).toEqual({
+        path: "Projects/output-schemas-update.md",
+        line: 4,
+        description: "Structured disposable",
+        block_id: "structured-disposable",
+        heading: "Tasks",
+        changes: ["status: todo → done", "on_completion: task removed (🏁 delete)"],
+        on_completion_applied: "delete",
+      })
+    })
+  })
+
   describe("daily note tool", () => {
     it("vault_get_daily_note", async () => {
       const result = await callTool({
