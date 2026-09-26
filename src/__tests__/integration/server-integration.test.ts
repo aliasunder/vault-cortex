@@ -27,6 +27,34 @@ const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string =>
     .map((message) => (message.content.type === "text" ? message.content.text : ""))
     .join("\n")
 
+const localIsoDate = (): string => {
+  const isoDate = DateTime.now().toISODate()
+
+  if (!isoDate) throw new Error("DateTime.now().toISODate() returned null")
+  return isoDate
+}
+
+/** Matches a create result's created-date change entry and captures the
+ *  stamped YYYY-MM-DD date. */
+const CREATED_CHANGE_PATTERN = /created: \(none\) → (\d{4}-\d{2}-\d{2})/
+
+/** The server stamps ➕ created with its own clock during the write, so a
+ *  test-side date read can disagree with it across a midnight crossing.
+ *  Extracts the stamped date from a create result (any value whose JSON
+ *  carries the created-date change entry), verifies it falls inside the
+ *  caller's [before, after] local-date bracket, and returns it so exact
+ *  assertions can reuse the server's own value. */
+const stampedCreatedDate = (
+  createResult: unknown,
+  bracket: { before: string; after: string },
+): string => {
+  const match = CREATED_CHANGE_PATTERN.exec(JSON.stringify(createResult))
+
+  if (!match?.[1]) throw new Error("create result carries no created-date change entry")
+  expect([bracket.before, bracket.after]).toContain(match[1])
+  return match[1]
+}
+
 // ── Default config (33 tools, 3 prompts) ──────────────────────
 
 describe("default config", () => {
@@ -496,6 +524,7 @@ describe("default config", () => {
     })
 
     it("vault_create_task — creates a card and verifies via readback", async () => {
+      const dateBeforeCreate = localIsoDate()
       const createResult = await callTool({
         client,
         name: "vault_create_task",
@@ -507,8 +536,13 @@ describe("default config", () => {
           priority: "medium",
         },
       })
+      const dateAfterCreate = localIsoDate()
       expect(createResult.isError).not.toBe(true)
       const createJson = JSON.parse(textContent(createResult))
+      const createdDate = stampedCreatedDate(createJson, {
+        before: dateBeforeCreate,
+        after: dateAfterCreate,
+      })
       // Non-Kanban note: default position is bottom of the Tasks section
       expect(createJson).toEqual({
         path: "Projects/alpha.md",
@@ -516,7 +550,7 @@ describe("default config", () => {
         description: "Integration test task",
         block_id: "integ-test-task",
         heading: "Tasks",
-        changes: [`created: (none) → ${DateTime.now().toISODate()}`, "priority: (none) → medium"],
+        changes: [`created: (none) → ${createdDate}`, "priority: (none) → medium"],
       })
 
       // Verify the created task is in the file via vault_read_note
@@ -744,7 +778,7 @@ describe("default config", () => {
     })
 
     it("vault_create_task — on_completion appears in the created line", async () => {
-      const todayDate = DateTime.now().toISODate()
+      const dateBeforeCreate = localIsoDate()
       const result = await callTool({
         client,
         name: "vault_create_task",
@@ -756,15 +790,20 @@ describe("default config", () => {
           on_completion: "delete",
         },
       })
+      const dateAfterCreate = localIsoDate()
       expect(result.isError).not.toBe(true)
       const json = JSON.parse(textContent(result))
+      const createdDate = stampedCreatedDate(json, {
+        before: dateBeforeCreate,
+        after: dateAfterCreate,
+      })
       expect(json).toEqual({
         path: "Projects/recurring.md",
         line: 10,
         description: "Disposable task",
         block_id: "disposable",
         heading: "Habits",
-        changes: [`created: (none) → ${todayDate}`, "on_completion: (none) → delete"],
+        changes: [`created: (none) → ${createdDate}`, "on_completion: (none) → delete"],
       })
 
       const readback = await callTool({
@@ -775,7 +814,7 @@ describe("default config", () => {
       // The section carries tasks mutated by prior integration tests in
       // the same server boot (the ✅ date from the recurrence test is not
       // available here), so only the created task's line is asserted.
-      expect(textContent(readback)).toContain(`🏁 delete ➕ ${todayDate} ^disposable`)
+      expect(textContent(readback)).toContain(`🏁 delete ➕ ${createdDate} ^disposable`)
     })
 
     it("vault_create_task — integer position inserts at the specified slot", async () => {
@@ -925,6 +964,7 @@ describe("default config", () => {
       })
       expect(writeResult.isError).not.toBe(true)
 
+      const dateBeforeCreate = localIsoDate()
       const createResult = await callTool({
         client,
         name: "vault_create_task",
@@ -937,8 +977,13 @@ describe("default config", () => {
           subtasks: ["Design", "Implement"],
         },
       })
+      const dateAfterCreate = localIsoDate()
 
       expect(createResult.isError).not.toBe(true)
+      const createdDate = stampedCreatedDate(createResult.structuredContent, {
+        before: dateBeforeCreate,
+        after: dateAfterCreate,
+      })
       expect(createResult.structuredContent).toEqual(JSON.parse(textContent(createResult)))
       expect(createResult.structuredContent).toEqual({
         path: "Projects/output-schemas-create.md",
@@ -950,11 +995,7 @@ describe("default config", () => {
           { line: 5, description: "Design" },
           { line: 6, description: "Implement" },
         ],
-        changes: [
-          `created: (none) → ${DateTime.now().toISODate()}`,
-          "priority: (none) → high",
-          "subtasks: 0 → 2",
-        ],
+        changes: [`created: (none) → ${createdDate}`, "priority: (none) → high", "subtasks: 0 → 2"],
       })
     })
 
