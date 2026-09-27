@@ -1243,8 +1243,15 @@ behaviour observed in the pinned `cli.js`. Treat every bump
 of `obsidian-headless/package.json` as a potential regression and
 re-verify each contract against the new source before merging:
 
-- Verbs and flags the scripts call: `login`, `sync-config`, `sync`,
-  `sync --continuous`, and `sync-setup --vault --device-name`.
+- Verbs and flags the scripts call: `login`, `sync-config` (including
+  `--mode` and `--json`), `sync`, `sync --continuous`, and
+  `sync-setup --vault --device-name`. `sync-config --json` prints `vaultId`
+  and `syncMode` (`bidirectional` when unset), and an unknown `--mode`
+  value exits non-zero, which `init-setup-vault` treats as fatal.
+- `sync-setup` rewrites the whole config on every boot without the filter
+  fields or `syncMode`. `sync-config --file-types` / `--excluded-folders` /
+  `--configs` then queue only the recorded server files that the new value
+  allows and the reset defaults block, so some changes queue nothing.
 - `ob sync` creates `<vault>/.obsidian/` and a `.obsidian/.sync.lock`
   directory before transferring anything. `vault_has_content` in
   `init-first-sync` therefore treats an `.obsidian/` folder that holds
@@ -1257,8 +1264,35 @@ re-verify each contract against the new source before merging:
   but the vault is empty, because the engine would push each missing file as
   a deletion.
 - Files delivered by `sync --continuous` are recorded in that same
-  table as they arrive, and a file deleted locally has its row removed.
-  The stub's `sync-record` and `sync-forget` verbs mirror the two.
+  table as they arrive, and a file deleted locally has its row removed at
+  once. The stub's `sync-record` and `sync-forget` verbs mirror the two.
+- The engine pushes a deletion for every `server_files` row that has no
+  `local_files` row and that its filter allows, so a file the device never
+  downloaded looks like a local deletion. `init-first-sync` queues each such
+  row into `pending_files` before each attempt, and relies on these engine
+  behaviours:
+  - The pending loop runs before the deletion scan, downloads a queued file,
+    and drops one the filter disallows. An unqueued never-downloaded file is
+    pushed as a deletion. A one-shot `sync` stops at the first failed
+    download, before the scan. The remote-boot oracle
+    (`fixtures/sync-engine-oracle.ts`) runs the image's own engine on these
+    four cases.
+  - `server_files` and `pending_files` rows share one record shape
+    (`handlePush` builds it; `addPendingFile` writes `uid, path, data`), and
+    the three tables keep the columns the script's schema check lists.
+  - `sync --continuous` backs a failed download off and still runs the
+    deletion scan, which is why `init-first-sync` refuses two-way continuous
+    sync while downloads stay queued.
+  - Skipping a superseded queued entry deletes every queued row for that
+    path (`DELETE FROM pending_files WHERE path = ?`). The script queues
+    once more after the last attempt for that reason.
+  - The oracle loads the bundle by replacing its closing `x.parse();` call
+    with an export of the engine class `is`. Both are minified names, and
+    both can change between versions.
+
+  Re-check the last four against the new `cli.js`; the oracle covers only
+  the first.
+
 - The setup page's pre-flight (`src/vault-mcp/setup/`) mirrors two calls
   `ob sync-setup` makes on the next boot: `/vault/list` (an
   end-to-end encrypted vault comes back with `password: ""`) and
@@ -1268,14 +1302,16 @@ re-verify each contract against the new source before merging:
   vectors in `vault-key.test.ts` were produced by the pinned CLI's own
   functions; recompute them on a bump.
 
-The remote-boot tests never run the real CLI — they run the stub
+The remote-boot boot scenarios never run the real CLI — they run the stub
 (`src/__tests__/docker/fixtures/ob`), which imitates the behaviour listed
-above. So if a new CLI version behaves differently, the tests still pass,
-because the stub still behaves the old way. After updating the pinned
-version:
+above. So if a new CLI version behaves differently, those tests still pass,
+because the stub still behaves the old way. Only the sync-engine oracle runs
+the image's real engine. After updating the pinned version:
 
-1. Update the stub to match the new behaviour.
-2. Run the remote-boot tests and the init-script tests.
+1. Update the stub to match the new behaviour, and the oracle's minified
+   names if they changed.
+2. Run the remote-boot tests (the oracle among them) and the init-script
+   tests.
 3. Boot the new image once against real Obsidian Sync and confirm the
    first sync, the guard's file count, and continuous sync in the logs.
 

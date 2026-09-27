@@ -581,7 +581,7 @@ These optional settings are worth knowing about:
 | `DISABLED_TOOLS`        | none hidden                   | Hide individual tools by name, comma-separated; names match the [README tools table](https://github.com/aliasunder/vault-cortex#tools)                                                                                                                                                                                                                                                                                                                                        |
 | `SYNC_CONFIGS`          | daily notes + plugin settings | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables                                                                                                                                                                                                                                                                                                                                                                          |
 | `DEVICE_NAME`           | `vault-cortex`                | The device name that labels this container's changes in Obsidian's sync log                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `SYNC_MODE`             | `bidirectional`               | Sync direction: `bidirectional`, `pull-only` (server edits are kept locally but never uploaded), or `mirror-remote` (server edits are undone; the server is an exact copy).                                                                                                                                                                                                                                                                                                   |
+| `SYNC_MODE`             | `bidirectional`               | Sync direction: `bidirectional`, `pull-only` (server edits are kept locally but never uploaded), or `mirror-remote` (server edits are undone; the server is an exact copy). An invalid value stops the container at boot.                                                                                                                                                                                                                                                     |
 | `CONFLICT_STRATEGY`     | `merge`                       | Obsidian Sync conflict resolution: `merge` integrates changes automatically; `conflict` writes a separate conflict file.                                                                                                                                                                                                                                                                                                                                                      |
 | `SYNC_EXCLUDED_FOLDERS` | _(empty)_                     | Folders to leave out of sync, comma-separated — the same list as Obsidian's Sync → Excluded folders. Empty excludes nothing.                                                                                                                                                                                                                                                                                                                                                  |
 | `SYNC_FILE_TYPES`       | _(empty)_                     | Attachment types to sync: `image`, `audio`, `video`, `pdf`, `unsupported`, comma-separated — the same toggles as Obsidian's Sync → Selective sync. Empty syncs `image`, `audio`, `video`, and `pdf`. The text files Vault Cortex reads (CSV, JSON, TXT, XML, LOG, YAML) belong to `unsupported`; SVG syncs as `image`, and notes, canvases, and bases always sync. To read them, add `unsupported` here and turn on **Sync all other types** on the device that uploads them. |
@@ -626,6 +626,21 @@ container needs your vault name to know which vault to sync. This guide's
 hosting-platform settings pages don't check. Add
 `VAULT_NAME=<your exact Obsidian vault name, case-sensitive>` to `.env` (or
 pass `-e VAULT_NAME=...`) and start the container again.
+
+**"First sync failed with N file(s) still waiting to download" in
+`docker logs`, and the container stops.** Some files in your Obsidian Sync
+vault haven't reached the server yet (usually right after you change
+`SYNC_FILE_TYPES` or `SYNC_EXCLUDED_FOLDERS`), and two-way sync would push
+each missing file as a deletion to your other devices, so the container
+stops instead. Look earlier in `docker logs` for the file that failed to
+download or a connection error; once the cause is fixed, the restart policy
+(or `docker start vault-cortex`) retries. The count can include files your
+current settings exclude, which the container skips once it reaches them.
+
+**"ob sync-config --mode '…' failed" in `docker logs`, and the container
+stops.** `SYNC_MODE` isn't one of `bidirectional`, `pull-only`, or
+`mirror-remote`. Fix it in `.env` (or `-e SYNC_MODE=...`) and start the
+container again.
 
 **"container name vault-cortex already in use" on start or upgrade.** A
 container from a different management method is still running. The CLI

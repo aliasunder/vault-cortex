@@ -857,7 +857,7 @@ graph LR
    the boot switches to [setup mode](#setup-mode) instead of stopping) →
    `init-obsidian-login` (`ob login`) → `init-setup-vault` (`ob sync-setup`
    with `--device-name`, plus optional sync-config; fails fast when
-   `VAULT_NAME` is missing) → `init-first-sync`
+   `VAULT_NAME` is missing or `SYNC_MODE` fails to apply) → `init-first-sync`
    (one-shot `ob sync` run to _completion_, with retries; failure
    branches under "`init-first-sync` gates vault state" below). Any
    fatal init failure stops the container
@@ -879,7 +879,7 @@ process has spawned. Two mechanisms with distinct jobs:
 - **The longrun dependency gates startup order only.** It does not wait for
   sync health, and a later sync crash restarts just that service, not the
   MCP server.
-- **`init-first-sync` gates vault state.** Three outcomes, checked in order:
+- **`init-first-sync` gates vault state.** Four steps, in order:
   1. **Deletion-storm guard** (before sync runs): the container refuses to
      start when the Sync client's file record lists files but the vault has
      no content.
@@ -894,12 +894,35 @@ process has spawned. Two mechanisms with distinct jobs:
        are not synced and do not count either.
      - A record that exists but cannot be read also stops the container.
      - No record means a fresh device, which downloads without deleting.
-  2. **Sync succeeds**: the first sync runs to completion before any service
-     starts.
-  3. **Sync fails**: FATAL when the memory bootstrap could still overwrite
-     real files (memory layer enabled, memory folder absent). Warn-and-continue
-     when the memory folder is present or memory is disabled — the server
-     starts while continuous sync keeps retrying.
+  2. **Never-downloaded files are queued** before each attempt and once
+     after the last.
+     - The client pushes a deletion for every file the server lists that has
+       no local record, and a file this device never downloaded has none
+       (one a filter or excluded folder kept out, or a failed download).
+     - The step copies each such server row into the client's download
+       queue (`pending_files`), the row the client itself writes when a
+       filter change queues a file. The client's pending loop runs before
+       its deletion scan and downloads the file, or drops it if the current
+       filter excludes it.
+     - The step keeps a path's existing queued entry, which may be a newer
+       version. It reads the active vault's store (the vault ID from
+       `ob sync-config --json`) and stops the container if the table layout
+       isn't the one it expects.
+     - A local deletion not yet uploaded when the container restarts is
+       downloaded again. The step keeps the file instead of risking a
+       deletion on every device.
+  3. **Sync succeeds**: the first sync runs to completion before any service
+     starts. A one-shot sync stops at the first failed download, before its
+     deletion scan.
+  4. **Sync fails**:
+     - FATAL when files are still queued for download and the client's
+       stored mode is two-way. Continuous sync retries a failed download
+       with a backoff and runs its deletion scan meanwhile, which would
+       delete those files everywhere.
+     - FATAL when the memory bootstrap could still overwrite real files
+       (memory layer enabled, memory folder absent).
+     - Otherwise warn and continue: the server starts while continuous sync
+       keeps retrying.
 
 On a fresh volume, the gate closes the memory-bootstrap race: either the vault
 already holds the user's real `About Me/` files when the server's bootstrap

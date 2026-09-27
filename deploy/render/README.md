@@ -272,7 +272,7 @@ tab (each change triggers a redeploy):
 | `EMBEDDING_ENABLED`     | `true`          | Semantic search. Set `false` to skip the models and use keyword search only — the container fits in much less memory.                                                                                                                                                                                                                                                                                                                                                         |
 | `READONLY_MODE`         | `false`         | Set `true` to hide every tool that changes the vault — clients can only read and search.                                                                                                                                                                                                                                                                                                                                                                                      |
 | `FILE_TOOLS_ENABLED`    | `true`          | `vault_read_file` and `vault_list_files`. Set `false` when Obsidian Sync has attachment syncing off.                                                                                                                                                                                                                                                                                                                                                                          |
-| `SYNC_MODE`             | `bidirectional` | Sync direction: `bidirectional`, `pull-only` (server edits are kept locally but never uploaded), or `mirror-remote` (server edits are undone; the server is an exact copy).                                                                                                                                                                                                                                                                                                   |
+| `SYNC_MODE`             | `bidirectional` | Sync direction: `bidirectional`, `pull-only` (server edits are kept locally but never uploaded), or `mirror-remote` (server edits are undone; the server is an exact copy). An invalid value stops the container at boot.                                                                                                                                                                                                                                                     |
 | `CONFLICT_STRATEGY`     | `merge`         | Obsidian Sync conflict resolution: `merge` integrates changes automatically; `conflict` writes a separate conflict file.                                                                                                                                                                                                                                                                                                                                                      |
 | `SYNC_EXCLUDED_FOLDERS` | _(empty)_       | Folders to leave out of sync, comma-separated — the same list as Obsidian's Sync → Excluded folders. Empty excludes nothing.                                                                                                                                                                                                                                                                                                                                                  |
 | `SYNC_FILE_TYPES`       | _(empty)_       | Attachment types to sync: `image`, `audio`, `video`, `pdf`, `unsupported`, comma-separated — the same toggles as Obsidian's Sync → Selective sync. Empty syncs `image`, `audio`, `video`, and `pdf`. The text files Vault Cortex reads (CSV, JSON, TXT, XML, LOG, YAML) belong to `unsupported`; SVG syncs as `image`, and notes, canvases, and bases always sync. To read them, add `unsupported` here and turn on **Sync all other types** on the device that uploads them. |
@@ -329,3 +329,17 @@ deletions to your other devices. This happens only if something removed
 `/persist/vault` by hand. Restore the disk from a snapshot (**Disks → Snapshots**
 on the service page), or remove `/persist/config` as well to start over with
 a fresh device.
+
+**`First sync failed with N file(s) still waiting to download.`** The
+container stopped instead of starting two-way sync. Some files in your
+Obsidian Sync vault haven't reached the disk yet (usually right after you
+change `SYNC_FILE_TYPES` or `SYNC_EXCLUDED_FOLDERS`), and two-way sync would
+push each missing file as a deletion to your other devices. Look earlier in
+the logs for the file that failed to download or a connection error, then
+click **Manual Deploy → Deploy latest reference** once the cause is fixed.
+The count can include files your current settings exclude, which the
+container skips once it reaches them.
+
+**`ob sync-config --mode '…' failed.`** `SYNC_MODE` isn't one of
+`bidirectional`, `pull-only`, or `mirror-remote`. Fix it under
+**Environment** and save — saving redeploys the service.
