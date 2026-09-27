@@ -19,22 +19,53 @@ import { loadConfig } from "../config.js"
 
 const SCRIPT_PATH = resolve(__dirname, "../../../rootfs/etc/s6-overlay/scripts/init-first-sync")
 
-/** Stub `ob`: logs each invocation, and for `ob sync` exits with the Nth
- *  line of the outcomes file (last line repeats when calls exceed lines). */
+/** Stub `ob`: logs each invocation. `ob sync-config --json` prints the config
+ *  file the test wrote, or fails when there is none. `ob sync` exits with the
+ *  Nth line of the outcomes file (last line repeats when calls exceed lines).
+ *  With OB_SYNC_ERASES_QUEUE_IN set to a state.db path, `ob sync` first
+ *  empties that store's queue, as the real client does when it skips a
+ *  superseded entry and then fails the newer download. */
 const OB_STUB = `#!/bin/sh
 echo "$*" >> "$OB_CALL_LOG"
+if [ "$1" = "sync-config" ]; then
+  [ -f "$OB_SYNC_CONFIG_JSON" ] || exit 1
+  cat "$OB_SYNC_CONFIG_JSON"
+  exit 0
+fi
 if [ "$1" != "sync" ]; then exit 0; fi
-SYNC_CALL_COUNT=$(grep -c '^sync' "$OB_CALL_LOG")
+if [ -n "$OB_SYNC_ERASES_QUEUE_IN" ]; then
+  node --no-warnings -e '
+    const { DatabaseSync } = require("node:sqlite")
+    const db = new DatabaseSync(process.argv[1])
+    db.exec("DELETE FROM pending_files")
+    db.close()
+  ' "$OB_SYNC_ERASES_QUEUE_IN"
+fi
+SYNC_CALL_COUNT=$(grep -c '^sync$' "$OB_CALL_LOG")
 OUTCOME=$(sed -n "\${SYNC_CALL_COUNT}p" "$OB_SYNC_OUTCOMES")
 if [ -z "$OUTCOME" ]; then OUTCOME=$(sed -n '$p' "$OB_SYNC_OUTCOMES"); fi
 exit "$OUTCOME"
 `
 
-/** Stub `s6-setuidgid`: drops the user argument and runs the command. */
+/** Stub `s6-setuidgid`: logs the user and command name, drops the user
+ *  argument, and runs the command. */
 const SETUIDGID_STUB = `#!/bin/sh
+echo "$1 $2" >> "$SETUIDGID_CALL_LOG"
 shift
 exec "$@"
 `
+
+/** What `ob sync-config --json` prints for the active vault by default. */
+const DEFAULT_SYNC_CONFIG = { vaultId: "vault-id", syncMode: "bidirectional" }
+
+/** One row of the engine's server_files or pending_files table: the record
+ *  the server pushed, stored as JSON in `data`. */
+type SyncRecord = {
+  path: string
+  uid: number
+  folder?: boolean
+  deleted?: boolean
+}
 
 /** Stub `sleep`: no-op so retry pauses don't slow the suite down. */
 const SLEEP_STUB = `#!/bin/sh
@@ -48,6 +79,12 @@ type GateRun = {
   syncCalls: number
   /** Obsidian config directory the script resolved. */
   configDir: string
+  /** Every `ob` invocation, in order (subcommand + args). */
+  obCalls: string[]
+  /** Every `s6-setuidgid` invocation as "<user> <command>". */
+  setuidgidCalls: string[]
+  /** The active store's state.db, for reading what the script wrote. */
+  activeStateDbPath: string
 }
 
 type GateRunOptions = {
@@ -80,29 +117,90 @@ type GateRunOptions = {
   /** When true, runs with XDG_CONFIG_HOME pointing at a directory outside
    *  $HOME (single-volume mode) — the sync state must be read from there. */
   xdgConfigHome?: boolean
+  /** What `ob sync-config --json` prints, as raw text. `null` makes the
+   *  command fail. Defaults to DEFAULT_SYNC_CONFIG. */
+  syncConfigJson?: string | null
+  /** Rows to write to the active store's server_files table. */
+  serverRecords?: SyncRecord[]
+  /** Rows to write to the active store's pending_files table. */
+  pendingRecords?: SyncRecord[]
+  /** Paths to write to the active store's local_files table. */
+  localPaths?: string[]
+  /** Server rows to write to a second, inactive store. */
+  inactiveStoreServerRecords?: SyncRecord[]
+  /** When true, the active store has only a local_files table. */
+  unrecognizedStoreSchema?: boolean
+  /** SYNC_MODE as the container environment sets it. */
+  syncModeEnv?: string
+  /** When true, every `ob sync` empties the active store's queue first. */
+  syncErasesQueue?: boolean
 }
 
-/** Mirror of the sync engine's local_files table: one row per file and one
- *  per folder, each row's data carrying the engine's `folder` flag. */
+/** The sync engine's own schema for the three tables the script reads. */
+const SYNC_STATE_SCHEMA =
+  "CREATE TABLE local_files (path TEXT PRIMARY KEY, data TEXT NOT NULL);" +
+  "CREATE TABLE server_files (path TEXT PRIMARY KEY, data TEXT NOT NULL);" +
+  "CREATE TABLE pending_files (uid INTEGER PRIMARY KEY, path TEXT, data TEXT NOT NULL);"
+
+/** Mirror of the sync engine's store. local_files gets one row per known
+ *  file and one per folder, each row's data carrying the engine's `folder`
+ *  flag, plus a row per listed path. */
 const writeSyncState = ({
   stateDbPath,
-  knownFiles,
+  knownFiles = 0,
   knownFolders = 0,
+  localPaths = [],
+  serverRecords = [],
+  pendingRecords = [],
+  schema = SYNC_STATE_SCHEMA,
 }: {
   stateDbPath: string
-  knownFiles: number
+  knownFiles?: number
   knownFolders?: number
+  localPaths?: string[]
+  serverRecords?: SyncRecord[]
+  pendingRecords?: SyncRecord[]
+  schema?: string
 }): void => {
+  mkdirSync(dirname(stateDbPath), { recursive: true })
   const db = new DatabaseSync(stateDbPath)
-  db.exec("CREATE TABLE local_files (path TEXT PRIMARY KEY, data TEXT NOT NULL)")
-  const insert = db.prepare("INSERT INTO local_files VALUES (?, ?)")
+  db.exec(schema)
+  const insertLocal = db.prepare("INSERT INTO local_files VALUES (?, ?)")
   for (let fileIndex = 0; fileIndex < knownFiles; fileIndex += 1) {
-    insert.run(`note-${fileIndex}.md`, JSON.stringify({ folder: false }))
+    insertLocal.run(`note-${fileIndex}.md`, JSON.stringify({ folder: false }))
   }
   for (let folderIndex = 0; folderIndex < knownFolders; folderIndex += 1) {
-    insert.run(`folder-${folderIndex}`, JSON.stringify({ folder: true }))
+    insertLocal.run(`folder-${folderIndex}`, JSON.stringify({ folder: true }))
+  }
+  for (const localPath of localPaths) {
+    insertLocal.run(localPath, JSON.stringify({ path: localPath, folder: false }))
+  }
+  for (const serverRecord of serverRecords) {
+    db.prepare("INSERT INTO server_files VALUES (?, ?)").run(
+      serverRecord.path,
+      JSON.stringify(serverRecord),
+    )
+  }
+  for (const pendingRecord of pendingRecords) {
+    db.prepare("INSERT INTO pending_files VALUES (?, ?, ?)").run(
+      pendingRecord.uid,
+      pendingRecord.path,
+      JSON.stringify(pendingRecord),
+    )
   }
   db.close()
+}
+
+/** The pending_files rows of a store, in the engine's own order (by uid). */
+const readPendingRows = (stateDbPath: string): { uid: number; path: string; data: string }[] => {
+  const db = new DatabaseSync(stateDbPath, { readOnly: true })
+  const rows = db.prepare("SELECT uid, path, data FROM pending_files ORDER BY uid").all()
+  db.close()
+  return rows.map((row) => ({
+    uid: Number(row.uid),
+    path: String(row.path),
+    data: String(row.data),
+  }))
 }
 
 const runGateScript = (options: GateRunOptions): GateRun => {
@@ -128,12 +226,31 @@ const runGateScript = (options: GateRunOptions): GateRun => {
     mkdirSync(dirname(join(vaultPath, vaultFile)), { recursive: true })
     writeFileSync(join(vaultPath, vaultFile), "")
   }
-  if (options.knownSyncFiles !== undefined) {
-    mkdirSync(syncStateDir, { recursive: true })
+  const activeStateDbPath = join(syncStateDir, "state.db")
+  // knownSyncFiles: 0 is a real case (a store that records nothing), so it
+  // needs the explicit undefined check.
+  const activeStoreSeeded =
+    options.knownSyncFiles !== undefined ||
+    Boolean(options.serverRecords || options.pendingRecords || options.localPaths) ||
+    Boolean(options.unrecognizedStoreSchema)
+
+  if (activeStoreSeeded) {
     writeSyncState({
-      stateDbPath: join(syncStateDir, "state.db"),
-      knownFiles: options.knownSyncFiles,
-      ...(options.knownSyncFolders === undefined ? {} : { knownFolders: options.knownSyncFolders }),
+      stateDbPath: activeStateDbPath,
+      knownFiles: options.knownSyncFiles ?? 0,
+      knownFolders: options.knownSyncFolders ?? 0,
+      localPaths: options.localPaths ?? [],
+      serverRecords: options.serverRecords ?? [],
+      pendingRecords: options.pendingRecords ?? [],
+      ...(options.unrecognizedStoreSchema
+        ? { schema: "CREATE TABLE local_files (path TEXT PRIMARY KEY, data TEXT NOT NULL);" }
+        : {}),
+    })
+  }
+  if (options.inactiveStoreServerRecords) {
+    writeSyncState({
+      stateDbPath: join(dirname(syncStateDir), "vault-id-inactive", "state.db"),
+      serverRecords: options.inactiveStoreServerRecords,
     })
   }
   if (options.secondStoreSyncFiles !== undefined) {
@@ -160,8 +277,19 @@ const runGateScript = (options: GateRunOptions): GateRun => {
 
   const callLogPath = join(tempDir, "ob-calls.log")
   writeFileSync(callLogPath, "")
+  const setuidgidCallLogPath = join(tempDir, "setuidgid-calls.log")
+  writeFileSync(setuidgidCallLogPath, "")
   const outcomesPath = join(tempDir, "sync-outcomes")
   writeFileSync(outcomesPath, `${options.syncOutcomes.join("\n")}\n`)
+  const syncConfigJsonPath = join(tempDir, "sync-config.json")
+  const syncConfigJson =
+    options.syncConfigJson === undefined
+      ? JSON.stringify(DEFAULT_SYNC_CONFIG)
+      : options.syncConfigJson
+
+  if (syncConfigJson !== null) {
+    writeFileSync(syncConfigJsonPath, syncConfigJson)
+  }
 
   const result = spawnSync("sh", [SCRIPT_PATH], {
     encoding: "utf8",
@@ -171,29 +299,40 @@ const runGateScript = (options: GateRunOptions): GateRun => {
       VAULT_PATH: vaultPath,
       OB_CALL_LOG: callLogPath,
       OB_SYNC_OUTCOMES: outcomesPath,
+      OB_SYNC_CONFIG_JSON: syncConfigJsonPath,
+      SETUIDGID_CALL_LOG: setuidgidCallLogPath,
       ...(options.setupMode ? { SETUP_MODE: "1" } : {}),
       ...(options.vaultName === undefined ? {} : { VAULT_NAME: options.vaultName }),
       ...(options.memoryDir === undefined ? {} : { MEMORY_DIR: options.memoryDir }),
       ...(options.memoryEnabled === undefined ? {} : { MEMORY_ENABLED: options.memoryEnabled }),
       ...(options.xdgConfigHome ? { XDG_CONFIG_HOME: xdgConfigDir } : {}),
+      ...(options.syncModeEnv ? { SYNC_MODE: options.syncModeEnv } : {}),
+      ...(options.syncErasesQueue ? { OB_SYNC_ERASES_QUEUE_IN: activeStateDbPath } : {}),
     },
   })
 
-  const callLog = readFileSync(callLogPath, "utf8")
-  const syncCalls = callLog.split("\n").filter((loggedCall) => loggedCall.startsWith("sync")).length
+  const readLoggedCalls = (logPath: string): string[] => {
+    return readFileSync(logPath, "utf8")
+      .split("\n")
+      .filter((loggedCall) => loggedCall !== "")
+  }
+  const obCalls = readLoggedCalls(callLogPath)
   return {
     status: result.status,
     stdout: result.stdout,
     stderr: result.stderr,
-    syncCalls,
+    syncCalls: obCalls.filter((obCall) => obCall === "sync").length,
     configDir,
+    obCalls,
+    setuidgidCalls: readLoggedCalls(setuidgidCallLogPath),
+    activeStateDbPath,
   }
 }
 
 describe("init-first-sync gate script", () => {
   it("skips the first sync in setup mode, before the vault directory check", () => {
-    // No vault directory: without setup mode the cd fails and the script
-    // exits 1, so the exit 0 proves the guard ran first.
+    // With no vault directory and no setup mode, the cd fails and the
+    // script exits 1, so the exit 0 proves the guard ran first.
     const run = runGateScript({
       syncOutcomes: [0],
       setupMode: true,
@@ -619,11 +758,298 @@ describe("init-first-sync gate script", () => {
     expect(run.stderr).toContain("ERROR: The vault is empty but this device has previously synced.")
   })
 
+  // -- Never-downloaded files (queued before each attempt) --------------------
+
+  const FAILED_ATTEMPT_RETRIES =
+    "[obsidian-sync] First sync failed — retrying in 10s...\n" +
+    "[obsidian-sync] First sync failed — retrying in 10s...\n"
+
+  const WARN_AND_CONTINUE =
+    "[obsidian-sync] WARNING: First sync did not complete — starting services anyway.\n" +
+    "[obsidian-sync] Continuous sync will keep retrying; check network/credentials if this persists.\n"
+
+  it("queues a file the server lists that this device never downloaded", () => {
+    const neverDownloaded = { path: "Archive/old.md", uid: 11, folder: false, deleted: false }
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      vaultFiles: ["Notes/kept.md"],
+      serverRecords: [neverDownloaded, { path: "Notes/kept.md", uid: 12 }],
+      localPaths: ["Notes/kept.md"],
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.stdout).toBe(
+      "[obsidian-sync] Queued 1 file(s) this device has not downloaded yet.\n" +
+        "[obsidian-sync] First sync (attempt 1/3) — waiting for completion before starting services...\n" +
+        "[obsidian-sync] First sync complete.\n",
+    )
+    // Byte-identical to the server row, under the server's uid — the row the
+    // Sync client itself writes when a filter change queues a file.
+    expect(readPendingRows(run.activeStateDbPath)).toEqual([
+      { uid: 11, path: "Archive/old.md", data: JSON.stringify(neverDownloaded) },
+    ])
+  })
+
+  it("leaves server files that are recorded locally or deleted on the server unqueued", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      vaultFiles: ["Notes/kept.md"],
+      serverRecords: [
+        { path: "Notes/kept.md", uid: 12 },
+        { path: "Gone.md", uid: 13, deleted: true },
+      ],
+      localPaths: ["Notes/kept.md"],
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.stdout).toBe(
+      "[obsidian-sync] First sync (attempt 1/3) — waiting for completion before starting services...\n" +
+        "[obsidian-sync] First sync complete.\n",
+    )
+    expect(readPendingRows(run.activeStateDbPath)).toEqual([])
+  })
+
+  it("keeps an entry already queued for the path, which may be a newer version", () => {
+    const newerVersion = { path: "Archive/old.md", uid: 20 }
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      knownSyncFiles: 1,
+      vaultFiles: ["note-0.md"],
+      serverRecords: [{ path: "Archive/old.md", uid: 11 }],
+      pendingRecords: [newerVersion],
+    })
+
+    expect(run.status).toBe(0)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual([
+      { uid: 20, path: "Archive/old.md", data: JSON.stringify(newerVersion) },
+    ])
+  })
+
+  it("queues before every attempt and once more after the last one, as the Sync user", () => {
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      vaultDirs: ["About Me"],
+      serverRecords: [{ path: "About Me/Principles.md", uid: 11 }],
+      syncConfigJson: JSON.stringify({ vaultId: "vault-id", syncMode: "pull-only" }),
+    })
+
+    expect(run.obCalls).toEqual(["sync-config --json", "sync", "sync", "sync"])
+    // The config read, then a queue step and a sync per attempt, then the
+    // final queue step and the count, all as the Sync user.
+    expect(run.setuidgidCalls).toEqual([
+      "obsidian ob",
+      "obsidian node",
+      "obsidian ob",
+      "obsidian node",
+      "obsidian ob",
+      "obsidian node",
+      "obsidian ob",
+      "obsidian node",
+      "obsidian node",
+    ])
+  })
+
+  it("skips queueing on a device that has never synced (no store yet)", () => {
+    const run = runGateScript({ syncOutcomes: [0], vaultName: "Test" })
+
+    expect(run.status).toBe(0)
+    expect(run.syncCalls).toBe(1)
+    expect(run.setuidgidCalls).toEqual(["obsidian ob", "obsidian ob"])
+  })
+
+  it("queues nothing from another vault's store", () => {
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      vaultDirs: ["About Me"],
+      localPaths: [],
+      inactiveStoreServerRecords: [{ path: "Other.md", uid: 11 }],
+    })
+
+    expect(run.status).toBe(0)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual([])
+    expect(run.stderr).toBe(FAILED_ATTEMPT_RETRIES + WARN_AND_CONTINUE)
+  })
+
+  it("refuses to sync when the Sync settings can't be read", () => {
+    const run = runGateScript({ syncOutcomes: [0], vaultName: "Test", syncConfigJson: null })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stderr).toBe(
+      "[obsidian-sync] ERROR: Could not read this vault's Sync settings (ob sync-config --json failed).\n",
+    )
+  })
+
+  it.each([
+    { label: "output that isn't JSON", syncConfigJson: "not json" },
+    {
+      label: "a config without a vault ID",
+      syncConfigJson: JSON.stringify({ syncMode: "bidirectional" }),
+    },
+    {
+      label: "a config without a sync mode",
+      syncConfigJson: JSON.stringify({ vaultId: "vault-id" }),
+    },
+  ])("refuses to sync on $label", ({ syncConfigJson }) => {
+    const run = runGateScript({ syncOutcomes: [0], vaultName: "Test", syncConfigJson })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stderr).toBe(
+      "[obsidian-sync] ERROR: This vault's Sync settings have no vault ID or sync mode.\n",
+    )
+  })
+
+  it("refuses to sync when the store's table layout is not the Sync client's", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      unrecognizedStoreSchema: true,
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(0)
+    expect(run.stderr).toBe(
+      "pending_files has no uid, path, data column\n" +
+        `[obsidian-sync] ERROR: Could not queue the files this device has not downloaded yet (${run.activeStateDbPath}).\n` +
+        "[obsidian-sync] Refusing to sync: without that step, a sync could delete those files from Obsidian Sync and your other devices.\n",
+    )
+  })
+
+  // -- Refusal before two-way continuous sync ---------------------------------
+
+  const QUEUED_DOWNLOADS_REFUSAL =
+    "[obsidian-sync] ERROR: First sync failed with 1 file(s) still waiting to download.\n" +
+    "[obsidian-sync] Refusing to start two-way sync: it could delete those files from Obsidian Sync and your other devices.\n" +
+    "[obsidian-sync] The count can include files your current settings exclude, which the Sync client had not reached yet.\n" +
+    "[obsidian-sync] Check the network and the log above for a file that keeps failing to download — the container's restart policy retries.\n"
+
+  it("refuses two-way sync when every attempt failed with downloads still queued", () => {
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      vaultDirs: ["About Me"],
+      serverRecords: [{ path: "Archive/old.md", uid: 11 }],
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.syncCalls).toBe(3)
+    expect(run.stderr).toBe(FAILED_ATTEMPT_RETRIES + QUEUED_DOWNLOADS_REFUSAL)
+  })
+
+  it("refuses regardless of the memory layer", () => {
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      memoryEnabled: "false",
+      serverRecords: [{ path: "Archive/old.md", uid: 11 }],
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.stderr).toBe(FAILED_ATTEMPT_RETRIES + QUEUED_DOWNLOADS_REFUSAL)
+  })
+
+  it("counts a queued file even when a stale local record names it", () => {
+    // A local record can outlive its file when the client's startup scan
+    // fails, and the client would still delete the file remotely later.
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      vaultFiles: ["About Me/Principles.md"],
+      serverRecords: [{ path: "Archive/old.md", uid: 11 }],
+      pendingRecords: [{ path: "Archive/old.md", uid: 11 }],
+      localPaths: ["Archive/old.md"],
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.stderr).toBe(FAILED_ATTEMPT_RETRIES + QUEUED_DOWNLOADS_REFUSAL)
+  })
+
+  it("re-queues after the last attempt, so an entry the client erased still counts", () => {
+    // Every failed attempt leaves the queue empty, so only the queue step
+    // after the last attempt can bring the count back to 1.
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      vaultDirs: ["About Me"],
+      serverRecords: [{ path: "Archive/old.md", uid: 11 }],
+      syncErasesQueue: true,
+    })
+
+    expect(readPendingRows(run.activeStateDbPath).map((row) => row.path)).toEqual([
+      "Archive/old.md",
+    ])
+    expect(run.stderr).toBe(FAILED_ATTEMPT_RETRIES + QUEUED_DOWNLOADS_REFUSAL)
+  })
+
+  it.each([
+    { label: "pull-only", syncMode: "pull-only" },
+    { label: "mirror-remote", syncMode: "mirror-remote" },
+  ])("warns and continues in $label mode, which never pushes deletions", ({ syncMode }) => {
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      vaultDirs: ["About Me"],
+      serverRecords: [{ path: "Archive/old.md", uid: 11 }],
+      syncConfigJson: JSON.stringify({ vaultId: "vault-id", syncMode }),
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.stderr).toBe(FAILED_ATTEMPT_RETRIES + WARN_AND_CONTINUE)
+  })
+
+  it("takes the sync mode from the Sync client's settings, not SYNC_MODE", () => {
+    // SYNC_MODE says pull-only, but the stored mode is what the client runs.
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      vaultDirs: ["About Me"],
+      serverRecords: [{ path: "Archive/old.md", uid: 11 }],
+      syncModeEnv: "pull-only",
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.stderr).toBe(FAILED_ATTEMPT_RETRIES + QUEUED_DOWNLOADS_REFUSAL)
+  })
+
+  it("does not count a queued file the server lists as deleted", () => {
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      vaultDirs: ["About Me"],
+      serverRecords: [{ path: "Gone.md", uid: 13, deleted: true }],
+      pendingRecords: [{ path: "Gone.md", uid: 13, deleted: true }],
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.stderr).toBe(FAILED_ATTEMPT_RETRIES + WARN_AND_CONTINUE)
+  })
+
+  it("does not count a queued push the server has no record of yet", () => {
+    // A normal incoming push is queued before its server row exists, and the
+    // deletion scan only reads server rows.
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      vaultDirs: ["About Me"],
+      localPaths: [],
+      pendingRecords: [{ path: "Incoming.md", uid: 30 }],
+    })
+
+    expect(run.status).toBe(0)
+    expect(run.stderr).toBe(FAILED_ATTEMPT_RETRIES + WARN_AND_CONTINUE)
+  })
+
   // -- Drift guard -----------------------------------------------------------
 
   it("matches the server's config defaults for the memory layer", () => {
-    // Drift guard: the script hardcodes fallbacks for MEMORY_DIR and
-    // MEMORY_ENABLED that must mirror config.ts. The folder default is
+    // The script hardcodes fallbacks for MEMORY_DIR and MEMORY_ENABLED
+    // that must mirror config.ts, so this guards against drift. The folder default is
     // proven behaviorally — a folder named after the server's default
     // suppresses fatality — and the enabled default is pinned directly.
     const serverDefaults = loadConfig({})

@@ -21,6 +21,28 @@ const OB_CLI_PATH_IN_IMAGE = "/opt/obsidian-headless/node_modules/obsidian-headl
 
 const OB_STUB_PATH = resolve(import.meta.dirname, "fixtures/ob")
 
+const SYNC_ENGINE_ORACLE_PATH = resolve(import.meta.dirname, "fixtures/sync-engine-oracle.ts")
+
+/** Run fixtures/sync-engine-oracle.ts inside the image against the image's
+ *  own obsidian-headless CLI, and return what it prints: one JSON line per
+ *  scenario. Runs `node` with the entrypoint bypassed, so the s6 init chain
+ *  never starts. */
+export const runSyncEngineOracle = async (image: string): Promise<string> => {
+  return dockerOrThrow([
+    "run",
+    "--rm",
+    "--pull=never",
+    "--entrypoint",
+    "node",
+    "-v",
+    `${SYNC_ENGINE_ORACLE_PATH}:/tmp/sync-engine-oracle.ts:ro`,
+    image,
+    "--no-warnings",
+    "/tmp/sync-engine-oracle.ts",
+    OB_CLI_PATH_IN_IMAGE,
+  ])
+}
+
 /** Port the MCP server listens on inside the container (Dockerfile `PORT`). */
 const CONTAINER_PORT = 8000
 
