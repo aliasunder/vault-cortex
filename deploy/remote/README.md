@@ -635,8 +635,8 @@ each missing file as a deletion to your other devices, so the container
 stops instead. Look earlier in `docker logs` for the file that failed to
 download or a connection error; once the cause is fixed, start the container
 again with `docker start vault-cortex` (the restart policy also retries
-automatically). The count may include files excluded by `SYNC_FILE_TYPES`
-or `SYNC_EXCLUDED_FOLDERS` — those are dropped from the queue during a
+automatically). The count may include files excluded by `SYNC_FILE_TYPES`,
+`SYNC_EXCLUDED_FOLDERS`, or `SYNC_CONFIGS` — those are dropped from the queue during a
 successful sync and do not need to download.
 
 **"ob sync-config --mode '…' failed" in `docker logs`, and the container
