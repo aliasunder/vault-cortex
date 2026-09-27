@@ -337,8 +337,9 @@ change `SYNC_FILE_TYPES` or `SYNC_EXCLUDED_FOLDERS`), and two-way sync would
 push each missing file as a deletion to your other devices. Look earlier in
 the logs for the file that failed to download or a connection error, then
 click **Manual Deploy → Deploy latest reference** once the cause is fixed.
-The count can include files your current settings exclude, which the
-container skips once it reaches them.
+The count may include files excluded by `SYNC_FILE_TYPES` or
+`SYNC_EXCLUDED_FOLDERS` — those are dropped from the queue during a
+successful sync and do not need to download.
 
 **`ob sync-config --mode '…' failed.`** `SYNC_MODE` isn't one of
 `bidirectional`, `pull-only`, or `mirror-remote`. Fix it under

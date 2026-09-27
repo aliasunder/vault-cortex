@@ -89,7 +89,9 @@ forget_local_files() {
 }
 
 # A file the server lists but this device never downloaded: the server row
-# the real client keeps for a file its filter skipped.
+# the real client keeps for a file its filter skipped. The path and
+# extension here (.md) differ from the oracle's (.csv) — each fixture is
+# independent and exercises a different file type.
 record_undownloaded_file() {
   mkdir -p "$STATE_DIR"
   node --no-warnings -e '

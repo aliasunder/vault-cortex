@@ -633,9 +633,11 @@ vault haven't reached the server yet (usually right after you change
 `SYNC_FILE_TYPES` or `SYNC_EXCLUDED_FOLDERS`), and two-way sync would push
 each missing file as a deletion to your other devices, so the container
 stops instead. Look earlier in `docker logs` for the file that failed to
-download or a connection error; once the cause is fixed, the restart policy
-(or `docker start vault-cortex`) retries. The count can include files your
-current settings exclude, which the container skips once it reaches them.
+download or a connection error; once the cause is fixed, start the container
+again with `docker start vault-cortex` (the restart policy also retries
+automatically). The count may include files excluded by `SYNC_FILE_TYPES`
+or `SYNC_EXCLUDED_FOLDERS` — those are dropped from the queue during a
+successful sync and do not need to download.
 
 **"ob sync-config --mode '…' failed" in `docker logs`, and the container
 stops.** `SYNC_MODE` isn't one of `bidirectional`, `pull-only`, or

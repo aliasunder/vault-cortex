@@ -72,6 +72,7 @@ const isSyncEngineConstructor = (value: unknown): value is SyncEngineConstructor
 
 const loadSyncEngine = (cliPath: string): SyncEngineConstructor => {
   const bundleSource = readFileSync(cliPath, "utf8").replace(SHEBANG_LINE, "")
+  // `is` is the engine class's minified name in the bundle.
   const exportingSource = bundleSource.replace(BUNDLE_ENTRY_CALL, "module.exports={Engine:is};")
 
   if (exportingSource === bundleSource) {
@@ -79,7 +80,8 @@ const loadSyncEngine = (cliPath: string): SyncEngineConstructor => {
   }
 
   const bundleModule: { exports: { Engine?: unknown } } = { exports: {} }
-  // The source is the pinned vendor bundle read from the image, never input.
+  // Simulates a CJS module scope (require, module, exports, __filename,
+  // __dirname). The source is the pinned vendor bundle, never user input.
   const compileBundle = new Function(
     "require",
     "module",
@@ -149,6 +151,7 @@ const runScenario = async ({
   scenario: Scenario
 }): Promise<{ label: string; outcome: string; events: string[] }> => {
   const scenarioRoot = mkdtempSync(join(tmpdir(), "sync-engine-oracle-"))
+  // Scenarios run sequentially (the top-level loop awaits each), so global mutation is safe.
   process.env.HOME = scenarioRoot
   process.env.XDG_CONFIG_HOME = join(scenarioRoot, "config")
   const SyncEngine = loadSyncEngine(cliPath)
@@ -174,12 +177,16 @@ const runScenario = async ({
   }
 
   const neverDownloaded = neverDownloadedRecord()
+  // setServerFile persists to SQLite; serverFiles is the in-memory map
+  // _sync() reads during the deletion scan. Both must be populated.
   engine.stateStore.setServerFile(neverDownloaded)
   engine.serverFiles[neverDownloaded.path] = neverDownloaded
   if (scenario.queued) {
     engine.stateStore.addPendingFile(neverDownloaded)
     engine.newServerFiles = engine.stateStore.getPendingFiles()
   }
+  // The "version" is the sync cursor — setting it to the file's uid tells
+  // the engine it has already seen this point in the server's history.
   engine.stateStore.setVersion(neverDownloaded.uid)
   engine.initial = false
 
@@ -191,8 +198,8 @@ const runScenario = async ({
   }
   engine.getServer = async () => fakeServer
 
-  // The engine's startup scan: list the vault so the deletion scan sees
-  // which files exist locally.
+  // The engine lists the vault at startup so the deletion scan sees which
+  // files exist locally.
   await engine.adapter.watch(engine.onChange.bind(engine))
   engine.ready = true
   const outcome = await describeSyncOutcome(engine)

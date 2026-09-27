@@ -1302,7 +1302,7 @@ re-verify each contract against the new source before merging:
   vectors in `vault-key.test.ts` were produced by the pinned CLI's own
   functions; recompute them on a bump.
 
-The remote-boot boot scenarios never run the real CLI — they run the stub
+The remote-boot scenarios never run the real CLI — they run the stub
 (`src/__tests__/docker/fixtures/ob`), which imitates the behaviour listed
 above. So if a new CLI version behaves differently, those tests still pass,
 because the stub still behaves the old way. Only the sync-engine oracle runs

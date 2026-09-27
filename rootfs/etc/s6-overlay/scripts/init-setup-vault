@@ -65,9 +65,10 @@ fi
 # ---------------------------------------------------------------------------
 
 # Optional config other than the sync mode (below) stays non-fatal: a bad
-# value must not stop the container. Failures are still logged with the CLI's stderr so a typo'd value (e.g. an
-# invalid CONFLICT_STRATEGY via plain `docker run`, where Compose defaults
-# don't apply) leaves a trace in `docker logs` instead of vanishing.
+# value must not stop the container. Failures are still logged with the
+# CLI's stderr so a typo'd value (e.g. an invalid CONFLICT_STRATEGY via
+# plain `docker run`, where Compose defaults don't apply) leaves a trace
+# in `docker logs` instead of vanishing.
 apply_sync_config() {
   flag="$1"
   value="$2"
@@ -87,6 +88,7 @@ apply_sync_config() {
 apply_sync_config_or_clear() {
   flag="$1"
   value="$2"
+  # No empty guard: an empty argument is the client's "clear" form.
   if ! s6-setuidgid obsidian ob sync-config "$flag" "$value"; then
     echo "[obsidian-sync] WARNING: ob sync-config $flag '$value' failed — continuing without it." >&2
   fi

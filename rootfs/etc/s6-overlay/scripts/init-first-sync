@@ -189,6 +189,9 @@ queue_never_downloaded_files() {
       }
     }
     db.exec("BEGIN IMMEDIATE")
+    // OR IGNORE skips a row whose uid is already queued (uid is the PK);
+    // NOT EXISTS skips a path with an existing queued entry (may be a newer
+    // version). Both are needed: uid dedupes by identity, path by location.
     const { changes } = db
       .prepare(`
         INSERT OR IGNORE INTO pending_files (uid, path, data)
@@ -199,6 +202,7 @@ queue_never_downloaded_files() {
           AND COALESCE(json_extract(server.data, ?), 0) = 0
           AND NOT EXISTS (SELECT 1 FROM pending_files AS queued WHERE queued.path = server.path)
       `)
+      // Positional params: first ? → $.uid (the SELECT), second ? → $.deleted (the WHERE)
       .run("$.uid", "$.deleted")
     db.exec("COMMIT")
     db.close()
@@ -251,6 +255,10 @@ queued_downloads_remaining() {
 MEMORY_DIR=$(printf '%s' "${MEMORY_DIR:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 MEMORY_DIR="${MEMORY_DIR:-About Me}"
 MEMORY_ENABLED=$(printf '%s' "${MEMORY_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')
+MEMORY_IS_ENABLED=true
+if [ "$MEMORY_ENABLED" = "false" ] || [ "$MEMORY_ENABLED" = "0" ]; then
+  MEMORY_IS_ENABLED=false
+fi
 
 MAX_ATTEMPTS=3
 
@@ -282,7 +290,7 @@ fi
 if [ "$SYNC_MODE_IN_EFFECT" = "bidirectional" ] && [ "$QUEUED_DOWNLOADS" -gt 0 ]; then
   echo "[obsidian-sync] ERROR: First sync failed with ${QUEUED_DOWNLOADS} file(s) still waiting to download." >&2
   echo "[obsidian-sync] Refusing to start two-way sync: it could delete those files from Obsidian Sync and your other devices." >&2
-  echo "[obsidian-sync] The count can include files your current settings exclude, which the Sync client had not reached yet." >&2
+  echo "[obsidian-sync] The count may include files excluded by SYNC_FILE_TYPES or SYNC_EXCLUDED_FOLDERS — those are dropped from the queue during a successful sync." >&2
   echo "[obsidian-sync] Check the network and the log above for a file that keeps failing to download — the container's restart policy retries." >&2
   exit 1
 fi
@@ -290,7 +298,7 @@ fi
 # Checked at decision time, not before the attempts: a failed sync may still
 # have delivered the memory folder, and a partially delivered folder already
 # defuses the bootstrap (it only writes templates when the folder is absent).
-if [ "$MEMORY_ENABLED" != "false" ] && [ "$MEMORY_ENABLED" != "0" ] && [ ! -d "$VAULT_PATH/$MEMORY_DIR" ]; then
+if [ "$MEMORY_IS_ENABLED" = "true" ] && [ ! -d "$VAULT_PATH/$MEMORY_DIR" ]; then
   echo "[obsidian-sync] ERROR: First sync failed and the memory folder ('$MEMORY_DIR') has not synced yet." >&2
   echo "[obsidian-sync] Refusing to start: the MCP server would create memory template files" >&2
   echo "[obsidian-sync] that sync could push over your real notes once it recovers." >&2
