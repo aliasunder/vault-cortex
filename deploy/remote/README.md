@@ -626,7 +626,9 @@ container needs your vault name to know which vault to sync. This guide's
 `docker-compose.yml` refuses to start without it, but `docker run` and
 hosting-platform settings pages don't check. Add
 `VAULT_NAME=<your exact Obsidian vault name, case-sensitive>` to `.env` (or
-pass `-e VAULT_NAME=...`) and start the container again.
+pass `-e VAULT_NAME=...`) and re-create the container, because `docker start`
+keeps the old settings. The **Changed `.env`?** note under [Restart](#restart)
+gives the command for each setup method.
 
 **"First sync failed with N file(s) still waiting to download" in
 `docker logs`, and the container stops.** Some files in your Obsidian Sync
@@ -642,8 +644,10 @@ successful sync and do not need to download.
 
 **"ob sync-config --mode '…' failed" in `docker logs`, and the container
 stops.** `SYNC_MODE` isn't one of `bidirectional`, `pull-only`, or
-`mirror-remote`. Fix it in `.env` (or `-e SYNC_MODE=...`) and start the
-container again.
+`mirror-remote`. Fix it in `.env` (or `-e SYNC_MODE=...`) and re-create the
+container, because `docker start` keeps the old settings. The
+**Changed `.env`?** note under [Restart](#restart) gives the command for each
+setup method.
 
 **"container name vault-cortex already in use" on start or upgrade.** A
 container from a different management method is still running. The CLI
