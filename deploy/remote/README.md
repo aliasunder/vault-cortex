@@ -631,19 +631,28 @@ keeps the old settings. The **Changed `.env`?** note under [Restart](#restart)
 gives the command for each setup method.
 
 **"First sync failed with N file(s) still waiting to download" in
-`docker logs`, and the container stops.** Some files in your Obsidian Sync
-vault haven't reached the server yet (usually right after you change
-`SYNC_FILE_TYPES` or `SYNC_EXCLUDED_FOLDERS`), and two-way sync would push
-each missing file as a deletion to your other devices, so the container
-stops instead. Look earlier in `docker logs` for the file that failed to
-download or a connection error; once the cause is fixed, start the container
-again with `docker start vault-cortex` (the restart policy also retries
-automatically). If the fix was an `.env` change, re-create the container
-instead, because `docker start` keeps the old settings. The
-**Changed `.env`?** note under [Restart](#restart) gives the command for each
-setup method. The count may include files excluded by `SYNC_FILE_TYPES`,
-`SYNC_EXCLUDED_FOLDERS`, or `SYNC_CONFIGS` — those are dropped from the queue during a
-successful sync and do not need to download.
+`docker logs`, and the container stops.** The container stopped on purpose.
+Some files in your Obsidian Sync vault haven't downloaded to the server yet,
+and starting two-way sync without them would delete them from your other
+devices. This usually happens right after you change `SYNC_FILE_TYPES` or
+`SYNC_EXCLUDED_FOLDERS`, when many files need to download at once.
+
+1. Wait for the restart policy to retry, or run `docker start vault-cortex`.
+   If the failure was a dropped connection, the next start picks up where
+   this one stopped.
+2. If it stops again with the same message, set `SYNC_MODE=pull-only` in
+   `.env` and re-create the container, because `docker start` keeps the old
+   settings. The **Changed `.env`?** note under [Restart](#restart) gives the
+   command for each setup method. The server starts and keeps retrying the
+   downloads, and `pull-only` never deletes anything from Obsidian Sync.
+   Edits made on the server in the meantime stay on the server.
+3. Later, set `SYNC_MODE=bidirectional` and re-create the container again.
+   If it stops with this message again, the downloads haven't finished yet,
+   so switch back to `pull-only` and try again later.
+
+N can be higher than the number of files you expect. It includes files that
+your `SYNC_FILE_TYPES`, `SYNC_EXCLUDED_FOLDERS`, or `SYNC_CONFIGS` settings
+leave out, and a sync that completes skips those.
 
 **"ob sync-config --mode '…' failed" in `docker logs`, and the container
 stops.** `SYNC_MODE` isn't one of `bidirectional`, `pull-only`, or

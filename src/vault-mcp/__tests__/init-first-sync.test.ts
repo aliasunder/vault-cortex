@@ -985,7 +985,8 @@ describe("init-first-sync gate script", () => {
     "[obsidian-sync] ERROR: First sync failed with 1 file(s) still waiting to download.\n" +
     "[obsidian-sync] Refusing to start two-way sync: it could delete those files from Obsidian Sync and your other devices.\n" +
     "[obsidian-sync] The count may include files excluded by SYNC_FILE_TYPES, SYNC_EXCLUDED_FOLDERS, or SYNC_CONFIGS — those are dropped from the queue during a successful sync.\n" +
-    "[obsidian-sync] Check the network and the log above for a file that keeps failing to download — the container's restart policy retries.\n"
+    "[obsidian-sync] Check the network and the log above for a file that keeps failing to download — the container's restart policy retries.\n" +
+    "[obsidian-sync] To start the server while the downloads retry, set SYNC_MODE=pull-only — it never deletes anything from Obsidian Sync.\n"
 
   it("refuses two-way sync when every attempt failed with downloads still queued", () => {
     const run = runGateScript({

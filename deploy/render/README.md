@@ -331,15 +331,25 @@ on the service page), or remove `/persist/config` as well to start over with
 a fresh device.
 
 **`First sync failed with N file(s) still waiting to download.`** The
-container stopped instead of starting two-way sync. Some files in your
-Obsidian Sync vault haven't reached the disk yet (usually right after you
-change `SYNC_FILE_TYPES` or `SYNC_EXCLUDED_FOLDERS`), and two-way sync would
-push each missing file as a deletion to your other devices. Look earlier in
-the logs for the file that failed to download or a connection error, then
-click **Manual Deploy → Deploy latest reference** once the cause is fixed.
-The count may include files excluded by `SYNC_FILE_TYPES`, `SYNC_EXCLUDED_FOLDERS`,
-or `SYNC_CONFIGS` — those are dropped from the queue during a
-successful sync and do not need to download.
+container stopped on purpose. Some files in your Obsidian Sync vault haven't
+downloaded to the server yet, and starting two-way sync without them would
+delete them from your other devices. This usually happens right after you
+change `SYNC_FILE_TYPES` or `SYNC_EXCLUDED_FOLDERS`, when many files need to
+download at once.
+
+1. Click **Manual Deploy → Deploy latest reference**. If the failure was a
+   dropped connection, the next start picks up where this one stopped.
+2. If it stops again with the same message, set `SYNC_MODE` to `pull-only`
+   under **Environment** and save. The server starts and keeps retrying the
+   downloads, and `pull-only` never deletes anything from Obsidian Sync.
+   Edits made on the server in the meantime stay on the server.
+3. Later, set `SYNC_MODE` back to `bidirectional` and save. If the container
+   stops with this message again, the downloads haven't finished yet, so
+   switch back to `pull-only` and try again later.
+
+N can be higher than the number of files you expect. It includes files that
+your `SYNC_FILE_TYPES`, `SYNC_EXCLUDED_FOLDERS`, or `SYNC_CONFIGS` settings
+leave out, and a sync that completes skips those.
 
 **`ob sync-config --mode '…' failed.`** `SYNC_MODE` isn't one of
 `bidirectional`, `pull-only`, or `mirror-remote`. Fix it under

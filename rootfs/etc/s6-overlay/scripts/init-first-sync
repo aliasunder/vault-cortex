@@ -305,6 +305,7 @@ if [ "$SYNC_MODE_IN_EFFECT" = "bidirectional" ] && [ "$QUEUED_DOWNLOADS" -gt 0 ]
   echo "[obsidian-sync] Refusing to start two-way sync: it could delete those files from Obsidian Sync and your other devices." >&2
   echo "[obsidian-sync] The count may include files excluded by SYNC_FILE_TYPES, SYNC_EXCLUDED_FOLDERS, or SYNC_CONFIGS — those are dropped from the queue during a successful sync." >&2
   echo "[obsidian-sync] Check the network and the log above for a file that keeps failing to download — the container's restart policy retries." >&2
+  echo "[obsidian-sync] To start the server while the downloads retry, set SYNC_MODE=pull-only — it never deletes anything from Obsidian Sync." >&2
   exit 1
 fi
 
