@@ -35,9 +35,10 @@
 # - Files still queued for download and two-way sync: FATAL. Continuous sync
 #   retries a failed download with a backoff and runs its deletion scan
 #   meanwhile, so it would delete those files everywhere.
-# - Memory enabled + memory folder missing: FATAL. Bootstrap writes templates
-#   only in that case (fresh volume, or a partial sync where the folder
-#   hasn't arrived), and sync would push them over the real files.
+# - Memory enabled + memory folder missing + two-way sync: FATAL. Bootstrap
+#   writes templates only when the folder is missing (fresh volume, or a
+#   partial sync where the folder hasn't arrived), and two-way sync would
+#   push them over the real files.
 # - Otherwise: warn and continue. Bootstrap is a no-op, and continuous sync
 #   keeps retrying.
 # A FATAL exit stops the container (S6_BEHAVIOUR_IF_STAGE2_FAILS=2), and the
@@ -310,7 +311,9 @@ fi
 # Checked at decision time, not before the attempts: a failed sync may still
 # have delivered the memory folder, and a partially delivered folder already
 # defuses the bootstrap (it only writes templates when the folder is absent).
-if [ "$MEMORY_IS_ENABLED" = "true" ] && [ ! -d "$VAULT_PATH/$MEMORY_DIR" ]; then
+# Two-way sync only: pull-only and mirror-remote never upload, and the real
+# memory files overwrite the templates once they arrive.
+if [ "$SYNC_MODE_IN_EFFECT" = "bidirectional" ] && [ "$MEMORY_IS_ENABLED" = "true" ] && [ ! -d "$VAULT_PATH/$MEMORY_DIR" ]; then
   echo "[obsidian-sync] ERROR: First sync failed and the memory folder ('$MEMORY_DIR') has not synced yet." >&2
   echo "[obsidian-sync] Refusing to start: the MCP server would create memory template files" >&2
   echo "[obsidian-sync] that sync could push over your real notes once it recovers." >&2

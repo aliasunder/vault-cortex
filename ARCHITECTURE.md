@@ -916,15 +916,19 @@ process has spawned. Two mechanisms with distinct jobs:
        stored mode is two-way. Continuous sync retries a failed download
        with a backoff and runs its deletion scan meanwhile, which would
        delete those files everywhere.
-     - FATAL when the memory bootstrap could still overwrite real files
-       (memory layer enabled, memory folder absent).
+     - FATAL when the memory bootstrap could still overwrite real files:
+       the Sync client's stored mode is two-way, the memory layer is
+       enabled, and the memory folder is absent. `pull-only` and
+       `mirror-remote` never upload the templates, so they continue.
      - Otherwise warn and continue: the server starts while continuous sync
        keeps retrying.
 
-On a fresh volume, the gate closes the memory-bootstrap race: either the vault
-already holds the user's real `About Me/` files when the server's bootstrap
-check runs, or the container refuses to start — so default templates are
-never created over a syncing vault and never pushed upstream. Files arriving
+On a fresh volume in two-way sync, the gate closes the memory-bootstrap race:
+either the vault already holds the user's real `About Me/` files when the
+server's bootstrap check runs, or the container refuses to start — so default
+templates are never created over a syncing vault and never pushed upstream.
+In `pull-only` and `mirror-remote`, templates written before the real files
+arrive are never uploaded. Files arriving
 through later continuous sync self-heal — the file watcher indexes them as
 they land — and the memory-write
 [shrink guard](#memory-layer-safety) remains defense-in-depth for
@@ -1250,8 +1254,9 @@ Docker hardening, and durability seatbelts above.
 #### Memory layer safety
 
 - **First-sync gate** (`:remote` image): the init chain runs the first
-  Obsidian Sync to completion before the server starts, so the memory
-  bootstrap can never race an incoming sync — see
+  Obsidian Sync to completion before the server starts, so in two-way sync
+  the memory bootstrap can never race an incoming sync. `pull-only` and
+  `mirror-remote` never upload its templates — see
   [Container startup](#container-startup).
 - **Shrink guard** (`guardAgainstShrink` in `memory-store.ts`): refuses
   an update/delete that would remove >50% of a file's bytes —

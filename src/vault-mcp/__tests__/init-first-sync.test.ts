@@ -330,6 +330,14 @@ const runGateScript = (options: GateRunOptions): GateRun => {
 }
 
 describe("init-first-sync gate script", () => {
+  const FAILED_ATTEMPT_RETRIES =
+    "[obsidian-sync] First sync failed — retrying in 10s...\n" +
+    "[obsidian-sync] First sync failed — retrying in 10s...\n"
+
+  const WARN_AND_CONTINUE =
+    "[obsidian-sync] WARNING: First sync did not complete — starting services anyway.\n" +
+    "[obsidian-sync] Continuous sync will keep retrying; check network/credentials if this persists.\n"
+
   it("skips the first sync in setup mode, before the vault directory check", () => {
     // With no vault directory and no setup mode, the cd fails and the
     // script exits 1, so the exit 0 proves the guard ran first.
@@ -396,6 +404,24 @@ describe("init-first-sync gate script", () => {
     expect(run.status).toBe(1)
     expect(run.stderr).toContain("Refusing to start")
   })
+
+  it.each([
+    { label: "pull-only", syncMode: "pull-only" },
+    { label: "mirror-remote", syncMode: "mirror-remote" },
+  ])(
+    "warns and continues in $label mode when the memory folder has not synced, since that mode never uploads",
+    ({ syncMode }) => {
+      const run = runGateScript({
+        syncOutcomes: [1],
+        vaultName: "Test",
+        syncConfigJson: JSON.stringify({ vaultId: "vault-id", syncMode }),
+      })
+
+      expect(run.status).toBe(0)
+      expect(run.syncCalls).toBe(3)
+      expect(run.stderr).toBe(FAILED_ATTEMPT_RETRIES + WARN_AND_CONTINUE)
+    },
+  )
 
   it("warns and continues when sync fails but the memory folder is present", () => {
     const run = runGateScript({
@@ -759,14 +785,6 @@ describe("init-first-sync gate script", () => {
   })
 
   // -- Never-downloaded files (queued before each attempt) --------------------
-
-  const FAILED_ATTEMPT_RETRIES =
-    "[obsidian-sync] First sync failed — retrying in 10s...\n" +
-    "[obsidian-sync] First sync failed — retrying in 10s...\n"
-
-  const WARN_AND_CONTINUE =
-    "[obsidian-sync] WARNING: First sync did not complete — starting services anyway.\n" +
-    "[obsidian-sync] Continuous sync will keep retrying; check network/credentials if this persists.\n"
 
   it("queues a file the server lists that this device never downloaded", () => {
     const neverDownloaded = { path: "Archive/old.md", uid: 11, folder: false, deleted: false }
