@@ -375,6 +375,11 @@ download at once.
    change. If the container stops with this message again, the downloads
    haven't finished yet, so switch back to `pull-only` and try again later.
 
+If it still stops after several hours, one file is probably failing to
+download every time. In the logs, the `Downloading` line just before
+`Sync error:` names it. Fix or delete that file in Obsidian on another
+device, or add its folder to `SYNC_EXCLUDED_FOLDERS`.
+
 N can be higher than the number of files you expect. It includes files that
 your `SYNC_FILE_TYPES`, `SYNC_EXCLUDED_FOLDERS`, or `SYNC_CONFIGS` settings
 leave out, and a sync that completes skips those.
