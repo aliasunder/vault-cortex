@@ -1271,8 +1271,9 @@ re-verify each contract against the new source before merging:
   (`fixtures/sync-engine-oracle.ts`) runs the image's own engine on the
   first; re-check the other four by hand in the new `cli.js`:
   1. The deletion scan pushes a deletion for a `server_files` row with no
-     `local_files` row, the pending loop runs before that scan, and a
-     one-shot `sync` stops at the first failed download, before it.
+     `local_files` row, and only two-way sync runs it: `pull-only` and
+     `mirror-remote` return first. The pending loop runs before the scan,
+     and a one-shot `sync` stops at the first failed download, before it.
   2. `server_files` and `pending_files` rows share one record shape
      (`addPendingFile` writes `uid, path, data`), and the three tables keep
      the columns the script's schema check lists.

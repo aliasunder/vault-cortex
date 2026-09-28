@@ -1027,10 +1027,12 @@ describe("remote image boot — safety checks in the init chain stop the contain
 
 describe("the image's Sync engine, run on a file the device never downloaded", () => {
   // The contract init-first-sync relies on, checked against the real engine:
-  // a never-downloaded file that is not queued is pushed as a deletion, and
-  // one that is queued is downloaded, fails before the deletion scan, or is
-  // dropped by the filter — never deleted.
-  it("deletes it only when it is not queued for download", async () => {
+  // - Two-way sync pushes an unqueued never-downloaded file as a deletion.
+  // - A queued one is downloaded, fails before the deletion scan, or is
+  //   dropped by the filter — never deleted.
+  // - pull-only and mirror-remote never delete it, which is why the script
+  //   lets those modes continue past a failed first sync.
+  it("deletes it only in two-way sync, and only when it is not queued", async () => {
     const scenarioResults = (await runSyncEngineOracle(IMAGE))
       .trim()
       .split("\n")
@@ -1059,6 +1061,16 @@ describe("the image's Sync engine, run on a file the device never downloaded", (
         events: ["Downloading Archive/old.csv"],
       },
       { label: "queued, excluded by the filter", outcome: "returned true", events: [] },
+      { label: "not queued, pull-only", outcome: "returned false", events: ["Fully synced"] },
+      {
+        label: "not queued, mirror-remote",
+        outcome: "returned true",
+        events: [
+          "Restoring Archive/old.csv",
+          "Downloading Archive/old.csv",
+          "Downloaded Archive/old.csv",
+        ],
+      },
     ])
   })
 })

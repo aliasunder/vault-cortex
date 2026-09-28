@@ -108,6 +108,8 @@ const loadSyncEngine = (cliPath: string): SyncEngineConstructor => {
 
 type Scenario = {
   label: string
+  /** The value the CLI hands the engine (`bidirectional` when unset). */
+  syncMode: "bidirectional" | "pull-only" | "mirror-remote"
   /** Queue the never-downloaded file first, as init-first-sync does. */
   queued: boolean
   downloadFails: boolean
@@ -116,15 +118,50 @@ type Scenario = {
 }
 
 const SCENARIOS: Scenario[] = [
-  { label: "not queued", queued: false, downloadFails: false, fileTypes: ["unsupported"] },
-  { label: "queued", queued: true, downloadFails: false, fileTypes: ["unsupported"] },
+  {
+    label: "not queued",
+    syncMode: "bidirectional",
+    queued: false,
+    downloadFails: false,
+    fileTypes: ["unsupported"],
+  },
+  {
+    label: "queued",
+    syncMode: "bidirectional",
+    queued: true,
+    downloadFails: false,
+    fileTypes: ["unsupported"],
+  },
   {
     label: "queued, download fails",
+    syncMode: "bidirectional",
     queued: true,
     downloadFails: true,
     fileTypes: ["unsupported"],
   },
-  { label: "queued, excluded by the filter", queued: true, downloadFails: false, fileTypes: [] },
+  {
+    label: "queued, excluded by the filter",
+    syncMode: "bidirectional",
+    queued: true,
+    downloadFails: false,
+    fileTypes: [],
+  },
+  // init-first-sync lets these two modes continue past a failed first sync
+  // with files still queued, because neither runs the deletion scan.
+  {
+    label: "not queued, pull-only",
+    syncMode: "pull-only",
+    queued: false,
+    downloadFails: false,
+    fileTypes: ["unsupported"],
+  },
+  {
+    label: "not queued, mirror-remote",
+    syncMode: "mirror-remote",
+    queued: false,
+    downloadFails: false,
+    fileTypes: ["unsupported"],
+  },
 ]
 
 /** A file the server lists that this device never downloaded. A new object
@@ -164,7 +201,7 @@ const runScenario = async ({
       vaultId: "oracle-vault",
       vaultPath,
       host: "sync.invalid",
-      syncMode: "",
+      syncMode: scenario.syncMode,
       allowTypes: scenario.fileTypes,
     },
     token: "fake-token",
