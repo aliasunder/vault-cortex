@@ -22,6 +22,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { DatabaseSync } from "node:sqlite"
 
 /** The bundle's closing CLI call, which starts the command-line parser. */
 const BUNDLE_ENTRY_CALL = /x\.parse\(\);\s*$/
@@ -61,6 +62,8 @@ type SyncEngine = {
     addPendingFile: (record: ServerRecord) => void
     getPendingFiles: () => ServerRecord[]
     setVersion: (version: number) => void
+    /** The store's better-sqlite3 connection; `name` is the file path. */
+    db: { name: string }
   }
 }
 
@@ -201,7 +204,13 @@ const runScenario = async ({
 }: {
   cliPath: string
   scenario: Scenario
-}): Promise<{ label: string; outcome: string; events: string[] }> => {
+}): Promise<{
+  label: string
+  outcome: string
+  events: string[]
+  stillQueued: boolean
+  recordedLocally: boolean
+}> => {
   const scenarioRoot = mkdtempSync(join(tmpdir(), "sync-engine-oracle-"))
   // Scenarios run sequentially (the top-level loop awaits each), so global mutation is safe.
   process.env.HOME = scenarioRoot
@@ -256,7 +265,28 @@ const runScenario = async ({
   engine.ready = true
   const outcome = await describeSyncOutcome(engine)
   engine.adapter.stopWatch()
-  return { label: scenario.label, outcome, events }
+  // The next boot's queue step and refusal read this stored state, so a
+  // download that logs success without recording the file would loop. Read
+  // from the file: some runs (pull-only) close the engine's own connection.
+  const storedState = readStoredState({
+    stateDbPath: engine.stateStore.db.name,
+    path: neverDownloaded.path,
+  })
+  return { label: scenario.label, outcome, events, ...storedState }
+}
+
+const readStoredState = ({
+  stateDbPath,
+  path,
+}: {
+  stateDbPath: string
+  path: string
+}): { stillQueued: boolean; recordedLocally: boolean } => {
+  const db = new DatabaseSync(stateDbPath, { readOnly: true })
+  const queuedRow = db.prepare("SELECT 1 FROM pending_files WHERE path = ?").get(path)
+  const localRow = db.prepare("SELECT 1 FROM local_files WHERE path = ?").get(path)
+  db.close()
+  return { stillQueued: Boolean(queuedRow), recordedLocally: Boolean(localRow) }
 }
 
 const describeSyncOutcome = async (engine: SyncEngine): Promise<string> => {

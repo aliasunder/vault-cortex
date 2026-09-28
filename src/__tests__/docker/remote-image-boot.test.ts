@@ -1032,11 +1032,18 @@ describe("the image's Sync engine, run on a file the device never downloaded", (
   //   dropped by the filter — never deleted.
   // - pull-only and mirror-remote never delete it, queued or not, which is
   //   why the script lets those modes continue past a failed first sync.
+  // - A download is recorded locally and leaves the queue, so the next
+  //   boot neither re-queues it nor counts it as still waiting.
   it("deletes it only in two-way sync, and only when it is not queued", async () => {
     const scenarioResults = (await runSyncEngineOracle(IMAGE))
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line))
+    const downloadEvents = [
+      "Downloading Archive/old.csv",
+      "Downloaded Archive/old.csv",
+      "Accepted Archive/old.csv",
+    ]
     expect(scenarioResults).toEqual([
       {
         label: "not queued",
@@ -1045,41 +1052,51 @@ describe("the image's Sync engine, run on a file the device never downloaded", (
           "Deleting remote file Archive/old.csv",
           'push Archive/old.csv [null,false,true,0,0,"",null]',
         ],
+        stillQueued: false,
+        recordedLocally: false,
       },
       {
         label: "queued",
         outcome: "returned true",
-        events: [
-          "Downloading Archive/old.csv",
-          "Downloaded Archive/old.csv",
-          "Accepted Archive/old.csv",
-        ],
+        events: downloadEvents,
+        stillQueued: false,
+        recordedLocally: true,
       },
       {
         label: "queued, download fails",
         outcome: "threw: Failed to download file, no data.",
         events: ["Downloading Archive/old.csv"],
+        stillQueued: true,
+        recordedLocally: false,
       },
-      { label: "queued, excluded by the filter", outcome: "returned true", events: [] },
+      {
+        label: "queued, excluded by the filter",
+        outcome: "returned true",
+        events: [],
+        stillQueued: false,
+        recordedLocally: false,
+      },
       {
         label: "queued, pull-only",
         outcome: "returned true",
-        events: [
-          "Downloading Archive/old.csv",
-          "Downloaded Archive/old.csv",
-          "Accepted Archive/old.csv",
-        ],
+        events: downloadEvents,
+        stillQueued: false,
+        recordedLocally: true,
       },
       {
         label: "queued, mirror-remote",
         outcome: "returned true",
-        events: [
-          "Downloading Archive/old.csv",
-          "Downloaded Archive/old.csv",
-          "Accepted Archive/old.csv",
-        ],
+        events: downloadEvents,
+        stillQueued: false,
+        recordedLocally: true,
       },
-      { label: "not queued, pull-only", outcome: "returned false", events: ["Fully synced"] },
+      {
+        label: "not queued, pull-only",
+        outcome: "returned false",
+        events: ["Fully synced"],
+        stillQueued: false,
+        recordedLocally: false,
+      },
       {
         label: "not queued, mirror-remote",
         outcome: "returned true",
@@ -1088,6 +1105,8 @@ describe("the image's Sync engine, run on a file the device never downloaded", (
           "Downloading Archive/old.csv",
           "Downloaded Archive/old.csv",
         ],
+        stillQueued: false,
+        recordedLocally: true,
       },
     ])
   })
