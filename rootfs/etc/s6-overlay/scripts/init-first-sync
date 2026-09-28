@@ -10,14 +10,26 @@
 # with no content means the vault volume was wiped while the device state
 # was kept. The guard exits FATAL before any sync runs.
 #
-# Never-downloaded files: the engine also pushes a deletion for every file
-# the server lists that has no local record, because a local deletion
-# removes that record at once. A file this device never downloaded looks the
-# same: one a filter or excluded folder kept out, or a download that failed.
-# Before each attempt the script queues every such file for download, so the
-# engine fetches it (or skips it if the current filter excludes it) before
-# its deletion scan. A one-shot `ob sync` stops at the first failed download,
-# before that scan.
+# Never-downloaded files: before each attempt the script queues every file
+# the engine knows about but this device has no local record of, so widening
+# a filter can't delete the files it kept out.
+# - The engine records a filtered-out file in its copy of the server's file
+#   list (server_files) without downloading it, so the file has no local
+#   record (local_files).
+# - The engine's deletion scan pushes a deletion for every server_files row
+#   with no local_files row, because a local deletion removes that record
+#   at once. A never-downloaded file looks the same.
+# - The engine queues newly allowed files itself (pending_files) when a
+#   filter changes, but init-setup-vault's `ob sync-setup` resets the filter
+#   to the default on every boot. The engine then compares the new value
+#   against the default, not the previous boot's value, so a widen back
+#   toward the default (removing an excluded folder, re-adding a type)
+#   queues nothing. The script copies each such row into pending_files
+#   instead. The engine's pending loop runs before the scan and fetches the
+#   file, or drops it if the filter still excludes it.
+# - A file another device adds reaches server_files only after it
+#   downloads, so it never needs queuing.
+# - A one-shot `ob sync` stops at the first failed download, before the scan.
 #
 # Failure policy once attempts are exhausted:
 # - Files still queued for download and two-way sync: FATAL. Continuous sync
@@ -157,9 +169,9 @@ if ! SYNC_VAULT_ID=$(sync_config_field vaultId) || ! SYNC_MODE_IN_EFFECT=$(sync_
 fi
 ACTIVE_SYNC_STATE="$SYNC_STATE_ROOT/$SYNC_VAULT_ID/state.db"
 
-# Queues every file the server lists that this device has no local record
-# of, and prints how many rows it added. See the header for why. The row is
-# the server's record verbatim, the same row the client writes when a filter
+# Queues every server_files row that has no local_files row, and prints how
+# many rows it added. See the header for why. The queued row is the
+# server_files data verbatim, the same row the engine writes when a filter
 # change queues a file. A path that already has a queued entry is left
 # alone, because that entry may be a newer version.
 #
@@ -226,7 +238,7 @@ queue_never_downloaded_files_or_exit() {
 # Prints how many distinct files are still queued for download that the
 # server lists as present. Folders count too, because the deletion scan can
 # remove a remote folder the same way. Local records are ignored: a record
-# can outlive its file when the client's startup scan fails, so excluding
+# can outlive its file when the engine's startup scan fails, so excluding
 # recorded paths could hide a file the scan would still delete.
 queued_downloads_remaining() {
   [ -e "$ACTIVE_SYNC_STATE" ] || { echo 0; return 0; }
@@ -278,7 +290,7 @@ while :; do
   sleep 10
 done
 
-# Queued once more after the last attempt. When the client skips a queued
+# Queued once more after the last attempt. When the engine skips a queued
 # entry because a newer version of the file arrived, it deletes every queued
 # entry for that path. If the newer download then fails, the file is left
 # unqueued, and the count below would miss it.

@@ -858,8 +858,8 @@ graph LR
    `init-obsidian-login` (`ob login`) → `init-setup-vault` (`ob sync-setup`
    with `--device-name`, plus optional sync-config; fails fast when
    `VAULT_NAME` is missing or `SYNC_MODE` fails to apply) → `init-first-sync`
-   (one-shot `ob sync` run to _completion_, with retries; failure
-   branches under "`init-first-sync` gates vault state" below). Any
+   (one-shot `ob sync` run to _completion_, with retries; its four steps,
+   failure branches included, are listed below). Any
    fatal init failure stops the container
    (`S6_BEHAVIOUR_IF_STAGE2_FAILS=2`) — the restart policy owns retry.
 2. **`svc-obsidian-sync`** — bidirectional Obsidian Sync
@@ -879,43 +879,38 @@ process has spawned. Two mechanisms with distinct jobs:
 - **The longrun dependency gates startup order only.** It does not wait for
   sync health, and a later sync crash restarts just that service, not the
   MCP server.
-- **`init-first-sync` gates vault state.** Four steps, in order:
+- **`init-first-sync` keeps the first sync from deleting or overwriting
+  files.** Four steps, in order:
   1. **Deletion-storm guard** (before sync runs): the container refuses to
      start when the Sync client's file record lists files but the vault has
      no content.
      - The record is `obsidian-headless/sync/<vaultId>/state.db` on the
-       config volume. At startup, the client pushes every recorded file
+       config volume. At startup, the Sync client pushes every recorded file
        that is missing from disk as a deletion.
      - Content is a regular file: any file at any depth with no dot-named
        path component, or any file inside `.obsidian/` except under the
-       client's own `.sync.lock/`.
+       Sync client's own `.sync.lock/`.
      - Empty folders do not count, so a wipe that deletes files but keeps
        the folder tree still reads as empty. Dotfiles outside `.obsidian/`
        are not synced and do not count either.
      - A record that exists but cannot be read also stops the container.
      - No record means a fresh device, which downloads without deleting.
-  2. **Never-downloaded files are queued** before each attempt and once
-     after the last.
-     - The client pushes a deletion for every file the server lists that has
-       no local record, and a file this device never downloaded has none
-       (one a filter or excluded folder kept out, or a failed download).
-     - The step copies each such server row into the client's download
-       queue (`pending_files`), the row the client itself writes when a
-       filter change queues a file. The client's pending loop runs before
-       its deletion scan and downloads the file, or drops it if the current
-       filter excludes it.
-     - The step keeps a path's existing queued entry, which may be a newer
-       version. It reads the active vault's store (the vault ID from
-       `ob sync-config --json`) and stops the container if the table layout
-       isn't the one it expects.
-     - A local deletion not yet uploaded when the container restarts is
-       downloaded again. The step keeps the file instead of risking a
-       deletion on every device.
+  2. **Filtered-out file queue** (before each attempt and once after the
+     last): the step queues for download every file a filter
+     (`SYNC_FILE_TYPES`, `SYNC_EXCLUDED_FOLDERS`, `SYNC_CONFIGS`) kept out,
+     so widening a filter can't delete them.
+     - The Sync client still remembers those files as part of the vault.
+       Without the queue, it would treat each newly allowed file as deleted
+       here and push the deletion to every device.
+     - A queued file downloads before the Sync client looks for deletions,
+       or is skipped if the filter still excludes it.
+     - A file deleted through Vault Cortex that hasn't uploaded when the
+       container restarts looks the same to the step, so it downloads again.
   3. **Sync succeeds**: the first sync runs to completion before any service
      starts. A one-shot sync stops at the first failed download, before its
      deletion scan.
   4. **Sync fails**:
-     - FATAL when files are still queued for download and the client's
+     - FATAL when files are still queued for download and the Sync client's
        stored mode is two-way. Continuous sync retries a failed download
        with a backoff and runs its deletion scan meanwhile, which would
        delete those files everywhere.
