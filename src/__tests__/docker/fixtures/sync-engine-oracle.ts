@@ -147,7 +147,22 @@ const SCENARIOS: Scenario[] = [
     fileTypes: [],
   },
   // init-first-sync lets these two modes continue past a failed first sync
-  // with files still queued, because neither runs the deletion scan.
+  // with files still queued, because neither runs the deletion scan — with
+  // or without a queued file.
+  {
+    label: "queued, pull-only",
+    syncMode: "pull-only",
+    queued: true,
+    downloadFails: false,
+    fileTypes: ["unsupported"],
+  },
+  {
+    label: "queued, mirror-remote",
+    syncMode: "mirror-remote",
+    queued: true,
+    downloadFails: false,
+    fileTypes: ["unsupported"],
+  },
   {
     label: "not queued, pull-only",
     syncMode: "pull-only",

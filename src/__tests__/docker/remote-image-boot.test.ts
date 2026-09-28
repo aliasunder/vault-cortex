@@ -1030,8 +1030,8 @@ describe("the image's Sync engine, run on a file the device never downloaded", (
   // - Two-way sync pushes an unqueued never-downloaded file as a deletion.
   // - A queued one is downloaded, fails before the deletion scan, or is
   //   dropped by the filter — never deleted.
-  // - pull-only and mirror-remote never delete it, which is why the script
-  //   lets those modes continue past a failed first sync.
+  // - pull-only and mirror-remote never delete it, queued or not, which is
+  //   why the script lets those modes continue past a failed first sync.
   it("deletes it only in two-way sync, and only when it is not queued", async () => {
     const scenarioResults = (await runSyncEngineOracle(IMAGE))
       .trim()
@@ -1061,6 +1061,24 @@ describe("the image's Sync engine, run on a file the device never downloaded", (
         events: ["Downloading Archive/old.csv"],
       },
       { label: "queued, excluded by the filter", outcome: "returned true", events: [] },
+      {
+        label: "queued, pull-only",
+        outcome: "returned true",
+        events: [
+          "Downloading Archive/old.csv",
+          "Downloaded Archive/old.csv",
+          "Accepted Archive/old.csv",
+        ],
+      },
+      {
+        label: "queued, mirror-remote",
+        outcome: "returned true",
+        events: [
+          "Downloading Archive/old.csv",
+          "Downloaded Archive/old.csv",
+          "Accepted Archive/old.csv",
+        ],
+      },
       { label: "not queued, pull-only", outcome: "returned false", events: ["Fully synced"] },
       {
         label: "not queued, mirror-remote",
