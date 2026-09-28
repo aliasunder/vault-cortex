@@ -319,13 +319,15 @@ SYNC_MODE=bidirectional
 # Sync → "Excluded folders". Empty keeps the Sync client's default (nothing excluded).
 SYNC_EXCLUDED_FOLDERS=
 
-# Attachment types to sync, comma-separated: image, audio, video, pdf, unsupported —
-# the same toggles as Obsidian's Sync → "Selective sync". Empty syncs image, audio,
-# video, and pdf. The text files Vault Cortex reads (CSV, JSON, TXT, XML, LOG,
-# YAML) fall under unsupported, Obsidian Sync's name for its "Sync all other
-# types" category; SVG syncs as image, and notes, canvases, and bases always
-# sync. To read those text files, add unsupported here and turn on "Sync all
-# other types" in Obsidian's Sync settings on the device that has them.
+# Attachment types to sync — the same toggles as Obsidian's Sync → "Selective
+# sync". Values: image, audio, video, pdf, unsupported — comma-separated.
+# Empty syncs image, audio, video, and pdf. The text files Vault Cortex reads
+# (CSV, JSON, TXT, XML, LOG, YAML) fall under unsupported, Obsidian Sync's name
+# for its "Sync all other types" category; SVG syncs as image, and notes,
+# canvases, and bases always sync. To read those text files, add unsupported
+# here and turn on "Sync all other types" in Obsidian's Sync settings on the
+# device that has them. An invalid value is skipped with a warning in the
+# logs, and the default types sync instead.
 SYNC_FILE_TYPES=
 
 # Obsidian settings categories to sync into the server's .obsidian/ folder
