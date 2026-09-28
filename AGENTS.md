@@ -1266,32 +1266,21 @@ re-verify each contract against the new source before merging:
 - Files delivered by `sync --continuous` are recorded in that same
   table as they arrive, and a file deleted locally has its row removed at
   once. The stub's `sync-record` and `sync-forget` verbs mirror the two.
-- The engine pushes a deletion for every `server_files` row that has no
-  `local_files` row and that its filter allows, so a file the device never
-  downloaded looks like a local deletion. `init-first-sync` queues each such
-  row into `pending_files` before each attempt, and relies on these engine
-  behaviours:
-  - The pending loop runs before the deletion scan, downloads a queued file,
-    and drops one the filter disallows. An unqueued never-downloaded file is
-    pushed as a deletion. A one-shot `sync` stops at the first failed
-    download, before the scan. The remote-boot oracle
-    (`fixtures/sync-engine-oracle.ts`) runs the image's own engine on these
-    four cases.
-  - `server_files` and `pending_files` rows share one record shape
-    (`handlePush` builds it; `addPendingFile` writes `uid, path, data`), and
-    the three tables keep the columns the script's schema check lists.
-  - `sync --continuous` backs a failed download off and still runs the
-    deletion scan, which is why `init-first-sync` refuses two-way continuous
-    sync while downloads stay queued.
-  - Skipping a superseded queued entry deletes every queued row for that
-    path (`DELETE FROM pending_files WHERE path = ?`). The script queues
-    once more after the last attempt for that reason.
-  - The oracle loads the bundle by replacing its closing `x.parse();` call
-    with an export of the engine class `is`. Both are minified names, and
-    both can change between versions.
-
-  Re-check the last four against the new `cli.js`; the oracle covers only
-  the first.
+- The never-downloaded queue in `init-first-sync` (its header explains
+  why) relies on five engine behaviours. The remote-boot oracle
+  (`fixtures/sync-engine-oracle.ts`) runs the image's own engine on the
+  first; re-check the other four by hand in the new `cli.js`:
+  1. The deletion scan pushes a deletion for a `server_files` row with no
+     `local_files` row, the pending loop runs before that scan, and a
+     one-shot `sync` stops at the first failed download, before it.
+  2. `server_files` and `pending_files` rows share one record shape
+     (`addPendingFile` writes `uid, path, data`), and the three tables keep
+     the columns the script's schema check lists.
+  3. `sync --continuous` backs off a failed download and still runs the scan.
+  4. Skipping a superseded queued entry deletes every queued row for that
+     path (`DELETE FROM pending_files WHERE path = ?`).
+  5. The oracle's minified names are unchanged: the closing `x.parse();`
+     call and the engine class `is`.
 
 - The setup page's pre-flight (`src/vault-mcp/setup/`) mirrors two calls
   `ob sync-setup` makes on the next boot: `/vault/list` (an
