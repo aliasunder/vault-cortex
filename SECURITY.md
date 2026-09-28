@@ -144,8 +144,9 @@ mechanism-level detail.
 - Per-file mutex: three modes (serializing, fail-fast, multi-file)
   prevent concurrent writes from corrupting each other
 - First-sync gate (remote image): the init chain runs Obsidian Sync to
-  completion before the server starts, so memory bootstrap can never race
-  an incoming sync
+  completion before the server starts, so in two-way sync memory bootstrap
+  can never race an incoming sync (`pull-only` and `mirror-remote` never
+  upload its templates)
 - Sync-state vault guard (remote image): the Sync client's own device
   record of locally held files is read before any sync attempt. If the
   record lists files but the vault volume has no content (notes or

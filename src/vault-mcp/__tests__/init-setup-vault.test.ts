@@ -61,6 +61,7 @@ type SetupRunOptions = {
   syncConfigs?: string
   syncExcludedFolders?: string
   syncFileTypes?: string
+  syncMode?: string
   /** When true, `ob sync-setup` fails. */
   syncSetupFails?: boolean
   /** The `ob sync-config` flag whose invocation fails (e.g. `--file-types`). */
@@ -102,6 +103,7 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
         ? {}
         : { SYNC_EXCLUDED_FOLDERS: options.syncExcludedFolders }),
       ...(options.syncFileTypes === undefined ? {} : { SYNC_FILE_TYPES: options.syncFileTypes }),
+      ...(options.syncMode === undefined ? {} : { SYNC_MODE: options.syncMode }),
     },
   })
 
@@ -119,7 +121,7 @@ const runSetupScript = (options: SetupRunOptions): SetupRun => {
 
 describe("init-setup-vault script", () => {
   it("skips vault setup in setup mode, before the VAULT_NAME guard", () => {
-    // No vaultName: without setup mode this run exits 1, so the exit 0
+    // Without setup mode, a run with no vaultName exits 1, so the exit 0
     // proves the guard ran first.
     const run = runSetupScript({ setupMode: true })
 
@@ -208,6 +210,42 @@ describe("init-setup-vault script", () => {
       CLEAR_EXCLUDED_FOLDERS_CALL,
       "sync-config --file-types image,pdf",
       DEFAULT_SYNC_CONFIGS_CALL,
+    ])
+  })
+
+  it("applies SYNC_MODE after the filters", () => {
+    const run = runSetupScript({ vaultName: "MyVault", syncMode: "pull-only" })
+
+    expect(run.status).toBe(0)
+    expect(run.stderr).toBe("")
+    expect(run.obCalls).toEqual([
+      "sync-setup --vault MyVault",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      CLEAR_FILE_TYPES_CALL,
+      "sync-config --mode pull-only",
+      DEFAULT_SYNC_CONFIGS_CALL,
+    ])
+  })
+
+  it("refuses to start when the SYNC_MODE sync-config call fails", () => {
+    const run = runSetupScript({
+      vaultName: "MyVault",
+      syncMode: "pull-onyl",
+      syncConfigFailsFor: "--mode",
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.stderr).toBe(
+      "[obsidian-sync] ERROR: ob sync-config --mode 'pull-onyl' failed.\n" +
+        "[obsidian-sync] Refusing to start: syncing in a different mode than SYNC_MODE requests could upload changes you chose not to send.\n" +
+        "[obsidian-sync] Set SYNC_MODE to bidirectional, pull-only, or mirror-remote and restart.\n",
+    )
+    // Nothing after the failed mode call runs.
+    expect(run.obCalls).toEqual([
+      "sync-setup --vault MyVault",
+      CLEAR_EXCLUDED_FOLDERS_CALL,
+      CLEAR_FILE_TYPES_CALL,
+      "sync-config --mode pull-onyl",
     ])
   })
 

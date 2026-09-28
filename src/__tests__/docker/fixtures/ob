@@ -29,6 +29,14 @@
 #                          settings, no notes
 #   OB_STUB_LOGIN_FAIL=1 — `login` exits 2, the real client's exit code when
 #                          the API rejects the stored token
+#   OB_STUB_UNDOWNLOADED_FILE=1 — `sync-setup` records a file on the server
+#                          that this device has never downloaded (a server
+#                          row with no local row), as a filter or excluded
+#                          folder leaves behind
+#
+# `sync-config --json` prints the vault ID and the stored sync mode.
+# `sync-setup` resets the mode to two-way, and `sync-config --mode` rejects
+# an unknown value, as the real client does.
 #
 # Test-only verbs (not real ob commands) that stand in for what continuous
 # sync does to the record while the container runs:
@@ -40,35 +48,60 @@ CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 CALL_LOG="$CONFIG_HOME/ob-calls.log"
 printf '%s\n' "$*" >> "$CALL_LOG"
 
+STATE_DIR="$CONFIG_HOME/obsidian-headless/sync/ci-vault-id"
+MODE_FILE="$CONFIG_HOME/ob-stub-sync-mode"
+
+# The real client's table layout for the three tables init-first-sync reads,
+# exported so the node snippets below can read it from the environment.
+export STATE_SCHEMA='
+  CREATE TABLE IF NOT EXISTS local_files (path TEXT PRIMARY KEY, data TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS server_files (path TEXT PRIMARY KEY, data TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS pending_files (uid INTEGER PRIMARY KEY, path TEXT, data TEXT NOT NULL);
+'
+
 # The real client records every file it holds locally in
 # obsidian-headless/sync/<vaultId>/state.db (table local_files) — the
 # record init-first-sync reads to decide whether an empty vault was wiped.
 # Each one-shot sync records what it delivered; the vault-relative paths
 # arrive as the arguments.
 record_local_files() {
-  state_dir="$CONFIG_HOME/obsidian-headless/sync/ci-vault-id"
-  mkdir -p "$state_dir"
+  mkdir -p "$STATE_DIR"
   node --no-warnings -e '
     const { DatabaseSync } = require("node:sqlite")
     const db = new DatabaseSync(process.argv[1])
-    db.exec("CREATE TABLE IF NOT EXISTS local_files (path TEXT PRIMARY KEY, data TEXT NOT NULL)")
+    db.exec(process.env.STATE_SCHEMA)
     const insert = db.prepare("INSERT OR REPLACE INTO local_files VALUES (?, ?)")
     for (const path of process.argv.slice(2)) insert.run(path, JSON.stringify({ folder: false }))
     db.close()
-  ' "$state_dir/state.db" "$@"
+  ' "$STATE_DIR/state.db" "$@"
 }
 
 # The real client drops a file's row when the file is deleted locally, so
 # a vault emptied by hand while the device runs leaves an empty record.
 forget_local_files() {
-  state_dir="$CONFIG_HOME/obsidian-headless/sync/ci-vault-id"
   node --no-warnings -e '
     const { DatabaseSync } = require("node:sqlite")
     const db = new DatabaseSync(process.argv[1])
     const remove = db.prepare("DELETE FROM local_files WHERE path = ?")
     for (const path of process.argv.slice(2)) remove.run(path)
     db.close()
-  ' "$state_dir/state.db" "$@"
+  ' "$STATE_DIR/state.db" "$@"
+}
+
+# A file the server lists but this device never downloaded: the server row
+# the real client keeps for a file its filter skipped. The path and
+# extension here (.md) differ from the oracle's (.csv) — each fixture is
+# independent and exercises a different file type.
+record_undownloaded_file() {
+  mkdir -p "$STATE_DIR"
+  node --no-warnings -e '
+    const { DatabaseSync } = require("node:sqlite")
+    const db = new DatabaseSync(process.argv[1])
+    db.exec(process.env.STATE_SCHEMA)
+    const record = { path: "Archive/old.md", uid: 11, folder: false, deleted: false }
+    db.prepare("INSERT OR REPLACE INTO server_files VALUES (?, ?)").run(record.path, JSON.stringify(record))
+    db.close()
+  ' "$STATE_DIR/state.db"
 }
 
 case "${1:-}" in
@@ -79,7 +112,32 @@ case "${1:-}" in
     fi
     exit 0
     ;;
-  sync-setup | sync-config)
+  sync-setup)
+    rm -f "$MODE_FILE"
+    if [ "${OB_STUB_UNDOWNLOADED_FILE:-}" = "1" ]; then
+      record_undownloaded_file
+    fi
+    exit 0
+    ;;
+  sync-config)
+    if [ "${2:-}" = "--json" ]; then
+      mode=bidirectional
+      if [ -f "$MODE_FILE" ]; then
+        mode=$(cat "$MODE_FILE")
+      fi
+      printf '{"vaultId":"ci-vault-id","syncMode":"%s"}\n' "$mode"
+      exit 0
+    fi
+    if [ "${2:-}" = "--mode" ]; then
+      case "${3:-}" in
+        bidirectional) rm -f "$MODE_FILE" ;;
+        pull-only | mirror-remote) printf '%s' "$3" > "$MODE_FILE" ;;
+        *)
+          echo "Invalid sync mode: \"${3:-}\". Must be \"bidirectional\", \"pull-only\", or \"mirror-remote\"." >&2
+          exit 1
+          ;;
+      esac
+    fi
     exit 0
     ;;
   sync-record)

@@ -36,6 +36,7 @@ import {
   publishedPort,
   readContainerFile,
   runContainer,
+  runSyncEngineOracle,
   seedSyncState,
   seedSyncToken,
   startContainer,
@@ -96,7 +97,8 @@ const BASE_ENV = {
  *  Sync-config flags whose env var is unset are skipped, except the folder
  *  and file-type filters, which are always applied so an emptied variable
  *  clears a stored value (an empty argument shows as a trailing space);
- *  SYNC_CONFIGS has a baked-in default. The stub appends "$*" per call. */
+ *  SYNC_CONFIGS has a baked-in default. init-first-sync then reads the
+ *  stored settings back. The stub appends "$*" per call. */
 const EXPECTED_BOOT_SEQUENCE = [
   "login",
   "sync-setup --vault ci-vault --device-name ci-device",
@@ -104,6 +106,7 @@ const EXPECTED_BOOT_SEQUENCE = [
   "sync-config --excluded-folders ",
   "sync-config --file-types ",
   "sync-config --configs core-plugin-data,community-plugin-data",
+  "sync-config --json",
   "sync",
   "sync --continuous",
 ]
@@ -222,7 +225,7 @@ describe("remote image boot — three-volume layout (anonymous /vault, /data, /h
     expect(appliedIds).toBe("1000:1000\n")
   })
 
-  it("invokes the Sync client in the documented order: login, sync-setup, sync-config ×4, sync, sync --continuous", async () => {
+  it("invokes the Sync client in the documented order: login, sync-setup, sync-config ×5, sync, sync --continuous", async () => {
     const callLog = await readContainerFile({
       name,
       path: "/home/obsidian/.config/ob-calls.log",
@@ -583,6 +586,7 @@ describe("remote image boot — first sync keeps failing (OB_STUB_SYNC_FAIL=1)",
           "sync-config --excluded-folders ",
           "sync-config --file-types ",
           "sync-config --configs core-plugin-data,community-plugin-data",
+          "sync-config --json",
           "sync",
           "sync",
           "sync",
@@ -888,10 +892,14 @@ describe("remote image boot — safety checks in the init chain stop the contain
     scenario,
     env,
     volumes = [],
+    deadlineMs = STOP_DEADLINE_MS,
   }: {
     scenario: string
     env: Record<string, string>
     volumes?: string[]
+    /** How long to wait for the stop; a guard that fires after the three
+     *  failed first-sync attempts needs FAILING_SYNC_STOP_DEADLINE_MS. */
+    deadlineMs?: number
   }): Promise<string> => {
     const name = uniqueName(scenario)
     const handle = await runContainer({
@@ -902,7 +910,7 @@ describe("remote image boot — safety checks in the init chain stop the contain
       publishPort: false,
     })
     onTestFinished(handle.cleanup)
-    await waitForStopped({ name, deadlineMs: STOP_DEADLINE_MS })
+    await waitForStopped({ name, deadlineMs })
     return containerLogs(name)
   }
 
@@ -975,6 +983,186 @@ describe("remote image boot — safety checks in the init chain stop the contain
     // itself, but init-first-sync announces each attempt, so no attempt
     // line proves no sync was ever started.
     expect(logs).not.toContain("First sync (attempt")
+  })
+
+  it(
+    "refuses two-way sync when every attempt failed with a never-downloaded file still queued",
+    async () => {
+      // The memory layer is off so the memory-folder refusal can't be what
+      // stops the container.
+      const logs = await logsAfterGuardStops({
+        scenario: "undownloaded-file-sync-fails",
+        env: {
+          ...BASE_ENV,
+          MEMORY_ENABLED: "false",
+          OB_STUB_SYNC_FAIL: "1",
+          OB_STUB_UNDOWNLOADED_FILE: "1",
+        },
+        deadlineMs: FAILING_SYNC_STOP_DEADLINE_MS,
+      })
+      const attemptLines = logs.split("\n").filter(isFirstSyncLine)
+      expect(attemptLines).toEqual([
+        ...FIRST_SYNC_ATTEMPT_LINES,
+        "[obsidian-sync] ERROR: First sync failed with 1 file(s) still waiting to download.",
+      ])
+      expect(logs).toContain(
+        "s6-rc: warning: unable to start service init-first-sync: command exited 1",
+      )
+    },
+    FAILING_SYNC_TEST_TIMEOUT_MS,
+  )
+
+  it("refuses an invalid SYNC_MODE with the init-setup-vault error", async () => {
+    const logs = await logsAfterGuardStops({
+      scenario: "invalid-sync-mode",
+      env: { ...BASE_ENV, SYNC_MODE: "pull-onyl" },
+    })
+    expect(logs).toContain("[obsidian-sync] ERROR: ob sync-config --mode 'pull-onyl' failed.")
+    expect(logs).toContain(
+      "s6-rc: warning: unable to start service init-setup-vault: command exited 1",
+    )
+    expect(logs).not.toContain("First sync (attempt")
+  })
+})
+
+describe("the image's Sync engine, run on a file the device never downloaded", () => {
+  // The contract init-first-sync relies on, checked against the real engine:
+  // - Two-way sync pushes an unqueued never-downloaded file as a deletion.
+  // - A queued one is downloaded, fails before the deletion scan, or is
+  //   dropped by the filter — never deleted.
+  // - pull-only and mirror-remote never delete it, queued or not, which is
+  //   why the script lets those modes continue past a failed first sync.
+  // - A download is recorded locally and leaves the queue, so the next
+  //   boot neither re-queues it nor counts it as still waiting.
+  it("deletes it only in two-way sync, and only when it is not queued", async () => {
+    const scenarioResults = (await runSyncEngineOracle(IMAGE))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line))
+    const downloadEvents = [
+      "Downloading Archive/old.csv",
+      "Downloaded Archive/old.csv",
+      "Accepted Archive/old.csv",
+    ]
+    expect(scenarioResults).toEqual([
+      {
+        label: "not queued",
+        outcome: "returned true",
+        events: [
+          "Deleting remote file Archive/old.csv",
+          'push Archive/old.csv [null,false,true,0,0,"",null]',
+        ],
+        stillQueued: false,
+        recordedLocally: false,
+      },
+      {
+        label: "queued",
+        outcome: "returned true",
+        events: downloadEvents,
+        stillQueued: false,
+        recordedLocally: true,
+      },
+      {
+        label: "queued, download fails",
+        outcome: "threw: Failed to download file, no data.",
+        events: ["Downloading Archive/old.csv"],
+        stillQueued: true,
+        recordedLocally: false,
+      },
+      {
+        label: "queued, excluded by the filter",
+        outcome: "returned true",
+        events: [],
+        stillQueued: false,
+        recordedLocally: false,
+      },
+      {
+        label: "queued, pull-only",
+        outcome: "returned true",
+        events: downloadEvents,
+        stillQueued: false,
+        recordedLocally: true,
+      },
+      {
+        label: "queued, mirror-remote",
+        outcome: "returned true",
+        events: downloadEvents,
+        stillQueued: false,
+        recordedLocally: true,
+      },
+      {
+        label: "not queued, pull-only",
+        outcome: "returned false",
+        events: ["Fully synced"],
+        stillQueued: false,
+        recordedLocally: false,
+      },
+      {
+        label: "not queued, mirror-remote",
+        outcome: "returned true",
+        events: [
+          "Restoring Archive/old.csv",
+          "Downloading Archive/old.csv",
+          "Downloaded Archive/old.csv",
+        ],
+        stillQueued: false,
+        recordedLocally: true,
+      },
+    ])
+  })
+})
+
+describe("remote image boot — a file the device never downloaded", () => {
+  const name = uniqueName("undownloaded-file")
+  // Assigned once the container is up — the beforeAll boot is the one place
+  // it is written; every test only reads the container.
+  let handle: ContainerHandle | undefined
+
+  beforeAll(async () => {
+    handle = await runContainer({
+      name,
+      image: IMAGE,
+      env: { ...BASE_ENV, OB_STUB_UNDOWNLOADED_FILE: "1", PUBLIC_URL: "http://localhost:8000" },
+      volumes: [],
+      publishPort: true,
+    })
+    await waitForHealthz({ name, port: await publishedPort(name), deadlineMs: BOOT_DEADLINE_MS })
+  })
+
+  afterAll(async () => {
+    await handle?.cleanup()
+  })
+
+  it("queues it for download before the first sync", async () => {
+    const pendingPaths = await dockerOrThrow([
+      "exec",
+      name,
+      "node",
+      "--no-warnings",
+      "-e",
+      `
+        const { DatabaseSync } = require("node:sqlite")
+        const db = new DatabaseSync(process.argv[1], { readOnly: true })
+        const rows = db.prepare("SELECT path FROM pending_files ORDER BY uid").all()
+        console.log(JSON.stringify(rows.map((row) => row.path)))
+      `,
+      "/home/obsidian/.config/obsidian-headless/sync/ci-vault-id/state.db",
+    ])
+    expect(JSON.parse(pendingPaths)).toEqual(["Archive/old.md"])
+    expect(await containerLogs(name)).toContain(
+      "[obsidian-sync] Queued 1 file(s) this device has not downloaded yet.",
+    )
+  })
+
+  it("leaves the sync state owned by the obsidian user", async () => {
+    const owners = await dockerOrThrow([
+      "exec",
+      name,
+      "sh",
+      "-c",
+      "stat -c '%U' /home/obsidian/.config/obsidian-headless/sync/ci-vault-id/* | sort -u",
+    ])
+    expect(owners.trim()).toBe("obsidian")
   })
 })
 

@@ -64,10 +64,11 @@ fi
 # Apply optional sync config
 # ---------------------------------------------------------------------------
 
-# Optional config stays non-fatal (a bad value must not stop the container),
-# but failures are logged with the CLI's stderr so a typo'd value (e.g. an
-# invalid CONFLICT_STRATEGY via plain `docker run`, where Compose defaults
-# don't apply) leaves a trace in `docker logs` instead of vanishing.
+# Optional config other than the sync mode (below) stays non-fatal: a bad
+# value must not stop the container. Failures are still logged with the
+# CLI's stderr so a typo'd value (e.g. an invalid CONFLICT_STRATEGY via
+# plain `docker run`, where Compose defaults don't apply) leaves a trace
+# in `docker logs` instead of vanishing.
 apply_sync_config() {
   flag="$1"
   value="$2"
@@ -87,6 +88,7 @@ apply_sync_config() {
 apply_sync_config_or_clear() {
   flag="$1"
   value="$2"
+  # No empty guard: an empty argument is the client's "clear" form.
   if ! s6-setuidgid obsidian ob sync-config "$flag" "$value"; then
     echo "[obsidian-sync] WARNING: ob sync-config $flag '$value' failed — continuing without it." >&2
   fi
@@ -96,7 +98,18 @@ apply_sync_config --device-name "$DEVICE_NAME"
 apply_sync_config --conflict-strategy "$CONFLICT_STRATEGY"
 apply_sync_config_or_clear --excluded-folders "${SYNC_EXCLUDED_FOLDERS:-}"
 apply_sync_config_or_clear --file-types "${SYNC_FILE_TYPES:-}"
-apply_sync_config --mode "$SYNC_MODE"
+
+# A sync mode that fails to apply stops the container. `ob sync-setup` has
+# just reset the stored mode to two-way, so continuing would sync two-way
+# against an explicit pull-only or mirror-remote request and upload changes
+# the user chose not to send. The usual cause is an invalid value, and the
+# CLI's message on stderr names the valid ones.
+if [ -n "$SYNC_MODE" ] && ! s6-setuidgid obsidian ob sync-config --mode "$SYNC_MODE"; then
+  echo "[obsidian-sync] ERROR: ob sync-config --mode '$SYNC_MODE' failed." >&2
+  echo "[obsidian-sync] Refusing to start: syncing in a different mode than SYNC_MODE requests could upload changes you chose not to send." >&2
+  echo "[obsidian-sync] Set SYNC_MODE to bidirectional, pull-only, or mirror-remote and restart." >&2
+  exit 1
+fi
 
 # Config-category sync defaults ON for the two categories the server
 # reads: core-plugin-data (daily notes settings) and community-plugin-data
