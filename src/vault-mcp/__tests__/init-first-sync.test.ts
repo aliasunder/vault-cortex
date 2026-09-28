@@ -48,10 +48,16 @@ exit "$OUTCOME"
 `
 
 /** Stub `s6-setuidgid`: logs the user and command name, drops the user
- *  argument, and runs the command. */
+ *  argument, and runs the command. With SETUIDGID_FAIL_IF_COMMAND_HAS set,
+ *  a command containing that text exits 1 instead of running. */
 const SETUIDGID_STUB = `#!/bin/sh
 echo "$1 $2" >> "$SETUIDGID_CALL_LOG"
 shift
+if [ -n "\${SETUIDGID_FAIL_IF_COMMAND_HAS:-}" ]; then
+  case "$*" in
+    *"$SETUIDGID_FAIL_IF_COMMAND_HAS"*) exit 1 ;;
+  esac
+fi
 exec "$@"
 `
 
@@ -134,6 +140,10 @@ type GateRunOptions = {
   syncModeEnv?: string
   /** When true, every `ob sync` empties the active store's queue first. */
   syncErasesQueue?: boolean
+  /** When true, the queued-download count fails while the queue step still
+   *  runs — the count reads the same columns, so no store layout can break
+   *  it alone. */
+  queuedDownloadCountFails?: boolean
 }
 
 /** The sync engine's own schema for the three tables the script reads. */
@@ -308,6 +318,9 @@ const runGateScript = (options: GateRunOptions): GateRun => {
       ...(options.xdgConfigHome ? { XDG_CONFIG_HOME: xdgConfigDir } : {}),
       ...(options.syncModeEnv ? { SYNC_MODE: options.syncModeEnv } : {}),
       ...(options.syncErasesQueue ? { OB_SYNC_ERASES_QUEUE_IN: activeStateDbPath } : {}),
+      ...(options.queuedDownloadCountFails
+        ? { SETUIDGID_FAIL_IF_COMMAND_HAS: "COUNT(DISTINCT pending.path)" }
+        : {}),
     },
   })
 
@@ -809,6 +822,33 @@ describe("init-first-sync gate script", () => {
     ])
   })
 
+  it("queues a folder the server lists that this device never downloaded", () => {
+    // The deletion scan removes remote folders the same way it removes files.
+    const neverDownloadedFolder = { path: "Archive", uid: 21, folder: true, deleted: false }
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      serverRecords: [neverDownloadedFolder],
+    })
+
+    expect(run.status).toBe(0)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual([
+      { uid: 21, path: "Archive", data: JSON.stringify(neverDownloadedFolder) },
+    ])
+  })
+
+  it("leaves a folder unqueued when the device has a local record of it", () => {
+    const run = runGateScript({
+      syncOutcomes: [0],
+      vaultName: "Test",
+      knownSyncFolders: 1,
+      serverRecords: [{ path: "folder-0", uid: 21, folder: true }],
+    })
+
+    expect(run.status).toBe(0)
+    expect(readPendingRows(run.activeStateDbPath)).toEqual([])
+  })
+
   it("leaves server files that are recorded locally or deleted on the server unqueued", () => {
     const run = runGateScript({
       syncOutcomes: [0],
@@ -958,6 +998,38 @@ describe("init-first-sync gate script", () => {
     expect(run.status).toBe(1)
     expect(run.syncCalls).toBe(3)
     expect(run.stderr).toBe(FAILED_ATTEMPT_RETRIES + QUEUED_DOWNLOADS_REFUSAL)
+  })
+
+  it("counts a never-downloaded folder as still waiting to download", () => {
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      vaultDirs: ["About Me"],
+      serverRecords: [{ path: "Archive", uid: 21, folder: true }],
+    })
+
+    expect(run.status).toBe(1)
+    expect(run.stderr).toBe(FAILED_ATTEMPT_RETRIES + QUEUED_DOWNLOADS_REFUSAL)
+  })
+
+  it("stops when the queued-download count cannot be read", () => {
+    const run = runGateScript({
+      syncOutcomes: [1],
+      vaultName: "Test",
+      vaultDirs: ["About Me"],
+      serverRecords: [{ path: "Archive/old.md", uid: 11 }],
+      queuedDownloadCountFails: true,
+    })
+
+    expect(run.status).toBe(1)
+    // The queue step ran and queued the file, so the stop came from the count.
+    expect(readPendingRows(run.activeStateDbPath).map((row) => row.path)).toEqual([
+      "Archive/old.md",
+    ])
+    expect(run.stderr).toBe(
+      FAILED_ATTEMPT_RETRIES +
+        `[obsidian-sync] ERROR: Could not read this device's sync state (${run.activeStateDbPath}).\n`,
+    )
   })
 
   it("refuses regardless of the memory layer", () => {
