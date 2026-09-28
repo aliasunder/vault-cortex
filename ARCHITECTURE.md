@@ -896,12 +896,14 @@ process has spawned. Two mechanisms with distinct jobs:
      - A record that exists but cannot be read also stops the container.
      - No record means a fresh device, which downloads without deleting.
   2. **Filtered-out file queue** (before each attempt and once after the
-     last): the step queues for download every file a filter
-     (`SYNC_FILE_TYPES`, `SYNC_EXCLUDED_FOLDERS`, `SYNC_CONFIGS`) kept out,
-     so widening a filter can't delete them.
-     - The Sync client still remembers those files as part of the vault.
-       Without the queue, it would treat each newly allowed file as deleted
-       here and push the deletion to every device.
+     last): the step queues for download every file the Sync client knows
+     is in the vault but has no local record of, so widening a filter
+     can't delete them.
+     - Most of these are files a filter (`SYNC_FILE_TYPES`,
+       `SYNC_EXCLUDED_FOLDERS`, `SYNC_CONFIGS`) kept out, which the Sync
+       client still remembers as part of the vault. Without the queue, it
+       would treat each newly allowed file as deleted here and push the
+       deletion to every device.
      - A queued file downloads before the Sync client looks for deletions,
        or is skipped if the filter still excludes it.
      - A file deleted through Vault Cortex that hasn't uploaded when the
