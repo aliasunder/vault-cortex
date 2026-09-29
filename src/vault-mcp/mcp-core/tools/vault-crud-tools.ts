@@ -318,7 +318,7 @@ When to use: Browsing what exists in a folder by filename, or finding notes matc
 Prefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery. Use vault_read_note to read a note from the results.
 
 Parameters:
-- folder scopes the listing to a path prefix ("Projects" includes "Projects/Archive").
+- folder scopes the listing to a path prefix ("Projects" includes "Projects/Archive"). Whether its letter case must match depends on the vault's filesystem.
 - glob matches the whole vault-relative path, case-sensitively, even when folder is set: with folder "Projects", "*.md" matches nothing, because * stays within one path segment. Use "Projects/*.md" for the folder's top level or "**/*.md" for any depth.
 
 Behavior: Paths come back sorted by vault-relative path, uppercase before lowercase. Hidden (dot-prefixed) notes and folders are never listed, matching Obsidian; symlinked notes are included.

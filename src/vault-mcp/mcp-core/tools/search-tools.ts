@@ -366,7 +366,7 @@ Prefer vault_list_property_values when you need the full list of values for a sp
 Parameters:
 - folder is matched as a whole-folder prefix and recurses into subfolders ("Projects" also covers "Projects/Archive"), ignoring ASCII letter case; omit it to scan the entire vault.
 
-Behavior: Only frontmatter properties count; inline Dataview fields (key:: value) are not listed. count is the number of notes that have the key. sample_values are the key's 3 most frequent values, counting each array element separately, returned as strings; null values are skipped. An empty vault or folder returns an empty array, not an error.
+Behavior: Only frontmatter properties count; inline Dataview fields (key:: value) are not listed. count is the number of notes that have the key. sample_values are the key's 3 most frequent values, counting each array element separately, returned as strings (checkbox values as "1" and "0"); null values are skipped. An empty vault or folder returns an empty array, not an error.
 
 Returns: JSON array of { key, count, sample_values } sorted by count descending, then by key.`,
       inputSchema: {
@@ -405,7 +405,7 @@ Parameters:
 - folder + key interact: folder restricts counting to a subtree (a whole-folder prefix, ignoring ASCII letter case), so the same key can return different value distributions depending on folder scope.
 - limit (default 50) applies after sorting by count descending, so you always get the most-used values first. Nothing in the response says more exist: exactly limit values means raise it, as high-cardinality keys like "title" or "created" need.
 
-Behavior: Values are grouped first and turned into strings after, so a number and the same digits written as text (1 and "1") come back as two separate "1" rows. null values are skipped.
+Behavior: Values are grouped first and turned into strings after, so a number and the same digits written as text (1 and "1") come back as two separate "1" rows. Checkbox (true/false) values come back as "1" and "0", counted with the numbers 1 and 0. null values are skipped.
 
 Returns: JSON array of { value, count } sorted by count descending.`,
       inputSchema: {
