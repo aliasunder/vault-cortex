@@ -21,8 +21,9 @@ fi
 
 # Passes --device-name on the first registration, because without it the CLI
 # names the device after the container hostname and every re-created
-# container adds a new Obsidian Sync device. "$@" keeps a device name with
-# spaces intact.
+# container adds a new Obsidian Sync device. "$@" carries the caller's flags
+# and "$DEVICE_NAME" is quoted, so a vault or device name with spaces stays
+# one argument.
 run_sync_setup() {
   if [ -n "$DEVICE_NAME" ]; then
     s6-setuidgid obsidian ob sync-setup "$@" --device-name "$DEVICE_NAME"

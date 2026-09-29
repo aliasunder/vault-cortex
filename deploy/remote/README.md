@@ -656,8 +656,9 @@ download every time. In `docker logs`, the `Downloading` line just before
 
 - Fix the file in Obsidian on another device.
 - Delete it in Obsidian on another device. The deletion reaches every
-  device, and Obsidian Sync's version history (Settings → Sync → Deleted
-  files) keeps it for 1 month on Sync Standard and 12 months on Sync Plus.
+  device. Obsidian Sync's version history (Settings → Sync → Deleted files)
+  keeps a deleted note for 1 month on Sync Standard and 12 months on Sync
+  Plus, and a deleted attachment for two weeks on either plan.
 - Add its folder to `SYNC_EXCLUDED_FOLDERS`. That keeps every file in the
   folder off the server, not just the failing one.
 
