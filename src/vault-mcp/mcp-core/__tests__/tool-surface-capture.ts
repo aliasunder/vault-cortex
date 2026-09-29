@@ -99,8 +99,9 @@ const assertSinglePage = (listName: string, nextCursor?: string): void => {
 
 /** Bytewise name sort so registration-order refactors don't churn the
  *  baseline — list order is not part of the stability contract. */
-const sortByName = <T extends { name: string }>(items: readonly T[]): T[] =>
-  items.toSorted((first, second) => (first.name < second.name ? -1 : 1))
+const sortByName = <T extends { name: string }>(items: readonly T[]): T[] => {
+  return items.toSorted((first, second) => (first.name < second.name ? -1 : 1))
+}
 
 export type SurfaceCapture = {
   env: Readonly<Record<string, string>>
@@ -156,7 +157,16 @@ export const captureToolSurface = async (combo: SurfaceCombo): Promise<SurfaceCa
   }
 }
 
+/** Measures the context a client spends on one tool definition as the length
+ *  of its description plus its serialized input schema. The size cap and
+ *  `npm run report:tool-surface-size` both use this measure. */
+export const measureToolDefinitionChars = (tool: Tool): number => {
+  const descriptionChars = tool.description?.length ?? 0
+  return descriptionChars + JSON.stringify(tool.inputSchema).length
+}
+
 /** Byte-exact committed form: pre-serialized so vitest writes the file
  *  verbatim (the snapshot directory is prettier-ignored to keep it that way). */
-export const serializeSurfaceCapture = (capture: SurfaceCapture): string =>
-  `${JSON.stringify(capture, null, 2)}\n`
+export const serializeSurfaceCapture = (capture: SurfaceCapture): string => {
+  return `${JSON.stringify(capture, null, 2)}\n`
+}

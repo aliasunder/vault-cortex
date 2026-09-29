@@ -97,28 +97,25 @@ What each type returns:
 - Canvas (.canvas): a readable markdown outline per JSON Canvas 1.0 — groups (by visual containment), node content in reading order, and a connections list with edge labels. Set raw: true for the exact JSON source instead (geometry, ids, colors — full fidelity).
 - PDFs (.pdf): structured text with document metadata — title, page count, heading hierarchy (from font sizes relative to the body text), code blocks and inline code (from monospace fonts), page separators, and a deduplicated links footer. Richer than flat text extraction: headings, code, and hyperlinks that flat extraction loses are preserved. Set raw: true for page images instead — each page rendered and returned as an image block, showing layout, diagrams, tables, and formatting that text extraction cannot preserve. Image-only and scanned PDFs work in raw mode. Up to ${config.maxPdfRenderPages} pages are rendered.
 - Text formats (.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base): the file content verbatim as text. .svg is returned as its XML source; .base as its YAML source.
-- Line paging: start_line and limit page any text result — text formats, canvas outlines and raw JSON, PDF-extracted text — as a 1-based line window, preceded by a metadata line ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"). Paged windows come back with \\n line endings and no trailing newline; a read without paging inputs stays byte-exact.
+- Line paging: start_line and limit page any text result — text formats, canvas outlines and raw JSON, PDF-extracted text — as a 1-based line window, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"). The output cap applies to each window, so one very long line can still overflow it; paging never gets around the whole-file read cap. Paged windows come back with \\n line endings and no trailing newline; a read without paging inputs stays byte-exact.
 
-When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF. Find the files a note links to (with byte sizes) via vault_get_outgoing_links; browse a folder's files via vault_list_files. For .md notes use vault_read_note — this tool rejects them. To check a large file's size before reading it whole, request start_line: 1 with limit: 1 — one line plus the total line count.
+When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF. Find the files a note links to (with byte sizes) via vault_get_outgoing_links; browse a folder's files via vault_list_files. vault_search also indexes canvas, PDF, and text-format content, but not images or other files. For .md notes use vault_read_note — this tool rejects them. To check a large file's size before reading it whole, request start_line: 1 with limit: 1 — one line plus the total line count.
 
 Errors:
 - "not a file" — the path ends in .md; read notes with vault_read_note
 - "file not found" — nothing exists at that path; discover valid paths via vault_list_files
-- "hidden path blocked" — the path targets a hidden (dot-prefixed) file or folder like ".obsidian/"; hidden paths are not readable, matching Obsidian
+- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the path starts at the filesystem root, escapes the vault, or targets a hidden (dot-prefixed) file or folder like ".obsidian/"; use a vault-relative path outside hidden folders (hidden files are not readable, matching Obsidian)
 - "file too large" — the file exceeds the server's read cap (MAX_FILE_BYTES, default 50 MiB)
 - "text output too large" — a text file or PDF renders past the output cap; page it with start_line and limit, or reduce limit when a single window overflows
 - "start line past the end" — start_line exceeds the file's line count; the error states the total, so retry with a smaller start_line
-- "line range is not available" — start_line/limit on an image or on a PDF with raw: true; line paging applies to text results only
+- "line range is not available" / "raw source is not available for images" — start_line/limit was given for an image or a PDF with raw: true, or raw for an image; drop that input, since paging applies to text results only and an image is always delivered as its image block
 - "not valid UTF-8" — the file's bytes aren't UTF-8 text; returning them would silently corrupt the content
-- "PDF has no extractable text" — the PDF exists but contains no text content (scanned or image-only); states the page count. Set raw: true to render pages as images instead
+- "PDF has no extractable text" — the PDF contains no text (scanned or image-only); the error states the page count. Set raw: true to render pages as images instead
 - "PDF page rendering failed" — raw: true was set but no pages could be rendered; the PDF may be corrupt
 - "image cannot be fitted" — the image could not be compressed under the output budget (MAX_IMAGE_OUTPUT_BYTES)
-- "raw source is not available for images" — raw applies to text-representable files; an image's delivered form is its image block
 - unsupported types (audio, archives, …) return an error naming the readable types plus the file's existence and size
 
-Returns: for images, an image content block plus a one-line metadata text block; for PDFs with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page); for every other supported type, a single text content block — preceded by a window-metadata text block when start_line or limit was given.
-
-Search coverage: vault_search indexes markdown notes plus canvas, PDF, and supported text-format content; find other files by browsing (vault_list_files) or through a note's links (vault_get_outgoing_links).`,
+Returns: for images, an image content block plus a one-line metadata text block; for PDFs with raw: true, a metadata text block followed by alternating image and text blocks (one pair per page); for every other supported type, a single text content block — preceded by a window-metadata text block when start_line or limit was given.`,
       inputSchema: {
         path: z
           .string()
@@ -130,24 +127,20 @@ Search coverage: vault_search indexes markdown notes plus canvas, PDF, and suppo
           .boolean()
           .optional()
           .describe(
-            "Return an alternative representation of the file. For .canvas this is the JSON Canvas source (geometry, ids, colors); for .pdf this renders pages as images instead of extracting text — useful for scanned documents, diagrams, and layout-sensitive content. Text formats already return their source, so raw changes nothing there. Images have no text source — raw returns an error.",
+            "Return the file's alternative form: JSON source for .canvas, page images for .pdf. Changes nothing for text formats, which already return their source.",
           ),
         start_line: z
           .number()
           .int()
           .min(1)
           .optional()
-          .describe(
-            "First line to return, 1-based (default 1). Pages any text result — text formats, canvas outlines and raw JSON, PDF-extracted text. Not valid for images or for PDFs with raw: true.",
-          ),
+          .describe("First line to return, 1-based (default 1)."),
         limit: z
           .number()
           .int()
           .min(1)
           .optional()
-          .describe(
-            "Maximum lines returned (default: all remaining). A paged read's metadata line states the window, the total line count, and the next start_line. The output byte cap still applies to the window — reduce limit if it overflows.",
-          ),
+          .describe("Maximum lines returned (default: all remaining)."),
       },
     },
     async ({ path, raw, start_line, limit }, extra) => {

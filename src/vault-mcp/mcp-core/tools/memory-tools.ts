@@ -161,11 +161,13 @@ Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entrie
     TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
     {
       title: "List Memory Files",
-      description: `Discovery tool — lists ${config.memoryDir}/ memory files with their H1/H2 heading structure, per-section entry counts, entry policy, and each file's leading callout (by convention a "Scope of this file" block describing what belongs in it). Does NOT return actual entries.
+      description: `Discovery tool — lists ${config.memoryDir}/ memory files with their H1/H2 heading structure, per-section entry counts, and each file's leading callout (by convention a "Scope of this file" block describing what belongs in it). Does NOT return actual entries.
 
-Example: vault_list_memory_files() returns file outlines with headings like "Decision heuristics (newest first)", entry counts, each file's entry policy, and its scope callout.
+Example: vault_list_memory_files() returns file outlines with headings like "Decision heuristics (newest first)", entry counts, and each file's scope callout.
 
-When to use: ${discoveryPurpose} Always call this first to get valid file and section names${whenToolEnabledText("vault_delete_memory", ", and to check a file's entry policy before pruning entries")}.
+When to use: ${discoveryPurpose} Always call this first to get valid file and section names${whenToolEnabledText("vault_delete_memory", ", and to check a file's entry_policy before pruning entries")}.
+
+Behavior: Lists every .md file directly inside ${config.memoryDir}/, sorted by file name; no template or frontmatter is required. Subfolders are not read, and hidden (dot-prefixed) files are skipped.
 
 Errors:
 - An empty or nonexistent memory folder returns an empty array, not an error.
