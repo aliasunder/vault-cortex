@@ -1714,6 +1714,27 @@ describe("listMemoryFiles", () => {
     expect(noTitle?.title).toBe("NoTitle")
   })
 
+  it("lists a file that has no frontmatter", async () => {
+    await writeFile(join(vault, "About Me/Bare.md"), "# Bare\n", "utf8")
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    const bare = outlines.find((outline) => outline.file === "Bare")
+    expect(bare).toEqual({
+      file: "Bare",
+      title: "Bare",
+      bytes: 7,
+      entry_policy: "append-only",
+      leading_callout: null,
+      headings: [{ level: 1, text: "Bare" }],
+    })
+  })
+
+  it("does not read notes inside subfolders of the memory folder", async () => {
+    await mkdir(join(vault, "About Me/Archive"))
+    await writeFile(join(vault, "About Me/Archive/Old.md"), "# Old\n", "utf8")
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
+  })
+
   it("defaults entry_policy to append-only when the property is absent", async () => {
     // The base fixtures (Principles, Opinions) declare no entry-policy.
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)

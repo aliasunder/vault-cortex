@@ -1995,6 +1995,96 @@ describe("DISABLED_TOOLS", () => {
       "file and section feed directly into vault_delete_memory.",
     )
   })
+
+  /** The part of a tool's description from startMarker up to (not including)
+   *  endMarker — one section, so a test can assert it whole. */
+  const extractDescriptionSection = (params: {
+    registeredCalls: RegisterToolCall[]
+    toolName: string
+    startMarker: string
+    endMarker: string
+  }): string => {
+    const toolCall = params.registeredCalls.find(([toolName]) => toolName === params.toolName)
+    const description = toolCall?.[1].description
+
+    if (!description) {
+      throw new Error(`${params.toolName} is not registered or has no description`)
+    }
+
+    const sectionStart = description.indexOf(params.startMarker)
+    const sectionEnd = description.indexOf(params.endMarker, sectionStart)
+
+    if (sectionStart === -1 || sectionEnd === -1) {
+      throw new Error(`${params.toolName} description has no "${params.startMarker}" section`)
+    }
+    return description.slice(sectionStart, sectionEnd)
+  }
+
+  const DELETE_NOTE_MEMORY_LINE =
+    "Prefer vault_delete_memory for removing individual dated entries from About Me/ memory files."
+  const DELETE_NOTE_MOVE_LINE = "To relocate a note, use vault_move_note instead."
+  const DELETE_NOTE_WRITE_LINE =
+    "To replace a note's content, use vault_write_note with overwrite: true instead."
+
+  it.each([
+    {
+      label: "names vault_move_note and vault_write_note while both are served",
+      disabledTools: "",
+      expectedLines: [DELETE_NOTE_MEMORY_LINE, DELETE_NOTE_MOVE_LINE, DELETE_NOTE_WRITE_LINE],
+    },
+    {
+      label: "drops only the vault_move_note line when that tool is disabled",
+      disabledTools: "vault_move_note",
+      expectedLines: [DELETE_NOTE_MEMORY_LINE, DELETE_NOTE_WRITE_LINE],
+    },
+    {
+      label: "drops only the vault_write_note line when that tool is disabled",
+      disabledTools: "vault_write_note",
+      expectedLines: [DELETE_NOTE_MEMORY_LINE, DELETE_NOTE_MOVE_LINE],
+    },
+  ])("vault_delete_note's when-to-use $label", ({ disabledTools, expectedLines }) => {
+    const whenToUse = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_DELETE_NOTE,
+      startMarker: "When to use:",
+      endMarker: "\n\nBehavior:",
+    })
+    expect(whenToUse).toBe(
+      ["When to use: Removing a note you no longer need.", ...expectedLines].join("\n"),
+    )
+  })
+
+  const PROPERTY_VALUES_CHECKBOX_LINE =
+    '- Checkbox values are stored as 1 and 0, so true and false come back as "1" and "0", counted with the numbers 1 and 0.'
+  const PROPERTY_VALUES_SEARCH_LINE =
+    '- vault_search_by_property compares values as text, so value "1" matches the number 1, the text "1", and a checked checkbox.'
+  const PROPERTY_VALUES_NULL_LINE =
+    "- null values are skipped. An unknown key or empty folder returns an empty array, not an error."
+
+  it.each([
+    {
+      label: "names vault_search_by_property while it is served",
+      disabledTools: "",
+      expectedLines: [
+        PROPERTY_VALUES_CHECKBOX_LINE,
+        PROPERTY_VALUES_SEARCH_LINE,
+        PROPERTY_VALUES_NULL_LINE,
+      ],
+    },
+    {
+      label: "drops the vault_search_by_property line when that tool is disabled",
+      disabledTools: "vault_search_by_property",
+      expectedLines: [PROPERTY_VALUES_CHECKBOX_LINE, PROPERTY_VALUES_NULL_LINE],
+    },
+  ])("vault_list_property_values's behavior $label", ({ disabledTools, expectedLines }) => {
+    const behaviorTail = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
+      startMarker: "- Checkbox values",
+      endMarker: "\n\nReturns:",
+    })
+    expect(behaviorTail).toBe(expectedLines.join("\n"))
+  })
 })
 
 describe("flag-combination matrix", () => {

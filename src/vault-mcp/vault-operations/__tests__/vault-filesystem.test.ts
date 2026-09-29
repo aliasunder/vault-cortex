@@ -1615,6 +1615,54 @@ describe("listNotes", () => {
     expect(files).toEqual(["notes/a.md", "notes/b.md", "notes/z.md"])
   })
 
+  it("sorts uppercase names before lowercase ones", async () => {
+    await writeFile(join(vault, "notes/C.md"), "c", "utf8")
+    const files = await listNotes({ vaultPath: vault, folder: "notes" }, logger)
+    expect(files).toEqual(["notes/C.md", "notes/a.md", "notes/b.md"])
+  })
+
+  it("does not list a sibling folder whose name starts with the folder's name", async () => {
+    await mkdir(join(vault, "notesOld"), { recursive: true })
+    await writeFile(join(vault, "notesOld/old.md"), "old", "utf8")
+    const files = await listNotes({ vaultPath: vault, folder: "notes" }, logger)
+    expect(files).toEqual(["notes/a.md", "notes/b.md"])
+  })
+
+  it("matches glob against the whole vault-relative path even when folder is set", async () => {
+    // "*" stays within one path segment, so "*.md" can only match root-level
+    // notes, and folder leaves none of those in scope.
+    const files = await listNotes({ vaultPath: vault, folder: "notes", glob: "*.md" }, logger)
+    expect(files).toEqual([])
+    // The same folder with a full-path glob does list its notes, so the empty
+    // result comes from the glob, not from an empty folder.
+    const fullPathGlobFiles = await listNotes(
+      { vaultPath: vault, folder: "notes", glob: "notes/*.md" },
+      logger,
+    )
+    expect(fullPathGlobFiles).toEqual(["notes/a.md", "notes/b.md"])
+  })
+
+  it("keeps a single-star glob within one folder level", async () => {
+    await mkdir(join(vault, "notes/sub"), { recursive: true })
+    await writeFile(join(vault, "notes/sub/c.md"), "c", "utf8")
+    const files = await listNotes({ vaultPath: vault, glob: "notes/*.md" }, logger)
+    expect(files).toEqual(["notes/a.md", "notes/b.md"])
+  })
+
+  it("matches a double-star glob at any depth", async () => {
+    await mkdir(join(vault, "notes/sub"), { recursive: true })
+    await writeFile(join(vault, "notes/sub/c.md"), "c", "utf8")
+    const files = await listNotes({ vaultPath: vault, glob: "**/*.md" }, logger)
+    expect(files).toEqual(["notes/a.md", "notes/b.md", "notes/sub/c.md", "root.md"])
+  })
+
+  it("matches glob case-sensitively", async () => {
+    const upperCaseFiles = await listNotes({ vaultPath: vault, glob: "NOTES/*.md" }, logger)
+    const matchingCaseFiles = await listNotes({ vaultPath: vault, glob: "notes/*.md" }, logger)
+    expect(upperCaseFiles).toEqual([])
+    expect(matchingCaseFiles).toEqual(["notes/a.md", "notes/b.md"])
+  })
+
   it("includes a symlinked .md file in the listing", async () => {
     await symlink("notes/a.md", join(vault, "sym.md"))
     const files = await listNotes({ vaultPath: vault }, logger)

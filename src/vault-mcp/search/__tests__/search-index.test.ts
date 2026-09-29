@@ -1728,6 +1728,33 @@ describe("searchByFolder", () => {
       "About Me/Principles.md",
     ])
   })
+
+  it("does not match a sibling folder whose name starts with the folder's name", () => {
+    index.upsertNote(
+      {
+        filePath: "ProjectsOld/old.md",
+        rawContent: "---\ntitle: Old\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    const results = index.searchByFolder({ folder: "Projects" }, logger)
+    expect(results.map((note) => note.path)).toEqual(["Projects/notes.md"])
+  })
+
+  it("ignores ASCII letter case in folder", () => {
+    const results = index.searchByFolder({ folder: "about me" }, logger)
+    expect(results.map((note) => note.path)).toEqual([
+      "About Me/sub/deep.md",
+      "About Me/Principles.md",
+    ])
+  })
+
+  it("applies limit after sorting, keeping the most recently modified notes", () => {
+    // Principles.md was indexed first but is older, so it is the one cut.
+    const results = index.searchByFolder({ folder: "About Me", limit: 1 }, logger)
+    expect(results.map((note) => note.path)).toEqual(["About Me/sub/deep.md"])
+  })
 })
 
 describe("listAllTags", () => {
@@ -1969,6 +1996,73 @@ describe("listPropertyKeys", () => {
     expect(statusKey).toBeDefined()
     expect(statusKey?.sample_values).not.toContain("blocked")
   })
+
+  /** Keys of the two Projects/ notes from beforeEach: every key appears in
+   *  both, so all counts tie at 2 and the keys sort alphabetically. */
+  const PROJECTS_FOLDER_KEYS = [
+    { key: "priority", count: 2, sample_values: ["high", "low"] },
+    { key: "status", count: 2, sample_values: ["done", "in-progress"] },
+    { key: "tags", count: 2, sample_values: ["project", "active", "done"] },
+    { key: "title", count: 2, sample_values: ["Active Project", "Done Project"] },
+    { key: "type", count: 2, sample_values: ["project"] },
+  ]
+
+  it("does not match a sibling folder whose name starts with the folder's name", () => {
+    index.upsertNote(
+      {
+        filePath: "ProjectsOld/old.md",
+        rawContent: "---\nstatus: blocked\narchived_on: 2026-01-01\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    const keys = index.listPropertyKeys({ folder: "Projects" }, logger)
+    expect(keys).toEqual(PROJECTS_FOLDER_KEYS)
+  })
+
+  it("ignores ASCII letter case in folder", () => {
+    const keys = index.listPropertyKeys({ folder: "projects" }, logger)
+    expect(keys).toEqual(PROJECTS_FOLDER_KEYS)
+  })
+
+  it("counts notes whose value is null but leaves null out of sample_values", () => {
+    const propertyIndex = createSearchIndex(":memory:")
+    const reviewedValues = ["true", "false", "", "true"]
+    reviewedValues.forEach((reviewedValue, noteNumber) => {
+      propertyIndex.upsertNote(
+        {
+          filePath: `note-${noteNumber}.md`,
+          rawContent: `---\nreviewed: ${reviewedValue}\n---\nbody\n`,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+    })
+
+    // The empty value is YAML null. Checkbox values come back as "1" and "0".
+    const keys = propertyIndex.listPropertyKeys({}, logger)
+    expect(keys).toEqual([{ key: "reviewed", count: 4, sample_values: ["1", "0"] }])
+  })
+
+  it("ranks sample_values by counting each array element separately, keeping the top 3", () => {
+    const propertyIndex = createSearchIndex(":memory:")
+    const topicLists = ["[alpha, beta]", "[alpha]", "[gamma]", "[gamma]", "[delta]"]
+    topicLists.forEach((topicList, noteNumber) => {
+      propertyIndex.upsertNote(
+        {
+          filePath: `note-${noteNumber}.md`,
+          rawContent: `---\ntopics: ${topicList}\n---\nbody\n`,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+    })
+
+    // alpha and gamma occur twice; beta and delta once each, tied, so the
+    // alphabetical tie-break keeps beta and drops delta.
+    const keys = propertyIndex.listPropertyKeys({}, logger)
+    expect(keys).toEqual([{ key: "topics", count: 5, sample_values: ["alpha", "gamma", "beta"] }])
+  })
 })
 
 describe("listPropertyValues", () => {
@@ -2053,6 +2147,70 @@ describe("listPropertyValues", () => {
   it("returns empty for non-existent key", () => {
     const values = index.listPropertyValues({ key: "nonexistent" }, logger)
     expect(values).toHaveLength(0)
+  })
+
+  it("does not match a sibling folder whose name starts with the folder's name", () => {
+    index.upsertNote(
+      {
+        filePath: "ProjectsOld/old.md",
+        rawContent: "---\nstatus: blocked\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    const values = index.listPropertyValues({ key: "status", folder: "Projects" }, logger)
+    expect(values).toEqual([
+      { value: "done", count: 1 },
+      { value: "in-progress", count: 1 },
+    ])
+  })
+
+  it("ignores ASCII letter case in folder", () => {
+    const values = index.listPropertyValues({ key: "status", folder: "projects" }, logger)
+    expect(values).toEqual([
+      { value: "done", count: 1 },
+      { value: "in-progress", count: 1 },
+    ])
+  })
+
+  it("returns a number and the same digits as text as two separate rows", () => {
+    const propertyIndex = createSearchIndex(":memory:")
+    propertyIndex.upsertNote(
+      { filePath: "number.md", rawContent: "---\nrank: 1\n---\nbody\n", fileStat: testStat(1000) },
+      logger,
+    )
+    propertyIndex.upsertNote(
+      { filePath: "text.md", rawContent: '---\nrank: "1"\n---\nbody\n', fileStat: testStat(1000) },
+      logger,
+    )
+
+    const values = propertyIndex.listPropertyValues({ key: "rank" }, logger)
+    expect(values).toEqual([
+      { value: "1", count: 1 },
+      { value: "1", count: 1 },
+    ])
+  })
+
+  it("counts checkbox values with the numbers 1 and 0 and skips null values", () => {
+    const propertyIndex = createSearchIndex(":memory:")
+    const reviewedValues = ["true", "1", "false", ""]
+    reviewedValues.forEach((reviewedValue, noteNumber) => {
+      propertyIndex.upsertNote(
+        {
+          filePath: `note-${noteNumber}.md`,
+          rawContent: `---\nreviewed: ${reviewedValue}\n---\nbody\n`,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+    })
+
+    // true groups with the number 1; the empty value is YAML null.
+    const values = propertyIndex.listPropertyValues({ key: "reviewed" }, logger)
+    expect(values).toEqual([
+      { value: "1", count: 2 },
+      { value: "0", count: 1 },
+    ])
   })
 })
 
@@ -2165,6 +2323,24 @@ describe("searchByProperty", () => {
     const results = index.searchByProperty({ key: "due", value: "2026-05-13" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe("dated.md")
+  })
+
+  it("compares values as text, so '1' matches the number 1, the text '1', and a checked checkbox", () => {
+    const propertyIndex = createSearchIndex(":memory:")
+    const rankValues = ["1", '"1"', "true", "0", "false", '"2"']
+    rankValues.forEach((rankValue, noteNumber) => {
+      propertyIndex.upsertNote(
+        {
+          filePath: `note-${noteNumber}.md`,
+          rawContent: `---\nrank: ${rankValue}\n---\nbody\n`,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+    })
+
+    const results = propertyIndex.searchByProperty({ key: "rank", value: "1" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["note-0.md", "note-1.md", "note-2.md"])
   })
 })
 
