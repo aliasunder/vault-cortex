@@ -80,15 +80,15 @@ apply_sync_config() {
   fi
 }
 
-# Settings with no stored default of their own are always applied, with an
-# empty value passed through: the Sync client stores these on the config
-# volume, so skipping an empty variable would keep a folder exclusion or
-# attachment filter from an earlier boot after the user cleared it. An
-# empty argument is the client's "clear" form (`ob sync-config --help`).
+# These settings are always applied, even when empty: an empty argument is
+# the Sync client's "clear" form (`ob sync-config --help`). `ob sync-setup`
+# above already drops them on every boot, so today an empty call changes
+# nothing. It stays so a Sync client version that keeps them across
+# `sync-setup` still can't hold on to a folder exclusion or attachment
+# filter the user has cleared.
 apply_sync_config_or_clear() {
   flag="$1"
   value="$2"
-  # No empty guard: an empty argument is the client's "clear" form.
   if ! s6-setuidgid obsidian ob sync-config "$flag" "$value"; then
     echo "[obsidian-sync] WARNING: ob sync-config $flag '$value' failed — continuing without it." >&2
   fi
