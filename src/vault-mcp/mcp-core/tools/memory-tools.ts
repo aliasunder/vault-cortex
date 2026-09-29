@@ -163,7 +163,7 @@ Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entrie
       title: "List Memory Files",
       description: `Discovery tool — lists ${config.memoryDir}/ memory files with their H1/H2 heading structure, per-section entry counts, and each file's leading callout (by convention a "Scope of this file" block describing what belongs in it). An entry is a dated bullet line ("- **YYYY-MM-DD**: text"). Does NOT return actual entries.
 
-Example: vault_list_memory_files() returns [{ file: "Principles", title: "Principles", bytes: 2048, entry_policy: "append-only", leading_callout: null, headings: [{ level: 2, text: "Decision heuristics (newest first)", entryCount: 12 }] }, ...]
+Example: vault_list_memory_files() returns [{ file: "Principles", title: "Principles", bytes: 2048, entry_policy: "append-only", leading_callout: null, headings: [{ level: 2, text: "Decision heuristics (newest first)", entry_count: 12 }] }, ...]
 
 When to use: ${discoveryPurpose} Always call this first to get valid file and section names${whenToolEnabledText("vault_delete_memory", ", and to check a file's entry_policy before pruning entries")}.
 
@@ -172,7 +172,7 @@ Behavior: Lists every .md file directly inside ${config.memoryDir}/, sorted by f
 Errors:
 - An empty or nonexistent memory folder returns an empty array, not an error.
 
-Returns: JSON array of file outlines, each { file, title, bytes, entry_policy, leading_callout, headings } — file is the name the other memory tools take as file (no .md); bytes is the on-disk file size; headings lists H1 and H2 headings in order, with entryCount on H2s; entry_policy is "append-only" (the default: by convention, entries are never edited or deleted) or "living" (a current-state file whose expired entries may be pruned; declared via \`entry-policy\` frontmatter). The server does not enforce either policy. leading_callout is the file's top-of-file callout ({ type, title, body }), or null.`,
+Returns: JSON array of file outlines, each { file, title, bytes, entry_policy, leading_callout, headings } — file is the name the other memory tools take as file (no .md); bytes is the on-disk file size; headings lists H1 and H2 headings in order, with entry_count on H2s; entry_policy is "append-only" (the default: by convention, entries are never edited or deleted) or "living" (a current-state file whose expired entries may be pruned; declared via \`entry-policy\` frontmatter). The server does not enforce either policy. leading_callout is the file's top-of-file callout ({ type, title, body }), or null.`,
       inputSchema: {},
     },
     async (_args, extra) => {
