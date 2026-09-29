@@ -109,6 +109,17 @@
 
 
 
+
+## [0.54.5] — 2026-09-29
+
+### Documentation
+
+- Update CHANGELOG.md for v0.54.4
+
+### Maintenance
+
+- **deps:** Bump ip-address from 10.4.0 to 10.7.2 (#620)
+
 ## [0.54.4] — 2026-09-29
 
 ### Bug Fixes
