@@ -458,7 +458,7 @@ describe("noteMatchesSearchFilters", () => {
     expect(noteMatchesSearchFilters(baseRow, {})).toBe(true)
   })
 
-  it("filters by folder prefix", () => {
+  it("filters to notes inside the folder, subfolders included", () => {
     expect(noteMatchesSearchFilters(baseRow, { folder: "Projects/Alpha" })).toBe(true)
     expect(noteMatchesSearchFilters(baseRow, { folder: "Projects/Beta" })).toBe(false)
     expect(noteMatchesSearchFilters(baseRow, { folder: "Projects" })).toBe(true)

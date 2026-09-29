@@ -23,7 +23,7 @@ export const registerTaskTools = ({
 
 Example: vault_list_tasks({ due: { before: "2026-07-04" } }) — overdue triage; the default status (not_done) and sort (due ascending) make this the "what's overdue?" call
 Example: vault_list_tasks({ path: "Code Projects/vault-cortex/TASKS.md", heading: ["Active", "Up Next", "Waiting On"], sort_by: "position" }) — actionable Kanban lanes in board order; position is the natural sort for boards (file path then line number, preserving card arrangement)
-Example: vault_list_tasks({ folder: "Code Projects/vault-cortex" }) — all open tasks across a project tree (TASKS.md + task-notes/ subdirectories); folder is a recursive prefix match
+Example: vault_list_tasks({ folder: "Code Projects/vault-cortex" }) — all open tasks across a project tree (TASKS.md + task-notes/ subdirectories); folder includes its subfolders
 Example: vault_list_tasks({ status: "done", done: { after: "2026-06-26" } }) — what got completed this week
 Example: vault_list_tasks({ top_level_only: true, path: "TASKS.md" }) — board cards only, excluding checklist sub-items
 
@@ -34,7 +34,7 @@ Parameters:
 - status: a single value or an array of values, OR-combined (default "not_done"). Values: "not_done" (todo + in_progress, excludes done AND cancelled), "todo", "in_progress", "done", "cancelled", "all". Virtual values expand in arrays: ["not_done", "done"] matches todo + in_progress + done.
 - due / scheduled / start / done / created / cancelled: date filters, each { before, on, after } in YYYY-MM-DD — before/after are exclusive, on is exact. A date filter only matches tasks that HAVE that date.
 - priority: array of "highest" | "high" | "medium" | "low" | "lowest" | "none", OR-combined ("none" = tasks with no priority signifier).
-- folder: recursive note-path prefix. tag: bare inline-task-tag name; a parent tag matches children. heading: exact heading text or array of headings, case-sensitive, OR-combined. path: one note, must end in ".md".
+- folder: a whole folder, subfolders included ("Projects" covers "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. tag: bare inline-task-tag name; a parent tag matches children. heading: exact heading text or array of headings, case-sensitive, OR-combined. path: one note, must end in ".md".
 - top_level_only: boolean (default false). When true, only top-level tasks (depth 0) are returned — excludes indented sub-tasks and checklist items.
 - sort_by: "due" (default) | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime" | "position". "position" sorts by file path then line number — the natural order for Kanban boards.
 - limit: max results (default 50). The total field always reports the full match count.
@@ -72,7 +72,9 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .string()
           .min(1)
           .optional()
-          .describe('Restrict to a note-path prefix (e.g. "Code Projects/vault-cortex")'),
+          .describe(
+            'Restrict to a whole folder, subfolders included (e.g. "Code Projects/vault-cortex")',
+          ),
         tag: z
           .string()
           .min(1)

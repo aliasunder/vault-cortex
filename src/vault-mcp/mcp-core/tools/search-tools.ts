@@ -22,7 +22,7 @@ export const registerSearchTools = ({
         ? `Hybrid search across all vault notes, ranked by combined keyword and semantic relevance using Reciprocal Rank Fusion (RRF) — combining FTS5 keyword matching with vector similarity. Results are refined by a cross-encoder reranker using position-aware score blending when available. Semantic matching finds notes even when exact keywords differ — "career aspirations" finds notes about "goals" and "targets". Falls back to keyword-only (FTS5 BM25) transparently while embeddings are being built. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
 
 Filters — all conditions AND-combine with each other and the text query:
-- folder: path prefix (e.g. "Projects")
+- folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
 - tags: require all listed tags (AND)
 - type: exact match on frontmatter type (e.g. "person", "session-log")
 - related: require all listed related links (AND)
@@ -47,7 +47,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
         : `Full-text search across all vault notes, ranked by relevance. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
 
 Filters — all conditions AND-combine with each other and the text query:
-- folder: path prefix (e.g. "Projects")
+- folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
 - tags: require all listed tags (AND)
 - type: exact match on frontmatter type (e.g. "person", "session-log")
 - related: require all listed related links (AND)
@@ -82,7 +82,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
               .string()
               .min(1)
               .optional()
-              .describe('Restrict to a folder path prefix (e.g. "Projects")'),
+              .describe('Restrict to a whole folder, subfolders included (e.g. "Projects")'),
             tags: z
               .array(z.string().min(1))
               .optional()
@@ -481,7 +481,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .string()
           .min(1)
           .optional()
-          .describe('Restrict to a folder prefix (e.g. "Projects")'),
+          .describe('Restrict to a whole folder, subfolders included (e.g. "Projects")'),
         limit: z
           .number()
           .int()
@@ -626,7 +626,7 @@ When to use: Vault maintenance — surfacing notes to integrate into the graph.$
 Prefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.
 
 Parameters:
-- exclude_folders replaces the defaults (${JSON.stringify(config.orphanExcludeFolders)}), it does not add to them — include the defaults yourself to keep them. Matched by folder prefix, recursing into subfolders ("Projects" also excludes "Projects/Archive").
+- exclude_folders replaces the defaults (${JSON.stringify(config.orphanExcludeFolders)}), it does not add to them — include the defaults yourself to keep them. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.
 - limit (default 50) caps results after sorting by most-recently-modified.
 
 Errors:

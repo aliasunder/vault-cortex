@@ -319,7 +319,7 @@ When to use: Browsing what exists in a folder by filename, or finding notes matc
 Prefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery. Use vault_read_note to read a note from the results.
 
 Parameters:
-- folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Use the folder's exact letter case, as other results show it; on a case-sensitive filesystem a different case finds nothing.
+- folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". This tool reads the filesystem rather than the search index, so use the folder's exact letter case, as other results show it; on a case-sensitive filesystem a different case finds nothing.
 - glob matches each note's path inside folder (its vault-relative path when folder is omitted), case-sensitively. * stays within one folder level and ** spans any depth: with folder "Projects", "*.md" lists the folder's top-level notes and "**/*.md" every note under it. Returned paths are always vault-relative.
 
 Behavior: Paths come back sorted by vault-relative path, uppercase before lowercase. Hidden (dot-prefixed) notes and folders are never listed, matching Obsidian; symlinked notes are included.
