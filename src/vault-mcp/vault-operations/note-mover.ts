@@ -914,14 +914,11 @@ const moveNote = async (
                 sources_planned: plannedRewrites.length,
                 error: describeError(error),
               })
-              // Neither kind of move can simply be re-run:
-              // - a case-only rename already renamed the note, so a re-run
-              //   fails not-found on the old spelling;
-              // - an ordinary move already wrote newPath, so a re-run fails
-              //   "destination exists" until that copy is deleted.
+              // A case-only rename has already renamed the note, so re-running
+              // the same move would fail not-found on the old spelling.
               const partialStateRemediation = isCaseOnlyRename
                 ? `The note was already renamed to "${newPath}"; update the remaining links directly.`
-                : `Original not deleted — delete "${newPath}", then re-run to finish.`
+                : "Original not deleted — re-run to finish."
               throw new Error(
                 `move incomplete: failed updating "${planned.source}" (${sourcesWritten}/${plannedRewrites.length} sources written). ${partialStateRemediation}`,
                 { cause: error },

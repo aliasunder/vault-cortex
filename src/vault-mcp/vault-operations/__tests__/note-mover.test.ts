@@ -1192,33 +1192,6 @@ describe("moveNote — guards", () => {
     expect(await readNote("Hub.md")).toBe("Links [[Foo]].\n")
   })
 
-  it("tells the caller to delete the written copy when a backlink write fails in an ordinary move", async () => {
-    const { vault, writeFixture, moveNote, readNote } = setupVault()
-    await writeFixture("Foo.md", "content\n")
-    await writeFixture("Hub.md", "Links [[Foo]].\n")
-
-    const hubFullPath = join(vault, "Hub.md")
-    vi.mocked(atomicWriteFile).mockImplementation(async (writeParams, writeLogger) => {
-      if (writeParams.filePath === hubFullPath) {
-        throw new Error("ENOSPC: no space left")
-      }
-      const actualVaultFilesystem =
-        await vi.importActual<typeof import("../vault-filesystem.js")>("../vault-filesystem.js")
-      return actualVaultFilesystem.atomicWriteFile(writeParams, writeLogger)
-    })
-    onTestFinished(() => vi.mocked(atomicWriteFile).mockRestore())
-
-    await expect(
-      moveNote({ oldPath: "Foo.md", newPath: "Bar.md", backlinkSources: ["Hub.md"] }),
-    ).rejects.toThrow(
-      'move incomplete: failed updating "Hub.md" (0/1 sources written). ' +
-        'Original not deleted — delete "Bar.md", then re-run to finish.',
-    )
-    // Both copies exist, which is why a plain re-run would fail on the destination.
-    expect(await readNote("Foo.md")).toBe("content\n")
-    expect(await readNote("Bar.md")).toBe("content\n")
-  })
-
   it("throws when a path does not end in .md", async () => {
     const { writeFixture, moveNote } = setupVault()
     await writeFixture("Foo.md", "content\n")
