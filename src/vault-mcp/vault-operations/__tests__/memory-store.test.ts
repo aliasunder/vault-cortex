@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi, onTestFinished } from "vitest"
-import { mkdtemp, rm, writeFile, mkdir, readFile, readdir } from "node:fs/promises"
+import { chmod, mkdtemp, rm, writeFile, mkdir, readFile, readdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { parseNote } from "../../obsidian-markdown/frontmatter.js"
@@ -1667,6 +1667,22 @@ describe("listMemoryFiles", () => {
     await writeFile(join(vault, "About Me", ".secret.md"), "# Hidden\n", "utf8")
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
+  })
+
+  it("skips a folder whose name ends in .md and still lists the files", async () => {
+    await mkdir(join(vault, "About Me", "Archive.md"), { recursive: true })
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
+  })
+
+  it("rejects an unreadable memory file with a vault-relative message", async () => {
+    const lockedFile = join(vault, "About Me", "Opinions.md")
+    // afterEach deletes the vault, which removes a mode-000 file inside it, so
+    // the permissions need no restore.
+    await chmod(lockedFile, 0o000)
+    await expect(listMemoryFiles({ vaultPath: vault }, logger)).rejects.toThrow(
+      new Error('cannot read memory file "About Me/Opinions.md"'),
+    )
   })
 
   it("returns outlines sorted by filename", async () => {

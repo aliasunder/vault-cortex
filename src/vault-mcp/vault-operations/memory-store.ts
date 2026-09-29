@@ -7,6 +7,7 @@ import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
 import { readFileOrNull } from "../../utils/fs.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
+import { describeError } from "../../utils/describe-error.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
 import { parseMemoryEntries, type MemoryEntry } from "../obsidian-markdown/memory-entries.js"
@@ -884,9 +885,24 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
     const mdFiles = filenames.filter(isVisibleMemoryFile).toSorted()
 
-    const outlines = await Promise.all(
+    /** Returns null for a folder whose name ends in .md, which is not a memory
+     *  file. Any other read failure throws with a vault-relative message; the
+     *  raw error carries the server's absolute path, so it goes to the log. */
+    const readMemoryFileOrNull = async (filename: string): Promise<string | null> => {
+      try {
+        return await readFile(join(dir, filename), "utf8")
+      } catch (error) {
+        if (isErrnoException(error, "EISDIR")) return null
+        logger.warn("cannot read memory file", { file: filename, error: describeError(error) })
+        throw new Error(`cannot read memory file "${memoryDir}/${filename}"`, { cause: error })
+      }
+    }
+
+    const outlinesOrNull = await Promise.all(
       mdFiles.map(async (filename) => {
-        const raw = await readFile(join(dir, filename), "utf8")
+        const raw = await readMemoryFileOrNull(filename)
+
+        if (raw === null) return null
         const parsed = parseNote(raw)
         const name = basename(filename, ".md")
         const title = isString(parsed.data.title) ? parsed.data.title : name
@@ -915,6 +931,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         }
       }),
     )
+    const outlines = outlinesOrNull.filter((outline) => outline !== null)
 
     logger.info("listed memory files", { count: outlines.length })
     return outlines
