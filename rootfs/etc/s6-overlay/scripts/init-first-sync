@@ -2,7 +2,7 @@
 # One-shot first sync: run `ob sync` (no --continuous) to COMPLETION before
 # svc-obsidian-sync and svc-vault-mcp start — otherwise the server boots
 # against a still-empty vault, bootstraps default About Me/ templates, and
-# bidirectional sync pushes them over the user's real memory files (#440).
+# bidirectional sync pushes them over the user's real memory files.
 #
 # Pre-sync guard: the sync engine keeps a per-device record of the files
 # it holds locally and, at startup, pushes every recorded file that is
@@ -10,26 +10,29 @@
 # with no content means the vault volume was wiped while the device state
 # was kept. The guard exits FATAL before any sync runs.
 #
-# Never-downloaded files: before each attempt the script queues every file
-# the engine knows about but this device has no local record of, so widening
-# a filter can't delete the files it kept out.
+# Never-downloaded files: before each attempt, and once more after the last,
+# the script queues every file the engine knows about but this device has no
+# local record of, so widening a filter can't delete the files it kept out.
 # - The engine records a filtered-out file in its copy of the server's file
 #   list (server_files) without downloading it, so the file has no local
 #   record (local_files).
-# - The engine's deletion scan pushes a deletion for every server_files row
-#   with no local_files row, because a local deletion removes that record
-#   at once. A never-downloaded file looks the same.
+# - The engine reads a server_files row with no local_files row as a file
+#   deleted on this device, since a local deletion removes that record at
+#   once. Its deletion scan then pushes that deletion to the server. A
+#   never-downloaded file looks the same.
 # - The engine queues newly allowed files itself (pending_files) when a
 #   filter changes, but init-setup-vault's `ob sync-setup` resets the filter
 #   to the default on every boot. The engine then compares the new value
-#   against the default, not the previous boot's value, so a widen back
+#   against the default, not the previous boot's value, so a change back
 #   toward the default (removing an excluded folder, re-adding a type)
-#   queues nothing. The script copies each such row into pending_files
-#   instead. The engine's pending loop runs before the scan and fetches the
-#   file, or drops it if the filter still excludes it.
+#   queues nothing.
+# - The script copies each such row into pending_files instead. The engine's
+#   pending loop runs before the scan and downloads the file, or drops it if
+#   the filter still excludes it.
 # - A file another device adds reaches server_files only after it
 #   downloads, so it never needs queuing.
-# - A one-shot `ob sync` stops at the first failed download, before the scan.
+# - A one-shot `ob sync` stops at the first failed download, before the scan,
+#   so a failed first-sync attempt can't push deletions either.
 #
 # Failure policy once attempts are exhausted:
 # - Files still queued for download and two-way sync: FATAL. Continuous sync
@@ -43,7 +46,6 @@
 #   keeps retrying.
 # A FATAL exit stops the container (S6_BEHAVIOUR_IF_STAGE2_FAILS=2), and the
 # restart policy owns the outer retry.
-# Sync is always configured here — init-setup-vault requires VAULT_NAME.
 set -e
 
 if [ "${SETUP_MODE:-}" = 1 ]; then
@@ -66,7 +68,8 @@ fi
 # after the device was registered against a different remote vault
 # (one deleted and re-created, or a manual sync-setup). Counting that
 # store too keeps the guard conservative; the cost is a stopped
-# container until the device is re-registered.
+# container until the device is re-registered. The queue step below reads
+# only the active store, because it writes to the store the client syncs from.
 SYNC_STATE_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/obsidian-headless/sync"
 
 # Prints the number of files the sync state records as present locally;
@@ -75,12 +78,6 @@ SYNC_STATE_ROOT="${XDG_CONFIG_HOME:-$HOME/.config}/obsidian-headless/sync"
 # rather than assuming the device is fresh.
 # stdout is the return value: the caller captures it with $(...) and
 # compares it as an integer, so the only output is the bare number.
-#
-# local_files holds folders as well as files; each row's data JSON carries
-# "folder": true or false. Only file rows count: folder rows survive a
-# vault emptied of notes while the folders stay, and a deleted folder is
-# not what the guard protects against. A row whose data does not say
-# either way is counted, so an unexpected shape errs toward stopping.
 known_sync_files() {
   set -- "$SYNC_STATE_ROOT"/*/state.db
   [ -e "$1" ] || { echo 0; return 0; }
@@ -88,6 +85,10 @@ known_sync_files() {
     const { DatabaseSync } = require("node:sqlite")
     const storeCounts = process.argv.slice(1).map((file) => {
       const db = new DatabaseSync(file, { readOnly: true })
+      // Only file rows count ("folder": false in the row data). Folder rows
+      // survive a vault emptied of notes while the folders stay, and a
+      // deleted folder is not what the guard protects against. A row that
+      // says neither is counted, so an unexpected shape errs toward stopping.
       const { count } = db
         .prepare("SELECT COUNT(*) AS count FROM local_files WHERE COALESCE(json_extract(data, ?), 0) = 0")
         .get("$.folder")
@@ -135,11 +136,11 @@ if [ "$KNOWN_SYNC_FILES" -gt 0 ] && ! vault_has_content; then
   exit 1
 fi
 
-# init-setup-vault has just written the Sync client's settings for this
-# vault, so a missing or unreadable config means the client can't read its
-# own state either. The vault ID in those settings names the store the
-# client syncs from. Any other store under SYNC_STATE_ROOT belongs to an
-# earlier registration.
+# Sync is always configured here — init-setup-vault requires VAULT_NAME and
+# has just written the Sync client's settings for this vault, so a missing or
+# unreadable config means the client can't read its own state either. The
+# vault ID in those settings names the store the client syncs from. Any other
+# store under SYNC_STATE_ROOT belongs to an earlier registration.
 if ! SYNC_CONFIG_JSON=$(s6-setuidgid obsidian ob sync-config --json); then
   echo "[obsidian-sync] ERROR: Could not read this vault's Sync settings (ob sync-config --json failed)." >&2
   exit 1
@@ -171,20 +172,21 @@ fi
 ACTIVE_SYNC_STATE="$SYNC_STATE_ROOT/$SYNC_VAULT_ID/state.db"
 
 # Queues every server_files row that has no local_files row, and prints how
-# many rows it added. See the header for why. The queued row is the
-# server_files data verbatim, the same row the engine writes when a filter
-# change queues a file. A path that already has a queued entry is left
-# alone, because that entry may be a newer version.
-#
-# Runs as the obsidian user so any SQLite journal files stay writable by the
-# Sync client. A store that doesn't exist yet (a device that has never
-# synced) has nothing to queue. An unrecognized table layout exits non-zero,
-# so a Sync client upgrade can't turn this step into a silent no-op.
+# many rows it added. The "Never-downloaded files" note at the top of this
+# file says why. The queued row is the server_files data verbatim, the same
+# row the engine writes when a filter change queues a file. A path that
+# already has a queued entry is left alone, because that entry may be a
+# newer version.
 queue_never_downloaded_files() {
+  # A device that has never synced has no store yet, so nothing to queue.
   [ -e "$ACTIVE_SYNC_STATE" ] || { echo 0; return 0; }
+  # As the obsidian user, so any SQLite journal files stay writable by the
+  # Sync client.
   s6-setuidgid obsidian node --no-warnings -e '
     const { DatabaseSync } = require("node:sqlite")
     const db = new DatabaseSync(process.argv[1])
+    // An unrecognized table layout exits non-zero, so a Sync client upgrade
+    // cannot turn this step into a silent no-op.
     const requiredColumns = {
       pending_files: ["uid", "path", "data"],
       server_files: ["path", "data"],
@@ -236,11 +238,11 @@ queue_never_downloaded_files_or_exit() {
   fi
 }
 
-# Prints how many distinct files are still queued for download that the
-# server lists as present. Folders count too, because the deletion scan can
-# remove a remote folder the same way. Local records are ignored: a record
-# can outlive its file when the engine's startup scan fails, so excluding
-# recorded paths could hide a file the scan would still delete.
+# Prints how many paths are still queued for download and not marked deleted
+# on the server. Folders count too, because the deletion scan can remove a
+# remote folder the same way. Local records are ignored: a record can outlive
+# its file when the engine's startup scan fails, so excluding recorded paths
+# could hide a file the scan would still delete.
 queued_downloads_remaining() {
   [ -e "$ACTIVE_SYNC_STATE" ] || { echo 0; return 0; }
   s6-setuidgid obsidian node --no-warnings -e '
@@ -259,12 +261,10 @@ queued_downloads_remaining() {
   ' "$ACTIVE_SYNC_STATE"
 }
 
-# Defaults mirror the server's config.ts (MEMORY_DIR falls back to
-# "About Me"; MEMORY_ENABLED defaults to true) — keep them in lockstep.
-# MEMORY_DIR strips leading/trailing whitespace to mirror config.ts's
-# .trim() (whitespace-only falls through to the default); MEMORY_ENABLED
-# is lowercased to match config.ts's case-insensitive boolean parsing
-# (env-var's asBool accepts TRUE/FALSE/True/False/1/0).
+# Mirrors how config.ts reads these two settings — keep them in lockstep:
+# - MEMORY_DIR: whitespace trimmed; empty or whitespace-only means "About Me".
+# - MEMORY_ENABLED: case-insensitive, default true; "false" or "0" turns it
+#   off (env-var's asBool).
 MEMORY_DIR=$(printf '%s' "${MEMORY_DIR:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 MEMORY_DIR="${MEMORY_DIR:-About Me}"
 MEMORY_ENABLED=$(printf '%s' "${MEMORY_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')
@@ -304,7 +304,7 @@ if [ "$SYNC_MODE_IN_EFFECT" = "bidirectional" ] && [ "$QUEUED_DOWNLOADS" -gt 0 ]
   echo "[obsidian-sync] ERROR: First sync failed with ${QUEUED_DOWNLOADS} file(s) still waiting to download." >&2
   echo "[obsidian-sync] Refusing to start two-way sync: it could delete those files from Obsidian Sync and your other devices." >&2
   echo "[obsidian-sync] The count may include files excluded by SYNC_FILE_TYPES, SYNC_EXCLUDED_FOLDERS, or SYNC_CONFIGS — those are dropped from the queue during a successful sync." >&2
-  echo "[obsidian-sync] Check the network and the log above for a file that keeps failing to download — the container's restart policy retries." >&2
+  echo "[obsidian-sync] Check the network, your Obsidian Sync login, and the log above for a file that keeps failing to download — the container's restart policy retries." >&2
   echo "[obsidian-sync] To start the server while the downloads retry, set SYNC_MODE=pull-only — it never deletes anything from Obsidian Sync." >&2
   exit 1
 fi
@@ -318,10 +318,10 @@ if [ "$SYNC_MODE_IN_EFFECT" = "bidirectional" ] && [ "$MEMORY_IS_ENABLED" = "tru
   echo "[obsidian-sync] ERROR: First sync failed and the memory folder ('$MEMORY_DIR') has not synced yet." >&2
   echo "[obsidian-sync] Refusing to start: the MCP server would create memory template files" >&2
   echo "[obsidian-sync] that sync could push over your real notes once it recovers." >&2
-  echo "[obsidian-sync] Check network and credentials — the container's restart policy retries." >&2
+  echo "[obsidian-sync] Check the network and your Obsidian Sync login — the container's restart policy retries." >&2
   exit 1
 fi
 
 echo "[obsidian-sync] WARNING: First sync did not complete — starting services anyway." >&2
-echo "[obsidian-sync] Continuous sync will keep retrying; check network/credentials if this persists." >&2
+echo "[obsidian-sync] Continuous sync will keep retrying; check the network and your Obsidian Sync login if this persists." >&2
 exit 0

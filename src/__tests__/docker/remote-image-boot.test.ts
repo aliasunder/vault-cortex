@@ -93,12 +93,13 @@ const BASE_ENV = {
   EMBEDDING_ENABLED: "false",
 }
 
-/** Every `ob` call that a single boot makes, in order, for BASE_ENV.
- *  Sync-config flags whose env var is unset are skipped, except the folder
- *  and file-type filters, which are always applied so an emptied variable
- *  clears a stored value (an empty argument shows as a trailing space);
- *  SYNC_CONFIGS has a baked-in default. init-first-sync then reads the
- *  stored settings back. The stub appends "$*" per call. */
+/** Every `ob` call that a single boot makes, in order, for BASE_ENV. The stub
+ *  logs each call's arguments as "$*":
+ *  - A `sync-config` flag whose variable is unset is skipped.
+ *  - The folder and file-type filters always run, so an emptied variable
+ *    clears the setting. The empty argument shows as a trailing space.
+ *  - `--configs` always runs, because SYNC_CONFIGS has a built-in default.
+ *  - `sync-config --json` is init-first-sync reading the settings back. */
 const EXPECTED_BOOT_SEQUENCE = [
   "login",
   "sync-setup --vault ci-vault --device-name ci-device",
@@ -1114,8 +1115,7 @@ describe("the image's Sync engine, run on a file the device never downloaded", (
 
 describe("remote image boot — a file the device never downloaded", () => {
   const name = uniqueName("undownloaded-file")
-  // Assigned once the container is up — the beforeAll boot is the one place
-  // it is written; every test only reads the container.
+  // `let` because beforeAll assigns it after the boot; the tests only read it.
   let handle: ContainerHandle | undefined
 
   beforeAll(async () => {

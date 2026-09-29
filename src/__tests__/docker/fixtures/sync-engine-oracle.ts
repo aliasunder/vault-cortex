@@ -1,7 +1,17 @@
 /**
- * Runs the pinned Sync client's own sync engine for one-shot sync scenarios
- * and prints one JSON line per scenario: what `_sync()` did and what the
- * engine logged.
+ * Shows what the image's real Sync engine does with a file the server lists
+ * but this device never downloaded, which is the case init-first-sync's queue
+ * step exists for. The other remote-boot tests replace the Sync CLI with a
+ * stub, so this script is the only check against the engine itself.
+ *
+ * For each scenario in SCENARIOS below, it runs one sync pass (the engine's
+ * `_sync()` method) and prints one JSON line. The scenarios vary the sync
+ * mode, whether the file is queued, and whether its download fails or the
+ * filter excludes it. Each line gives how the pass ended, the engine's log
+ * lines (including any deletion it pushed), and whether the file is still
+ * queued and recorded locally afterwards. The remote-boot test "the image's
+ * Sync engine, run on a file the device never downloaded" checks every line
+ * exactly.
  *
  * Runs inside the `:remote` image (`node sync-engine-oracle.ts <cli.js>`),
  * so the engine under test is the exact one the image ships. The bundle has

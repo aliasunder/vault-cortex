@@ -11,8 +11,9 @@ import { loadConfig } from "../config.js"
 /**
  * Behavioral spec for the remote image's first-sync gate
  * (rootfs/etc/s6-overlay/scripts/init-first-sync). The script's failure
- * policy is the safety core of the #440 fix — a flipped condition would
- * silently reopen the data-loss window with CI green — so every branch is
+ * policy keeps memory templates and missing files from overwriting or
+ * deleting the user's real notes — a flipped condition would silently
+ * reopen that data-loss window with CI green — so every branch is
  * exercised here by running the real script under `sh` with stub `ob`,
  * `s6-setuidgid`, and `sleep` executables on PATH.
  */
@@ -349,7 +350,7 @@ describe("init-first-sync gate script", () => {
 
   const WARN_AND_CONTINUE =
     "[obsidian-sync] WARNING: First sync did not complete — starting services anyway.\n" +
-    "[obsidian-sync] Continuous sync will keep retrying; check network/credentials if this persists.\n"
+    "[obsidian-sync] Continuous sync will keep retrying; check the network and your Obsidian Sync login if this persists.\n"
 
   it("skips the first sync in setup mode, before the vault directory check", () => {
     // With no vault directory and no setup mode, the cd fails and the
@@ -396,7 +397,7 @@ describe("init-first-sync gate script", () => {
   it("refuses on a content-warm vault whose memory folder has not synced", () => {
     // Pins fatality to the memory folder specifically — a regression to a
     // vault-warmth check (any visible content ⇒ warn-and-continue) would
-    // reopen the #440 window on partially synced volumes.
+    // let templates overwrite real memory files on partially synced volumes.
     const run = runGateScript({
       syncOutcomes: [1],
       vaultName: "Test",
@@ -504,7 +505,7 @@ describe("init-first-sync gate script", () => {
         "[obsidian-sync] ERROR: First sync failed and the memory folder ('About Me') has not synced yet.\n" +
         "[obsidian-sync] Refusing to start: the MCP server would create memory template files\n" +
         "[obsidian-sync] that sync could push over your real notes once it recovers.\n" +
-        "[obsidian-sync] Check network and credentials — the container's restart policy retries.\n",
+        "[obsidian-sync] Check the network and your Obsidian Sync login — the container's restart policy retries.\n",
     )
   })
 
@@ -517,7 +518,7 @@ describe("init-first-sync gate script", () => {
       "[obsidian-sync] First sync failed — retrying in 10s...\n" +
         "[obsidian-sync] First sync failed — retrying in 10s...\n" +
         "[obsidian-sync] WARNING: First sync did not complete — starting services anyway.\n" +
-        "[obsidian-sync] Continuous sync will keep retrying; check network/credentials if this persists.\n",
+        "[obsidian-sync] Continuous sync will keep retrying; check the network and your Obsidian Sync login if this persists.\n",
     )
   })
 
@@ -985,7 +986,7 @@ describe("init-first-sync gate script", () => {
     "[obsidian-sync] ERROR: First sync failed with 1 file(s) still waiting to download.\n" +
     "[obsidian-sync] Refusing to start two-way sync: it could delete those files from Obsidian Sync and your other devices.\n" +
     "[obsidian-sync] The count may include files excluded by SYNC_FILE_TYPES, SYNC_EXCLUDED_FOLDERS, or SYNC_CONFIGS — those are dropped from the queue during a successful sync.\n" +
-    "[obsidian-sync] Check the network and the log above for a file that keeps failing to download — the container's restart policy retries.\n" +
+    "[obsidian-sync] Check the network, your Obsidian Sync login, and the log above for a file that keeps failing to download — the container's restart policy retries.\n" +
     "[obsidian-sync] To start the server while the downloads retry, set SYNC_MODE=pull-only — it never deletes anything from Obsidian Sync.\n"
 
   it("refuses two-way sync when every attempt failed with downloads still queued", () => {
