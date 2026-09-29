@@ -956,7 +956,7 @@ Errors:
 - "cannot delete …" — the permanent delete failed (e.g. permissions); the note stays put; fix the cause, then retry
 - "cannot read trash config from .obsidian/app.json" — the file exists but is unreadable; the delete is blocked rather than risk skipping a configured .trash/; repair the file, then retry
 
-Returns: Confirmation message naming the outcome — "Deleted" for permanent removal, "Moved to trash" when the note landed in .trash/. Notes how many empty folders were pruned when any were.`,
+Returns: Confirmation message naming the outcome — "Deleted <path>" for permanent removal, "Moved <path> to trash (<trash path>)" when the note landed in .trash/. Notes how many empty folders were pruned when any were.`,
       inputSchema: {
         path: z
           .string()
@@ -1049,7 +1049,7 @@ Errors:
 - "concurrent write in progress" — a write is in flight on the note, the destination, or one of its backlink sources (the move locks all of them as one unit); retry the move.
 - "backlink set did not stabilize" — the vault was modified during the move and new backlink sources kept appearing across retries; nothing was written; retry the move.
 - An ordinary move that fails partway (rare: a permission or disk error) — no data is lost, and the error names what failed and the resulting state. The original is deleted only after the destination and every backlink are written. If a backlink write failed, new_path exists and old_path is intact: delete the partial new_path, then re-run the move. If the final delete failed, both paths exist: delete old_path to finish.
-- A case-only rename that fails partway — the note is renamed in place first. If the rename failed, nothing was written. If a later link write failed, the note already lives at new_path: fix the remaining links in place (the error names them) instead of re-running the move, whose old_path no longer exists.
+- A case-only rename that fails partway — the note is renamed in place first. If the rename failed, nothing was written. If a later link write failed, the note already lives at new_path: fix the remaining links in place (the error names the note whose update failed) instead of re-running the move, whose old_path no longer exists.
 
 Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text. Only the target path is changed.
 

@@ -36,13 +36,14 @@ export const lstatOrNull = async (path: string): Promise<Stats | null> => {
 }
 
 /** Recursively reads a directory's entries (with file types), returning null
- *  instead of throwing when the directory does not exist (ENOENT). Any other
+ *  instead of throwing when no directory exists at the path: nothing is there
+ *  (ENOENT), or the path or one of its parents is a file (ENOTDIR). Any other
  *  error propagates. */
 export const readdirOrNull = async (path: string): Promise<Dirent[] | null> => {
   try {
     return await readdir(path, { recursive: true, withFileTypes: true })
   } catch (error) {
-    if (isErrnoException(error, "ENOENT")) return null
+    if (isErrnoException(error, "ENOENT") || isErrnoException(error, "ENOTDIR")) return null
     throw error
   }
 }

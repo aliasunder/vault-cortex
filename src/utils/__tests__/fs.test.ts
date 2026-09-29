@@ -54,6 +54,13 @@ describe("readdirOrNull", () => {
     const dir = await makeTempDir()
     expect(await readdirOrNull(join(dir, "nope"))).toBeNull()
   })
+
+  it("returns null when the path names a file, not a directory", async () => {
+    const dir = await makeTempDir()
+    const filePath = join(dir, "note.md")
+    await writeFile(filePath, "x", "utf8")
+    expect(await readdirOrNull(filePath)).toBeNull()
+  })
 })
 
 describe("statOrNull", () => {

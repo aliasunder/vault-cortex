@@ -84,7 +84,7 @@ export const registerAssetTools = ({
       title: "Read File",
       description: `Read a non-markdown vault file in its most useful form per type — the read-side companion to vault_read_note for everything that isn't a note.
 
-Example: vault_read_file({ path: "attachments/diagram.png" }) — the image itself, shrunk to fit the image output budget when needed
+Example: vault_read_file({ path: "attachments/diagram.png" }) — the image itself, shrunk when too large
 Example: vault_read_file({ path: "Boards/Roadmap.canvas" }) — a readable outline of the canvas
 Example: vault_read_file({ path: "Boards/Roadmap.canvas", raw: true }) — the canvas's exact JSON source
 Example: vault_read_file({ path: "exports/data.json" }) — the file content as text
@@ -93,7 +93,7 @@ Example: vault_read_file({ path: "papers/research.pdf" }) — structured text wi
 Example: vault_read_file({ path: "papers/research.pdf", raw: true }) — each page rendered as an image block
 
 What each type returns:
-- Images (.png/.jpg/.jpeg/.gif/.webp): the image as a viewable image block — downscaled and recompressed server-side when it exceeds the image output budget (MAX_IMAGE_OUTPUT_BYTES, ${config.maxImageOutputBytes} bytes), delivered untouched otherwise — plus a text line stating the path, delivered format/dimensions/bytes, and the original dimensions when shrunk. Animated GIFs are reduced to their first frame when recompressed.
+- Images (.png/.jpg/.jpeg/.gif/.webp): the image as a viewable image block — downscaled and recompressed server-side when it exceeds the image output budget (MAX_IMAGE_OUTPUT_BYTES, ${config.maxImageOutputBytes} bytes) or 1568 pixels on its longer side, delivered untouched otherwise — plus a text line stating the path, delivered format/dimensions/bytes, and the original dimensions when shrunk. Animated GIFs are reduced to their first frame when recompressed.
 - Canvas (.canvas): a readable markdown outline per JSON Canvas 1.0 — groups (by visual containment), node content in reading order, and a connections list with edge labels. Set raw: true for the exact JSON source instead (geometry, ids, colors — full fidelity).
 - PDFs (.pdf): structured text with document metadata — title, page count, heading hierarchy (from font sizes relative to the body text), code blocks and inline code (from monospace fonts), page separators, and a deduplicated links footer. Richer than flat text extraction: headings, code, and hyperlinks that flat extraction loses are preserved. Set raw: true for page images instead — each page rendered and returned as an image block, showing layout, diagrams, tables, and formatting that text extraction cannot preserve. Image-only and scanned PDFs work in raw mode. Only the first ${config.maxPdfRenderPages} pages are rendered; the text read (without raw) covers every page.
 - Text formats (.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base): the file content verbatim as text. .svg is returned as its XML source; .base as its YAML source.
@@ -216,8 +216,7 @@ Parameters:
 
 Errors:
 - A visible folder containing no files — or one that doesn't exist — returns an empty listing, not an error.
-- A folder path escaping the vault (e.g. "../elsewhere") is rejected with a path-traversal error.
-- "hidden path blocked" — the folder is hidden (dot-prefixed, like ".obsidian"); hidden folders are not listable, matching Obsidian.
+- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the folder starts at the filesystem root, escapes the vault (e.g. "../elsewhere") or names the vault root itself (e.g. "."), or is hidden like ".obsidian" (hidden folders are not listable, matching Obsidian); use a vault-relative folder outside hidden folders, and omit folder to list the whole vault.
 
 Returns: JSON with files (array of { path, extension, bytes }, sorted by path), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). bytes is the on-disk file size, not the delivery cost: reading an image via vault_read_file returns a copy shrunk to fit when needed, so a large listed image is still cheap to read. Text formats return verbatim, so their listed size is what a read delivers. Files of supported types are readable via vault_read_file.`,
       inputSchema: {
