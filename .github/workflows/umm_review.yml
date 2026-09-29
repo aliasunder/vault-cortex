@@ -85,22 +85,23 @@ jobs:
           permission-checks: write
 
       # Every optional input is overridable via a repo variable (Settings →
-      # Secrets and variables → Actions → Variables). Unset vars use the action
-      # default unless the expression below supplies an explicit workflow default.
-      # Inputs whose default is empty (fallback_model, max_findings) pass empty
-      # when the var is unset — identical to omitting them.
-      - uses: aliasunder/umm-actually@4f73e6112e61e0ce38ecef51e28c2338ff2aa3de # v0.4.8
+      # Secrets and variables → Actions → Variables). An unset var passes an
+      # empty value, which selects the action default, so a newly added input
+      # needs no `|| '<value>'` fallback here. The existing fallbacks stay;
+      # priority_docs needs its README.md fallback, because an empty value
+      # disables priority docs.
+      - uses: aliasunder/umm-actually@aa484fb81b0a391ce5938ae264367e9f679021fd # v0.4.9
         with:
           github_token: ${{ steps.app-token.outputs.token }}
           openrouter_api_key: ${{ secrets.OPENROUTER_KEY }}
           # Full OpenRouter slug as listed on openrouter.ai/models — no
           # "openrouter/" prefix, e.g. deepseek/deepseek-v4-pro
           model: ${{ vars.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4-6' }}
-          # Same slug format; retried when the primary fails structured
-          # output. Empty = no fallback
+          # Same slug format; tried after the primary model's attempts fail
+          # (never on an auth or credit error). Empty = no fallback
           fallback_model: ${{ vars.UMM_FALLBACK_MODEL }}
           # Per-attempt cap on a single model request; a timed-out attempt
-          # aborts and advances the retry/fallback ladder. Empty = 900
+          # moves to fallback_model if one is set. Empty = 900
           request_timeout_seconds: ${{ vars.UMM_REQUEST_TIMEOUT_SECONDS }}
           # Shared cap across review work. Empty = 1500. Use 1500 or less
           # to leave publication headroom before the 30-minute job timeout.
@@ -114,7 +115,8 @@ jobs:
           # the model
           conventions_file: ${{ vars.UMM_CONVENTIONS_FILE || 'AGENTS.md' }}
           # Approximate token budget for the conventions file section.
-          # Files over this are truncated with a notice. Empty = 8000
+          # Files over this are truncated; the status comment and check
+          # details say when the whole file never reached the model. Empty = 8000
           conventions_budget_tokens: ${{ vars.UMM_CONVENTIONS_BUDGET_TOKENS }}
           # Comma-separated repo-relative paths always included in review
           # context. Nested paths fine; spaces after commas fine; never
@@ -133,28 +135,29 @@ jobs:
           # order: diff → priority docs (up to 10% of the budget, read
           # before changed files) → changed files → import-traced related
           # files → priority docs that didn't fit earlier → mention-matched
-          # docs. (Conventions file has its own separate cap inside the
-          # action.)
+          # docs. A diff over half the budget skips the review. (Conventions
+          # file has its own separate cap inside the action.)
           context_budget_tokens: ${{ vars.UMM_CONTEXT_BUDGET_TOKENS || '300000' }}
           # true | false — import-tracing (caller regressions) and
           # doc-mention scanning (staleness)
           trace_related_files: ${{ vars.UMM_TRACE_RELATED_FILES || 'true' }}
-          # BFS walk cap — total files indexed for import-tracing and
-          # doc-mention scanning. Walk terminates early at the cap; files
-          # in unvisited directories are invisible to related-file detection.
+          # Cap on files each repo scan collects — JS/TS files for import
+          # tracing, .md/.json files for doc mentions. A scan stops at the cap;
+          # files in unvisited directories are invisible to related-file detection.
           max_scan_files: ${{ vars.UMM_MAX_SCAN_FILES || '5000' }}
-          # Per-file byte cap — files larger than this are silently
-          # excluded from the scan index (stat check only, not read).
-          # 524288 = 512 KiB ≈ 8 000 lines of typical code.
+          # Per-file byte cap — files larger than this are skipped by the repo
+          # scans (stat check only, not read); an oversized root .gitattributes
+          # is ignored. 524288 = 512 KiB ≈ 8 000 lines of typical code.
           max_scan_bytes: ${{ vars.UMM_MAX_SCAN_BYTES || '524288' }}
           # Count caps are independent buckets: max_related_files caps
           # import-traced code files only; max_related_docs caps
           # mention-matched docs only and NEVER counts priority_docs
           # (those are excluded from its bucket)
-          max_related_files: ${{ vars.UMM_MAX_RELATED_FILES || '8' }}
-          max_related_docs: ${{ vars.UMM_MAX_RELATED_DOCS || '4' }}
-          # Comma-separated folder prefixes excluded from the workspace
-          # scan — invisible to import-tracing and doc-mention matching.
+          max_related_files: ${{ vars.UMM_MAX_RELATED_FILES || '15' }}
+          max_related_docs: ${{ vars.UMM_MAX_RELATED_DOCS || '10' }}
+          # Comma-separated folder paths from the repo root, excluded from the
+          # repo scans — invisible to import-tracing and doc-mention matching.
+          # Full-path match: `fixtures` does not exclude `src/fixtures`.
           # Changed files and priority_docs are never excluded.
           exclude_paths: ${{ vars.UMM_EXCLUDE_PATHS }}
           # Comma-separated folder prefixes or globs removed from the review
@@ -166,5 +169,6 @@ jobs:
           # true | false — also exclude changed files the root .gitattributes
           # marks linguist-generated=true
           respect_linguist_generated: ${{ vars.UMM_RESPECT_LINGUIST_GENERATED || 'true' }}
-          # true | false — per-run cost report in the workflow step summary
+          # true | false — per-run cost report in the workflow job summary and
+          # the check run's details page
           cost_summary: ${{ vars.UMM_COST_SUMMARY || 'true' }}
