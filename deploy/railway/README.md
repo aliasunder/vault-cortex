@@ -377,8 +377,14 @@ download at once.
 
 If it still stops after several hours, one file is probably failing to
 download every time. In the logs, the `Downloading` line just before
-`Sync error:` names it. Fix or delete that file in Obsidian on another
-device, or add its folder to `SYNC_EXCLUDED_FOLDERS`.
+`Sync error:` names it. Then do one of these:
+
+- Fix the file in Obsidian on another device.
+- Delete it in Obsidian on another device. The deletion reaches every
+  device, and Obsidian Sync's version history (Settings → Sync → Deleted
+  files) keeps it for 1 month on Sync Standard and 12 months on Sync Plus.
+- Add its folder to `SYNC_EXCLUDED_FOLDERS`. That keeps every file in the
+  folder off the server, not just the failing one.
 
 N can be higher than the number of files you expect. It includes files that
 your `SYNC_FILE_TYPES`, `SYNC_EXCLUDED_FOLDERS`, or `SYNC_CONFIGS` settings
