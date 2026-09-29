@@ -108,6 +108,23 @@
 
 
 
+
+## [0.54.4] — 2026-09-29
+
+### Bug Fixes
+
+- **remote:** Clearer advice when the first sync keeps failing (#618)
+- **remote:** Never push a deletion for a file the server never downloaded (#617)
+
+### Documentation
+
+- **deploy:** State what SYNC_FILE_TYPES syncs by default and where text files fall (#615)
+- Update CHANGELOG.md for v0.54.3
+
+### Maintenance
+
+- **ci:** Bump umm-actually to v0.4.9 (#619)
+
 ## [0.54.3] — 2026-09-26
 
 ### Features
