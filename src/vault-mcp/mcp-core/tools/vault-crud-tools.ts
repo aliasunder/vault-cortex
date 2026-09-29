@@ -318,7 +318,7 @@ When to use: Browsing what exists in a folder by filename, or finding notes matc
 Prefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery. Use vault_read_note to read a note from the results.
 
 Parameters:
-- folder scopes the listing to a path prefix ("Projects" includes "Projects/Archive"). Whether its letter case must match depends on the vault's filesystem.
+- folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Use the folder's exact letter case, as other results show it; on a case-sensitive filesystem a different case finds nothing.
 - glob matches the whole vault-relative path, case-sensitively, even when folder is set: with folder "Projects", "*.md" matches nothing, because * stays within one path segment. Use "Projects/*.md" for the folder's top level or "**/*.md" for any depth.
 
 Behavior: Paths come back sorted by vault-relative path, uppercase before lowercase. Hidden (dot-prefixed) notes and folders are never listed, matching Obsidian; symlinked notes are included.
@@ -333,12 +333,14 @@ Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Proj
           .string()
           .optional()
           .describe(
-            `Folder path prefix (e.g. ${config.memoryEnabled ? `"${config.memoryDir}", ` : ""}"Projects"). Includes all subfolders.`,
+            `Vault-relative folder to list (e.g. ${config.memoryEnabled ? `"${config.memoryDir}", ` : ""}"Projects").`,
           ),
         glob: z
           .string()
           .optional()
-          .describe('Glob pattern for path filtering (e.g. "**/*session-log*.md").'),
+          .describe(
+            'Glob pattern matched against each note\'s vault-relative path (e.g. "**/*session-log*.md").',
+          ),
       },
     },
     async ({ folder, glob }, extra) => {
@@ -933,11 +935,11 @@ Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: t
 When to use: Removing a note you no longer need. The vault's settings decide trash or permanent delete; the call cannot choose.${whenToolEnabledText("vault_delete_memory", `\nPrefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.`)}${whenToolEnabledText("vault_move_note", "\nTo relocate a note, use vault_move_note instead.")}${whenToolEnabledText("vault_write_note", "\nTo replace a note's content, use vault_write_note with overwrite: true instead.")}
 
 Behavior:
-- The "Deleted files" setting (\`trashOption\` in \`.obsidian/app.json\`) decides the outcome when the vault is served locally:
-  - "Move to system trash" (\`system\`, also what an absent setting means) moves the note to \`.trash/\` inside the vault. The server removes the copies it moved there after TRASH_RETENTION_DAYS (default 30; \`none\` keeps them forever); notes Obsidian itself trashed are never touched.
+- Unless the server syncs through Obsidian Sync, the "Deleted files" setting (\`trashOption\` in \`.obsidian/app.json\`) decides the outcome:
+  - "Move to system trash" (\`system\`, also what an absent setting means) moves the note to \`.trash/\` inside the vault, since the server has no system trash. The server removes the copies it moved there after its TRASH_RETENTION_DAYS setting (default 30 days, or never when set to none); notes Obsidian itself trashed are never touched.
   - "Move to Obsidian trash" (\`local\`) moves the note to \`.trash/\` and keeps it forever.
   - "Permanently delete" (\`none\`) removes the note for good.
-- With Obsidian Sync configured, the setting is bypassed and the note is always deleted for good; recover it from Sync's version history (1 month on Standard, 12 months on Plus).
+- When the server syncs through Obsidian Sync, the setting is bypassed and the note is always deleted for good; recover it from Sync's version history (1 month on Standard, 12 months on Plus). You can't see which mode applies before the call; the returned message says which happened.
 - Links to the note from other notes become broken${whenToolEnabledText("vault_get_backlinks", " (detectable via vault_get_backlinks)")}. Protected paths (${describeProtectedPaths(config)}) are refused.
 
 Parameters:
@@ -945,11 +947,12 @@ Parameters:
 
 Errors:
 - "cannot delete protected path" — the path sits under a protected folder${whenToolEnabledText("vault_delete_memory", "; use vault_delete_memory for memory entries")}
+- "path must end in …" — the path is missing the .md extension; add it
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the path starts at the filesystem root, escapes the vault, or targets a hidden (dot-prefixed) file or folder like ".obsidian/"; use a vault-relative path outside hidden folders
 - "concurrent write in progress" — another write to this note is in flight; retry
 - "note not found: …" — the note does not exist${whenToolEnabledText("vault_list_notes", "; verify the path with vault_list_notes before deleting")}
-- "cannot move to trash … — 100 collisions in .trash/" — the note's name already exists 100 times in .trash/; clear old trash files to free the name
-- "cannot move to trash …" — the .trash/ move failed (e.g. a plain file blocks a needed folder); the note stays put; fix .trash/, then retry
+- "cannot move to trash … — 100 collisions in .trash/" — .trash/ already holds this note's name and every numbered copy (for Plan.md, "Plan 1.md" through "Plan 100.md"); clear old trash copies, then retry
+- any other "cannot move to trash …" — the .trash/ move failed (e.g. a plain file blocks a needed folder); the note stays put; fix .trash/, then retry
 - "cannot delete …" — the permanent delete failed (e.g. permissions); the note stays put; fix the cause, then retry
 - "cannot read trash config from .obsidian/app.json" — the file exists but is unreadable; the delete is blocked rather than risk skipping a configured .trash/; repair the file, then retry
 
@@ -1027,7 +1030,7 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
     TOOL_NAMES.VAULT_MOVE_NOTE,
     {
       title: "Move Note",
-      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and frontmatter links (e.g. related:) — are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]], ![img](../assets/photo.png)). A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone. Without this tool a move silently breaks every backlink.
+      description: `Move or rename a note and rewrite every link across the vault that points to it, like Obsidian's built-in rename. Incoming links in other notes — [[wikilinks]], [[wikilink|aliases]], [[wikilink#headings]], ![[embeds]], [markdown](links.md), and frontmatter links (e.g. related:) — are updated to the new path; the moved note's own relative links are fixed so they still resolve from the new folder, including relative links to attachments (e.g. ![[../assets/photo.png]], ![img](../assets/photo.png)). A link is only rewritten when leaving it unchanged would break it, so a short [[Note]] that stays unambiguous after a folder move is left alone. Moving a note any other way can silently break its backlinks.
 
 Example: vault_move_note({ old_path: "Inbox/Draft.md", new_path: "Inbox/Spec.md" }) — pure rename.
 Example: vault_move_note({ old_path: "Inbox/spec.md", new_path: "Inbox/Spec.md" }) — case-only rename; works even where the filesystem treats both spellings as one file.
@@ -1045,12 +1048,12 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — old_path or new_path starts at the filesystem root, escapes the vault, or targets a hidden (dot-prefixed) file or folder like ".obsidian/"; use vault-relative paths outside hidden folders (notes cannot move from or into hidden paths, matching Obsidian).
 - "concurrent write in progress" — a write is in flight on the note, the destination, or one of its backlink sources (the move locks all of them as one unit); retry the move.
 - "backlink set did not stabilize" — the vault was modified during the move and new backlink sources kept appearing across retries; nothing was written; retry the move.
-- Mid-move I/O failure in an ordinary move (rare, e.g. a permission or disk error) — no data is lost, and the error names what failed and the resulting state. The original is deleted only after the destination and every backlink are written. If a backlink write failed, new_path exists and old_path is intact: delete the partial new_path, then re-run the move. If the final delete failed, both paths exist: delete old_path to finish.
-- Mid-move I/O failure in a case-only rename — the note is renamed in place first. If the rename failed, nothing was written. If a later link write failed, the note already lives at new_path: fix the remaining links in place (the error names them) instead of re-running the move, whose old_path no longer exists.
+- An ordinary move that fails partway (rare: a permission or disk error) — no data is lost, and the error names what failed and the resulting state. The original is deleted only after the destination and every backlink are written. If a backlink write failed, new_path exists and old_path is intact: delete the partial new_path, then re-run the move. If the final delete failed, both paths exist: delete old_path to finish.
+- A case-only rename that fails partway — the note is renamed in place first. If the rename failed, nothing was written. If a later link write failed, the note already lives at new_path: fix the remaining links in place (the error names them) instead of re-running the move, whose old_path no longer exists.
 
 Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text. Only the target path is changed.
 
-Returns: JSON with moved_to (the new path), links_updated (count of link occurrences rewritten), updated_notes (sorted paths of the other notes that were edited; the moved note is implied by moved_to), and pruned_empty_folders (count of source folders removed — 0 unless prune_empty_folders was set).`,
+Returns: JSON with moved_to (the new path), links_updated (count of link occurrences rewritten, including the moved note's own relative links), updated_notes (sorted paths of the other notes that were edited; the moved note is implied by moved_to), and pruned_empty_folders (count of empty parent folders removed — 0 unless prune_empty_folders was set).`,
       inputSchema: {
         old_path: z
           .string()
@@ -1069,7 +1072,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
           .optional()
           .default(false)
           .describe(
-            "When true, remove the source folder(s) if the move leaves them empty, walking up to (but never including) the vault root. Default false matches Obsidian, which leaves empty folders in place. Only removes a folder with zero entries — an in-place rename or a move into a subfolder of the source leaves it non-empty and prunes nothing.",
+            "When true, remove each parent folder of old_path that the move leaves empty, walking up to (but never including) the vault root. Default false matches Obsidian, which leaves empty folders in place. Only removes a folder with zero entries — an in-place rename or a move into a subfolder of the source leaves it non-empty and prunes nothing.",
           ),
       },
     },

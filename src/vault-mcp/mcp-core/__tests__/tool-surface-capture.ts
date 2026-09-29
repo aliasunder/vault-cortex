@@ -157,12 +157,22 @@ export const captureToolSurface = async (combo: SurfaceCombo): Promise<SurfaceCa
   }
 }
 
-/** Measures the context a client spends on one tool definition as the length
- *  of its description plus its serialized input schema. The size cap and
+type ToolDefinitionChars = Readonly<{
+  descriptionChars: number
+  inputSchemaChars: number
+  totalChars: number
+}>
+
+/** Measures the context a client spends on one tool definition, in UTF-16 code
+ *  units (JavaScript string length): the description plus the JSON-serialized
+ *  input schema. The name, title, and annotations are left out because they are
+ *  short and change only when a tool is added. The size cap and
  *  `npm run report:tool-surface-size` both use this measure. */
-export const measureToolDefinitionChars = (tool: Tool): number => {
+export const measureToolDefinitionChars = (tool: Tool): ToolDefinitionChars => {
   const descriptionChars = tool.description?.length ?? 0
-  return descriptionChars + JSON.stringify(tool.inputSchema).length
+  const inputSchemaChars = JSON.stringify(tool.inputSchema).length
+
+  return { descriptionChars, inputSchemaChars, totalChars: descriptionChars + inputSchemaChars }
 }
 
 /** Byte-exact committed form: pre-serialized so vitest writes the file

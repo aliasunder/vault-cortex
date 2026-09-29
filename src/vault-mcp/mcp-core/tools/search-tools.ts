@@ -312,14 +312,14 @@ Prefer vault_list_notes when you only need paths. Prefer vault_search when you h
 Parameters:
 - folder names a whole folder, not a text prefix: "Projects" matches notes under "Projects/" but not "ProjectsOld/". Matching ignores ASCII letter case, and a trailing slash is ignored.
 - recursive (default true) includes all nested subfolders; set false to list only the folder's top level.
-- limit (default 20) applies after sorting, so you get the most recently modified notes. Nothing in the response says more exist: exactly limit results means raise it to see the rest.
+- limit (default 20) applies after sorting, so you get the most recently modified notes. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
 
-Behavior: Reads the search index, which the file watcher keeps current within seconds of a change. Notes in hidden (dot-prefixed) folders are never indexed, so never appear.
+Behavior: Reads the search index, which picks up a file change within a few seconds, so a note written moments ago may not appear yet. Notes in hidden (dot-prefixed) folders are never indexed, so never appear.
 
 Errors:
 - An empty or nonexistent folder returns an empty array, not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified, then by path. bytes is the on-disk file size.`,
+Returns: JSON array of note metadata sorted by most recently modified, then by path: path, title, tags, related, folder, type, created (frontmatter; null when missing), modified (file modification time), bytes (on-disk size), plus leading_callout ({ type, title, body }) when the note opens with a callout and additional_properties (its other frontmatter keys) when it has any.`,
       inputSchema: {
         folder: z
           .string()
@@ -364,9 +364,9 @@ When to use: Discovering what properties exist before searching by property. Goo
 Prefer vault_list_property_values when you need the full list of values for a specific key. Prefer vault_search_by_property to find notes matching a specific key-value pair.
 
 Parameters:
-- folder is matched as a whole-folder prefix and recurses into subfolders ("Projects" also covers "Projects/Archive"), ignoring ASCII letter case; omit it to scan the entire vault.
+- folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case; omit folder to scan the entire vault.
 
-Behavior: Only frontmatter properties count; inline Dataview fields (key:: value) are not listed. count is the number of notes that have the key. sample_values are the key's 3 most frequent values, counting each array element separately, returned as strings (checkbox values as "1" and "0"); null values are skipped. An empty vault or folder returns an empty array, not an error.
+Behavior: Only frontmatter properties count; inline Dataview fields (key:: value) are not listed. count is the number of notes that have the key, including notes where its value is empty (null). sample_values are the key's 3 most frequent values, counting each array element separately, returned as strings (checkbox values as "1" and "0"); null values are skipped. An empty vault or folder returns an empty array, not an error.
 
 Returns: JSON array of { key, count, sample_values } sorted by count descending, then by key.`,
       inputSchema: {
@@ -398,14 +398,18 @@ Returns: JSON array of { key, count, sample_values } sorted by count descending,
 
 Example: vault_list_property_values({ key: "status" }) returns [{ value: "done", count: 211 }, { value: "active", count: 47 }, ...]
 
-When to use: Enumerating possible values for a property key before calling vault_search_by_property. Handles both scalar properties (status: "active") and array properties (tags: ["a", "b"]) — array elements are unpacked and counted individually, so the sum of counts may exceed the note count. An unknown key or empty folder returns an empty array, not an error. Call vault_list_property_keys first to discover valid key names.
+When to use: Enumerating possible values for a property key before calling vault_search_by_property. Call vault_list_property_keys first to discover valid key names.
 
 Parameters:
 - key is case-sensitive and must match exactly as returned by vault_list_property_keys.
-- folder + key interact: folder restricts counting to a subtree (a whole-folder prefix, ignoring ASCII letter case), so the same key can return different value distributions depending on folder scope.
-- limit (default 50) applies after sorting by count descending, so you always get the most-used values first. Nothing in the response says more exist: exactly limit values means raise it, as high-cardinality keys like "title" or "created" need.
+- folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case.
+- limit (default 50) applies after sorting by count descending, so you always get the most-used values first. Nothing in the response signals truncation: exactly limit values may mean more exist, which is common for keys with many distinct values like "title" or "created"; raise limit to check.
 
-Behavior: Values are grouped first and turned into strings after, so a number and the same digits written as text (1 and "1") come back as two separate "1" rows. Checkbox (true/false) values come back as "1" and "0", counted with the numbers 1 and 0. null values are skipped.
+Behavior:
+- Handles both scalar properties (status: "active") and array properties (tags: ["a", "b"]). Array elements are unpacked and counted individually, so the sum of counts may exceed the note count.
+- Values are grouped first and turned into strings after, so a number and the same digits written as text (1 and "1") come back as two separate "1" rows.
+- Checkbox values are stored as 1 and 0, so true and false come back as "1" and "0", counted with the numbers 1 and 0.${whenToolEnabledText("vault_search_by_property", `\n- vault_search_by_property compares values as text, so value "1" matches the number 1, the text "1", and a checked checkbox.`)}
+- null values are skipped. An unknown key or empty folder returns an empty array, not an error.
 
 Returns: JSON array of { value, count } sorted by count descending.`,
       inputSchema: {
@@ -415,11 +419,7 @@ Returns: JSON array of { value, count } sorted by count descending.`,
           .describe(
             'Property key name — use vault_list_property_keys to discover valid keys (e.g. "status", "type", "tags").',
           ),
-        folder: z
-          .string()
-          .min(1)
-          .optional()
-          .describe('Restrict to a folder prefix (e.g. "Projects")'),
+        folder: z.string().min(1).optional().describe('Restrict to a folder (e.g. "Projects")'),
         limit: z
           .number()
           .int()

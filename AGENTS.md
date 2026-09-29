@@ -815,24 +815,28 @@ covers both kinds, with reasons:
   empty-result contract worth clarifying (e.g. "returns an empty
   array, not an error"); omit it only for tools that cannot
   meaningfully fail. Include `Obsidian syntax:` on write tools.
-- Parameter text has one home per kind of fact. The agent already
-  receives the schema, so a description earns its space (and its
-  quality score, e.g. Glama's TDQS) only with what the schema doesn't
-  say:
-  - A parameter's Zod `.describe()` gives its plain meaning: what it
-    is, its format, its default.
-  - The description gives what the schema can't: interactions
+- Parameter text has one home per kind of fact. The calling model
+  receives each parameter's Zod `.describe()` text inside the input
+  schema, so the tool description earns its space (and its score from
+  graders such as Glama's Tool Definition Quality Score, TDQS) only
+  with what that text doesn't say:
+  - `.describe()` gives the parameter's plain meaning: what it is,
+    its format, and its default.
+  - The description gives what `.describe()` can't: interactions
     between parameters, consequences, and non-obvious semantics.
-  - When a fact appears in both, keep it in the description and cut
-    the schema text back to the plain meaning. Never drop a fact the
-    schema alone carries.
+  - When a semantic fact appears in both, keep it in the description
+    and cut `.describe()` back to the plain meaning. Format and
+    default stay in `.describe()`. Never drop a fact only
+    `.describe()` carries.
 - `Errors:` gets one bullet per distinct remedy, and every bullet
-  keeps its remedy. Messages that share a remedy share a bullet
-  (`"absolute path blocked" / "path traversal blocked" / "hidden
-path blocked"`), listing only the messages that tool can raise.
-- The tool list's total size is capped in
-  `tool-surface-snapshot.test.ts`, because clients such as claude.ai
-  load every definition into each conversation.
+  keeps its remedy. Messages that share a remedy share one bullet,
+  which lists only the messages that tool can raise: for example
+  `"absolute path blocked"`, `"path traversal blocked"`, and
+  `"hidden path blocked"`.
+- `tool-surface-snapshot.test.ts` caps the tool list's size, because
+  clients such as claude.ai load every definition into each
+  conversation. Each checked combo's total must stay within
+  `CHARS_PER_TOOL_ALLOWANCE` times its tool count.
   `npm run report:tool-surface-size` prints per-tool sizes; run it
   before and after editing a description.
 
@@ -853,9 +857,9 @@ path blocked"`), listing only the messages that tool can raise.
 5. **Snapshot baseline** — run `npm run snapshot:update` and commit the
    regenerated `__snapshots__/tool-surface/` files; any change to the
    tool surface fails the drift test until the baseline matches. The
-   same file's size cap fails if the new tool is much larger than the
-   per-tool average; trim the text, or raise the allowance and give the
-   reason in the PR.
+   size cap in `tool-surface-snapshot.test.ts` fails if the new tool is
+   much larger than the per-tool average; trim the text, or raise
+   `CHARS_PER_TOOL_ALLOWANCE` and give the reason in the PR.
 6. **Feature-surface docs** — see the "Files that track feature
    surface" list below for which files to update (README tools table,
    ARCHITECTURE.md, DOCKERHUB regen, etc.).

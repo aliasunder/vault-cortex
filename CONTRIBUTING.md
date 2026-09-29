@@ -201,10 +201,15 @@ byte-level record of the MCP wire surface. A PR that changes tool schemas,
 descriptions, prompts, or server instructions regenerates it with
 `npm run snapshot:update`, and the baseline diff is where reviewers judge
 whether the change is breaking. The baseline captured at each release commit is
-the stability contract's regression reference. The same test file caps the
-tool list's total size, since some clients load every tool definition into each
-conversation: `npm run report:tool-surface-size` prints per-tool sizes, and a
-PR that raises the allowance states why.
+the regression reference for the
+[v1.0.0 stability contract](./ROADMAP.md#v100--a-stability-contract).
+
+`tool-surface-snapshot.test.ts`, which checks the baseline, also caps the tool
+list's size, because some clients load every tool definition into each
+conversation. Each checked combo's total must stay within a per-tool allowance
+(`CHARS_PER_TOOL_ALLOWANCE`) times its tool count.
+`npm run report:tool-surface-size` prints per-tool sizes, and a PR that raises
+the allowance states why.
 
 ## Release Process
 

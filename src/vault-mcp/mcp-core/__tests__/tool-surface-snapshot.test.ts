@@ -28,31 +28,37 @@ describe("tool surface baseline", () => {
 
   /** Clients such as claude.ai and Claude Desktop load every tool definition
    *  into each conversation, so the definitions' total size is a per-chat
-   *  context cost. The cap scales with the tool count, so a new tool adds one
-   *  allowance. It has two limits.
+   *  context cost. A combo's cap is this per-tool allowance times its tool
+   *  count, so a new tool adds one allowance. The cap has two blind spots:
    *  - It checks a combo's total, so one tool can grow while another shrinks;
    *    `npm run report:tool-surface-size` shows the per-tool sizes.
-   *  - The allowance sits about 3% above the current average, so small
-   *    regrowth passes.
+   *  - The allowance sits about 3% above the default combo's average when it
+   *    was set (3,926 chars per tool), so small growth passes.
    *  Raising the allowance is a deliberate change with its reason in the PR. */
   const CHARS_PER_TOOL_ALLOWANCE = 4040
 
   // Default holds every tool; embedding-off renders the keyword-only text of
-  // the search tools, which default never shows. The read-only combos average
-  // about a quarter less per tool, so this allowance would be slack there.
+  // the search tools, which default never shows. Every other combo only drops
+  // tools or cross-references from these two, so it adds no text to check.
+  // Some of them (memory-off) average more per tool than default because the
+  // tools they drop are small.
   it.each(["default", "embedding-off"])(
-    "combo %s stays within the per-tool size allowance",
+    "combo %s stays within the average per-tool size allowance",
     async (comboName) => {
       const combo = SURFACE_COMBOS.find((surfaceCombo) => surfaceCombo.name === comboName)
 
       if (!combo) {
         throw new Error(`no surface combo named ${comboName}`)
       }
+
       const capture = await captureToolSurface(combo)
       const totalChars = capture.tools
-        .map(measureToolDefinitionChars)
+        .map((tool) => measureToolDefinitionChars(tool).totalChars)
         .reduce((sum, toolChars) => sum + toolChars, 0)
-      expect(totalChars).toBeLessThanOrEqual(CHARS_PER_TOOL_ALLOWANCE * capture.tools.length)
+      expect(
+        totalChars,
+        "tool definitions exceed the size cap; run npm run report:tool-surface-size for per-tool sizes",
+      ).toBeLessThanOrEqual(CHARS_PER_TOOL_ALLOWANCE * capture.tools.length)
     },
   )
 
