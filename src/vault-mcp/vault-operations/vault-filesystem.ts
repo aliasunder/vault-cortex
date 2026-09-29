@@ -765,8 +765,16 @@ const listNotes = async (
     logger,
   )
 
+  // With a folder, the glob matches each path relative to that folder. The
+  // folder is re-derived from its resolved form so aliases ("Projects/",
+  // "./Projects") reduce to the same vault-relative prefix as the listed paths.
+  const globBase = params.folder
+    ? relative(resolve(params.vaultPath), resolveSafePath(params.vaultPath, params.folder))
+    : ""
   const isMatch = params.glob ? picomatch(params.glob) : undefined
-  const result = isMatch ? paths.filter((notePath) => isMatch(notePath)) : paths
+  const result = isMatch
+    ? paths.filter((notePath) => isMatch(posix.relative(globBase, notePath)))
+    : paths
   logger.info("listed notes", { folder: params.folder, count: result.length })
   return result
 }

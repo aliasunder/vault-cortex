@@ -1604,6 +1604,52 @@ describe("listNotes", () => {
     expect(files).toEqual(["notes/a.md"])
   })
 
+  describe("with a folder and a glob", () => {
+    const seedNestedNotes = async (): Promise<void> => {
+      await mkdir(join(vault, "notes/sub/deep"), { recursive: true })
+      await mkdir(join(vault, "other"), { recursive: true })
+      await writeFile(join(vault, "notes/sub/c.md"), "c", "utf8")
+      await writeFile(join(vault, "notes/sub/deep/d.md"), "d", "utf8")
+      await writeFile(join(vault, "other/e.md"), "e", "utf8")
+    }
+
+    it("matches the glob against paths relative to the folder", async () => {
+      await seedNestedNotes()
+      const files = await listNotes({ vaultPath: vault, folder: "notes", glob: "*.md" }, logger)
+      expect(files).toEqual(["notes/a.md", "notes/b.md"])
+    })
+
+    it("matches a recursive glob at every depth inside the folder only", async () => {
+      await seedNestedNotes()
+      const files = await listNotes({ vaultPath: vault, folder: "notes", glob: "**/*.md" }, logger)
+      expect(files).toEqual(["notes/a.md", "notes/b.md", "notes/sub/c.md", "notes/sub/deep/d.md"])
+    })
+
+    it("treats a folder with a trailing slash like the same folder without one", async () => {
+      await seedNestedNotes()
+      const files = await listNotes({ vaultPath: vault, folder: "notes/", glob: "*.md" }, logger)
+      expect(files).toEqual(["notes/a.md", "notes/b.md"])
+    })
+
+    it("matches a subfolder-prefixed glob relative to the folder", async () => {
+      await seedNestedNotes()
+      const files = await listNotes(
+        { vaultPath: vault, folder: "notes", glob: "sub/**/*.md" },
+        logger,
+      )
+      expect(files).toEqual(["notes/sub/c.md", "notes/sub/deep/d.md"])
+    })
+
+    it("treats a folder with a leading ./ segment like the same folder without one", async () => {
+      await seedNestedNotes()
+      const files = await listNotes(
+        { vaultPath: vault, folder: "./notes", glob: "sub/*.md" },
+        logger,
+      )
+      expect(files).toEqual(["notes/sub/c.md"])
+    })
+  })
+
   it("returns empty array for non-existent folder", async () => {
     const files = await listNotes({ vaultPath: vault, folder: "nope" }, logger)
     expect(files).toEqual([])
