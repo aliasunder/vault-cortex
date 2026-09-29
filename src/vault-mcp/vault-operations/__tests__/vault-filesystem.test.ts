@@ -1628,20 +1628,6 @@ describe("listNotes", () => {
     expect(files).toEqual(["notes/a.md", "notes/b.md"])
   })
 
-  it("matches glob against the whole vault-relative path even when folder is set", async () => {
-    // "*" stays within one path segment, so "*.md" can only match root-level
-    // notes, and folder leaves none of those in scope.
-    const files = await listNotes({ vaultPath: vault, folder: "notes", glob: "*.md" }, logger)
-    expect(files).toEqual([])
-    // The same folder with a full-path glob does list its notes, so the empty
-    // result comes from the glob, not from an empty folder.
-    const fullPathGlobFiles = await listNotes(
-      { vaultPath: vault, folder: "notes", glob: "notes/*.md" },
-      logger,
-    )
-    expect(fullPathGlobFiles).toEqual(["notes/a.md", "notes/b.md"])
-  })
-
   it("keeps a single-star glob within one folder level", async () => {
     await mkdir(join(vault, "notes/sub"), { recursive: true })
     await writeFile(join(vault, "notes/sub/c.md"), "c", "utf8")

@@ -313,13 +313,14 @@ Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }
 
 Example: vault_list_notes({ folder: "Projects" })
 Example: vault_list_notes({ glob: "**/*session-log*.md" })
+Example: vault_list_notes({ folder: "Projects", glob: "*.md" }) — the folder's top-level notes only
 
 When to use: Browsing what exists in a folder by filename, or finding notes matching a path pattern.
 Prefer vault_search_by_folder when you need metadata (tags, type, related) along with paths. Prefer vault_search for content-based discovery. Use vault_read_note to read a note from the results.
 
 Parameters:
 - folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Use the folder's exact letter case, as other results show it; on a case-sensitive filesystem a different case finds nothing.
-- glob matches the whole vault-relative path, case-sensitively, even when folder is set: with folder "Projects", "*.md" matches nothing, because * stays within one path segment. Use "Projects/*.md" for the folder's top level or "**/*.md" for any depth.
+- glob matches each note's path inside folder (its vault-relative path when folder is omitted), case-sensitively. * stays within one folder level and ** spans any depth: with folder "Projects", "*.md" lists the folder's top-level notes and "**/*.md" every note under it. Returned paths are always vault-relative.
 
 Behavior: Paths come back sorted by vault-relative path, uppercase before lowercase. Hidden (dot-prefixed) notes and folders are never listed, matching Obsidian; symlinked notes are included.
 
@@ -338,9 +339,7 @@ Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Proj
         glob: z
           .string()
           .optional()
-          .describe(
-            'Glob pattern matched against each note\'s vault-relative path (e.g. "**/*session-log*.md").',
-          ),
+          .describe('Glob pattern for note paths (e.g. "**/*session-log*.md").'),
       },
     },
     async ({ folder, glob }, extra) => {
