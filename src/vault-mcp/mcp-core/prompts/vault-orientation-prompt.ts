@@ -82,7 +82,7 @@ const formatMemoryOutlineEntry = (outline: MemoryFileOutline): string => {
   const sectionLines = outline.headings
     .filter((heading) => heading.level === 2)
     .map((heading) => {
-      const entryCount = heading.entryCount != null ? ` (${heading.entryCount})` : ""
+      const entryCount = heading.entry_count != null ? ` (${heading.entry_count})` : ""
       return `  - ${heading.text}${entryCount}`
     })
   return [`- ${outline.file}`, ...sectionLines].join("\n")

@@ -95,7 +95,7 @@ const toKebabCase = (text: string): string => {
 type MemoryHeading = Readonly<{
   level: 1 | 2
   text: string
-  entryCount?: number
+  entry_count?: number
 }>
 
 /** How a memory file's entries may be maintained. Append-only is the layer's
@@ -900,7 +900,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
             : {
                 level: 2 as const,
                 text: section.heading,
-                entryCount: section.entryCount,
+                entry_count: section.entryCount,
               }
         })
 

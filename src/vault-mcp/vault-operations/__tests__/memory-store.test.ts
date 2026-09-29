@@ -491,7 +491,7 @@ created: 2026-01-01T00:00:00-05:00
     const workingStyle = principles.headings.find(
       (heading) => heading.text === "Working style (newest first)",
     )
-    expect(workingStyle?.entryCount).toBe(2)
+    expect(workingStyle?.entry_count).toBe(2)
   })
 })
 
@@ -1795,17 +1795,17 @@ describe("listMemoryFiles", () => {
     const heuristics = principles.headings.find(
       (heading) => heading.text === "Decision heuristics (newest first)",
     )
-    expect(heuristics?.entryCount).toBe(2)
+    expect(heuristics?.entry_count).toBe(2)
 
     const workingStyle = principles.headings.find(
       (heading) => heading.text === "Working style (newest first)",
     )
-    expect(workingStyle?.entryCount).toBe(1)
+    expect(workingStyle?.entry_count).toBe(1)
 
     const emptySection = principles.headings.find(
       (heading) => heading.text === "Empty section (newest first)",
     )
-    expect(emptySection?.entryCount).toBe(0)
+    expect(emptySection?.entry_count).toBe(0)
   })
 
   it("identifies H1 and H2 headings correctly", async () => {
@@ -1822,7 +1822,7 @@ describe("listMemoryFiles", () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const principles = outlines.find((outline) => outline.file === "Principles")!
     const h1 = principles.headings.find((heading) => heading.level === 1)
-    expect(h1?.entryCount).toBeUndefined()
+    expect(h1?.entry_count).toBeUndefined()
   })
 
   it("returns empty array when About Me directory is empty", async () => {
@@ -1998,7 +1998,7 @@ describe("bootstrapMemoryDir", () => {
     expect(opinions.leading_callout?.title).toBe("Scope of this file")
     expect(opinions.leading_callout?.body).toContain("**Contains:**")
     const totalEntries = opinions.headings.reduce(
-      (sum, heading) => sum + (heading.entryCount ?? 0),
+      (sum, heading) => sum + (heading.entry_count ?? 0),
       0,
     )
     expect(totalEntries).toBe(0)
