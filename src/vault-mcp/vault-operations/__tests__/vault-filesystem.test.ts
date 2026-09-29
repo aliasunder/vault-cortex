@@ -1655,6 +1655,11 @@ describe("listNotes", () => {
     expect(files).toEqual([])
   })
 
+  it("returns empty array when folder names a note, not a folder", async () => {
+    const files = await listNotes({ vaultPath: vault, folder: "notes/a.md" }, logger)
+    expect(files).toEqual([])
+  })
+
   it("returns sorted results", async () => {
     await writeFile(join(vault, "notes/z.md"), "z", "utf8")
     const files = await listNotes({ vaultPath: vault, folder: "notes" }, logger)
