@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest"
 import {
   SURFACE_COMBOS,
   captureToolSurface,
-  measureToolDefinitionChars,
+  measureToolListChars,
   serializeSurfaceCapture,
 } from "./tool-surface-capture.js"
 
@@ -52,9 +52,7 @@ describe("tool surface baseline", () => {
       }
 
       const capture = await captureToolSurface(combo)
-      const totalChars = capture.tools
-        .map((tool) => measureToolDefinitionChars(tool).totalChars)
-        .reduce((sum, toolChars) => sum + toolChars, 0)
+      const totalChars = measureToolListChars(capture.tools)
       expect(
         totalChars,
         "tool definitions exceed the size cap; run npm run report:tool-surface-size for per-tool sizes",

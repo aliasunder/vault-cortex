@@ -175,6 +175,11 @@ export const measureToolDefinitionChars = (tool: Tool): ToolDefinitionChars => {
   return { descriptionChars, inputSchemaChars, totalChars: descriptionChars + inputSchemaChars }
 }
 
+export const measureToolListChars = (tools: readonly Tool[]): number => {
+  const toolTotals = tools.map((tool) => measureToolDefinitionChars(tool).totalChars)
+  return toolTotals.reduce((sum, toolChars) => sum + toolChars, 0)
+}
+
 /** Byte-exact committed form: pre-serialized so vitest writes the file
  *  verbatim (the snapshot directory is prettier-ignored to keep it that way). */
 export const serializeSurfaceCapture = (capture: SurfaceCapture): string => {

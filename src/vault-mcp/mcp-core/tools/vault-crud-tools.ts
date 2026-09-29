@@ -932,14 +932,15 @@ Returns: Confirmation message "Inserted <N> lines <before|after> anchor in <path
 Example: vault_delete_note({ path: "Scratch/temp.md" })
 Example: vault_delete_note({ path: "Archive/2024/old.md", prune_empty_folders: true }) — also remove "Archive/2024" (and "Archive") if deleting the note empties them.
 
-When to use: Removing a note you no longer need. The vault's settings decide trash or permanent delete; the call cannot choose.${whenToolEnabledText("vault_delete_memory", `\nPrefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.`)}${whenToolEnabledText("vault_move_note", "\nTo relocate a note, use vault_move_note instead.")}${whenToolEnabledText("vault_write_note", "\nTo replace a note's content, use vault_write_note with overwrite: true instead.")}
+When to use: Removing a note you no longer need.${whenToolEnabledText("vault_delete_memory", `\nPrefer vault_delete_memory for removing individual dated entries from ${config.memoryDir}/ memory files.`)}${whenToolEnabledText("vault_move_note", "\nTo relocate a note, use vault_move_note instead.")}${whenToolEnabledText("vault_write_note", "\nTo replace a note's content, use vault_write_note with overwrite: true instead.")}
 
 Behavior:
 - Unless the server syncs through Obsidian Sync, the "Deleted files" setting (\`trashOption\` in \`.obsidian/app.json\`) decides the outcome:
-  - "Move to system trash" (\`system\`, also what an absent setting means) moves the note to \`.trash/\` inside the vault, since the server has no system trash. The server removes the copies it moved there after its TRASH_RETENTION_DAYS setting (default 30 days, or never when set to none); notes Obsidian itself trashed are never touched.
+  - "Move to system trash" (\`system\`, also what an absent setting means) moves the note to \`.trash/\`, since the server has no system trash. The server deletes its own copies there after its TRASH_RETENTION_DAYS setting (default 30 days, or never when set to none), never touching notes Obsidian trashed.
   - "Move to Obsidian trash" (\`local\`) moves the note to \`.trash/\` and keeps it forever.
   - "Permanently delete" (\`none\`) removes the note for good.
-- When the server syncs through Obsidian Sync, the setting is bypassed and the note is always deleted for good; recover it from Sync's version history (1 month on Standard, 12 months on Plus). You can't see which mode applies before the call; the returned message says which happened.
+- When the server syncs through Obsidian Sync, the setting is bypassed and the note is always deleted for good; recover it from Sync's version history (1 month on Standard, 12 months on Plus).
+- The caller can't choose or see the outcome in advance; the returned message says which happened.
 - Links to the note from other notes become broken${whenToolEnabledText("vault_get_backlinks", " (detectable via vault_get_backlinks)")}. Protected paths (${describeProtectedPaths(config)}) are refused.
 
 Parameters:
@@ -951,7 +952,7 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the path starts at the filesystem root, escapes the vault, or targets a hidden (dot-prefixed) file or folder like ".obsidian/"; use a vault-relative path outside hidden folders
 - "concurrent write in progress" — another write to this note is in flight; retry
 - "note not found: …" — the note does not exist${whenToolEnabledText("vault_list_notes", "; verify the path with vault_list_notes before deleting")}
-- "cannot move to trash … — 100 collisions in .trash/" — .trash/ already holds this note's name and every numbered copy (for Plan.md, "Plan 1.md" through "Plan 100.md"); clear old trash copies, then retry
+- "cannot move to trash … — 100 collisions in .trash/" — .trash/ already holds this name and its numbered copies ("Plan 1.md" … "Plan 100.md"); clear old trash copies, then retry
 - any other "cannot move to trash …" — the .trash/ move failed (e.g. a plain file blocks a needed folder); the note stays put; fix .trash/, then retry
 - "cannot delete …" — the permanent delete failed (e.g. permissions); the note stays put; fix the cause, then retry
 - "cannot read trash config from .obsidian/app.json" — the file exists but is unreadable; the delete is blocked rather than risk skipping a configured .trash/; repair the file, then retry

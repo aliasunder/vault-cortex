@@ -17,6 +17,7 @@ import {
   SURFACE_COMBOS,
   captureToolSurface,
   measureToolDefinitionChars,
+  measureToolListChars,
 } from "../src/vault-mcp/mcp-core/__tests__/tool-surface-capture.js"
 
 // The combo with no switch flipped, which registers every tool.
@@ -28,9 +29,7 @@ const comboCaptures = await Promise.all(
 
 console.log("combo\ttools\ttotal chars\tavg chars per tool")
 for (const { combo, capture } of comboCaptures) {
-  const totalChars = capture.tools
-    .map((tool) => measureToolDefinitionChars(tool).totalChars)
-    .reduce((sum, toolChars) => sum + toolChars, 0)
+  const totalChars = measureToolListChars(capture.tools)
   const averageCharsPerTool = Math.round(totalChars / capture.tools.length)
   console.log(`${combo.name}\t${capture.tools.length}\t${totalChars}\t${averageCharsPerTool}`)
 }
