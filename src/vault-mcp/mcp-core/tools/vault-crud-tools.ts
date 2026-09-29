@@ -939,7 +939,9 @@ Behavior:
   - "Permanently delete" (\`none\`) removes the note for good.
 - With Obsidian Sync configured, the setting is bypassed and the note is always deleted for good; recover it from Sync's version history (1 month on Standard, 12 months on Plus).
 - Links to the note from other notes become broken${whenToolEnabledText("vault_get_backlinks", " (detectable via vault_get_backlinks)")}. Protected paths (${describeProtectedPaths(config)}) are refused.
-- prune_empty_folders removes each parent folder the delete leaves with zero entries, up to but never including the vault root; a folder holding any file, even a hidden .DS_Store, is kept. Pruning is best-effort: a folder that can't be removed never fails the call. Without it, empty folders stay, matching Obsidian.
+
+Parameters:
+- prune_empty_folders removes each parent folder the delete leaves with zero entries, up to but never including the vault root; a folder holding any file, even a hidden .DS_Store, is kept. Pruning runs after the delete or trash move and is best-effort: a folder that can't be removed never fails the call. Without it, empty folders stay, matching Obsidian.
 
 Errors:
 - "cannot delete protected path" — the path sits under a protected folder${whenToolEnabledText("vault_delete_memory", "; use vault_delete_memory for memory entries")}

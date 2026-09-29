@@ -396,7 +396,7 @@ Returns: JSON array of { key, count, sample_values } sorted by count descending,
       title: "List Property Values",
       description: `List distinct values for a specific property key with how often each occurs. Useful for discovering the range of values a property takes before searching.
 
-Example: vault_list_property_values({ key: "status" }) returns [{ value: "active", count: 47 }, { value: "done", count: 211 }, ...]
+Example: vault_list_property_values({ key: "status" }) returns [{ value: "done", count: 211 }, { value: "active", count: 47 }, ...]
 
 When to use: Enumerating possible values for a property key before calling vault_search_by_property. Handles both scalar properties (status: "active") and array properties (tags: ["a", "b"]) — array elements are unpacked and counted individually, so the sum of counts may exceed the note count. An unknown key or empty folder returns an empty array, not an error. Call vault_list_property_keys first to discover valid key names.
 
