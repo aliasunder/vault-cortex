@@ -2258,6 +2258,32 @@ describe("property keys containing JSON path syntax", () => {
       "notes/decoy-no-keys.md",
     ])
   })
+
+  it("fullTextSearch's properties filter matches a boolean value", () => {
+    index.upsertNote(
+      {
+        filePath: "Projects/published.md",
+        rawContent: "---\npublished: true\n---\nsearchable body\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Projects/draft.md",
+        rawContent: "---\npublished: false\n---\nsearchable body\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+
+    const results = index.fullTextSearch(
+      { query: "searchable", filters: { properties: { published: true } } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual(["Projects/published.md"])
+  })
 })
 
 describe("markdown path requirement", () => {

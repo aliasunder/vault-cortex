@@ -197,7 +197,9 @@ export const fullTextSearch = (
   if (params.filters?.properties) {
     for (const [key, value] of Object.entries(params.filters.properties)) {
       conditions.push("EXISTS (SELECT 1 FROM json_each(n.properties) WHERE key = ? AND value = ?)")
-      queryParams.push(key, value)
+      // better-sqlite3 cannot bind a JS boolean, and SQLite's JSON functions
+      // read true/false as integers 1/0, so the bound value uses the same.
+      queryParams.push(key, typeof value === "boolean" ? Number(value) : value)
     }
   }
 
