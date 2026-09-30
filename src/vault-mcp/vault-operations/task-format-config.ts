@@ -12,6 +12,7 @@ import type { Logger } from "../../logger.js"
 import { DEFAULT_STATUS_REGISTRY } from "../obsidian-markdown/tasks.js"
 import { describeError } from "../../utils/describe-error.js"
 import { isMissingPathError } from "../../utils/fs.js"
+import { isRecord } from "../../utils/is-record.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -52,9 +53,6 @@ const DEFAULTS: TaskFormatConfig = {
 }
 
 // ── Status-registry parsing ─────────────────────────────────────
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null
 
 /** Maps the plugin's type strings to our status classification. */
 const pluginTypeToClassification = (pluginType: string): StatusClassification | null => {
@@ -138,19 +136,21 @@ const readTaskFormatFileConfig = async (vaultPath: string): Promise<TaskFormatCo
     // Read on every call, so a format or date-toggle change in the plugin's
     // settings applies to the next task write rather than after a restart.
     const fileContent = await readFile(configPath, "utf8")
-    const parsed: Record<string, unknown> = JSON.parse(fileContent)
+    const parsed: unknown = JSON.parse(fileContent)
+    // Valid JSON can be `null` or a bare value, which has no keys to read.
+    const settings = isRecord(parsed) ? parsed : {}
 
-    const rawFormat = parsed.taskFormat
+    const rawFormat = settings.taskFormat
     const taskFormat: "emoji" | "dataview" = rawFormat === "dataview" ? "dataview" : "emoji"
 
     return {
       taskFormat,
-      setDoneDate: booleanSetting(parsed, "setDoneDate"),
-      setCancelledDate: booleanSetting(parsed, "setCancelledDate"),
-      setCreatedDate: booleanSetting(parsed, "setCreatedDate"),
-      recurrenceOnNextLine: booleanSetting(parsed, "recurrenceOnNextLine"),
-      removeScheduledDateOnRecurrence: booleanSetting(parsed, "removeScheduledDateOnRecurrence"),
-      statusRegistry: statusRegistryFrom(parsed),
+      setDoneDate: booleanSetting(settings, "setDoneDate"),
+      setCancelledDate: booleanSetting(settings, "setCancelledDate"),
+      setCreatedDate: booleanSetting(settings, "setCreatedDate"),
+      recurrenceOnNextLine: booleanSetting(settings, "recurrenceOnNextLine"),
+      removeScheduledDateOnRecurrence: booleanSetting(settings, "removeScheduledDateOnRecurrence"),
+      statusRegistry: statusRegistryFrom(settings),
     }
   } catch (error) {
     if (isMissingPathError(error)) return { ...DEFAULTS }

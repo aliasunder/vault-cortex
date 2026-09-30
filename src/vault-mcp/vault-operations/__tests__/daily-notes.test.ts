@@ -98,6 +98,18 @@ describe("readDailyNotesConfig", () => {
     expect(config).toEqual(FALLBACK_CONFIG)
   })
 
+  it("reads a file holding the JSON literal null as no settings, without a warn", async () => {
+    const vaultDir = await createVault()
+    await writeDailyNotesConfig(vaultDir, null)
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    const config = await readDailyNotesConfig({ vaultPath: vaultDir }, logger)
+
+    expect(config).toEqual(FALLBACK_CONFIG)
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+
   it("uses default format when config has empty format string", async () => {
     const vaultDir = await createVault()
     await writeDailyNotesConfig(vaultDir, { folder: "Journal" })
@@ -253,6 +265,18 @@ describe("readDailyNotesFileConfig", () => {
     const config = await readDailyNotesFileConfig(vaultDir, logger)
 
     expect(config).toEqual(FALLBACK_CONFIG)
+  })
+
+  it("reads a file holding the JSON literal null as no settings, not as unreadable", async () => {
+    const vaultDir = await createVault()
+    await writeDailyNotesConfig(vaultDir, null)
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    const config = await readDailyNotesFileConfig(vaultDir, logger)
+
+    expect(config).toEqual(FALLBACK_CONFIG)
+    expect(warnSpy).not.toHaveBeenCalled()
   })
 
   it("throws on malformed JSON and warns on the caller's logger, not the root logger", async () => {

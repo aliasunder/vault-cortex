@@ -6,6 +6,7 @@ import { vaultFs } from "./vault-filesystem.js"
 import { momentToLuxonFormat, findUnsupportedTokens } from "../obsidian-markdown/moment-format.js"
 import { describeError } from "../../utils/describe-error.js"
 import { isMissingPathError } from "../../utils/fs.js"
+import { isRecord } from "../../utils/is-record.js"
 
 // ── Config reading ──────────────────────────────────────────────
 //
@@ -35,7 +36,8 @@ const FALLBACK_CONFIG: DailyNotesConfig = {
 }
 
 /** Reads and parses .obsidian/daily-notes.json. Returns the fallbacks when
- *  no file exists there; any other failure propagates. */
+ *  no file exists there, and for each field the file does not set; any
+ *  other failure propagates. */
 const readDailyNotesFile = async (vaultPath: string): Promise<DailyNotesConfig> => {
   try {
     // Read on every call, so a folder or format change in Obsidian applies
@@ -44,15 +46,17 @@ const readDailyNotesFile = async (vaultPath: string): Promise<DailyNotesConfig> 
       join(vaultPath, ".obsidian", "daily-notes.json"),
       "utf8",
     )
-    const parsedConfig: Record<string, unknown> = JSON.parse(configFileContent)
+    const parsedConfig: unknown = JSON.parse(configFileContent)
+    // Valid JSON can be `null` or a bare value, which has no keys to read.
+    const settings = isRecord(parsedConfig) ? parsedConfig : {}
     return {
       folder:
-        typeof parsedConfig.folder === "string" && parsedConfig.folder.length > 0
-          ? parsedConfig.folder
+        typeof settings.folder === "string" && settings.folder.length > 0
+          ? settings.folder
           : FALLBACK_CONFIG.folder,
       format:
-        typeof parsedConfig.format === "string" && parsedConfig.format.length > 0
-          ? parsedConfig.format
+        typeof settings.format === "string" && settings.format.length > 0
+          ? settings.format
           : FALLBACK_CONFIG.format,
     }
   } catch (error) {

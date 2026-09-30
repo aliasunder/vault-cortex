@@ -237,6 +237,20 @@ describe("readTaskFormatConfig", () => {
     expect(config).toEqual(DEFAULT_CONFIG)
   })
 
+  it("reads a file holding the JSON literal null as no settings, without a warn", async () => {
+    const vault = await createVault()
+    const pluginDir = join(vault, ".obsidian", "plugins", "obsidian-tasks-plugin")
+    await mkdir(pluginDir, { recursive: true })
+    await writeFile(join(pluginDir, "data.json"), "null", "utf8")
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    const config = await readTaskFormatConfig(vault, logger)
+
+    expect(config).toEqual(DEFAULT_CONFIG)
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+
   it("falls back to defaults when .obsidian is a file rather than a folder", async () => {
     const vault = await createVault()
     await writeFile(join(vault, ".obsidian"), "not a folder", "utf8")
