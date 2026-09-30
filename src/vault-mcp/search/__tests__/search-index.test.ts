@@ -2322,6 +2322,29 @@ describe("property keys containing JSON path syntax", () => {
     expect(results.map((result) => result.path)).toEqual(["Projects/co-authored.md"])
   })
 
+  it("fullTextSearch's properties filter compares values by exact type", () => {
+    index.upsertNote(
+      {
+        filePath: "Projects/rated.md",
+        rawContent: "---\nrating: 4\n---\nsearchable body\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const asNumber = index.fullTextSearch(
+      { query: "searchable", filters: { properties: { rating: 4 } } },
+      logger,
+    )
+    const asString = index.fullTextSearch(
+      { query: "searchable", filters: { properties: { rating: "4" } } },
+      logger,
+    )
+
+    expect(asNumber.map((result) => result.path)).toEqual(["Projects/rated.md"])
+    expect(asString.map((result) => result.path)).toEqual([])
+  })
+
   it("fullTextSearch's properties filter matches a boolean value", () => {
     index.upsertNote(
       {
