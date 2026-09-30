@@ -16,7 +16,13 @@ import {
   folderLikePattern,
 } from "./search-helpers.js"
 import type { FileContentFtsRow } from "./search-helpers.js"
-import type { VectorHit, SearchResult, HybridSearchResult, SearchFilters } from "./search-index.js"
+import type {
+  VectorHit,
+  SearchResult,
+  HybridSearchResult,
+  SearchFilters,
+  DateFilter,
+} from "./search-index.js"
 import { fullTextSearch } from "./search-queries.js"
 import type { SearchQueryContext } from "./search-queries.js"
 
@@ -188,6 +194,11 @@ const fileContentVectorSearch = (
 }
 
 // ── File content FTS (internal) ────────────────────────────────
+
+const hasAnyDateBound = (bounds: DateFilter | undefined): boolean => {
+  if (!bounds) return false
+  return Boolean(bounds.on || bounds.before || bounds.after)
+}
 
 /** Runs the file_content_fts query (canvas content, etc.) with the folder
  *  filter applied in SQL before the limit, mirroring fullTextSearch — returns
@@ -366,14 +377,15 @@ export const hybridSearch = async (
   // canvas files have no tags, type, related, properties, or created date,
   // and runFileContentFts only applies folder filtering (not modified date),
   // so any of these six filters would be bypassed by file content results.
-  const hasNoteSpecificFilters = Boolean(
-    params.filters?.tags ||
-    params.filters?.type ||
-    params.filters?.related ||
-    params.filters?.properties ||
-    params.filters?.created ||
-    params.filters?.modified,
-  )
+  // An empty collection or an empty date object constrains nothing in the
+  // note leg, so it must not skip the file legs either.
+  const hasNoteSpecificFilters =
+    (params.filters?.tags?.length ?? 0) > 0 ||
+    Boolean(params.filters?.type) ||
+    (params.filters?.related?.length ?? 0) > 0 ||
+    Object.keys(params.filters?.properties ?? {}).length > 0 ||
+    hasAnyDateBound(params.filters?.created) ||
+    hasAnyDateBound(params.filters?.modified)
   // Weight 0 must exclude the file legs, not just zero their contribution —
   // RRF would still emit their identifiers at score 0, so file results
   // would surface whenever the candidate window has room.
