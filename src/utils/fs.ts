@@ -59,8 +59,9 @@ export const readdirOrNull = async (path: string): Promise<Dirent[] | null> => {
     // while it runs. Null would report that listing as empty, so it is
     // returned only when the listed path itself is not a folder.
     const pathStats = await statOrNull(path)
+    const listedPathIsDirectory = pathStats?.isDirectory() ?? false
 
-    if (pathStats?.isDirectory()) throw error
+    if (listedPathIsDirectory) throw error
     return null
   }
 }

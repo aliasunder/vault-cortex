@@ -837,7 +837,11 @@ const isInsideFenceOrComment = (bodyLines: readonly string[], lineIndex: number)
 
 /** No-op when the task already sits under the target heading and no
  *  explicit position is requested. With a position, same-lane reorders
- *  go through the extract-reinsert cycle. */
+ *  go through the extract-reinsert cycle:
+ *  1. Splice the task and its sub-items out.
+ *  2. Re-parse the headings, since every line below the block moved up.
+ *  3. Splice the block in at the target slot.
+ *  4. Re-parse again to report the card's position in the result. */
 const moveTaskBlock = ({
   lines,
   taskLineIndex,
