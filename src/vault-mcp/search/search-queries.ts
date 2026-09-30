@@ -1186,7 +1186,8 @@ export const listPropertyKeys = (
     ) element
     WHERE property.key = @key
     ${sampleFolderCondition}
-    -- keep scalars only (excludes nulls, nested objects/arrays)
+    -- typeof filters on SQL storage class: excludes nulls (typeof 'null');
+    -- nested objects/arrays pass through as typeof 'text'
     AND typeof(element.value) IN ('text', 'integer', 'real')
     GROUP BY element.value
     ORDER BY count DESC, element.value
@@ -1242,7 +1243,8 @@ export const listPropertyValues = (
     ) element
     WHERE property.key = @key
     ${folderCondition}
-    -- keep scalars only (excludes nulls, nested objects/arrays)
+    -- typeof filters on SQL storage class: excludes nulls (typeof 'null');
+    -- nested objects/arrays pass through as typeof 'text'
     AND typeof(element.value) IN ('text', 'integer', 'real')
     GROUP BY element.value
     ORDER BY count DESC, element.value
