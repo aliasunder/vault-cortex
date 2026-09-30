@@ -1955,12 +1955,13 @@ describe("listMemoryFileNames", () => {
     await rm(emptyVault, { recursive: true })
   })
 
-  it("returns an empty array when a file sits at the memory folder's path", async () => {
+  it("rejects a file at the memory folder's path with a vault-relative message", async () => {
     const vaultWithFileAtMemoryPath = await mkdtemp(join(tmpdir(), "file-at-memory-path-"))
     onTestFinished(() => rm(vaultWithFileAtMemoryPath, { recursive: true }))
     await writeFile(join(vaultWithFileAtMemoryPath, "About Me"), "not a folder\n", "utf8")
-    const names = await listMemoryFileNames({ vaultPath: vaultWithFileAtMemoryPath }, logger)
-    expect(names).toEqual([])
+    await expect(
+      listMemoryFileNames({ vaultPath: vaultWithFileAtMemoryPath }, logger),
+    ).rejects.toThrow(new Error('cannot list memory folder "About Me"'))
   })
 
   it("rejects an unreadable memory folder with a vault-relative message", async () => {

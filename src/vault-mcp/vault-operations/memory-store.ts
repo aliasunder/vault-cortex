@@ -5,7 +5,7 @@ import { constants, type Dirent } from "node:fs"
 import { join, basename, dirname, resolve } from "node:path"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
-import { isMissingPathError, readFileOrNull } from "../../utils/fs.js"
+import { readFileOrNull } from "../../utils/fs.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { describeError } from "../../utils/describe-error.js"
@@ -355,14 +355,15 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   }
 
   /** Reads the memory folder's direct entries.
-   *  - Returns [] when nothing is at the path, or a file is.
-   *  - Any other failure throws with the folder's vault-relative path. The raw
-   *    error names the server's absolute path, so it goes to the log instead. */
+   *  - Returns [] when the folder does not exist yet.
+   *  - Throws with the folder's vault-relative path on any other failure,
+   *    such as a file sitting where the folder belongs. The raw error names
+   *    the server's absolute path, so it goes to the log instead. */
   const readMemoryFolderEntries = async (vaultPath: string, logger: Logger): Promise<Dirent[]> => {
     try {
       return await readdir(join(vaultPath, memoryDir), { withFileTypes: true })
     } catch (error) {
-      if (isMissingPathError(error)) return []
+      if (isErrnoException(error, "ENOENT")) return []
 
       logger.warn("cannot list memory folder", { folder: memoryDir, error: describeError(error) })
       throw new Error(`cannot list memory folder "${memoryDir}"`, { cause: error })
