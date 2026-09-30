@@ -15,8 +15,9 @@ import { isErrnoException } from "../../utils/is-errno-exception.js"
 // ── Types ───────────────────────────────────────────────────────
 
 /** Obsidian's "Deleted files" choices and what a delete does on this server:
- *  - `"system"` ("Move to system trash", the default): moves to `.trash/` and
- *    is swept after TRASH_RETENTION_DAYS, since a container has no system trash.
+ *  - `"system"` ("Move to system trash", the default): moves to `.trash/`, since
+ *    a container has no system trash, and is swept after TRASH_RETENTION_DAYS
+ *    when a retention window is set.
  *  - `"local"` ("Move to Obsidian trash"): moves to `.trash/` and stays.
  *  - `"none"` ("Permanently delete"): removed outright. */
 export type TrashOption = "system" | "local" | "none"
