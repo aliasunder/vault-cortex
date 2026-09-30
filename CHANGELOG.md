@@ -110,6 +110,19 @@
 
 
 
+
+## [0.54.6] — 2026-09-30
+
+### Bug Fixes
+
+- **ci:** Gate trivy-pr on CRITICAL and HIGH findings only (#625)
+- **deps:** Bump fast-uri to 3.1.8 (#624)
+- **hooks:** Serialize dependency installs with a kernel lock (#623)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.54.5
+
 ## [0.54.5] — 2026-09-29
 
 ### Documentation
