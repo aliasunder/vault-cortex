@@ -91,10 +91,11 @@ export const describeTextWindow = (path: string, lineWindow: LineWindow): string
 }
 
 /** Wraps a handler with try/catch. A throw is logged as `tool_error` and
- *  returned as an isError result whose text is `[ErrorName]: message`, so the
- *  error's cause and stack never reach the client. The format callback
- *  produces the full content-block array — text, image, or mixed (the SDK
- *  union) — for tools whose results aren't a single text block. */
+ *  returned as an isError result whose text is describeError's
+ *  `[ErrorName]: message`, so the error's cause and stack never reach the
+ *  client. The format callback produces the full content-block array — text,
+ *  image, or mixed (the SDK union) — for tools whose results aren't a single
+ *  text block. */
 export const safeHandlerContent = async <T>(
   logger: Logger,
   fn: () => Promise<T>,
