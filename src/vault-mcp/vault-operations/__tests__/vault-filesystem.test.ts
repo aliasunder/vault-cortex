@@ -387,6 +387,20 @@ describe("readNote", () => {
       'note not found: "missing.md"',
     )
   })
+
+  it("reports a path through a file as not found, never the server's path", async () => {
+    await writeFile(join(vault, "plan.md"), "# plan", "utf8")
+    await expect(readNote({ vaultPath: vault, path: "plan.md/child.md" }, logger)).rejects.toThrow(
+      'note not found: "plan.md/child.md"',
+    )
+  })
+
+  it("reports a folder at the note path as not found", async () => {
+    await mkdir(join(vault, "Archive.md"))
+    await expect(readNote({ vaultPath: vault, path: "Archive.md" }, logger)).rejects.toThrow(
+      'note not found: "Archive.md"',
+    )
+  })
 })
 
 describe("writeNote", () => {
@@ -518,6 +532,28 @@ describe("writeNote", () => {
         logger,
       ),
     ).rejects.toThrow('note already exists: "explicit.md"')
+  })
+
+  it.each([
+    { label: "without overwrite", overwrite: false },
+    { label: "with overwrite", overwrite: true },
+  ])("leaves a symlink to a folder in place $label", async ({ overwrite }) => {
+    await mkdir(join(vault, "linked-folder"))
+    const linkPath = join(vault, "Projects.md")
+    await symlink(join(vault, "linked-folder"), linkPath)
+
+    await expect(
+      writeNote({ vaultPath: vault, path: "Projects.md", body: "# Notes\n", overwrite }, logger),
+    ).rejects.toThrow(new Error('cannot write note "Projects.md": that path is not a file'))
+    const linkStats = await lstat(linkPath)
+    expect(linkStats.isSymbolicLink()).toBe(true)
+  })
+
+  it("rejects a folder at the note path with a vault-relative message", async () => {
+    await mkdir(join(vault, "Archive.md"))
+    await expect(
+      writeNote({ vaultPath: vault, path: "Archive.md", body: "# Notes\n" }, logger),
+    ).rejects.toThrow(new Error('cannot write note "Archive.md": that path is not a file'))
   })
 
   it("succeeds when overwrite is set and the file exists", async () => {
@@ -1628,8 +1664,59 @@ describe("listNotes", () => {
     expect(files).toEqual(["notes/a.md"])
   })
 
+  describe("with a folder and a glob", () => {
+    const seedNestedNotes = async (): Promise<void> => {
+      await mkdir(join(vault, "notes/sub/deep"), { recursive: true })
+      await mkdir(join(vault, "other"), { recursive: true })
+      await writeFile(join(vault, "notes/sub/c.md"), "c", "utf8")
+      await writeFile(join(vault, "notes/sub/deep/d.md"), "d", "utf8")
+      await writeFile(join(vault, "other/e.md"), "e", "utf8")
+    }
+
+    it("matches the glob against paths relative to the folder", async () => {
+      await seedNestedNotes()
+      const files = await listNotes({ vaultPath: vault, folder: "notes", glob: "*.md" }, logger)
+      expect(files).toEqual(["notes/a.md", "notes/b.md"])
+    })
+
+    it("matches a recursive glob at every depth inside the folder only", async () => {
+      await seedNestedNotes()
+      const files = await listNotes({ vaultPath: vault, folder: "notes", glob: "**/*.md" }, logger)
+      expect(files).toEqual(["notes/a.md", "notes/b.md", "notes/sub/c.md", "notes/sub/deep/d.md"])
+    })
+
+    it("treats a folder with a trailing slash like the same folder without one", async () => {
+      await seedNestedNotes()
+      const files = await listNotes({ vaultPath: vault, folder: "notes/", glob: "*.md" }, logger)
+      expect(files).toEqual(["notes/a.md", "notes/b.md"])
+    })
+
+    it("matches a subfolder-prefixed glob relative to the folder", async () => {
+      await seedNestedNotes()
+      const files = await listNotes(
+        { vaultPath: vault, folder: "notes", glob: "sub/**/*.md" },
+        logger,
+      )
+      expect(files).toEqual(["notes/sub/c.md", "notes/sub/deep/d.md"])
+    })
+
+    it("treats a folder with a leading ./ segment like the same folder without one", async () => {
+      await seedNestedNotes()
+      const files = await listNotes(
+        { vaultPath: vault, folder: "./notes", glob: "sub/*.md" },
+        logger,
+      )
+      expect(files).toEqual(["notes/sub/c.md"])
+    })
+  })
+
   it("returns empty array for non-existent folder", async () => {
     const files = await listNotes({ vaultPath: vault, folder: "nope" }, logger)
+    expect(files).toEqual([])
+  })
+
+  it("returns empty array when folder names a note, not a folder", async () => {
+    const files = await listNotes({ vaultPath: vault, folder: "notes/a.md" }, logger)
     expect(files).toEqual([])
   })
 
@@ -2678,6 +2765,13 @@ describe("readAsset", () => {
     await expect(
       readAsset({ vaultPath: vault, path: "ghost.png", maxBytes: 1024 }, logger),
     ).rejects.toThrow('file not found: "ghost.png"')
+  })
+
+  it("reports a path through a file as not found, never the server's path", async () => {
+    await writeFile(join(vault, "photo.png"), Buffer.from([0x89]))
+    await expect(
+      readAsset({ vaultPath: vault, path: "photo.png/inner.png", maxBytes: 1024 }, logger),
+    ).rejects.toThrow('file not found: "photo.png/inner.png"')
   })
 
   it("rejects a file over the byte cap before reading it", async () => {

@@ -1,5 +1,14 @@
 /** End-to-end integration tests — every tool and prompt called over real
- *  HTTP transport against a real server with a real vault on disk. */
+ *  HTTP transport against a real server with a real vault on disk.
+ *
+ *  Assertion style:
+ *  - Listings, search results and prompt output drawn from the shared fixture
+ *    vault are checked with `toContain`. The fixture grows whenever a tool or
+ *    scenario is added, so a whole-output assertion would fail on every
+ *    addition without a wiring bug. Exact output is pinned by the unit tests
+ *    beside each module.
+ *  - One note's content, and output a test controls end to end (a note it
+ *    wrote, an error message), are asserted exactly. */
 
 import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
 import { DateTime } from "luxon"
@@ -23,10 +32,11 @@ import {
 vi.setConfig({ testTimeout: 15_000 })
 
 /** Extract joined text from a prompt result's messages. */
-const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string =>
-  result.messages
+const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string => {
+  return result.messages
     .map((message) => (message.content.type === "text" ? message.content.text : ""))
     .join("\n")
+}
 
 // ── Default config (33 tools, 3 prompts) ──────────────────────
 
@@ -192,6 +202,16 @@ describe("default config", () => {
       const text = textContent(result)
       expect(text).toContain("Projects/alpha.md")
       expect(text).not.toContain("Orphan Note.md")
+    })
+
+    it("vault_list_notes — glob is relative to the folder", async () => {
+      const result = await callTool({
+        client,
+        name: "vault_list_notes",
+        args: { folder: "Projects", glob: "a*.md" },
+      })
+      expect(result.isError).not.toBe(true)
+      expect(JSON.parse(textContent(result))).toEqual(["Projects/alpha.md"])
     })
   })
 
@@ -1175,8 +1195,8 @@ describe("default config", () => {
   })
 
   describe("OAuth rate limiting", () => {
-    const register = (forwardedIp: string) =>
-      fetch(`http://127.0.0.1:${port}/register`, {
+    const register = (forwardedIp: string) => {
+      return fetch(`http://127.0.0.1:${port}/register`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -1190,13 +1210,14 @@ describe("default config", () => {
           token_endpoint_auth_method: "none",
         }),
       })
+    }
 
     // With the Forwarded header untrusted (the default), a distinct spoofed
     // value per request must NOT mint a fresh rate-limit bucket — all six
     // share the socket peer's bucket.
     it("spoofed Forwarded headers do not bypass the /register rate limit", async () => {
-      for (let i = 1; i <= 5; i++) {
-        const response = await register(`198.51.100.${i}`)
+      for (let lastOctet = 1; lastOctet <= 5; lastOctet++) {
+        const response = await register(`198.51.100.${lastOctet}`)
         expect(response.status).toBe(201)
       }
       const sixth = await register("198.51.100.6")
@@ -1225,8 +1246,8 @@ describe("X-Forwarded-For rate limiting (default proxy trust)", () => {
     if (cleanup) await cleanup()
   })
 
-  const register = (xffIp: string) =>
-    fetch(`http://127.0.0.1:${port}/register`, {
+  const register = (xffIp: string) => {
+    return fetch(`http://127.0.0.1:${port}/register`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -1240,14 +1261,15 @@ describe("X-Forwarded-For rate limiting (default proxy trust)", () => {
         token_endpoint_auth_method: "none",
       }),
     })
+  }
 
   // X-Forwarded-For is the other spoofable channel: with TRUST_PROXY_HOPS=0
   // (the default), a client-supplied X-Forwarded-For must not shift the
   // bucket either — re-raising the hop count would reopen the bypass
   // silently.
   it("spoofed X-Forwarded-For headers do not bypass the /register rate limit", async () => {
-    for (let i = 1; i <= 5; i++) {
-      const response = await register(`198.51.100.${i}`)
+    for (let lastOctet = 1; lastOctet <= 5; lastOctet++) {
+      const response = await register(`198.51.100.${lastOctet}`)
       expect(response.status).toBe(201)
     }
     const sixth = await register("198.51.100.6")
@@ -1271,8 +1293,8 @@ describe("TRUST_PROXY_HOPS=1", () => {
     if (cleanup) await cleanup()
   })
 
-  const register = (xffIp: string) =>
-    fetch(`http://127.0.0.1:${port}/register`, {
+  const register = (xffIp: string) => {
+    return fetch(`http://127.0.0.1:${port}/register`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -1286,6 +1308,7 @@ describe("TRUST_PROXY_HOPS=1", () => {
         token_endpoint_auth_method: "none",
       }),
     })
+  }
 
   // Positive wiring proof for `app.set("trust proxy", config.trustProxyHops)`:
   // with one trusted hop the XFF-derived IP is the bucket key, so exhausting
@@ -1320,8 +1343,8 @@ describe("TRUST_FORWARDED_HOPS=1", () => {
     if (cleanup) await cleanup()
   })
 
-  const register = (forwardedIp: string) =>
-    fetch(`http://127.0.0.1:${port}/register`, {
+  const register = (forwardedIp: string) => {
+    return fetch(`http://127.0.0.1:${port}/register`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -1335,6 +1358,7 @@ describe("TRUST_FORWARDED_HOPS=1", () => {
         token_endpoint_auth_method: "none",
       }),
     })
+  }
 
   it("buckets the /register rate limit by the Forwarded client IP", async () => {
     for (let i = 0; i < 5; i++) {
@@ -1395,8 +1419,8 @@ describe("TRUST_FORWARDED_HOPS=2", () => {
     if (cleanup) await cleanup()
   })
 
-  const register = (forwarded: string) =>
-    fetch(`http://127.0.0.1:${port}/register`, {
+  const register = (forwarded: string) => {
+    return fetch(`http://127.0.0.1:${port}/register`, {
       method: "POST",
       headers: { "content-type": "application/json", forwarded },
       body: JSON.stringify({
@@ -1407,6 +1431,7 @@ describe("TRUST_FORWARDED_HOPS=2", () => {
         token_endpoint_auth_method: "none",
       }),
     })
+  }
 
   it("buckets the /register rate limit by the for= element before the last", async () => {
     for (let i = 0; i < 5; i++) {

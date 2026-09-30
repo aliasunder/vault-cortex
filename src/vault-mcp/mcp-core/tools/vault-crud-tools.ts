@@ -29,27 +29,37 @@ const describeDisplacedLeadingContent = ({
   return `The ${bytes} bytes of pre-existing content above the note's first heading are now nested under the inserted heading. To add a section above the first heading without pulling existing content into it, use operation "insert_before" with heading "${firstHeading.text}" (H${firstHeading.level}).`
 }
 
-/** The user's PROTECTED_PATHS when set; otherwise the memory dir plus the
- *  daily notes folder resolved now (env → .obsidian/daily-notes.json →
- *  fallback), so a folder configured only in the vault is protected too. */
+/** The folders that delete and move refuse to touch.
+ *  - PROTECTED_PATHS, when set, replaces the defaults entirely, so only the
+ *    folders it lists are protected.
+ *  - Otherwise the memory dir (protected even when MEMORY_ENABLED is false)
+ *    plus the daily notes folder, resolved on each call (DAILY_NOTES_FOLDER →
+ *    .obsidian/daily-notes.json → "Daily Notes") so a folder configured only
+ *    in the vault is protected too. */
 export const resolveEffectiveProtectedPaths = async (
   config: VaultConfig,
   vaultPath: string,
 ): Promise<readonly string[]> => {
   if (config.protectedPathsOverride) return config.protectedPathsOverride
 
+  // With both env fields set the reader skips the file; only the folder is used.
   const dailyNotesConfig = await readDailyNotesConfig(vaultPath, {
     folder: config.dailyNotesFolder,
     format: config.dailyNotesFormat,
   })
+
+  // A whitespace-only folder in daily-notes.json protects nothing.
   const dailyFolder = dailyNotesConfig.folder.trim()
   return dailyFolder ? [config.memoryDir, dailyFolder] : [config.memoryDir]
 }
 
-/** Protected-path list for tool descriptions — the daily notes folder is
- *  named by its sources because it is resolved per call, not at startup. */
+/** Protected-path list for tool descriptions. Descriptions are built once at
+ *  registration and the daily notes folder is resolved per call, so the text
+ *  names that folder's sources, not its value ("Daily Notes" restates the
+ *  fallback in daily-notes.ts). */
 const describeProtectedPaths = (config: VaultConfig): string => {
   if (config.protectedPathsOverride) {
+    // loadConfig strips trailing slashes from override entries.
     return config.protectedPathsOverride.map((protectedPath) => protectedPath + "/").join(", ")
   }
   return `${config.memoryDir}/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/)`
@@ -357,6 +367,7 @@ Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Proj
       )
     },
   )
+
   registerTool(
     TOOL_NAMES.VAULT_WRITE_NOTE,
     {
@@ -975,23 +986,14 @@ Returns: Confirmation message naming the outcome — "Deleted <path>" for perman
         async () => {
           const protectedPaths = await resolveEffectiveProtectedPaths(config, vaultPath)
 
-          // On :remote (Obsidian Sync), skip the config and delete for good —
-          // recovery is through Sync's version history, and a server-side
-          // .trash/ would never sync back to the user. "none" (not "system")
-          // because "system" now lands in .trash/.
+          // Under Obsidian Sync the setting is skipped and the note is deleted
+          // for good ("none", since "system" would land in .trash/): a
+          // server-side .trash/ never syncs back, and Sync's version history
+          // is the recovery path.
           const trashOption = config.obsidianSyncEnabled
             ? "none"
             : await readTrashConfig(vaultPath, reqLogger)
 
-          // Record for retention only under "system": Docker has no system
-          // trash, so the server maps it to .trash/ — the server chose that
-          // destination, so the server sweeps it. "local" means the user
-          // explicitly chose .trash/ as keep-forever trash (never swept).
-          // "none" deletes permanently and never reaches .trash/.
-          //
-          // clearStaleTrashEntry is unconditional: an unrecorded move (e.g.
-          // "local") landing at a path with a stale row must defuse it, or
-          // the sweep would later unlink the keep-forever copy.
           return vaultFs.deleteNote(
             {
               vaultPath,
@@ -999,7 +1001,13 @@ Returns: Confirmation message naming the outcome — "Deleted <path>" for perman
               protectedPaths,
               pruneEmptyFolders,
               trashOption,
+              // Only "system" moves are swept later, so only they are recorded;
+              // "local" is the user's keep-forever trash.
               recordTrashEntry: trashOption === "system" ? search.recordTrashEntry : undefined,
+              // Always passed. If an earlier delete left a row for this .trash/
+              // path (the user emptied .trash/ by hand), the sweep would still
+              // remove whatever lands there, including a "local" note meant
+              // to be kept.
               clearStaleTrashEntry: search.deleteTrashEntry,
             },
             reqLogger,
@@ -1012,6 +1020,7 @@ Returns: Confirmation message naming the outcome — "Deleted <path>" for perman
             prunedEmptyFolders,
             ...(trashLocation ? { trash_location: trashLocation } : {}),
           })
+
           const folderLabel = prunedEmptyFolders > 1 ? "folders" : "folder"
           const pruneSuffix =
             prunedEmptyFolders > 0 ? ` (removed ${prunedEmptyFolders} empty ${folderLabel})` : ""

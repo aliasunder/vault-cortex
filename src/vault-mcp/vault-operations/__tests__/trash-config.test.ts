@@ -20,6 +20,17 @@ const writeAppConfig = async (
   await writeFile(join(obsidianDir, "app.json"), JSON.stringify(config), "utf8")
 }
 
+/** The message JSON.parse throws for `malformedJson`. Its wording varies by
+ *  engine version, so tests read it from the engine. */
+const jsonParseFailureMessage = (malformedJson: string): string => {
+  try {
+    JSON.parse(malformedJson)
+  } catch (error) {
+    if (error instanceof SyntaxError) return error.message
+  }
+  throw new Error("expected JSON.parse to throw a SyntaxError")
+}
+
 describe("readTrashConfig", () => {
   it('reads "local" from a valid app.json', async () => {
     const vault = await createVault()
@@ -65,6 +76,17 @@ describe("readTrashConfig", () => {
     expect(result).toBe("system")
   })
 
+  it('defaults to "system" when app.json holds JSON with no keys, such as null', async () => {
+    const vault = await createVault()
+    const obsidianDir = join(vault, ".obsidian")
+    await mkdir(obsidianDir, { recursive: true })
+    await writeFile(join(obsidianDir, "app.json"), "null", "utf8")
+
+    const result = await readTrashConfig(vault, logger)
+
+    expect(result).toBe("system")
+  })
+
   it('defaults to "system" for an unrecognized value', async () => {
     const vault = await createVault()
     await writeAppConfig(vault, { trashOption: "recycle-bin" })
@@ -74,15 +96,33 @@ describe("readTrashConfig", () => {
     expect(result).toBe("system")
   })
 
-  it("throws on malformed JSON so a broken config never silently causes permanent delete", async () => {
+  it('throws on malformed JSON instead of falling back to "system"', async () => {
     const vault = await createVault()
     const obsidianDir = join(vault, ".obsidian")
     await mkdir(obsidianDir, { recursive: true })
     await writeFile(join(obsidianDir, "app.json"), "not valid json{{{", "utf8")
 
     await expect(readTrashConfig(vault, logger)).rejects.toThrow(
-      "cannot read trash config from .obsidian/app.json",
+      new Error("cannot read trash config from .obsidian/app.json"),
     )
+  })
+
+  it('throws when app.json exists but cannot be read, instead of falling back to "system"', async () => {
+    const vault = await createVault()
+    // A directory at the config path fails the read with EISDIR. Only a
+    // missing file (ENOENT) takes the default.
+    await mkdir(join(vault, ".obsidian", "app.json"), { recursive: true })
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await expect(readTrashConfig(vault, logger)).rejects.toThrow(
+      new Error("cannot read trash config from .obsidian/app.json"),
+    )
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("cannot read trash config", {
+      error: "[Error]: EISDIR: illegal operation on a directory, read",
+    })
   })
 
   it("warns about an unreadable config on the caller's logger, not the root logger", async () => {
@@ -91,27 +131,19 @@ describe("readTrashConfig", () => {
     await mkdir(obsidianDir, { recursive: true })
     const malformedJson = "not valid json{{{"
     await writeFile(join(obsidianDir, "app.json"), malformedJson, "utf8")
-    // JSON.parse's message varies by engine version, so read it from the engine
-    const parseFailureMessage = ((): string => {
-      try {
-        JSON.parse(malformedJson)
-      } catch (error) {
-        if (error instanceof SyntaxError) return error.message
-      }
-      throw new Error("expected JSON.parse to reject the malformed config")
-    })()
+
     const requestLogger = logger.child({ requestId: "request-1" })
     const requestWarnSpy = vi.spyOn(requestLogger, "warn")
     const rootWarnSpy = vi.spyOn(logger, "warn")
     onTestFinished(() => rootWarnSpy.mockRestore())
 
     await expect(readTrashConfig(vault, requestLogger)).rejects.toThrow(
-      "cannot read trash config from .obsidian/app.json",
+      new Error("cannot read trash config from .obsidian/app.json"),
     )
 
     expect(requestWarnSpy).toHaveBeenCalledTimes(1)
     expect(requestWarnSpy).toHaveBeenCalledWith("cannot read trash config", {
-      error: `[SyntaxError]: ${parseFailureMessage}`,
+      error: `[SyntaxError]: ${jsonParseFailureMessage(malformedJson)}`,
     })
     expect(rootWarnSpy).not.toHaveBeenCalled()
   })
