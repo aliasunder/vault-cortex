@@ -362,7 +362,10 @@ Prefer vault_list_property_values when you need the full list of values for a sp
 Parameters:
 - folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case; omit folder to scan the entire vault.
 
-Behavior: Only frontmatter properties count; inline Dataview fields (key:: value) are not listed. count is the number of notes that have the key, including notes where its value is empty (null). sample_values are the key's 3 most frequent values, counting each array element separately, returned as strings (checkbox values as "1" and "0"); null values are skipped. An empty vault or folder returns an empty array, not an error.
+Behavior: Only frontmatter properties count; inline Dataview fields (key:: value) are not listed. count is the number of notes that have the key, including notes where its value is empty (null). sample_values are the key's 3 most frequent values, counting each array element separately, returned as strings (checkbox values as "1" and "0"); null values are skipped.
+
+Errors:
+- An empty vault or folder returns an empty array, not an error.
 
 Returns: JSON array of { key, count, sample_values } sorted by count descending, then by key.`,
       inputSchema: {
@@ -405,7 +408,10 @@ Behavior:
 - Handles both scalar properties (status: "active") and array properties (tags: ["a", "b"]). Array elements are unpacked and counted individually, so the sum of counts may exceed the note count.
 - Values are grouped first and turned into strings after, so a number and the same digits written as text (1 and "1") come back as two separate "1" rows.
 - Checkbox values are stored as 1 and 0, so true and false come back as "1" and "0", counted with the numbers 1 and 0.${whenToolEnabledText("vault_search_by_property", `\n- vault_search_by_property compares values as text, so value "1" matches the number 1, the text "1", and a checked checkbox.`)}
-- null values are skipped. An unknown key or empty folder returns an empty array, not an error.
+- null values are skipped.
+
+Errors:
+- An unknown key or empty folder returns an empty array, not an error.
 
 Returns: JSON array of { value, count } sorted by count descending.`,
       inputSchema: {

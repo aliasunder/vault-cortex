@@ -1,9 +1,8 @@
 /** Captures the MCP wire surface — tool schemas, descriptions, annotations,
  *  prompts, server description, and server instructions — per config combo,
- *  over a real in-process server. Two consumers read it:
- *  - `tool-surface-snapshot.test.ts` in `src/vault-mcp/mcp-core/__tests__/`,
- *    which pins the committed baseline and caps the tool list's size.
- *  - `tool-surface-size.ts`, the size report. */
+ *  over a real in-process server. It feeds `tool-surface-snapshot.test.ts` in
+ *  `src/vault-mcp/mcp-core/__tests__/`, which pins the committed baseline and
+ *  caps the tool list's size, and `tool-surface-size.ts`, the size report. */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"

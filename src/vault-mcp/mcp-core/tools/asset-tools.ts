@@ -210,7 +210,7 @@ Example: vault_list_files({ extensions: [".png", ".jpg"], limit: 20 })
 When to use: discovering what files exist before reading them with vault_read_file. vault_list_notes and vault_search_by_folder cover only markdown notes, and beyond notes vault_search indexes only canvas, PDF, and text-format files, so this is the discovery surface for everything else. For the files one specific note links to, prefer vault_get_outgoing_links.
 
 Parameters:
-- folder: folder path filter (e.g. "attachments" or "Projects/media"), searched recursively; omit for the whole vault
+- folder: folder path filter (e.g. "attachments" or "Projects/media"), searched recursively; omit for the whole vault. This tool reads the filesystem rather than the search index, so use the folder's exact letter case; on a case-sensitive filesystem a different case finds nothing.
 - extensions: restrict to these extensions — case-insensitive, with or without the leading dot (".png" and "png" both work)
 - limit: maximum entries returned (default 50). extension_counts and total always reflect the full filtered set, not just the returned page.
 

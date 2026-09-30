@@ -2058,8 +2058,7 @@ describe("DISABLED_TOOLS", () => {
     '- Checkbox values are stored as 1 and 0, so true and false come back as "1" and "0", counted with the numbers 1 and 0.'
   const PROPERTY_VALUES_SEARCH_LINE =
     '- vault_search_by_property compares values as text, so value "1" matches the number 1, the text "1", and a checked checkbox.'
-  const PROPERTY_VALUES_NULL_LINE =
-    "- null values are skipped. An unknown key or empty folder returns an empty array, not an error."
+  const PROPERTY_VALUES_NULL_LINE = "- null values are skipped."
 
   it.each([
     {
@@ -2081,7 +2080,7 @@ describe("DISABLED_TOOLS", () => {
       registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
       toolName: TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
       startMarker: "- Checkbox values",
-      endMarker: "\n\nReturns:",
+      endMarker: "\n\nErrors:",
     })
     expect(behaviorTail).toBe(expectedLines.join("\n"))
   })
