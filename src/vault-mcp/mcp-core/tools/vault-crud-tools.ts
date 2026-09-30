@@ -1056,6 +1056,9 @@ Example: vault_move_note({ old_path: "Inbox/Spec.md", new_path: "Projects/Spec.m
 When to use: Renaming a note or relocating it to a different folder while keeping the link graph intact.
 Prefer this over vault_write_note + vault_delete_note, which would orphan every backlink. To only change a note's body or properties, use ${whenToolEnabledText("vault_patch_note", "vault_patch_note or ")}vault_update_properties. Protected paths (${describeProtectedPaths(config)}) cannot be moved.
 
+Parameters:
+- prune_empty_folders removes each parent folder of old_path that the move leaves with zero entries, up to but never including the vault root; a folder holding any file, even a hidden .DS_Store, is kept. An in-place rename or a move into a subfolder of the source prunes nothing. Pruning is best-effort: a folder that can't be removed never fails the call. Without it, empty folders stay, matching Obsidian.
+
 Errors:
 - "destination exists: …" — a note already lives at new_path; this tool never overwrites. Pick a free path or delete the existing note first.
 - "note not found: …" — old_path does not exist; verify it with vault_list_notes.
@@ -1088,7 +1091,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
           .optional()
           .default(false)
           .describe(
-            "When true, remove each parent folder of old_path that the move leaves empty, walking up to (but never including) the vault root. Default false matches Obsidian, which leaves empty folders in place. Only removes a folder with zero entries — an in-place rename or a move into a subfolder of the source leaves it non-empty and prunes nothing.",
+            "When true, also remove parent folders of old_path that the move leaves empty. Default false.",
           ),
       },
     },
