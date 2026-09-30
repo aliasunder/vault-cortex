@@ -78,11 +78,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
           ),
         filters: z
           .object({
-            folder: z
-              .string()
-              .min(1)
-              .optional()
-              .describe('Restrict to a whole folder, subfolders included (e.g. "Projects")'),
+            folder: z.string().min(1).optional().describe('Restrict to a folder (e.g. "Projects")'),
             tags: z
               .array(z.string().min(1))
               .optional()
@@ -477,11 +473,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .describe(
             'Value to match (exact, case-sensitive, e.g. "active", "session-log"). Use vault_list_property_values to discover valid values for a key.',
           ),
-        folder: z
-          .string()
-          .min(1)
-          .optional()
-          .describe('Restrict to a whole folder, subfolders included (e.g. "Projects")'),
+        folder: z.string().min(1).optional().describe('Restrict to a folder (e.g. "Projects")'),
         limit: z
           .number()
           .int()

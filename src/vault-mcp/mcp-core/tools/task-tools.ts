@@ -72,9 +72,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .string()
           .min(1)
           .optional()
-          .describe(
-            'Restrict to a whole folder, subfolders included (e.g. "Code Projects/vault-cortex")',
-          ),
+          .describe('Restrict to a folder (e.g. "Code Projects/vault-cortex")'),
         tag: z
           .string()
           .min(1)

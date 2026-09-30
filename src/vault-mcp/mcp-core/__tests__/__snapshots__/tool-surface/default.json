@@ -824,7 +824,7 @@
             }
           },
           "folder": {
-            "description": "Restrict to a whole folder, subfolders included (e.g. \"Code Projects/vault-cortex\")",
+            "description": "Restrict to a folder (e.g. \"Code Projects/vault-cortex\")",
             "type": "string",
             "minLength": 1
           },
@@ -1292,7 +1292,7 @@
             "type": "object",
             "properties": {
               "folder": {
-                "description": "Restrict to a whole folder, subfolders included (e.g. \"Projects\")",
+                "description": "Restrict to a folder (e.g. \"Projects\")",
                 "type": "string",
                 "minLength": 1
               },
@@ -1476,7 +1476,7 @@
             "description": "Value to match (exact, case-sensitive, e.g. \"active\", \"session-log\"). Use vault_list_property_values to discover valid values for a key."
           },
           "folder": {
-            "description": "Restrict to a whole folder, subfolders included (e.g. \"Projects\")",
+            "description": "Restrict to a folder (e.g. \"Projects\")",
             "type": "string",
             "minLength": 1
           },

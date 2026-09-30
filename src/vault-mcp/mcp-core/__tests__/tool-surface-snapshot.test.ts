@@ -28,8 +28,8 @@ describe("tool surface baseline", () => {
 
   /** Clients such as claude.ai and Claude Desktop load every tool definition
    *  into each conversation, so the definitions' total size is a per-chat
-   *  context cost. A combo's cap is this per-tool allowance times its tool
-   *  count, so a new tool adds one allowance. The cap has two blind spots:
+   *  context cost. A checked combo's cap is this per-tool allowance times its
+   *  tool count, so a new tool adds one allowance. The cap has two blind spots:
    *  - It checks a combo's total, so one tool can grow while another shrinks;
    *    `npm run report:tool-surface-size` shows the per-tool sizes.
    *  - The allowance sits about 1.5% above the default combo's average when it
@@ -37,11 +37,13 @@ describe("tool surface baseline", () => {
    *  Raising the allowance is a deliberate change with its reason in the PR. */
   const CHARS_PER_TOOL_ALLOWANCE = 4040
 
-  // Default holds every tool; embedding-off renders the keyword-only text of
-  // the search tools, which default never shows. Every other combo only drops
-  // tools or cross-references from these two, so it adds no text to check.
-  // Some of them (memory-off) average more per tool than default because the
-  // tools they drop are small.
+  // Only the two largest lists are checked. Default holds every tool, and
+  // embedding-off renders the keyword-only text of the search tools, which
+  // default never shows. Every other combo drops tools or cross-references
+  // from one of these two, so its total is smaller than a checked total. Its
+  // average per tool can still exceed the allowance (memory-off drops five
+  // small tools), so the allowance bounds the two checked lists, not every
+  // combo's average.
   it.each(["default", "embedding-off"])(
     "combo %s stays within the average per-tool size allowance",
     async (comboName) => {
