@@ -1,5 +1,13 @@
 /** End-to-end integration tests — every tool and prompt called over real
- *  HTTP transport against a real server with a real vault on disk. */
+ *  HTTP transport against a real server with a real vault on disk.
+ *
+ *  Assertion style:
+ *  - Output drawn from the shared fixture vault is checked with `toContain`.
+ *    The fixture grows whenever a tool or scenario is added, so a
+ *    whole-output assertion would fail on every addition without a wiring
+ *    bug. Exact output is pinned by the unit tests beside each module.
+ *  - Output a test controls end to end (a note it wrote, an error message)
+ *    is asserted exactly. */
 
 import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
 import { DateTime } from "luxon"
