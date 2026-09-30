@@ -534,6 +534,28 @@ describe("writeNote", () => {
     ).rejects.toThrow('note already exists: "explicit.md"')
   })
 
+  it.each([
+    { label: "without overwrite", overwrite: false },
+    { label: "with overwrite", overwrite: true },
+  ])("leaves a symlink to a folder in place $label", async ({ overwrite }) => {
+    await mkdir(join(vault, "linked-folder"))
+    const linkPath = join(vault, "Projects.md")
+    await symlink(join(vault, "linked-folder"), linkPath)
+
+    await expect(
+      writeNote({ vaultPath: vault, path: "Projects.md", body: "# Notes\n", overwrite }, logger),
+    ).rejects.toThrow(new Error('cannot write note "Projects.md": that path is not a file'))
+    const linkStats = await lstat(linkPath)
+    expect(linkStats.isSymbolicLink()).toBe(true)
+  })
+
+  it("rejects a folder at the note path with a vault-relative message", async () => {
+    await mkdir(join(vault, "Archive.md"))
+    await expect(
+      writeNote({ vaultPath: vault, path: "Archive.md", body: "# Notes\n" }, logger),
+    ).rejects.toThrow(new Error('cannot write note "Archive.md": that path is not a file'))
+  })
+
   it("succeeds when overwrite is set and the file exists", async () => {
     await writeFile(join(vault, "replace.md"), "---\ntitle: Old\n---\nold body\n", "utf8")
     await writeNote(

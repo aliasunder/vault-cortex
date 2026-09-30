@@ -1,5 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi, onTestFinished } from "vitest"
-import { chmod, mkdtemp, rm, writeFile, mkdir, readFile, readdir, symlink } from "node:fs/promises"
+import {
+  chmod,
+  lstat,
+  mkdtemp,
+  rm,
+  writeFile,
+  mkdir,
+  readFile,
+  readdir,
+  symlink,
+} from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { parseNote } from "../../obsidian-markdown/frontmatter.js"
@@ -509,6 +519,47 @@ created: 2026-01-01T00:00:00-05:00
         logger,
       ),
     ).rejects.toThrow(new Error('cannot read memory file "About Me/Opinions.md"'))
+  })
+
+  it("leaves a symlink to a folder in place when it has the memory file's name", async () => {
+    await mkdir(join(vault, "linked-folder"))
+    const linkPath = join(vault, "About Me", "Archive.md")
+    await symlink(join(vault, "linked-folder"), linkPath)
+
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Archive",
+          section: "Notes",
+          entry: "never written",
+          date: "2026-05-15",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error('cannot write memory file "About Me/Archive.md": that path is not a file'),
+    )
+    const linkStats = await lstat(linkPath)
+    expect(linkStats.isSymbolicLink()).toBe(true)
+  })
+
+  it("rejects a folder named like the memory file with a vault-relative message", async () => {
+    await mkdir(join(vault, "About Me", "Archive.md"))
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Archive",
+          section: "Notes",
+          entry: "never written",
+          date: "2026-05-15",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error('cannot write memory file "About Me/Archive.md": that path is not a file'),
+    )
   })
 
   it("auto-creates section in existing file", async () => {

@@ -1,7 +1,11 @@
-import { describe, it, expect, onTestFinished } from "vitest"
-import { chmod, mkdtemp, realpath, rm, symlink, writeFile, mkdir } from "node:fs/promises"
+import { describe, it, expect, onTestFinished, vi } from "vitest"
+import { chmod, mkdtemp, readdir, realpath, rm, symlink, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
+
+// Every node:fs/promises export becomes a pass-through spy, so the real
+// filesystem answers every call except the one a test overrides.
+vi.mock("node:fs/promises", { spy: true })
 import {
   readFileOrNull,
   readdirOrNull,
@@ -85,6 +89,24 @@ describe("readdirOrNull", () => {
     const filePath = join(dir, "note.md")
     await writeFile(filePath, "x", "utf8")
     expect(await readdirOrNull(filePath)).toBeNull()
+  })
+
+  it("returns null when a parent of the path is a file", async () => {
+    const dir = await makeTempDir()
+    const filePath = join(dir, "note.md")
+    await writeFile(filePath, "x", "utf8")
+    expect(await readdirOrNull(join(filePath, "child"))).toBeNull()
+  })
+
+  it("rethrows ENOTDIR raised from inside a folder that still exists", async () => {
+    const dir = await makeTempDir()
+    // What the walk raises when a folder inside it becomes a file mid-walk,
+    // while the listed folder itself is still there.
+    const midWalkError = Object.assign(new Error("ENOTDIR: not a directory, scandir"), {
+      code: "ENOTDIR",
+    })
+    vi.mocked(readdir).mockRejectedValueOnce(midWalkError)
+    await expect(readdirOrNull(dir)).rejects.toBe(midWalkError)
   })
 })
 

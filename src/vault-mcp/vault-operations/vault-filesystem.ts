@@ -421,6 +421,16 @@ const writeNote = async (
     if (existing !== null && !params.overwrite) {
       throw new Error(`note already exists: "${params.path}"`)
     }
+    // readFileOrNull reads a folder at the path as no file. The write below
+    // renames over the path, which would replace a symlink that points at a
+    // folder, so anything there that is not a file stops the write.
+    if (existing === null) {
+      const occupant = await statOrNull(fullPath)
+
+      if (occupant && !occupant.isFile()) {
+        throw new Error(`cannot write note "${params.path}": that path is not a file`)
+      }
+    }
     const serialized = serializeNote(existing, params.body, params.properties)
     await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
     logger.info("wrote note", {

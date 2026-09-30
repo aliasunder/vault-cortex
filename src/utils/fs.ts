@@ -52,8 +52,16 @@ export const readdirOrNull = async (path: string): Promise<Dirent[] | null> => {
   try {
     return await readdir(path, { recursive: true, withFileTypes: true })
   } catch (error) {
-    if (isMissingPathError(error)) return null
-    throw error
+    if (isErrnoException(error, "ENOENT")) return null
+    if (!isErrnoException(error, "ENOTDIR")) throw error
+
+    // The walk also raises ENOTDIR when a folder inside it becomes a file
+    // while it runs. Null would report that listing as empty, so it is
+    // returned only when the listed path itself is not a folder.
+    const pathStats = await statOrNull(path)
+
+    if (pathStats?.isDirectory()) throw error
+    return null
   }
 }
 

@@ -5,7 +5,7 @@ import { constants, type Dirent } from "node:fs"
 import { join, basename, dirname, resolve } from "node:path"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
-import { readFileOrNull } from "../../utils/fs.js"
+import { readFileOrNull, statOrNull } from "../../utils/fs.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { describeError } from "../../utils/describe-error.js"
@@ -807,6 +807,16 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       if (existingContent === null) {
         const newSection = headingWithNewestFirstSuffix(params.section)
         const filePath = memoryFilePath(params.vaultPath, params.file)
+        // The read reports a folder at the path as no file. The write below
+        // renames over the path, which would replace a symlink that points
+        // at a folder, so anything there that is not a file stops the write.
+        const occupant = await statOrNull(filePath)
+
+        if (occupant && !occupant.isFile()) {
+          throw new Error(
+            `cannot write memory file "${memoryDir}/${params.file}.md": that path is not a file`,
+          )
+        }
         await mkdir(dirname(filePath), { recursive: true })
         const content = buildNewMemoryFile({
           fileName: params.file,
