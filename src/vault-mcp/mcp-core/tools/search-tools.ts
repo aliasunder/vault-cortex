@@ -463,7 +463,7 @@ Prefer vault_search when you also have a text query (it supports property filter
 Parameters:
 - key + value are both exact and case-sensitive — no partial matching or globbing. All property values are compared as strings, so numeric or boolean properties must be passed as their string representation.
 - For array properties (tags, related), value is tested against each element individually (contains check) — "blog" matches a note with tags: ["blog", "draft"] but not tags: ["my-blog"].
-- folder narrows results to a subtree; omit for vault-wide search. Combined with key+value, this lets you check how a property is used within a specific area.
+- folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case; omit folder to search the entire vault. Combined with key+value, this lets you check how a property is used within a specific area.
 
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by filesystem mtime descending — recently-synced notes may sort ahead of older content edits.`,
       inputSchema: {

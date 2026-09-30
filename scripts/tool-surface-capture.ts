@@ -2,7 +2,8 @@
  *  prompts, server description, and server instructions — per config combo,
  *  over a real in-process server. It feeds `tool-surface-snapshot.test.ts` in
  *  `src/vault-mcp/mcp-core/__tests__/`, which pins the committed baseline and
- *  caps the tool list's size, and `tool-surface-size.ts`, the size report. */
+ *  caps the tool list's size; `tool-surface-size.ts`, the size report; and
+ *  `lobehub-manifest.ts`, which publishes the default combo's surface. */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
@@ -81,8 +82,8 @@ export const SURFACE_COMBOS: readonly SurfaceCombo[] = [
 ]
 
 const noop = (): void => {}
-/** The snapshot test and the size report print their own output, so
- *  registration's per-group summary lines stay quiet. */
+/** Every consumer prints its own output, so registration's per-group summary
+ *  lines stay quiet. */
 const silentLogger: Logger = {
   debug: noop,
   info: noop,
