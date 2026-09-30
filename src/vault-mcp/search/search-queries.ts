@@ -191,9 +191,12 @@ export const fullTextSearch = (
     queryParams.push(params.filters.type)
   }
 
+  // The key is matched as data through json_each, never spliced into a JSON
+  // path: a path treats "." and "[" as syntax, so a key like "a.b" would
+  // descend into a nested object that does not exist and never match.
   if (params.filters?.properties) {
     for (const [key, value] of Object.entries(params.filters.properties)) {
-      conditions.push(`json_extract(n.properties, '$.' || ?) = ?`)
+      conditions.push("EXISTS (SELECT 1 FROM json_each(n.properties) WHERE key = ? AND value = ?)")
       queryParams.push(key, value)
     }
   }
@@ -1162,24 +1165,27 @@ export const listPropertyKeys = (
     .prepare<Record<string, unknown>, { key: string; count: number }>(keySql)
     .all(keySqlParams)
 
-  const sampleFolderCondition = escapedFolder ? "AND path LIKE @folder || '/%' ESCAPE '\\'" : ""
+  // n.path, qualified: the json_each tables in the FROM clause expose a
+  // path column of their own.
+  const sampleFolderCondition = escapedFolder ? "AND n.path LIKE @folder || '/%' ESCAPE '\\'" : ""
 
-  // For each key, fetch the 3 most common values as samples.
-  // json_array() wraps scalars so json_each works uniformly for
-  // both scalar ("active") and array (["a","b"]) property values.
+  // For each key, fetch the 3 most common values as samples. The key is
+  // matched as data through json_each (the same walk keySql makes, at
+  // comparable cost), never spliced into a JSON path, where "." and "["
+  // are syntax and a key like "a.b" would read as missing. json_array()
+  // wraps scalars so the inner json_each works uniformly for both scalar
+  // ("active") and array (["a","b"]) property values.
   const sampleSql = `
     SELECT element.value, COUNT(*) as count
-    FROM (
-      SELECT properties FROM notes
-      WHERE json_type(properties, '$.' || @key) IS NOT NULL
-      ${sampleFolderCondition}
-    ) filtered, json_each(
-      CASE json_type(filtered.properties, '$.' || @key)
-        WHEN 'array' THEN json_extract(filtered.properties, '$.' || @key)
-        ELSE json_array(json_extract(filtered.properties, '$.' || @key))
+    FROM notes n, json_each(n.properties) property, json_each(
+      CASE property.type
+        WHEN 'array' THEN property.value
+        ELSE json_array(property.value)
       END
     ) element
-    WHERE typeof(element.value) IN ('text', 'integer', 'real')
+    WHERE property.key = @key
+    ${sampleFolderCondition}
+    AND typeof(element.value) IN ('text', 'integer', 'real')
     GROUP BY element.value
     ORDER BY count DESC, element.value
     LIMIT 3
@@ -1216,23 +1222,26 @@ export const listPropertyValues = (
   const escapedFolder = params.folder
     ? escapeLikeWildcards(stripTrailingSlashes(params.folder))
     : null
-  const folderCondition = escapedFolder ? "AND path LIKE @folder || '/%' ESCAPE '\\'" : ""
+  // n.path, qualified: the json_each tables in the FROM clause expose a
+  // path column of their own.
+  const folderCondition = escapedFolder ? "AND n.path LIKE @folder || '/%' ESCAPE '\\'" : ""
 
-  // json_array() wraps scalars so json_each works uniformly for
-  // both scalar ("active") and array (["a","b"]) property values.
+  // The key is matched as data through json_each (the same walk
+  // listPropertyKeys makes, at comparable cost), never spliced into a JSON
+  // path, where "." and "[" are syntax and a key like "a.b" would read as
+  // missing. json_array() wraps scalars so the inner json_each works
+  // uniformly for both scalar ("active") and array (["a","b"]) values.
   const sql = `
     SELECT element.value, COUNT(*) as count
-    FROM (
-      SELECT properties FROM notes
-      WHERE json_type(properties, '$.' || @key) IS NOT NULL
-      ${folderCondition}
-    ) filtered, json_each(
-      CASE json_type(filtered.properties, '$.' || @key)
-        WHEN 'array' THEN json_extract(filtered.properties, '$.' || @key)
-        ELSE json_array(json_extract(filtered.properties, '$.' || @key))
+    FROM notes n, json_each(n.properties) property, json_each(
+      CASE property.type
+        WHEN 'array' THEN property.value
+        ELSE json_array(property.value)
       END
     ) element
-    WHERE typeof(element.value) IN ('text', 'integer', 'real')
+    WHERE property.key = @key
+    ${folderCondition}
+    AND typeof(element.value) IN ('text', 'integer', 'real')
     GROUP BY element.value
     ORDER BY count DESC, element.value
     LIMIT @limit
@@ -1273,23 +1282,28 @@ export const searchByProperty = (
     : null
   const folderCondition = escapedFolder ? "AND n.path LIKE @folder || '/%' ESCAPE '\\'" : ""
 
-  // Two branches handle different property shapes:
+  // The key is matched as data through json_each, never spliced into a JSON
+  // path, where "." and "[" are syntax and a key like "a.b" would read as
+  // missing. Two branches then handle different property shapes:
   // - Array properties (tags: ["a","b"]): check if @value is IN the array
   // - Scalar properties (status: "active"): check direct equality
   // Both branches CAST to TEXT for type-safe comparison (integer 4 = text "4")
   const sql = `
     SELECT path, title, tags, related, folder, type, created, mtime, properties, leading_callout, bytes
     FROM notes n
-    WHERE (
-      (json_type(n.properties, '$.' || @key) = 'array'
-       AND EXISTS (
-         SELECT 1 FROM json_each(json_extract(n.properties, '$.' || @key))
-         WHERE CAST(value AS TEXT) = @value
-       ))
-      OR
-      (json_type(n.properties, '$.' || @key) IS NOT NULL
-       AND json_type(n.properties, '$.' || @key) != 'array'
-       AND CAST(json_extract(n.properties, '$.' || @key) AS TEXT) = @value)
+    WHERE EXISTS (
+      SELECT 1 FROM json_each(n.properties) property
+      WHERE property.key = @key
+        AND (
+          (property.type = 'array'
+           AND EXISTS (
+             SELECT 1 FROM json_each(property.value)
+             WHERE CAST(value AS TEXT) = @value
+           ))
+          OR
+          (property.type != 'array'
+           AND CAST(property.value AS TEXT) = @value)
+        )
     )
     ${folderCondition}
     ORDER BY mtime DESC, path
