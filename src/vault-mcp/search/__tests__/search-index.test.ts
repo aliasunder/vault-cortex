@@ -54,6 +54,14 @@ title: Me
 `
 
 /** Builds a fileStat object for upsertNote. Defaults to size 100. */
+/** Narrows a row from a `SELECT COUNT(*) as count` query without a type assertion. */
+const countRow = (row: unknown): { count: number } => {
+  if (typeof row === "object" && row !== null && "count" in row && typeof row.count === "number") {
+    return { count: row.count }
+  }
+  throw new Error("expected a count row")
+}
+
 const testStat = (mtimeMs: number, size = 100): { mtimeMs: number; size: number } => ({
   mtimeMs,
   size,
@@ -75,12 +83,12 @@ const isoFromMillis = (mtimeMs: number): string => {
  *  setup and seeding writes succeed until a test arms it. */
 const installStatementPoison = (sqlFragment: string) => {
   const message = `injected failure on: ${sqlFragment}`
-  // Concrete function type: prepare's generic conditional return type doesn't
-  // resolve through .call, so pin the default instantiation explicitly.
+  // prepare's generic conditional return type doesn't resolve through .call,
+  // so a concrete function type pins the default instantiation explicitly.
   const realPrepare: (this: Database.Database, source: string) => Database.Statement =
     Database.prototype.prepare
-  // Mutable arming flag: the patched .run closes over this object so tests
-  // can trigger the failure long after the statement was prepared.
+  // The patched .run closes over this mutable flag so tests can trigger the
+  // failure long after the statement was prepared.
   const poisonState = { armed: false }
   const prepareSpy = vi.spyOn(Database.prototype, "prepare").mockImplementation(function (
     this: Database.Database,
@@ -761,7 +769,7 @@ describe("leading callout", () => {
 
     // Opening through the factory must add the missing column, not throw on upsert.
     const warmIndex = createSearchIndex(dbPath)
-    expect(() =>
+    expect(() => {
       warmIndex.upsertNote(
         {
           filePath: "About Me/Me.md",
@@ -769,8 +777,8 @@ describe("leading callout", () => {
           fileStat: testStat(1000),
         },
         logger,
-      ),
-    ).not.toThrow()
+      )
+    }).not.toThrow()
     const results = warmIndex.searchByFolder({ folder: "About Me" }, logger)
     expect(results[0]?.leading_callout?.title).toBe("Scope of this file")
     expect(results[0]?.bytes).toBe(100)
@@ -1058,7 +1066,7 @@ describe("upsertNote atomicity", () => {
     // transaction — intact version-A state below proves genuine rollback,
     // not a no-op.
     taskInsertPoison.arm()
-    expect(() =>
+    expect(() => {
       atomicIndex.upsertNote(
         {
           filePath: "atomic/target.md",
@@ -1066,8 +1074,8 @@ describe("upsertNote atomicity", () => {
           fileStat: testStat(2000),
         },
         logger,
-      ),
-    ).toThrow(taskInsertPoison.message)
+      )
+    }).toThrow(taskInsertPoison.message)
     taskInsertPoison.disarm()
 
     expect(atomicIndex.recentNotes({}, logger)).toEqual([versionAMetadata()])
@@ -1101,7 +1109,7 @@ describe("upsertNote atomicity", () => {
     // the tasks-phase poison above never exercises (it throws before the
     // links table is touched).
     linkInsertPoison.arm()
-    expect(() =>
+    expect(() => {
       atomicIndex.upsertNote(
         {
           filePath: "atomic/target.md",
@@ -1109,8 +1117,8 @@ describe("upsertNote atomicity", () => {
           fileStat: testStat(2000),
         },
         logger,
-      ),
-    ).toThrow(linkInsertPoison.message)
+      )
+    }).toThrow(linkInsertPoison.message)
     linkInsertPoison.disarm()
 
     expect(atomicIndex.recentNotes({}, logger)).toEqual([versionAMetadata()])
@@ -1129,7 +1137,7 @@ describe("upsertNote atomicity", () => {
   it("leaves no trace when a statement fails on a first-ever upsert", () => {
     const taskInsertPoison = installStatementPoison("INSERT INTO tasks")
     const atomicIndex = createSearchIndex(":memory:")
-    // Control note: its positive assertions below prove the query path works,
+    // The control note's positive assertions below prove the query path works,
     // so the target note's empty results can't pass vacuously (fullTextSearch
     // catches SQL errors and returns []).
     atomicIndex.upsertNote(
@@ -1142,7 +1150,7 @@ describe("upsertNote atomicity", () => {
     )
 
     taskInsertPoison.arm()
-    expect(() =>
+    expect(() => {
       atomicIndex.upsertNote(
         {
           filePath: "atomic/target.md",
@@ -1150,8 +1158,8 @@ describe("upsertNote atomicity", () => {
           fileStat: testStat(1000),
         },
         logger,
-      ),
-    ).toThrow(taskInsertPoison.message)
+      )
+    }).toThrow(taskInsertPoison.message)
     taskInsertPoison.disarm()
 
     const controlMetadata: NoteMetadata = {
@@ -1435,9 +1443,9 @@ describe("fullTextSearch", () => {
   })
 
   it("query with FTS5 operators does not throw", () => {
-    expect(() =>
-      index.fullTextSearch({ query: 'test "quoted" AND (grouped) OR NOT *wild*' }, logger),
-    ).not.toThrow()
+    expect(() => {
+      index.fullTextSearch({ query: 'test "quoted" AND (grouped) OR NOT *wild*' }, logger)
+    }).not.toThrow()
   })
 
   it("hyphenated query matches content containing the hyphenated term", () => {
@@ -1477,9 +1485,9 @@ describe("fullTextSearch", () => {
   })
 
   it("query with stray punctuation does not throw", () => {
-    expect(() =>
-      index.fullTextSearch({ query: "what's new in deploy/local, server.json & .env?" }, logger),
-    ).not.toThrow()
+    expect(() => {
+      index.fullTextSearch({ query: "what's new in deploy/local, server.json & .env?" }, logger)
+    }).not.toThrow()
   })
 })
 
@@ -1988,7 +1996,7 @@ describe("listPropertyKeys", () => {
       const prev = keys[i - 1]
       const curr = keys[i]
 
-      if (prev === undefined || curr === undefined) continue
+      if (!prev || !curr) continue
       expect(prev.count).toBeGreaterThanOrEqual(curr.count)
     }
   })
@@ -2143,7 +2151,7 @@ describe("listPropertyValues", () => {
       const prev = values[i - 1]
       const curr = values[i]
 
-      if (prev === undefined || curr === undefined) continue
+      if (!prev || !curr) continue
       expect(prev.count).toBeGreaterThanOrEqual(curr.count)
     }
   })
@@ -4400,14 +4408,11 @@ describe("vaultStats", () => {
 describe("embedding pipeline", () => {
   const DIMENSIONS = 384
 
-  /** Creates a mock embedder that returns deterministic embeddings. */
   const createMockEmbedder = () => ({
     embedText: vi.fn().mockResolvedValue(new Float32Array(DIMENSIONS).fill(0.1)),
-    embedBatch: vi
-      .fn()
-      .mockImplementation((texts: string[]) =>
-        Promise.resolve(texts.map(() => new Float32Array(DIMENSIONS).fill(0.1))),
-      ),
+    embedBatch: vi.fn().mockImplementation((texts: string[]) => {
+      return Promise.resolve(texts.map(() => new Float32Array(DIMENSIONS).fill(0.1)))
+    }),
   })
 
   const NOTE_FOR_EMBEDDING = `---
@@ -4745,8 +4750,8 @@ It has multiple sentences to verify chunking works correctly.
       const selectChunkCountStmt = inspectDb.prepare<[string], { count: number }>(
         "SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?",
       )
-      // Trigger guard: the first rebuild actually embedded the file, so the
-      // cleanup assertion below can't pass by the file never being indexed
+      // The first rebuild actually embedded the file, so the cleanup assertion
+      // below can't pass by the file never being indexed
       expect(selectChunkCountStmt.get("ephemeral.txt")?.count).toBe(1)
 
       await rm(join(vaultDir, "ephemeral.txt"))
@@ -4894,25 +4899,25 @@ Shared datefilter content for boundary tests.
 
   it("rejects a malformed created date with remediation text", () => {
     const dateIndex = indexWithCreatedDates()
-    expect(() =>
+    expect(() => {
       dateIndex.fullTextSearch(
         { query: "datefilter", filters: { created: { on: "March 10" } } },
         logger,
-      ),
-    ).toThrow(/^invalid created\.on date: "March 10"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/)
+      )
+    }).toThrow(/^invalid created\.on date: "March 10"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/)
   })
 
   it("rejects a calendar-invalid created date", () => {
     const dateIndex = indexWithCreatedDates()
-    expect(() =>
+    expect(() => {
       dateIndex.fullTextSearch(
         {
           query: "datefilter",
           filters: { created: { before: "2026-02-31" } },
         },
         logger,
-      ),
-    ).toThrow(
+      )
+    }).toThrow(
       /^invalid created\.before date: "2026-02-31"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
     )
   })
@@ -4999,27 +5004,27 @@ Shared datefilter content for mtime boundary tests.
 
   it("rejects a malformed modified date with remediation text", () => {
     const dateIndex = indexWithModifiedTimes()
-    expect(() =>
+    expect(() => {
       dateIndex.fullTextSearch(
         { query: "datefilter", filters: { modified: { after: "yesterday" } } },
         logger,
-      ),
-    ).toThrow(
+      )
+    }).toThrow(
       /^invalid modified\.after date: "yesterday"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
     )
   })
 
   it("rejects a calendar-invalid modified date", () => {
     const dateIndex = indexWithModifiedTimes()
-    expect(() =>
+    expect(() => {
       dateIndex.fullTextSearch(
         {
           query: "datefilter",
           filters: { modified: { before: "2026-02-31" } },
         },
         logger,
-      ),
-    ).toThrow(
+      )
+    }).toThrow(
       /^invalid modified\.before date: "2026-02-31"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
     )
   })
@@ -5036,8 +5041,8 @@ Shared datefilter content for mtime boundary tests.
       logger,
     )
     expect(tagMatchedResults.map((result) => result.path)).toEqual(["during.md"])
-    // And the reverse: during.md matches the modified bound but lacks the
-    // required tag — the tag filter must exclude it despite the date match
+    // And in reverse, during.md matches the modified bound but lacks the
+    // required tag, so the tag filter must exclude it despite the date match
     const tagExcludedResults = dateIndex.fullTextSearch(
       {
         query: "datefilter",
@@ -5561,11 +5566,9 @@ describe("file content vector embeddings", () => {
   const DIMENSIONS = 384
   const createMockEmbedder = () => ({
     embedText: vi.fn().mockResolvedValue(new Float32Array(DIMENSIONS).fill(0.1)),
-    embedBatch: vi
-      .fn()
-      .mockImplementation((texts: string[]) =>
-        Promise.resolve(texts.map(() => new Float32Array(DIMENSIONS).fill(0.1))),
-      ),
+    embedBatch: vi.fn().mockImplementation((texts: string[]) => {
+      return Promise.resolve(texts.map(() => new Float32Array(DIMENSIONS).fill(0.1)))
+    }),
   })
 
   const TEXT_FILE_CONTENT = "System design overview with diagrams and architecture notes."
@@ -5704,21 +5707,25 @@ describe("file content vector embeddings", () => {
         inspectDb.close()
       })
 
-      const chunksBefore = inspectDb
-        .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
-        .get("docs/overview.txt") as { count: number }
+      const chunksBefore = countRow(
+        inspectDb
+          .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
+          .get("docs/overview.txt"),
+      )
       expect(chunksBefore.count).toBe(1)
 
       index.removeFileContent({ filePath: "docs/overview.txt" }, logger)
 
-      const chunksAfter = inspectDb
-        .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
-        .get("docs/overview.txt") as { count: number }
+      const chunksAfter = countRow(
+        inspectDb
+          .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
+          .get("docs/overview.txt"),
+      )
       expect(chunksAfter.count).toBe(0)
 
-      const vectorsAfter = inspectDb
-        .prepare("SELECT COUNT(*) as count FROM file_content_vectors")
-        .get() as { count: number }
+      const vectorsAfter = countRow(
+        inspectDb.prepare("SELECT COUNT(*) as count FROM file_content_vectors").get(),
+      )
       expect(vectorsAfter.count).toBe(0)
     })
   })
@@ -5734,14 +5741,14 @@ describe("file content vector embeddings", () => {
         fileToolsEnabled: true,
       })
 
-      const longContent = Array.from(
-        { length: 15 },
-        (_, paragraphIndex) =>
+      const longContent = Array.from({ length: 15 }, (_, paragraphIndex) => {
+        return (
           `Paragraph ${String(paragraphIndex)} discusses advanced architecture and system design patterns ` +
           `including microservices communication protocols and event-driven messaging architectures ` +
           `with distributed tracing observability and structured logging for production monitoring ` +
-          `plus container orchestration deployment strategies and infrastructure provisioning automation.`,
-      ).join("\n\n")
+          `plus container orchestration deployment strategies and infrastructure provisioning automation.`
+        )
+      }).join("\n\n")
 
       index.upsertNonMdFile("docs/long.txt", 2000)
       index.upsertFileContent(
@@ -5761,9 +5768,11 @@ describe("file content vector embeddings", () => {
         inspectDb.close()
       })
 
-      const chunkCountBefore = inspectDb
-        .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
-        .get("docs/long.txt") as { count: number }
+      const chunkCountBefore = countRow(
+        inspectDb
+          .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
+          .get("docs/long.txt"),
+      )
       expect(chunkCountBefore.count).toBeGreaterThan(1)
 
       // Replace with short content — produces exactly 1 chunk
@@ -5777,14 +5786,16 @@ describe("file content vector embeddings", () => {
       )
       await index.embedFileContent({ filePath: "docs/long.txt" }, logger)
 
-      const chunkCountAfter = inspectDb
-        .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
-        .get("docs/long.txt") as { count: number }
+      const chunkCountAfter = countRow(
+        inspectDb
+          .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
+          .get("docs/long.txt"),
+      )
       expect(chunkCountAfter.count).toBe(1)
 
-      const vectorCount = inspectDb
-        .prepare("SELECT COUNT(*) as count FROM file_content_vectors")
-        .get() as { count: number }
+      const vectorCount = countRow(
+        inspectDb.prepare("SELECT COUNT(*) as count FROM file_content_vectors").get(),
+      )
       expect(vectorCount.count).toBe(1)
     })
   })

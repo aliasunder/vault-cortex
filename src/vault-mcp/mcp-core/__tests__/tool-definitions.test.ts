@@ -71,8 +71,18 @@ beforeEach(() => {
   calls = mockServer.registerTool.mock.calls as RegisterToolCall[]
 })
 
-const findCall = (name: string): RegisterToolCall | undefined =>
-  calls.find(([toolName]) => toolName === name)
+const findCall = (name: string): RegisterToolCall | undefined => {
+  return calls.find(([toolName]) => toolName === name)
+}
+
+/** The text of a tool result's first content block, failing loudly when the
+ *  result carries none instead of parsing an empty string. */
+const requireTextContent = (result: { content: Array<{ text?: string }> }): string => {
+  const text = result.content[0]?.text
+
+  if (text === undefined) throw new Error("result has no text content")
+  return text
+}
 
 /** findCall for tests that assume the tool is registered — throws instead of
  *  returning undefined so call sites need no non-null assertion. */
@@ -108,7 +118,7 @@ describe("registerTools", () => {
   })
 
   it.each(ALL_TOOL_NAMES)("registers %s", (name) => {
-    expect(findCall(name)).toBeDefined()
+    expect(findCall(name)?.[0]).toBe(name)
   })
 
   it("every tool has a non-empty title", () => {
@@ -240,8 +250,9 @@ describe("registerTools", () => {
   it("vault_write_note exposes an optional overwrite boolean in its schema", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_WRITE_NOTE)
     const overwriteSchema = config.inputSchema?.overwrite
-    expect(overwriteSchema).toBeDefined()
     expect(overwriteSchema?.safeParse(true).success).toBe(true)
+    expect(overwriteSchema?.safeParse(false).success).toBe(true)
+    expect(overwriteSchema?.safeParse("yes").success).toBe(false)
     expect(overwriteSchema?.safeParse(undefined).success).toBe(true)
   })
 
@@ -1232,7 +1243,7 @@ describe("vault_memory_recall handler", () => {
       isError?: boolean
     }
     expect(result.isError).toBeUndefined()
-    const payload = JSON.parse(result.content[0]?.text ?? "") as {
+    const payload = JSON.parse(requireTextContent(result)) as {
       entries: Array<{ file: string; date: string }>
       total: number
       truncated: boolean
@@ -1253,7 +1264,7 @@ describe("vault_memory_recall handler", () => {
       isError?: boolean
     }
     expect(result.isError).toBeUndefined()
-    const payload = JSON.parse(result.content[0]?.text ?? "") as {
+    const payload = JSON.parse(requireTextContent(result)) as {
       entries: unknown[]
       total: number
       truncated: boolean
@@ -1384,7 +1395,7 @@ describe("vault_list_tasks handler", () => {
       isError?: boolean
     }
     expect(result.isError).toBeUndefined()
-    const payload = JSON.parse(result.content[0]?.text ?? "") as {
+    const payload = JSON.parse(requireTextContent(result)) as {
       total: number
       tasks: Array<Record<string, unknown>>
     }
@@ -1411,7 +1422,7 @@ describe("vault_list_tasks handler", () => {
     const result = (await handler({}, mockExtra)) as {
       content: Array<{ text: string }>
     }
-    const payload = JSON.parse(result.content[0]?.text ?? "") as {
+    const payload = JSON.parse(requireTextContent(result)) as {
       tasks: Array<Record<string, unknown>>
     }
     expect(payload.tasks).toEqual([
@@ -1435,7 +1446,7 @@ describe("vault_list_tasks handler", () => {
     const result = (await handler({}, mockExtra)) as {
       content: Array<{ text: string }>
     }
-    const payload = JSON.parse(result.content[0]?.text ?? "") as {
+    const payload = JSON.parse(requireTextContent(result)) as {
       tasks: Array<Record<string, unknown>>
     }
     // The whole-object match pins the wire shape: parsed arrays survive
@@ -1464,7 +1475,7 @@ describe("vault_list_tasks handler", () => {
     )) as {
       content: Array<{ text: string }>
     }
-    const payload = JSON.parse(result.content[0]?.text ?? "") as {
+    const payload = JSON.parse(requireTextContent(result)) as {
       tasks: Array<{ description: string }>
     }
     // done DESC with dateless last: the completed card leads.
@@ -1490,7 +1501,7 @@ describe("vault_list_tasks handler", () => {
       isError?: boolean
     }
     expect(result.isError).toBeUndefined()
-    expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
+    expect(JSON.parse(requireTextContent(result))).toEqual({
       total: 0,
       tasks: [],
     })
@@ -1864,7 +1875,7 @@ describe("file tool handlers", () => {
     await writeFile(join(vault, "elsewhere/c.png"), "999", "utf8")
     const result = await listAssets({ folder: "media" })
     expect(result.isError).toBeUndefined()
-    expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
+    expect(JSON.parse(requireTextContent(result))).toEqual({
       files: [
         { path: "media/a.png", extension: ".png", bytes: 5 },
         { path: "media/b.canvas", extension: ".canvas", bytes: 2 },
@@ -1882,7 +1893,7 @@ describe("file tool handlers", () => {
       await writeFile(join(vault, "a.png"), "12345", "utf8")
       await writeFile(join(vault, "b.jpg"), "12", "utf8")
       const result = await listAssets({ extensions: [extensionSpelling] })
-      expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
+      expect(JSON.parse(requireTextContent(result))).toEqual({
         files: [{ path: "a.png", extension: ".png", bytes: 5 }],
         extension_counts: { ".png": 1 },
         total: 1,
@@ -1897,7 +1908,7 @@ describe("file tool handlers", () => {
     await writeFile(join(vault, "b.png"), "22", "utf8")
     await writeFile(join(vault, "c.jpg"), "333", "utf8")
     const result = await listAssets({ limit: 1 })
-    expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
+    expect(JSON.parse(requireTextContent(result))).toEqual({
       files: [{ path: "a.png", extension: ".png", bytes: 1 }],
       extension_counts: { ".png": 2, ".jpg": 1 },
       total: 3,
@@ -1924,10 +1935,9 @@ describe("DISABLED_TOOLS", () => {
       DISABLED_TOOLS: "vault_write_note,vault_find_orphans",
     })
     const registeredNames = registeredCalls.map(([toolName]) => toolName)
-    const expectedNames = ALL_TOOL_NAMES.filter(
-      (toolName) =>
-        toolName !== TOOL_NAMES.VAULT_WRITE_NOTE && toolName !== TOOL_NAMES.VAULT_FIND_ORPHANS,
-    )
+    const expectedNames = ALL_TOOL_NAMES.filter((toolName) => {
+      return toolName !== TOOL_NAMES.VAULT_WRITE_NOTE && toolName !== TOOL_NAMES.VAULT_FIND_ORPHANS
+    })
     expect(new Set(registeredNames)).toEqual(new Set(expectedNames))
     expect(registeredNames).toHaveLength(expectedNames.length)
   })
@@ -2136,18 +2146,18 @@ describe("DISABLED_TOOLS", () => {
 
 describe("flag-combination matrix", () => {
   const BOOL_VALUES = ["false", "true"] as const
-  const flagCombos = BOOL_VALUES.flatMap((readonlyValue) =>
-    BOOL_VALUES.flatMap((memoryValue) =>
-      BOOL_VALUES.flatMap((fileValue) =>
-        BOOL_VALUES.map((embeddingValue) => ({
+  const flagCombos = BOOL_VALUES.flatMap((readonlyValue) => {
+    return BOOL_VALUES.flatMap((memoryValue) => {
+      return BOOL_VALUES.flatMap((fileValue) => {
+        return BOOL_VALUES.map((embeddingValue) => ({
           READONLY_MODE: readonlyValue,
           MEMORY_ENABLED: memoryValue,
           FILE_TOOLS_ENABLED: fileValue,
           EMBEDDING_ENABLED: embeddingValue,
-        })),
-      ),
-    ),
-  )
+        }))
+      })
+    })
+  })
   const disabledToolsCombos = [
     { DISABLED_TOOLS: "vault_search" },
     { READONLY_MODE: "true", DISABLED_TOOLS: "vault_get_daily_note" },
