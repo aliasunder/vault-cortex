@@ -167,6 +167,11 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           format: sarif
+          # With SARIF output the action drops the severity filter unless
+          # this is set, and exit-code 1 then fails the PR on any finding.
+          # MEDIUM and LOW findings still reach the Security tab through
+          # trivy-published.
+          limit-severities-for-sarif: true
           output: trivy-results.sarif
           exit-code: "1" # gate: fail the PR on CRITICAL/HIGH findings
 
@@ -182,6 +187,8 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           format: sarif
+          # Keeps the severity filter for the gate, as in the local scan.
+          limit-severities-for-sarif: true
           output: trivy-results-remote.sarif
           exit-code: "1" # gate: fail the PR on CRITICAL/HIGH findings
 
@@ -195,8 +202,9 @@ jobs:
           sarif_file: trivy-results.sarif
           category: trivy-published-image
 
-      # hashFiles guard: the remote SARIF doesn't exist when the local scan
-      # gates the job first (exit-code 1) or the remote build fails.
+      # hashFiles guard: the remote SARIF doesn't exist when the remote image
+      # was never built (its build failed or was skipped), because the scan
+      # then has no image to read.
       - name: Upload remote SARIF to the Security tab
         if: always() && hashFiles('trivy-results-remote.sarif') != '' && github.event.pull_request.head.repo.full_name == github.repository
         uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
