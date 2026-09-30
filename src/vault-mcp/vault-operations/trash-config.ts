@@ -9,6 +9,7 @@
 
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
+// Root logger — config readers have no request context to thread.
 import { logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
