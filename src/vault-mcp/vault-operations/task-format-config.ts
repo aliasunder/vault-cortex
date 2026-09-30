@@ -128,7 +128,8 @@ const booleanSetting = (parsed: Record<string, unknown>, key: BooleanSettingKey)
 }
 
 /** Reads and parses the plugin's data.json. Returns the defaults when no
- *  file exists there; any other failure propagates. */
+ *  file exists there, and for each field the file does not set; any other
+ *  failure propagates. */
 const readTaskFormatFileConfig = async (vaultPath: string): Promise<TaskFormatConfig> => {
   const configPath = join(vaultPath, ".obsidian", "plugins", "obsidian-tasks-plugin", "data.json")
 
