@@ -199,6 +199,15 @@ describe("getMemory", () => {
     )
   })
 
+  it("rejects an unreadable memory file with a vault-relative message in the named read", async () => {
+    // afterEach deletes the vault, which removes a mode-000 file inside it, so
+    // the permissions need no restore.
+    await chmod(join(vault, "About Me", "Opinions.md"), 0o000)
+    await expect(getMemory({ vaultPath: vault, file: "Opinions" }, logger)).rejects.toThrow(
+      new Error('cannot read memory file "About Me/Opinions.md"'),
+    )
+  })
+
   it("throws on non-existent section", async () => {
     await expect(
       getMemory(
@@ -473,6 +482,24 @@ created: 2026-01-01T00:00:00-05:00
       logger,
     )
     expect(result).toBe("- **2026-05-15**: first entry")
+  })
+
+  it("rejects an unreadable memory file with a vault-relative message", async () => {
+    // afterEach deletes the vault, which removes a mode-000 file inside it, so
+    // the permissions need no restore.
+    await chmod(join(vault, "About Me", "Opinions.md"), 0o000)
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Opinions",
+          section: "Code patterns",
+          entry: "never written",
+          date: "2026-05-15",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('cannot read memory file "About Me/Opinions.md"'))
   })
 
   it("auto-creates section in existing file", async () => {
@@ -1926,6 +1953,28 @@ describe("listMemoryFileNames", () => {
     const names = await listMemoryFileNames({ vaultPath: emptyVault }, logger)
     expect(names).toEqual([])
     await rm(emptyVault, { recursive: true })
+  })
+
+  it("returns an empty array when a file sits at the memory folder's path", async () => {
+    const vaultWithFileAtMemoryPath = await mkdtemp(join(tmpdir(), "file-at-memory-path-"))
+    onTestFinished(() => rm(vaultWithFileAtMemoryPath, { recursive: true }))
+    await writeFile(join(vaultWithFileAtMemoryPath, "About Me"), "not a folder\n", "utf8")
+    const names = await listMemoryFileNames({ vaultPath: vaultWithFileAtMemoryPath }, logger)
+    expect(names).toEqual([])
+  })
+
+  it("rejects an unreadable memory folder with a vault-relative message", async () => {
+    const vaultWithLockedMemoryFolder = await mkdtemp(join(tmpdir(), "locked-memory-folder-"))
+    onTestFinished(() => rm(vaultWithLockedMemoryFolder, { recursive: true }))
+    const memoryFolder = join(vaultWithLockedMemoryFolder, "About Me")
+    await mkdir(memoryFolder)
+    await chmod(memoryFolder, 0o000)
+    // Registered last so that it runs first, which makes the folder readable
+    // again before the vault is removed.
+    onTestFinished(() => chmod(memoryFolder, 0o700))
+    await expect(
+      listMemoryFileNames({ vaultPath: vaultWithLockedMemoryFolder }, logger),
+    ).rejects.toThrow(new Error('cannot list memory folder "About Me"'))
   })
 })
 

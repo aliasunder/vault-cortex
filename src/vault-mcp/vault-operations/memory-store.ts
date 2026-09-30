@@ -1,11 +1,11 @@
 /** Memory store factory — heading-aware parser/writer for semantic memory files. */
 
 import { readFile, readdir, mkdir, access } from "node:fs/promises"
-import { constants } from "node:fs"
+import { constants, type Dirent } from "node:fs"
 import { join, basename, dirname, resolve } from "node:path"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
-import { readFileOrNull } from "../../utils/fs.js"
+import { isMissingPathError, readFileOrNull } from "../../utils/fs.js"
 import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { describeError } from "../../utils/describe-error.js"
@@ -354,6 +354,21 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     return filename.endsWith(".md") && !filename.startsWith(".")
   }
 
+  /** Reads the memory folder's direct entries.
+   *  - Returns [] when nothing is at the path, or a file is.
+   *  - Any other failure throws with the folder's vault-relative path. The raw
+   *    error names the server's absolute path, so it goes to the log instead. */
+  const readMemoryFolderEntries = async (vaultPath: string, logger: Logger): Promise<Dirent[]> => {
+    try {
+      return await readdir(join(vaultPath, memoryDir), { withFileTypes: true })
+    } catch (error) {
+      if (isMissingPathError(error)) return []
+
+      logger.warn("cannot list memory folder", { folder: memoryDir, error: describeError(error) })
+      throw new Error(`cannot list memory folder "${memoryDir}"`, { cause: error })
+    }
+  }
+
   /** The memory folder's visible .md files as sorted filenames ("Opinions.md").
    *  Reads each entry's type, because a folder named "Archive.md" passes the
    *  name test and would fail every read; a symlink is kept only when it
@@ -363,23 +378,16 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     vaultPath: string,
     logger: Logger,
   ): Promise<string[]> => {
-    const memoryFolder = join(vaultPath, memoryDir)
-    const normalizedVault = resolve(vaultPath)
-    try {
-      const entries = await readdir(memoryFolder, { withFileTypes: true })
-      const namedEntries = entries.filter(
-        (entry) => (entry.isFile() || entry.isSymbolicLink()) && isVisibleMemoryFile(entry.name),
-      )
-      const readableEntries = await filterValidSymlinks({
-        entries: namedEntries,
-        normalizedRoot: normalizedVault,
-        logger,
-      })
-      return readableEntries.map((entry) => entry.name).toSorted()
-    } catch (err) {
-      if (isErrnoException(err, "ENOENT")) return []
-      throw err
-    }
+    const entries = await readMemoryFolderEntries(vaultPath, logger)
+    const namedEntries = entries.filter(
+      (entry) => (entry.isFile() || entry.isSymbolicLink()) && isVisibleMemoryFile(entry.name),
+    )
+    const readableEntries = await filterValidSymlinks({
+      entries: namedEntries,
+      normalizedRoot: resolve(vaultPath),
+      logger,
+    })
+    return readableEntries.map((entry) => entry.name).toSorted()
   }
 
   /** Reads a file the listing returned. A failure throws with the file's
@@ -548,21 +556,37 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
   }
 
-  /** Reads one memory file by bare name. No file at the path, a memory folder
-   *  that is itself a file, or a folder named like the file all report the
-   *  vault-relative not-found error; the raw errno names the server's path. */
-  const readMemoryFile = async (vaultPath: string, file: string): Promise<string> => {
-    const content = await readFileOrNull(memoryFilePath(vaultPath, file))
+  /** Reads one memory file by bare name.
+   *  - Returns null when no file is there. That covers nothing at the path, a
+   *    memory folder that is itself a file, and a folder named like the file.
+   *  - Any other failure throws with the file's vault-relative path. The raw
+   *    error names the server's absolute path, so it goes to the log instead. */
+  const readMemoryFileOrNull = async (
+    params: { vaultPath: string; file: string },
+    logger: Logger,
+  ): Promise<string | null> => {
+    const filePath = memoryFilePath(params.vaultPath, params.file)
+    try {
+      return await readFileOrNull(filePath)
+    } catch (error) {
+      logger.warn("cannot read memory file", { file: params.file, error: describeError(error) })
+      throw new Error(`cannot read memory file "${memoryDir}/${params.file}.md"`, { cause: error })
+    }
+  }
+
+  /** Like readMemoryFileOrNull, but a missing file throws the vault-relative
+   *  not-found error. */
+  const readMemoryFile = async (
+    params: { vaultPath: string; file: string },
+    logger: Logger,
+  ): Promise<string> => {
+    const content = await readMemoryFileOrNull(params, logger)
 
     if (content === null) {
-      throw new Error(`memory file not found: "${memoryDir}/${file}.md"`)
+      throw new Error(`memory file not found: "${memoryDir}/${params.file}.md"`)
     }
     return content
   }
-
-  /** Like readMemoryFile, but returns null when the file does not exist. */
-  const readMemoryFileOrNull = (vaultPath: string, file: string): Promise<string | null> =>
-    readFileOrNull(memoryFilePath(vaultPath, file))
 
   /** Resolves a named H2 section, throwing with the file's available headings
    *  when none matches. Shared so the section, entries, and delete reads
@@ -661,7 +685,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       return contents.join("\n\n---\n\n")
     }
 
-    const raw = await readMemoryFile(params.vaultPath, params.file)
+    const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
     const parsed = parseNote(raw)
 
     if (!params.section) {
@@ -697,7 +721,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       throw new Error(INVALID_MEMORY_ENTRY_DATE_MESSAGE)
     }
 
-    const raw = await readMemoryFile(params.vaultPath, params.file)
+    const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
     const parsed = parseNote(raw)
     const lines = splitIntoLines(parsed.content)
 
@@ -772,7 +796,10 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const position = params.position ?? "top"
       const bullet = `- **${date}**: ${params.entry}`
 
-      const existingContent = await readMemoryFileOrNull(params.vaultPath, params.file)
+      const existingContent = await readMemoryFileOrNull(
+        { vaultPath: params.vaultPath, file: params.file },
+        logger,
+      )
 
       // File does not exist — create directory + file with section and entry
       if (existingContent === null) {
@@ -978,7 +1005,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     // Serialize with concurrent updates/deletes to the same file so the
     // read-modify-write can't be interleaved and lose a write.
     return withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
-      const raw = await readMemoryFile(params.vaultPath, params.file)
+      const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
       const parsed = parseNote(raw)
       const lines = splitIntoLines(parsed.content)
       const match = resolveSection({ lines, section: params.section, file: params.file })
