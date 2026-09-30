@@ -76,6 +76,17 @@ describe("readTrashConfig", () => {
     expect(result).toBe("system")
   })
 
+  it('defaults to "system" when app.json holds JSON with no keys, such as null', async () => {
+    const vault = await createVault()
+    const obsidianDir = join(vault, ".obsidian")
+    await mkdir(obsidianDir, { recursive: true })
+    await writeFile(join(obsidianDir, "app.json"), "null", "utf8")
+
+    const result = await readTrashConfig(vault, logger)
+
+    expect(result).toBe("system")
+  })
+
   it('defaults to "system" for an unrecognized value', async () => {
     const vault = await createVault()
     await writeAppConfig(vault, { trashOption: "recycle-bin" })

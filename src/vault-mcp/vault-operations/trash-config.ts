@@ -28,8 +28,8 @@ const isTrashOption = (value: unknown): value is TrashOption => {
 // ── Config reader ───────────────────────────────────────────────
 
 /** Reads the `trashOption` setting from `.obsidian/app.json`.
- *  - Returns `"system"` when the file is missing, the key is absent, or the
- *    value is unrecognized.
+ *  - Returns `"system"` when the file is missing, its JSON holds no
+ *    `trashOption` key, or the value is unrecognized.
  *  - Throws when the file exists but cannot be read or parsed. */
 export const readTrashConfig = async (vaultPath: string, logger: Logger): Promise<TrashOption> => {
   try {
@@ -38,9 +38,10 @@ export const readTrashConfig = async (vaultPath: string, logger: Logger): Promis
     // Read on every call, so a switch away from "Permanently delete" applies
     // to the next delete rather than after a restart.
     const fileContent = await readFile(configPath, "utf8")
-    const parsed: Record<string, unknown> = JSON.parse(fileContent)
+    // Valid JSON can be `null`, which has no keys to read.
+    const parsed: Record<string, unknown> | null = JSON.parse(fileContent)
 
-    const rawOption = parsed.trashOption
+    const rawOption = parsed?.trashOption
 
     if (isTrashOption(rawOption)) return rawOption
 
