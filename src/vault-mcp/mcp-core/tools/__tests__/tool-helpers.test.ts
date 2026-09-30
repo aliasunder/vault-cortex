@@ -1,5 +1,44 @@
-import { describe, it, expect } from "vitest"
-import { describeTextWindow } from "../tool-helpers.js"
+import { describe, it, expect, onTestFinished, vi } from "vitest"
+import { logger } from "../../../../logger.js"
+import { describeTextWindow, safeHandlerContent } from "../tool-helpers.js"
+
+/** A handler failure whose cause carries detail the client must never see. */
+const failWithCause = async (): Promise<string> => {
+  throw new RangeError("limit out of range", {
+    cause: new Error("EACCES: permission denied, open '/srv/vault/.obsidian/app.json'"),
+  })
+}
+
+describe("safeHandlerContent", () => {
+  it("returns a throw as an isError result holding only the error's name and message", async () => {
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
+    const result = await safeHandlerContent(logger, failWithCause, (text) => [
+      { type: "text", text },
+    ])
+
+    expect(result).toEqual({
+      content: [{ type: "text", text: "[RangeError]: limit out of range" }],
+      isError: true,
+    })
+  })
+
+  it("logs a throw as tool_error on the caller's logger", async () => {
+    const requestLogger = logger.child({ requestId: "request-1" })
+    const requestWarnSpy = vi.spyOn(requestLogger, "warn").mockImplementation(() => {})
+    const rootWarnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => rootWarnSpy.mockRestore())
+
+    await safeHandlerContent(requestLogger, failWithCause, (text) => [{ type: "text", text }])
+
+    expect(requestWarnSpy).toHaveBeenCalledTimes(1)
+    expect(requestWarnSpy).toHaveBeenCalledWith("tool_error", {
+      error: "[RangeError]: limit out of range",
+    })
+    expect(rootWarnSpy).not.toHaveBeenCalled()
+  })
+})
 
 describe("describeTextWindow", () => {
   it("reports zero lines for an empty rendition", () => {
