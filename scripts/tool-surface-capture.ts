@@ -2,7 +2,7 @@
  *  prompts, server description, and server instructions — per config combo,
  *  over a real in-process server. Two consumers read it:
  *  - `tool-surface-snapshot.test.ts` in `src/vault-mcp/mcp-core/__tests__/`,
- *    which pins the committed baseline and caps its size.
+ *    which pins the committed baseline and caps the tool list's size.
  *  - `tool-surface-size.ts`, the size report. */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
