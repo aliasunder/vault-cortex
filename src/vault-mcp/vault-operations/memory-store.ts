@@ -2,7 +2,7 @@
 
 import { readFile, readdir, mkdir, access } from "node:fs/promises"
 import { constants } from "node:fs"
-import { join, basename, dirname } from "node:path"
+import { join, basename, dirname, resolve } from "node:path"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
 import { readFileOrNull } from "../../utils/fs.js"
@@ -364,6 +364,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     logger: Logger,
   ): Promise<string[]> => {
     const memoryFolder = join(vaultPath, memoryDir)
+    const normalizedVault = resolve(vaultPath)
     try {
       const entries = await readdir(memoryFolder, { withFileTypes: true })
       const namedEntries = entries.filter(
@@ -371,7 +372,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       )
       const readableEntries = await filterValidSymlinks({
         entries: namedEntries,
-        normalizedRoot: memoryFolder,
+        normalizedRoot: normalizedVault,
         logger,
       })
       return readableEntries.map((entry) => entry.name).toSorted()
@@ -946,8 +947,9 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   }
 
   /** Lists memory file names (without .md), sorted. Cheap by design — a
-   *  readdir + filter with no file reads or parsing — so it's safe to call
-   *  on a hot path like prompt-arg autocomplete, which fires per keystroke. */
+   *  readdir, filter, and symlink check with no file-content reads or parsing
+   *  — so it's safe to call on a hot path like prompt-arg autocomplete, which
+   *  fires per keystroke. */
   const listMemoryFileNames = async (
     params: { vaultPath: string },
     logger: Logger,
