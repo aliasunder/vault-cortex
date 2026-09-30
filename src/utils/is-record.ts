@@ -1,5 +1,5 @@
-/** True for a non-null object, so parsed JSON can be read by key. Arrays pass
- *  too, since they are objects whose named keys read as undefined. */
+/** True for a plain object (not null, not an array), so parsed JSON can be
+ *  read by key. */
 export const isRecord = (value: unknown): value is Record<string, unknown> => {
-  return typeof value === "object" && value !== null
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }

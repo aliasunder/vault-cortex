@@ -5,6 +5,7 @@ import { DateTime } from "luxon"
 import { mtimeToIso } from "../../utils/mtime-to-iso.js"
 import type { LeadingCallout } from "../obsidian-markdown/callouts.js"
 import { foldAsciiCase } from "../obsidian-markdown/links.js"
+import { isRecord } from "../../utils/is-record.js"
 import type {
   NoteRow,
   NoteMetadata,
@@ -28,9 +29,6 @@ export const coerceToArray = (value: unknown): string[] => {
 }
 
 // ── JSON column parsers (private) ──────────────────────────────
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value)
 
 /** Parses a JSON column that must contain a string array (tags, related,
  *  depends_on). Throws on corruption — these columns are serialized by the
