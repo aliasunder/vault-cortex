@@ -193,6 +193,16 @@ describe("default config", () => {
       expect(text).toContain("Projects/alpha.md")
       expect(text).not.toContain("Orphan Note.md")
     })
+
+    it("vault_list_notes — glob is relative to the folder", async () => {
+      const result = await callTool({
+        client,
+        name: "vault_list_notes",
+        args: { folder: "Projects", glob: "a*.md" },
+      })
+      expect(result.isError).not.toBe(true)
+      expect(JSON.parse(textContent(result))).toEqual(["Projects/alpha.md"])
+    })
   })
 
   describe("search tools", () => {

@@ -1,12 +1,11 @@
 /** Surgical note editing — heading-targeted patches, find-and-replace, and
  *  anchor-targeted line spans (delete, replace, insert). */
 
-import { readFile } from "node:fs/promises"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
-import { isErrnoException } from "../../utils/is-errno-exception.js"
+import { readFileOrNull } from "../../utils/fs.js"
 import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
 import {
   parseHeadings,
@@ -133,23 +132,20 @@ const readNoteForPatch = async (
 }> => {
   assertPathHasExtension(path, ".md")
   const fullPath = resolveSafePath(vaultPath, path)
-  try {
-    const fileContent = await readFile(fullPath, "utf8")
-    const parsed = parseNote(fileContent)
-    return {
-      fullPath,
-      data: parsed.data,
-      // splitIntoLines normalizes CRLF-authored (Windows) notes to LF-only lines
-      // so body matching and blank-run collapse (collapseBlankRuns) stay
-      // consistent, and the note is rewritten as LF.
-      lines: splitIntoLines(parsed.content),
-      beforeBytes: Buffer.byteLength(fileContent, "utf8"),
-    }
-  } catch (err) {
-    if (isErrnoException(err, "ENOENT")) {
-      throw new Error(`note not found: "${path}"`, { cause: err })
-    }
-    throw err
+  const fileContent = await readFileOrNull(fullPath)
+
+  if (fileContent === null) {
+    throw new Error(`note not found: "${path}"`)
+  }
+  const parsed = parseNote(fileContent)
+  return {
+    fullPath,
+    data: parsed.data,
+    // splitIntoLines normalizes CRLF-authored (Windows) notes to LF-only lines
+    // so body matching and blank-run collapse (collapseBlankRuns) stay
+    // consistent, and the note is rewritten as LF.
+    lines: splitIntoLines(parsed.content),
+    beforeBytes: Buffer.byteLength(fileContent, "utf8"),
   }
 }
 

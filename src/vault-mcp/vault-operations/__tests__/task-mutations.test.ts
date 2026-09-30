@@ -691,6 +691,23 @@ title: Tasks
       ).rejects.toThrow('note not found: "missing.md"')
     })
 
+    it("reports a path through a file as not found, never the server's path", async () => {
+      const vault = await createVault()
+      await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)
+
+      await expect(
+        taskMutations.updateTask(
+          {
+            vaultPath: vault,
+            path: "tasks.md/child.md",
+            line: 1,
+            status: "done",
+          },
+          logger,
+        ),
+      ).rejects.toThrow(new Error('note not found: "tasks.md/child.md"'))
+    })
+
     it("throws when block_id not found", async () => {
       const vault = await createVault()
       await writeTestNote(vault, "tasks.md", SIMPLE_NOTE)

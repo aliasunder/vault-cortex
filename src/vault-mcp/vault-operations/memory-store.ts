@@ -1,12 +1,14 @@
 /** Memory store factory — heading-aware parser/writer for semantic memory files. */
 
 import { readFile, readdir, mkdir, access } from "node:fs/promises"
-import { constants } from "node:fs"
-import { join, basename, dirname } from "node:path"
+import { constants, type Dirent } from "node:fs"
+import { join, basename, dirname, resolve } from "node:path"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
-import { readFileOrNull } from "../../utils/fs.js"
+import { readFileOrNull, statOrNull } from "../../utils/fs.js"
+import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
+import { describeError } from "../../utils/describe-error.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
 import { withFileLock } from "../../utils/file-write-lock.js"
 import { parseMemoryEntries, type MemoryEntry } from "../obsidian-markdown/memory-entries.js"
@@ -95,7 +97,7 @@ const toKebabCase = (text: string): string => {
 type MemoryHeading = Readonly<{
   level: 1 | 2
   text: string
-  entryCount?: number
+  entry_count?: number
 }>
 
 /** How a memory file's entries may be maintained. Append-only is the layer's
@@ -151,6 +153,8 @@ const scanGenuineEntryOffsets = (bodyLines: readonly string[]): number[] => {
   let scanFence: OpenFence = null
   let scanCommentOpen = false
 
+  // Fence and comment detection are mutually exclusive: fence state is
+  // skipped inside comments, and comment state is skipped inside fences.
   for (const [offsetIndex, bodyLine] of bodyLines.entries()) {
     if (!bodyLine) continue
 
@@ -350,6 +354,58 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     return filename.endsWith(".md") && !filename.startsWith(".")
   }
 
+  /** Reads the memory folder's direct entries.
+   *  - Returns [] when the folder does not exist yet.
+   *  - Throws with the folder's vault-relative path on any other failure,
+   *    such as a file sitting where the folder belongs. The raw error names
+   *    the server's absolute path, so it goes to the log instead. */
+  const readMemoryFolderEntries = async (vaultPath: string, logger: Logger): Promise<Dirent[]> => {
+    try {
+      return await readdir(join(vaultPath, memoryDir), { withFileTypes: true })
+    } catch (error) {
+      if (isErrnoException(error, "ENOENT")) return []
+
+      logger.warn("cannot list memory folder", { folder: memoryDir, error: describeError(error) })
+      throw new Error(`cannot list memory folder "${memoryDir}"`, { cause: error })
+    }
+  }
+
+  /** The memory folder's visible .md files as sorted filenames ("Opinions.md").
+   *  Reads each entry's type, because a folder named "Archive.md" passes the
+   *  name test and would fail every read; a symlink is kept only when it
+   *  points at a file, as the vault listings do. Returns [] when the memory
+   *  folder does not exist. */
+  const listVisibleMemoryFilenames = async (
+    vaultPath: string,
+    logger: Logger,
+  ): Promise<string[]> => {
+    const entries = await readMemoryFolderEntries(vaultPath, logger)
+    const namedEntries = entries.filter(
+      (entry) => (entry.isFile() || entry.isSymbolicLink()) && isVisibleMemoryFile(entry.name),
+    )
+    const readableEntries = await filterValidSymlinks({
+      entries: namedEntries,
+      normalizedRoot: resolve(vaultPath),
+      logger,
+    })
+    return readableEntries.map((entry) => entry.name).toSorted()
+  }
+
+  /** Reads a file the listing returned. A failure throws with the file's
+   *  vault-relative path; the raw error names the server's absolute path, so
+   *  it goes to the log instead. */
+  const readListedMemoryFile = async (
+    params: { vaultPath: string; filename: string },
+    logger: Logger,
+  ): Promise<string> => {
+    try {
+      return await readFile(join(params.vaultPath, memoryDir, params.filename), "utf8")
+    } catch (error) {
+      logger.warn("cannot read memory file", { file: params.filename, error: describeError(error) })
+      throw new Error(`cannot read memory file "${memoryDir}/${params.filename}"`, { cause: error })
+    }
+  }
+
   // A memory file is a bare name, never a path — a separator would let a
   // name like "../../outside" escape the memory directory (and the vault)
   // entirely, so reject it at the single point every memory path goes through.
@@ -501,22 +557,38 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
   }
 
-  const readMemoryFile = async (vaultPath: string, file: string): Promise<string> => {
+  /** Reads one memory file by bare name.
+   *  - Returns null when no file is there. That covers nothing at the path, a
+   *    memory folder that is itself a file, and a folder named like the file.
+   *  - Any other failure throws with the file's vault-relative path. The raw
+   *    error names the server's absolute path, so it goes to the log instead. */
+  const readMemoryFileOrNull = async (
+    params: { vaultPath: string; file: string },
+    logger: Logger,
+  ): Promise<string | null> => {
+    const filePath = memoryFilePath(params.vaultPath, params.file)
+    const filename = `${params.file}.md`
     try {
-      return await readFile(memoryFilePath(vaultPath, file), "utf8")
-    } catch (err) {
-      if (isErrnoException(err, "ENOENT")) {
-        throw new Error(`memory file not found: "${memoryDir}/${file}.md"`, {
-          cause: err,
-        })
-      }
-      throw err
+      return await readFileOrNull(filePath)
+    } catch (error) {
+      logger.warn("cannot read memory file", { file: filename, error: describeError(error) })
+      throw new Error(`cannot read memory file "${memoryDir}/${filename}"`, { cause: error })
     }
   }
 
-  /** Like readMemoryFile, but returns null when the file does not exist. */
-  const readMemoryFileOrNull = (vaultPath: string, file: string): Promise<string | null> =>
-    readFileOrNull(memoryFilePath(vaultPath, file))
+  /** Like readMemoryFileOrNull, but a missing file throws the vault-relative
+   *  not-found error. */
+  const readMemoryFile = async (
+    params: { vaultPath: string; file: string },
+    logger: Logger,
+  ): Promise<string> => {
+    const content = await readMemoryFileOrNull(params, logger)
+
+    if (content === null) {
+      throw new Error(`memory file not found: "${memoryDir}/${params.file}.md"`)
+    }
+    return content
+  }
 
   /** Resolves a named H2 section, throwing with the file's available headings
    *  when none matches. Shared so the section, entries, and delete reads
@@ -604,21 +676,10 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     logger: Logger,
   ): Promise<string> => {
     if (!params.file) {
-      const dir = join(params.vaultPath, memoryDir)
-      let filenames: string[]
-      try {
-        filenames = await readdir(dir)
-      } catch (err) {
-        if (isErrnoException(err, "ENOENT")) {
-          logger.info("get memory", { mode: "all", fileCount: 0 })
-          return ""
-        }
-        throw err
-      }
-      const mdFiles = filenames.filter(isVisibleMemoryFile).toSorted()
+      const mdFiles = await listVisibleMemoryFilenames(params.vaultPath, logger)
       const contents = await Promise.all(
         mdFiles.map(async (filename) => {
-          const raw = await readFile(join(dir, filename), "utf8")
+          const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
           return parseNote(raw).content.trim()
         }),
       )
@@ -626,7 +687,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       return contents.join("\n\n---\n\n")
     }
 
-    const raw = await readMemoryFile(params.vaultPath, params.file)
+    const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
     const parsed = parseNote(raw)
 
     if (!params.section) {
@@ -662,7 +723,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       throw new Error(INVALID_MEMORY_ENTRY_DATE_MESSAGE)
     }
 
-    const raw = await readMemoryFile(params.vaultPath, params.file)
+    const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
     const parsed = parseNote(raw)
     const lines = splitIntoLines(parsed.content)
 
@@ -737,12 +798,26 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       const position = params.position ?? "top"
       const bullet = `- **${date}**: ${params.entry}`
 
-      const existingContent = await readMemoryFileOrNull(params.vaultPath, params.file)
+      const existingContent = await readMemoryFileOrNull(
+        { vaultPath: params.vaultPath, file: params.file },
+        logger,
+      )
 
       // File does not exist — create directory + file with section and entry
       if (existingContent === null) {
         const newSection = headingWithNewestFirstSuffix(params.section)
         const filePath = memoryFilePath(params.vaultPath, params.file)
+        // The read reports a folder at the path as no file. The write below
+        // renames over the path, which would replace a symlink that points
+        // at a folder, so the write stops when the path leads to anything
+        // but a file.
+        const occupant = await statOrNull(filePath)
+
+        if (occupant && !occupant.isFile()) {
+          throw new Error(
+            `cannot write memory file "${memoryDir}/${params.file}.md": that path is not a file`,
+          )
+        }
         await mkdir(dirname(filePath), { recursive: true })
         const content = buildNewMemoryFile({
           fileName: params.file,
@@ -873,20 +948,10 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     params: { vaultPath: string },
     logger: Logger,
   ): Promise<MemoryFileOutline[]> => {
-    const dir = join(params.vaultPath, memoryDir)
-    let filenames: string[]
-    try {
-      filenames = await readdir(dir)
-    } catch (err) {
-      if (isErrnoException(err, "ENOENT")) return []
-      throw err
-    }
-
-    const mdFiles = filenames.filter(isVisibleMemoryFile).toSorted()
-
+    const mdFiles = await listVisibleMemoryFilenames(params.vaultPath, logger)
     const outlines = await Promise.all(
       mdFiles.map(async (filename) => {
-        const raw = await readFile(join(dir, filename), "utf8")
+        const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
         const parsed = parseNote(raw)
         const name = basename(filename, ".md")
         const title = isString(parsed.data.title) ? parsed.data.title : name
@@ -900,7 +965,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
             : {
                 level: 2 as const,
                 text: section.heading,
-                entryCount: section.entryCount,
+                entry_count: section.entryCount,
               }
         })
 
@@ -921,24 +986,15 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
   }
 
   /** Lists memory file names (without .md), sorted. Cheap by design — a
-   *  readdir + filter with no file reads or parsing — so it's safe to call
-   *  on a hot path like prompt-arg autocomplete, which fires per keystroke. */
+   *  readdir, filter, and symlink check with no file-content reads or parsing
+   *  — so it's safe to call on a hot path like prompt-arg autocomplete, which
+   *  fires per keystroke. */
   const listMemoryFileNames = async (
     params: { vaultPath: string },
     logger: Logger,
   ): Promise<string[]> => {
-    const dir = join(params.vaultPath, memoryDir)
-    let filenames: string[]
-    try {
-      filenames = await readdir(dir)
-    } catch (err) {
-      if (isErrnoException(err, "ENOENT")) return []
-      throw err
-    }
-    const names = filenames
-      .filter(isVisibleMemoryFile)
-      .map((filename) => basename(filename, ".md"))
-      .toSorted()
+    const mdFiles = await listVisibleMemoryFilenames(params.vaultPath, logger)
+    const names = mdFiles.map((filename) => basename(filename, ".md"))
     logger.debug("listed memory file names", { count: names.length })
     return names
   }
@@ -962,7 +1018,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     // Serialize with concurrent updates/deletes to the same file so the
     // read-modify-write can't be interleaved and lose a write.
     return withFileLock(memoryFilePath(params.vaultPath, params.file), async () => {
-      const raw = await readMemoryFile(params.vaultPath, params.file)
+      const raw = await readMemoryFile({ vaultPath: params.vaultPath, file: params.file }, logger)
       const parsed = parseNote(raw)
       const lines = splitIntoLines(parsed.content)
       const match = resolveSection({ lines, section: params.section, file: params.file })
@@ -991,9 +1047,13 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       // preceding entry's text.
       const matchIndex = matchingIndices[0]
 
+      // The length checks above guarantee exactly one element; TypeScript
+      // cannot narrow an indexed access after a length check.
       if (matchIndex === undefined) {
         throw new Error("expected at least one matching index")
       }
+      // Find the end of this entry's span: the next entry's offset, or the
+      // section's end when this is the last entry.
       const matchOffset = matchIndex - match.bodyStartLine
       const matchPosition = genuineEntryOffsets.indexOf(matchOffset)
       const nextEntryOffset = genuineEntryOffsets[matchPosition + 1]

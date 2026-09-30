@@ -2022,6 +2022,21 @@ describe("patchNote errors", () => {
     ).rejects.toThrow('note not found: "missing.md"')
   })
 
+  it("reports a path through a file as not found, never the server's path", async () => {
+    await writeFile(join(vault, "plan.md"), "# Plan\n", "utf8")
+    await expect(
+      patchNote(
+        {
+          vaultPath: vault,
+          path: "plan.md/child.md",
+          operation: "append",
+          content: "text",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('note not found: "plan.md/child.md"'))
+  })
+
   it("errors on path traversal", async () => {
     await expect(
       patchNote(

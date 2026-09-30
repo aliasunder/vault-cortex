@@ -2,12 +2,11 @@
  *  block_id, checklist sub-items, heading placement). Every operation is a
  *  single atomic read-modify-write under an exclusive file lock. */
 
-import { readFile } from "node:fs/promises"
 import { DateTime } from "luxon"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { resolveSafePath, atomicWriteFile } from "./vault-filesystem.js"
 import { assertPathHasExtension } from "../../utils/assert-path-has-extension.js"
-import { isErrnoException } from "../../utils/is-errno-exception.js"
+import { readFileOrNull } from "../../utils/fs.js"
 import { withExclusiveFileLock } from "../../utils/file-write-lock.js"
 import { parseHeadings, type HeadingInfo } from "../obsidian-markdown/headings.js"
 import {
@@ -312,14 +311,12 @@ const readNoteContent = async ({
   fullPath: string
   path: string
 }): Promise<string> => {
-  try {
-    return await readFile(fullPath, "utf8")
-  } catch (err) {
-    if (isErrnoException(err, "ENOENT")) {
-      throw new Error(`note not found: "${path}"`, { cause: err })
-    }
-    throw err
+  const fileContent = await readFileOrNull(fullPath)
+
+  if (fileContent === null) {
+    throw new Error(`note not found: "${path}"`)
   }
+  return fileContent
 }
 
 /** Collects contiguous sub-items below a task line — lines with deeper
