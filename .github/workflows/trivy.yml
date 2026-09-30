@@ -6,8 +6,9 @@ name: Trivy
 #
 # Two targets:
 #   - trivy-published (cron + merges to main + dispatch): the GHCR :latest
-#     image users pull today, so a CVE disclosed after a release still
-#     surfaces — merges also keep the README status badge current.
+#     and :remote images users pull today, so a CVE disclosed after a
+#     release still surfaces — merges also keep the README status badge
+#     current.
 #   - trivy-pr (pull_request): an image built from the branch, so a CVE
 #     entering via Dockerfile/base-image changes surfaces before merge.
 #     Its job ID is the required-status-check context in the branch
@@ -18,8 +19,8 @@ name: Trivy
 #
 # trivy-pr gates merges: it exits non-zero on CRITICAL/HIGH findings,
 # and is a required status check in the branch ruleset. trivy-published
-# stays report-only — its findings land in the Security tab; there is
-# no merge to block.
+# stays report-only — its findings of every severity land in the Security
+# tab; there is no merge to block.
 
 on:
   schedule:
@@ -73,7 +74,9 @@ jobs:
           # package set is identical across arches, so amd64-only is fine.
           image-ref: ghcr.io/${{ vars.GHCR_USER }}/vault-cortex:latest
           scanners: vuln
-          severity: CRITICAL,HIGH
+          # No severity filter, so every fixable finding reaches the Security
+          # tab. With SARIF output the action drops the filter anyway unless
+          # limit-severities-for-sarif is set, which only the trivy-pr gate does.
           ignore-unfixed: true
           format: sarif
           output: trivy-results.sarif
@@ -97,7 +100,7 @@ jobs:
         with:
           image-ref: ghcr.io/${{ vars.GHCR_USER }}/vault-cortex:remote
           scanners: vuln
-          severity: CRITICAL,HIGH
+          # Every severity, as in the local-target scan above.
           ignore-unfixed: true
           format: sarif
           output: trivy-results-remote.sarif
@@ -136,6 +139,7 @@ jobs:
       # its job ID is the required-status-check context in the branch
       # ruleset, so adding a job would need a ruleset update.
       - name: Build image from branch (local target)
+        id: build-local
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -149,6 +153,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build image from branch (remote target)
+        id: build-remote
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -159,7 +164,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Runs whenever the local image built, even if the remote build then
+      # failed, so a remote-only build error can't hide local-target findings.
       - name: Scan branch image (local target)
+        if: (success() || failure()) && steps.build-local.outcome == 'success'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           image-ref: vault-cortex:pr-scan
@@ -167,14 +175,20 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           format: sarif
+          # With SARIF output the action drops the severity filter unless
+          # this is set, and exit-code 1 then fails the PR on any finding.
+          # MEDIUM and LOW findings still reach the Security tab through
+          # trivy-published.
+          limit-severities-for-sarif: true
           output: trivy-results.sarif
           exit-code: "1" # gate: fail the PR on CRITICAL/HIGH findings
 
       # Runs even when the local scan gates first (exit-code 1), so a
       # vulnerability in the shared base image can't mask remote-only
       # findings in the extra packages (s6-overlay, obsidian-headless).
+      # The build-outcome check skips it when there is no remote image.
       - name: Scan branch image (remote target)
-        if: success() || failure()
+        if: (success() || failure()) && steps.build-remote.outcome == 'success'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           image-ref: vault-cortex:pr-scan-remote
@@ -182,6 +196,8 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           format: sarif
+          # Keeps the severity filter for the gate, as in the local scan.
+          limit-severities-for-sarif: true
           output: trivy-results-remote.sarif
           exit-code: "1" # gate: fail the PR on CRITICAL/HIGH findings
 
@@ -195,8 +211,9 @@ jobs:
           sarif_file: trivy-results.sarif
           category: trivy-published-image
 
-      # hashFiles guard: the remote SARIF doesn't exist when the local scan
-      # gates the job first (exit-code 1) or the remote build fails.
+      # hashFiles guard: the remote SARIF doesn't exist when the remote image
+      # was never built (its build failed or was skipped), because the remote
+      # scan is then skipped too.
       - name: Upload remote SARIF to the Security tab
         if: always() && hashFiles('trivy-results-remote.sarif') != '' && github.event.pull_request.head.repo.full_name == github.repository
         uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
