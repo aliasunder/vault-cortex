@@ -1333,6 +1333,22 @@ describe("fullTextSearch", () => {
     expect(results[0]?.path).toBe("Projects/notes.md")
   })
 
+  it("does not match a sibling folder whose name starts with the folder filter", () => {
+    index.upsertNote(
+      {
+        filePath: "ProjectsOld/old.md",
+        rawContent: "---\ntitle: Old\n---\n\nOld meeting notes\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    const results = index.fullTextSearch(
+      { query: "notes", filters: { folder: "Projects" } },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["Projects/notes.md"])
+  })
+
   it("respects tags filter", () => {
     const results = index.fullTextSearch({ query: "notes", filters: { tags: ["project"] } }, logger)
     expect(results).toHaveLength(1)
@@ -2295,6 +2311,22 @@ describe("searchByProperty", () => {
     expect(results[0]?.path).toBe("Projects/active.md")
   })
 
+  it("does not match a sibling folder whose name starts with the folder filter", () => {
+    index.upsertNote(
+      {
+        filePath: "ProjectsOld/old.md",
+        rawContent: "---\nstatus: in-progress\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    const results = index.searchByProperty(
+      { key: "status", value: "in-progress", folder: "Projects" },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["Projects/active.md"])
+  })
+
   it("respects limit", () => {
     index.upsertNote(
       {
@@ -2341,6 +2373,9 @@ describe("searchByProperty", () => {
 
     const results = propertyIndex.searchByProperty({ key: "rank", value: "1" }, logger)
     expect(results.map((result) => result.path)).toEqual(["note-0.md", "note-1.md", "note-2.md"])
+
+    const zeroResults = propertyIndex.searchByProperty({ key: "rank", value: "0" }, logger)
+    expect(zeroResults.map((result) => result.path)).toEqual(["note-3.md", "note-4.md"])
   })
 })
 

@@ -520,6 +520,24 @@ describe("listTasks scope filters", () => {
     expect(withSlash).toEqual(withoutSlash)
   })
 
+  it("does not match a sibling folder whose name starts with the folder filter", () => {
+    const index = indexWithBoardAndPlain()
+    index.upsertNote(
+      {
+        filePath: "ProjectsOld/tasks.md",
+        rawContent: "- [ ] Inside sibling folder",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
+
+    const result = index.listTasks({ folder: "Projects" }, logger)
+    expect(result.tasks.map((entry) => entry.path)).toEqual([
+      "Projects/board.md",
+      "Projects/board.md",
+    ])
+  })
+
   it("treats LIKE wildcards in the folder as literal characters", () => {
     const index = createTestIndex()
     index.upsertNote(

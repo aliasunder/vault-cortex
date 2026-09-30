@@ -421,6 +421,7 @@ Returns: Confirmation message.`,
           ),
         entry: z
           .string()
+          .min(1)
           .describe(
             'Exact entry text as shown by vault_get_memory — without the "- **YYYY-MM-DD**: " prefix or bullet. Both date and entry must match for deletion.',
           ),

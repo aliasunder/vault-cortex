@@ -705,6 +705,17 @@ describe("vault_update_memory input schema", () => {
   })
 })
 
+describe("vault_delete_memory input schema", () => {
+  // The server never writes an empty entry (vault_update_memory rejects one),
+  // so an empty match key can only be a caller mistake.
+  it("entry rejects an empty string and accepts a non-empty one", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_DELETE_MEMORY)
+    const entrySchema = config.inputSchema?.entry
+    expect(entrySchema?.safeParse("").success).toBe(false)
+    expect(entrySchema?.safeParse("Prefer X over Y").success).toBe(true)
+  })
+})
+
 describe("optional selector params reject an empty string", () => {
   // Without min(1), an empty folder or glob lists the whole vault and an empty
   // date reads today's note — a different request than the caller sent.
