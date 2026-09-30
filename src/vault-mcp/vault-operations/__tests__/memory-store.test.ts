@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi, onTestFinished } from "vitest"
-import { chmod, mkdtemp, rm, writeFile, mkdir, readFile, readdir } from "node:fs/promises"
+import { chmod, mkdtemp, rm, writeFile, mkdir, readFile, readdir, symlink } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { parseNote } from "../../obsidian-markdown/frontmatter.js"
@@ -95,6 +95,12 @@ describe("getMemory", () => {
     const withoutFolder = await getMemory({ vaultPath: vault }, logger)
     await mkdir(join(vault, "About Me", "Archive.md"), { recursive: true })
     expect(await getMemory({ vaultPath: vault }, logger)).toBe(withoutFolder)
+  })
+
+  it("skips a dangling symlink in the all-files read", async () => {
+    const withoutSymlink = await getMemory({ vaultPath: vault }, logger)
+    await symlink(join(vault, "missing-target.md"), join(vault, "About Me", "Old Setup.md"))
+    expect(await getMemory({ vaultPath: vault }, logger)).toBe(withoutSymlink)
   })
 
   it("rejects an unreadable memory file with a vault-relative message in the all-files read", async () => {
@@ -1690,6 +1696,12 @@ describe("listMemoryFiles", () => {
     expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
   })
 
+  it("skips a dangling symlink and still lists the files", async () => {
+    await symlink(join(vault, "missing-target.md"), join(vault, "About Me", "Old Setup.md"))
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
+  })
+
   it("rejects an unreadable memory file with a vault-relative message", async () => {
     const lockedFile = join(vault, "About Me", "Opinions.md")
     // afterEach deletes the vault, which removes a mode-000 file inside it, so
@@ -1892,6 +1904,12 @@ describe("listMemoryFileNames", () => {
 
   it("skips a folder whose name ends in .md", async () => {
     await mkdir(join(vault, "About Me", "Archive.md"), { recursive: true })
+    const names = await listMemoryFileNames({ vaultPath: vault }, logger)
+    expect(names).toEqual(["Opinions", "Principles"])
+  })
+
+  it("skips a dangling symlink", async () => {
+    await symlink(join(vault, "missing-target.md"), join(vault, "About Me", "Old Setup.md"))
     const names = await listMemoryFileNames({ vaultPath: vault }, logger)
     expect(names).toEqual(["Opinions", "Principles"])
   })

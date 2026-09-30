@@ -6,6 +6,7 @@ import { join, basename, dirname } from "node:path"
 import { parseNote, stringifyNote } from "../obsidian-markdown/frontmatter.js"
 import { atomicWriteFile } from "./vault-filesystem.js"
 import { readFileOrNull } from "../../utils/fs.js"
+import { filterValidSymlinks } from "../../utils/filter-valid-symlinks.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 import { describeError } from "../../utils/describe-error.js"
 import { assertNoControlCharacters } from "../../utils/assert-no-control-characters.js"
@@ -355,17 +356,25 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
 
   /** The memory folder's visible .md files as sorted filenames ("Opinions.md").
    *  Reads each entry's type, because a folder named "Archive.md" passes the
-   *  name test and would fail every read. Returns [] when the memory folder
-   *  does not exist. */
-  const listVisibleMemoryFilenames = async (vaultPath: string): Promise<string[]> => {
+   *  name test and would fail every read; a symlink is kept only when it
+   *  points at a file, as the vault listings do. Returns [] when the memory
+   *  folder does not exist. */
+  const listVisibleMemoryFilenames = async (
+    vaultPath: string,
+    logger: Logger,
+  ): Promise<string[]> => {
+    const memoryFolder = join(vaultPath, memoryDir)
     try {
-      const entries = await readdir(join(vaultPath, memoryDir), { withFileTypes: true })
-      return entries
-        .filter(
-          (entry) => (entry.isFile() || entry.isSymbolicLink()) && isVisibleMemoryFile(entry.name),
-        )
-        .map((entry) => entry.name)
-        .toSorted()
+      const entries = await readdir(memoryFolder, { withFileTypes: true })
+      const namedEntries = entries.filter(
+        (entry) => (entry.isFile() || entry.isSymbolicLink()) && isVisibleMemoryFile(entry.name),
+      )
+      const readableEntries = await filterValidSymlinks({
+        entries: namedEntries,
+        normalizedRoot: memoryFolder,
+        logger,
+      })
+      return readableEntries.map((entry) => entry.name).toSorted()
     } catch (err) {
       if (isErrnoException(err, "ENOENT")) return []
       throw err
@@ -641,7 +650,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     logger: Logger,
   ): Promise<string> => {
     if (!params.file) {
-      const mdFiles = await listVisibleMemoryFilenames(params.vaultPath)
+      const mdFiles = await listVisibleMemoryFilenames(params.vaultPath, logger)
       const contents = await Promise.all(
         mdFiles.map(async (filename) => {
           const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
@@ -899,7 +908,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     params: { vaultPath: string },
     logger: Logger,
   ): Promise<MemoryFileOutline[]> => {
-    const mdFiles = await listVisibleMemoryFilenames(params.vaultPath)
+    const mdFiles = await listVisibleMemoryFilenames(params.vaultPath, logger)
     const outlines = await Promise.all(
       mdFiles.map(async (filename) => {
         const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
@@ -943,7 +952,7 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     params: { vaultPath: string },
     logger: Logger,
   ): Promise<string[]> => {
-    const mdFiles = await listVisibleMemoryFilenames(params.vaultPath)
+    const mdFiles = await listVisibleMemoryFilenames(params.vaultPath, logger)
     const names = mdFiles.map((filename) => basename(filename, ".md"))
     logger.debug("listed memory file names", { count: names.length })
     return names
