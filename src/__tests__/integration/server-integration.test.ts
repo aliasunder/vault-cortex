@@ -1806,6 +1806,18 @@ const parseLogEntries = (stdout: string): Record<string, unknown>[] => {
     .map((line): Record<string, unknown> => JSON.parse(line))
 }
 
+/** The message JSON.parse throws for `malformedJson`. Its wording varies by
+ *  engine version, so the test reads it from the engine. The server runs on
+ *  the same Node as the test process, so both get the same wording. */
+const jsonParseFailureMessage = (malformedJson: string): string => {
+  try {
+    JSON.parse(malformedJson)
+  } catch (error) {
+    if (error instanceof SyntaxError) return error.message
+  }
+  throw new Error("expected JSON.parse to throw a SyntaxError")
+}
+
 describe("trash retention over real HTTP", () => {
   it("a delete under the system default lands in .trash/ and records a trash entry", async () => {
     const server = await startServer(await freePort())
@@ -1936,7 +1948,8 @@ describe("trash retention over real HTTP", () => {
   it("a malformed app.json refuses the delete and logs the cause with the request's context", async () => {
     const server = await startServer(await freePort())
     onTestFinished(() => server.cleanup())
-    await writeFile(join(server.vaultPath, ".obsidian", "app.json"), "not valid json{{{", "utf8")
+    const malformedAppConfig = "not valid json{{{"
+    await writeFile(join(server.vaultPath, ".obsidian", "app.json"), malformedAppConfig, "utf8")
     const client = await createTestClient(server.port)
     onTestFinished(() => client.close())
 
@@ -1951,10 +1964,14 @@ describe("trash retention over real HTTP", () => {
       args: { path: "Scratch/malformed-config.md" },
     })
 
-    expect(deleteResult.isError).toBe(true)
-    expect(textContent(deleteResult)).toBe(
-      "[Error]: cannot read trash config from .obsidian/app.json",
-    )
+    // Asserting the whole result keeps the cause out of every part of it: the
+    // text, any further content block, and any other field.
+    expect(deleteResult).toEqual({
+      content: [
+        { type: "text", text: "[Error]: cannot read trash config from .obsidian/app.json" },
+      ],
+      isError: true,
+    })
     await expect(
       readFile(join(server.vaultPath, "Scratch", "malformed-config.md"), "utf8"),
     ).resolves.toBe("still here\n")
@@ -1984,10 +2001,12 @@ describe("trash retention over real HTTP", () => {
     expect(typeof deleteCallLog?.requestId).toBe("number")
     expect(typeof deleteCallLog?.sessionId).toBe("string")
     expect({
+      error: readFailureLog.error,
       tool: readFailureLog.tool,
       requestId: readFailureLog.requestId,
       sessionId: readFailureLog.sessionId,
     }).toEqual({
+      error: `[SyntaxError]: ${jsonParseFailureMessage(malformedAppConfig)}`,
       tool: "vault_delete_note",
       requestId: deleteCallLog?.requestId,
       sessionId: deleteCallLog?.sessionId,

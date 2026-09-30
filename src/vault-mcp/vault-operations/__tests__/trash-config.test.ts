@@ -85,7 +85,7 @@ describe("readTrashConfig", () => {
     expect(result).toBe("system")
   })
 
-  it("throws on malformed JSON so a broken config never silently causes permanent delete", async () => {
+  it('throws on malformed JSON instead of falling back to "system"', async () => {
     const vault = await createVault()
     const obsidianDir = join(vault, ".obsidian")
     await mkdir(obsidianDir, { recursive: true })
@@ -94,6 +94,24 @@ describe("readTrashConfig", () => {
     await expect(readTrashConfig(vault, logger)).rejects.toThrow(
       "cannot read trash config from .obsidian/app.json",
     )
+  })
+
+  it('throws when app.json exists but cannot be read, instead of falling back to "system"', async () => {
+    const vault = await createVault()
+    // A directory at the config path fails the read with EISDIR. Only a
+    // missing file (ENOENT) takes the default.
+    await mkdir(join(vault, ".obsidian", "app.json"), { recursive: true })
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await expect(readTrashConfig(vault, logger)).rejects.toThrow(
+      "cannot read trash config from .obsidian/app.json",
+    )
+
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("cannot read trash config", {
+      error: "[Error]: EISDIR: illegal operation on a directory, read",
+    })
   })
 
   it("warns about an unreadable config on the caller's logger, not the root logger", async () => {
