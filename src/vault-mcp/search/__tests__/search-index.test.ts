@@ -2206,6 +2206,16 @@ describe("property keys containing JSON path syntax", () => {
       },
       logger,
     )
+    // Matches the search text but carries none of the filtered keys, so a
+    // filter that stops constraining results would let it through.
+    index.upsertNote(
+      {
+        filePath: "notes/decoy-unfiltered.md",
+        rawContent: "---\nunrelated: x\n---\nsearchable body\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
   }
 
   it.each(PATH_SYNTAX_KEYS)("listPropertyKeys samples the values of $label", ({ key, value }) => {
@@ -2257,6 +2267,33 @@ describe("property keys containing JSON path syntax", () => {
       "Projects/path-syntax-keys.md",
       "notes/decoy-no-keys.md",
     ])
+  })
+
+  it("array values under a dotted key are enumerated and matched", () => {
+    index.upsertNote(
+      {
+        filePath: "Projects/array-under-dotted-key.md",
+        rawContent: "---\nc.d:\n  - one\n  - two\n---\nbody\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Projects/decoy-scalar-dotted-key.md",
+        rawContent: "---\nc.d: three\n---\nbody\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+
+    expect(index.listPropertyValues({ key: "c.d" }, logger)).toEqual([
+      { value: "one", count: 1 },
+      { value: "three", count: 1 },
+      { value: "two", count: 1 },
+    ])
+    const matches = index.searchByProperty({ key: "c.d", value: "one" }, logger)
+    expect(matches.map((result) => result.path)).toEqual(["Projects/array-under-dotted-key.md"])
   })
 
   it("fullTextSearch's properties filter matches a boolean value", () => {

@@ -192,8 +192,7 @@ export const fullTextSearch = (
   }
 
   // The key is matched as data through json_each, never spliced into a JSON
-  // path: a path treats "." and "[" as syntax, so a key like "a.b" would
-  // descend into a nested object that does not exist and never match.
+  // path; the Property queries section header below states why.
   if (params.filters?.properties) {
     for (const [key, value] of Object.entries(params.filters.properties)) {
       conditions.push("EXISTS (SELECT 1 FROM json_each(n.properties) WHERE key = ? AND value = ?)")
@@ -1143,8 +1142,19 @@ export const recentNotes = (
 }
 
 // ── Property queries ───────────────────────────────────────────
+//
+// Every query below matches the property key as data, through
+// json_each(n.properties) WHERE key = @key, and never splices it into a
+// JSON path. In a path, "." and "[" are syntax, so a key like "a.b" would
+// descend into a nested object that does not exist and read as missing.
+// A key therefore names exactly one top-level property; nested YAML is one
+// property whose value is an object, as in Obsidian's Properties view.
+// json_each exposes key, value and type columns per property; property.type
+// is the JSON type ("array", "text", "integer", ...), not a notes column.
 
-/** Returns all frontmatter property keys with note counts and top 3 sample values. */
+/** Returns all frontmatter property keys with note counts and top 3 sample
+ *  values. Sample ranking counts value occurrences: a value listed twice in
+ *  one note's array counts twice. */
 export const listPropertyKeys = (
   context: SearchQueryContext,
   params: { folder?: string | undefined },
@@ -1171,15 +1181,12 @@ export const listPropertyKeys = (
   // path column of their own.
   const sampleFolderCondition = escapedFolder ? "AND n.path LIKE @folder || '/%' ESCAPE '\\'" : ""
 
-  // For each key, fetch the 3 most common values as samples. The key is
-  // matched as data through json_each (the same walk keySql makes, at
-  // comparable cost), never spliced into a JSON path, where "." and "["
-  // are syntax and a key like "a.b" would read as missing. json_array()
-  // wraps scalars so the inner json_each works uniformly for both scalar
-  // ("active") and array (["a","b"]) property values.
+  // For each key, fetch the 3 most common values as samples: the same walk
+  // over every note's properties that keySql makes, at comparable cost.
+  // json_array() wraps scalars so the inner json_each works uniformly for
+  // both scalar ("active") and array (["a","b"]) property values.
   const sampleSql = `
     SELECT element.value, COUNT(*) as count
-    -- json_each() exposes key, value, type columns per JSON property
     FROM notes n, json_each(n.properties) property, json_each(
       CASE property.type
         WHEN 'array' THEN property.value
@@ -1213,7 +1220,9 @@ export const listPropertyKeys = (
   return results
 }
 
-/** Returns distinct values for a given property key with note counts. */
+/** Returns distinct values for a given property key with occurrence counts:
+ *  array elements count individually, so a value listed twice in one note's
+ *  array counts twice and the counts can exceed the note count. */
 export const listPropertyValues = (
   context: SearchQueryContext,
   params: {
@@ -1232,9 +1241,7 @@ export const listPropertyValues = (
   const folderCondition = escapedFolder ? "AND n.path LIKE @folder || '/%' ESCAPE '\\'" : ""
 
   // Identical query structure to sampleSql in listPropertyKeys (same triple
-  // join, CASE, and typeof filter), differing only in LIMIT. The key is
-  // matched as data through json_each, never spliced into a JSON path,
-  // where "." and "[" are syntax and a key like "a.b" would read as missing.
+  // join, CASE, and typeof filter), differing only in LIMIT.
   const sql = `
     SELECT element.value, COUNT(*) as count
     FROM notes n, json_each(n.properties) property, json_each(
@@ -1288,11 +1295,9 @@ export const searchByProperty = (
     : null
   const folderCondition = escapedFolder ? "AND n.path LIKE @folder || '/%' ESCAPE '\\'" : ""
 
-  // The key is matched as data through json_each, never spliced into a JSON
-  // path, where "." and "[" are syntax and a key like "a.b" would read as
-  // missing. EXISTS (not a FROM join) suffices because only a yes/no match
-  // per note is needed, not value counts. Two branches inside handle
-  // different property shapes:
+  // EXISTS (not a FROM join) suffices because only a yes/no match per note
+  // is needed, not value counts. Two branches inside handle different
+  // property shapes:
   // - Array properties (tags: ["a","b"]): check if @value is IN the array
   // - Scalar properties (status: "active"): check direct equality
   // Both branches CAST to TEXT for type-safe comparison (integer 4 = text "4")
