@@ -9,6 +9,7 @@ import { readdirSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 import {
+  SIZE_CAPPED_COMBO_NAMES,
   SURFACE_COMBOS,
   captureToolSurface,
   measureToolListChars,
@@ -37,14 +38,7 @@ describe("tool surface baseline", () => {
    *  Raising the allowance is a deliberate change with its reason in the PR. */
   const CHARS_PER_TOOL_ALLOWANCE = 4040
 
-  // Only the two largest lists are checked. Default holds every tool, and
-  // embedding-off renders the keyword-only text of the search tools, which
-  // default never shows. Every other combo drops tools or cross-references
-  // from one of these two, so its total is smaller than a checked total. Its
-  // average per tool can still exceed the allowance (memory-off drops five
-  // small tools), so the allowance bounds the two checked lists, not every
-  // combo's average.
-  it.each(["default", "embedding-off"])(
+  it.each(SIZE_CAPPED_COMBO_NAMES)(
     "combo %s stays within the average per-tool size allowance",
     async (comboName) => {
       const combo = SURFACE_COMBOS.find((surfaceCombo) => surfaceCombo.name === comboName)
