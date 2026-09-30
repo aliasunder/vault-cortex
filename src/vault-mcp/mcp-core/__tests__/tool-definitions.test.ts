@@ -705,6 +705,22 @@ describe("vault_update_memory input schema", () => {
   })
 })
 
+describe("optional selector params reject an empty string", () => {
+  // Without min(1), an empty folder or glob lists the whole vault and an empty
+  // date reads today's note — a different request than the caller sent.
+  it.each([
+    { tool: TOOL_NAMES.VAULT_LIST_NOTES, field: "folder", validValue: "Projects" },
+    { tool: TOOL_NAMES.VAULT_LIST_NOTES, field: "glob", validValue: "*.md" },
+    { tool: TOOL_NAMES.VAULT_GET_DAILY_NOTE, field: "date", validValue: "2026-05-13" },
+  ])("$tool $field rejects an empty string and accepts a value", ({ tool, field, validValue }) => {
+    const [, config] = requireCall(tool)
+    const fieldSchema = config.inputSchema?.[field]
+    expect(fieldSchema?.safeParse("").success).toBe(false)
+    expect(fieldSchema?.safeParse(validValue).success).toBe(true)
+    expect(fieldSchema?.safeParse(undefined).success).toBe(true)
+  })
+})
+
 describe("vault_update_memory handler", () => {
   const mockExtra = { requestId: "test-1", sessionId: "session-1" }
 

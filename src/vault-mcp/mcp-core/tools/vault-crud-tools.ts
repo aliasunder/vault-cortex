@@ -341,12 +341,14 @@ Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Proj
       inputSchema: {
         folder: z
           .string()
+          .min(1)
           .optional()
           .describe(
             `Vault-relative folder to list (e.g. ${config.memoryEnabled ? `"${config.memoryDir}", ` : ""}"Projects").`,
           ),
         glob: z
           .string()
+          .min(1)
           .optional()
           .describe('Glob pattern for note paths (e.g. "**/*session-log*.md").'),
       },

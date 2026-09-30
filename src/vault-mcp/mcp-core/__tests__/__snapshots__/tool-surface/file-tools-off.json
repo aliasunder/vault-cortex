@@ -342,7 +342,8 @@
         "properties": {
           "date": {
             "description": "YYYY-MM-DD (e.g. \"2026-05-13\", \"2025-12-31\"). Defaults to today in the server's timezone. Invalid formats like \"May 13\" return an error.",
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           }
         },
         "$schema": "http://json-schema.org/draft-07/schema#"
@@ -502,11 +503,13 @@
         "properties": {
           "folder": {
             "description": "Vault-relative folder to list (e.g. \"About Me\", \"Projects\").",
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           },
           "glob": {
             "description": "Glob pattern for note paths (e.g. \"**/*session-log*.md\").",
-            "type": "string"
+            "type": "string",
+            "minLength": 1
           }
         },
         "$schema": "http://json-schema.org/draft-07/schema#"
