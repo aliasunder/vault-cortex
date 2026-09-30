@@ -23,10 +23,11 @@ import {
 vi.setConfig({ testTimeout: 15_000 })
 
 /** Extract joined text from a prompt result's messages. */
-const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string =>
-  result.messages
+const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string => {
+  return result.messages
     .map((message) => (message.content.type === "text" ? message.content.text : ""))
     .join("\n")
+}
 
 // ── Default config (33 tools, 3 prompts) ──────────────────────
 
@@ -1175,8 +1176,8 @@ describe("default config", () => {
   })
 
   describe("OAuth rate limiting", () => {
-    const register = (forwardedIp: string) =>
-      fetch(`http://127.0.0.1:${port}/register`, {
+    const register = (forwardedIp: string) => {
+      return fetch(`http://127.0.0.1:${port}/register`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -1190,13 +1191,14 @@ describe("default config", () => {
           token_endpoint_auth_method: "none",
         }),
       })
+    }
 
     // With the Forwarded header untrusted (the default), a distinct spoofed
     // value per request must NOT mint a fresh rate-limit bucket — all six
     // share the socket peer's bucket.
     it("spoofed Forwarded headers do not bypass the /register rate limit", async () => {
-      for (let i = 1; i <= 5; i++) {
-        const response = await register(`198.51.100.${i}`)
+      for (let lastOctet = 1; lastOctet <= 5; lastOctet++) {
+        const response = await register(`198.51.100.${lastOctet}`)
         expect(response.status).toBe(201)
       }
       const sixth = await register("198.51.100.6")
@@ -1225,8 +1227,8 @@ describe("X-Forwarded-For rate limiting (default proxy trust)", () => {
     if (cleanup) await cleanup()
   })
 
-  const register = (xffIp: string) =>
-    fetch(`http://127.0.0.1:${port}/register`, {
+  const register = (xffIp: string) => {
+    return fetch(`http://127.0.0.1:${port}/register`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -1240,14 +1242,15 @@ describe("X-Forwarded-For rate limiting (default proxy trust)", () => {
         token_endpoint_auth_method: "none",
       }),
     })
+  }
 
   // X-Forwarded-For is the other spoofable channel: with TRUST_PROXY_HOPS=0
   // (the default), a client-supplied X-Forwarded-For must not shift the
   // bucket either — re-raising the hop count would reopen the bypass
   // silently.
   it("spoofed X-Forwarded-For headers do not bypass the /register rate limit", async () => {
-    for (let i = 1; i <= 5; i++) {
-      const response = await register(`198.51.100.${i}`)
+    for (let lastOctet = 1; lastOctet <= 5; lastOctet++) {
+      const response = await register(`198.51.100.${lastOctet}`)
       expect(response.status).toBe(201)
     }
     const sixth = await register("198.51.100.6")
@@ -1271,8 +1274,8 @@ describe("TRUST_PROXY_HOPS=1", () => {
     if (cleanup) await cleanup()
   })
 
-  const register = (xffIp: string) =>
-    fetch(`http://127.0.0.1:${port}/register`, {
+  const register = (xffIp: string) => {
+    return fetch(`http://127.0.0.1:${port}/register`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -1286,6 +1289,7 @@ describe("TRUST_PROXY_HOPS=1", () => {
         token_endpoint_auth_method: "none",
       }),
     })
+  }
 
   // Positive wiring proof for `app.set("trust proxy", config.trustProxyHops)`:
   // with one trusted hop the XFF-derived IP is the bucket key, so exhausting
@@ -1320,8 +1324,8 @@ describe("TRUST_FORWARDED_HOPS=1", () => {
     if (cleanup) await cleanup()
   })
 
-  const register = (forwardedIp: string) =>
-    fetch(`http://127.0.0.1:${port}/register`, {
+  const register = (forwardedIp: string) => {
+    return fetch(`http://127.0.0.1:${port}/register`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -1335,6 +1339,7 @@ describe("TRUST_FORWARDED_HOPS=1", () => {
         token_endpoint_auth_method: "none",
       }),
     })
+  }
 
   it("buckets the /register rate limit by the Forwarded client IP", async () => {
     for (let i = 0; i < 5; i++) {
@@ -1395,8 +1400,8 @@ describe("TRUST_FORWARDED_HOPS=2", () => {
     if (cleanup) await cleanup()
   })
 
-  const register = (forwarded: string) =>
-    fetch(`http://127.0.0.1:${port}/register`, {
+  const register = (forwarded: string) => {
+    return fetch(`http://127.0.0.1:${port}/register`, {
       method: "POST",
       headers: { "content-type": "application/json", forwarded },
       body: JSON.stringify({
@@ -1407,6 +1412,7 @@ describe("TRUST_FORWARDED_HOPS=2", () => {
         token_endpoint_auth_method: "none",
       }),
     })
+  }
 
   it("buckets the /register rate limit by the for= element before the last", async () => {
     for (let i = 0; i < 5; i++) {
