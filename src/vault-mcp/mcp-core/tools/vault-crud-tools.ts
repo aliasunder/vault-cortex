@@ -1002,8 +1002,10 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
               // Only "system" moves are swept later, so only they are recorded;
               // "local" is the user's keep-forever trash.
               recordTrashEntry: trashOption === "system" ? search.recordTrashEntry : undefined,
-              // Unconditional, or a "local" move onto a path with a leftover
-              // row (the user emptied .trash/ by hand) would inherit its sweep.
+              // Always passed. If an earlier delete left a row for this .trash/
+              // path (the user emptied .trash/ by hand), the sweep would still
+              // remove whatever lands there, including a "local" note meant
+              // to be kept.
               clearStaleTrashEntry: search.deleteTrashEntry,
             },
             reqLogger,
