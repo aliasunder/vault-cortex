@@ -42,27 +42,24 @@ export const resolveEffectiveProtectedPaths = async (
 ): Promise<readonly string[]> => {
   if (config.protectedPathsOverride) return config.protectedPathsOverride
 
-  // Both env settings are passed because readDailyNotesConfig skips reading
-  // daily-notes.json when both are set. Only the folder is used here.
+  // With both env fields set the reader skips the file; only the folder is used.
   const dailyNotesConfig = await readDailyNotesConfig(vaultPath, {
     folder: config.dailyNotesFolder,
     format: config.dailyNotesFormat,
   })
 
-  // A whitespace-only `folder` in daily-notes.json passes that reader's
-  // non-empty check. After the trim it is empty and adds no protected folder.
+  // A whitespace-only folder in daily-notes.json protects nothing.
   const dailyFolder = dailyNotesConfig.folder.trim()
   return dailyFolder ? [config.memoryDir, dailyFolder] : [config.memoryDir]
 }
 
-/** Protected-path list for tool descriptions. A description is built once at
- *  registration, while the default daily notes folder is resolved on every
- *  call, so the text names that folder's sources instead of its value. The
- *  "Daily Notes" default restates the fallback in daily-notes.ts. */
+/** Protected-path list for tool descriptions. Descriptions are built once at
+ *  registration and the daily notes folder is resolved per call, so the text
+ *  names that folder's sources, not its value ("Daily Notes" restates the
+ *  fallback in daily-notes.ts). */
 const describeProtectedPaths = (config: VaultConfig): string => {
   if (config.protectedPathsOverride) {
-    // loadConfig strips trailing slashes from override entries, so appending
-    // one never doubles it.
+    // loadConfig strips trailing slashes from override entries.
     return config.protectedPathsOverride.map((protectedPath) => protectedPath + "/").join(", ")
   }
   return `${config.memoryDir}/ and the daily notes folder (read from DAILY_NOTES_FOLDER or .obsidian/daily-notes.json, defaulting to Daily Notes/)`
@@ -987,18 +984,14 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
         async () => {
           const protectedPaths = await resolveEffectiveProtectedPaths(config, vaultPath)
 
-          // A server running Obsidian Sync (obsidianSyncEnabled, which the
-          // :remote image sets) skips Obsidian's "Deleted files" setting and
-          // deletes for good. Recovery is through Sync's version history, and
-          // a server-side .trash/ would never sync back to the user. The
-          // value is "none" rather than "system" because "system" lands in
-          // .trash/.
+          // Under Obsidian Sync the setting is skipped and the note is deleted
+          // for good ("none", since "system" would land in .trash/): a
+          // server-side .trash/ never syncs back, and Sync's version history
+          // is the recovery path.
           const trashOption = config.obsidianSyncEnabled
             ? "none"
             : await readTrashConfig(vaultPath, reqLogger)
 
-          // The two trash-entry hooks below are closures over the search
-          // index, so they are passed without binding.
           return vaultFs.deleteNote(
             {
               vaultPath,
@@ -1006,19 +999,11 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
               protectedPaths,
               pruneEmptyFolders,
               trashOption,
-              // Writes the note's new .trash/ path to the search index's
-              // trash_entries table. The retention sweep removes only copies
-              // recorded there. Only a "system" delete is recorded, because
-              // the server picked .trash/ for it (a container has no system
-              // trash) and so cleans that copy up. A "local" delete is the
-              // user's own choice of .trash/ as keep-forever trash.
+              // Only "system" moves are swept later, so only they are recorded;
+              // "local" is the user's keep-forever trash.
               recordTrashEntry: trashOption === "system" ? search.recordTrashEntry : undefined,
-              // Deletes any trash_entries row already at the note's new
-              // .trash/ path when the move is not recorded. A row can outlive
-              // its file (the user emptied .trash/ by hand), and a later
-              // "local" delete of a same-named note then lands on that row's
-              // path. Without this hook the sweep would follow the old row
-              // and remove the keep-forever copy.
+              // Unconditional, or a "local" move onto a path with a leftover
+              // row (the user emptied .trash/ by hand) would inherit its sweep.
               clearStaleTrashEntry: search.deleteTrashEntry,
             },
             reqLogger,

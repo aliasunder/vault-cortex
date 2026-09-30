@@ -14,16 +14,11 @@ import { isErrnoException } from "../../utils/is-errno-exception.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
-/** The setting's values, each with its label in Obsidian and what a note
- *  delete on this server does under it.
- *  - `"system"` is "Move to system trash", Obsidian's default and what an
- *    absent setting means. A container has no system trash, so the note moves
- *    to `.trash/`. When a retention window is set, the retention sweep
- *    (trash-sweeper.ts) removes that copy once it is older than
- *    TRASH_RETENTION_DAYS.
- *  - `"local"` is "Move to Obsidian trash (.trash folder)". The note moves to
- *    `.trash/` and stays there, because the sweep never removes it.
- *  - `"none"` is "Permanently delete". The note is removed outright. */
+/** Obsidian's "Deleted files" choices and what a delete does on this server:
+ *  - `"system"` ("Move to system trash", the default): moves to `.trash/` and
+ *    is swept after TRASH_RETENTION_DAYS, since a container has no system trash.
+ *  - `"local"` ("Move to Obsidian trash"): moves to `.trash/` and stays.
+ *  - `"none"` ("Permanently delete"): removed outright. */
 export type TrashOption = "system" | "local" | "none"
 
 const isTrashOption = (value: unknown): value is TrashOption => {
@@ -40,39 +35,25 @@ export const readTrashConfig = async (vaultPath: string, logger: Logger): Promis
   try {
     const configPath = join(vaultPath, ".obsidian", "app.json")
 
-    // Read on every call, never cached. The setting decides whether a delete
-    // is recoverable, so a switch from "Permanently delete" to a trash option
-    // in Obsidian has to apply to the next delete, not after a restart.
+    // Read on every call, so a switch away from "Permanently delete" applies
+    // to the next delete rather than after a restart.
     const fileContent = await readFile(configPath, "utf8")
-
-    // JSON.parse returns `any`, so this annotation is unchecked. Non-object
-    // JSON (an array, a string) has no `trashOption` and takes the default
-    // below, while `null` throws on the property read and reaches the catch.
     const parsed: Record<string, unknown> = JSON.parse(fileContent)
 
     const rawOption = parsed.trashOption
 
     if (isTrashOption(rawOption)) return rawOption
 
-    // The file was read and holds no recognized choice, so the server uses
-    // Obsidian's default. The catch below differs, because there a choice may
-    // exist that the server could not read.
+    // A missing or unknown value means no saved choice, so Obsidian's default applies.
     return "system"
   } catch (error) {
-    // app.json does not exist, so no choice was saved and Obsidian's default
-    // applies.
     if (isErrnoException(error, "ENOENT")) {
       return "system"
     }
 
-    // Any other failure (EACCES, EIO, malformed JSON) stops the delete. The
-    // user's choice is unknown, and falling back to "system" would let the
-    // retention sweep remove a note the user set ("local") to keep in
-    // .trash/ forever.
-    //
-    // The warn is the only record of the raw cause (errno and absolute path,
-    // or the JSON syntax error). The thrown message reaches the client, so it
-    // names only the vault-relative file.
+    // Any other failure hides the user's choice, and a "system" fallback could
+    // let the sweep remove a note the user set to keep ("local"). The warn
+    // carries the raw cause; only the thrown message reaches the client.
     logger.warn("cannot read trash config", { error: describeError(error) })
     throw new Error("cannot read trash config from .obsidian/app.json", {
       cause: error,
