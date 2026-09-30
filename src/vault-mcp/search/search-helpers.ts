@@ -257,6 +257,18 @@ export const dayToEpochMsRange = (date: string): { startMs: number; endMs: numbe
  *  in TypeScript — used for vector-only results that bypassed the FTS query.
  *  Date filter values are pre-validated by fullTextSearch, which hybridSearch
  *  always runs before this mirror. */
+/** Mirrors the SQL property filter: a list property matches when any element
+ *  equals the wanted value, a scalar property must equal it. */
+const propertyValueMatches = (params: {
+  stored: unknown
+  wanted: string | number | boolean
+}): boolean => {
+  if (Array.isArray(params.stored)) {
+    return params.stored.some((element: unknown) => element === params.wanted)
+  }
+  return params.stored === params.wanted
+}
+
 export const noteMatchesSearchFilters = (note: NoteRow, filters: SearchFilters): boolean => {
   if (filters.folder && !pathIsInFolder({ path: note.path, folder: filters.folder })) return false
 
@@ -277,7 +289,7 @@ export const noteMatchesSearchFilters = (note: NoteRow, filters: SearchFilters):
   if (filters.properties) {
     const noteProperties = parseRecord(note.properties)
     for (const [key, value] of Object.entries(filters.properties)) {
-      if (noteProperties[key] !== value) return false
+      if (!propertyValueMatches({ stored: noteProperties[key], wanted: value })) return false
     }
   }
 

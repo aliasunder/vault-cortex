@@ -2296,6 +2296,32 @@ describe("property keys containing JSON path syntax", () => {
     expect(matches.map((result) => result.path)).toEqual(["Projects/array-under-dotted-key.md"])
   })
 
+  it("fullTextSearch's properties filter matches a list property by any element", () => {
+    index.upsertNote(
+      {
+        filePath: "Projects/co-authored.md",
+        rawContent: "---\nauthors:\n  - Alice\n  - Bob\n---\nsearchable body\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Projects/solo.md",
+        rawContent: "---\nauthors:\n  - Carol\n---\nsearchable body\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+
+    const results = index.fullTextSearch(
+      { query: "searchable", filters: { properties: { authors: "Bob" } } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual(["Projects/co-authored.md"])
+  })
+
   it("fullTextSearch's properties filter matches a boolean value", () => {
     index.upsertNote(
       {

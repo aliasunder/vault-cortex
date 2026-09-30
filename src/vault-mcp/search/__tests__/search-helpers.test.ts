@@ -485,6 +485,16 @@ describe("noteMatchesSearchFilters", () => {
     expect(noteMatchesSearchFilters(baseRow, { properties: { status: "archived" } })).toBe(false)
   })
 
+  it("matches a list property when any element equals the value", () => {
+    const rowWithList = {
+      ...baseRow,
+      properties: JSON.stringify({ authors: ["Alice", "Bob"], status: "active" }),
+    }
+
+    expect(noteMatchesSearchFilters(rowWithList, { properties: { authors: "Bob" } })).toBe(true)
+    expect(noteMatchesSearchFilters(rowWithList, { properties: { authors: "Carol" } })).toBe(false)
+  })
+
   it("combines multiple filters with AND semantics", () => {
     expect(
       noteMatchesSearchFilters(baseRow, {

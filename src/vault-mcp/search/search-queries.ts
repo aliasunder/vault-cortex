@@ -192,13 +192,24 @@ export const fullTextSearch = (
   }
 
   // The key is matched as data through json_each, never spliced into a JSON
-  // path; the Property queries section header below states why.
+  // path; the Property queries section header below states why. A list
+  // property matches when any element equals the value, as in
+  // searchByProperty; a scalar property must equal it.
   if (params.filters?.properties) {
     for (const [key, value] of Object.entries(params.filters.properties)) {
-      conditions.push("EXISTS (SELECT 1 FROM json_each(n.properties) WHERE key = ? AND value = ?)")
+      conditions.push(`EXISTS (
+        SELECT 1 FROM json_each(n.properties) property
+        WHERE property.key = ?
+          AND (
+            (property.type = 'array'
+             AND EXISTS (SELECT 1 FROM json_each(property.value) WHERE value = ?))
+            OR (property.type != 'array' AND property.value = ?)
+          )
+      )`)
       // better-sqlite3 cannot bind a JS boolean, and SQLite's JSON functions
       // read true/false as integers 1/0, so the bound value uses the same.
-      queryParams.push(key, typeof value === "boolean" ? Number(value) : value)
+      const boundValue = typeof value === "boolean" ? Number(value) : value
+      queryParams.push(key, boundValue, boundValue)
     }
   }
 
@@ -1152,6 +1163,29 @@ export const recentNotes = (
 // json_each exposes key, value and type columns per property; property.type
 // is the JSON type ("array", "text", "integer", ...), not a notes column.
 
+/** Occurrence counts of every value under one property key, most common
+ *  first, without a LIMIT so each caller appends its own. json_array() wraps
+ *  scalars so the inner json_each works uniformly for both scalar ("active")
+ *  and array (["a","b"]) property values. The folder condition is passed in
+ *  because it is qualified as n.path: the json_each tables in the FROM clause
+ *  expose a path column of their own. */
+const propertyValueCountsSql = (folderCondition: string): string => `
+    SELECT element.value, COUNT(*) as count
+    FROM notes n, json_each(n.properties) property, json_each(
+      CASE property.type
+        WHEN 'array' THEN property.value
+        ELSE json_array(property.value)
+      END
+    ) element
+    WHERE property.key = @key
+    ${folderCondition}
+    -- typeof filters on SQL storage class: excludes nulls (typeof 'null');
+    -- nested objects/arrays pass through as typeof 'text'
+    AND typeof(element.value) IN ('text', 'integer', 'real')
+    GROUP BY element.value
+    ORDER BY count DESC, element.value
+`
+
 /** Returns all frontmatter property keys with note counts and top 3 sample
  *  values. Sample ranking counts value occurrences: a value listed twice in
  *  one note's array counts twice. */
@@ -1177,31 +1211,11 @@ export const listPropertyKeys = (
     .prepare<Record<string, unknown>, { key: string; count: number }>(keySql)
     .all(keySqlParams)
 
-  // n.path, qualified: the json_each tables in the FROM clause expose a
-  // path column of their own.
   const sampleFolderCondition = escapedFolder ? "AND n.path LIKE @folder || '/%' ESCAPE '\\'" : ""
 
   // For each key, fetch the 3 most common values as samples: the same walk
   // over every note's properties that keySql makes, at comparable cost.
-  // json_array() wraps scalars so the inner json_each works uniformly for
-  // both scalar ("active") and array (["a","b"]) property values.
-  const sampleSql = `
-    SELECT element.value, COUNT(*) as count
-    FROM notes n, json_each(n.properties) property, json_each(
-      CASE property.type
-        WHEN 'array' THEN property.value
-        ELSE json_array(property.value)
-      END
-    ) element
-    WHERE property.key = @key
-    ${sampleFolderCondition}
-    -- typeof filters on SQL storage class: excludes nulls (typeof 'null');
-    -- nested objects/arrays pass through as typeof 'text'
-    AND typeof(element.value) IN ('text', 'integer', 'real')
-    GROUP BY element.value
-    ORDER BY count DESC, element.value
-    LIMIT 3
-  `
+  const sampleSql = `${propertyValueCountsSql(sampleFolderCondition)} LIMIT 3`
   const sampleStmt = context.db.prepare<Record<string, unknown>, { value: string }>(sampleSql)
 
   const results: PropertyKeyInfo[] = keyRows.map((keyRow) => {
@@ -1236,29 +1250,9 @@ export const listPropertyValues = (
   const escapedFolder = params.folder
     ? escapeLikeWildcards(stripTrailingSlashes(params.folder))
     : null
-  // n.path, qualified: the json_each tables in the FROM clause expose a
-  // path column of their own.
   const folderCondition = escapedFolder ? "AND n.path LIKE @folder || '/%' ESCAPE '\\'" : ""
 
-  // Identical query structure to sampleSql in listPropertyKeys (same triple
-  // join, CASE, and typeof filter), differing only in LIMIT.
-  const sql = `
-    SELECT element.value, COUNT(*) as count
-    FROM notes n, json_each(n.properties) property, json_each(
-      CASE property.type
-        WHEN 'array' THEN property.value
-        ELSE json_array(property.value)
-      END
-    ) element
-    WHERE property.key = @key
-    ${folderCondition}
-    -- typeof filters on SQL storage class: excludes nulls (typeof 'null');
-    -- nested objects/arrays pass through as typeof 'text'
-    AND typeof(element.value) IN ('text', 'integer', 'real')
-    GROUP BY element.value
-    ORDER BY count DESC, element.value
-    LIMIT @limit
-  `
+  const sql = `${propertyValueCountsSql(folderCondition)} LIMIT @limit`
 
   const sqlParams: Record<string, unknown> = { key: params.key, limit }
 
