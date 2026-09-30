@@ -1563,6 +1563,30 @@ describe("deleteNote — trash behavior", () => {
       error: "[Error]: EACCES: injected claim failure",
     })
   })
+
+  it('the "deleted note" log includes trash_option so an operator can distinguish swept from kept', async () => {
+    await writeFile(join(vault, "log-field.md"), "content", "utf8")
+    const infoSpy = vi.spyOn(logger, "info").mockImplementation(() => {})
+    onTestFinished(() => infoSpy.mockRestore())
+
+    await deleteNote(
+      {
+        vaultPath: vault,
+        path: "log-field.md",
+        protectedPaths: [],
+        pruneEmptyFolders: false,
+        trashOption: "local",
+      },
+      logger,
+    )
+
+    expect(infoSpy).toHaveBeenCalledWith("deleted note", {
+      path: "log-field.md",
+      trash_option: "local",
+      trash_location: ".trash/log-field.md",
+      pruned_empty_folders: 0,
+    })
+  })
 })
 
 describe("listNotes", () => {
