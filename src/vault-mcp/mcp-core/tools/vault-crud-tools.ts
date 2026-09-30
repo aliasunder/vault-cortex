@@ -41,8 +41,7 @@ const describeDisplacedLeadingContent = ({
  *  it names is then unknown; DAILY_NOTES_FOLDER or PROTECTED_PATHS bypasses
  *  the file. */
 export const resolveEffectiveProtectedPaths = async (
-  config: VaultConfig,
-  vaultPath: string,
+  { config, vaultPath }: { config: VaultConfig; vaultPath: string },
   logger: Logger,
 ): Promise<readonly string[]> => {
   if (config.protectedPathsOverride) return config.protectedPathsOverride
@@ -987,7 +986,10 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
       return safeHandler(
         reqLogger,
         async () => {
-          const protectedPaths = await resolveEffectiveProtectedPaths(config, vaultPath, reqLogger)
+          const protectedPaths = await resolveEffectiveProtectedPaths(
+            { config, vaultPath },
+            reqLogger,
+          )
 
           // Under Obsidian Sync the setting is skipped and the note is deleted
           // for good ("none", since "system" would land in .trash/): a
@@ -1115,7 +1117,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
           const [allNotePaths, allAssetPaths, protectedPaths] = await Promise.all([
             vaultFs.listNotes({ vaultPath }, reqLogger),
             vaultFs.listAssets({ vaultPath }, reqLogger),
-            resolveEffectiveProtectedPaths(config, vaultPath, reqLogger),
+            resolveEffectiveProtectedPaths({ config, vaultPath }, reqLogger),
           ])
           return noteMover.moveNote(
             {

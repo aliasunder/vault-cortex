@@ -33,7 +33,7 @@ describe("resolveEffectiveProtectedPaths", () => {
 
   it("returns the user's list unchanged when PROTECTED_PATHS is set", async () => {
     const config = makeConfig({ protectedPathsOverride: ["Secrets", "Custom"] })
-    const result = await resolveEffectiveProtectedPaths(config, "/vault", logger)
+    const result = await resolveEffectiveProtectedPaths({ config, vaultPath: "/vault" }, logger)
 
     expect(result).toEqual(["Secrets", "Custom"])
     expect(mockedReadDailyNotesFileConfig).not.toHaveBeenCalled()
@@ -46,7 +46,10 @@ describe("resolveEffectiveProtectedPaths", () => {
     })
     const requestLogger = logger.child({ requestId: "request-1" })
     const config = makeConfig()
-    const result = await resolveEffectiveProtectedPaths(config, "/vault", requestLogger)
+    const result = await resolveEffectiveProtectedPaths(
+      { config, vaultPath: "/vault" },
+      requestLogger,
+    )
 
     expect(result).toEqual(["About Me", "Journal"])
     expect(mockedReadDailyNotesFileConfig).toHaveBeenCalledTimes(1)
@@ -59,7 +62,7 @@ describe("resolveEffectiveProtectedPaths", () => {
       format: "YYYY-MM-DD",
     })
     const config = makeConfig({ memoryDir: "Profile" })
-    const result = await resolveEffectiveProtectedPaths(config, "/vault", logger)
+    const result = await resolveEffectiveProtectedPaths({ config, vaultPath: "/vault" }, logger)
 
     expect(result).toEqual(["Profile", "Daily Notes"])
   })
@@ -70,14 +73,14 @@ describe("resolveEffectiveProtectedPaths", () => {
       format: "YYYY-MM-DD",
     })
     const config = makeConfig()
-    const result = await resolveEffectiveProtectedPaths(config, "/vault", logger)
+    const result = await resolveEffectiveProtectedPaths({ config, vaultPath: "/vault" }, logger)
 
     expect(result).toEqual(["About Me"])
   })
 
   it("protects DAILY_NOTES_FOLDER without reading the file, even when the format is unset", async () => {
     const config = makeConfig({ dailyNotesFolder: "Journal" })
-    const result = await resolveEffectiveProtectedPaths(config, "/vault", logger)
+    const result = await resolveEffectiveProtectedPaths({ config, vaultPath: "/vault" }, logger)
 
     expect(result).toEqual(["About Me", "Journal"])
     expect(mockedReadDailyNotesFileConfig).not.toHaveBeenCalled()
@@ -89,7 +92,7 @@ describe("resolveEffectiveProtectedPaths", () => {
       format: "YYYY-MM-DD",
     })
     const config = makeConfig({ dailyNotesFormat: "DD-MM-YYYY" })
-    const result = await resolveEffectiveProtectedPaths(config, "/vault", logger)
+    const result = await resolveEffectiveProtectedPaths({ config, vaultPath: "/vault" }, logger)
 
     expect(result).toEqual(["About Me", "Journal"])
     expect(mockedReadDailyNotesFileConfig).toHaveBeenCalledTimes(1)
@@ -101,8 +104,8 @@ describe("resolveEffectiveProtectedPaths", () => {
     )
     const config = makeConfig()
 
-    await expect(resolveEffectiveProtectedPaths(config, "/vault", logger)).rejects.toThrow(
-      new Error("cannot read daily notes config from .obsidian/daily-notes.json"),
-    )
+    await expect(
+      resolveEffectiveProtectedPaths({ config, vaultPath: "/vault" }, logger),
+    ).rejects.toThrow(new Error("cannot read daily notes config from .obsidian/daily-notes.json"))
   })
 })
