@@ -9,8 +9,7 @@
 
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
-// Root logger — config readers have no request context to thread.
-import { logger } from "../../logger.js"
+import type { Logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
 import { isErrnoException } from "../../utils/is-errno-exception.js"
 
@@ -32,7 +31,7 @@ const isTrashOption = (value: unknown): value is TrashOption => {
  *  file is missing, the key is absent, or the value is unrecognized. Throws
  *  on non-ENOENT read failures so a broken config never silently causes
  *  permanent delete. */
-export const readTrashConfig = async (vaultPath: string): Promise<TrashOption> => {
+export const readTrashConfig = async (vaultPath: string, logger: Logger): Promise<TrashOption> => {
   try {
     const configPath = join(vaultPath, ".obsidian", "app.json")
     const fileContent = await readFile(configPath, "utf8")
