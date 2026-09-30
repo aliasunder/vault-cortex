@@ -2,24 +2,33 @@ import { lstat, readFile, readdir, realpath, stat } from "node:fs/promises"
 import type { Dirent, Stats } from "node:fs"
 import { isErrnoException } from "./is-errno-exception.js"
 
-/** Reads a UTF-8 file, returning null instead of throwing when it does not exist
- *  (ENOENT). Any other error propagates. */
+/** True for the errors that mean nothing is reachable at a path: the entry is
+ *  missing (ENOENT), or a component on the way to it is a file rather than a
+ *  folder (ENOTDIR). Both read as "not there" to a caller that asked by path;
+ *  the raw message names the absolute path, so it never leaves as an error. */
+const isMissingPathError = (error: unknown): boolean => {
+  return isErrnoException(error, "ENOENT") || isErrnoException(error, "ENOTDIR")
+}
+
+/** Reads a UTF-8 file, returning null instead of throwing when no file exists
+ *  at the path: nothing is there (ENOENT), a parent is a file (ENOTDIR), or the
+ *  path is a folder (EISDIR). Any other error propagates. */
 export const readFileOrNull = async (path: string): Promise<string | null> => {
   try {
     return await readFile(path, "utf8")
   } catch (error) {
-    if (isErrnoException(error, "ENOENT")) return null
+    if (isMissingPathError(error) || isErrnoException(error, "EISDIR")) return null
     throw error
   }
 }
 
 /** Stats a path, returning null instead of throwing when nothing exists there
- *  (ENOENT). Any other error propagates. */
+ *  (ENOENT) or a parent is a file (ENOTDIR). Any other error propagates. */
 export const statOrNull = async (path: string): Promise<Stats | null> => {
   try {
     return await stat(path)
   } catch (error) {
-    if (isErrnoException(error, "ENOENT")) return null
+    if (isMissingPathError(error)) return null
     throw error
   }
 }
@@ -30,7 +39,7 @@ export const lstatOrNull = async (path: string): Promise<Stats | null> => {
   try {
     return await lstat(path)
   } catch (error) {
-    if (isErrnoException(error, "ENOENT")) return null
+    if (isMissingPathError(error)) return null
     throw error
   }
 }
@@ -43,31 +52,31 @@ export const readdirOrNull = async (path: string): Promise<Dirent[] | null> => {
   try {
     return await readdir(path, { recursive: true, withFileTypes: true })
   } catch (error) {
-    if (isErrnoException(error, "ENOENT") || isErrnoException(error, "ENOTDIR")) return null
+    if (isMissingPathError(error)) return null
     throw error
   }
 }
 
 /** Resolves a path's canonical form (symlinks followed), returning null
- *  instead of throwing when any component does not exist (ENOENT). Any other
- *  error propagates. */
+ *  instead of throwing when a component does not exist (ENOENT) or is a file
+ *  (ENOTDIR). Any other error propagates. */
 export const realpathOrNull = async (path: string): Promise<string | null> => {
   try {
     return await realpath(path)
   } catch (error) {
-    if (isErrnoException(error, "ENOENT")) return null
+    if (isMissingPathError(error)) return null
     throw error
   }
 }
 
-/** Resolves true when something exists at the path, false on ENOENT. Any other
- *  error propagates. */
+/** Resolves true when something exists at the path, false when nothing does
+ *  (ENOENT) or a parent is a file (ENOTDIR). Any other error propagates. */
 export const fileExists = async (path: string): Promise<boolean> => {
   try {
     await stat(path)
     return true
   } catch (error) {
-    if (isErrnoException(error, "ENOENT")) return false
+    if (isMissingPathError(error)) return false
     throw error
   }
 }

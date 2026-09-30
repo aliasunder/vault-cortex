@@ -387,6 +387,20 @@ describe("readNote", () => {
       'note not found: "missing.md"',
     )
   })
+
+  it("reports a path through a file as not found, never the server's path", async () => {
+    await writeFile(join(vault, "plan.md"), "# plan", "utf8")
+    await expect(readNote({ vaultPath: vault, path: "plan.md/child.md" }, logger)).rejects.toThrow(
+      'note not found: "plan.md/child.md"',
+    )
+  })
+
+  it("reports a folder at the note path as not found", async () => {
+    await mkdir(join(vault, "Archive.md"))
+    await expect(readNote({ vaultPath: vault, path: "Archive.md" }, logger)).rejects.toThrow(
+      'note not found: "Archive.md"',
+    )
+  })
 })
 
 describe("writeNote", () => {
@@ -2671,6 +2685,13 @@ describe("readAsset", () => {
     await expect(
       readAsset({ vaultPath: vault, path: "ghost.png", maxBytes: 1024 }, logger),
     ).rejects.toThrow('file not found: "ghost.png"')
+  })
+
+  it("reports a path through a file as not found, never the server's path", async () => {
+    await writeFile(join(vault, "photo.png"), Buffer.from([0x89]))
+    await expect(
+      readAsset({ vaultPath: vault, path: "photo.png/inner.png", maxBytes: 1024 }, logger),
+    ).rejects.toThrow('file not found: "photo.png/inner.png"')
   })
 
   it("rejects a file over the byte cap before reading it", async () => {
