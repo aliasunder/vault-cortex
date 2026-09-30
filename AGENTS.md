@@ -551,16 +551,6 @@ covers both kinds, with reasons:
 - `type` over `interface` unless `interface` is specifically required.
 - TypeScript strict mode. `node:` prefix for built-ins.
 - Explicit return types on exports. Zod for MCP tool schemas.
-- Tool input schemas stay at `.min(1)` — no `.refine`. Rich validation
-  (format, date validity, mutual exclusivity) lives in the data layer or
-  handler, where failures flow through `safeHandler` as structured tool
-  errors with remediation text and get logged as `tool_error`. Zod
-  schema failures surface as protocol-level invalid-params errors that
-  bypass both, and a `.refine` predicate can't be serialized into the
-  JSON schema clients see anyway — so it adds no discoverability, only a
-  second copy of a guard the data layer must enforce regardless (drift
-  risk). `.min(1)` is the floor because it does serialize (`minLength`)
-  and its default failure message is self-explanatory.
 - No `any`, `as` casts, or `!` (`as const` is allowed); use runtime
   guards or schema validation instead. When a library method returns
   `T | null` but the null case is unreachable (e.g.
@@ -809,13 +799,25 @@ covers both kinds, with reasons:
   whether this is the shape that makes the most sense or just the first
   that came to mind. Each line should say what it does on its own — a
   reader shouldn't have to simulate the code to follow it.
-- MCP tool descriptions include `Example:`, `When to use:`, and
-  `Returns:` sections. Include `Errors:` whenever the tool has
+
+### MCP tool definitions
+
+A tool's definition is the text a client loads for it, which is the
+description plus the input schema with each parameter's Zod `.describe()`
+text.
+
+- **MCP tool descriptions include `Example:`, `When to use:`, and
+  `Returns:` sections.** Include `Errors:` whenever the tool has
   failure modes (with remediation guidance) or a no-match /
   empty-result contract worth clarifying (e.g. "returns an empty
   array, not an error"); omit it only for tools that cannot
   meaningfully fail. Include `Obsidian syntax:` on write tools.
-- Parameter text has one home per kind of fact. The calling model
+- **`Errors:` gets one bullet per distinct remedy, and every bullet
+  keeps its remedy.** Messages that share a remedy share one bullet,
+  which lists only the messages that tool can raise: for example
+  `"absolute path blocked"`, `"path traversal blocked"`, and
+  `"hidden path blocked"`.
+- **Parameter text has one home per kind of fact.** The calling model
   receives each parameter's Zod `.describe()` text inside the input
   schema, so the tool description earns its space (and its score from
   graders such as Glama's Tool Definition Quality Score, TDQS) only
@@ -828,12 +830,17 @@ covers both kinds, with reasons:
     and cut `.describe()` back to the plain meaning. Format and
     default stay in `.describe()`. Never drop a fact only
     `.describe()` carries.
-- `Errors:` gets one bullet per distinct remedy, and every bullet
-  keeps its remedy. Messages that share a remedy share one bullet,
-  which lists only the messages that tool can raise: for example
-  `"absolute path blocked"`, `"path traversal blocked"`, and
-  `"hidden path blocked"`.
-- `tool-surface-snapshot.test.ts` caps the tool list's size, because
+- **Tool input schemas stay at `.min(1)` — no `.refine`.** Rich validation
+  (format, date validity, mutual exclusivity) lives in the data layer or
+  handler, where failures flow through `safeHandler` as structured tool
+  errors with remediation text and get logged as `tool_error`. Zod
+  schema failures surface as protocol-level invalid-params errors that
+  bypass both, and a `.refine` predicate can't be serialized into the
+  JSON schema clients see anyway — so it adds no discoverability, only a
+  second copy of a guard the data layer must enforce regardless (drift
+  risk). `.min(1)` is the floor because it does serialize (`minLength`)
+  and its default failure message is self-explanatory.
+- **`tool-surface-snapshot.test.ts` caps the tool list's size**, because
   clients such as claude.ai load every definition into each
   conversation. Each checked combo's total must stay within
   `CHARS_PER_TOOL_ALLOWANCE` times its tool count.
@@ -847,7 +854,9 @@ covers both kinds, with reasons:
    registry is a leaf module with zero imports.
 2. **Handler** — add the tool in the appropriate `tools/*.ts` group
    module. The `registerTool` wrapper auto-injects annotations from
-   the registry and enforces the enabled-tool gate.
+   the registry and enforces the enabled-tool gate. Write the
+   description and input schema to the rules in "MCP tool definitions"
+   above.
 3. **Tests** — unit tests in `tools/__tests__/`, plus a happy-path case in
    `server-integration.test.ts` (see "Integration tests — when to add").
    Cover the handler's behavior, not just the schema.
