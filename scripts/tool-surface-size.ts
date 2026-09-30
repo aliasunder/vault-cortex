@@ -1,14 +1,14 @@
 // Prints how many characters the MCP tool definitions take up (UTF-16 code
 // units, not tokens), as a total per config combo and then one row per tool
-// for each combo the size cap checks. A config combo is one set of feature
-// switches, such as read-only or memory-off, and each combo registers a
-// different tool list.
+// for each combo that the size cap in tool-surface-snapshot.test.ts checks. A
+// config combo is one set of feature switches, such as read-only or
+// memory-off, and each combo registers a different tool list.
 //
 // Clients that load every tool definition up front (claude.ai, Claude Desktop)
 // spend this context in every conversation, so compare the output before and
-// after editing a description. The per-tool rows show what the size cap in
-// tool-surface-snapshot.test.ts can't, because the cap checks a combo's total
-// and one tool can grow while another shrinks.
+// after editing a description. The per-tool rows show what that cap can't,
+// because it checks a combo's total and one tool can grow while another
+// shrinks.
 //
 // Run it with `npm run report:tool-surface-size`.
 

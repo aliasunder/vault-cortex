@@ -171,8 +171,9 @@ type ToolDefinitionChars = Readonly<{
 /** Measures the context a client spends on one tool definition, in UTF-16 code
  *  units (JavaScript string length): the description plus the JSON-serialized
  *  input schema. The name, title, and annotations are left out because they are
- *  short and change only when a tool is added. The size cap and
- *  `npm run report:tool-surface-size` both use this measure. */
+ *  short and change only when a tool is added. The size cap in
+ *  `tool-surface-snapshot.test.ts` and `npm run report:tool-surface-size` both
+ *  use this measure. */
 export const measureToolDefinitionChars = (tool: Tool): ToolDefinitionChars => {
   const descriptionChars = tool.description?.length ?? 0
   const inputSchemaChars = JSON.stringify(tool.inputSchema).length
@@ -185,15 +186,17 @@ export const measureToolListChars = (tools: readonly Tool[]): number => {
   return toolTotals.reduce((sum, toolChars) => sum + toolChars, 0)
 }
 
-/** The combos the size cap checks, which hold the two largest tool lists:
+/** The combos the size cap in `tool-surface-snapshot.test.ts` checks, which
+ *  hold the two largest tool lists:
  *  - default registers every tool.
  *  - embedding-off renders the search tools' keyword-only text, which default
  *    never shows.
  *
  *  Every other combo drops tools or cross-references from one of these two, so
  *  its total is smaller than a checked total. Its average per tool can still
- *  exceed the cap's per-tool allowance (memory-off drops five small tools), so
- *  the allowance bounds the two checked lists, not every combo's average. */
+ *  exceed that cap's `CHARS_PER_TOOL_ALLOWANCE` (memory-off drops five small
+ *  tools), so the allowance bounds the two checked lists, not every combo's
+ *  average. */
 export const SIZE_CAPPED_COMBO_NAMES = ["default", "embedding-off"] as const
 
 /** Byte-exact committed form: pre-serialized so vitest writes the file

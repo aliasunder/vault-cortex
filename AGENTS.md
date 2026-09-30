@@ -803,9 +803,9 @@ covers both kinds, with reasons:
 
 ### MCP tool definitions
 
-A tool's definition is the text a client loads for it, which is the
-description plus the input schema with each parameter's Zod `.describe()`
-text.
+These rules cover the two parts of a tool's definition that carry prose,
+which are the description and the input schema with each parameter's Zod
+`.describe()` text.
 
 - **MCP tool descriptions include `Example:`, `When to use:`, and
   `Returns:` sections.** Include `Errors:` whenever the tool has
