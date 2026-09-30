@@ -218,7 +218,7 @@ Errors:
 - A visible folder containing no files — or one that doesn't exist — returns an empty listing, not an error.
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the folder starts at the filesystem root, escapes the vault (e.g. "../elsewhere") or names the vault root itself (e.g. "."), or is hidden like ".obsidian" (hidden folders are not listable, matching Obsidian); use a vault-relative folder outside hidden folders, and omit folder to list the whole vault.
 
-Returns: JSON with files (array of { path, extension, bytes }, sorted by path), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). bytes is the on-disk file size, not the delivery cost: reading an image via vault_read_file returns a copy shrunk to fit when needed, so a large listed image is still cheap to read. Text formats return verbatim, so their listed size is what a read delivers. Files of supported types are readable via vault_read_file.`,
+Returns: JSON with files (array of { path, extension, bytes }, sorted by path), extension_counts (per-extension totals over the full filtered set), total (full filtered count), and truncated (true when total exceeds limit). bytes is the on-disk file size, not the delivery cost: reading an image via vault_read_file returns a copy shrunk to fit when needed, so a large listed image is still cheap to read. Text formats return verbatim, so their listed size is what a read delivers; one over 100 KiB must be read in windows with vault_read_file's start_line and limit. Files of supported types are readable via vault_read_file.`,
       inputSchema: {
         folder: z
           .string()
