@@ -153,6 +153,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build image from branch (remote target)
+        id: build-remote
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -185,8 +186,9 @@ jobs:
       # Runs even when the local scan gates first (exit-code 1), so a
       # vulnerability in the shared base image can't mask remote-only
       # findings in the extra packages (s6-overlay, obsidian-headless).
+      # The build-outcome check skips it when there is no remote image.
       - name: Scan branch image (remote target)
-        if: success() || failure()
+        if: (success() || failure()) && steps.build-remote.outcome == 'success'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           image-ref: vault-cortex:pr-scan-remote
@@ -210,8 +212,8 @@ jobs:
           category: trivy-published-image
 
       # hashFiles guard: the remote SARIF doesn't exist when the remote image
-      # was never built (its build failed or was skipped), because the scan
-      # then has no image to read.
+      # was never built (its build failed or was skipped), because the remote
+      # scan is then skipped too.
       - name: Upload remote SARIF to the Security tab
         if: always() && hashFiles('trivy-results-remote.sarif') != '' && github.event.pull_request.head.repo.full_name == github.repository
         uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
