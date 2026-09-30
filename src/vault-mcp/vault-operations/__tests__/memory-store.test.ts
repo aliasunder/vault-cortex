@@ -91,6 +91,21 @@ describe("getMemory", () => {
     expect(result).toContain("# Principles")
   })
 
+  it("skips a folder whose name ends in .md in the all-files read", async () => {
+    const withoutFolder = await getMemory({ vaultPath: vault }, logger)
+    await mkdir(join(vault, "About Me", "Archive.md"), { recursive: true })
+    expect(await getMemory({ vaultPath: vault }, logger)).toBe(withoutFolder)
+  })
+
+  it("rejects an unreadable memory file with a vault-relative message in the all-files read", async () => {
+    // afterEach deletes the vault, which removes a mode-000 file inside it, so
+    // the permissions need no restore.
+    await chmod(join(vault, "About Me", "Opinions.md"), 0o000)
+    await expect(getMemory({ vaultPath: vault }, logger)).rejects.toThrow(
+      new Error('cannot read memory file "About Me/Opinions.md"'),
+    )
+  })
+
   it("concatenates all memory files when no file specified", async () => {
     const result = await getMemory({ vaultPath: vault }, logger)
     expect(result).toContain("# Opinions")
@@ -1871,6 +1886,12 @@ describe("listMemoryFileNames", () => {
 
   it("excludes a pre-existing hidden memory file", async () => {
     await writeFile(join(vault, "About Me/.secret.md"), "# Hidden\n", "utf8")
+    const names = await listMemoryFileNames({ vaultPath: vault }, logger)
+    expect(names).toEqual(["Opinions", "Principles"])
+  })
+
+  it("skips a folder whose name ends in .md", async () => {
+    await mkdir(join(vault, "About Me", "Archive.md"), { recursive: true })
     const names = await listMemoryFileNames({ vaultPath: vault }, logger)
     expect(names).toEqual(["Opinions", "Principles"])
   })

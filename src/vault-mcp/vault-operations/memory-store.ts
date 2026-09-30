@@ -351,6 +351,40 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     return filename.endsWith(".md") && !filename.startsWith(".")
   }
 
+  /** The memory folder's visible .md files as sorted filenames ("Opinions.md").
+   *  Reads each entry's type, because a folder named "Archive.md" passes the
+   *  name test and would fail every read. Returns [] when the memory folder
+   *  does not exist. */
+  const listVisibleMemoryFilenames = async (vaultPath: string): Promise<string[]> => {
+    try {
+      const entries = await readdir(join(vaultPath, memoryDir), { withFileTypes: true })
+      return entries
+        .filter(
+          (entry) => (entry.isFile() || entry.isSymbolicLink()) && isVisibleMemoryFile(entry.name),
+        )
+        .map((entry) => entry.name)
+        .toSorted()
+    } catch (err) {
+      if (isErrnoException(err, "ENOENT")) return []
+      throw err
+    }
+  }
+
+  /** Reads a file the listing returned. A failure throws with the file's
+   *  vault-relative path; the raw error names the server's absolute path, so
+   *  it goes to the log instead. */
+  const readListedMemoryFile = async (
+    params: { vaultPath: string; filename: string },
+    logger: Logger,
+  ): Promise<string> => {
+    try {
+      return await readFile(join(params.vaultPath, memoryDir, params.filename), "utf8")
+    } catch (error) {
+      logger.warn("cannot read memory file", { file: params.filename, error: describeError(error) })
+      throw new Error(`cannot read memory file "${memoryDir}/${params.filename}"`, { cause: error })
+    }
+  }
+
   // A memory file is a bare name, never a path — a separator would let a
   // name like "../../outside" escape the memory directory (and the vault)
   // entirely, so reject it at the single point every memory path goes through.
@@ -605,21 +639,10 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     logger: Logger,
   ): Promise<string> => {
     if (!params.file) {
-      const dir = join(params.vaultPath, memoryDir)
-      let filenames: string[]
-      try {
-        filenames = await readdir(dir)
-      } catch (err) {
-        if (isErrnoException(err, "ENOENT")) {
-          logger.info("get memory", { mode: "all", fileCount: 0 })
-          return ""
-        }
-        throw err
-      }
-      const mdFiles = filenames.filter(isVisibleMemoryFile).toSorted()
+      const mdFiles = await listVisibleMemoryFilenames(params.vaultPath)
       const contents = await Promise.all(
         mdFiles.map(async (filename) => {
-          const raw = await readFile(join(dir, filename), "utf8")
+          const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
           return parseNote(raw).content.trim()
         }),
       )
@@ -874,35 +897,10 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     params: { vaultPath: string },
     logger: Logger,
   ): Promise<MemoryFileOutline[]> => {
-    const dir = join(params.vaultPath, memoryDir)
-    let filenames: string[]
-    try {
-      filenames = await readdir(dir)
-    } catch (err) {
-      if (isErrnoException(err, "ENOENT")) return []
-      throw err
-    }
-
-    const mdFiles = filenames.filter(isVisibleMemoryFile).toSorted()
-
-    /** Returns null for a folder whose name ends in .md, which is not a memory
-     *  file. Any other read failure throws with a vault-relative message; the
-     *  raw error carries the server's absolute path, so it goes to the log. */
-    const readMemoryFileOrNull = async (filename: string): Promise<string | null> => {
-      try {
-        return await readFile(join(dir, filename), "utf8")
-      } catch (error) {
-        if (isErrnoException(error, "EISDIR")) return null
-        logger.warn("cannot read memory file", { file: filename, error: describeError(error) })
-        throw new Error(`cannot read memory file "${memoryDir}/${filename}"`, { cause: error })
-      }
-    }
-
-    const outlinesOrNull = await Promise.all(
+    const mdFiles = await listVisibleMemoryFilenames(params.vaultPath)
+    const outlines = await Promise.all(
       mdFiles.map(async (filename) => {
-        const raw = await readMemoryFileOrNull(filename)
-
-        if (raw === null) return null
+        const raw = await readListedMemoryFile({ vaultPath: params.vaultPath, filename }, logger)
         const parsed = parseNote(raw)
         const name = basename(filename, ".md")
         const title = isString(parsed.data.title) ? parsed.data.title : name
@@ -931,7 +929,6 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         }
       }),
     )
-    const outlines = outlinesOrNull.filter((outline) => outline !== null)
 
     logger.info("listed memory files", { count: outlines.length })
     return outlines
@@ -944,18 +941,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     params: { vaultPath: string },
     logger: Logger,
   ): Promise<string[]> => {
-    const dir = join(params.vaultPath, memoryDir)
-    let filenames: string[]
-    try {
-      filenames = await readdir(dir)
-    } catch (err) {
-      if (isErrnoException(err, "ENOENT")) return []
-      throw err
-    }
-    const names = filenames
-      .filter(isVisibleMemoryFile)
-      .map((filename) => basename(filename, ".md"))
-      .toSorted()
+    const mdFiles = await listVisibleMemoryFilenames(params.vaultPath)
+    const names = mdFiles.map((filename) => basename(filename, ".md"))
     logger.debug("listed memory file names", { count: names.length })
     return names
   }
