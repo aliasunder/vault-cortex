@@ -6,8 +6,9 @@ name: Trivy
 #
 # Two targets:
 #   - trivy-published (cron + merges to main + dispatch): the GHCR :latest
-#     image users pull today, so a CVE disclosed after a release still
-#     surfaces — merges also keep the README status badge current.
+#     and :remote images users pull today, so a CVE disclosed after a
+#     release still surfaces — merges also keep the README status badge
+#     current.
 #   - trivy-pr (pull_request): an image built from the branch, so a CVE
 #     entering via Dockerfile/base-image changes surfaces before merge.
 #     Its job ID is the required-status-check context in the branch
@@ -18,8 +19,8 @@ name: Trivy
 #
 # trivy-pr gates merges: it exits non-zero on CRITICAL/HIGH findings,
 # and is a required status check in the branch ruleset. trivy-published
-# stays report-only — its findings land in the Security tab; there is
-# no merge to block.
+# stays report-only — its findings of every severity land in the Security
+# tab; there is no merge to block.
 
 on:
   schedule:
@@ -73,7 +74,9 @@ jobs:
           # package set is identical across arches, so amd64-only is fine.
           image-ref: ghcr.io/${{ vars.GHCR_USER }}/vault-cortex:latest
           scanners: vuln
-          severity: CRITICAL,HIGH
+          # No severity filter, so every fixable finding reaches the Security
+          # tab. With SARIF output the action drops the filter anyway unless
+          # limit-severities-for-sarif is set, which only the trivy-pr gate does.
           ignore-unfixed: true
           format: sarif
           output: trivy-results.sarif
@@ -97,7 +100,7 @@ jobs:
         with:
           image-ref: ghcr.io/${{ vars.GHCR_USER }}/vault-cortex:remote
           scanners: vuln
-          severity: CRITICAL,HIGH
+          # Every severity, as in the local-target scan above.
           ignore-unfixed: true
           format: sarif
           output: trivy-results-remote.sarif
@@ -136,6 +139,7 @@ jobs:
       # its job ID is the required-status-check context in the branch
       # ruleset, so adding a job would need a ruleset update.
       - name: Build image from branch (local target)
+        id: build-local
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -159,7 +163,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Runs whenever the local image built, even if the remote build then
+      # failed, so a remote-only build error can't hide local-target findings.
       - name: Scan branch image (local target)
+        if: (success() || failure()) && steps.build-local.outcome == 'success'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # 0.36.0
         with:
           image-ref: vault-cortex:pr-scan
