@@ -1248,6 +1248,55 @@ describe("hybridSearch — file content vector search", () => {
     // vector legs, and nothing else was seeded
     expect(results.map((result) => result.path)).toEqual(["notes/tagged.md"])
   })
+
+  it("keeps file content results when every note-specific filter is an empty collection", async () => {
+    const mockEmbedder = createHybridMockEmbedder()
+    const fileIndex = createSearchIndex(":memory:", mockEmbedder, undefined, {
+      fileToolsEnabled: true,
+    })
+
+    fileIndex.upsertNote(
+      {
+        filePath: "notes/tagged.md",
+        rawContent: "---\ntitle: Tagged\ntags: [important]\n---\n\nTagged content here.\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    await fileIndex.embedNote(
+      {
+        notePath: "notes/tagged.md",
+        rawContent: "---\ntitle: Tagged\ntags: [important]\n---\n\nTagged content here.\n",
+      },
+      logger,
+    )
+
+    fileIndex.upsertNonMdFile("data/report.csv", 100)
+    fileIndex.upsertFileContent(
+      {
+        filePath: "data/report.csv",
+        rawContent: "tagged content in a file",
+        fileStat: testStat(2000, 100),
+      },
+      logger,
+    )
+    await fileIndex.embedFileContent({ filePath: "data/report.csv" }, logger)
+
+    // Empty collections constrain nothing in the note leg, so the file
+    // must stay in the merged results exactly as with no filters at all.
+    const { results } = await fileIndex.hybridSearch(
+      {
+        query: "tagged content",
+        filters: { tags: [], related: [], properties: {}, created: {}, modified: {} },
+      },
+      logger,
+    )
+
+    expect(results.map((result) => result.path).toSorted()).toEqual([
+      "data/report.csv",
+      "notes/tagged.md",
+    ])
+  })
 })
 
 // ── hybridSearch — file content FTS folder filter ─────────────

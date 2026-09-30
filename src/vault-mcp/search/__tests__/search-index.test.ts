@@ -2344,6 +2344,210 @@ describe("searchByProperty", () => {
   })
 })
 
+// Obsidian accepts any property name, and YAML keeps "a.b" or "k[0]" as
+// one flat key. Every property query must match such a key as data, never
+// read it as JSON path syntax.
+describe("property keys containing JSON path syntax", () => {
+  const PATH_SYNTAX_KEYS = [
+    { label: "a dotted key", key: "a.b", value: "dotted-value" },
+    { label: "a bracketed key", key: "k[0]", value: "bracket-value" },
+  ]
+
+  const seedPathSyntaxNotes = (): void => {
+    index.upsertNote(
+      {
+        filePath: "Projects/path-syntax-keys.md",
+        rawContent:
+          '---\na.b: dotted-value\n"k[0]": bracket-value\nplain: shared\n---\nsearchable body\n',
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    // Carries both requested values under other keys, so a query that
+    // ignores the key would still match it.
+    index.upsertNote(
+      {
+        filePath: "Projects/decoy-other-keys.md",
+        rawContent:
+          "---\nother: dotted-value\nanother: bracket-value\nplain: shared\n---\nsearchable body\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "notes/decoy-no-keys.md",
+        rawContent: "---\nplain: shared\n---\nsearchable body\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
+    // Matches the search text but carries none of the filtered keys, so a
+    // filter that stops constraining results would let it through.
+    index.upsertNote(
+      {
+        filePath: "notes/decoy-unfiltered.md",
+        rawContent: "---\nunrelated: x\n---\nsearchable body\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+  }
+
+  it.each(PATH_SYNTAX_KEYS)("listPropertyKeys samples the values of $label", ({ key, value }) => {
+    seedPathSyntaxNotes()
+    const keys = index.listPropertyKeys({}, logger)
+
+    expect(keys.find((entry) => entry.key === key)).toEqual({
+      key,
+      count: 1,
+      sample_values: [value],
+    })
+  })
+
+  it.each(PATH_SYNTAX_KEYS)("listPropertyValues counts the values of $label", ({ key, value }) => {
+    seedPathSyntaxNotes()
+
+    expect(index.listPropertyValues({ key }, logger)).toEqual([{ value, count: 1 }])
+  })
+
+  it.each(PATH_SYNTAX_KEYS)("searchByProperty matches $label", ({ key, value }) => {
+    seedPathSyntaxNotes()
+    const results = index.searchByProperty({ key, value }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["Projects/path-syntax-keys.md"])
+  })
+
+  it.each(PATH_SYNTAX_KEYS)(
+    "fullTextSearch's properties filter matches $label",
+    ({ key, value }) => {
+      seedPathSyntaxNotes()
+      const results = index.fullTextSearch(
+        { query: "searchable", filters: { properties: { [key]: value } } },
+        logger,
+      )
+
+      expect(results.map((result) => result.path)).toEqual(["Projects/path-syntax-keys.md"])
+    },
+  )
+
+  it("fullTextSearch's properties filter keeps matching a plain key", () => {
+    seedPathSyntaxNotes()
+    const results = index.fullTextSearch(
+      { query: "searchable", filters: { properties: { plain: "shared" } } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path).toSorted()).toEqual([
+      "Projects/decoy-other-keys.md",
+      "Projects/path-syntax-keys.md",
+      "notes/decoy-no-keys.md",
+    ])
+  })
+
+  it("array values under a dotted key are enumerated and matched", () => {
+    index.upsertNote(
+      {
+        filePath: "Projects/array-under-dotted-key.md",
+        rawContent: "---\nc.d:\n  - one\n  - two\n---\nbody\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Projects/decoy-scalar-dotted-key.md",
+        rawContent: "---\nc.d: three\n---\nbody\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+
+    expect(index.listPropertyValues({ key: "c.d" }, logger)).toEqual([
+      { value: "one", count: 1 },
+      { value: "three", count: 1 },
+      { value: "two", count: 1 },
+    ])
+    const matches = index.searchByProperty({ key: "c.d", value: "one" }, logger)
+    expect(matches.map((result) => result.path)).toEqual(["Projects/array-under-dotted-key.md"])
+  })
+
+  it("fullTextSearch's properties filter matches a list property by any element", () => {
+    index.upsertNote(
+      {
+        filePath: "Projects/co-authored.md",
+        rawContent: "---\nauthors:\n  - Alice\n  - Bob\n---\nsearchable body\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Projects/solo.md",
+        rawContent: "---\nauthors:\n  - Carol\n---\nsearchable body\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+
+    const results = index.fullTextSearch(
+      { query: "searchable", filters: { properties: { authors: "Bob" } } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual(["Projects/co-authored.md"])
+  })
+
+  it("fullTextSearch's properties filter compares values by exact type", () => {
+    index.upsertNote(
+      {
+        filePath: "Projects/rated.md",
+        rawContent: "---\nrating: 4\n---\nsearchable body\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const asNumber = index.fullTextSearch(
+      { query: "searchable", filters: { properties: { rating: 4 } } },
+      logger,
+    )
+    const asString = index.fullTextSearch(
+      { query: "searchable", filters: { properties: { rating: "4" } } },
+      logger,
+    )
+
+    expect(asNumber.map((result) => result.path)).toEqual(["Projects/rated.md"])
+    expect(asString.map((result) => result.path)).toEqual([])
+  })
+
+  it("fullTextSearch's properties filter matches a boolean value", () => {
+    index.upsertNote(
+      {
+        filePath: "Projects/published.md",
+        rawContent: "---\npublished: true\n---\nsearchable body\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Projects/draft.md",
+        rawContent: "---\npublished: false\n---\nsearchable body\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+
+    const results = index.fullTextSearch(
+      { query: "searchable", filters: { properties: { published: true } } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual(["Projects/published.md"])
+  })
+})
+
 describe("markdown path requirement", () => {
   it("getBacklinks rejects a path without .md or .canvas extension", () => {
     expect(() => index.getBacklinks({ path: "Projects/Plan" }, logger)).toThrow(
