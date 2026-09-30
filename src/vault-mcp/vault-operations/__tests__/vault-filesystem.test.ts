@@ -287,6 +287,30 @@ describe("path traversal", () => {
       ).rejects.toThrow("path traversal blocked")
     },
   )
+
+  it.each(["../escape", "foo/../../escape"])("listNotes rejects folder %s", async (folder) => {
+    await expect(listNotes({ vaultPath: vault, folder }, logger)).rejects.toThrow(
+      `path traversal blocked: "${folder}" escapes vault root`,
+    )
+  })
+
+  it.each(["../escape", "foo/../../escape"])("listAssets rejects folder %s", async (folder) => {
+    await expect(listAssets({ vaultPath: vault, folder }, logger)).rejects.toThrow(
+      `path traversal blocked: "${folder}" escapes vault root`,
+    )
+  })
+
+  it("listNotes rejects a folder that names the vault root", async () => {
+    await expect(listNotes({ vaultPath: vault, folder: "." }, logger)).rejects.toThrow(
+      'path traversal blocked: "." resolves to the vault root',
+    )
+  })
+
+  it("listAssets rejects a folder that names the vault root", async () => {
+    await expect(listAssets({ vaultPath: vault, folder: "." }, logger)).rejects.toThrow(
+      'path traversal blocked: "." resolves to the vault root',
+    )
+  })
 })
 
 describe("absolute paths", () => {
@@ -312,6 +336,18 @@ describe("absolute paths", () => {
       ),
     ).rejects.toThrow(`absolute path blocked: "${vault}/note.md" must be vault-relative`)
     expect(await readFile(join(vault, "note.md"), "utf8")).toBe("content")
+  })
+
+  it("listNotes rejects an absolute container folder", async () => {
+    await expect(listNotes({ vaultPath: vault, folder: `${vault}/notes` }, logger)).rejects.toThrow(
+      `absolute path blocked: "${vault}/notes" must be vault-relative`,
+    )
+  })
+
+  it("listAssets rejects an absolute container folder", async () => {
+    await expect(
+      listAssets({ vaultPath: vault, folder: `${vault}/notes` }, logger),
+    ).rejects.toThrow(`absolute path blocked: "${vault}/notes" must be vault-relative`)
   })
 })
 

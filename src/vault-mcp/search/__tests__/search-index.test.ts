@@ -53,7 +53,6 @@ title: Me
 - a fact about burnout boundaries
 `
 
-/** Builds a fileStat object for upsertNote. Defaults to size 100. */
 /** Narrows a row from a `SELECT COUNT(*) as count` query without a type assertion. */
 const countRow = (row: unknown): { count: number } => {
   if (typeof row === "object" && row !== null && "count" in row && typeof row.count === "number") {
@@ -62,6 +61,7 @@ const countRow = (row: unknown): { count: number } => {
   throw new Error("expected a count row")
 }
 
+/** Builds a fileStat object for upsertNote. Defaults to size 100. */
 const testStat = (mtimeMs: number, size = 100): { mtimeMs: number; size: number } => ({
   mtimeMs,
   size,
