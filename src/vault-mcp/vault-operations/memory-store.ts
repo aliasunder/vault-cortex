@@ -548,17 +548,16 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     }
   }
 
+  /** Reads one memory file by bare name. No file at the path, a memory folder
+   *  that is itself a file, or a folder named like the file all report the
+   *  vault-relative not-found error; the raw errno names the server's path. */
   const readMemoryFile = async (vaultPath: string, file: string): Promise<string> => {
-    try {
-      return await readFile(memoryFilePath(vaultPath, file), "utf8")
-    } catch (err) {
-      if (isErrnoException(err, "ENOENT")) {
-        throw new Error(`memory file not found: "${memoryDir}/${file}.md"`, {
-          cause: err,
-        })
-      }
-      throw err
+    const content = await readFileOrNull(memoryFilePath(vaultPath, file))
+
+    if (content === null) {
+      throw new Error(`memory file not found: "${memoryDir}/${file}.md"`)
     }
+    return content
   }
 
   /** Like readMemoryFile, but returns null when the file does not exist. */

@@ -192,6 +192,13 @@ describe("getMemory", () => {
     )
   })
 
+  it("reports a folder named like the file as not found, never the server's path", async () => {
+    await mkdir(join(vault, "About Me", "Archive.md"), { recursive: true })
+    await expect(getMemory({ vaultPath: vault, file: "Archive" }, logger)).rejects.toThrow(
+      'memory file not found: "About Me/Archive.md"',
+    )
+  })
+
   it("throws on non-existent section", async () => {
     await expect(
       getMemory(
