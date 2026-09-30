@@ -103,7 +103,7 @@ describe("readTrashConfig", () => {
     await writeFile(join(obsidianDir, "app.json"), "not valid json{{{", "utf8")
 
     await expect(readTrashConfig(vault, logger)).rejects.toThrow(
-      "cannot read trash config from .obsidian/app.json",
+      new Error("cannot read trash config from .obsidian/app.json"),
     )
   })
 
@@ -116,7 +116,7 @@ describe("readTrashConfig", () => {
     onTestFinished(() => warnSpy.mockRestore())
 
     await expect(readTrashConfig(vault, logger)).rejects.toThrow(
-      "cannot read trash config from .obsidian/app.json",
+      new Error("cannot read trash config from .obsidian/app.json"),
     )
 
     expect(warnSpy).toHaveBeenCalledTimes(1)
@@ -138,7 +138,7 @@ describe("readTrashConfig", () => {
     onTestFinished(() => rootWarnSpy.mockRestore())
 
     await expect(readTrashConfig(vault, requestLogger)).rejects.toThrow(
-      "cannot read trash config from .obsidian/app.json",
+      new Error("cannot read trash config from .obsidian/app.json"),
     )
 
     expect(requestWarnSpy).toHaveBeenCalledTimes(1)

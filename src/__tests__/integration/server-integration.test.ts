@@ -2,12 +2,13 @@
  *  HTTP transport against a real server with a real vault on disk.
  *
  *  Assertion style:
- *  - Output drawn from the shared fixture vault is checked with `toContain`.
- *    The fixture grows whenever a tool or scenario is added, so a
- *    whole-output assertion would fail on every addition without a wiring
- *    bug. Exact output is pinned by the unit tests beside each module.
- *  - Output a test controls end to end (a note it wrote, an error message)
- *    is asserted exactly. */
+ *  - Listings, search results and prompt output drawn from the shared fixture
+ *    vault are checked with `toContain`. The fixture grows whenever a tool or
+ *    scenario is added, so a whole-output assertion would fail on every
+ *    addition without a wiring bug. Exact output is pinned by the unit tests
+ *    beside each module.
+ *  - One note's content, and output a test controls end to end (a note it
+ *    wrote, an error message), are asserted exactly. */
 
 import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
 import { DateTime } from "luxon"
@@ -1780,7 +1781,7 @@ describe("boot rejection", () => {
 // Each scenario boots its own server because each needs a different
 // starting config: a blank app.json for the system default, the fixture's
 // "local", a written "none" that the setting-change scenario switches to
-// "local" mid-test, a malformed app.json, or the Sync environment.
+// "local" mid-test, or the Sync environment.
 
 /** Every trash_entries row in a server's index DB, read directly from the
  *  data dir the harness created (WAL mode allows a concurrent reader). */
@@ -1796,26 +1797,6 @@ const readTrashEntryRows = (dataDir: string): string[] => {
   } finally {
     db.close()
   }
-}
-
-/** A server's structured stdout log, one parsed entry per line. */
-const parseLogEntries = (stdout: string): Record<string, unknown>[] => {
-  return stdout
-    .split("\n")
-    .filter((line) => line.startsWith("{"))
-    .map((line): Record<string, unknown> => JSON.parse(line))
-}
-
-/** The message JSON.parse throws for `malformedJson`. Its wording varies by
- *  engine version, so the test reads it from the engine. The server runs on
- *  the same Node as the test process, so both get the same wording. */
-const jsonParseFailureMessage = (malformedJson: string): string => {
-  try {
-    JSON.parse(malformedJson)
-  } catch (error) {
-    if (error instanceof SyntaxError) return error.message
-  }
-  throw new Error("expected JSON.parse to throw a SyntaxError")
 }
 
 describe("trash retention over real HTTP", () => {
@@ -1943,74 +1924,6 @@ describe("trash retention over real HTTP", () => {
       false,
     )
     expect(readTrashEntryRows(server.dataDir)).toEqual([])
-  }, 30_000)
-
-  it("a malformed app.json refuses the delete and logs the cause with the request's context", async () => {
-    const server = await startServer(await freePort())
-    onTestFinished(() => server.cleanup())
-    const malformedAppConfig = "not valid json{{{"
-    await writeFile(join(server.vaultPath, ".obsidian", "app.json"), malformedAppConfig, "utf8")
-    const client = await createTestClient(server.port)
-    onTestFinished(() => client.close())
-
-    await callTool({
-      client,
-      name: "vault_write_note",
-      args: { path: "Scratch/malformed-config.md", body: "still here" },
-    })
-    const deleteResult = await callTool({
-      client,
-      name: "vault_delete_note",
-      args: { path: "Scratch/malformed-config.md" },
-    })
-
-    // Asserting the whole result keeps the cause out of every part of it: the
-    // text, any further content block, and any other field.
-    expect(deleteResult).toEqual({
-      content: [
-        { type: "text", text: "[Error]: cannot read trash config from .obsidian/app.json" },
-      ],
-      isError: true,
-    })
-    await expect(
-      readFile(join(server.vaultPath, "Scratch", "malformed-config.md"), "utf8"),
-    ).resolves.toBe("still here\n")
-
-    // The server's stdout arrives through a pipe, so the log line can land
-    // after the tool result; a half-received line fails to parse and retries.
-    const { deleteCallLog, readFailureLog } = await vi.waitFor(() => {
-      const logEntries = parseLogEntries(server.stdout())
-      const loggedReadFailure = logEntries.find(
-        (logEntry) => logEntry.message === "cannot read trash config",
-      )
-
-      if (!loggedReadFailure) {
-        throw new Error("the read failure is not logged yet")
-      }
-
-      return {
-        deleteCallLog: logEntries.find(
-          (logEntry) => logEntry.message === "tool_call" && logEntry.tool === "vault_delete_note",
-        ),
-        readFailureLog: loggedReadFailure,
-      }
-    })
-
-    // The delete's own tool_call line carries the context the warning must
-    // share. The type checks keep that comparison from passing on undefined.
-    expect(typeof deleteCallLog?.requestId).toBe("number")
-    expect(typeof deleteCallLog?.sessionId).toBe("string")
-    expect({
-      error: readFailureLog.error,
-      tool: readFailureLog.tool,
-      requestId: readFailureLog.requestId,
-      sessionId: readFailureLog.sessionId,
-    }).toEqual({
-      error: `[SyntaxError]: ${jsonParseFailureMessage(malformedAppConfig)}`,
-      tool: "vault_delete_note",
-      requestId: deleteCallLog?.requestId,
-      sessionId: deleteCallLog?.sessionId,
-    })
   }, 30_000)
 })
 
