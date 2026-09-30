@@ -1,6 +1,6 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js"
 import { describe, expect, it } from "vitest"
-import { measureToolDefinitionChars, measureToolListChars } from "./tool-surface-capture.js"
+import { measureToolDefinitionChars, measureToolListChars } from "../tool-surface-capture.js"
 
 // Serializes to {"type":"object","properties":{"path":{"type":"string"}}} — 57 chars.
 const PATH_SCHEMA: Tool["inputSchema"] = {

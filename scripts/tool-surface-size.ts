@@ -12,15 +12,13 @@
 //
 // Run it with `npm run report:tool-surface-size`.
 
-// tool-surface-capture.ts sits under __tests__/ but imports no test runner, so
-// this script can load it.
 import {
   SIZE_CAPPED_COMBO_NAMES,
   SURFACE_COMBOS,
   captureToolSurface,
   measureToolDefinitionChars,
   measureToolListChars,
-} from "../src/vault-mcp/mcp-core/__tests__/tool-surface-capture.js"
+} from "./tool-surface-capture.js"
 
 const comboCaptures = await Promise.all(
   SURFACE_COMBOS.map(async (combo) => ({ combo, capture: await captureToolSurface(combo) })),

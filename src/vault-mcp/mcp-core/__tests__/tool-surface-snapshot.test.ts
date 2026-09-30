@@ -14,7 +14,7 @@ import {
   captureToolSurface,
   measureToolListChars,
   serializeSurfaceCapture,
-} from "./tool-surface-capture.js"
+} from "../../../../scripts/tool-surface-capture.js"
 
 describe("tool surface baseline", () => {
   it.each(SURFACE_COMBOS.map((combo) => [combo.name, combo] as const))(

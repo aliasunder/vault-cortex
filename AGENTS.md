@@ -92,6 +92,7 @@ scripts/ # Dev/ops helpers (not shipped in Docker)
   search-eval.ts # Search ranking eval: scores hybrid search against a local judgment file of queries and expected results
   search-eval-plan.ts # Judgment-file schema, CLI validation, and whether to reuse the snapshot and index
   search-eval-snapshot.ts # Vault copy the eval runs against, skipping hidden paths and configured prefixes
+  tool-surface-capture.ts # Boots an in-process server per config combo and reads its tools and prompts; feeds the snapshot test and the size report
   tool-surface-size.ts # Per-combo and per-tool size of the MCP tool definitions (npm run report:tool-surface-size)
 cli/ # npx vault-cortex CLI (published as vault-cortex npm package)
   src/
@@ -1116,8 +1117,7 @@ test.
   section names).
 - New config gating axis → config matrix test in
   `server-integration.test.ts` (tool count + key behavior), and add the
-  axis to `SURFACE_AXES` in
-  `src/vault-mcp/mcp-core/__tests__/tool-surface-capture.ts` so the
+  axis to `SURFACE_AXES` in `scripts/tool-surface-capture.ts` so the
   snapshot combos cover it.
 - New prompt → assembly test verifying live vault data, not just the
   instruction wrapper.

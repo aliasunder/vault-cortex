@@ -1,18 +1,23 @@
 /** Captures the MCP wire surface — tool schemas, descriptions, annotations,
  *  prompts, server description, and server instructions — per config combo,
- *  over a real in-process server. Feeds the committed baseline in
- *  __snapshots__/tool-surface/. */
+ *  over a real in-process server. Two consumers read it:
+ *  - `tool-surface-snapshot.test.ts` in `src/vault-mcp/mcp-core/__tests__/`,
+ *    which pins the committed baseline and caps its size.
+ *  - `tool-surface-size.ts`, the size report. */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import type { Prompt, Tool } from "@modelcontextprotocol/sdk/types.js"
-import { loadConfig } from "../../config.js"
-import { createSearchIndex } from "../../search/search-index.js"
-import { computeEnabledToolNames, registerTools } from "../tool-definitions.js"
-import { registerPrompts } from "../prompt-definitions.js"
-import { buildServerMetadata } from "../mcp-router.js"
-import type { Logger } from "../../../logger.js"
+import { loadConfig } from "../src/vault-mcp/config.js"
+import { createSearchIndex } from "../src/vault-mcp/search/search-index.js"
+import {
+  computeEnabledToolNames,
+  registerTools,
+} from "../src/vault-mcp/mcp-core/tool-definitions.js"
+import { registerPrompts } from "../src/vault-mcp/mcp-core/prompt-definitions.js"
+import { buildServerMetadata } from "../src/vault-mcp/mcp-core/mcp-router.js"
+import type { Logger } from "../src/logger.js"
 
 type SurfaceAxis = {
   envVar: string
@@ -77,8 +82,8 @@ export const SURFACE_COMBOS: readonly SurfaceCombo[] = [
 ]
 
 const noop = (): void => {}
-/** The drift test's assertion output is the report, so registration's
- *  per-group summary lines stay quiet. */
+/** The snapshot test and the size report print their own output, so
+ *  registration's per-group summary lines stay quiet. */
 const silentLogger: Logger = {
   debug: noop,
   info: noop,
