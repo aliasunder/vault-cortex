@@ -1765,7 +1765,8 @@ describe("boot rejection", () => {
 //
 // Each scenario boots its own server because each needs a different
 // starting config: a blank app.json for the system default, the fixture's
-// "local", or the Sync environment.
+// "local", a written "none" that the setting-change scenario switches to
+// "local" mid-test, or the Sync environment.
 
 /** Every trash_entries row in a server's index DB, read directly from the
  *  data dir the harness created (WAL mode allows a concurrent reader). */
