@@ -243,6 +243,7 @@ Parameters:
 
 Errors:
 - "note not found" — path does not exist
+- "path must end in …" — add the .md extension
 - "heading required for Kanban boards" — kanban-plugin note without heading
 - "heading "X" not found; available: ..." — no heading matches; the error lists the note's headings
 - "cannot place at position N under "X" — the heading appears N times" — integer position on a note with duplicate heading names; rename one section to make it unique
@@ -499,6 +500,7 @@ Parameters:
 
 Errors:
 - "note not found" — path does not exist
+- "path must end in …" — add the .md extension
 - "exactly one of blockId or line is required" / "blockId and line are mutually exclusive" — pass exactly one of block_id or line
 - "blockId ... not found" — no task line in the note ends with ^block_id
 - "blockId ... is inside a fenced code block or comment" — the block_id matches a line inside a fenced code block or %% %% comment; target a line outside the fence

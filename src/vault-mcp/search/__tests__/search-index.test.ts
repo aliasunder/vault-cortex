@@ -1349,6 +1349,14 @@ describe("fullTextSearch", () => {
     expect(results.map((result) => result.path)).toEqual(["Projects/notes.md"])
   })
 
+  it("ignores ASCII letter case in the folder filter", () => {
+    const results = index.fullTextSearch(
+      { query: "notes", filters: { folder: "projects" } },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["Projects/notes.md"])
+  })
+
   it("respects tags filter", () => {
     const results = index.fullTextSearch({ query: "notes", filters: { tags: ["project"] } }, logger)
     expect(results).toHaveLength(1)
@@ -2327,6 +2335,22 @@ describe("searchByProperty", () => {
     expect(results.map((result) => result.path)).toEqual(["Projects/active.md"])
   })
 
+  it("ignores ASCII letter case in the folder filter", () => {
+    index.upsertNote(
+      {
+        filePath: "Other/also-active.md",
+        rawContent: "---\nstatus: in-progress\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    const results = index.searchByProperty(
+      { key: "status", value: "in-progress", folder: "projects" },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["Projects/active.md"])
+  })
+
   it("respects limit", () => {
     index.upsertNote(
       {
@@ -3222,6 +3246,28 @@ describe("findOrphans", () => {
     const orphanPaths = orphans.map((orphan) => orphan.path)
     expect(orphanPaths).not.toContain("Daily Notes/2026-05-13.md")
     expect(orphanPaths).toContain("Projects/orphan.md")
+  })
+
+  it("does not exclude a sibling folder whose name starts with an excluded folder", () => {
+    index.upsertNote(
+      {
+        filePath: "ProjectsOld/old.md",
+        rawContent: "# Old\n\nNobody links here either.\n",
+        fileStat: testStat(5000),
+      },
+      logger,
+    )
+    const orphans = index.findOrphans({ excludeFolders: ["Projects"] }, logger)
+    expect(orphans.map((orphan) => orphan.path)).toEqual([
+      "ProjectsOld/old.md",
+      "Daily Notes/2026-05-13.md",
+      "hub.md",
+    ])
+  })
+
+  it("ignores ASCII letter case in excludeFolders", () => {
+    const orphans = index.findOrphans({ excludeFolders: ["projects"] }, logger)
+    expect(orphans.map((orphan) => orphan.path)).toEqual(["Daily Notes/2026-05-13.md", "hub.md"])
   })
 
   it("respects limit", () => {

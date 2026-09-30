@@ -386,6 +386,7 @@ Limitation: Writes the entire body. Do not use for surgical edits to large files
 
 Errors:
 - "note already exists" — a note already lives at this path; set overwrite: true to replace it, or use ${whenToolEnabledText("vault_patch_note", "vault_patch_note / ")}vault_replace_in_note for partial edits
+- "path must end in …" — add the .md extension
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the path starts at the filesystem root, escapes the vault, or targets a hidden (dot-prefixed) file or folder like ".obsidian/"; use a vault-relative path outside hidden folders
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "body contains a control character" — body includes a non-printable control byte; remove it before writing
@@ -472,6 +473,7 @@ Editing a leading callout: read it via vault_read_note(outline: true), then vaul
 
 Errors:
 - "note not found" — path does not exist; check vault_list_notes for valid paths
+- "path must end in …" — add the .md extension
 - "heading not found" — no heading matches the text; error lists available headings
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or${whenToolEnabledText("vault_replace_in_note", " use vault_replace_in_note to")} target by text content when headings share the same level
 - "operation … requires a heading target" — replace and insert_before need a heading
@@ -585,6 +587,7 @@ Parameters:
 
 Errors:
 - "note not found" — path does not exist; check vault_list_notes for valid paths
+- "path must end in …" — add the .md extension
 - "text not found" — old_text does not appear in the note body; verify exact text with vault_read_note
 - "oldText cannot be empty" — old_text must be at least one character
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the path starts at the filesystem root, escapes the vault, or targets a hidden (dot-prefixed) file or folder like ".obsidian/"; use a vault-relative path outside hidden folders
@@ -671,6 +674,7 @@ Parameters:
 
 Errors:
 - "note not found" — verify path with vault_list_notes
+- "path must end in …" — add the .md extension
 - "anchor not found" — fragment not on any line; verify with vault_read_note
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the path starts at the filesystem root, escapes the vault, or targets a hidden (dot-prefixed) file or folder like ".obsidian/"; use a vault-relative path outside hidden folders
@@ -758,6 +762,7 @@ Parameters:
 
 Errors:
 - "note not found" — verify path with vault_list_notes
+- "path must end in …" — add the .md extension
 - "anchor not found" — fragment not on any line; verify with vault_read_note
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the path starts at the filesystem root, escapes the vault, or targets a hidden (dot-prefixed) file or folder like ".obsidian/"; use a vault-relative path outside hidden folders
@@ -854,6 +859,7 @@ Parameters:
 
 Errors:
 - "note not found" — verify path with vault_list_notes
+- "path must end in …" — add the .md extension
 - "anchor not found" — fragment not on any line; verify with vault_read_note
 - "ambiguous anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the path starts at the filesystem root, escapes the vault, or targets a hidden (dot-prefixed) file or folder like ".obsidian/"; use a vault-relative path outside hidden folders
@@ -953,7 +959,7 @@ Parameters:
 
 Errors:
 - "cannot delete protected path" — the path sits under a protected folder${whenToolEnabledText("vault_delete_memory", "; use vault_delete_memory for memory entries")}
-- "path must end in …" — the path is missing the .md extension; add it
+- "path must end in …" — add the .md extension
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the path starts at the filesystem root, escapes the vault, or targets a hidden (dot-prefixed) file or folder like ".obsidian/"; use a vault-relative path outside hidden folders
 - "concurrent write in progress" — another write to this note is in flight; retry
 - "note not found: …" — the note does not exist${whenToolEnabledText("vault_list_notes", "; verify the path with vault_list_notes before deleting")}
@@ -1156,6 +1162,7 @@ Prefer vault_write_note when creating a new note, or replacing the body (with ov
 
 Errors:
 - "note not found" — path does not exist; create the note first with vault_write_note
+- "path must end in …" — add the .md extension
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the path starts at the filesystem root, escapes the vault, or targets a hidden (dot-prefixed) file or folder like ".obsidian/"; use a vault-relative path outside hidden folders
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 

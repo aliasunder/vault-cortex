@@ -538,6 +538,15 @@ describe("listTasks scope filters", () => {
     ])
   })
 
+  it("ignores ASCII letter case in the folder filter", () => {
+    const index = indexWithBoardAndPlain()
+    const result = index.listTasks({ folder: "projects" }, logger)
+    expect(result.tasks.map((entry) => entry.path)).toEqual([
+      "Projects/board.md",
+      "Projects/board.md",
+    ])
+  })
+
   it("treats LIKE wildcards in the folder as literal characters", () => {
     const index = createTestIndex()
     index.upsertNote(

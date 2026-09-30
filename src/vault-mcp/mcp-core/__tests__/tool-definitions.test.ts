@@ -1833,6 +1833,27 @@ describe("file tool handlers", () => {
     )
   })
 
+  it("pages a text file whose whole content exceeds the output cap", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    // 2,000 lines of 100 bytes each: 200 KB in total, well past the cap, while
+    // any small window stays under it.
+    const lines = Array.from({ length: 2000 }, (_, lineIndex) => {
+      return `line ${String(lineIndex + 1).padStart(4, "0")} `.padEnd(99, "x")
+    })
+    await mkdir(join(vault, "logs"), { recursive: true })
+    await writeFile(join(vault, "logs/big.log"), `${lines.join("\n")}\n`, "utf8")
+    const result = await readAsset({ path: "logs/big.log", start_line: 1001, limit: 2 })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "logs/big.log — lines 1001–1002 of 2000 (continue with start_line: 1003)",
+        },
+        { type: "text", text: `${lines[1000]}\n${lines[1001]}` },
+      ],
+    })
+  })
+
   it("lists a folder's files with bytes and counts, excluding other folders and notes", async () => {
     const { vault, listAssets } = await setupAssetHarness()
     await mkdir(join(vault, "media"), { recursive: true })
