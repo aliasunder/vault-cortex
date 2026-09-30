@@ -371,6 +371,7 @@ Returns: JSON array of vault-relative path strings (e.g. ["Projects/plan.md", "N
       )
     },
   )
+
   registerTool(
     TOOL_NAMES.VAULT_WRITE_NOTE,
     {
@@ -1030,6 +1031,7 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
             prunedEmptyFolders,
             ...(trashLocation ? { trash_location: trashLocation } : {}),
           })
+
           const folderLabel = prunedEmptyFolders > 1 ? "folders" : "folder"
           const pruneSuffix =
             prunedEmptyFolders > 0 ? ` (removed ${prunedEmptyFolders} empty ${folderLabel})` : ""
