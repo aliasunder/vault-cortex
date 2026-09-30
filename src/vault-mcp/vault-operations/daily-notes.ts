@@ -8,6 +8,11 @@ import { describeError } from "../../utils/describe-error.js"
 import { isMissingPathError } from "../../utils/fs.js"
 
 // ── Config reading ──────────────────────────────────────────────
+//
+// Three readers, each wrapping readDailyNotesFile:
+//   readDailyNotesFileConfig        — strict: throws on an unreadable file (for the delete/move guard)
+//   readDailyNotesFileConfigOrFallback — tolerant: warns + falls back (for reads and prompts)
+//   readDailyNotesConfig            — public: env → file → fallbacks, uses the tolerant reader
 
 type DailyNotesConfig = {
   folder: string
