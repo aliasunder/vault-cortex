@@ -1,11 +1,11 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { DateTime } from "luxon"
-import { logger, type Logger } from "../../logger.js"
+import type { Logger } from "../../logger.js"
 import { vaultFs } from "./vault-filesystem.js"
 import { momentToLuxonFormat, findUnsupportedTokens } from "../obsidian-markdown/moment-format.js"
 import { describeError } from "../../utils/describe-error.js"
-import { isErrnoException } from "../../utils/is-errno-exception.js"
+import { isMissingPathError } from "../../utils/fs.js"
 
 // ── Config reading ──────────────────────────────────────────────
 
@@ -29,26 +29,18 @@ const FALLBACK_CONFIG: DailyNotesConfig = {
   format: "YYYY-MM-DD",
 }
 
-// TODO: Consider refactoring to factory/closure pattern (like createSearchIndex,
-// createMemoryStore) so the cache lives in the closure instead of at module scope.
-// Caches only SUCCESSFUL reads. Fallbacks are never cached: on a fresh
-// remote deploy the config file can arrive after boot (initial sync still
-// running), and retrying each call picks it up without a restart.
-let cachedFileConfig: DailyNotesConfig | null = null
-
-/** Reads .obsidian/daily-notes.json, caching only successful reads.
- *  Returns the fallback config (uncached — see cache comment) when the
- *  file is missing or malformed. */
-const readDailyNotesFileConfig = async (vaultPath: string): Promise<DailyNotesConfig> => {
-  if (cachedFileConfig) return cachedFileConfig
-
+/** Reads and parses .obsidian/daily-notes.json. Returns the fallbacks when
+ *  no file exists there; any other failure propagates. */
+const readDailyNotesFile = async (vaultPath: string): Promise<DailyNotesConfig> => {
   try {
+    // Read on every call, so a folder or format change in Obsidian applies
+    // to the next operation rather than after a restart.
     const configFileContent = await readFile(
       join(vaultPath, ".obsidian", "daily-notes.json"),
       "utf8",
     )
     const parsedConfig: Record<string, unknown> = JSON.parse(configFileContent)
-    const fileConfig = {
+    return {
       folder:
         typeof parsedConfig.folder === "string" && parsedConfig.folder.length > 0
           ? parsedConfig.folder
@@ -58,14 +50,48 @@ const readDailyNotesFileConfig = async (vaultPath: string): Promise<DailyNotesCo
           ? parsedConfig.format
           : FALLBACK_CONFIG.format,
     }
-    cachedFileConfig = fileConfig
-    return fileConfig
   } catch (error) {
-    if (!isErrnoException(error, "ENOENT")) {
-      logger.debug("failed to read daily notes config, using defaults", {
-        error: describeError(error),
-      })
-    }
+    // No file, or no .obsidian/ folder at all: on a fresh remote deploy the
+    // config can arrive after boot, so the fallbacks stand in until it does.
+    if (isMissingPathError(error)) return { ...FALLBACK_CONFIG }
+    throw error
+  }
+}
+
+/** Reads the folder and filename format from .obsidian/daily-notes.json, for
+ *  the protected-path guard.
+ *  - Returns the fallbacks ("Daily Notes", "YYYY-MM-DD") when the file is missing.
+ *  - Throws when the file exists but cannot be read or parsed. */
+export const readDailyNotesFileConfig = async (
+  vaultPath: string,
+  logger: Logger,
+): Promise<DailyNotesConfig> => {
+  try {
+    return await readDailyNotesFile(vaultPath)
+  } catch (error) {
+    // A fallback here would protect "Daily Notes" while the user's folder is
+    // whatever the broken file says. The warn carries the raw cause; only the
+    // thrown message reaches the client.
+    logger.warn("cannot read daily notes config", { error: describeError(error) })
+    throw new Error("cannot read daily notes config from .obsidian/daily-notes.json", {
+      cause: error,
+    })
+  }
+}
+
+/** The file config, or the fallbacks with a `warn` when the file exists but
+ *  cannot be read or parsed — for reads and prompts, where a wrong folder
+ *  costs a missed note, not a deleted one. */
+const readDailyNotesFileConfigOrFallback = async (
+  vaultPath: string,
+  logger: Logger,
+): Promise<DailyNotesConfig> => {
+  try {
+    return await readDailyNotesFile(vaultPath)
+  } catch (error) {
+    logger.warn("cannot read daily notes config, using defaults", {
+      error: describeError(error),
+    })
     return { ...FALLBACK_CONFIG }
   }
 }
@@ -73,17 +99,23 @@ const readDailyNotesFileConfig = async (vaultPath: string): Promise<DailyNotesCo
 /** Resolves the vault's daily note folder and filename format with
  *  per-field precedence: env setting → .obsidian/daily-notes.json →
  *  the fallbacks ("Daily Notes", "YYYY-MM-DD"). When both fields are
- *  set via env the config file is not read at all. */
+ *  set via env the config file is not read at all. A file that exists but
+ *  cannot be read or parsed logs a `warn` and counts as absent. */
 export const readDailyNotesConfig = async (
-  vaultPath: string,
-  envSettings?: DailyNotesEnvSettings,
+  params: {
+    vaultPath: string
+    envSettings?: DailyNotesEnvSettings | undefined
+  },
+  logger: Logger,
 ): Promise<DailyNotesConfig> => {
+  const { vaultPath, envSettings } = params
+
   // Both fields set via env — the file can't contribute anything, skip I/O.
   if (envSettings?.folder && envSettings.format) {
     return { folder: envSettings.folder, format: envSettings.format }
   }
 
-  const fileConfig = await readDailyNotesFileConfig(vaultPath)
+  const fileConfig = await readDailyNotesFileConfigOrFallback(vaultPath, logger)
   return {
     folder: envSettings?.folder ?? fileConfig.folder,
     format: envSettings?.format ?? fileConfig.format,
@@ -98,13 +130,16 @@ const STRICT_ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 /** Resolves a date to a vault-relative daily note path using the env
  *  settings, the vault's .obsidian/daily-notes.json config, and
  *  the fallbacks — in that per-field precedence order. */
-export const getDailyNotePath = async (params: {
-  vaultPath: string
-  date?: string | undefined
-  envSettings?: DailyNotesEnvSettings | undefined
-}): Promise<string> => {
+export const getDailyNotePath = async (
+  params: {
+    vaultPath: string
+    date?: string | undefined
+    envSettings?: DailyNotesEnvSettings | undefined
+  },
+  logger: Logger,
+): Promise<string> => {
   const { vaultPath, date, envSettings } = params
-  const config = await readDailyNotesConfig(vaultPath, envSettings)
+  const config = await readDailyNotesConfig({ vaultPath, envSettings }, logger)
 
   const unsupportedTokens = findUnsupportedTokens(config.format)
 
@@ -146,11 +181,14 @@ export const getDailyNote = async (
   },
   logger: Logger,
 ): Promise<DailyNoteResult> => {
-  const path = await getDailyNotePath({
-    vaultPath: params.vaultPath,
-    date: params.date,
-    envSettings: params.envSettings,
-  })
+  const path = await getDailyNotePath(
+    {
+      vaultPath: params.vaultPath,
+      date: params.date,
+      envSettings: params.envSettings,
+    },
+    logger,
+  )
 
   try {
     const content = await vaultFs.readNote({ vaultPath: params.vaultPath, path }, logger)

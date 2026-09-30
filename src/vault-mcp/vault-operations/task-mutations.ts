@@ -41,6 +41,11 @@ import type { Logger } from "../../logger.js"
 type CreateTaskParams = {
   vaultPath: string
   path: string
+  /** The status registry the task index classifies with, so a write never
+   *  places or types a checkbox differently than a listing reads it. The
+   *  plugin file's registry is ignored on writes; its format and date
+   *  toggles are read live. */
+  statusRegistry: ReadonlyMap<string, StatusClassification>
   description: string
   blockId: string
   heading?: string | undefined
@@ -83,6 +88,8 @@ type CreateTaskResult = {
 type UpdateTaskParams = {
   vaultPath: string
   path: string
+  /** See CreateTaskParams.statusRegistry. */
+  statusRegistry: ReadonlyMap<string, StatusClassification>
   blockId?: string | undefined
   line?: number | undefined
   status?: TaskStatus | undefined
@@ -1367,6 +1374,7 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
   const {
     vaultPath,
     path,
+    statusRegistry,
     description,
     blockId,
     heading,
@@ -1441,10 +1449,11 @@ const createTask = async (params: CreateTaskParams, logger: Logger): Promise<Cre
     validateBlockId(blockId, bodyLines)
 
     const isKanbanBoard = Boolean(parsed.data["kanban-plugin"])
-    const pluginConfig = await readTaskFormatConfig(vaultPath)
+    const pluginConfig = await readTaskFormatConfig(vaultPath, logger)
     const formatConfig = {
       ...pluginConfig,
       taskFormat: format ?? pluginConfig.taskFormat,
+      statusRegistry,
     }
 
     const today = todayIsoDate()
@@ -1584,6 +1593,7 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
   const {
     vaultPath,
     path,
+    statusRegistry,
     blockId,
     line,
     status,
@@ -1705,10 +1715,11 @@ const updateTask = async (params: UpdateTaskParams, logger: Logger): Promise<Upd
 
     // Resolve format config early — the status registry is needed for
     // extractTasks so taskBefore.status reflects custom classifications.
-    const pluginConfig = await readTaskFormatConfig(vaultPath)
+    const pluginConfig = await readTaskFormatConfig(vaultPath, logger)
     const formatConfig = {
       ...pluginConfig,
       taskFormat: format ?? pluginConfig.taskFormat,
+      statusRegistry,
     }
 
     rejectNonTaskCheckbox({

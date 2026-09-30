@@ -138,7 +138,7 @@ const startServer = async (): Promise<void> => {
   const embedder = config.embeddingEnabled ? createEmbedder(logger) : undefined
   const reranker =
     config.embeddingEnabled && config.rerankMode === "blended" ? createReranker(logger) : undefined
-  const taskFormatConfig = await readTaskFormatConfig(vaultPath)
+  const taskFormatConfig = await readTaskFormatConfig(vaultPath, logger)
   const search = createSearchIndex(searchDbPath, embedder, reranker, {
     memoryDir: config.memoryEnabled ? config.memoryDir : undefined,
     fileToolsEnabled: config.fileToolsEnabled,

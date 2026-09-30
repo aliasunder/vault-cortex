@@ -1479,3 +1479,115 @@ describe("cannot read trash config", () => {
     })
   }, 30_000)
 })
+
+describe("cannot read daily notes config", () => {
+  it("an unreadable daily-notes.json refuses delete and move until it is repaired", async () => {
+    const server = await startServer(await freePort())
+    onTestFinished(() => server.cleanup())
+    const dailyNotesConfigPath = join(server.vaultPath, ".obsidian", "daily-notes.json")
+    await writeFile(dailyNotesConfigPath, JSON.stringify({ folder: "Journal" }), "utf8")
+    const ownClient = await createTestClient(server.port)
+    onTestFinished(() => ownClient.close())
+    for (const path of ["Journal/entry.md", "Scratch/keep.md"]) {
+      await callTool({ client: ownClient, name: "vault_write_note", args: { path, body: "kept" } })
+    }
+
+    // A refused delete while the file is valid: the folder has been read once.
+    const refusedWhileValid = await callTool({
+      client: ownClient,
+      name: "vault_delete_note",
+      args: { path: "Journal/entry.md" },
+    })
+    expect(textContent(refusedWhileValid)).toBe(
+      '[Error]: cannot delete protected path "Journal/entry.md"',
+    )
+
+    await writeFile(dailyNotesConfigPath, "", "utf8")
+
+    const deleteWhileUnreadable = await callTool({
+      client: ownClient,
+      name: "vault_delete_note",
+      args: { path: "Scratch/keep.md" },
+    })
+    const moveWhileUnreadable = await callTool({
+      client: ownClient,
+      name: "vault_move_note",
+      args: { old_path: "Scratch/keep.md", new_path: "Scratch/moved.md" },
+    })
+
+    // Asserting the whole result keeps the cause out of every part of it.
+    expect(deleteWhileUnreadable).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "[Error]: cannot read daily notes config from .obsidian/daily-notes.json",
+        },
+      ],
+      isError: true,
+    })
+    expect(moveWhileUnreadable).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "[Error]: cannot read daily notes config from .obsidian/daily-notes.json",
+        },
+      ],
+      isError: true,
+    })
+    await expect(readFile(join(server.vaultPath, "Scratch", "keep.md"), "utf8")).resolves.toBe(
+      "kept\n",
+    )
+    await expect(readFile(join(server.vaultPath, "Journal", "entry.md"), "utf8")).resolves.toBe(
+      "kept\n",
+    )
+    await expect(readFile(join(server.vaultPath, "Scratch", "moved.md"), "utf8")).rejects.toThrow(
+      "ENOENT",
+    )
+
+    await writeFile(dailyNotesConfigPath, JSON.stringify({ folder: "Journal" }), "utf8")
+
+    const deleteAfterRepair = await callTool({
+      client: ownClient,
+      name: "vault_delete_note",
+      args: { path: "Scratch/keep.md" },
+    })
+
+    expect(deleteAfterRepair.isError).not.toBe(true)
+    expect(textContent(deleteAfterRepair)).toBe(
+      "Moved Scratch/keep.md to trash (.trash/Scratch/keep.md)",
+    )
+
+    // The warning carries the delete's request context, as the trash reader's does.
+    const { deleteCallLog, readFailureLog } = await vi.waitFor(() => {
+      const logEntries = parseLogEntries(server.stdout())
+      const loggedReadFailure = logEntries.find(
+        (logEntry) => logEntry.message === "cannot read daily notes config",
+      )
+
+      if (!loggedReadFailure) {
+        throw new Error("the read failure is not logged yet")
+      }
+
+      return {
+        deleteCallLog: logEntries.find(
+          (logEntry) =>
+            logEntry.message === "tool_call" &&
+            logEntry.tool === "vault_delete_note" &&
+            logEntry.path === "Scratch/keep.md",
+        ),
+        readFailureLog: loggedReadFailure,
+      }
+    })
+
+    expect(typeof deleteCallLog?.requestId).toBe("number")
+    expect({
+      error: readFailureLog.error,
+      tool: readFailureLog.tool,
+      requestId: readFailureLog.requestId,
+    }).toEqual({
+      error: `[SyntaxError]: ${jsonParseFailureMessage("")}`,
+      tool: "vault_delete_note",
+      requestId: deleteCallLog?.requestId,
+    })
+  }, 30_000)
+})

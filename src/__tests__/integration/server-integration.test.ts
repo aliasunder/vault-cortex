@@ -28,6 +28,7 @@ import {
   callTool,
   textContent,
 } from "./test-harness.js"
+import type { ToolResult } from "./test-harness.js"
 
 vi.setConfig({ testTimeout: 15_000 })
 
@@ -1948,6 +1949,169 @@ describe("trash retention over real HTTP", () => {
 /** The startup sweep's completion log, as it appears in the server's
  *  structured stdout stream. */
 const SWEEP_LOG_MARKER = '"message":"trash retention sweep complete"'
+
+// ── Settings read on every call ───────────────────────────────
+//
+// Each scenario boots its own server and rewrites a .obsidian settings file
+// while it runs. The fixture vault has no daily-notes.json, and its Tasks
+// plugin config sets only the status registry.
+
+describe("daily notes folder read on every call", () => {
+  it("delete, move and the daily-note tool follow a daily-notes.json folder change", async () => {
+    const server = await startServer(await freePort())
+    onTestFinished(() => server.cleanup())
+    const client = await createTestClient(server.port)
+    onTestFinished(() => client.close())
+    const dailyNotesConfigPath = join(server.vaultPath, ".obsidian", "daily-notes.json")
+    await writeFile(dailyNotesConfigPath, JSON.stringify({ folder: "Journal" }), "utf8")
+    for (const path of ["Journal/entry.md", "Diary/entry.md"]) {
+      await callTool({ client, name: "vault_write_note", args: { path, body: "kept" } })
+    }
+
+    const refusedWhileJournal = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Journal/entry.md" },
+    })
+    const dailyNoteWhileJournal = await callTool({
+      client,
+      name: "vault_get_daily_note",
+      args: { date: "2026-01-15" },
+    })
+
+    expect(refusedWhileJournal.isError).toBe(true)
+    expect(textContent(refusedWhileJournal)).toBe(
+      '[Error]: cannot delete protected path "Journal/entry.md"',
+    )
+    expect(JSON.parse(textContent(dailyNoteWhileJournal))).toEqual({
+      path: "Journal/2026-01-15.md",
+      content: null,
+      exists: false,
+    })
+
+    await writeFile(dailyNotesConfigPath, JSON.stringify({ folder: "Diary" }), "utf8")
+
+    const deletedAfterChange = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Journal/entry.md" },
+    })
+    const refusedAfterChange = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Diary/entry.md" },
+    })
+    const moveRefusedAfterChange = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: "Diary/entry.md", new_path: "Scratch/entry.md" },
+    })
+    const dailyNoteAfterChange = await callTool({
+      client,
+      name: "vault_get_daily_note",
+      args: { date: "2026-01-15" },
+    })
+
+    expect(deletedAfterChange.isError).not.toBe(true)
+    expect(textContent(deletedAfterChange)).toBe(
+      "Moved Journal/entry.md to trash (.trash/Journal/entry.md)",
+    )
+    expect(refusedAfterChange.isError).toBe(true)
+    expect(textContent(refusedAfterChange)).toBe(
+      '[Error]: cannot delete protected path "Diary/entry.md"',
+    )
+    expect(moveRefusedAfterChange.isError).toBe(true)
+    expect(textContent(moveRefusedAfterChange)).toBe(
+      '[Error]: cannot move protected path "Diary/entry.md"',
+    )
+    expect(JSON.parse(textContent(dailyNoteAfterChange))).toEqual({
+      path: "Diary/2026-01-15.md",
+      content: null,
+      exists: false,
+    })
+  }, 30_000)
+})
+
+describe("Tasks plugin settings read on every task write", () => {
+  it("a format change reaches the next write while the boot-time status registry stays", async () => {
+    const server = await startServer(await freePort())
+    onTestFinished(() => server.cleanup())
+    const client = await createTestClient(server.port)
+    onTestFinished(() => client.close())
+    const pluginConfigPath = join(
+      server.vaultPath,
+      ".obsidian",
+      "plugins",
+      "obsidian-tasks-plugin",
+      "data.json",
+    )
+    const createTask = (blockId: string): Promise<ToolResult> => {
+      return callTool({
+        client,
+        name: "vault_create_task",
+        args: {
+          path: "Projects/alpha.md",
+          description: `Format probe ${blockId}`,
+          block_id: blockId,
+          heading: "Tasks",
+          due: "2026-08-01",
+        },
+      })
+    }
+    // The section also holds the fixture's own tasks, so each written line
+    // is checked as a fragment.
+    const readTasksSection = async (): Promise<string> => {
+      const readback = await callTool({
+        client,
+        name: "vault_read_note",
+        args: { path: "Projects/alpha.md", heading: "Tasks" },
+      })
+      return textContent(readback)
+    }
+
+    const emojiCreate = await createTask("format-emoji")
+
+    expect(emojiCreate.isError).not.toBe(true)
+    expect(await readTasksSection()).toContain(
+      `- [ ] Format probe format-emoji ➕ ${DateTime.now().toISODate()} 📅 2026-08-01 ^format-emoji`,
+    )
+
+    // The status registry the fixture ships is rewritten so ">" is a plain
+    // TODO, alongside the format switch.
+    await writeFile(
+      pluginConfigPath,
+      JSON.stringify({
+        taskFormat: "dataview",
+        statusSettings: {
+          coreStatuses: [
+            { symbol: " ", name: "Todo", nextStatusSymbol: "x", type: "TODO" },
+            { symbol: "x", name: "Done", nextStatusSymbol: " ", type: "DONE" },
+          ],
+          customStatuses: [{ symbol: ">", name: "Forwarded", nextStatusSymbol: " ", type: "TODO" }],
+        },
+      }),
+      "utf8",
+    )
+
+    const dataviewCreate = await createTask("format-dataview")
+    const nonTaskUpdate = await callTool({
+      client,
+      name: "vault_update_task",
+      args: { path: "Projects/status-registry.md", block_id: "forwarded-ref", status: "done" },
+    })
+
+    expect(dataviewCreate.isError).not.toBe(true)
+    expect(await readTasksSection()).toContain(
+      `- [ ] Format probe format-dataview [created:: ${DateTime.now().toISODate()}] [due:: 2026-08-01] ^format-dataview`,
+    )
+    // Writes classify with the registry the index was built with, so the
+    // retyped file changes nothing until a restart.
+    expect(nonTaskUpdate.isError).toBe(true)
+    expect(textContent(nonTaskUpdate)).toBe(
+      '[Error]: checkbox "[>]" is a NON_TASK status in the Tasks plugin registry',
+    )
+  }, 30_000)
+})
 
 describe("trash retention sweep gating", () => {
   it("the startup sweep runs under the default config", async () => {

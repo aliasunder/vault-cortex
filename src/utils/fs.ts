@@ -6,7 +6,7 @@ import { isErrnoException } from "./is-errno-exception.js"
  *  missing (ENOENT), or a component on the way to it is a file rather than a
  *  folder (ENOTDIR). Both read as "not there" to a caller that asked by path;
  *  the raw message names the absolute path, so it never leaves as an error. */
-const isMissingPathError = (error: unknown): boolean => {
+export const isMissingPathError = (error: unknown): boolean => {
   return isErrnoException(error, "ENOENT") || isErrnoException(error, "ENOTDIR")
 }
 

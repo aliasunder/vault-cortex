@@ -10,7 +10,7 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { Logger } from "../../logger.js"
 import { describeError } from "../../utils/describe-error.js"
-import { isErrnoException } from "../../utils/is-errno-exception.js"
+import { isMissingPathError } from "../../utils/fs.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -49,7 +49,8 @@ export const readTrashConfig = async (vaultPath: string, logger: Logger): Promis
     // A missing or unknown value means no saved choice, so Obsidian's default applies.
     return "system"
   } catch (error) {
-    if (isErrnoException(error, "ENOENT")) {
+    // No file, or no .obsidian/ folder at all: nothing was configured.
+    if (isMissingPathError(error)) {
       return "system"
     }
 

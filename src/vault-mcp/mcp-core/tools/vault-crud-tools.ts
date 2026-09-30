@@ -2,9 +2,10 @@
 
 import { z } from "zod"
 import type { VaultConfig } from "../../config.js"
+import type { Logger } from "../../../logger.js"
 import { vaultFs, resolveVaultRelativePath } from "../../vault-operations/vault-filesystem.js"
 import { noteMover } from "../../vault-operations/note-mover.js"
-import { readDailyNotesConfig } from "../../vault-operations/daily-notes.js"
+import { readDailyNotesFileConfig } from "../../vault-operations/daily-notes.js"
 import { readTrashConfig } from "../../vault-operations/trash-config.js"
 import { vaultPatcher } from "../../vault-operations/vault-patcher.js"
 import type { DisplacedLeadingContent } from "../../vault-operations/vault-patcher.js"
@@ -35,18 +36,21 @@ const describeDisplacedLeadingContent = ({
  *  - Otherwise the memory dir (protected even when MEMORY_ENABLED is false)
  *    plus the daily notes folder, resolved on each call (DAILY_NOTES_FOLDER →
  *    .obsidian/daily-notes.json → "Daily Notes") so a folder configured only
- *    in the vault is protected too. */
+ *    in the vault is protected too.
+ *  Throws when daily-notes.json exists but cannot be read, since the folder
+ *  it names is then unknown; DAILY_NOTES_FOLDER or PROTECTED_PATHS bypasses
+ *  the file. */
 export const resolveEffectiveProtectedPaths = async (
   config: VaultConfig,
   vaultPath: string,
+  logger: Logger,
 ): Promise<readonly string[]> => {
   if (config.protectedPathsOverride) return config.protectedPathsOverride
 
-  // With both env fields set the reader skips the file; only the folder is used.
-  const dailyNotesConfig = await readDailyNotesConfig(vaultPath, {
-    folder: config.dailyNotesFolder,
-    format: config.dailyNotesFormat,
-  })
+  // loadConfig trims DAILY_NOTES_FOLDER, so a set value is never blank.
+  if (config.dailyNotesFolder) return [config.memoryDir, config.dailyNotesFolder]
+
+  const dailyNotesConfig = await readDailyNotesFileConfig(vaultPath, logger)
 
   // A whitespace-only folder in daily-notes.json protects nothing.
   const dailyFolder = dailyNotesConfig.folder.trim()
@@ -957,6 +961,7 @@ Errors:
 - "cannot move to trash …" — the .trash/ move failed (e.g. a plain file blocks a needed directory); the note remains at its original path
 - "cannot delete …" — permanent delete failed (e.g. permissions); the note remains at its original path
 - "cannot read trash config from .obsidian/app.json" — the config file exists but is unreadable (permissions, corruption); the delete is blocked to prevent accidental permanent deletion when the user may have configured .trash/ retention
+- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but cannot be read or parsed, so the protected daily notes folder is unknown; the delete is refused until the file is repaired, or DAILY_NOTES_FOLDER or PROTECTED_PATHS is set
 
 Returns: Confirmation message naming the outcome — "Deleted" for permanent removal, "Moved to trash" when the note landed in .trash/. Notes how many empty folders were pruned when any were.`,
       inputSchema: {
@@ -982,7 +987,7 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
       return safeHandler(
         reqLogger,
         async () => {
-          const protectedPaths = await resolveEffectiveProtectedPaths(config, vaultPath)
+          const protectedPaths = await resolveEffectiveProtectedPaths(config, vaultPath, reqLogger)
 
           // Under Obsidian Sync the setting is skipped and the note is deleted
           // for good ("none", since "system" would land in .trash/): a
@@ -1048,6 +1053,7 @@ Errors:
 - "destination exists: …" — a note already lives at new_path; this tool never overwrites. Pick a free path or delete the existing note first.
 - "note not found: …" — old_path does not exist; verify it with vault_list_notes.
 - "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder.
+- "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but cannot be read or parsed, so the protected daily notes folder is unknown; the move is refused until the file is repaired, or DAILY_NOTES_FOLDER or PROTECTED_PATHS is set.
 - "path must end in …" — old_path or new_path is missing the .md extension; both paths must end in .md.
 - "absolute path blocked" — old_path or new_path starts at the filesystem root; use vault-relative paths.
 - "path traversal blocked" — a path escapes the vault root; use vault-relative paths.
@@ -1109,7 +1115,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
           const [allNotePaths, allAssetPaths, protectedPaths] = await Promise.all([
             vaultFs.listNotes({ vaultPath }, reqLogger),
             vaultFs.listAssets({ vaultPath }, reqLogger),
-            resolveEffectiveProtectedPaths(config, vaultPath),
+            resolveEffectiveProtectedPaths(config, vaultPath, reqLogger),
           ])
           return noteMover.moveNote(
             {

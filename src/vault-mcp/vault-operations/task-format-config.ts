@@ -8,9 +8,10 @@
 
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
-import { logger } from "../../logger.js"
+import type { Logger } from "../../logger.js"
+import { DEFAULT_STATUS_REGISTRY } from "../obsidian-markdown/tasks.js"
 import { describeError } from "../../utils/describe-error.js"
-import { isErrnoException } from "../../utils/is-errno-exception.js"
+import { isMissingPathError } from "../../utils/fs.js"
 
 // ── Types ───────────────────────────────────────────────────────
 
@@ -39,14 +40,6 @@ export type TaskFormatConfig = {
 }
 
 // ── Defaults ────────────────────────────────────────────────────
-
-const DEFAULT_STATUS_REGISTRY: ReadonlyMap<string, StatusClassification> = new Map([
-  [" ", "todo"],
-  ["x", "done"],
-  ["X", "done"],
-  ["/", "in_progress"],
-  ["-", "cancelled"],
-])
 
 const DEFAULTS: TaskFormatConfig = {
   taskFormat: "emoji",
@@ -120,11 +113,6 @@ const statusRegistryFrom = (
 
 // ── Config reader ───────────────────────────────────────────────
 
-// Caches only SUCCESSFUL reads — same pattern and rationale as
-// daily-notes.ts: uncached fallbacks are retried, so a plugin config
-// arriving after boot is picked up without a restart.
-let cachedConfig: TaskFormatConfig | null = null
-
 /** The config keys that hold booleans — the settings file uses the same
  *  key names. */
 type BooleanSettingKey =
@@ -141,22 +129,21 @@ const booleanSetting = (parsed: Record<string, unknown>, key: BooleanSettingKey)
   return typeof value === "boolean" ? value : DEFAULTS[key]
 }
 
-/** Reads the Tasks plugin's settings from
- *  `.obsidian/plugins/obsidian-tasks-plugin/data.json`. Falls back to the
- *  plugin's defaults (uncached — see cache comment) when the file is
- *  missing or malformed. */
-export const readTaskFormatConfig = async (vaultPath: string): Promise<TaskFormatConfig> => {
-  if (cachedConfig) return cachedConfig
+/** Reads and parses the plugin's data.json. Returns the defaults when no
+ *  file exists there; any other failure propagates. */
+const readTaskFormatFileConfig = async (vaultPath: string): Promise<TaskFormatConfig> => {
+  const configPath = join(vaultPath, ".obsidian", "plugins", "obsidian-tasks-plugin", "data.json")
 
   try {
-    const configPath = join(vaultPath, ".obsidian", "plugins", "obsidian-tasks-plugin", "data.json")
+    // Read on every call, so a format or date-toggle change in the plugin's
+    // settings applies to the next task write rather than after a restart.
     const fileContent = await readFile(configPath, "utf8")
     const parsed: Record<string, unknown> = JSON.parse(fileContent)
 
     const rawFormat = parsed.taskFormat
     const taskFormat: "emoji" | "dataview" = rawFormat === "dataview" ? "dataview" : "emoji"
 
-    const fileConfig: TaskFormatConfig = {
+    return {
       taskFormat,
       setDoneDate: booleanSetting(parsed, "setDoneDate"),
       setCancelledDate: booleanSetting(parsed, "setCancelledDate"),
@@ -165,19 +152,29 @@ export const readTaskFormatConfig = async (vaultPath: string): Promise<TaskForma
       removeScheduledDateOnRecurrence: booleanSetting(parsed, "removeScheduledDateOnRecurrence"),
       statusRegistry: statusRegistryFrom(parsed),
     }
-    cachedConfig = fileConfig
-    return fileConfig
   } catch (error) {
-    if (!isErrnoException(error, "ENOENT")) {
-      logger.debug("failed to read Tasks plugin config, using defaults", {
-        error: describeError(error),
-      })
-    }
-    return { ...DEFAULTS }
+    if (isMissingPathError(error)) return { ...DEFAULTS }
+    throw error
   }
 }
 
-/** Resets the cached config — only for testing. */
-export const resetTaskFormatConfigCache = (): void => {
-  cachedConfig = null
+/** Reads the Tasks plugin's settings from
+ *  `.obsidian/plugins/obsidian-tasks-plugin/data.json` on every call.
+ *  Returns the plugin's defaults when the file is missing, and — with a
+ *  `warn` on the caller's logger — when it exists but cannot be read or
+ *  parsed. */
+export const readTaskFormatConfig = async (
+  vaultPath: string,
+  logger: Logger,
+): Promise<TaskFormatConfig> => {
+  try {
+    return await readTaskFormatFileConfig(vaultPath)
+  } catch (error) {
+    // The settings only shape what a task write emits, so the defaults are
+    // a safe stand-in while the file is broken.
+    logger.warn("cannot read Tasks plugin config, using defaults", {
+      error: describeError(error),
+    })
+    return { ...DEFAULTS }
+  }
 }
