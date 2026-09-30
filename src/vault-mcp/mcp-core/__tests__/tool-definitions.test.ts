@@ -188,13 +188,25 @@ describe("registerTools", () => {
     // Agents treat Errors: as failure modes — a successful write described
     // there would prompt a needless retry or abort.
     const [, config] = requireCall(TOOL_NAMES.VAULT_PATCH_NOTE)
-    const description = config.description ?? ""
+    const description = requireDescription(config, TOOL_NAMES.VAULT_PATCH_NOTE)
     const errorsSection = description.slice(
       description.indexOf("Errors:"),
       description.indexOf("Obsidian syntax:"),
     )
     expect(errorsSection).not.toContain("becomes the new section's body")
     expect(description).toContain("becomes the new section's body")
+  })
+
+  it("vault_update_task description does not list the no-next-occurrence advisory as an error", () => {
+    // The completion succeeds, and agents treat Errors: as failure modes.
+    const [, config] = requireCall(TOOL_NAMES.VAULT_UPDATE_TASK)
+    const description = requireDescription(config, TOOL_NAMES.VAULT_UPDATE_TASK)
+    const errorsSection = description.slice(
+      description.indexOf("Errors:"),
+      description.indexOf("Obsidian syntax:"),
+    )
+    expect(errorsSection).not.toContain("yields no next occurrence")
+    expect(description).toContain("yields no next occurrence")
   })
 
   it.each([TOOL_NAMES.VAULT_UPDATE_MEMORY, TOOL_NAMES.VAULT_DELETE_MEMORY])(

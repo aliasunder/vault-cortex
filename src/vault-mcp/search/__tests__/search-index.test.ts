@@ -2408,6 +2408,9 @@ describe("searchByProperty", () => {
 
     const zeroResults = propertyIndex.searchByProperty({ key: "rank", value: "0" }, logger)
     expect(zeroResults.map((result) => result.path)).toEqual(["note-3.md", "note-4.md"])
+
+    const trueResults = propertyIndex.searchByProperty({ key: "rank", value: "true" }, logger)
+    expect(trueResults).toEqual([])
   })
 })
 

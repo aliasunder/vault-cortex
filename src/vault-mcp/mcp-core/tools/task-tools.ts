@@ -172,8 +172,8 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
       })
       return safeHandler(
         reqLogger,
-        async () =>
-          search.listTasks(
+        async () => {
+          return search.listTasks(
             {
               status,
               due,
@@ -193,7 +193,8 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
               sortDirection: sort_direction,
             },
             reqLogger,
-          ),
+          )
+        },
         (result) => {
           reqLogger.info("tool_result", {
             resultCount: result.tasks.length,
@@ -415,8 +416,8 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
       })
       return safeHandler(
         reqLogger,
-        async () =>
-          taskMutations.createTask(
+        async () => {
+          return taskMutations.createTask(
             {
               vaultPath,
               path,
@@ -438,7 +439,8 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
               format,
             },
             reqLogger,
-          ),
+          )
+        },
         (result) => {
           reqLogger.info("tool_result", {
             path: result.path,
@@ -523,12 +525,11 @@ Errors:
 - "description must be a single line" / "addSubtasks items must be a single line" — a task is one file line; a line break in the text would split its metadata onto a line the parser never reads
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
 - "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur
-- A recurring task completed with a rule that yields no next occurrence (unreadable rule text already on the line, or a finite rule with no dates left) still completes — the result carries an advisory instead of an error
 - "concurrent write in progress" — another write to this note is in flight; retry
 
 Obsidian syntax: The Tasks plugin reads metadata off the END of a task line, so a trailing run of signifier syntax inside description or add_subtasks text — an emoji field like "🔁 every week", or a Dataview [key:: value] field, followed only by other recognized task fields — is read back as task metadata rather than text. A signifier followed by ordinary prose stays description text unless the prose matches that field's value grammar — a 🔁 recurrence reads any trailing words as its rule, while a 📅 followed by ordinary words stays description text because the words are not a date. The same interference can change the value an adjacent field reads back with, or make a field appear that was never set, as the 🔁 example shows. The write still succeeds either way; when the stored line would read back differently than this call set, the result carries an advisories array naming each divergence. The dates a status change stamps or clears (the ✅/❌ dates) are expected and produce no advisories on their own — but a description signifier that changes what the stamped date parses back as is still reported.
 
-Returns: JSON { path, line, description, block_id, heading, subtasks, next_occurrence, changes, advisories, on_completion_applied } — line is the final 1-based position (when on_completion_applied is "delete", it is the position the task occupied before removal); description is the current text; block_id and heading reflect the task after the update (block_id is omitted when the task has none, heading when the task sits above the first heading); subtasks lists each checklist item added by add_subtasks as { line, description } (omitted when none were added) — checklist items carry no block_id, so line is the handle for a follow-up update; next_occurrence is present only when a completion spawned a recurring task's next occurrence: { line, description, due?, scheduled?, start? } with only the dates the occurrence has — it carries no block_id, so line is its handle; changes lists every field applied as "field: before → after", with "(none)" for an absent value (for subtasks the two sides are checklist-item counts, and a spawn adds "next_occurrence: (none) → line N"); advisories (omitted when the line round-trips clean and no recurrence notice applies) lists one sentence per place the stored line parses back differently than this call set (see Obsidian syntax above) or per recurrence event that did not produce a next occurrence; on_completion_applied (present only when the effective on_completion was delete — pre-existing on the task or set in the same call — and it was transitioned to done) is always "delete".`,
+Returns: JSON { path, line, description, block_id, heading, subtasks, next_occurrence, changes, advisories, on_completion_applied } — line is the final 1-based position (when on_completion_applied is "delete", it is the position the task occupied before removal); description is the current text; block_id and heading reflect the task after the update (block_id is omitted when the task has none, heading when the task sits above the first heading); subtasks lists each checklist item added by add_subtasks as { line, description } (omitted when none were added) — checklist items carry no block_id, so line is the handle for a follow-up update; next_occurrence is present only when a completion spawned a recurring task's next occurrence: { line, description, due?, scheduled?, start? } with only the dates the occurrence has — it carries no block_id, so line is its handle; changes lists every field applied as "field: before → after", with "(none)" for an absent value (for subtasks the two sides are checklist-item counts, and a spawn adds "next_occurrence: (none) → line N"); advisories (omitted when the line round-trips clean and no recurrence notice applies) lists one sentence per place the stored line parses back differently than this call set (see Obsidian syntax above) or per completed recurring task whose rule yields no next occurrence (unreadable rule text already on the line, or a finite rule with no dates left); on_completion_applied (present only when the effective on_completion was delete — pre-existing on the task or set in the same call — and it was transitioned to done) is always "delete".`,
       inputSchema: {
         path: z
           .string()
@@ -707,8 +708,8 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
       })
       return safeHandler(
         reqLogger,
-        async () =>
-          taskMutations.updateTask(
+        async () => {
+          return taskMutations.updateTask(
             {
               vaultPath,
               path,
@@ -732,7 +733,8 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
               format,
             },
             reqLogger,
-          ),
+          )
+        },
         (result) => {
           reqLogger.info("tool_result", {
             path: result.path,
