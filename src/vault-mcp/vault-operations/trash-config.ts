@@ -23,18 +23,15 @@ const isTrashOption = (value: unknown): value is TrashOption => {
 
 // ── Config reader ───────────────────────────────────────────────
 
-// Caches only SUCCESSFUL reads — uncached fallbacks are retried, so a
-// config arriving after boot (e.g. from Obsidian Sync) is picked up
-// without a restart.
-let cachedOption: TrashOption | null = null
-
-/** Reads the `trashOption` setting from `.obsidian/app.json`. Falls back
- *  to `"system"` when the file is missing (uncached — retried on next call),
- *  the key is absent, or the value is unrecognized. Throws on non-ENOENT
- *  read failures so a broken config never silently causes permanent delete. */
+/** Reads the `trashOption` setting from `.obsidian/app.json` on every call.
+ *  The setting decides whether a delete is recoverable, so a user who
+ *  switches Obsidian from "Permanently delete" to a trash option must be
+ *  followed at once, never after a restart; deletes are rare enough that
+ *  the read costs nothing worth caching. Falls back to `"system"` when the
+ *  file is missing, the key is absent, or the value is unrecognized. Throws
+ *  on non-ENOENT read failures so a broken config never silently causes
+ *  permanent delete. */
 export const readTrashConfig = async (vaultPath: string): Promise<TrashOption> => {
-  if (cachedOption) return cachedOption
-
   try {
     const configPath = join(vaultPath, ".obsidian", "app.json")
     const fileContent = await readFile(configPath, "utf8")
@@ -42,13 +39,8 @@ export const readTrashConfig = async (vaultPath: string): Promise<TrashOption> =
 
     const rawOption = parsed.trashOption
 
-    if (isTrashOption(rawOption)) {
-      cachedOption = rawOption
-      logger.info("trash config loaded", { trashOption: rawOption })
-      return rawOption
-    }
-    // Key absent or unrecognized — return the default but don't cache,
-    // so a later Sync delivery of the real value is picked up.
+    if (isTrashOption(rawOption)) return rawOption
+
     return "system"
   } catch (error) {
     if (isErrnoException(error, "ENOENT")) {
@@ -61,9 +53,4 @@ export const readTrashConfig = async (vaultPath: string): Promise<TrashOption> =
       cause: error,
     })
   }
-}
-
-/** Resets the cached config — only for testing. */
-export const resetTrashConfigCache = (): void => {
-  cachedOption = null
 }

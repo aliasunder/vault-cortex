@@ -3,9 +3,10 @@
 
 import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
 import { DateTime } from "luxon"
-import { stat, writeFile } from "node:fs/promises"
+import { readFile, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import Database from "better-sqlite3"
+import { fileExists } from "../../utils/fs.js"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
   startServer,
@@ -1762,9 +1763,9 @@ describe("boot rejection", () => {
 
 // ── Trash retention: the system default, the local option, and sync ───
 //
-// Each scenario boots its own server: readTrashConfig caches a successful
-// read per process, so a vault's trash setting is fixed the moment the
-// first delete reads it.
+// Each scenario boots its own server because each needs a different
+// starting config: a blank app.json for the system default, the fixture's
+// "local", or the Sync environment.
 
 /** Every trash_entries row in a server's index DB, read directly from the
  *  data dir the harness created (WAL mode allows a concurrent reader). */
@@ -1787,8 +1788,7 @@ describe("trash retention over real HTTP", () => {
     const server = await startServer(await freePort())
     onTestFinished(() => server.cleanup())
     // The shared fixture pins trashOption "local"; blanking the config makes
-    // the absent key read as "system" (Obsidian's default). Rewritten before
-    // any delete so no "local" read has been cached.
+    // the absent key read as "system" (Obsidian's default).
     await writeFile(join(server.vaultPath, ".obsidian", "app.json"), "{}", "utf8")
     const client = await createTestClient(server.port)
     onTestFinished(() => client.close())
@@ -1860,6 +1860,53 @@ describe("trash retention over real HTTP", () => {
 
     expect(deleteResult.isError).not.toBe(true)
     expect(textContent(deleteResult)).toBe("Deleted Scratch/sync-delete.md")
+    expect(readTrashEntryRows(server.dataDir)).toEqual([])
+  }, 30_000)
+
+  it("a Deleted files setting changed between two deletes is followed without a restart", async () => {
+    const server = await startServer(await freePort())
+    onTestFinished(() => server.cleanup())
+    const appConfigPath = join(server.vaultPath, ".obsidian", "app.json")
+    await writeFile(appConfigPath, JSON.stringify({ trashOption: "none" }), "utf8")
+    const client = await createTestClient(server.port)
+    onTestFinished(() => client.close())
+
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Scratch/before-switch.md", body: "gone for good" },
+    })
+    const permanentResult = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Scratch/before-switch.md" },
+    })
+    expect(textContent(permanentResult)).toBe("Deleted Scratch/before-switch.md")
+
+    // The user switches Obsidian to "Move to Obsidian trash" while the
+    // server keeps running.
+    await writeFile(appConfigPath, JSON.stringify({ trashOption: "local" }), "utf8")
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Scratch/after-switch.md", body: "kept forever" },
+    })
+    const trashedResult = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Scratch/after-switch.md" },
+    })
+
+    expect(trashedResult.isError).not.toBe(true)
+    expect(textContent(trashedResult)).toBe(
+      "Moved Scratch/after-switch.md to trash (.trash/Scratch/after-switch.md)",
+    )
+    await expect(
+      readFile(join(server.vaultPath, ".trash", "Scratch", "after-switch.md"), "utf8"),
+    ).resolves.toBe("kept forever\n")
+    await expect(fileExists(join(server.vaultPath, "Scratch", "after-switch.md"))).resolves.toBe(
+      false,
+    )
     expect(readTrashEntryRows(server.dataDir)).toEqual([])
   }, 30_000)
 })

@@ -2,7 +2,7 @@ import { describe, it, expect, onTestFinished } from "vitest"
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { readTrashConfig, resetTrashConfigCache } from "../trash-config.js"
+import { readTrashConfig } from "../trash-config.js"
 
 const createVault = async (): Promise<string> => {
   const vaultPath = await mkdtemp(join(tmpdir(), "trash-config-test-"))
@@ -21,7 +21,6 @@ const writeAppConfig = async (
 
 describe("readTrashConfig", () => {
   it('reads "local" from a valid app.json', async () => {
-    resetTrashConfigCache()
     const vault = await createVault()
     await writeAppConfig(vault, { trashOption: "local" })
 
@@ -31,7 +30,6 @@ describe("readTrashConfig", () => {
   })
 
   it('reads "none" from a valid app.json', async () => {
-    resetTrashConfigCache()
     const vault = await createVault()
     await writeAppConfig(vault, { trashOption: "none" })
 
@@ -41,7 +39,6 @@ describe("readTrashConfig", () => {
   })
 
   it('reads "system" when explicitly set in app.json', async () => {
-    resetTrashConfigCache()
     const vault = await createVault()
     await writeAppConfig(vault, { trashOption: "system" })
 
@@ -51,7 +48,6 @@ describe("readTrashConfig", () => {
   })
 
   it('defaults to "system" when app.json is absent', async () => {
-    resetTrashConfigCache()
     const vault = await createVault()
 
     const result = await readTrashConfig(vault)
@@ -60,7 +56,6 @@ describe("readTrashConfig", () => {
   })
 
   it('defaults to "system" when the trashOption key is missing', async () => {
-    resetTrashConfigCache()
     const vault = await createVault()
     await writeAppConfig(vault, { someOtherSetting: true })
 
@@ -70,7 +65,6 @@ describe("readTrashConfig", () => {
   })
 
   it('defaults to "system" for an unrecognized value', async () => {
-    resetTrashConfigCache()
     const vault = await createVault()
     await writeAppConfig(vault, { trashOption: "recycle-bin" })
 
@@ -80,7 +74,6 @@ describe("readTrashConfig", () => {
   })
 
   it("throws on malformed JSON so a broken config never silently causes permanent delete", async () => {
-    resetTrashConfigCache()
     const vault = await createVault()
     const obsidianDir = join(vault, ".obsidian")
     await mkdir(obsidianDir, { recursive: true })
@@ -92,7 +85,6 @@ describe("readTrashConfig", () => {
   })
 
   it("retries after ENOENT — a config appearing later is picked up without a restart", async () => {
-    resetTrashConfigCache()
     const vault = await createVault()
 
     const beforeConfig = await readTrashConfig(vault)
@@ -104,7 +96,6 @@ describe("readTrashConfig", () => {
   })
 
   it("retries when app.json exists but key is absent — a later Sync delivery is picked up", async () => {
-    resetTrashConfigCache()
     const vault = await createVault()
     await writeAppConfig(vault, { someOtherSetting: true })
 
@@ -116,16 +107,27 @@ describe("readTrashConfig", () => {
     expect(afterKey).toBe("local")
   })
 
-  it("caches a successful read — later file changes are not re-read", async () => {
-    resetTrashConfigCache()
+  it("re-reads on every call — a switch from permanent delete to a trash option is followed", async () => {
+    const vault = await createVault()
+    await writeAppConfig(vault, { trashOption: "none" })
+
+    const beforeSwitch = await readTrashConfig(vault)
+    expect(beforeSwitch).toBe("none")
+
+    await writeAppConfig(vault, { trashOption: "local" })
+    const afterSwitch = await readTrashConfig(vault)
+    expect(afterSwitch).toBe("local")
+  })
+
+  it("re-reads on every call — a switch from a trash option to permanent delete is followed", async () => {
     const vault = await createVault()
     await writeAppConfig(vault, { trashOption: "local" })
 
-    const first = await readTrashConfig(vault)
-    expect(first).toBe("local")
+    const beforeSwitch = await readTrashConfig(vault)
+    expect(beforeSwitch).toBe("local")
 
     await writeAppConfig(vault, { trashOption: "none" })
-    const second = await readTrashConfig(vault)
-    expect(second).toBe("local")
+    const afterSwitch = await readTrashConfig(vault)
+    expect(afterSwitch).toBe("none")
   })
 })
