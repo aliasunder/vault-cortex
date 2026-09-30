@@ -117,6 +117,7 @@ export const registerMemoryReviewPrompt = ({
         file: args.file,
         maxChars: args.max_chars,
       })
+      // MCP args are strings (some transports stringify numbers); coerce here.
       const maxChars = args.max_chars ? Number(args.max_chars) : undefined
 
       try {

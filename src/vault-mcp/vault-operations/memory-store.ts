@@ -152,6 +152,8 @@ const scanGenuineEntryOffsets = (bodyLines: readonly string[]): number[] => {
   let scanFence: OpenFence = null
   let scanCommentOpen = false
 
+  // Fence and comment detection are mutually exclusive: fence state is
+  // skipped inside comments, and comment state is skipped inside fences.
   for (const [offsetIndex, bodyLine] of bodyLines.entries()) {
     if (!bodyLine) continue
 
@@ -995,9 +997,13 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
       // preceding entry's text.
       const matchIndex = matchingIndices[0]
 
+      // The length checks above guarantee exactly one element; TypeScript
+      // cannot narrow an indexed access after a length check.
       if (matchIndex === undefined) {
         throw new Error("expected at least one matching index")
       }
+      // Find the end of this entry's span: the next entry's offset, or the
+      // section's end when this is the last entry.
       const matchOffset = matchIndex - match.bodyStartLine
       const matchPosition = genuineEntryOffsets.indexOf(matchOffset)
       const nextEntryOffset = genuineEntryOffsets[matchPosition + 1]

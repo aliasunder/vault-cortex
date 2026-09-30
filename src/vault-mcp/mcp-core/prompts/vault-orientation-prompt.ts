@@ -36,9 +36,12 @@ const deriveFolderCounts = (paths: readonly string[]): FolderCount[] => {
       counts.set(folder, (counts.get(folder) ?? 0) + 1)
     }
   }
-  return [...counts.entries()]
-    .map(([name, count]) => ({ name, count }))
-    .toSorted((folderA, folderB) => compareByUtf8Bytes(folderA.name, folderB.name))
+  return (
+    [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      // Sort by UTF-8 byte order (matches SQLite BINARY collation for deterministic output).
+      .toSorted((folderA, folderB) => compareByUtf8Bytes(folderA.name, folderB.name))
+  )
 }
 
 /** Formats a single property key with its adoption rate, sample values, and
@@ -233,6 +236,8 @@ export const registerVaultOrientationPrompt = ({
         // keyed on its own tool being served — a suggestion the client cannot
         // act on is worse than a shorter menu. The orphan line additionally
         // requires orphans to exist.
+        // Each entry is [toolName, markdownLine, show?] — show defaults to
+        // undefined; `show !== false` below lets both true and undefined pass.
         const goDeeperEntries: ReadonlyArray<
           readonly [name: ToolName, line: string, show?: boolean]
         > = [
