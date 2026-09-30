@@ -857,9 +857,9 @@ graph LR
    the boot switches to [setup mode](#setup-mode) instead of stopping) →
    `init-obsidian-login` (`ob login`) → `init-setup-vault` (`ob sync-setup`
    with `--device-name`, plus optional sync-config; fails fast when
-   `VAULT_NAME` is missing) → `init-first-sync`
-   (one-shot `ob sync` run to _completion_, with retries; failure
-   branches under "`init-first-sync` gates vault state" below). Any
+   `VAULT_NAME` is missing or `SYNC_MODE` fails to apply) → `init-first-sync`
+   (one-shot `ob sync` run to _completion_, with retries; its four steps,
+   failure branches included, are listed below). Any
    fatal init failure stops the container
    (`S6_BEHAVIOUR_IF_STAGE2_FAILS=2`) — the restart policy owns retry.
 2. **`svc-obsidian-sync`** — bidirectional Obsidian Sync
@@ -879,32 +879,56 @@ process has spawned. Two mechanisms with distinct jobs:
 - **The longrun dependency gates startup order only.** It does not wait for
   sync health, and a later sync crash restarts just that service, not the
   MCP server.
-- **`init-first-sync` gates vault state.** Three outcomes, checked in order:
+- **`init-first-sync` keeps the first sync from deleting or overwriting
+  files.** Four steps, in order:
   1. **Deletion-storm guard** (before sync runs): the container refuses to
      start when the Sync client's file record lists files but the vault has
      no content.
      - The record is `obsidian-headless/sync/<vaultId>/state.db` on the
-       config volume. At startup, the client pushes every recorded file
+       config volume. At startup, the Sync client pushes every recorded file
        that is missing from disk as a deletion.
      - Content is a regular file: any file at any depth with no dot-named
        path component, or any file inside `.obsidian/` except under the
-       client's own `.sync.lock/`.
+       Sync client's own `.sync.lock/`.
      - Empty folders do not count, so a wipe that deletes files but keeps
        the folder tree still reads as empty. Dotfiles outside `.obsidian/`
        are not synced and do not count either.
      - A record that exists but cannot be read also stops the container.
      - No record means a fresh device, which downloads without deleting.
-  2. **Sync succeeds**: the first sync runs to completion before any service
-     starts.
-  3. **Sync fails**: FATAL when the memory bootstrap could still overwrite
-     real files (memory layer enabled, memory folder absent). Warn-and-continue
-     when the memory folder is present or memory is disabled — the server
-     starts while continuous sync keeps retrying.
+  2. **Filtered-out file queue** (before each attempt and once after the
+     last): the step queues for download every file the Sync client knows
+     is in the vault but has no local record of, so widening a filter
+     can't delete them.
+     - Most of these are files a filter (`SYNC_FILE_TYPES`,
+       `SYNC_EXCLUDED_FOLDERS`, `SYNC_CONFIGS`) kept out, which the Sync
+       client still remembers as part of the vault. Without the queue, it
+       would treat each newly allowed file as deleted here and push the
+       deletion to every device.
+     - A queued file downloads before the Sync client looks for deletions,
+       or is skipped if the filter still excludes it.
+     - A file deleted through Vault Cortex that hasn't uploaded when the
+       container restarts looks the same to the step, so it downloads again.
+  3. **Sync succeeds**: the first sync runs to completion before any service
+     starts. A one-shot sync stops at the first failed download, before its
+     deletion scan.
+  4. **Sync fails**:
+     - FATAL when files are still queued for download and the Sync client's
+       stored mode is two-way. Continuous sync retries a failed download
+       with a backoff and runs its deletion scan meanwhile, which would
+       delete those files everywhere.
+     - FATAL when the memory bootstrap could still overwrite real files:
+       the Sync client's stored mode is two-way, the memory layer is
+       enabled, and the memory folder is absent. `pull-only` and
+       `mirror-remote` never upload the templates, so they continue.
+     - Otherwise warn and continue: the server starts while continuous sync
+       keeps retrying.
 
-On a fresh volume, the gate closes the memory-bootstrap race: either the vault
-already holds the user's real `About Me/` files when the server's bootstrap
-check runs, or the container refuses to start — so default templates are
-never created over a syncing vault and never pushed upstream. Files arriving
+On a fresh volume in two-way sync, the gate closes the memory-bootstrap race:
+either the vault already holds the user's real `About Me/` files when the
+server's bootstrap check runs, or the container refuses to start — so default
+templates are never created over a syncing vault and never pushed upstream.
+In `pull-only` and `mirror-remote`, templates written before the real files
+arrive are never uploaded. Files arriving
 through later continuous sync self-heal — the file watcher indexes them as
 they land — and the memory-write
 [shrink guard](#memory-layer-safety) remains defense-in-depth for
@@ -1063,10 +1087,11 @@ The runtime image (`Dockerfile`) minimizes the attack surface:
 
 ### Durability
 
-Three layers cover different failure classes:
+Four layers cover different failure classes:
 
 | Layer                                 | What it does                                                                                                                | Where                         |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| App-level `protect: true`             | Refuses `sst remove` and `sst dev` on the stage before any resource is touched                                              | `sst.config.ts` `app()`       |
 | Resource-level `protect: true`        | Refuses any Pulumi op that would destroy or replace the Instance                                                            | `sst.config.ts` instance opts |
 | Resource-level `retainOnDelete: true` | If SST does decide to delete (`sst remove` once `protect` is cleared), orphan the AWS resource instead of destroying        | `sst.config.ts` instance opts |
 | Lightsail auto-snapshot (`addOn`)     | Daily disk image at 03:00 UTC, 7-day rolling retention. Captures the full boot disk including ad-hoc SSH-installed packages | `addOn` on the Instance       |
@@ -1074,7 +1099,7 @@ Three layers cover different failure classes:
 The auto-snapshot is the only one that protects against AWS-side events
 (hardware failure, AZ outage) and against in-VM mistakes (fat-finger
 `rm -rf`, container compromise). The IaC seatbelts only protect against
-Pulumi-driven replacement.
+Pulumi-driven replacement and `sst remove`.
 
 Restore procedures, the intentional-replace flow (unprotect → deploy →
 re-protect, e.g. for a bundle upgrade), SST state reconciliation,
@@ -1229,8 +1254,9 @@ Docker hardening, and durability seatbelts above.
 #### Memory layer safety
 
 - **First-sync gate** (`:remote` image): the init chain runs the first
-  Obsidian Sync to completion before the server starts, so the memory
-  bootstrap can never race an incoming sync — see
+  Obsidian Sync to completion before the server starts, so in two-way sync
+  the memory bootstrap can never race an incoming sync. `pull-only` and
+  `mirror-remote` never upload its templates — see
   [Container startup](#container-startup).
 - **Shrink guard** (`guardAgainstShrink` in `memory-store.ts`): refuses
   an update/delete that would remove >50% of a file's bytes —

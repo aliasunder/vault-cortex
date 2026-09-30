@@ -107,6 +107,59 @@
 
 
 
+
+
+
+## [0.54.5] — 2026-09-29
+
+### Documentation
+
+- Update CHANGELOG.md for v0.54.4
+
+### Maintenance
+
+- **deps:** Bump ip-address from 10.4.0 to 10.7.2 (#620)
+
+## [0.54.4] — 2026-09-29
+
+### Bug Fixes
+
+- **remote:** Clearer advice when the first sync keeps failing (#618)
+- **remote:** Never push a deletion for a file the server never downloaded (#617)
+
+### Documentation
+
+- **deploy:** State what SYNC_FILE_TYPES syncs by default and where text files fall (#615)
+- Update CHANGELOG.md for v0.54.3
+
+### Maintenance
+
+- **ci:** Bump umm-actually to v0.4.9 (#619)
+
+## [0.54.3] — 2026-09-26
+
+### Features
+
+- **deploy:** Protect every SST stage from sst remove (#613)
+
+### Bug Fixes
+
+- **deploy:** Keep SST environment outside repo (#602)
+
+### Documentation
+
+- **agents:** Trim AGENTS.md, correct code claims, and define unexplained terms (#612)
+- Update CHANGELOG.md for v0.54.2
+
+### Maintenance
+
+- **deps:** Bump tailscale/github-action from 4.1.3 to 4.2.0 (#608)
+- **deps-dev:** Bump the development group with 7 updates (#610)
+- **deps:** Bump @huggingface/transformers from 4.2.0 to 4.3.0 in the production group (#609)
+- **deps:** Bump node from `6950b66` to `8ec5d75` (#607)
+- **deps:** Bump github/codeql-action/upload-sarif from 4.38.0 to 4.38.1 (#611)
+- **ci:** Bump umm-actually to v0.4.8 (#606)
+
 ## [0.54.2] — 2026-09-23
 
 ### Bug Fixes

@@ -19,11 +19,11 @@ fi
 # First-time vault setup
 # ---------------------------------------------------------------------------
 
-# Run `ob sync-setup` as the obsidian user, adding --device-name when DEVICE_NAME
-# is set so the INITIAL device registration uses it. Without this the CLI registers
-# the first device under the container hostname (DEVICE_NAME is only applied later
-# via sync-config), so every container recreation spawns a new Obsidian Sync device.
-# A function with "$@" keeps the device name intact even when it contains spaces.
+# Passes --device-name on the first registration, because without it the CLI
+# names the device after the container hostname and every re-created
+# container adds a new Obsidian Sync device. "$@" carries the caller's flags
+# and "$DEVICE_NAME" is quoted, so a vault or device name with spaces stays
+# one argument.
 run_sync_setup() {
   if [ -n "$DEVICE_NAME" ]; then
     s6-setuidgid obsidian ob sync-setup "$@" --device-name "$DEVICE_NAME"
@@ -64,10 +64,11 @@ fi
 # Apply optional sync config
 # ---------------------------------------------------------------------------
 
-# Optional config stays non-fatal (a bad value must not stop the container),
-# but failures are logged with the CLI's stderr so a typo'd value (e.g. an
-# invalid CONFLICT_STRATEGY via plain `docker run`, where Compose defaults
-# don't apply) leaves a trace in `docker logs` instead of vanishing.
+# Optional config other than the sync mode (below) stays non-fatal: a bad
+# value must not stop the container. Failures are still logged with the
+# CLI's stderr so a typo'd value (e.g. an invalid CONFLICT_STRATEGY via
+# plain `docker run`, where Compose defaults don't apply) leaves a trace
+# in `docker logs` instead of vanishing.
 apply_sync_config() {
   flag="$1"
   value="$2"
@@ -79,11 +80,12 @@ apply_sync_config() {
   fi
 }
 
-# Settings with no stored default of their own are always applied, with an
-# empty value passed through: the Sync client stores these on the config
-# volume, so skipping an empty variable would keep a folder exclusion or
-# attachment filter from an earlier boot after the user cleared it. An
-# empty argument is the client's "clear" form (`ob sync-config --help`).
+# These settings are always applied, even when empty: an empty argument is
+# the Sync client's "clear" form (`ob sync-config --help`). `ob sync-setup`
+# above already drops them on every boot, so today an empty call changes
+# nothing. It stays so a Sync client version that keeps them across
+# `sync-setup` still can't hold on to a folder exclusion or attachment
+# filter the user has cleared.
 apply_sync_config_or_clear() {
   flag="$1"
   value="$2"
@@ -96,16 +98,29 @@ apply_sync_config --device-name "$DEVICE_NAME"
 apply_sync_config --conflict-strategy "$CONFLICT_STRATEGY"
 apply_sync_config_or_clear --excluded-folders "${SYNC_EXCLUDED_FOLDERS:-}"
 apply_sync_config_or_clear --file-types "${SYNC_FILE_TYPES:-}"
-apply_sync_config --mode "$SYNC_MODE"
 
-# Config-category sync defaults ON for the two categories the server
-# reads: core-plugin-data (daily notes settings) and community-plugin-data
-# (community plugin settings, e.g. the Tasks plugin's format). The default
-# is applied here as well as in the compose files so plain `docker run`
-# (no interpolation) matches. SYNC_CONFIGS=none actively clears ("empty to
-# clear" per ob sync-config --help) rather than skipping, which would leave
-# a previously enabled category on across boots on a persistent config
-# volume.
+# A sync mode that fails to apply stops the container. `ob sync-setup` has
+# just reset the stored mode to two-way, so continuing would sync two-way
+# against an explicit pull-only or mirror-remote request and upload changes
+# the user chose not to send. The usual cause is an invalid value, and the
+# CLI's message on stderr names the valid ones.
+if [ -n "$SYNC_MODE" ] && ! s6-setuidgid obsidian ob sync-config --mode "$SYNC_MODE"; then
+  echo "[obsidian-sync] ERROR: ob sync-config --mode '$SYNC_MODE' failed." >&2
+  echo "[obsidian-sync] Refusing to start: syncing in a different mode than SYNC_MODE requests could upload changes you chose not to send." >&2
+  echo "[obsidian-sync] Set SYNC_MODE to bidirectional, pull-only, or mirror-remote and restart." >&2
+  exit 1
+fi
+
+# Obsidian settings categories to sync into .obsidian/:
+# - Default: the two the server reads — core-plugin-data (daily notes
+#   settings) and community-plugin-data (community plugin settings, such as
+#   the Tasks plugin's format). Applied here as well as in the compose files,
+#   so plain `docker run` matches.
+# - SYNC_CONFIGS=none: sends an empty value, the client's "clear" form
+#   (`ob sync-config --help`). Skipping the call would leave the client's own
+#   defaults syncing, since `ob sync-setup` above resets this setting to them
+#   on every boot: app, appearance, appearance-data, hotkey, core-plugin, and
+#   core-plugin-data.
 if [ "$SYNC_CONFIGS" = "none" ]; then
   if ! s6-setuidgid obsidian ob sync-config --configs ""; then
     echo "[obsidian-sync] WARNING: ob sync-config --configs '' failed — continuing without it." >&2

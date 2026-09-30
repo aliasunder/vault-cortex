@@ -13,6 +13,10 @@ export default $config({
     return {
       name: "vault-cortex",
       removal: "retain",
+      // Refuses `sst remove` and `sst dev` on every stage. Stages are named
+      // after the deployer, so each one is a live deployment, not a scratch
+      // stage. DEPLOY.md § Tearing down lists the steps to remove one.
+      protect: true,
       home: "aws",
       providers: { aws: { region: awsRegion } },
     }

@@ -166,8 +166,8 @@ directory
 The CLI's `init` always creates the three-volume layout, so single-volume
 mode is set up with `docker run` or through a hosting platform. The same
 `.env` file works; the command sets `LOG_DIR` explicitly because the
-`.env.example` default, `/data/logs`, falls outside the volume (an `-e` flag
-wins over `--env-file`). On a plain Docker host the complete command is:
+`.env.example` default, `/data/logs`, falls outside the volume. On a plain
+Docker host the complete command is:
 
 ```bash
 docker run -d --name vault-cortex \
@@ -199,9 +199,10 @@ the platform. Three things to know:
   the volume; the platform's own log viewer usually keeps only the last 7
   days on hobby plans (Railway and Render both do). Set `LOG_DIR=none` to
   keep logs in the platform viewer only.
-- **PID 1** — the platform must start the image's own entrypoint as the
-  container's first process; one that runs its own init in front of it
-  cannot start this image.
+- **PID 1** — the image's own entrypoint must be the container's first
+  process. If the platform adds its own init process or lets you override the
+  start command, leave the override empty; otherwise the container exits at
+  startup.
 
 </details>
 
@@ -501,7 +502,10 @@ and [templates/memory](../../templates/memory/README.md) for the file format.
 
 File tools (`vault_read_file`, `vault_list_files`) are enabled by default. Set
 `FILE_TOOLS_ENABLED=false` in your `.env` to hide them — useful when Obsidian
-Sync has attachment syncing disabled and no files exist on disk.
+Sync has attachment syncing disabled and no files exist on disk. The server
+holds only the attachment types Obsidian Sync delivers, so if a CSV or other
+text file you expect is missing, check `SYNC_FILE_TYPES` under
+[Configuration](#configuration).
 
 ## Read-only mode
 
@@ -566,27 +570,27 @@ Only `MCP_AUTH_TOKEN`, `PUBLIC_URL`, and `VAULT_NAME` are required.
 `OBSIDIAN_AUTH_TOKEN` can be filled via the `/setup` page when left blank.
 These optional settings are worth knowing about:
 
-| Setting                 | Default                       | What it does                                                                                                                                                                                                                                                                                        |
-| ----------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TZ`                    | `UTC`                         | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                                                                                                                                                                                                              |
-| `VAULT_PASSWORD`        | —                             | Set this if your vault has end-to-end encryption enabled                                                                                                                                                                                                                                            |
-| `EMBEDDING_ENABLED`     | `true`                        | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances                                                                                                                                                                                               |
-| `RERANK_MODE`           | `blended`                     | Set `none` to skip reranking for lower latency                                                                                                                                                                                                                                                      |
-| `MEMORY_ENABLED`        | `true`                        | Set `false` to disable the structured memory layer                                                                                                                                                                                                                                                  |
-| `FILE_TOOLS_ENABLED`    | `true`                        | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                                                                                                                                                                                                                   |
-| `READONLY_MODE`         | `false`                       | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — read and search only                                                                                                                                                                                    |
-| `DISABLED_TOOLS`        | none hidden                   | Hide individual tools by name, comma-separated; names match the [README tools table](https://github.com/aliasunder/vault-cortex#tools)                                                                                                                                                              |
-| `SYNC_CONFIGS`          | daily notes + plugin settings | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables                                                                                                                                                                                                |
-| `DEVICE_NAME`           | `vault-cortex`                | The device name that labels this container's changes in Obsidian's sync log                                                                                                                                                                                                                         |
-| `SYNC_MODE`             | `bidirectional`               | Sync direction: `bidirectional`, `pull-only` (server edits are kept locally but never uploaded), or `mirror-remote` (server edits are undone; the server is an exact copy).                                                                                                                         |
-| `CONFLICT_STRATEGY`     | `merge`                       | Obsidian Sync conflict resolution: `merge` integrates changes automatically; `conflict` writes a separate conflict file.                                                                                                                                                                            |
-| `SYNC_EXCLUDED_FOLDERS` | _(empty)_                     | Folders to leave out of sync, comma-separated — the same list as Obsidian's Sync → Excluded folders. Empty excludes nothing.                                                                                                                                                                        |
-| `SYNC_FILE_TYPES`       | _(empty)_                     | Attachment types to sync: `image`, `audio`, `video`, `pdf`, `unsupported`, comma-separated — the same toggles as Obsidian's Sync → Selective sync. Empty keeps the Sync client's default.                                                                                                           |
-| `DAILY_NOTES_FOLDER`    | from vault config             | Sets the daily notes folder (see [Daily notes](#daily-notes))                                                                                                                                                                                                                                       |
-| `DAILY_NOTES_FORMAT`    | from vault config             | Sets the daily note filename format (see [Daily notes](#daily-notes))                                                                                                                                                                                                                               |
-| `TRUST_PROXY_HOPS`      | `0`                           | Set `1` when a tunnel or reverse proxy fronts the server — OAuth rate limiting then buckets by the real client IP, not the proxy's                                                                                                                                                                  |
-| `TRUST_FORWARDED_HOPS`  | `0`                           | How many trailing `for=` entries in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header belong to proxies you control. `0` ignores the header; `1` when the proxy in front writes it (e.g. AWS API Gateway); `2` when a CDN fronts that proxy and is the only way to reach it |
-| `STORAGE_ROOT`          | —                             | One directory for everything that must persist, for hosting platforms that allow a single volume (see **Single persistent volume** under [Setup](#setup)). Must not contain `*`, `?`, or `[`.                                                                                                       |
+| Setting                 | Default                       | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `TZ`                    | `UTC`                         | Your IANA timezone (e.g. `America/New_York`) — affects daily note dates and timestamps                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `VAULT_PASSWORD`        | —                             | Set this if your vault has end-to-end encryption enabled                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `EMBEDDING_ENABLED`     | `true`                        | Set `false` to skip AI models (~45MB) and use keyword search only — saves memory on smaller instances                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `RERANK_MODE`           | `blended`                     | Set `none` to skip reranking for lower latency                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `MEMORY_ENABLED`        | `true`                        | Set `false` to disable the structured memory layer                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `FILE_TOOLS_ENABLED`    | `true`                        | Set `false` to hide file tools when Obsidian Sync has attachment syncing disabled                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `READONLY_MODE`         | `false`                       | Set `true` to hide every tool that changes the vault and skip memory folder auto-creation — read and search only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `DISABLED_TOOLS`        | none hidden                   | Hide individual tools by name, comma-separated; names match the [README tools table](https://github.com/aliasunder/vault-cortex#tools)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `SYNC_CONFIGS`          | daily notes + plugin settings | Obsidian settings categories synced to the server (see [Daily notes](#daily-notes)); `none` disables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `DEVICE_NAME`           | `vault-cortex`                | The device name that labels this container's changes in Obsidian's sync log                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `SYNC_MODE`             | `bidirectional`               | Sync direction: `bidirectional`, `pull-only` (edits made on the server stay on the server and are never uploaded), or `mirror-remote` (Obsidian Sync overwrites edits made on the server, so the server always matches your vault). An invalid value stops the container at boot.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `CONFLICT_STRATEGY`     | `merge`                       | Obsidian Sync conflict resolution: `merge` integrates changes automatically; `conflict` writes a separate conflict file.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `SYNC_EXCLUDED_FOLDERS` | _(empty)_                     | Folders to leave out of sync, comma-separated — the same list as Obsidian's Sync → Excluded folders. Empty excludes nothing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `SYNC_FILE_TYPES`       | _(empty)_                     | Attachment types to sync, comma-separated — the same toggles as Obsidian's Sync → Selective sync. **Valid values:** `image`, `audio`, `video`, `pdf`, `unsupported`. **Empty (default):** `image,audio,video,pdf`. The text files Vault Cortex reads (CSV, JSON, TXT, XML, LOG, YAML) fall under `unsupported`, Obsidian Sync's name for its **Sync all other types** category; SVG syncs as `image`, and notes, canvases, and bases always sync. To read those text files, set it to `image,audio,video,pdf,unsupported` (the value replaces the default list, so keep the four defaults) and turn on **Sync all other types** in Obsidian's Sync settings on the device that has them. An invalid value is skipped with a warning in the logs, and the default types sync instead. |
+| `DAILY_NOTES_FOLDER`    | from vault config             | Sets the daily notes folder (see [Daily notes](#daily-notes))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `DAILY_NOTES_FORMAT`    | from vault config             | Sets the daily note filename format (see [Daily notes](#daily-notes))                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `TRUST_PROXY_HOPS`      | `0`                           | Set `1` when a tunnel or reverse proxy fronts the server — OAuth rate limiting then buckets by the real client IP, not the proxy's                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `TRUST_FORWARDED_HOPS`  | `0`                           | How many trailing `for=` entries in the [RFC 7239](https://www.rfc-editor.org/rfc/rfc7239) `Forwarded` header belong to proxies you control. `0` ignores the header; `1` when the proxy in front writes it (e.g. AWS API Gateway); `2` when a CDN fronts that proxy and is the only way to reach it                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `STORAGE_ROOT`          | —                             | One directory for everything that must persist, for hosting platforms that allow a single volume (see **Single persistent volume** under [Setup](#setup)). Must not contain `*`, `?`, or `[`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 All settings are documented in `.env.example` and in the
 [Configuration](../../README.md#configuration) section of the main README.
@@ -622,7 +626,52 @@ container needs your vault name to know which vault to sync. This guide's
 `docker-compose.yml` refuses to start without it, but `docker run` and
 hosting-platform settings pages don't check. Add
 `VAULT_NAME=<your exact Obsidian vault name, case-sensitive>` to `.env` (or
-pass `-e VAULT_NAME=...`) and start the container again.
+pass `-e VAULT_NAME=...`) and re-create the container, because `docker start`
+keeps the old settings. The **Changed `.env`?** note under [Restart](#restart)
+gives the command for each setup method.
+
+**"First sync failed with N file(s) still waiting to download" in
+`docker logs`, and the container stops.** The container stopped on purpose.
+Some files in your Obsidian Sync vault haven't downloaded to the server yet,
+and starting two-way sync without them would delete them from your other
+devices. This usually happens right after you change `SYNC_FILE_TYPES` or
+`SYNC_EXCLUDED_FOLDERS`, when many files need to download at once.
+
+1. Wait for the restart policy to retry, or run `docker start vault-cortex`.
+   If the failure was a dropped connection, the next start picks up where
+   this one stopped.
+2. If it stops again with the same message, set `SYNC_MODE=pull-only` in
+   `.env` and re-create the container, because `docker start` keeps the old
+   settings. The **Changed `.env`?** note under [Restart](#restart) gives the
+   command for each setup method. The server starts and keeps retrying the
+   downloads, and `pull-only` never deletes anything from Obsidian Sync.
+   Edits made on the server in the meantime stay on the server.
+3. Later, set `SYNC_MODE=bidirectional` and re-create the container again.
+   If it stops with this message again, the downloads haven't finished yet,
+   so switch back to `pull-only` and try again later.
+
+If it still stops after several hours, one file is probably failing to
+download every time. In `docker logs`, the `Downloading` line just before
+`Sync error:` names it. Then do one of these:
+
+- Fix the file in Obsidian on another device.
+- Delete it in Obsidian on another device. The deletion reaches every
+  device. Obsidian Sync's version history (Settings → Sync → Deleted files)
+  keeps a deleted note for 1 month on Sync Standard and 12 months on Sync
+  Plus, and a deleted attachment for two weeks on either plan.
+- Add its folder to `SYNC_EXCLUDED_FOLDERS`. That keeps every file in the
+  folder off the server, not just the failing one.
+
+N can be higher than the number of files you expect. It includes files that
+your `SYNC_FILE_TYPES`, `SYNC_EXCLUDED_FOLDERS`, or `SYNC_CONFIGS` settings
+leave out, and a sync that completes skips those.
+
+**"ob sync-config --mode '…' failed" in `docker logs`, and the container
+stops.** `SYNC_MODE` isn't one of `bidirectional`, `pull-only`, or
+`mirror-remote`. Fix it in `.env` (or `-e SYNC_MODE=...`) and re-create the
+container, because `docker start` keeps the old settings. The
+**Changed `.env`?** note under [Restart](#restart) gives the command for each
+setup method.
 
 **"container name vault-cortex already in use" on start or upgrade.** A
 container from a different management method is still running. The CLI
@@ -631,15 +680,14 @@ manage the container independently — stop the existing one first with
 `docker rm -f vault-cortex`, then retry with your preferred method.
 
 **Vault re-syncs from scratch (or the search index is empty) after switching
-between the CLI, Compose, and `docker run`.** All three methods use the same
-named volumes, so data normally carries over — but only when the names match
-exactly, and a mismatch produces **no error**. Docker silently creates
-fresh, empty volumes and the container starts with a clean slate: Obsidian
-Sync registers a new device and re-syncs the vault, and the search index
-rebuilds.
+between the CLI, Compose, and `docker run`.** Nothing is lost — your data is
+still in the old volumes. All three methods use the same named volumes, so
+data normally carries over — but only when the names match exactly, and a
+mismatch produces **no error**. Docker silently creates fresh, empty volumes
+and the container starts with a clean slate: Obsidian Sync registers a new
+device and re-syncs the vault, and the search index rebuilds.
 
-Nothing is lost — your data is still in the old volumes. Confirm with
-`docker volume ls`: unprefixed names (`vault_data`) alongside prefixed ones
+Confirm with `docker volume ls`: unprefixed names (`vault_data`) alongside prefixed ones
 (`vault-cortex_vault_data`) mean an earlier setup used different volumes.
 The same thing happens when switching from the single-volume setup
 (`vault-cortex_storage`) to the CLI or Compose, which create the three-volume

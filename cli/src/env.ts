@@ -309,17 +309,28 @@ DEVICE_NAME=vault-cortex
 CONFLICT_STRATEGY=merge
 
 # Sync direction: bidirectional | pull-only | mirror-remote (default: bidirectional).
-# 'pull-only': server edits are kept locally but never uploaded;
-# 'mirror-remote': server edits are undone, so the server is an exact copy.
+# 'pull-only': edits made on the server stay on the server and are never uploaded;
+# 'mirror-remote': Obsidian Sync overwrites edits made on the server, so the
+# server always matches your vault.
+# An invalid value stops the container at boot.
 SYNC_MODE=bidirectional
 
 # Folders to leave out of sync, comma-separated — the same list as Obsidian's
 # Sync → "Excluded folders". Empty keeps the Sync client's default (nothing excluded).
 SYNC_EXCLUDED_FOLDERS=
 
-# Attachment types to sync, comma-separated: image, audio, video, pdf, unsupported —
-# the same toggles as Obsidian's Sync → "Selective sync". Empty keeps the Sync
-# client's default.
+# Attachment types to sync, comma-separated — the same toggles as Obsidian's
+# Sync → "Selective sync".
+#   Valid values: image | audio | video | pdf | unsupported
+#   Empty (default): image,audio,video,pdf
+# The text files Vault Cortex reads (CSV, JSON, TXT, XML, LOG, YAML) fall
+# under "unsupported", Obsidian Sync's name for its "Sync all other types"
+# category; SVG syncs as "image", and notes, canvases, and bases always sync.
+# To read those text files, set
+# SYNC_FILE_TYPES=image,audio,video,pdf,unsupported (the value replaces the
+# default list, so keep the four defaults) and turn on "Sync all other types"
+# in Obsidian's Sync settings on the device that has them. An invalid value
+# is skipped with a warning in the logs, and the default types sync instead.
 SYNC_FILE_TYPES=
 
 # Obsidian settings categories to sync into the server's .obsidian/ folder
