@@ -1177,6 +1177,7 @@ export const listPropertyKeys = (
   // ("active") and array (["a","b"]) property values.
   const sampleSql = `
     SELECT element.value, COUNT(*) as count
+    -- json_each() exposes key, value, type columns per JSON property
     FROM notes n, json_each(n.properties) property, json_each(
       CASE property.type
         WHEN 'array' THEN property.value
@@ -1185,6 +1186,7 @@ export const listPropertyKeys = (
     ) element
     WHERE property.key = @key
     ${sampleFolderCondition}
+    -- keep scalars only (excludes nulls, nested objects/arrays)
     AND typeof(element.value) IN ('text', 'integer', 'real')
     GROUP BY element.value
     ORDER BY count DESC, element.value
@@ -1226,11 +1228,10 @@ export const listPropertyValues = (
   // path column of their own.
   const folderCondition = escapedFolder ? "AND n.path LIKE @folder || '/%' ESCAPE '\\'" : ""
 
-  // The key is matched as data through json_each (the same walk
-  // listPropertyKeys makes, at comparable cost), never spliced into a JSON
-  // path, where "." and "[" are syntax and a key like "a.b" would read as
-  // missing. json_array() wraps scalars so the inner json_each works
-  // uniformly for both scalar ("active") and array (["a","b"]) values.
+  // Identical query structure to sampleSql in listPropertyKeys (same triple
+  // join, CASE, and typeof filter), differing only in LIMIT. The key is
+  // matched as data through json_each, never spliced into a JSON path,
+  // where "." and "[" are syntax and a key like "a.b" would read as missing.
   const sql = `
     SELECT element.value, COUNT(*) as count
     FROM notes n, json_each(n.properties) property, json_each(
@@ -1241,6 +1242,7 @@ export const listPropertyValues = (
     ) element
     WHERE property.key = @key
     ${folderCondition}
+    -- keep scalars only (excludes nulls, nested objects/arrays)
     AND typeof(element.value) IN ('text', 'integer', 'real')
     GROUP BY element.value
     ORDER BY count DESC, element.value
@@ -1284,7 +1286,9 @@ export const searchByProperty = (
 
   // The key is matched as data through json_each, never spliced into a JSON
   // path, where "." and "[" are syntax and a key like "a.b" would read as
-  // missing. Two branches then handle different property shapes:
+  // missing. EXISTS (not a FROM join) suffices because only a yes/no match
+  // per note is needed, not value counts. Two branches inside handle
+  // different property shapes:
   // - Array properties (tags: ["a","b"]): check if @value is IN the array
   // - Scalar properties (status: "active"): check direct equality
   // Both branches CAST to TEXT for type-safe comparison (integer 4 = text "4")
