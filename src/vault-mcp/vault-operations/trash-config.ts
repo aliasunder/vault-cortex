@@ -23,17 +23,17 @@ const isTrashOption = (value: unknown): value is TrashOption => {
 
 // ── Config reader ───────────────────────────────────────────────
 
-/** Reads the `trashOption` setting from `.obsidian/app.json` on every call.
- *  The setting decides whether a delete is recoverable, so a user who
- *  switches Obsidian from "Permanently delete" to a trash option must be
- *  followed at once, never after a restart; deletes are rare enough that
- *  the read costs nothing worth caching. Falls back to `"system"` when the
- *  file is missing, the key is absent, or the value is unrecognized. Throws
- *  on non-ENOENT read failures so a broken config never silently causes
- *  permanent delete. */
+/** Reads the `trashOption` setting from `.obsidian/app.json`.
+ *  - Returns `"system"` when the file is missing, the key is absent, or the
+ *    value is unrecognized.
+ *  - Throws when the file exists but cannot be read or parsed. */
 export const readTrashConfig = async (vaultPath: string, logger: Logger): Promise<TrashOption> => {
   try {
     const configPath = join(vaultPath, ".obsidian", "app.json")
+
+    // Read on every call, never cached. The setting decides whether a delete
+    // is recoverable, so a switch from "Permanently delete" to a trash option
+    // in Obsidian has to apply to the next delete, not after a restart.
     const fileContent = await readFile(configPath, "utf8")
     const parsed: Record<string, unknown> = JSON.parse(fileContent)
 
@@ -46,8 +46,10 @@ export const readTrashConfig = async (vaultPath: string, logger: Logger): Promis
     if (isErrnoException(error, "ENOENT")) {
       return "system"
     }
-    // Non-ENOENT failures (EACCES, EIO) must not silently fall back to
-    // permanent delete — the user may have configured .trash/ retention.
+
+    // Any other failure (EACCES, EIO, malformed JSON) stops the delete.
+    // Falling back to "system" would sweep a note the user set to keep in
+    // .trash/ forever.
     logger.warn("cannot read trash config", { error: describeError(error) })
     throw new Error("cannot read trash config from .obsidian/app.json", {
       cause: error,

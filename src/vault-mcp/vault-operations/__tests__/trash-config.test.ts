@@ -20,6 +20,17 @@ const writeAppConfig = async (
   await writeFile(join(obsidianDir, "app.json"), JSON.stringify(config), "utf8")
 }
 
+/** The message JSON.parse throws for `malformedJson`. Its wording varies by
+ *  engine version, so tests read it from the engine. */
+const jsonParseFailureMessage = (malformedJson: string): string => {
+  try {
+    JSON.parse(malformedJson)
+  } catch (error) {
+    if (error instanceof SyntaxError) return error.message
+  }
+  throw new Error("expected JSON.parse to throw a SyntaxError")
+}
+
 describe("readTrashConfig", () => {
   it('reads "local" from a valid app.json', async () => {
     const vault = await createVault()
@@ -91,15 +102,7 @@ describe("readTrashConfig", () => {
     await mkdir(obsidianDir, { recursive: true })
     const malformedJson = "not valid json{{{"
     await writeFile(join(obsidianDir, "app.json"), malformedJson, "utf8")
-    // JSON.parse's message varies by engine version, so read it from the engine
-    const parseFailureMessage = ((): string => {
-      try {
-        JSON.parse(malformedJson)
-      } catch (error) {
-        if (error instanceof SyntaxError) return error.message
-      }
-      throw new Error("expected JSON.parse to reject the malformed config")
-    })()
+
     const requestLogger = logger.child({ requestId: "request-1" })
     const requestWarnSpy = vi.spyOn(requestLogger, "warn")
     const rootWarnSpy = vi.spyOn(logger, "warn")
@@ -111,7 +114,7 @@ describe("readTrashConfig", () => {
 
     expect(requestWarnSpy).toHaveBeenCalledTimes(1)
     expect(requestWarnSpy).toHaveBeenCalledWith("cannot read trash config", {
-      error: `[SyntaxError]: ${parseFailureMessage}`,
+      error: `[SyntaxError]: ${jsonParseFailureMessage(malformedJson)}`,
     })
     expect(rootWarnSpy).not.toHaveBeenCalled()
   })

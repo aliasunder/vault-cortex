@@ -976,7 +976,7 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
           // On :remote (Obsidian Sync), skip the config and delete for good —
           // recovery is through Sync's version history, and a server-side
           // .trash/ would never sync back to the user. "none" (not "system")
-          // because "system" now lands in .trash/.
+          // because "system" lands in .trash/.
           const trashOption = config.obsidianSyncEnabled
             ? "none"
             : await readTrashConfig(vaultPath, reqLogger)

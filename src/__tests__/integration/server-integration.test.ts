@@ -1766,7 +1766,7 @@ describe("boot rejection", () => {
 // Each scenario boots its own server because each needs a different
 // starting config: a blank app.json for the system default, the fixture's
 // "local", a written "none" that the setting-change scenario switches to
-// "local" mid-test, or the Sync environment.
+// "local" mid-test, a malformed app.json, or the Sync environment.
 
 /** Every trash_entries row in a server's index DB, read directly from the
  *  data dir the harness created (WAL mode allows a concurrent reader). */
@@ -1782,6 +1782,14 @@ const readTrashEntryRows = (dataDir: string): string[] => {
   } finally {
     db.close()
   }
+}
+
+/** A server's structured stdout log, one parsed entry per line. */
+const parseLogEntries = (stdout: string): Record<string, unknown>[] => {
+  return stdout
+    .split("\n")
+    .filter((line) => line.startsWith("{"))
+    .map((line): Record<string, unknown> => JSON.parse(line))
 }
 
 describe("trash retention over real HTTP", () => {
@@ -1909,6 +1917,67 @@ describe("trash retention over real HTTP", () => {
       false,
     )
     expect(readTrashEntryRows(server.dataDir)).toEqual([])
+  }, 30_000)
+
+  it("a malformed app.json refuses the delete and logs the cause with the request's context", async () => {
+    const server = await startServer(await freePort())
+    onTestFinished(() => server.cleanup())
+    await writeFile(join(server.vaultPath, ".obsidian", "app.json"), "not valid json{{{", "utf8")
+    const client = await createTestClient(server.port)
+    onTestFinished(() => client.close())
+
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Scratch/malformed-config.md", body: "still here" },
+    })
+    const deleteResult = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Scratch/malformed-config.md" },
+    })
+
+    expect(deleteResult.isError).toBe(true)
+    expect(textContent(deleteResult)).toBe(
+      "[Error]: cannot read trash config from .obsidian/app.json",
+    )
+    await expect(
+      readFile(join(server.vaultPath, "Scratch", "malformed-config.md"), "utf8"),
+    ).resolves.toBe("still here\n")
+
+    // The server's stdout arrives through a pipe, so the log line can land
+    // after the tool result; a half-received line fails to parse and retries.
+    const { deleteCallLog, readFailureLog } = await vi.waitFor(() => {
+      const logEntries = parseLogEntries(server.stdout())
+      const loggedReadFailure = logEntries.find(
+        (logEntry) => logEntry.message === "cannot read trash config",
+      )
+
+      if (!loggedReadFailure) {
+        throw new Error("the read failure is not logged yet")
+      }
+
+      return {
+        deleteCallLog: logEntries.find(
+          (logEntry) => logEntry.message === "tool_call" && logEntry.tool === "vault_delete_note",
+        ),
+        readFailureLog: loggedReadFailure,
+      }
+    })
+
+    // The delete's own tool_call line carries the context the warning must
+    // share. The type checks keep that comparison from passing on undefined.
+    expect(typeof deleteCallLog?.requestId).toBe("number")
+    expect(typeof deleteCallLog?.sessionId).toBe("string")
+    expect({
+      tool: readFailureLog.tool,
+      requestId: readFailureLog.requestId,
+      sessionId: readFailureLog.sessionId,
+    }).toEqual({
+      tool: "vault_delete_note",
+      requestId: deleteCallLog?.requestId,
+      sessionId: deleteCallLog?.sessionId,
+    })
   }, 30_000)
 })
 
