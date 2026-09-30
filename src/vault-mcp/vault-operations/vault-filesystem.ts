@@ -423,7 +423,7 @@ const writeNote = async (
     }
     // readFileOrNull reads a folder at the path as no file. The write below
     // renames over the path, which would replace a symlink that points at a
-    // folder, so anything there that is not a file stops the write.
+    // folder, so the write stops when the path leads to anything but a file.
     if (existing === null) {
       const occupant = await statOrNull(fullPath)
 

@@ -1956,11 +1956,10 @@ describe("listMemoryFiles", () => {
     expect(h2s).toHaveLength(3)
   })
 
-  it("does not count callout lines as entries", async () => {
+  it("gives the H1 heading no entry count", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const principles = outlines.find((outline) => outline.file === "Principles")
     const h1 = principles?.headings.find((heading) => heading.level === 1)
-    // The whole heading, so a missing file or heading cannot pass as "no count".
     expect(h1).toStrictEqual({ level: 1, text: "Principles" })
   })
 

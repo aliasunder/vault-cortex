@@ -809,7 +809,8 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
         const filePath = memoryFilePath(params.vaultPath, params.file)
         // The read reports a folder at the path as no file. The write below
         // renames over the path, which would replace a symlink that points
-        // at a folder, so anything there that is not a file stops the write.
+        // at a folder, so the write stops when the path leads to anything
+        // but a file.
         const occupant = await statOrNull(filePath)
 
         if (occupant && !occupant.isFile()) {
