@@ -26,7 +26,7 @@ Filters — all conditions AND-combine with each other and the text query:
 - tags: require all listed tags (AND)
 - type: exact match on frontmatter type (e.g. "person", "session-log")
 - related: require all listed related links (AND)
-- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }); values compare by exact type (pass a number as a number, not "4"), and a list property matches when any element equals the value
+- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }); values compare by exact type (pass a number as a number, not "4"), except that checkbox values are stored as 1 and 0, so true matches 1 and false matches 0; a list property matches when any element equals the value
 - created: date bounds { before, on, after } in YYYY-MM-DD on the frontmatter created property — before/after are exclusive, on is exact (calendar-day match, server-local). Notes without a parseable created property never match
 - modified: date bounds { before, on, after } in YYYY-MM-DD on filesystem modified time (server-local day boundaries) — before/after match strictly earlier/later days, on matches within the day
 
@@ -51,7 +51,7 @@ Filters — all conditions AND-combine with each other and the text query:
 - tags: require all listed tags (AND)
 - type: exact match on frontmatter type (e.g. "person", "session-log")
 - related: require all listed related links (AND)
-- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }); values compare by exact type (pass a number as a number, not "4"), and a list property matches when any element equals the value
+- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }); values compare by exact type (pass a number as a number, not "4"), except that checkbox values are stored as 1 and 0, so true matches 1 and false matches 0; a list property matches when any element equals the value
 - created: date bounds { before, on, after } in YYYY-MM-DD on the frontmatter created property — before/after are exclusive, on is exact (calendar-day match, server-local). Notes without a parseable created property never match
 - modified: date bounds { before, on, after } in YYYY-MM-DD on filesystem modified time (server-local day boundaries) — before/after match strictly earlier/later days, on matches within the day
 
