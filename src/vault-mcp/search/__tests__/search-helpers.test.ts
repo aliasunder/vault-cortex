@@ -485,6 +485,36 @@ describe("noteMatchesSearchFilters", () => {
     expect(noteMatchesSearchFilters(baseRow, { properties: { status: "archived" } })).toBe(false)
   })
 
+  it("matches a list property when any element equals the value", () => {
+    const rowWithList = {
+      ...baseRow,
+      properties: JSON.stringify({ authors: ["Alice", "Bob"], status: "active" }),
+    }
+
+    expect(noteMatchesSearchFilters(rowWithList, { properties: { authors: "Bob" } })).toBe(true)
+    expect(noteMatchesSearchFilters(rowWithList, { properties: { authors: "Carol" } })).toBe(false)
+  })
+
+  it("matches boolean properties, and a boolean against 1/0 as the SQL leg does", () => {
+    const publishedRow = { ...baseRow, properties: JSON.stringify({ published: true }) }
+    const draftRow = { ...baseRow, properties: JSON.stringify({ published: false }) }
+
+    expect(noteMatchesSearchFilters(publishedRow, { properties: { published: true } })).toBe(true)
+    expect(noteMatchesSearchFilters(draftRow, { properties: { published: true } })).toBe(false)
+    expect(noteMatchesSearchFilters(draftRow, { properties: { published: false } })).toBe(true)
+    expect(noteMatchesSearchFilters(publishedRow, { properties: { published: 1 } })).toBe(true)
+    expect(noteMatchesSearchFilters(draftRow, { properties: { published: 1 } })).toBe(false)
+  })
+
+  it("compares property values by exact type", () => {
+    const ratedRow = { ...baseRow, properties: JSON.stringify({ rating: 4, ratings: [4, 5] }) }
+
+    expect(noteMatchesSearchFilters(ratedRow, { properties: { rating: 4 } })).toBe(true)
+    expect(noteMatchesSearchFilters(ratedRow, { properties: { rating: "4" } })).toBe(false)
+    expect(noteMatchesSearchFilters(ratedRow, { properties: { ratings: 5 } })).toBe(true)
+    expect(noteMatchesSearchFilters(ratedRow, { properties: { ratings: "5" } })).toBe(false)
+  })
+
   it("combines multiple filters with AND semantics", () => {
     expect(
       noteMatchesSearchFilters(baseRow, {

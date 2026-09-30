@@ -972,11 +972,15 @@ Returns: Confirmation message naming the outcome — "Deleted" for permanent rem
         reqLogger,
         async () => {
           const protectedPaths = await resolveEffectiveProtectedPaths(config, vaultPath)
+
           // On :remote (Obsidian Sync), skip the config and delete for good —
           // recovery is through Sync's version history, and a server-side
           // .trash/ would never sync back to the user. "none" (not "system")
           // because "system" now lands in .trash/.
-          const trashOption = config.obsidianSyncEnabled ? "none" : await readTrashConfig(vaultPath)
+          const trashOption = config.obsidianSyncEnabled
+            ? "none"
+            : await readTrashConfig(vaultPath, reqLogger)
+
           // Record for retention only under "system": Docker has no system
           // trash, so the server maps it to .trash/ — the server chose that
           // destination, so the server sweeps it. "local" means the user

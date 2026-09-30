@@ -257,6 +257,28 @@ export const dayToEpochMsRange = (date: string): { startMs: number; endMs: numbe
  *  in TypeScript — used for vector-only results that bypassed the FTS query.
  *  Date filter values are pre-validated by fullTextSearch, which hybridSearch
  *  always runs before this mirror. */
+/** SQLite's JSON functions read true/false as the integers 1/0, so the SQL
+ *  property filter treats a stored true and the number 1 as equal. The
+ *  mirror compares the same way, or the two search legs would disagree. */
+const toSqlComparable = (value: unknown): unknown => {
+  return typeof value === "boolean" ? Number(value) : value
+}
+
+/** Mirrors the SQL property filter: a list property matches when any element
+ *  equals the wanted value, a scalar property must equal it. Comparison is
+ *  type-exact, so the string "4" never matches the number 4. */
+const propertyValueMatches = (params: {
+  stored: unknown
+  wanted: string | number | boolean
+}): boolean => {
+  const wanted = toSqlComparable(params.wanted)
+
+  if (Array.isArray(params.stored)) {
+    return params.stored.some((element: unknown) => toSqlComparable(element) === wanted)
+  }
+  return toSqlComparable(params.stored) === wanted
+}
+
 export const noteMatchesSearchFilters = (note: NoteRow, filters: SearchFilters): boolean => {
   if (filters.folder && !pathIsInFolder({ path: note.path, folder: filters.folder })) return false
 
@@ -277,7 +299,7 @@ export const noteMatchesSearchFilters = (note: NoteRow, filters: SearchFilters):
   if (filters.properties) {
     const noteProperties = parseRecord(note.properties)
     for (const [key, value] of Object.entries(filters.properties)) {
-      if (noteProperties[key] !== value) return false
+      if (!propertyValueMatches({ stored: noteProperties[key], wanted: value })) return false
     }
   }
 
