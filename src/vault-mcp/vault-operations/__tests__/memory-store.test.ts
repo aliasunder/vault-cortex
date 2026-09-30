@@ -199,13 +199,22 @@ describe("getMemory", () => {
     )
   })
 
-  it("rejects an unreadable memory file with a vault-relative message in the named read", async () => {
+  it("rejects an unreadable memory file with a vault-relative message in the named read and logs the raw error", async () => {
+    const lockedFile = join(vault, "About Me", "Opinions.md")
     // afterEach deletes the vault, which removes a mode-000 file inside it, so
     // the permissions need no restore.
-    await chmod(join(vault, "About Me", "Opinions.md"), 0o000)
+    await chmod(lockedFile, 0o000)
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
     await expect(getMemory({ vaultPath: vault, file: "Opinions" }, logger)).rejects.toThrow(
       new Error('cannot read memory file "About Me/Opinions.md"'),
     )
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("cannot read memory file", {
+      file: "Opinions.md",
+      error: `[Error]: EACCES: permission denied, open '${lockedFile}'`,
+    })
   })
 
   it("throws on non-existent section", async () => {
@@ -1964,18 +1973,26 @@ describe("listMemoryFileNames", () => {
     ).rejects.toThrow(new Error('cannot list memory folder "About Me"'))
   })
 
-  it("rejects an unreadable memory folder with a vault-relative message", async () => {
+  it("rejects an unreadable memory folder with a vault-relative message and logs the raw error", async () => {
     const vaultWithLockedMemoryFolder = await mkdtemp(join(tmpdir(), "locked-memory-folder-"))
     onTestFinished(() => rm(vaultWithLockedMemoryFolder, { recursive: true }))
     const memoryFolder = join(vaultWithLockedMemoryFolder, "About Me")
     await mkdir(memoryFolder)
     await chmod(memoryFolder, 0o000)
-    // Registered last so that it runs first, which makes the folder readable
-    // again before the vault is removed.
+    // Registered after the removal so that it runs first, which makes the
+    // folder readable again before the vault is removed.
     onTestFinished(() => chmod(memoryFolder, 0o700))
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
     await expect(
       listMemoryFileNames({ vaultPath: vaultWithLockedMemoryFolder }, logger),
     ).rejects.toThrow(new Error('cannot list memory folder "About Me"'))
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("cannot list memory folder", {
+      folder: "About Me",
+      error: `[Error]: EACCES: permission denied, scandir '${memoryFolder}'`,
+    })
   })
 })
 

@@ -567,11 +567,12 @@ export const createMemoryStore = (options: { memoryDir: string }) => {
     logger: Logger,
   ): Promise<string | null> => {
     const filePath = memoryFilePath(params.vaultPath, params.file)
+    const filename = `${params.file}.md`
     try {
       return await readFileOrNull(filePath)
     } catch (error) {
-      logger.warn("cannot read memory file", { file: params.file, error: describeError(error) })
-      throw new Error(`cannot read memory file "${memoryDir}/${params.file}.md"`, { cause: error })
+      logger.warn("cannot read memory file", { file: filename, error: describeError(error) })
+      throw new Error(`cannot read memory file "${memoryDir}/${filename}"`, { cause: error })
     }
   }
 
