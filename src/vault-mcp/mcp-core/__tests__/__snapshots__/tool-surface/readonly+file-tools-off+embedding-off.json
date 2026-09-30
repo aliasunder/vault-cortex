@@ -103,7 +103,7 @@
         "type": "object",
         "properties": {
           "file": {
-            "description": "Memory file name without .md (e.g. \"Principles\", \"Opinions\")",
+            "description": "Memory file name without .md (e.g. \"Principles\", \"Opinions\"). Use the exact letter case.",
             "type": "string",
             "minLength": 1
           },
@@ -499,7 +499,7 @@
             ]
           },
           "path": {
-            "description": "Restrict to one note (vault-relative path ending \".md\")",
+            "description": "Restrict to one note (vault-relative path ending \".md\", case-sensitive)",
             "type": "string",
             "minLength": 1
           },
@@ -564,7 +564,7 @@
             "description": "Topic to recall — use specific keywords (semantic matching is off; re-query with synonyms to cover vocabulary drift)"
           },
           "file": {
-            "description": "Optional: restrict to one memory file, name without .md (e.g. \"Opinions\"). Omit for cross-file recall — the default and usual choice.",
+            "description": "Optional: restrict to one memory file, name without .md (e.g. \"Opinions\"), in its exact letter case. Omit for cross-file recall — the default and usual choice.",
             "type": "string",
             "minLength": 1
           },
@@ -601,7 +601,7 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"About Me/Principles.md\")"
+            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"About Me/Principles.md\"). Use the exact letter case."
           },
           "properties_only": {
             "description": "If true, returns parsed properties as JSON instead of full note content",

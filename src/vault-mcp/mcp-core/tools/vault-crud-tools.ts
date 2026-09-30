@@ -109,7 +109,7 @@ Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }
           .string()
           .min(1)
           .describe(
-            `Vault-relative path to the note, including the ".md" extension (e.g. "${config.memoryEnabled ? `${config.memoryDir}/Principles.md` : "Projects/plan.md"}")`,
+            `Vault-relative path to the note, including the ".md" extension (e.g. "${config.memoryEnabled ? `${config.memoryDir}/Principles.md` : "Projects/plan.md"}"). Use the exact letter case.`,
           ),
         properties_only: z
           .boolean()
@@ -398,7 +398,7 @@ Returns: Confirmation message.`,
           .string()
           .min(1)
           .describe(
-            'Vault-relative path including the ".md" extension (e.g. "Projects/notes.md"). Parent folders are created as needed.',
+            'Vault-relative path including the ".md" extension (e.g. "Projects/notes.md"). Parent folders are created as needed. Use the exact letter case; a different case can create a duplicate note or folder.',
           ),
         body: z
           .string()
@@ -490,7 +490,7 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
           .string()
           .min(1)
           .describe(
-            'Vault-relative path to the note, including the ".md" extension (e.g. "TASKS.md", "Projects/plan.md")',
+            'Vault-relative path to the note, including the ".md" extension (e.g. "TASKS.md", "Projects/plan.md"). Use the exact letter case.',
           ),
         operation: z
           .enum(["append", "prepend", "replace", "insert_before"])
@@ -599,7 +599,7 @@ Returns: Confirmation message with replacement count (number of occurrences repl
           .string()
           .min(1)
           .describe(
-            'Vault-relative path to the note, including the ".md" extension (e.g. "Projects/plan.md")',
+            'Vault-relative path to the note, including the ".md" extension (e.g. "Projects/plan.md"). Use the exact letter case.',
           ),
         old_text: z
           .string()
@@ -682,7 +682,7 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
           .string()
           .min(1)
           .describe(
-            'Vault-relative path to the note, including the ".md" extension (e.g. "Tracker.md", "Notes/Plan.md")',
+            'Vault-relative path to the note, including the ".md" extension (e.g. "Tracker.md", "Notes/Plan.md"). Use the exact letter case.',
           ),
         start_anchor: z
           .string()
@@ -772,7 +772,7 @@ Returns: Confirmation message "Replaced <N> lines with <M> lines in <path>" — 
           .string()
           .min(1)
           .describe(
-            'Vault-relative path to the note, including the ".md" extension (e.g. "Tracker.md", "Notes/Plan.md")',
+            'Vault-relative path to the note, including the ".md" extension (e.g. "Tracker.md", "Notes/Plan.md"). Use the exact letter case.',
           ),
         start_anchor: z
           .string()
@@ -868,7 +868,7 @@ Returns: Confirmation message "Inserted <N> lines <before|after> anchor in <path
           .string()
           .min(1)
           .describe(
-            'Vault-relative path to the note, including the ".md" extension (e.g. "Notes/Plan.md", "Tracker.md")',
+            'Vault-relative path to the note, including the ".md" extension (e.g. "Notes/Plan.md", "Tracker.md"). Use the exact letter case.',
           ),
         anchor: z
           .string()
@@ -967,7 +967,9 @@ Returns: Confirmation message naming the outcome — "Deleted <path>" for perman
         path: z
           .string()
           .min(1)
-          .describe('Vault-relative path of the note to delete, including the ".md" extension'),
+          .describe(
+            'Vault-relative path of the note to delete, including the ".md" extension. Use the exact letter case.',
+          ),
         prune_empty_folders: z
           .boolean()
           .optional()
@@ -1067,13 +1069,13 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
           .string()
           .min(1)
           .describe(
-            'Current vault-relative path of the note to move (e.g. "Inbox/Draft.md"). Must end in .md.',
+            'Current vault-relative path of the note to move (e.g. "Inbox/Draft.md"). Must end in .md. Use the exact letter case.',
           ),
         new_path: z
           .string()
           .min(1)
           .describe(
-            'Destination vault-relative path (e.g. "Projects/Spec.md"). Must end in .md and must not already exist; parent folders are created as needed.',
+            'Destination vault-relative path (e.g. "Projects/Spec.md"). Must end in .md and must not already exist; parent folders are created as needed. Use the exact letter case of existing folders; a different case can create a second folder.',
           ),
         prune_empty_folders: z
           .boolean()
@@ -1164,7 +1166,9 @@ Returns: Confirmation message.`,
         path: z
           .string()
           .min(1)
-          .describe('Vault-relative path to the note, including the ".md" extension'),
+          .describe(
+            'Vault-relative path to the note, including the ".md" extension. Use the exact letter case.',
+          ),
         properties: z
           .record(z.string().min(1), z.unknown())
           .describe(

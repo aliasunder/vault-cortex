@@ -72,7 +72,9 @@ Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entrie
           .string()
           .min(1)
           .optional()
-          .describe('Memory file name without .md (e.g. "Principles", "Opinions")'),
+          .describe(
+            'Memory file name without .md (e.g. "Principles", "Opinions"). Use the exact letter case.',
+          ),
         section: z
           .string()
           .min(1)
@@ -241,7 +243,7 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
           .min(1)
           .optional()
           .describe(
-            'Optional: restrict to one memory file, name without .md (e.g. "Opinions"). Omit for cross-file recall — the default and usual choice.',
+            'Optional: restrict to one memory file, name without .md (e.g. "Opinions"), in its exact letter case. Omit for cross-file recall — the default and usual choice.',
           ),
         limit: z
           .number()
@@ -308,7 +310,12 @@ Errors:
 
 Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
       inputSchema: {
-        file: z.string().min(1).describe('Memory file name without .md (e.g. "Principles")'),
+        file: z
+          .string()
+          .min(1)
+          .describe(
+            'Memory file name without .md (e.g. "Principles"). Use the exact letter case; a different case can create a second file.',
+          ),
         section: z
           .string()
           .min(1)
@@ -396,7 +403,10 @@ Errors:
 
 Returns: Confirmation message.`,
       inputSchema: {
-        file: z.string().min(1).describe('Memory file name without .md (e.g. "Principles")'),
+        file: z
+          .string()
+          .min(1)
+          .describe('Memory file name without .md (e.g. "Principles"). Use the exact letter case.'),
         section: z
           .string()
           .min(1)

@@ -446,7 +446,7 @@
             ]
           },
           "path": {
-            "description": "Restrict to one note (vault-relative path ending \".md\")",
+            "description": "Restrict to one note (vault-relative path ending \".md\", case-sensitive)",
             "type": "string",
             "minLength": 1
           },
@@ -508,7 +508,7 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"Projects/plan.md\")"
+            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"Projects/plan.md\"). Use the exact letter case."
           },
           "properties_only": {
             "description": "If true, returns parsed properties as JSON instead of full note content",

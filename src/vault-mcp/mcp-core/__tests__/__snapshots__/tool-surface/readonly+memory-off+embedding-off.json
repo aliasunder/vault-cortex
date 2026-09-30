@@ -485,7 +485,7 @@
             ]
           },
           "path": {
-            "description": "Restrict to one note (vault-relative path ending \".md\")",
+            "description": "Restrict to one note (vault-relative path ending \".md\", case-sensitive)",
             "type": "string",
             "minLength": 1
           },
@@ -547,7 +547,7 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "description": "Vault-relative path to the file, including its extension (e.g. \"attachments/photo.png\", \"Boards/Roadmap.canvas\"). Must NOT end in \".md\" — notes are read with vault_read_note."
+            "description": "Vault-relative path to the file, including its extension (e.g. \"attachments/photo.png\", \"Boards/Roadmap.canvas\"). Must NOT end in \".md\" — notes are read with vault_read_note. Use the exact letter case."
           },
           "raw": {
             "description": "Return the file's alternative form: JSON source for .canvas, page images for .pdf. Changes nothing for text formats, which already return their source. Rejected for images.",
@@ -591,7 +591,7 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"Projects/plan.md\")"
+            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"Projects/plan.md\"). Use the exact letter case."
           },
           "properties_only": {
             "description": "If true, returns parsed properties as JSON instead of full note content",

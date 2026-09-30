@@ -15,7 +15,7 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "description": "Vault-relative path to the note (must end in \".md\"). The note must already exist."
+            "description": "Vault-relative path to the note (must end in \".md\"). The note must already exist. Use the exact letter case."
           },
           "description": {
             "type": "string",
@@ -158,7 +158,7 @@
           "file": {
             "type": "string",
             "minLength": 1,
-            "description": "Memory file name without .md (e.g. \"Principles\")"
+            "description": "Memory file name without .md (e.g. \"Principles\"). Use the exact letter case."
           },
           "section": {
             "type": "string",
@@ -203,7 +203,7 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "description": "Vault-relative path of the note to delete, including the \".md\" extension"
+            "description": "Vault-relative path of the note to delete, including the \".md\" extension. Use the exact letter case."
           },
           "prune_empty_folders": {
             "default": false,
@@ -236,7 +236,7 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"Tracker.md\", \"Notes/Plan.md\")"
+            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"Tracker.md\", \"Notes/Plan.md\"). Use the exact letter case."
           },
           "start_anchor": {
             "type": "string",
@@ -366,7 +366,7 @@
         "type": "object",
         "properties": {
           "file": {
-            "description": "Memory file name without .md (e.g. \"Principles\", \"Opinions\")",
+            "description": "Memory file name without .md (e.g. \"Principles\", \"Opinions\"). Use the exact letter case.",
             "type": "string",
             "minLength": 1
           },
@@ -431,7 +431,7 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"Notes/Plan.md\", \"Tracker.md\")"
+            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"Notes/Plan.md\", \"Tracker.md\"). Use the exact letter case."
           },
           "anchor": {
             "type": "string",
@@ -856,7 +856,7 @@
             ]
           },
           "path": {
-            "description": "Restrict to one note (vault-relative path ending \".md\")",
+            "description": "Restrict to one note (vault-relative path ending \".md\", case-sensitive)",
             "type": "string",
             "minLength": 1
           },
@@ -921,7 +921,7 @@
             "description": "Topic to recall — natural language works best (semantic matching bridges phrasing drift across months); content words about the topic rank better than meta framing (\"testing philosophy\" over \"opinions on testing\")"
           },
           "file": {
-            "description": "Optional: restrict to one memory file, name without .md (e.g. \"Opinions\"). Omit for cross-file recall — the default and usual choice.",
+            "description": "Optional: restrict to one memory file, name without .md (e.g. \"Opinions\"), in its exact letter case. Omit for cross-file recall — the default and usual choice.",
             "type": "string",
             "minLength": 1
           },
@@ -958,12 +958,12 @@
           "old_path": {
             "type": "string",
             "minLength": 1,
-            "description": "Current vault-relative path of the note to move (e.g. \"Inbox/Draft.md\"). Must end in .md."
+            "description": "Current vault-relative path of the note to move (e.g. \"Inbox/Draft.md\"). Must end in .md. Use the exact letter case."
           },
           "new_path": {
             "type": "string",
             "minLength": 1,
-            "description": "Destination vault-relative path (e.g. \"Projects/Spec.md\"). Must end in .md and must not already exist; parent folders are created as needed."
+            "description": "Destination vault-relative path (e.g. \"Projects/Spec.md\"). Must end in .md and must not already exist; parent folders are created as needed. Use the exact letter case of existing folders; a different case can create a second folder."
           },
           "prune_empty_folders": {
             "default": false,
@@ -997,7 +997,7 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "description": "Vault-relative path to the file, including its extension (e.g. \"attachments/photo.png\", \"Boards/Roadmap.canvas\"). Must NOT end in \".md\" — notes are read with vault_read_note."
+            "description": "Vault-relative path to the file, including its extension (e.g. \"attachments/photo.png\", \"Boards/Roadmap.canvas\"). Must NOT end in \".md\" — notes are read with vault_read_note. Use the exact letter case."
           },
           "raw": {
             "description": "Return the file's alternative form: JSON source for .canvas, page images for .pdf. Changes nothing for text formats, which already return their source. Rejected for images.",
@@ -1041,7 +1041,7 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"About Me/Principles.md\")"
+            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"About Me/Principles.md\"). Use the exact letter case."
           },
           "properties_only": {
             "description": "If true, returns parsed properties as JSON instead of full note content",
@@ -1136,7 +1136,7 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"Projects/plan.md\")"
+            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"Projects/plan.md\"). Use the exact letter case."
           },
           "old_text": {
             "type": "string",
@@ -1180,7 +1180,7 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"Tracker.md\", \"Notes/Plan.md\")"
+            "description": "Vault-relative path to the note, including the \".md\" extension (e.g. \"Tracker.md\", \"Notes/Plan.md\"). Use the exact letter case."
           },
           "start_anchor": {
             "type": "string",
@@ -1492,7 +1492,7 @@
           "file": {
             "type": "string",
             "minLength": 1,
-            "description": "Memory file name without .md (e.g. \"Principles\")"
+            "description": "Memory file name without .md (e.g. \"Principles\"). Use the exact letter case; a different case can create a second file."
           },
           "section": {
             "type": "string",
@@ -1552,7 +1552,7 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "description": "Vault-relative path to the note, including the \".md\" extension"
+            "description": "Vault-relative path to the note, including the \".md\" extension. Use the exact letter case."
           },
           "properties": {
             "type": "object",
@@ -1590,7 +1590,7 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "description": "Vault-relative path to the note containing the task (must end in \".md\")"
+            "description": "Vault-relative path to the note containing the task (must end in \".md\"). Use the exact letter case."
           },
           "block_id": {
             "description": "Stable task identifier — the ^block-id at the end of the task line, without the ^. Preferred over line.",
@@ -1809,7 +1809,7 @@
           "path": {
             "type": "string",
             "minLength": 1,
-            "description": "Vault-relative path including the \".md\" extension (e.g. \"Projects/notes.md\"). Parent folders are created as needed."
+            "description": "Vault-relative path including the \".md\" extension (e.g. \"Projects/notes.md\"). Parent folders are created as needed. Use the exact letter case; a different case can create a duplicate note or folder."
           },
           "body": {
             "type": "string",

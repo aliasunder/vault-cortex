@@ -121,7 +121,7 @@ Returns: for images, an image content block plus a one-line metadata text block;
           .string()
           .min(1)
           .describe(
-            'Vault-relative path to the file, including its extension (e.g. "attachments/photo.png", "Boards/Roadmap.canvas"). Must NOT end in ".md" — notes are read with vault_read_note.',
+            'Vault-relative path to the file, including its extension (e.g. "attachments/photo.png", "Boards/Roadmap.canvas"). Must NOT end in ".md" — notes are read with vault_read_note. Use the exact letter case.',
           ),
         raw: z
           .boolean()

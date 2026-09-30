@@ -88,7 +88,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .string()
           .min(1)
           .optional()
-          .describe('Restrict to one note (vault-relative path ending ".md")'),
+          .describe('Restrict to one note (vault-relative path ending ".md", case-sensitive)'),
         top_level_only: z
           .boolean()
           .optional()
@@ -268,7 +268,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
           .string()
           .min(1)
           .describe(
-            'Vault-relative path to the note (must end in ".md"). The note must already exist.',
+            'Vault-relative path to the note (must end in ".md"). The note must already exist. Use the exact letter case.',
           ),
         description: z.string().min(1).describe("The task text (before metadata fields)."),
         block_id: z
@@ -531,7 +531,9 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
         path: z
           .string()
           .min(1)
-          .describe('Vault-relative path to the note containing the task (must end in ".md")'),
+          .describe(
+            'Vault-relative path to the note containing the task (must end in ".md"). Use the exact letter case.',
+          ),
         block_id: z
           .string()
           .min(1)
