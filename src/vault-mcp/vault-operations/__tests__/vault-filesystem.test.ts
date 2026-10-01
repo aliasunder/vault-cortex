@@ -287,6 +287,30 @@ describe("path traversal", () => {
       ).rejects.toThrow("path traversal blocked")
     },
   )
+
+  it.each(["../escape", "foo/../../escape"])("listNotes rejects folder %s", async (folder) => {
+    await expect(listNotes({ vaultPath: vault, folder }, logger)).rejects.toThrow(
+      `path traversal blocked: "${folder}" escapes vault root`,
+    )
+  })
+
+  it.each(["../escape", "foo/../../escape"])("listAssets rejects folder %s", async (folder) => {
+    await expect(listAssets({ vaultPath: vault, folder }, logger)).rejects.toThrow(
+      `path traversal blocked: "${folder}" escapes vault root`,
+    )
+  })
+
+  it("listNotes rejects a folder that names the vault root", async () => {
+    await expect(listNotes({ vaultPath: vault, folder: "." }, logger)).rejects.toThrow(
+      'path traversal blocked: "." resolves to the vault root',
+    )
+  })
+
+  it("listAssets rejects a folder that names the vault root", async () => {
+    await expect(listAssets({ vaultPath: vault, folder: "." }, logger)).rejects.toThrow(
+      'path traversal blocked: "." resolves to the vault root',
+    )
+  })
 })
 
 describe("absolute paths", () => {
@@ -312,6 +336,18 @@ describe("absolute paths", () => {
       ),
     ).rejects.toThrow(`absolute path blocked: "${vault}/note.md" must be vault-relative`)
     expect(await readFile(join(vault, "note.md"), "utf8")).toBe("content")
+  })
+
+  it("listNotes rejects an absolute container folder", async () => {
+    await expect(listNotes({ vaultPath: vault, folder: `${vault}/notes` }, logger)).rejects.toThrow(
+      `absolute path blocked: "${vault}/notes" must be vault-relative`,
+    )
+  })
+
+  it("listAssets rejects an absolute container folder", async () => {
+    await expect(
+      listAssets({ vaultPath: vault, folder: `${vault}/notes` }, logger),
+    ).rejects.toThrow(`absolute path blocked: "${vault}/notes" must be vault-relative`)
   })
 })
 
@@ -1724,6 +1760,40 @@ describe("listNotes", () => {
     await writeFile(join(vault, "notes/z.md"), "z", "utf8")
     const files = await listNotes({ vaultPath: vault, folder: "notes" }, logger)
     expect(files).toEqual(["notes/a.md", "notes/b.md", "notes/z.md"])
+  })
+
+  it("sorts uppercase names before lowercase ones", async () => {
+    await writeFile(join(vault, "notes/C.md"), "c", "utf8")
+    const files = await listNotes({ vaultPath: vault, folder: "notes" }, logger)
+    expect(files).toEqual(["notes/C.md", "notes/a.md", "notes/b.md"])
+  })
+
+  it("does not list a sibling folder whose name starts with the folder's name", async () => {
+    await mkdir(join(vault, "notesOld"), { recursive: true })
+    await writeFile(join(vault, "notesOld/old.md"), "old", "utf8")
+    const files = await listNotes({ vaultPath: vault, folder: "notes" }, logger)
+    expect(files).toEqual(["notes/a.md", "notes/b.md"])
+  })
+
+  it("keeps a single-star glob within one folder level", async () => {
+    await mkdir(join(vault, "notes/sub"), { recursive: true })
+    await writeFile(join(vault, "notes/sub/c.md"), "c", "utf8")
+    const files = await listNotes({ vaultPath: vault, glob: "notes/*.md" }, logger)
+    expect(files).toEqual(["notes/a.md", "notes/b.md"])
+  })
+
+  it("matches a double-star glob at any depth", async () => {
+    await mkdir(join(vault, "notes/sub"), { recursive: true })
+    await writeFile(join(vault, "notes/sub/c.md"), "c", "utf8")
+    const files = await listNotes({ vaultPath: vault, glob: "**/*.md" }, logger)
+    expect(files).toEqual(["notes/a.md", "notes/b.md", "notes/sub/c.md", "root.md"])
+  })
+
+  it("matches glob case-sensitively", async () => {
+    const upperCaseFiles = await listNotes({ vaultPath: vault, glob: "NOTES/*.md" }, logger)
+    const matchingCaseFiles = await listNotes({ vaultPath: vault, glob: "notes/*.md" }, logger)
+    expect(upperCaseFiles).toEqual([])
+    expect(matchingCaseFiles).toEqual(["notes/a.md", "notes/b.md"])
   })
 
   it("includes a symlinked .md file in the listing", async () => {

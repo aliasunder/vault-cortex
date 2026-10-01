@@ -22,11 +22,11 @@ export const registerSearchTools = ({
         ? `Hybrid search across all vault notes, ranked by combined keyword and semantic relevance using Reciprocal Rank Fusion (RRF) — combining FTS5 keyword matching with vector similarity. Results are refined by a cross-encoder reranker using position-aware score blending when available. Semantic matching finds notes even when exact keywords differ — "career aspirations" finds notes about "goals" and "targets". Falls back to keyword-only (FTS5 BM25) transparently while embeddings are being built. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
 
 Filters — all conditions AND-combine with each other and the text query:
-- folder: path prefix (e.g. "Projects")
+- folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
 - tags: require all listed tags (AND)
 - type: exact match on frontmatter type (e.g. "person", "session-log")
 - related: require all listed related links (AND)
-- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }); values compare by exact type (pass a number as a number, not "4"), and a list property matches when any element equals the value
+- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }); values compare by exact type (pass a number as a number, not "4"), except that checkbox values are stored as 1 and 0, so true matches 1 and false matches 0; a list property matches when any element equals the value
 - created: date bounds { before, on, after } in YYYY-MM-DD on the frontmatter created property — before/after are exclusive, on is exact (calendar-day match, server-local). Notes without a parseable created property never match
 - modified: date bounds { before, on, after } in YYYY-MM-DD on filesystem modified time (server-local day boundaries) — before/after match strictly earlier/later days, on matches within the day
 
@@ -43,15 +43,15 @@ Errors:
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 - A malformed or calendar-invalid created/modified date filter throws with remediation text ("Use YYYY-MM-DD")
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total count, search_mode ("hybrid" or "fts"), and reranked (boolean — true when cross-encoder reranking refined the ordering). search_mode indicates which ranking was used — "hybrid" when vector embeddings contributed, "fts" when only keyword matching was available. score reflects combined relevance (higher = more relevant). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
+Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total (results returned, not all matches), search_mode ("hybrid" or "fts"), and reranked (boolean — true when cross-encoder reranking refined the ordering). search_mode indicates which ranking was used — "hybrid" when vector embeddings contributed, "fts" when only keyword matching was available. score reflects combined relevance (higher = more relevant). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`
         : `Full-text search across all vault notes, ranked by relevance. Combine a text query with structured filters to narrow results by metadata — the "narrow by metadata, search by text" pattern. Unquoted terms use implicit AND with porter stemming; wrap in double quotes for exact phrases; punctuated terms (vault-cortex, deploy/local) are matched as exact adjacent-word phrases automatically.
 
 Filters — all conditions AND-combine with each other and the text query:
-- folder: path prefix (e.g. "Projects")
+- folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
 - tags: require all listed tags (AND)
 - type: exact match on frontmatter type (e.g. "person", "session-log")
 - related: require all listed related links (AND)
-- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }); values compare by exact type (pass a number as a number, not "4"), and a list property matches when any element equals the value
+- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }); values compare by exact type (pass a number as a number, not "4"), except that checkbox values are stored as 1 and 0, so true matches 1 and false matches 0; a list property matches when any element equals the value
 - created: date bounds { before, on, after } in YYYY-MM-DD on the frontmatter created property — before/after are exclusive, on is exact (calendar-day match, server-local). Notes without a parseable created property never match
 - modified: date bounds { before, on, after } in YYYY-MM-DD on filesystem modified time (server-local day boundaries) — before/after match strictly earlier/later days, on matches within the day
 
@@ -68,7 +68,7 @@ Errors:
 - Malformed query syntax is sanitized automatically — the tool never throws a query syntax error
 - A malformed or calendar-invalid created/modified date filter throws with remediation text ("Use YYYY-MM-DD")
 
-Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total count, search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
+Returns: JSON with results array (path, title, snippet, score, tags, folder, type, kind, extension, created, modified, bytes), total (results returned, not all matches), search_mode ("fts" — keyword-only ranking), and reranked (always false in keyword-only mode). kind is "note" for markdown notes or "file" for non-markdown content (canvas, PDF, and text files — .txt, .csv, .json, .xml, .svg, .log, .yaml, .yml, .base); file results also carry extension (e.g. ".canvas", ".pdf", ".txt"). created is omitted when null. bytes is the on-disk file size. With include_leading_callout, each result also carries leading_callout ({ type, title, body }) when present.`,
       inputSchema: {
         query: z
           .string()
@@ -78,11 +78,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
           ),
         filters: z
           .object({
-            folder: z
-              .string()
-              .min(1)
-              .optional()
-              .describe('Restrict to a folder path prefix (e.g. "Projects")'),
+            folder: z.string().min(1).optional().describe('Restrict to a folder (e.g. "Projects")'),
             tags: z
               .array(z.string().min(1))
               .optional()
@@ -171,9 +167,9 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
       title: "Search by Tag",
       description: `Find notes with a specific tag. By default uses hierarchical prefix matching — a parent tag matches all children (e.g. "project" matches "project/vault-cortex", "project/blog"). Set exact=true for exact match only.
 
-Example: vault_search_by_tag({ tag: "project" }) returns all notes tagged project or project/*.
+Example: vault_search_by_tag({ tag: "project" }) returns notes tagged project or project/*.
 
-When to use: Exploring tag hierarchies or finding all notes with a specific tag, without needing a text query.
+When to use: Exploring tag hierarchies or finding notes with a specific tag, without needing a text query.
 Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
 
 Parameters:
@@ -183,7 +179,7 @@ Parameters:
 Errors:
 - An unknown tag or no matches returns an empty array, not an error — don't use as an existence check.
 
-Returns: JSON array of up to 20 notes' metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
+Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified and capped at 20, with no truncation signal: exactly 20 results may mean more exist. bytes is the on-disk file size. Promoted keys are in top-level fields; additional_properties contains only unpromoted keys.`,
       inputSchema: {
         tag: z
           .string()
@@ -310,14 +306,16 @@ When to use: Exploring a folder's contents with full context for vault orientati
 Prefer vault_list_notes when you only need paths. Prefer vault_search when you have a text query. Use vault_get_backlinks or vault_get_outgoing_links to explore how notes in a folder connect to the rest of the vault.
 
 Parameters:
-- folder is matched as a path prefix; pass it without a trailing slash ("Projects").
+- folder names a whole folder, not a text prefix: "Projects" matches notes under "Projects/" but not "ProjectsOld/". Matching ignores ASCII letter case, and a trailing slash is ignored.
 - recursive (default true) includes all nested subfolders; set false to list only the folder's top level.
-- limit (default 20) caps results.
+- limit (default 20) applies after sorting, so you get the most recently modified notes. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
+
+Behavior: Reads the search index, which picks up a file change within a few seconds, so a note written moments ago may not appear yet. Notes in hidden (dot-prefixed) folders are never indexed, so never appear.
 
 Errors:
 - An empty or nonexistent folder returns an empty array, not an error.
 
-Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by most recently modified. bytes is the on-disk file size.`,
+Returns: JSON array of note metadata sorted by most recently modified, then by path: path, title, tags, related, folder, type, created (frontmatter; null when missing), modified (file modification time), bytes (on-disk size), plus leading_callout ({ type, title, body }) when the note opens with a callout and additional_properties (its other frontmatter keys) when it has any.`,
       inputSchema: {
         folder: z
           .string()
@@ -338,7 +336,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
       })
-      reqLogger.info("tool_call", { folder, recursive })
+      reqLogger.info("tool_call", { folder, recursive, limit })
       return safeHandler(
         reqLogger,
         async () => search.searchByFolder({ folder, recursive, limit }, reqLogger),
@@ -362,9 +360,14 @@ When to use: Discovering what properties exist before searching by property. Goo
 Prefer vault_list_property_values when you need the full list of values for a specific key. Prefer vault_search_by_property to find notes matching a specific key-value pair.
 
 Parameters:
-- folder is matched as a path prefix and recurses into subfolders ("Projects" also covers "Projects/Archive"); omit it to scan the entire vault.
+- folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case; omit folder to scan the entire vault.
 
-Returns: JSON array of { key, count, sample_values } sorted by count descending. sample_values shows the top 3 most common values per key for quick orientation.`,
+Behavior: Only frontmatter properties count; inline Dataview fields (key:: value) are not listed. count is the number of notes that have the key, including notes where its value is empty (null). sample_values are the key's 3 most frequent values, counting each array element separately, returned as strings (checkbox values as "1" and "0"); null values are skipped.
+
+Errors:
+- An empty vault or folder returns an empty array, not an error.
+
+Returns: JSON array of { key, count, sample_values } sorted by count descending, then by key.`,
       inputSchema: {
         folder: z.string().min(1).optional().describe('Restrict to a folder (e.g. "Projects")'),
       },
@@ -390,16 +393,25 @@ Returns: JSON array of { key, count, sample_values } sorted by count descending.
     TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
     {
       title: "List Property Values",
-      description: `List distinct values for a specific property key with occurrence counts. Useful for discovering the range of values a property takes before searching.
+      description: `List distinct values for a specific property key with how often each occurs. Useful for discovering the range of values a property takes before searching.
 
-Example: vault_list_property_values({ key: "status" }) returns [{ value: "active", count: 47 }, { value: "done", count: 211 }, ...]
+Example: vault_list_property_values({ key: "status" }) returns [{ value: "done", count: 211 }, { value: "active", count: 47 }, ...]
 
-When to use: Enumerating possible values for a property key before calling vault_search_by_property. Handles both scalar properties (status: "active") and array properties (tags: ["a", "b"]) — array elements are unpacked and counted individually, so the sum of counts may exceed the note count. An unknown key or empty folder returns an empty array, not an error. Call vault_list_property_keys first to discover valid key names.
+When to use: Enumerating possible values for a property key before calling vault_search_by_property. Call vault_list_property_keys first to discover valid key names.
 
 Parameters:
-- key is case-sensitive and must match exactly as returned by vault_list_property_keys. Values are always strings — numeric and boolean properties are stringified for counting.
-- folder + key interact: folder restricts counting to a subtree, so the same key can return different value distributions depending on folder scope.
-- limit (default 50) applies after sorting by count descending, so you always get the most-used values first. Increase for high-cardinality keys like "title" or "created".
+- key is case-sensitive and must match exactly as returned by vault_list_property_keys.
+- folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case.
+- limit (default 50) applies after sorting by count descending, so you always get the most-used values first. Nothing in the response signals truncation: exactly limit values may mean more exist, which is common for keys with many distinct values like "title" or "created"; raise limit to check.
+
+Behavior:
+- Handles both scalar properties (status: "active") and array properties (tags: ["a", "b"]). Array elements are unpacked and counted individually, so the sum of counts may exceed the note count.
+- Values are grouped first and turned into strings after, so a number and the same digits written as text (1 and "1") come back as two separate "1" rows.
+- Checkbox values are stored as 1 and 0, so true and false come back as "1" and "0", counted with the numbers 1 and 0.${whenToolEnabledText("vault_search_by_property", `\n- vault_search_by_property compares values as text, so value "1" matches the number 1, the text "1", and a checked checkbox.`)}
+- null values are skipped.
+
+Errors:
+- An unknown key or empty folder returns an empty array, not an error.
 
 Returns: JSON array of { value, count } sorted by count descending.`,
       inputSchema: {
@@ -409,18 +421,14 @@ Returns: JSON array of { value, count } sorted by count descending.`,
           .describe(
             'Property key name — use vault_list_property_keys to discover valid keys (e.g. "status", "type", "tags").',
           ),
-        folder: z
-          .string()
-          .min(1)
-          .optional()
-          .describe('Restrict to a folder prefix (e.g. "Projects")'),
+        folder: z.string().min(1).optional().describe('Restrict to a folder (e.g. "Projects")'),
         limit: z
           .number()
           .int()
           .min(1)
           .optional()
           .default(50)
-          .describe("Max values to return (default 50). Increase for high-cardinality properties."),
+          .describe("Max values to return (default 50)."),
       },
     },
     async ({ key, folder, limit }, extra) => {
@@ -428,7 +436,7 @@ Returns: JSON array of { value, count } sorted by count descending.`,
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
       })
-      reqLogger.info("tool_call", { key, folder })
+      reqLogger.info("tool_call", { key, folder, limit })
       return safeHandler(
         reqLogger,
         async () => search.listPropertyValues({ key, folder, limit }, reqLogger),
@@ -453,9 +461,10 @@ When to use: Finding notes by metadata when you don't have a text query.
 Prefer vault_search when you also have a text query (it supports property filters too). Prefer vault_search_by_tag for tag-specific queries (supports hierarchical prefix matching). Use vault_list_property_keys to discover valid keys and vault_list_property_values to see what values a key takes.
 
 Parameters:
-- key + value are both exact and case-sensitive — no partial matching or globbing. All property values are compared as strings, so numeric or boolean properties must be passed as their string representation.
-- For array properties (tags, related), value is tested against each element individually (contains check) — "blog" matches a note with tags: ["blog", "draft"] but not tags: ["my-blog"].
-- folder narrows results to a subtree; omit for vault-wide search. Combined with key+value, this lets you check how a property is used within a specific area.
+- key + value are both exact and case-sensitive — no partial matching or globbing. Values are compared as text: pass a number as its digits and a checkbox as "1" or "0" (true is stored as 1, false as 0).
+- An array element must equal value in full: "blog" matches tags: ["blog", "draft"] but not tags: ["my-blog"].
+- folder names a whole folder and includes its subfolders: "Projects" covers "Projects/Archive" but not "ProjectsOld/". Matching ignores ASCII letter case; omit folder to search the entire vault.
+- limit (default 20) applies after sorting. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
 
 Returns: JSON array of note metadata (path, title, tags, related, folder, type, created, modified, bytes, leading_callout?, additional_properties), sorted by filesystem mtime descending — recently-synced notes may sort ahead of older content edits.`,
       inputSchema: {
@@ -471,18 +480,8 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
           .describe(
             'Value to match (exact, case-sensitive, e.g. "active", "session-log"). Use vault_list_property_values to discover valid values for a key.',
           ),
-        folder: z
-          .string()
-          .min(1)
-          .optional()
-          .describe('Restrict to a folder prefix (e.g. "Projects")'),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .default(20)
-          .describe("Max results (default 20). Increase for broad metadata queries."),
+        folder: z.string().min(1).optional().describe('Restrict to a folder (e.g. "Projects")'),
+        limit: z.number().int().min(1).optional().default(20).describe("Max results (default 20)"),
       },
     },
     async ({ key, value, folder, limit }, extra) => {
@@ -490,7 +489,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
       })
-      reqLogger.info("tool_call", { key, value, folder })
+      reqLogger.info("tool_call", { key, value, folder, limit })
       return safeHandler(
         reqLogger,
         async () => search.searchByProperty({ key, value, folder, limit }, reqLogger),
@@ -623,8 +622,8 @@ When to use: Vault maintenance — surfacing notes to integrate into the graph.$
 Prefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.
 
 Parameters:
-- exclude_folders replaces the defaults (${JSON.stringify(config.orphanExcludeFolders)}), it does not add to them — include the defaults yourself to keep them. Matched by folder prefix, recursing into subfolders ("Projects" also excludes "Projects/Archive").
-- limit (default 50) caps results after sorting by most-recently-modified.
+- exclude_folders replaces the defaults (${JSON.stringify(config.orphanExcludeFolders)}), it does not add to them — include the defaults yourself to keep them. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.
+- limit (default 50) applies after sorting by most recently modified. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
 
 Errors:
 - An empty array means no orphans were found (after exclusions), not an error.
@@ -648,14 +647,15 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
       reqLogger.info("tool_call", { exclude_folders, limit })
       return safeHandler(
         reqLogger,
-        async () =>
-          search.findOrphans(
+        async () => {
+          return search.findOrphans(
             {
               excludeFolders: exclude_folders ?? [...config.orphanExcludeFolders],
               limit,
             },
             reqLogger,
-          ),
+          )
+        },
         (results) => {
           reqLogger.info("tool_result", { resultCount: results.length })
           return JSON.stringify(results.map(formatNoteMetadata))

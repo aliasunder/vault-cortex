@@ -23,7 +23,7 @@ export const registerTaskTools = ({
 
 Example: vault_list_tasks({ due: { before: "2026-07-04" } }) — overdue triage; the default status (not_done) and sort (due ascending) make this the "what's overdue?" call
 Example: vault_list_tasks({ path: "Code Projects/vault-cortex/TASKS.md", heading: ["Active", "Up Next", "Waiting On"], sort_by: "position" }) — actionable Kanban lanes in board order; position is the natural sort for boards (file path then line number, preserving card arrangement)
-Example: vault_list_tasks({ folder: "Code Projects/vault-cortex" }) — all open tasks across a project tree (TASKS.md + task-notes/ subdirectories); folder is a recursive prefix match
+Example: vault_list_tasks({ folder: "Code Projects/vault-cortex" }) — all open tasks across a project tree (TASKS.md + task-notes/ subdirectories); folder includes its subfolders
 Example: vault_list_tasks({ status: "done", done: { after: "2026-06-26" } }) — what got completed this week
 Example: vault_list_tasks({ top_level_only: true, path: "TASKS.md" }) — board cards only, excluding checklist sub-items
 
@@ -34,7 +34,7 @@ Parameters:
 - status: a single value or an array of values, OR-combined (default "not_done"). Values: "not_done" (todo + in_progress, excludes done AND cancelled), "todo", "in_progress", "done", "cancelled", "all". Virtual values expand in arrays: ["not_done", "done"] matches todo + in_progress + done.
 - due / scheduled / start / done / created / cancelled: date filters, each { before, on, after } in YYYY-MM-DD — before/after are exclusive, on is exact. A date filter only matches tasks that HAVE that date.
 - priority: array of "highest" | "high" | "medium" | "low" | "lowest" | "none", OR-combined ("none" = tasks with no priority signifier).
-- folder: recursive note-path prefix. tag: bare inline-task-tag name; a parent tag matches children. heading: exact heading text or array of headings, case-sensitive, OR-combined. path: one note, must end in ".md".
+- folder: a whole folder, subfolders included ("Projects" covers "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. tag: bare inline-task-tag name; a parent tag matches children. heading: exact heading text or array of headings, case-sensitive, OR-combined. path: one note, must end in ".md".
 - top_level_only: boolean (default false). When true, only top-level tasks (depth 0) are returned — excludes indented sub-tasks and checklist items.
 - sort_by: "due" (default) | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime" | "position". "position" sorts by file path then line number — the natural order for Kanban boards.
 - limit: max results (default 50). The total field always reports the full match count.
@@ -72,7 +72,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .string()
           .min(1)
           .optional()
-          .describe('Restrict to a note-path prefix (e.g. "Code Projects/vault-cortex")'),
+          .describe('Restrict to a folder (e.g. "Code Projects/vault-cortex")'),
         tag: z
           .string()
           .min(1)
@@ -88,7 +88,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .string()
           .min(1)
           .optional()
-          .describe('Restrict to one note (vault-relative path ending ".md")'),
+          .describe('Restrict to one note (vault-relative path ending ".md", case-sensitive)'),
         top_level_only: z
           .boolean()
           .optional()
@@ -172,8 +172,8 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
       })
       return safeHandler(
         reqLogger,
-        async () =>
-          search.listTasks(
+        async () => {
+          return search.listTasks(
             {
               status,
               due,
@@ -193,7 +193,8 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
               sortDirection: sort_direction,
             },
             reqLogger,
-          ),
+          )
+        },
         (result) => {
           reqLogger.info("tool_result", {
             resultCount: result.tasks.length,
@@ -243,12 +244,13 @@ Parameters:
 
 Errors:
 - "note not found" — path does not exist
+- "path must end in …" — add the .md extension
 - "heading required for Kanban boards" — kanban-plugin note without heading
 - "heading "X" not found; available: ..." — no heading matches; the error lists the note's headings
 - "cannot place at position N under "X" — the heading appears N times" — integer position on a note with duplicate heading names; rename one section to make it unique
 - "parent task not found" — parent_block_id or parent_line doesn't resolve to a task (message names the blockId or line tried), or the line is inside a fenced code block or %% %% comment
 - "checkbox '[c]' is a NON_TASK status" — the parent task's checkbox char is typed NON_TASK in the Tasks plugin's status registry; NON_TASK checkboxes are excluded from the task system
-- "no checkbox symbol for status ..." — the status registry has no symbol for the todo status and the built-in default is retyped; update the plugin's status registry to include a todo symbol, then restart the server (the status registry is read once at boot)
+- "no checkbox symbol for status ..." — the status registry has no symbol for the todo status and the built-in default is retyped; update the plugin's status registry to include a todo symbol, then restart the server
 - "parentBlockId and parentLine are mutually exclusive" — both parent_block_id and parent_line were passed; drop one
 - "parent and heading are mutually exclusive" — a parent (parent_block_id or parent_line) and heading were both passed; drop one
 - "blockId ... already exists in this note" — pick a block_id not yet used in the note
@@ -268,7 +270,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
           .string()
           .min(1)
           .describe(
-            'Vault-relative path to the note (must end in ".md"). The note must already exist.',
+            'Vault-relative path to the note (must end in ".md"). The note must already exist. Use the exact letter case.',
           ),
         description: z.string().min(1).describe("The task text (before metadata fields)."),
         block_id: z
@@ -414,8 +416,8 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
       })
       return safeHandler(
         reqLogger,
-        async () =>
-          taskMutations.createTask(
+        async () => {
+          return taskMutations.createTask(
             {
               vaultPath,
               path,
@@ -438,7 +440,8 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
               format,
             },
             reqLogger,
-          ),
+          )
+        },
         (result) => {
           reqLogger.info("tool_result", {
             path: result.path,
@@ -500,13 +503,14 @@ Parameters:
 
 Errors:
 - "note not found" — path does not exist
+- "path must end in …" — add the .md extension
 - "exactly one of blockId or line is required" / "blockId and line are mutually exclusive" — pass exactly one of block_id or line
 - "blockId ... not found" — no task line in the note ends with ^block_id
 - "blockId ... is inside a fenced code block or comment" — the block_id matches a line inside a fenced code block or %% %% comment; target a line outside the fence
 - "no task at line N" — line doesn't contain a task checkbox
 - "line N is inside a fenced code block or comment" — the line is inside a fenced code block or %% %% comment; target a line outside the fence
 - "checkbox '[c]' is a NON_TASK status" — the task's checkbox char is typed NON_TASK in the Tasks plugin's status registry; NON_TASK checkboxes are excluded from the task system and cannot be mutated
-- "no checkbox symbol for status ..." — the status registry has no symbol for the target status and the built-in default is retyped; update the plugin's status registry to include a symbol for this status, then restart the server (the status registry is read once at boot)
+- "no checkbox symbol for status ..." — the status registry has no symbol for the target status and the built-in default is retyped; update the plugin's status registry to include a symbol for this status, then restart the server
 - "at least one mutation" — no change params provided
 - "cannot move a sub-task to a heading" — explicit heading on a task nested under another task (depth > 0${whenToolEnabledText("vault_list_tasks", " in vault_list_tasks")})
 - "cannot reposition a sub-task" — explicit position on a sub-task (sub-tasks move with their parent)
@@ -522,17 +526,18 @@ Errors:
 - "description must be a single line" / "addSubtasks items must be a single line" — a task is one file line; a line break in the text would split its metadata onto a line the parser never reads
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
 - "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur
-- A recurring task completed with a rule that yields no next occurrence (unreadable rule text already on the line, or a finite rule with no dates left) still completes — the result carries an advisory instead of an error
 - "concurrent write in progress" — another write to this note is in flight; retry
 
 Obsidian syntax: The Tasks plugin reads metadata off the END of a task line, so a trailing run of signifier syntax inside description or add_subtasks text — an emoji field like "🔁 every week", or a Dataview [key:: value] field, followed only by other recognized task fields — is read back as task metadata rather than text. A signifier followed by ordinary prose stays description text unless the prose matches that field's value grammar — a 🔁 recurrence reads any trailing words as its rule, while a 📅 followed by ordinary words stays description text because the words are not a date. The same interference can change the value an adjacent field reads back with, or make a field appear that was never set, as the 🔁 example shows. The write still succeeds either way; when the stored line would read back differently than this call set, the result carries an advisories array naming each divergence. The dates a status change stamps or clears (the ✅/❌ dates) are expected and produce no advisories on their own — but a description signifier that changes what the stamped date parses back as is still reported.
 
-Returns: JSON { path, line, description, block_id, heading, subtasks, next_occurrence, changes, advisories, on_completion_applied } — line is the final 1-based position (when on_completion_applied is "delete", it is the position the task occupied before removal); description is the current text; block_id and heading reflect the task after the update (block_id is omitted when the task has none, heading when the task sits above the first heading); subtasks lists each checklist item added by add_subtasks as { line, description } (omitted when none were added) — checklist items carry no block_id, so line is the handle for a follow-up update; next_occurrence is present only when a completion spawned a recurring task's next occurrence: { line, description, due?, scheduled?, start? } with only the dates the occurrence has — it carries no block_id, so line is its handle; changes lists every field applied as "field: before → after", with "(none)" for an absent value (for subtasks the two sides are checklist-item counts, and a spawn adds "next_occurrence: (none) → line N"); advisories (omitted when the line round-trips clean and no recurrence notice applies) lists one sentence per place the stored line parses back differently than this call set (see Obsidian syntax above) or per recurrence event that did not produce a next occurrence; on_completion_applied (present only when the effective on_completion was delete — pre-existing on the task or set in the same call — and it was transitioned to done) is always "delete".`,
+Returns: JSON { path, line, description, block_id, heading, subtasks, next_occurrence, changes, advisories, on_completion_applied } — line is the final 1-based position (when on_completion_applied is "delete", it is the position the task occupied before removal); description is the current text; block_id and heading reflect the task after the update (block_id is omitted when the task has none, heading when the task sits above the first heading); subtasks lists each checklist item added by add_subtasks as { line, description } (omitted when none were added) — checklist items carry no block_id, so line is the handle for a follow-up update; next_occurrence is present only when a completion spawned a recurring task's next occurrence: { line, description, due?, scheduled?, start? } with only the dates the occurrence has — it carries no block_id, so line is its handle; changes lists every field applied as "field: before → after", with "(none)" for an absent value (for subtasks the two sides are checklist-item counts, and a spawn adds "next_occurrence: (none) → line N"); advisories (omitted when there are none) lists one sentence per place the stored line parses back differently than this call set (see Obsidian syntax above), per duplicate tag removed from the line, or per completed recurring task whose rule yields no next occurrence (for example, unreadable rule text or a rule with no dates left); on_completion_applied (present only when the effective on_completion was delete — pre-existing on the task or set in the same call — and it was transitioned to done) is always "delete".`,
       inputSchema: {
         path: z
           .string()
           .min(1)
-          .describe('Vault-relative path to the note containing the task (must end in ".md")'),
+          .describe(
+            'Vault-relative path to the note containing the task (must end in ".md"). Use the exact letter case.',
+          ),
         block_id: z
           .string()
           .min(1)
@@ -704,8 +709,8 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
       })
       return safeHandler(
         reqLogger,
-        async () =>
-          taskMutations.updateTask(
+        async () => {
+          return taskMutations.updateTask(
             {
               vaultPath,
               path,
@@ -730,7 +735,8 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
               format,
             },
             reqLogger,
-          ),
+          )
+        },
         (result) => {
           reqLogger.info("tool_result", {
             path: result.path,

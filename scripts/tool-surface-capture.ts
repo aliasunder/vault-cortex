@@ -1,18 +1,23 @@
 /** Captures the MCP wire surface — tool schemas, descriptions, annotations,
  *  prompts, server description, and server instructions — per config combo,
- *  over a real in-process server. Feeds the committed baseline in
- *  __snapshots__/tool-surface/. */
+ *  over a real in-process server. It feeds `tool-surface-snapshot.test.ts` in
+ *  `src/vault-mcp/mcp-core/__tests__/`, which pins the committed baseline and
+ *  caps the tool list's size; `tool-surface-size.ts`, the size report; and
+ *  `lobehub-manifest.ts`, which publishes the default combo's surface. */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import type { Prompt, Tool } from "@modelcontextprotocol/sdk/types.js"
-import { loadConfig } from "../../config.js"
-import { createSearchIndex } from "../../search/search-index.js"
-import { computeEnabledToolNames, registerTools } from "../tool-definitions.js"
-import { registerPrompts } from "../prompt-definitions.js"
-import { buildServerMetadata } from "../mcp-router.js"
-import type { Logger } from "../../../logger.js"
+import { loadConfig } from "../src/vault-mcp/config.js"
+import { createSearchIndex } from "../src/vault-mcp/search/search-index.js"
+import {
+  computeEnabledToolNames,
+  registerTools,
+} from "../src/vault-mcp/mcp-core/tool-definitions.js"
+import { registerPrompts } from "../src/vault-mcp/mcp-core/prompt-definitions.js"
+import { buildServerMetadata } from "../src/vault-mcp/mcp-core/mcp-router.js"
+import type { Logger } from "../src/logger.js"
 
 type SurfaceAxis = {
   envVar: string
@@ -77,8 +82,8 @@ export const SURFACE_COMBOS: readonly SurfaceCombo[] = [
 ]
 
 const noop = (): void => {}
-/** The drift test's assertion output is the report, so registration's
- *  per-group summary lines stay quiet. */
+/** Every consumer prints its own output, so registration's per-group summary
+ *  lines stay quiet. */
 const silentLogger: Logger = {
   debug: noop,
   info: noop,
@@ -99,8 +104,9 @@ const assertSinglePage = (listName: string, nextCursor?: string): void => {
 
 /** Bytewise name sort so registration-order refactors don't churn the
  *  baseline — list order is not part of the stability contract. */
-const sortByName = <T extends { name: string }>(items: readonly T[]): T[] =>
-  items.toSorted((first, second) => (first.name < second.name ? -1 : 1))
+const sortByName = <T extends { name: string }>(items: readonly T[]): T[] => {
+  return items.toSorted((first, second) => (first.name < second.name ? -1 : 1))
+}
 
 export type SurfaceCapture = {
   env: Readonly<Record<string, string>>
@@ -156,7 +162,45 @@ export const captureToolSurface = async (combo: SurfaceCombo): Promise<SurfaceCa
   }
 }
 
+type ToolDefinitionChars = Readonly<{
+  descriptionChars: number
+  inputSchemaChars: number
+  totalChars: number
+}>
+
+/** Measures the context a client spends on one tool definition, in UTF-16 code
+ *  units (JavaScript string length): the description plus the JSON-serialized
+ *  input schema. The name, title, and annotations are left out because they are
+ *  short and change only when a tool is added. The size cap in
+ *  `tool-surface-snapshot.test.ts` and `npm run report:tool-surface-size` both
+ *  use this measure. */
+export const measureToolDefinitionChars = (tool: Tool): ToolDefinitionChars => {
+  const descriptionChars = tool.description?.length ?? 0
+  const inputSchemaChars = JSON.stringify(tool.inputSchema).length
+
+  return { descriptionChars, inputSchemaChars, totalChars: descriptionChars + inputSchemaChars }
+}
+
+export const measureToolListChars = (tools: readonly Tool[]): number => {
+  const toolTotals = tools.map((tool) => measureToolDefinitionChars(tool).totalChars)
+  return toolTotals.reduce((sum, toolChars) => sum + toolChars, 0)
+}
+
+/** The combos the size cap in `tool-surface-snapshot.test.ts` checks, which
+ *  hold the two largest tool lists:
+ *  - default registers every tool.
+ *  - embedding-off renders the search tools' keyword-only text, which default
+ *    never shows.
+ *
+ *  Every other combo drops tools or cross-references from one of these two, so
+ *  its total is smaller than a checked total. Its average per tool can still
+ *  exceed that cap's `CHARS_PER_TOOL_ALLOWANCE` (memory-off drops five small
+ *  tools), so the allowance bounds the two checked lists, not every combo's
+ *  average. */
+export const SIZE_CAPPED_COMBO_NAMES = ["default", "embedding-off"] as const
+
 /** Byte-exact committed form: pre-serialized so vitest writes the file
  *  verbatim (the snapshot directory is prettier-ignored to keep it that way). */
-export const serializeSurfaceCapture = (capture: SurfaceCapture): string =>
-  `${JSON.stringify(capture, null, 2)}\n`
+export const serializeSurfaceCapture = (capture: SurfaceCapture): string => {
+  return `${JSON.stringify(capture, null, 2)}\n`
+}
