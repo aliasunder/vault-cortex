@@ -112,7 +112,7 @@ describe("buildLobehubManifest", () => {
     stubListTools({ tools: [], nextCursor: "page-2" })
 
     await expect(buildLobehubManifest()).rejects.toThrow(
-      "tools/list returned a paginated response; the manifest builder reads one page only",
+      "tools/list returned a paginated response; the surface capture reads one page only",
     )
   })
 
@@ -120,7 +120,7 @@ describe("buildLobehubManifest", () => {
     stubListPrompts({ prompts: [], nextCursor: "page-2" })
 
     await expect(buildLobehubManifest()).rejects.toThrow(
-      "prompts/list returned a paginated response; the manifest builder reads one page only",
+      "prompts/list returned a paginated response; the surface capture reads one page only",
     )
   })
 
@@ -130,7 +130,7 @@ describe("buildLobehubManifest", () => {
     onTestFinished(() => closeSpy.mockRestore())
 
     await expect(buildLobehubManifest()).rejects.toThrow(
-      "tools/list returned a paginated response; the manifest builder reads one page only",
+      "tools/list returned a paginated response; the surface capture reads one page only",
     )
     expect(closeSpy).toHaveBeenCalledTimes(1)
   })

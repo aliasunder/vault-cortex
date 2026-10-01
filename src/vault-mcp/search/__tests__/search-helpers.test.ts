@@ -458,7 +458,7 @@ describe("noteMatchesSearchFilters", () => {
     expect(noteMatchesSearchFilters(baseRow, {})).toBe(true)
   })
 
-  it("filters by folder prefix", () => {
+  it("filters to notes inside the folder, subfolders included", () => {
     expect(noteMatchesSearchFilters(baseRow, { folder: "Projects/Alpha" })).toBe(true)
     expect(noteMatchesSearchFilters(baseRow, { folder: "Projects/Beta" })).toBe(false)
     expect(noteMatchesSearchFilters(baseRow, { folder: "Projects" })).toBe(true)
@@ -504,6 +504,8 @@ describe("noteMatchesSearchFilters", () => {
     expect(noteMatchesSearchFilters(draftRow, { properties: { published: false } })).toBe(true)
     expect(noteMatchesSearchFilters(publishedRow, { properties: { published: 1 } })).toBe(true)
     expect(noteMatchesSearchFilters(draftRow, { properties: { published: 1 } })).toBe(false)
+    expect(noteMatchesSearchFilters(draftRow, { properties: { published: 0 } })).toBe(true)
+    expect(noteMatchesSearchFilters(publishedRow, { properties: { published: 0 } })).toBe(false)
   })
 
   it("compares property values by exact type", () => {
