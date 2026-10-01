@@ -167,7 +167,15 @@ The edit tools differ in how they locate the lines they change — by heading, b
 
 The three anchor tools share one resolution rule: a short, case-sensitive substring locates a full line, ambiguity is an error, and `first_match` takes the first match instead.
 
-`vault_delete_note` refuses paths under protected folders as a server-side guardrail. The default protected set is the memory dir plus the daily notes folder, read on every delete and move from `DAILY_NOTES_FOLDER` or `.obsidian/daily-notes.json` (default `Daily Notes`). A `daily-notes.json` that exists but cannot be read or parsed refuses the delete or move, since the folder it protects is unknown; `DAILY_NOTES_FOLDER` or `PROTECTED_PATHS` bypasses the file. `PROTECTED_PATHS` overrides the default entirely. Use `vault_delete_memory` for individual entries in memory files. `vault_update_properties` merges properties without touching the body — sets new keys, overwrites matching keys, deletes keys set to `null`.
+`vault_delete_note` refuses paths under protected folders as a server-side guardrail:
+
+- **Default set:** the memory dir plus the daily notes folder
+- **Daily notes folder:** read on every delete and move, from `DAILY_NOTES_FOLDER`, then `.obsidian/daily-notes.json`, then the default `Daily Notes`
+- **Unreadable `daily-notes.json`:** a file that exists but cannot be read or parsed refuses the delete or move, because the folder to protect is unknown; setting `DAILY_NOTES_FOLDER` skips the file
+- **Override:** `PROTECTED_PATHS` replaces the default set entirely, and the file is not read
+- **Memory entries:** use `vault_delete_memory` for individual entries in memory files
+
+`vault_update_properties` merges properties without touching the body — sets new keys, overwrites matching keys, deletes keys set to `null`.
 
 `vault_move_note` moves or renames a note and rewrites every link across the vault that resolves to it, mirroring Obsidian's built-in rename:
 
@@ -209,7 +217,13 @@ Both `vault_delete_note` and `vault_move_note` support `prune_empty_folders` to 
 
 **Promoted properties:** Five frontmatter keys — `title`, `tags`, `type`, `created`, `related` — get dedicated columns in the `notes` table for direct `WHERE`-clause filtering (no `json_extract` needed). In tool responses, these appear as top-level fields; remaining frontmatter keys are returned under `additional_properties` (via `formatNoteMetadata` in `tool-helpers.ts`). All other properties live in a JSON `properties` column — functional for any schema, but without dedicated columns. The property queries match a key as data through `json_each` over that column, never as a JSON path, so a property named `a.b` or `k[0]` is matched like any other. Array values are unpacked via `json_each`, so scalar and list properties both match.
 
-**Daily notes:** `vault_get_daily_note` resolves the vault's folder and date format, each independently: `DAILY_NOTES_FOLDER`/`DAILY_NOTES_FORMAT` env setting → `.obsidian/daily-notes.json` → fallback (`Daily Notes/YYYY-MM-DD.md`). The file is read on every call, so a folder or format change in Obsidian applies to the next call and a config file that arrives after boot needs no restart; a missing file takes the fallbacks, and a file that cannot be parsed takes them with a `warn`. `task-format-config.ts` reads the Tasks plugin's format and date toggles the same way on every task write; only its status registry is read once at boot, so listings and writes classify with one map.
+**Daily notes:** `vault_get_daily_note` resolves the vault's folder and date format, each independently: `DAILY_NOTES_FOLDER`/`DAILY_NOTES_FORMAT` env setting → `.obsidian/daily-notes.json` → fallback (`Daily Notes/YYYY-MM-DD.md`).
+
+- **Read on every call:** a folder or format change in Obsidian applies to the next call, and a config file that arrives after boot needs no restart
+- **Missing file:** takes the fallbacks
+- **Unparseable file:** takes the fallbacks and logs a `warn`
+- **Tasks plugin settings:** `task-format-config.ts` reads the format and date toggles the same way, on every task write
+- **Status registry:** read once at boot, so listings and writes classify with one map
 
 ### Memory
 
@@ -1205,8 +1219,9 @@ Docker hardening, and durability seatbelts above.
   like `../../outside` cannot escape the memory directory — and leading
   dots, which would create hidden files (memory paths are built via
   `join`, bypassing `resolveSafePath`'s hidden-path guard).
-- **Protected paths**: `PROTECTED_PATHS` (default: `MEMORY_DIR` plus
-  `DAILY_NOTES_FOLDER`, falling back to `Daily Notes`) blocks deleting
+- **Protected paths**: `PROTECTED_PATHS` (default: `MEMORY_DIR` plus the
+  daily notes folder, from `DAILY_NOTES_FOLDER`, then
+  `.obsidian/daily-notes.json`, then `Daily Notes`) blocks deleting
   notes in, moving notes out of, and moving notes into configured
   folders. The check (`isProtectedPath()`, shared by delete and move)
   runs on the canonical vault-relative path with a case-folded
