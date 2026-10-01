@@ -90,7 +90,7 @@ jobs:
       # needs no `|| '<value>'` fallback here. The existing fallbacks stay;
       # priority_docs needs its README.md fallback, because an empty value
       # disables priority docs.
-      - uses: aliasunder/umm-actually@aa484fb81b0a391ce5938ae264367e9f679021fd # v0.4.9
+      - uses: aliasunder/umm-actually@41b3ef300888f0d422b934b0d5b4082ea1a24a27 # v0.4.10
         with:
           github_token: ${{ steps.app-token.outputs.token }}
           openrouter_api_key: ${{ secrets.OPENROUTER_KEY }}
