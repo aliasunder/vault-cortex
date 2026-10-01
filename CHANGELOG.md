@@ -111,6 +111,29 @@
 
 
 
+
+## [0.54.7] — 2026-10-01
+
+### Bug Fixes
+
+- **tools:** Clearer definitions for the lowest-scoring tools, plus a size cap (#621)
+- **vault-crud:** Read a null app.json as the default, and pin the unreadable-config error end to end (#629)
+- Vault_list_notes glob within folder, plus listing, move and memory-listing fixes (#622)
+- **search:** Match property keys containing . or [, list properties, and boolean values in property queries (#628)
+- **vault-crud:** Read the Deleted files setting on every delete (#627)
+
+### Documentation
+
+- Update CHANGELOG.md for v0.54.6
+
+### CI / Infrastructure
+
+- Bump umm-actually to v0.4.10 (#631)
+
+### Maintenance
+
+- **deps-dev:** Bump brace-expansion from 5.0.9 to 5.0.12 (#626)
+
 ## [0.54.6] — 2026-09-30
 
 ### Bug Fixes
