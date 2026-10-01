@@ -336,7 +336,7 @@ Returns: JSON array of note metadata sorted by most recently modified, then by p
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_SEARCH_BY_FOLDER,
       })
-      reqLogger.info("tool_call", { folder, recursive })
+      reqLogger.info("tool_call", { folder, recursive, limit })
       return safeHandler(
         reqLogger,
         async () => search.searchByFolder({ folder, recursive, limit }, reqLogger),
@@ -436,7 +436,7 @@ Returns: JSON array of { value, count } sorted by count descending.`,
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
       })
-      reqLogger.info("tool_call", { key, folder })
+      reqLogger.info("tool_call", { key, folder, limit })
       return safeHandler(
         reqLogger,
         async () => search.listPropertyValues({ key, folder, limit }, reqLogger),
@@ -489,7 +489,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
         requestId: extra.requestId,
         tool: TOOL_NAMES.VAULT_SEARCH_BY_PROPERTY,
       })
-      reqLogger.info("tool_call", { key, value, folder })
+      reqLogger.info("tool_call", { key, value, folder, limit })
       return safeHandler(
         reqLogger,
         async () => search.searchByProperty({ key, value, folder, limit }, reqLogger),
