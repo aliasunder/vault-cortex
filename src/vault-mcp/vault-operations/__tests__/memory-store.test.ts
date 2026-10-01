@@ -1,5 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi, onTestFinished } from "vitest"
-import { mkdtemp, rm, writeFile, mkdir, readFile, readdir } from "node:fs/promises"
+import {
+  chmod,
+  lstat,
+  mkdtemp,
+  rm,
+  writeFile,
+  mkdir,
+  readFile,
+  readdir,
+  symlink,
+} from "node:fs/promises"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { parseNote } from "../../obsidian-markdown/frontmatter.js"
@@ -91,6 +101,27 @@ describe("getMemory", () => {
     expect(result).toContain("# Principles")
   })
 
+  it("skips a folder whose name ends in .md in the all-files read", async () => {
+    const withoutFolder = await getMemory({ vaultPath: vault }, logger)
+    await mkdir(join(vault, "About Me", "Archive.md"), { recursive: true })
+    expect(await getMemory({ vaultPath: vault }, logger)).toBe(withoutFolder)
+  })
+
+  it("skips a dangling symlink in the all-files read", async () => {
+    const withoutSymlink = await getMemory({ vaultPath: vault }, logger)
+    await symlink(join(vault, "missing-target.md"), join(vault, "About Me", "Old Setup.md"))
+    expect(await getMemory({ vaultPath: vault }, logger)).toBe(withoutSymlink)
+  })
+
+  it("rejects an unreadable memory file with a vault-relative message in the all-files read", async () => {
+    // afterEach deletes the vault, which removes a mode-000 file inside it, so
+    // the permissions need no restore.
+    await chmod(join(vault, "About Me", "Opinions.md"), 0o000)
+    await expect(getMemory({ vaultPath: vault }, logger)).rejects.toThrow(
+      new Error('cannot read memory file "About Me/Opinions.md"'),
+    )
+  })
+
   it("concatenates all memory files when no file specified", async () => {
     const result = await getMemory({ vaultPath: vault }, logger)
     expect(result).toContain("# Opinions")
@@ -171,6 +202,31 @@ describe("getMemory", () => {
     )
   })
 
+  it("reports a folder named like the file as not found, never the server's path", async () => {
+    await mkdir(join(vault, "About Me", "Archive.md"), { recursive: true })
+    await expect(getMemory({ vaultPath: vault, file: "Archive" }, logger)).rejects.toThrow(
+      'memory file not found: "About Me/Archive.md"',
+    )
+  })
+
+  it("rejects an unreadable memory file with a vault-relative message in the named read and logs the raw error", async () => {
+    const lockedFile = join(vault, "About Me", "Opinions.md")
+    // afterEach deletes the vault, which removes a mode-000 file inside it, so
+    // the permissions need no restore.
+    await chmod(lockedFile, 0o000)
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await expect(getMemory({ vaultPath: vault, file: "Opinions" }, logger)).rejects.toThrow(
+      new Error('cannot read memory file "About Me/Opinions.md"'),
+    )
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("cannot read memory file", {
+      file: "Opinions.md",
+      error: `[Error]: EACCES: permission denied, open '${lockedFile}'`,
+    })
+  })
+
   it("throws on non-existent section", async () => {
     await expect(
       getMemory(
@@ -188,9 +244,9 @@ describe("getMemory", () => {
 
   it("returns empty string when About Me directory does not exist", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "empty-vault-"))
+    onTestFinished(() => rm(emptyVault, { recursive: true }))
     const result = await getMemory({ vaultPath: emptyVault }, logger)
     expect(result).toBe("")
-    await rm(emptyVault, { recursive: true })
   })
 
   // A memory file is a bare name, never a path — a separator would let
@@ -283,7 +339,7 @@ describe("updateMemory", () => {
       logger,
     )
     const lines = result.split("\n").filter((line) => line.startsWith("- "))
-    expect(lines[lines.length - 1]).toBe("- **2026-04-01**: bottom entry")
+    expect(lines.at(-1)).toBe("- **2026-04-01**: bottom entry")
   })
 
   it("inserts bottom entry after the last entry's continuation lines", async () => {
@@ -378,7 +434,7 @@ created: 2026-01-01T00:00:00-05:00
 
   it("uses today's date when no date option provided", async () => {
     vi.useFakeTimers()
-    vi.setSystemTime(new Date("2026-07-15T14:00:00"))
+    vi.setSystemTime("2026-07-15T14:00:00")
     try {
       await updateMemory(
         {
@@ -447,6 +503,65 @@ created: 2026-01-01T00:00:00-05:00
     expect(result).toBe("- **2026-05-15**: first entry")
   })
 
+  it("rejects an unreadable memory file with a vault-relative message", async () => {
+    // afterEach deletes the vault, which removes a mode-000 file inside it, so
+    // the permissions need no restore.
+    await chmod(join(vault, "About Me", "Opinions.md"), 0o000)
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Opinions",
+          section: "Code patterns",
+          entry: "never written",
+          date: "2026-05-15",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(new Error('cannot read memory file "About Me/Opinions.md"'))
+  })
+
+  it("leaves a symlink to a folder in place when it has the memory file's name", async () => {
+    await mkdir(join(vault, "linked-folder"))
+    const linkPath = join(vault, "About Me", "Archive.md")
+    await symlink(join(vault, "linked-folder"), linkPath)
+
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Archive",
+          section: "Notes",
+          entry: "never written",
+          date: "2026-05-15",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error('cannot write memory file "About Me/Archive.md": that path is not a file'),
+    )
+    const linkStats = await lstat(linkPath)
+    expect(linkStats.isSymbolicLink()).toBe(true)
+  })
+
+  it("rejects a folder named like the memory file with a vault-relative message", async () => {
+    await mkdir(join(vault, "About Me", "Archive.md"))
+    await expect(
+      updateMemory(
+        {
+          vaultPath: vault,
+          file: "Archive",
+          section: "Notes",
+          entry: "never written",
+          date: "2026-05-15",
+        },
+        logger,
+      ),
+    ).rejects.toThrow(
+      new Error('cannot write memory file "About Me/Archive.md": that path is not a file'),
+    )
+  })
+
   it("auto-creates section in existing file", async () => {
     await updateMemory(
       {
@@ -483,15 +598,18 @@ created: 2026-01-01T00:00:00-05:00
     const principlesContent = await readFile(join(vault, "About Me/Principles.md"), "utf8")
     // The entry lands in the existing section — no second "## Working style …"
     // heading is appended at EOF (the duplicate-section bug).
-    expect(principlesContent.match(/^## Working style/gm)).toHaveLength(1)
+    const workingStyleHeadings = principlesContent
+      .split("\n")
+      .filter((line) => line.startsWith("## Working style"))
+    expect(workingStyleHeadings).toEqual(["## Working style (newest first)"])
     expect(principlesContent).toContain("- **2026-05-09**: short-name entry")
 
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    const principles = outlines.find((outline) => outline.file === "Principles")!
-    const workingStyle = principles.headings.find(
+    const principles = outlines.find((outline) => outline.file === "Principles")
+    const workingStyle = principles?.headings.find(
       (heading) => heading.text === "Working style (newest first)",
     )
-    expect(workingStyle?.entryCount).toBe(2)
+    expect(workingStyle?.entry_count).toBe(2)
   })
 })
 
@@ -763,9 +881,7 @@ created: 2026-01-01T00:00:00-05:00
         ),
       ).rejects.toThrow(`memory file must be a bare name without path separators: "${file}"`)
       // No file escaped the memory directory into the vault root.
-      await expect(readFile(join(vault, "Escaped.md"), "utf8")).rejects.toMatchObject({
-        code: "ENOENT",
-      })
+      expect(await readdir(vault)).toEqual(["About Me"])
     },
   )
 
@@ -877,6 +993,7 @@ created: 2026-01-01T00:00:00-05:00
 describe("updateMemory auto-creation", () => {
   it("auto-creates directory and file when neither exist", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "no-dir-"))
+    onTestFinished(() => rm(emptyVault, { recursive: true }))
     await updateMemory(
       {
         vaultPath: emptyVault,
@@ -896,11 +1013,11 @@ describe("updateMemory auto-creation", () => {
       logger,
     )
     expect(result).toBe("- **2026-05-15**: Prefers dark mode")
-    await rm(emptyVault, { recursive: true })
   })
 
   it("auto-created file has correct frontmatter", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "fm-test-"))
+    onTestFinished(() => rm(emptyVault, { recursive: true }))
     await updateMemory(
       {
         vaultPath: emptyVault,
@@ -921,11 +1038,11 @@ describe("updateMemory auto-creation", () => {
     // serializer must write it unquoted and verbatim — never re-encoded
     // to a Z-suffixed UTC form
     expect(raw).toMatch(/^created: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{2}:\d{2}$/m)
-    await rm(emptyVault, { recursive: true })
   })
 
   it("seeds a generic scope callout in an auto-created file and reports created-file", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "new-callout-"))
+    onTestFinished(() => rm(emptyVault, { recursive: true }))
     const outcome = await updateMemory(
       {
         vaultPath: emptyVault,
@@ -938,17 +1055,17 @@ describe("updateMemory auto-creation", () => {
     )
     expect(outcome).toBe("created-file")
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
-    const health = outlines.find((outline) => outline.file === "Health")!
-    expect(health.leading_callout?.title).toBe("Scope of this file")
+    const health = outlines.find((outline) => outline.file === "Health")
+    expect(health?.leading_callout?.title).toBe("Scope of this file")
     // Generic form has the convention line and a Contains placeholder, but no per-file Does-NOT-contain.
-    expect(health.leading_callout?.body).toBe(
+    expect(health?.leading_callout?.body).toBe(
       "**Contains:** (describe what belongs in this file — and what doesn't)\n**Convention:** append newest first; never overwrite dated entries; ISO dates only.",
     )
-    await rm(emptyVault, { recursive: true })
   })
 
   it("reports created-section then appended for subsequent writes", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "outcome-"))
+    onTestFinished(() => rm(emptyVault, { recursive: true }))
     const first = await updateMemory(
       { vaultPath: emptyVault, file: "Notes", section: "A", entry: "one" },
       logger,
@@ -964,11 +1081,11 @@ describe("updateMemory auto-creation", () => {
     expect(first).toBe("created-file")
     expect(second).toBe("created-section")
     expect(third).toBe("appended")
-    await rm(emptyVault, { recursive: true })
   })
 
   it("auto-created file has correct H1 and H2 structure", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "structure-"))
+    onTestFinished(() => rm(emptyVault, { recursive: true }))
     await updateMemory(
       {
         vaultPath: emptyVault,
@@ -983,7 +1100,6 @@ describe("updateMemory auto-creation", () => {
     expect(raw).toContain("# Preferences")
     expect(raw).toContain("## Editor settings (newest first)")
     expect(raw).toContain("- **2026-05-15**: Dark mode")
-    await rm(emptyVault, { recursive: true })
   })
 
   it("auto-created section preserves existing file content", async () => {
@@ -1669,6 +1785,28 @@ describe("listMemoryFiles", () => {
     expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
   })
 
+  it("skips a folder whose name ends in .md and still lists the files", async () => {
+    await mkdir(join(vault, "About Me", "Archive.md"), { recursive: true })
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
+  })
+
+  it("skips a dangling symlink and still lists the files", async () => {
+    await symlink(join(vault, "missing-target.md"), join(vault, "About Me", "Old Setup.md"))
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
+  })
+
+  it("rejects an unreadable memory file with a vault-relative message", async () => {
+    const lockedFile = join(vault, "About Me", "Opinions.md")
+    // afterEach deletes the vault, which removes a mode-000 file inside it, so
+    // the permissions need no restore.
+    await chmod(lockedFile, 0o000)
+    await expect(listMemoryFiles({ vaultPath: vault }, logger)).rejects.toThrow(
+      new Error('cannot read memory file "About Me/Opinions.md"'),
+    )
+  })
+
   it("returns outlines sorted by filename", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     expect(outlines).toHaveLength(2)
@@ -1692,15 +1830,15 @@ describe("listMemoryFiles", () => {
 
   it("surfaces each file's leading scope callout (null when absent)", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    const principles = outlines.find((outline) => outline.file === "Principles")!
-    const opinions = outlines.find((outline) => outline.file === "Opinions")!
-    expect(principles.leading_callout).toEqual({
+    const principles = outlines.find((outline) => outline.file === "Principles")
+    const opinions = outlines.find((outline) => outline.file === "Opinions")
+    expect(principles?.leading_callout).toEqual({
       type: "info",
       title: "Scope of this file",
       body: "**Contains:** Values, decision heuristics, non-negotiables.\n**Convention:** Append newest first; never overwrite dated entries.",
     })
     // OPINIONS_MD has no leading callout.
-    expect(opinions.leading_callout).toBeNull()
+    expect(opinions?.leading_callout).toBeNull()
   })
 
   it("falls back to filename when no frontmatter title", async () => {
@@ -1712,6 +1850,27 @@ describe("listMemoryFiles", () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
     const noTitle = outlines.find((outline) => outline.file === "NoTitle")
     expect(noTitle?.title).toBe("NoTitle")
+  })
+
+  it("lists a file that has no frontmatter", async () => {
+    await writeFile(join(vault, "About Me/Bare.md"), "# Bare\n", "utf8")
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    const bare = outlines.find((outline) => outline.file === "Bare")
+    expect(bare).toEqual({
+      file: "Bare",
+      title: "Bare",
+      bytes: 7,
+      entry_policy: "append-only",
+      leading_callout: null,
+      headings: [{ level: 1, text: "Bare" }],
+    })
+  })
+
+  it("does not read notes inside subfolders of the memory folder", async () => {
+    await mkdir(join(vault, "About Me/Archive"))
+    await writeFile(join(vault, "About Me/Archive/Old.md"), "# Old\n", "utf8")
+    const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
+    expect(outlines.map((outline) => outline.file)).toEqual(["Opinions", "Principles"])
   })
 
   it("defaults entry_policy to append-only when the property is absent", async () => {
@@ -1782,8 +1941,8 @@ describe("listMemoryFiles", () => {
       "utf8",
     )
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    const fenced = outlines.find((outline) => outline.file === "Fenced")!
-    expect(fenced.headings.map((heading) => heading.text)).toEqual([
+    const fenced = outlines.find((outline) => outline.file === "Fenced")
+    expect(fenced?.headings.map((heading) => heading.text)).toEqual([
       "Fenced",
       "Real (newest first)",
     ])
@@ -1791,53 +1950,53 @@ describe("listMemoryFiles", () => {
 
   it("includes correct entry counts per section", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    const principles = outlines.find((outline) => outline.file === "Principles")!
-    const heuristics = principles.headings.find(
+    const principles = outlines.find((outline) => outline.file === "Principles")
+    const heuristics = principles?.headings.find(
       (heading) => heading.text === "Decision heuristics (newest first)",
     )
-    expect(heuristics?.entryCount).toBe(2)
+    expect(heuristics?.entry_count).toBe(2)
 
-    const workingStyle = principles.headings.find(
+    const workingStyle = principles?.headings.find(
       (heading) => heading.text === "Working style (newest first)",
     )
-    expect(workingStyle?.entryCount).toBe(1)
+    expect(workingStyle?.entry_count).toBe(1)
 
-    const emptySection = principles.headings.find(
+    const emptySection = principles?.headings.find(
       (heading) => heading.text === "Empty section (newest first)",
     )
-    expect(emptySection?.entryCount).toBe(0)
+    expect(emptySection?.entry_count).toBe(0)
   })
 
   it("identifies H1 and H2 headings correctly", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    const principles = outlines.find((outline) => outline.file === "Principles")!
-    const h1s = principles.headings.filter((heading) => heading.level === 1)
-    const h2s = principles.headings.filter((heading) => heading.level === 2)
+    const principles = outlines.find((outline) => outline.file === "Principles")
+    const h1s = principles?.headings.filter((heading) => heading.level === 1)
+    const h2s = principles?.headings.filter((heading) => heading.level === 2)
     expect(h1s).toHaveLength(1)
-    expect(h1s[0]?.text).toBe("Principles")
+    expect(h1s?.[0]?.text).toBe("Principles")
     expect(h2s).toHaveLength(3)
   })
 
-  it("does not count callout lines as entries", async () => {
+  it("gives the H1 heading no entry count", async () => {
     const outlines = await listMemoryFiles({ vaultPath: vault }, logger)
-    const principles = outlines.find((outline) => outline.file === "Principles")!
-    const h1 = principles.headings.find((heading) => heading.level === 1)
-    expect(h1?.entryCount).toBeUndefined()
+    const principles = outlines.find((outline) => outline.file === "Principles")
+    const h1 = principles?.headings.find((heading) => heading.level === 1)
+    expect(h1).toStrictEqual({ level: 1, text: "Principles" })
   })
 
   it("returns empty array when About Me directory is empty", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "empty-mem-"))
+    onTestFinished(() => rm(emptyVault, { recursive: true }))
     await mkdir(join(emptyVault, "About Me"))
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
     expect(outlines).toEqual([])
-    await rm(emptyVault, { recursive: true })
   })
 
   it("returns empty array when About Me directory does not exist", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "no-dir-"))
+    onTestFinished(() => rm(emptyVault, { recursive: true }))
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
     expect(outlines).toEqual([])
-    await rm(emptyVault, { recursive: true })
   })
 })
 
@@ -1859,11 +2018,54 @@ describe("listMemoryFileNames", () => {
     expect(names).toEqual(["Opinions", "Principles"])
   })
 
+  it("skips a folder whose name ends in .md", async () => {
+    await mkdir(join(vault, "About Me", "Archive.md"), { recursive: true })
+    const names = await listMemoryFileNames({ vaultPath: vault }, logger)
+    expect(names).toEqual(["Opinions", "Principles"])
+  })
+
+  it("skips a dangling symlink", async () => {
+    await symlink(join(vault, "missing-target.md"), join(vault, "About Me", "Old Setup.md"))
+    const names = await listMemoryFileNames({ vaultPath: vault }, logger)
+    expect(names).toEqual(["Opinions", "Principles"])
+  })
+
   it("returns an empty array when the memory directory does not exist", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "no-dir-names-"))
+    onTestFinished(() => rm(emptyVault, { recursive: true }))
     const names = await listMemoryFileNames({ vaultPath: emptyVault }, logger)
     expect(names).toEqual([])
-    await rm(emptyVault, { recursive: true })
+  })
+
+  it("rejects a file at the memory folder's path with a vault-relative message", async () => {
+    const vaultWithFileAtMemoryPath = await mkdtemp(join(tmpdir(), "file-at-memory-path-"))
+    onTestFinished(() => rm(vaultWithFileAtMemoryPath, { recursive: true }))
+    await writeFile(join(vaultWithFileAtMemoryPath, "About Me"), "not a folder\n", "utf8")
+    await expect(
+      listMemoryFileNames({ vaultPath: vaultWithFileAtMemoryPath }, logger),
+    ).rejects.toThrow(new Error('cannot list memory folder "About Me"'))
+  })
+
+  it("rejects an unreadable memory folder with a vault-relative message and logs the raw error", async () => {
+    const vaultWithLockedMemoryFolder = await mkdtemp(join(tmpdir(), "locked-memory-folder-"))
+    onTestFinished(() => rm(vaultWithLockedMemoryFolder, { recursive: true }))
+    const memoryFolder = join(vaultWithLockedMemoryFolder, "About Me")
+    await mkdir(memoryFolder)
+    await chmod(memoryFolder, 0o000)
+    // Registered after the removal so that it runs first, which makes the
+    // folder readable again before the vault is removed.
+    onTestFinished(() => chmod(memoryFolder, 0o700))
+    const warnSpy = vi.spyOn(logger, "warn").mockImplementation(() => {})
+    onTestFinished(() => warnSpy.mockRestore())
+
+    await expect(
+      listMemoryFileNames({ vaultPath: vaultWithLockedMemoryFolder }, logger),
+    ).rejects.toThrow(new Error('cannot list memory folder "About Me"'))
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith("cannot list memory folder", {
+      folder: "About Me",
+      error: `[Error]: EACCES: permission denied, scandir '${memoryFolder}'`,
+    })
   })
 })
 
@@ -1872,6 +2074,7 @@ describe("custom memoryDir", () => {
 
   it("reads from the configured directory", async () => {
     const customVault = await mkdtemp(join(tmpdir(), "custom-mem-"))
+    onTestFinished(() => rm(customVault, { recursive: true }))
     await mkdir(join(customVault, "Profile"), { recursive: true })
     await writeFile(join(customVault, "Profile/Principles.md"), PRINCIPLES_MD, "utf8")
     const result = await customStore.getMemory(
@@ -1879,22 +2082,21 @@ describe("custom memoryDir", () => {
       logger,
     )
     expect(result).toContain("# Principles")
-    await rm(customVault, { recursive: true })
   })
 
   it("error messages reference the configured directory name", async () => {
     const customVault = await mkdtemp(join(tmpdir(), "custom-mem-"))
+    onTestFinished(() => rm(customVault, { recursive: true }))
     await expect(
       customStore.getMemory({ vaultPath: customVault, file: "Nonexistent" }, logger),
     ).rejects.toThrow('memory file not found: "Profile/Nonexistent.md"')
-    await rm(customVault, { recursive: true })
   })
 
   it("returns empty string when configured directory does not exist", async () => {
     const customVault = await mkdtemp(join(tmpdir(), "custom-mem-"))
+    onTestFinished(() => rm(customVault, { recursive: true }))
     const result = await customStore.getMemory({ vaultPath: customVault }, logger)
     expect(result).toBe("")
-    await rm(customVault, { recursive: true })
   })
 })
 
@@ -1905,21 +2107,22 @@ describe("bootstrapMemoryDir", () => {
 
   it("creates memory directory and template files when dir does not exist", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "bootstrap-"))
+    onTestFinished(() => rm(emptyVault, { recursive: true }))
     await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
     expect(outlines).toHaveLength(5)
-    expect(outlines.map((outline) => outline.file).sort()).toEqual([
+    expect(outlines.map((outline) => outline.file).toSorted()).toEqual([
       "Agents",
       "Me",
       "Opinions",
       "Principles",
       "Routines",
     ])
-    await rm(emptyVault, { recursive: true })
   })
 
   it("template files have correct frontmatter", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "bootstrap-fm-"))
+    onTestFinished(() => rm(emptyVault, { recursive: true }))
     await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
     const raw = await readFile(join(emptyVault, "About Me/Principles.md"), "utf8")
     const parsed = parseNote(raw)
@@ -1933,15 +2136,14 @@ describe("bootstrapMemoryDir", () => {
       "[[About Me/Me]]",
       "[[About Me/Agents]]",
     ])
-    await rm(emptyVault, { recursive: true })
   })
 
   it("bootstraps the Agents template with directive sections", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "bootstrap-agents-"))
+    onTestFinished(() => rm(emptyVault, { recursive: true }))
     await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
     const agents = outlines.find((outline) => outline.file === "Agents")
-    expect(agents).toBeDefined()
     expect(agents?.entry_policy).toBe("append-only")
     const sectionNames = agents?.headings
       .filter((heading) => heading.level === 2)
@@ -1951,11 +2153,11 @@ describe("bootstrapMemoryDir", () => {
       "Working style (newest first)",
       "Verification & scope (newest first)",
     ])
-    await rm(emptyVault, { recursive: true })
   })
 
   it("bootstraps the Routines template as a living current-state file", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "bootstrap-living-"))
+    onTestFinished(() => rm(emptyVault, { recursive: true }))
     await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
     const routines = outlines.find((outline) => outline.file === "Routines")
@@ -1969,15 +2171,15 @@ describe("bootstrapMemoryDir", () => {
       "Daily/weekly rhythm (newest first)",
       "Recent past (newest first)",
     ])
-    await rm(emptyVault, { recursive: true })
   })
 
   it("template files have correct H2 sections", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "bootstrap-h2-"))
+    onTestFinished(() => rm(emptyVault, { recursive: true }))
     await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
-    const principles = outlines.find((outline) => outline.file === "Principles")!
-    const sectionNames = principles.headings
+    const principles = outlines.find((outline) => outline.file === "Principles")
+    const sectionNames = principles?.headings
       .filter((heading) => heading.level === 2)
       .map((heading) => heading.text)
     expect(sectionNames).toEqual([
@@ -1985,24 +2187,30 @@ describe("bootstrapMemoryDir", () => {
       "Working style (newest first)",
       "Non-negotiables (newest first)",
     ])
-    await rm(emptyVault, { recursive: true })
   })
 
   it("template files open with a scope callout and count zero entries", async () => {
     const emptyVault = await mkdtemp(join(tmpdir(), "bootstrap-callout-"))
+    onTestFinished(() => rm(emptyVault, { recursive: true }))
     await bootstrapMemoryDir({ vaultPath: emptyVault }, logger)
     const outlines = await listMemoryFiles({ vaultPath: emptyVault }, logger)
-    const opinions = outlines.find((outline) => outline.file === "Opinions")!
+    const opinions = outlines.find((outline) => outline.file === "Opinions")
     // The callout is surfaced and is NOT miscounted as a dated entry.
-    expect(opinions.leading_callout?.type).toBe("info")
-    expect(opinions.leading_callout?.title).toBe("Scope of this file")
-    expect(opinions.leading_callout?.body).toContain("**Contains:**")
-    const totalEntries = opinions.headings.reduce(
-      (sum, heading) => sum + (heading.entryCount ?? 0),
+    expect(opinions?.leading_callout).toEqual({
+      type: "info",
+      title: "Scope of this file",
+      body: [
+        "**Contains:** Evolving views on tools, patterns, methods, and processes — stances that may shift over time.",
+        "**Does NOT contain:** Stable values or decision heuristics (→ Principles), identity or interests (→ Me), directives for AI agents (→ Agents).",
+        '**Section structure:** H2 sections by topic, each suffixed "(newest first)".',
+        "**Convention:** append newest first; never overwrite dated entries; ISO dates only. Entry policy: append-only (declared in frontmatter).",
+      ].join("\n"),
+    })
+    const totalEntries = opinions?.headings.reduce(
+      (sum, heading) => sum + (heading.entry_count ?? 0),
       0,
     )
     expect(totalEntries).toBe(0)
-    await rm(emptyVault, { recursive: true })
   })
 
   it("is a no-op when memory directory already exists", async () => {
@@ -2160,8 +2368,8 @@ describe("concurrent memory writes", () => {
     // entries without serialization. With the per-file lock, all five land.
     const entries = ["alpha", "bravo", "charlie", "delta", "echo"]
     await Promise.all(
-      entries.map((entry) =>
-        updateMemory(
+      entries.map((entry) => {
+        return updateMemory(
           {
             vaultPath: vault,
             file: "Principles",
@@ -2170,8 +2378,8 @@ describe("concurrent memory writes", () => {
             date: "2026-06-14",
           },
           logger,
-        ),
-      ),
+        )
+      }),
     )
 
     const section = await getMemory(

@@ -71,8 +71,18 @@ beforeEach(() => {
   calls = mockServer.registerTool.mock.calls as RegisterToolCall[]
 })
 
-const findCall = (name: string): RegisterToolCall | undefined =>
-  calls.find(([toolName]) => toolName === name)
+const findCall = (name: string): RegisterToolCall | undefined => {
+  return calls.find(([toolName]) => toolName === name)
+}
+
+/** The text of a tool result's first content block, failing loudly when the
+ *  result carries none instead of parsing an empty string. */
+const requireTextContent = (result: { content: Array<{ text?: string }> }): string => {
+  const text = result.content[0]?.text
+
+  if (text === undefined) throw new Error("result has no text content")
+  return text
+}
 
 /** findCall for tests that assume the tool is registered — throws instead of
  *  returning undefined so call sites need no non-null assertion. */
@@ -96,6 +106,30 @@ const requireDescription = (
   return toolConfig.description
 }
 
+/** The part of a tool's description from startMarker up to (not including)
+ *  endMarker — one section, so a test can assert it whole. */
+const extractDescriptionSection = (params: {
+  registeredCalls: RegisterToolCall[]
+  toolName: string
+  startMarker: string
+  endMarker: string
+}): string => {
+  const toolCall = params.registeredCalls.find(([toolName]) => toolName === params.toolName)
+  const description = toolCall?.[1].description
+
+  if (!description) {
+    throw new Error(`${params.toolName} is not registered or has no description`)
+  }
+
+  const sectionStart = description.indexOf(params.startMarker)
+  const sectionEnd = description.indexOf(params.endMarker, sectionStart)
+
+  if (sectionStart === -1 || sectionEnd === -1) {
+    throw new Error(`${params.toolName} description has no "${params.startMarker}" section`)
+  }
+  return description.slice(sectionStart, sectionEnd)
+}
+
 describe("registerTools", () => {
   it(`registers exactly ${ALL_TOOL_NAMES.length} tools`, () => {
     expect(mockServer.registerTool).toHaveBeenCalledTimes(ALL_TOOL_NAMES.length)
@@ -108,7 +142,7 @@ describe("registerTools", () => {
   })
 
   it.each(ALL_TOOL_NAMES)("registers %s", (name) => {
-    expect(findCall(name)).toBeDefined()
+    expect(findCall(name)?.[0]).toBe(name)
   })
 
   it("every tool has a non-empty title", () => {
@@ -178,13 +212,29 @@ describe("registerTools", () => {
     // Agents treat Errors: as failure modes — a successful write described
     // there would prompt a needless retry or abort.
     const [, config] = requireCall(TOOL_NAMES.VAULT_PATCH_NOTE)
-    const description = config.description ?? ""
-    const errorsSection = description.slice(
-      description.indexOf("Errors:"),
-      description.indexOf("Obsidian syntax:"),
-    )
+    const description = requireDescription(config, TOOL_NAMES.VAULT_PATCH_NOTE)
+    const errorsSection = extractDescriptionSection({
+      registeredCalls: calls,
+      toolName: TOOL_NAMES.VAULT_PATCH_NOTE,
+      startMarker: "Errors:",
+      endMarker: "Obsidian syntax:",
+    })
     expect(errorsSection).not.toContain("becomes the new section's body")
     expect(description).toContain("becomes the new section's body")
+  })
+
+  it("vault_update_task description does not list the no-next-occurrence advisory as an error", () => {
+    // The completion succeeds, and agents treat Errors: as failure modes.
+    const [, config] = requireCall(TOOL_NAMES.VAULT_UPDATE_TASK)
+    const description = requireDescription(config, TOOL_NAMES.VAULT_UPDATE_TASK)
+    const errorsSection = extractDescriptionSection({
+      registeredCalls: calls,
+      toolName: TOOL_NAMES.VAULT_UPDATE_TASK,
+      startMarker: "Errors:",
+      endMarker: "Obsidian syntax:",
+    })
+    expect(errorsSection).not.toContain("yields no next occurrence")
+    expect(description).toContain("yields no next occurrence")
   })
 
   it.each([TOOL_NAMES.VAULT_UPDATE_MEMORY, TOOL_NAMES.VAULT_DELETE_MEMORY])(
@@ -240,8 +290,9 @@ describe("registerTools", () => {
   it("vault_write_note exposes an optional overwrite boolean in its schema", () => {
     const [, config] = requireCall(TOOL_NAMES.VAULT_WRITE_NOTE)
     const overwriteSchema = config.inputSchema?.overwrite
-    expect(overwriteSchema).toBeDefined()
     expect(overwriteSchema?.safeParse(true).success).toBe(true)
+    expect(overwriteSchema?.safeParse(false).success).toBe(true)
+    expect(overwriteSchema?.safeParse("yes").success).toBe(false)
     expect(overwriteSchema?.safeParse(undefined).success).toBe(true)
   })
 
@@ -702,6 +753,33 @@ describe("vault_update_memory input schema", () => {
     const schema = requireUpdateMemorySchema()
     expect(schema.options?.safeParse({ date: "" }).success).toBe(false)
     expect(schema.options?.safeParse({ date: "2026-07-02" }).success).toBe(true)
+  })
+})
+
+describe("vault_delete_memory input schema", () => {
+  // The server never writes an empty entry (vault_update_memory rejects one),
+  // so an empty match key can only be a caller mistake.
+  it("entry rejects an empty string and accepts a non-empty one", () => {
+    const [, config] = requireCall(TOOL_NAMES.VAULT_DELETE_MEMORY)
+    const entrySchema = config.inputSchema?.entry
+    expect(entrySchema?.safeParse("").success).toBe(false)
+    expect(entrySchema?.safeParse("Prefer X over Y").success).toBe(true)
+  })
+})
+
+describe("optional selector params reject an empty string", () => {
+  // Without min(1), an empty folder or glob lists the whole vault and an empty
+  // date reads today's note — a different request than the caller sent.
+  it.each([
+    { tool: TOOL_NAMES.VAULT_LIST_NOTES, field: "folder", validValue: "Projects" },
+    { tool: TOOL_NAMES.VAULT_LIST_NOTES, field: "glob", validValue: "*.md" },
+    { tool: TOOL_NAMES.VAULT_GET_DAILY_NOTE, field: "date", validValue: "2026-05-13" },
+  ])("$tool $field rejects an empty string and accepts a value", ({ tool, field, validValue }) => {
+    const [, config] = requireCall(tool)
+    const fieldSchema = config.inputSchema?.[field]
+    expect(fieldSchema?.safeParse("").success).toBe(false)
+    expect(fieldSchema?.safeParse(validValue).success).toBe(true)
+    expect(fieldSchema?.safeParse(undefined).success).toBe(true)
   })
 })
 
@@ -1205,7 +1283,7 @@ describe("vault_memory_recall handler", () => {
       isError?: boolean
     }
     expect(result.isError).toBeUndefined()
-    const payload = JSON.parse(result.content[0]?.text ?? "") as {
+    const payload = JSON.parse(requireTextContent(result)) as {
       entries: Array<{ file: string; date: string }>
       total: number
       truncated: boolean
@@ -1226,7 +1304,7 @@ describe("vault_memory_recall handler", () => {
       isError?: boolean
     }
     expect(result.isError).toBeUndefined()
-    const payload = JSON.parse(result.content[0]?.text ?? "") as {
+    const payload = JSON.parse(requireTextContent(result)) as {
       entries: unknown[]
       total: number
       truncated: boolean
@@ -1357,7 +1435,7 @@ describe("vault_list_tasks handler", () => {
       isError?: boolean
     }
     expect(result.isError).toBeUndefined()
-    const payload = JSON.parse(result.content[0]?.text ?? "") as {
+    const payload = JSON.parse(requireTextContent(result)) as {
       total: number
       tasks: Array<Record<string, unknown>>
     }
@@ -1384,7 +1462,7 @@ describe("vault_list_tasks handler", () => {
     const result = (await handler({}, mockExtra)) as {
       content: Array<{ text: string }>
     }
-    const payload = JSON.parse(result.content[0]?.text ?? "") as {
+    const payload = JSON.parse(requireTextContent(result)) as {
       tasks: Array<Record<string, unknown>>
     }
     expect(payload.tasks).toEqual([
@@ -1408,7 +1486,7 @@ describe("vault_list_tasks handler", () => {
     const result = (await handler({}, mockExtra)) as {
       content: Array<{ text: string }>
     }
-    const payload = JSON.parse(result.content[0]?.text ?? "") as {
+    const payload = JSON.parse(requireTextContent(result)) as {
       tasks: Array<Record<string, unknown>>
     }
     // The whole-object match pins the wire shape: parsed arrays survive
@@ -1437,7 +1515,7 @@ describe("vault_list_tasks handler", () => {
     )) as {
       content: Array<{ text: string }>
     }
-    const payload = JSON.parse(result.content[0]?.text ?? "") as {
+    const payload = JSON.parse(requireTextContent(result)) as {
       tasks: Array<{ description: string }>
     }
     // done DESC with dateless last: the completed card leads.
@@ -1463,7 +1541,7 @@ describe("vault_list_tasks handler", () => {
       isError?: boolean
     }
     expect(result.isError).toBeUndefined()
-    expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
+    expect(JSON.parse(requireTextContent(result))).toEqual({
       total: 0,
       tasks: [],
     })
@@ -1806,6 +1884,27 @@ describe("file tool handlers", () => {
     )
   })
 
+  it("pages a text file whose whole content exceeds the output cap", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    // 2,000 lines of 100 bytes each: 200 KB in total, well past the cap, while
+    // any small window stays under it.
+    const lines = Array.from({ length: 2000 }, (_, lineIndex) => {
+      return `line ${String(lineIndex + 1).padStart(4, "0")} `.padEnd(99, "x")
+    })
+    await mkdir(join(vault, "logs"), { recursive: true })
+    await writeFile(join(vault, "logs/big.log"), `${lines.join("\n")}\n`, "utf8")
+    const result = await readAsset({ path: "logs/big.log", start_line: 1001, limit: 2 })
+    expect(result).toEqual({
+      content: [
+        {
+          type: "text",
+          text: "logs/big.log — lines 1001–1002 of 2000 (continue with start_line: 1003)",
+        },
+        { type: "text", text: `${lines[1000]}\n${lines[1001]}` },
+      ],
+    })
+  })
+
   it("lists a folder's files with bytes and counts, excluding other folders and notes", async () => {
     const { vault, listAssets } = await setupAssetHarness()
     await mkdir(join(vault, "media"), { recursive: true })
@@ -1816,7 +1915,7 @@ describe("file tool handlers", () => {
     await writeFile(join(vault, "elsewhere/c.png"), "999", "utf8")
     const result = await listAssets({ folder: "media" })
     expect(result.isError).toBeUndefined()
-    expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
+    expect(JSON.parse(requireTextContent(result))).toEqual({
       files: [
         { path: "media/a.png", extension: ".png", bytes: 5 },
         { path: "media/b.canvas", extension: ".canvas", bytes: 2 },
@@ -1834,7 +1933,7 @@ describe("file tool handlers", () => {
       await writeFile(join(vault, "a.png"), "12345", "utf8")
       await writeFile(join(vault, "b.jpg"), "12", "utf8")
       const result = await listAssets({ extensions: [extensionSpelling] })
-      expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
+      expect(JSON.parse(requireTextContent(result))).toEqual({
         files: [{ path: "a.png", extension: ".png", bytes: 5 }],
         extension_counts: { ".png": 1 },
         total: 1,
@@ -1849,7 +1948,7 @@ describe("file tool handlers", () => {
     await writeFile(join(vault, "b.png"), "22", "utf8")
     await writeFile(join(vault, "c.jpg"), "333", "utf8")
     const result = await listAssets({ limit: 1 })
-    expect(JSON.parse(result.content[0]?.text ?? "")).toEqual({
+    expect(JSON.parse(requireTextContent(result))).toEqual({
       files: [{ path: "a.png", extension: ".png", bytes: 1 }],
       extension_counts: { ".png": 2, ".jpg": 1 },
       total: 3,
@@ -1876,10 +1975,9 @@ describe("DISABLED_TOOLS", () => {
       DISABLED_TOOLS: "vault_write_note,vault_find_orphans",
     })
     const registeredNames = registeredCalls.map(([toolName]) => toolName)
-    const expectedNames = ALL_TOOL_NAMES.filter(
-      (toolName) =>
-        toolName !== TOOL_NAMES.VAULT_WRITE_NOTE && toolName !== TOOL_NAMES.VAULT_FIND_ORPHANS,
-    )
+    const expectedNames = ALL_TOOL_NAMES.filter((toolName) => {
+      return toolName !== TOOL_NAMES.VAULT_WRITE_NOTE && toolName !== TOOL_NAMES.VAULT_FIND_ORPHANS
+    })
     expect(new Set(registeredNames)).toEqual(new Set(expectedNames))
     expect(registeredNames).toHaveLength(expectedNames.length)
   })
@@ -1995,22 +2093,87 @@ describe("DISABLED_TOOLS", () => {
       "file and section feed directly into vault_delete_memory.",
     )
   })
+
+  const DELETE_NOTE_MEMORY_LINE =
+    "Prefer vault_delete_memory for removing individual dated entries from About Me/ memory files."
+  const DELETE_NOTE_MOVE_LINE = "To relocate a note, use vault_move_note instead."
+  const DELETE_NOTE_WRITE_LINE =
+    "To replace a note's content, use vault_write_note with overwrite: true instead."
+
+  it.each([
+    {
+      label: "names vault_move_note and vault_write_note while both are served",
+      disabledTools: "",
+      expectedLines: [DELETE_NOTE_MEMORY_LINE, DELETE_NOTE_MOVE_LINE, DELETE_NOTE_WRITE_LINE],
+    },
+    {
+      label: "drops only the vault_move_note line when that tool is disabled",
+      disabledTools: "vault_move_note",
+      expectedLines: [DELETE_NOTE_MEMORY_LINE, DELETE_NOTE_WRITE_LINE],
+    },
+    {
+      label: "drops only the vault_write_note line when that tool is disabled",
+      disabledTools: "vault_write_note",
+      expectedLines: [DELETE_NOTE_MEMORY_LINE, DELETE_NOTE_MOVE_LINE],
+    },
+  ])("vault_delete_note's when-to-use $label", ({ disabledTools, expectedLines }) => {
+    const whenToUse = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_DELETE_NOTE,
+      startMarker: "When to use:",
+      endMarker: "\n\nBehavior:",
+    })
+    expect(whenToUse).toBe(
+      ["When to use: Removing a note you no longer need.", ...expectedLines].join("\n"),
+    )
+  })
+
+  const PROPERTY_VALUES_CHECKBOX_LINE =
+    '- Checkbox values are stored as 1 and 0, so true and false come back as "1" and "0", counted with the numbers 1 and 0.'
+  const PROPERTY_VALUES_SEARCH_LINE =
+    '- vault_search_by_property compares values as text, so value "1" matches the number 1, the text "1", and a checked checkbox.'
+  const PROPERTY_VALUES_NULL_LINE = "- null values are skipped."
+
+  it.each([
+    {
+      label: "names vault_search_by_property while it is served",
+      disabledTools: "",
+      expectedLines: [
+        PROPERTY_VALUES_CHECKBOX_LINE,
+        PROPERTY_VALUES_SEARCH_LINE,
+        PROPERTY_VALUES_NULL_LINE,
+      ],
+    },
+    {
+      label: "drops the vault_search_by_property line when that tool is disabled",
+      disabledTools: "vault_search_by_property",
+      expectedLines: [PROPERTY_VALUES_CHECKBOX_LINE, PROPERTY_VALUES_NULL_LINE],
+    },
+  ])("vault_list_property_values's behavior $label", ({ disabledTools, expectedLines }) => {
+    const behaviorTail = extractDescriptionSection({
+      registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+      toolName: TOOL_NAMES.VAULT_LIST_PROPERTY_VALUES,
+      startMarker: "- Checkbox values",
+      endMarker: "\n\nErrors:",
+    })
+    expect(behaviorTail).toBe(expectedLines.join("\n"))
+  })
 })
 
 describe("flag-combination matrix", () => {
   const BOOL_VALUES = ["false", "true"] as const
-  const flagCombos = BOOL_VALUES.flatMap((readonlyValue) =>
-    BOOL_VALUES.flatMap((memoryValue) =>
-      BOOL_VALUES.flatMap((fileValue) =>
-        BOOL_VALUES.map((embeddingValue) => ({
+  const flagCombos = BOOL_VALUES.flatMap((readonlyValue) => {
+    return BOOL_VALUES.flatMap((memoryValue) => {
+      return BOOL_VALUES.flatMap((fileValue) => {
+        return BOOL_VALUES.map((embeddingValue) => ({
           READONLY_MODE: readonlyValue,
           MEMORY_ENABLED: memoryValue,
           FILE_TOOLS_ENABLED: fileValue,
           EMBEDDING_ENABLED: embeddingValue,
-        })),
-      ),
-    ),
-  )
+        }))
+      })
+    })
+  })
   const disabledToolsCombos = [
     { DISABLED_TOOLS: "vault_search" },
     { READONLY_MODE: "true", DISABLED_TOOLS: "vault_get_daily_note" },

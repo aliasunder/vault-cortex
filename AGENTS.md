@@ -92,6 +92,8 @@ scripts/ # Dev/ops helpers (not shipped in Docker)
   search-eval.ts # Search ranking eval: scores hybrid search against a local judgment file of queries and expected results
   search-eval-plan.ts # Judgment-file schema, CLI validation, and whether to reuse the snapshot and index
   search-eval-snapshot.ts # Vault copy the eval runs against, skipping hidden paths and configured prefixes
+  tool-surface-capture.ts # Boots an in-process server per config combo and reads its tools and prompts; feeds the snapshot test, the size report, and the LobeHub manifest
+  tool-surface-size.ts # Per-combo and per-tool size of the MCP tool definitions (npm run report:tool-surface-size)
 cli/ # npx vault-cortex CLI (published as vault-cortex npm package)
   src/
     bin.ts # Entry point (version injection + run)
@@ -550,16 +552,6 @@ covers both kinds, with reasons:
 - `type` over `interface` unless `interface` is specifically required.
 - TypeScript strict mode. `node:` prefix for built-ins.
 - Explicit return types on exports. Zod for MCP tool schemas.
-- Tool input schemas stay at `.min(1)` — no `.refine`. Rich validation
-  (format, date validity, mutual exclusivity) lives in the data layer or
-  handler, where failures flow through `safeHandler` as structured tool
-  errors with remediation text and get logged as `tool_error`. Zod
-  schema failures surface as protocol-level invalid-params errors that
-  bypass both, and a `.refine` predicate can't be serialized into the
-  JSON schema clients see anyway — so it adds no discoverability, only a
-  second copy of a guard the data layer must enforce regardless (drift
-  risk). `.min(1)` is the floor because it does serialize (`minLength`)
-  and its default failure message is self-explanatory.
 - No `any`, `as` casts, or `!` (`as const` is allowed); use runtime
   guards or schema validation instead. When a library method returns
   `T | null` but the null case is unreachable (e.g.
@@ -808,12 +800,53 @@ covers both kinds, with reasons:
   whether this is the shape that makes the most sense or just the first
   that came to mind. Each line should say what it does on its own — a
   reader shouldn't have to simulate the code to follow it.
-- MCP tool descriptions include `Example:`, `When to use:`, and
-  `Returns:` sections. Include `Errors:` whenever the tool has
+
+### MCP tool definitions
+
+These rules cover the two parts of a tool's definition that carry prose,
+which are the description and the input schema with each parameter's Zod
+`.describe()` text.
+
+- **MCP tool descriptions include `Example:`, `When to use:`, and
+  `Returns:` sections.** Include `Errors:` whenever the tool has
   failure modes (with remediation guidance) or a no-match /
   empty-result contract worth clarifying (e.g. "returns an empty
   array, not an error"); omit it only for tools that cannot
   meaningfully fail. Include `Obsidian syntax:` on write tools.
+- **`Errors:` gets one bullet per distinct remedy, and every bullet
+  keeps its remedy.** Messages that share a remedy share one bullet,
+  which lists only the messages that tool can raise: for example
+  `"absolute path blocked"`, `"path traversal blocked"`, and
+  `"hidden path blocked"`.
+- **Parameter text has one home per kind of fact.** The calling model
+  receives each parameter's Zod `.describe()` text inside the input
+  schema, so the tool description earns its space (and its score from
+  graders such as Glama's Tool Definition Quality Score, TDQS) only
+  with what that text doesn't say:
+  - `.describe()` gives the parameter's plain meaning: what it is,
+    its format, and its default.
+  - The description gives what `.describe()` can't: interactions
+    between parameters, consequences, and non-obvious semantics.
+  - When a semantic fact appears in both, keep it in the description
+    and cut `.describe()` back to the plain meaning. Format and
+    default stay in `.describe()`. Never drop a fact only
+    `.describe()` carries.
+- **Tool input schemas stay at `.min(1)` — no `.refine`.** Rich validation
+  (format, date validity, mutual exclusivity) lives in the data layer or
+  handler, where failures flow through `safeHandler` as structured tool
+  errors with remediation text and get logged as `tool_error`. Zod
+  schema failures surface as protocol-level invalid-params errors that
+  bypass both, and a `.refine` predicate can't be serialized into the
+  JSON schema clients see anyway — so it adds no discoverability, only a
+  second copy of a guard the data layer must enforce regardless (drift
+  risk). `.min(1)` is the floor because it does serialize (`minLength`)
+  and its default failure message is self-explanatory.
+- **`tool-surface-snapshot.test.ts` caps the tool list's size**, because
+  clients such as claude.ai load every definition into each
+  conversation. Each checked combo's total must stay within
+  `CHARS_PER_TOOL_ALLOWANCE` times its tool count.
+  `npm run report:tool-surface-size` prints per-tool sizes; run it
+  before and after editing a description.
 
 ### Adding a new tool
 
@@ -822,7 +855,9 @@ covers both kinds, with reasons:
    registry is a leaf module with zero imports.
 2. **Handler** — add the tool in the appropriate `tools/*.ts` group
    module. The `registerTool` wrapper auto-injects annotations from
-   the registry and enforces the enabled-tool gate.
+   the registry and enforces the enabled-tool gate. Write the
+   description and input schema to the rules in "MCP tool definitions"
+   above.
 3. **Tests** — unit tests in `tools/__tests__/`, plus a happy-path case in
    `server-integration.test.ts` (see "Integration tests — when to add").
    Cover the handler's behavior, not just the schema.
@@ -831,7 +866,10 @@ covers both kinds, with reasons:
    target is disabled.
 5. **Snapshot baseline** — run `npm run snapshot:update` and commit the
    regenerated `__snapshots__/tool-surface/` files; any change to the
-   tool surface fails the drift test until the baseline matches.
+   tool surface fails the drift test until the baseline matches. The
+   size cap in `tool-surface-snapshot.test.ts` fails if the new tool is
+   much larger than the per-tool average; trim the text, or raise
+   `CHARS_PER_TOOL_ALLOWANCE` and give the reason in the PR.
 6. **Feature-surface docs** — see the "Files that track feature
    surface" list below for which files to update (README tools table,
    ARCHITECTURE.md, DOCKERHUB regen, etc.).
@@ -1079,8 +1117,7 @@ test.
   section names).
 - New config gating axis → config matrix test in
   `server-integration.test.ts` (tool count + key behavior), and add the
-  axis to `SURFACE_AXES` in
-  `src/vault-mcp/mcp-core/__tests__/tool-surface-capture.ts` so the
+  axis to `SURFACE_AXES` in `scripts/tool-surface-capture.ts` so the
   snapshot combos cover it.
 - New prompt → assembly test verifying live vault data, not just the
   instruction wrapper.

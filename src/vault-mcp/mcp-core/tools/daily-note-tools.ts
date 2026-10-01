@@ -36,6 +36,7 @@ Returns: JSON with path (string — resolved vault-relative path), content (stri
       inputSchema: {
         date: z
           .string()
+          .min(1)
           .optional()
           .describe(
             'YYYY-MM-DD (e.g. "2026-05-13", "2025-12-31"). Defaults to today in the server\'s timezone. Invalid formats like "May 13" return an error.',

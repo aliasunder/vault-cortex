@@ -2,6 +2,8 @@
  *  verified over real HTTP transport against a real server. */
 
 import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
+import { readFile, writeFile } from "node:fs/promises"
+import { join } from "node:path"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
   startServer,
@@ -1381,4 +1383,99 @@ describe("startup validation", () => {
     expect(exitCode).not.toBe(0)
     expect(stderr).toContain("PUBLIC_URL must be a bare origin — no query string or fragment")
   })
+})
+
+// ── Trash config read failure ────────────────────────────────
+//
+// Boots its own server, because a malformed app.json would change the
+// outcome of every delete on the shared one.
+
+/** A server's structured stdout log, one parsed entry per line. */
+const parseLogEntries = (stdout: string): Record<string, unknown>[] => {
+  return stdout
+    .split("\n")
+    .filter((line) => line.startsWith("{"))
+    .map((line): Record<string, unknown> => JSON.parse(line))
+}
+
+/** The message JSON.parse throws for `malformedJson`. Its wording varies by
+ *  engine version, so the test reads it from the engine. The server runs on
+ *  the same Node as the test process, so both get the same wording. */
+const jsonParseFailureMessage = (malformedJson: string): string => {
+  try {
+    JSON.parse(malformedJson)
+  } catch (error) {
+    if (error instanceof SyntaxError) return error.message
+  }
+  throw new Error("expected JSON.parse to throw a SyntaxError")
+}
+
+describe("cannot read trash config", () => {
+  it("a malformed app.json refuses the delete and logs the cause with the request's context", async () => {
+    const server = await startServer(await freePort())
+    onTestFinished(() => server.cleanup())
+    const malformedAppConfig = "not valid json{{{"
+    await writeFile(join(server.vaultPath, ".obsidian", "app.json"), malformedAppConfig, "utf8")
+    const ownClient = await createTestClient(server.port)
+    onTestFinished(() => ownClient.close())
+
+    await callTool({
+      client: ownClient,
+      name: "vault_write_note",
+      args: { path: "Scratch/malformed-config.md", body: "still here" },
+    })
+    const deleteResult = await callTool({
+      client: ownClient,
+      name: "vault_delete_note",
+      args: { path: "Scratch/malformed-config.md" },
+    })
+
+    // Asserting the whole result keeps the cause out of every part of it: the
+    // text, any further content block, and any other field.
+    expect(deleteResult).toEqual({
+      content: [
+        { type: "text", text: "[Error]: cannot read trash config from .obsidian/app.json" },
+      ],
+      isError: true,
+    })
+    await expect(
+      readFile(join(server.vaultPath, "Scratch", "malformed-config.md"), "utf8"),
+    ).resolves.toBe("still here\n")
+
+    // The server's stdout arrives through a pipe, so the log line can land
+    // after the tool result; a half-received line fails to parse and retries.
+    const { deleteCallLog, readFailureLog } = await vi.waitFor(() => {
+      const logEntries = parseLogEntries(server.stdout())
+      const loggedReadFailure = logEntries.find(
+        (logEntry) => logEntry.message === "cannot read trash config",
+      )
+
+      if (!loggedReadFailure) {
+        throw new Error("the read failure is not logged yet")
+      }
+
+      return {
+        deleteCallLog: logEntries.find(
+          (logEntry) => logEntry.message === "tool_call" && logEntry.tool === "vault_delete_note",
+        ),
+        readFailureLog: loggedReadFailure,
+      }
+    })
+
+    // The delete's own tool_call line carries the context the warning must
+    // share. The type checks keep that comparison from passing on undefined.
+    expect(typeof deleteCallLog?.requestId).toBe("number")
+    expect(typeof deleteCallLog?.sessionId).toBe("string")
+    expect({
+      error: readFailureLog.error,
+      tool: readFailureLog.tool,
+      requestId: readFailureLog.requestId,
+      sessionId: readFailureLog.sessionId,
+    }).toEqual({
+      error: `[SyntaxError]: ${jsonParseFailureMessage(malformedAppConfig)}`,
+      tool: "vault_delete_note",
+      requestId: deleteCallLog?.requestId,
+      sessionId: deleteCallLog?.sessionId,
+    })
+  }, 30_000)
 })

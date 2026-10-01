@@ -1,11 +1,21 @@
 /** End-to-end integration tests — every tool and prompt called over real
- *  HTTP transport against a real server with a real vault on disk. */
+ *  HTTP transport against a real server with a real vault on disk.
+ *
+ *  Assertion style:
+ *  - Listings, search results and prompt output drawn from the shared fixture
+ *    vault are checked with `toContain`. The fixture grows whenever a tool or
+ *    scenario is added, so a whole-output assertion would fail on every
+ *    addition without a wiring bug. Exact output is pinned by the unit tests
+ *    beside each module.
+ *  - One note's content, and output a test controls end to end (a note it
+ *    wrote, an error message), are asserted exactly. */
 
 import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
 import { DateTime } from "luxon"
-import { stat, writeFile } from "node:fs/promises"
+import { readFile, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import Database from "better-sqlite3"
+import { fileExists } from "../../utils/fs.js"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
   startServer,
@@ -22,10 +32,11 @@ import {
 vi.setConfig({ testTimeout: 15_000 })
 
 /** Extract joined text from a prompt result's messages. */
-const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string =>
-  result.messages
+const promptText = (result: Awaited<ReturnType<Client["getPrompt"]>>): string => {
+  return result.messages
     .map((message) => (message.content.type === "text" ? message.content.text : ""))
     .join("\n")
+}
 
 // ── Default config (33 tools, 3 prompts) ──────────────────────
 
@@ -191,6 +202,16 @@ describe("default config", () => {
       const text = textContent(result)
       expect(text).toContain("Projects/alpha.md")
       expect(text).not.toContain("Orphan Note.md")
+    })
+
+    it("vault_list_notes — glob is relative to the folder", async () => {
+      const result = await callTool({
+        client,
+        name: "vault_list_notes",
+        args: { folder: "Projects", glob: "a*.md" },
+      })
+      expect(result.isError).not.toBe(true)
+      expect(JSON.parse(textContent(result))).toEqual(["Projects/alpha.md"])
     })
   })
 
@@ -1174,8 +1195,8 @@ describe("default config", () => {
   })
 
   describe("OAuth rate limiting", () => {
-    const register = (forwardedIp: string) =>
-      fetch(`http://127.0.0.1:${port}/register`, {
+    const register = (forwardedIp: string) => {
+      return fetch(`http://127.0.0.1:${port}/register`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -1189,13 +1210,14 @@ describe("default config", () => {
           token_endpoint_auth_method: "none",
         }),
       })
+    }
 
     // With the Forwarded header untrusted (the default), a distinct spoofed
     // value per request must NOT mint a fresh rate-limit bucket — all six
     // share the socket peer's bucket.
     it("spoofed Forwarded headers do not bypass the /register rate limit", async () => {
-      for (let i = 1; i <= 5; i++) {
-        const response = await register(`198.51.100.${i}`)
+      for (let lastOctet = 1; lastOctet <= 5; lastOctet++) {
+        const response = await register(`198.51.100.${lastOctet}`)
         expect(response.status).toBe(201)
       }
       const sixth = await register("198.51.100.6")
@@ -1224,8 +1246,8 @@ describe("X-Forwarded-For rate limiting (default proxy trust)", () => {
     if (cleanup) await cleanup()
   })
 
-  const register = (xffIp: string) =>
-    fetch(`http://127.0.0.1:${port}/register`, {
+  const register = (xffIp: string) => {
+    return fetch(`http://127.0.0.1:${port}/register`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -1239,14 +1261,15 @@ describe("X-Forwarded-For rate limiting (default proxy trust)", () => {
         token_endpoint_auth_method: "none",
       }),
     })
+  }
 
   // X-Forwarded-For is the other spoofable channel: with TRUST_PROXY_HOPS=0
   // (the default), a client-supplied X-Forwarded-For must not shift the
   // bucket either — re-raising the hop count would reopen the bypass
   // silently.
   it("spoofed X-Forwarded-For headers do not bypass the /register rate limit", async () => {
-    for (let i = 1; i <= 5; i++) {
-      const response = await register(`198.51.100.${i}`)
+    for (let lastOctet = 1; lastOctet <= 5; lastOctet++) {
+      const response = await register(`198.51.100.${lastOctet}`)
       expect(response.status).toBe(201)
     }
     const sixth = await register("198.51.100.6")
@@ -1270,8 +1293,8 @@ describe("TRUST_PROXY_HOPS=1", () => {
     if (cleanup) await cleanup()
   })
 
-  const register = (xffIp: string) =>
-    fetch(`http://127.0.0.1:${port}/register`, {
+  const register = (xffIp: string) => {
+    return fetch(`http://127.0.0.1:${port}/register`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -1285,6 +1308,7 @@ describe("TRUST_PROXY_HOPS=1", () => {
         token_endpoint_auth_method: "none",
       }),
     })
+  }
 
   // Positive wiring proof for `app.set("trust proxy", config.trustProxyHops)`:
   // with one trusted hop the XFF-derived IP is the bucket key, so exhausting
@@ -1319,8 +1343,8 @@ describe("TRUST_FORWARDED_HOPS=1", () => {
     if (cleanup) await cleanup()
   })
 
-  const register = (forwardedIp: string) =>
-    fetch(`http://127.0.0.1:${port}/register`, {
+  const register = (forwardedIp: string) => {
+    return fetch(`http://127.0.0.1:${port}/register`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -1334,6 +1358,7 @@ describe("TRUST_FORWARDED_HOPS=1", () => {
         token_endpoint_auth_method: "none",
       }),
     })
+  }
 
   it("buckets the /register rate limit by the Forwarded client IP", async () => {
     for (let i = 0; i < 5; i++) {
@@ -1394,8 +1419,8 @@ describe("TRUST_FORWARDED_HOPS=2", () => {
     if (cleanup) await cleanup()
   })
 
-  const register = (forwarded: string) =>
-    fetch(`http://127.0.0.1:${port}/register`, {
+  const register = (forwarded: string) => {
+    return fetch(`http://127.0.0.1:${port}/register`, {
       method: "POST",
       headers: { "content-type": "application/json", forwarded },
       body: JSON.stringify({
@@ -1406,6 +1431,7 @@ describe("TRUST_FORWARDED_HOPS=2", () => {
         token_endpoint_auth_method: "none",
       }),
     })
+  }
 
   it("buckets the /register rate limit by the for= element before the last", async () => {
     for (let i = 0; i < 5; i++) {
@@ -1762,9 +1788,10 @@ describe("boot rejection", () => {
 
 // ── Trash retention: the system default, the local option, and sync ───
 //
-// Each scenario boots its own server: readTrashConfig caches a successful
-// read per process, so a vault's trash setting is fixed the moment the
-// first delete reads it.
+// Each scenario boots its own server because each needs a different
+// starting config: a blank app.json for the system default, the fixture's
+// "local", a written "none" that the setting-change scenario switches to
+// "local" mid-test, or the Sync environment.
 
 /** Every trash_entries row in a server's index DB, read directly from the
  *  data dir the harness created (WAL mode allows a concurrent reader). */
@@ -1787,8 +1814,7 @@ describe("trash retention over real HTTP", () => {
     const server = await startServer(await freePort())
     onTestFinished(() => server.cleanup())
     // The shared fixture pins trashOption "local"; blanking the config makes
-    // the absent key read as "system" (Obsidian's default). Rewritten before
-    // any delete so no "local" read has been cached.
+    // the absent key read as "system" (Obsidian's default).
     await writeFile(join(server.vaultPath, ".obsidian", "app.json"), "{}", "utf8")
     const client = await createTestClient(server.port)
     onTestFinished(() => client.close())
@@ -1860,6 +1886,53 @@ describe("trash retention over real HTTP", () => {
 
     expect(deleteResult.isError).not.toBe(true)
     expect(textContent(deleteResult)).toBe("Deleted Scratch/sync-delete.md")
+    expect(readTrashEntryRows(server.dataDir)).toEqual([])
+  }, 30_000)
+
+  it("a Deleted files setting changed between two deletes is followed without a restart", async () => {
+    const server = await startServer(await freePort())
+    onTestFinished(() => server.cleanup())
+    const appConfigPath = join(server.vaultPath, ".obsidian", "app.json")
+    await writeFile(appConfigPath, JSON.stringify({ trashOption: "none" }), "utf8")
+    const client = await createTestClient(server.port)
+    onTestFinished(() => client.close())
+
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Scratch/before-switch.md", body: "gone for good" },
+    })
+    const permanentResult = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Scratch/before-switch.md" },
+    })
+    expect(textContent(permanentResult)).toBe("Deleted Scratch/before-switch.md")
+
+    // The user switches Obsidian to "Move to Obsidian trash" while the
+    // server keeps running.
+    await writeFile(appConfigPath, JSON.stringify({ trashOption: "local" }), "utf8")
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Scratch/after-switch.md", body: "kept forever" },
+    })
+    const trashedResult = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Scratch/after-switch.md" },
+    })
+
+    expect(trashedResult.isError).not.toBe(true)
+    expect(textContent(trashedResult)).toBe(
+      "Moved Scratch/after-switch.md to trash (.trash/Scratch/after-switch.md)",
+    )
+    await expect(
+      readFile(join(server.vaultPath, ".trash", "Scratch", "after-switch.md"), "utf8"),
+    ).resolves.toBe("kept forever\n")
+    await expect(fileExists(join(server.vaultPath, "Scratch", "after-switch.md"))).resolves.toBe(
+      false,
+    )
     expect(readTrashEntryRows(server.dataDir)).toEqual([])
   }, 30_000)
 })

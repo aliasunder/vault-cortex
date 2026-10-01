@@ -53,6 +53,14 @@ title: Me
 - a fact about burnout boundaries
 `
 
+/** Narrows a row from a `SELECT COUNT(*) as count` query without a type assertion. */
+const countRow = (row: unknown): { count: number } => {
+  if (typeof row === "object" && row !== null && "count" in row && typeof row.count === "number") {
+    return { count: row.count }
+  }
+  throw new Error("expected a count row")
+}
+
 /** Builds a fileStat object for upsertNote. Defaults to size 100. */
 const testStat = (mtimeMs: number, size = 100): { mtimeMs: number; size: number } => ({
   mtimeMs,
@@ -75,12 +83,12 @@ const isoFromMillis = (mtimeMs: number): string => {
  *  setup and seeding writes succeed until a test arms it. */
 const installStatementPoison = (sqlFragment: string) => {
   const message = `injected failure on: ${sqlFragment}`
-  // Concrete function type: prepare's generic conditional return type doesn't
-  // resolve through .call, so pin the default instantiation explicitly.
+  // prepare's generic conditional return type doesn't resolve through .call,
+  // so a concrete function type pins the default instantiation explicitly.
   const realPrepare: (this: Database.Database, source: string) => Database.Statement =
     Database.prototype.prepare
-  // Mutable arming flag: the patched .run closes over this object so tests
-  // can trigger the failure long after the statement was prepared.
+  // The patched .run closes over this mutable flag so tests can trigger the
+  // failure long after the statement was prepared.
   const poisonState = { armed: false }
   const prepareSpy = vi.spyOn(Database.prototype, "prepare").mockImplementation(function (
     this: Database.Database,
@@ -761,7 +769,7 @@ describe("leading callout", () => {
 
     // Opening through the factory must add the missing column, not throw on upsert.
     const warmIndex = createSearchIndex(dbPath)
-    expect(() =>
+    expect(() => {
       warmIndex.upsertNote(
         {
           filePath: "About Me/Me.md",
@@ -769,8 +777,8 @@ describe("leading callout", () => {
           fileStat: testStat(1000),
         },
         logger,
-      ),
-    ).not.toThrow()
+      )
+    }).not.toThrow()
     const results = warmIndex.searchByFolder({ folder: "About Me" }, logger)
     expect(results[0]?.leading_callout?.title).toBe("Scope of this file")
     expect(results[0]?.bytes).toBe(100)
@@ -1058,7 +1066,7 @@ describe("upsertNote atomicity", () => {
     // transaction — intact version-A state below proves genuine rollback,
     // not a no-op.
     taskInsertPoison.arm()
-    expect(() =>
+    expect(() => {
       atomicIndex.upsertNote(
         {
           filePath: "atomic/target.md",
@@ -1066,8 +1074,8 @@ describe("upsertNote atomicity", () => {
           fileStat: testStat(2000),
         },
         logger,
-      ),
-    ).toThrow(taskInsertPoison.message)
+      )
+    }).toThrow(taskInsertPoison.message)
     taskInsertPoison.disarm()
 
     expect(atomicIndex.recentNotes({}, logger)).toEqual([versionAMetadata()])
@@ -1101,7 +1109,7 @@ describe("upsertNote atomicity", () => {
     // the tasks-phase poison above never exercises (it throws before the
     // links table is touched).
     linkInsertPoison.arm()
-    expect(() =>
+    expect(() => {
       atomicIndex.upsertNote(
         {
           filePath: "atomic/target.md",
@@ -1109,8 +1117,8 @@ describe("upsertNote atomicity", () => {
           fileStat: testStat(2000),
         },
         logger,
-      ),
-    ).toThrow(linkInsertPoison.message)
+      )
+    }).toThrow(linkInsertPoison.message)
     linkInsertPoison.disarm()
 
     expect(atomicIndex.recentNotes({}, logger)).toEqual([versionAMetadata()])
@@ -1129,7 +1137,7 @@ describe("upsertNote atomicity", () => {
   it("leaves no trace when a statement fails on a first-ever upsert", () => {
     const taskInsertPoison = installStatementPoison("INSERT INTO tasks")
     const atomicIndex = createSearchIndex(":memory:")
-    // Control note: its positive assertions below prove the query path works,
+    // The control note's positive assertions below prove the query path works,
     // so the target note's empty results can't pass vacuously (fullTextSearch
     // catches SQL errors and returns []).
     atomicIndex.upsertNote(
@@ -1142,7 +1150,7 @@ describe("upsertNote atomicity", () => {
     )
 
     taskInsertPoison.arm()
-    expect(() =>
+    expect(() => {
       atomicIndex.upsertNote(
         {
           filePath: "atomic/target.md",
@@ -1150,8 +1158,8 @@ describe("upsertNote atomicity", () => {
           fileStat: testStat(1000),
         },
         logger,
-      ),
-    ).toThrow(taskInsertPoison.message)
+      )
+    }).toThrow(taskInsertPoison.message)
     taskInsertPoison.disarm()
 
     const controlMetadata: NoteMetadata = {
@@ -1333,6 +1341,30 @@ describe("fullTextSearch", () => {
     expect(results[0]?.path).toBe("Projects/notes.md")
   })
 
+  it("does not match a sibling folder whose name starts with the folder filter", () => {
+    index.upsertNote(
+      {
+        filePath: "ProjectsOld/old.md",
+        rawContent: "---\ntitle: Old\n---\n\nOld meeting notes\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    const results = index.fullTextSearch(
+      { query: "notes", filters: { folder: "Projects" } },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["Projects/notes.md"])
+  })
+
+  it("ignores ASCII letter case in the folder filter", () => {
+    const results = index.fullTextSearch(
+      { query: "notes", filters: { folder: "projects" } },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["Projects/notes.md"])
+  })
+
   it("respects tags filter", () => {
     const results = index.fullTextSearch({ query: "notes", filters: { tags: ["project"] } }, logger)
     expect(results).toHaveLength(1)
@@ -1411,9 +1443,9 @@ describe("fullTextSearch", () => {
   })
 
   it("query with FTS5 operators does not throw", () => {
-    expect(() =>
-      index.fullTextSearch({ query: 'test "quoted" AND (grouped) OR NOT *wild*' }, logger),
-    ).not.toThrow()
+    expect(() => {
+      index.fullTextSearch({ query: 'test "quoted" AND (grouped) OR NOT *wild*' }, logger)
+    }).not.toThrow()
   })
 
   it("hyphenated query matches content containing the hyphenated term", () => {
@@ -1453,9 +1485,9 @@ describe("fullTextSearch", () => {
   })
 
   it("query with stray punctuation does not throw", () => {
-    expect(() =>
-      index.fullTextSearch({ query: "what's new in deploy/local, server.json & .env?" }, logger),
-    ).not.toThrow()
+    expect(() => {
+      index.fullTextSearch({ query: "what's new in deploy/local, server.json & .env?" }, logger)
+    }).not.toThrow()
   })
 })
 
@@ -1728,6 +1760,33 @@ describe("searchByFolder", () => {
       "About Me/Principles.md",
     ])
   })
+
+  it("does not match a sibling folder whose name starts with the folder's name", () => {
+    index.upsertNote(
+      {
+        filePath: "ProjectsOld/old.md",
+        rawContent: "---\ntitle: Old\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    const results = index.searchByFolder({ folder: "Projects" }, logger)
+    expect(results.map((note) => note.path)).toEqual(["Projects/notes.md"])
+  })
+
+  it("ignores ASCII letter case in folder", () => {
+    const results = index.searchByFolder({ folder: "about me" }, logger)
+    expect(results.map((note) => note.path)).toEqual([
+      "About Me/sub/deep.md",
+      "About Me/Principles.md",
+    ])
+  })
+
+  it("applies limit after sorting, keeping the most recently modified notes", () => {
+    // Principles.md was indexed first but is older, so it is the one cut.
+    const results = index.searchByFolder({ folder: "About Me", limit: 1 }, logger)
+    expect(results.map((note) => note.path)).toEqual(["About Me/sub/deep.md"])
+  })
 })
 
 describe("listAllTags", () => {
@@ -1937,7 +1996,7 @@ describe("listPropertyKeys", () => {
       const prev = keys[i - 1]
       const curr = keys[i]
 
-      if (prev === undefined || curr === undefined) continue
+      if (!prev || !curr) continue
       expect(prev.count).toBeGreaterThanOrEqual(curr.count)
     }
   })
@@ -1968,6 +2027,73 @@ describe("listPropertyKeys", () => {
     const statusKey = keys.find((entry) => entry.key === "status")
     expect(statusKey).toBeDefined()
     expect(statusKey?.sample_values).not.toContain("blocked")
+  })
+
+  /** Keys of the two Projects/ notes from beforeEach: every key appears in
+   *  both, so all counts tie at 2 and the keys sort alphabetically. */
+  const PROJECTS_FOLDER_KEYS = [
+    { key: "priority", count: 2, sample_values: ["high", "low"] },
+    { key: "status", count: 2, sample_values: ["done", "in-progress"] },
+    { key: "tags", count: 2, sample_values: ["project", "active", "done"] },
+    { key: "title", count: 2, sample_values: ["Active Project", "Done Project"] },
+    { key: "type", count: 2, sample_values: ["project"] },
+  ]
+
+  it("does not match a sibling folder whose name starts with the folder's name", () => {
+    index.upsertNote(
+      {
+        filePath: "ProjectsOld/old.md",
+        rawContent: "---\nstatus: blocked\narchived_on: 2026-01-01\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    const keys = index.listPropertyKeys({ folder: "Projects" }, logger)
+    expect(keys).toEqual(PROJECTS_FOLDER_KEYS)
+  })
+
+  it("ignores ASCII letter case in folder", () => {
+    const keys = index.listPropertyKeys({ folder: "projects" }, logger)
+    expect(keys).toEqual(PROJECTS_FOLDER_KEYS)
+  })
+
+  it("counts notes whose value is null but leaves null out of sample_values", () => {
+    const propertyIndex = createSearchIndex(":memory:")
+    const reviewedValues = ["true", "false", "", "true"]
+    reviewedValues.forEach((reviewedValue, noteNumber) => {
+      propertyIndex.upsertNote(
+        {
+          filePath: `note-${noteNumber}.md`,
+          rawContent: `---\nreviewed: ${reviewedValue}\n---\nbody\n`,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+    })
+
+    // The empty value is YAML null. Checkbox values come back as "1" and "0".
+    const keys = propertyIndex.listPropertyKeys({}, logger)
+    expect(keys).toEqual([{ key: "reviewed", count: 4, sample_values: ["1", "0"] }])
+  })
+
+  it("ranks sample_values by counting each array element separately, keeping the top 3", () => {
+    const propertyIndex = createSearchIndex(":memory:")
+    const topicLists = ["[alpha, beta]", "[alpha]", "[gamma]", "[gamma]", "[delta]"]
+    topicLists.forEach((topicList, noteNumber) => {
+      propertyIndex.upsertNote(
+        {
+          filePath: `note-${noteNumber}.md`,
+          rawContent: `---\ntopics: ${topicList}\n---\nbody\n`,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+    })
+
+    // alpha and gamma occur twice; beta and delta once each, tied, so the
+    // alphabetical tie-break keeps beta and drops delta.
+    const keys = propertyIndex.listPropertyKeys({}, logger)
+    expect(keys).toEqual([{ key: "topics", count: 5, sample_values: ["alpha", "gamma", "beta"] }])
   })
 })
 
@@ -2025,7 +2151,7 @@ describe("listPropertyValues", () => {
       const prev = values[i - 1]
       const curr = values[i]
 
-      if (prev === undefined || curr === undefined) continue
+      if (!prev || !curr) continue
       expect(prev.count).toBeGreaterThanOrEqual(curr.count)
     }
   })
@@ -2053,6 +2179,70 @@ describe("listPropertyValues", () => {
   it("returns empty for non-existent key", () => {
     const values = index.listPropertyValues({ key: "nonexistent" }, logger)
     expect(values).toHaveLength(0)
+  })
+
+  it("does not match a sibling folder whose name starts with the folder's name", () => {
+    index.upsertNote(
+      {
+        filePath: "ProjectsOld/old.md",
+        rawContent: "---\nstatus: blocked\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    const values = index.listPropertyValues({ key: "status", folder: "Projects" }, logger)
+    expect(values).toEqual([
+      { value: "done", count: 1 },
+      { value: "in-progress", count: 1 },
+    ])
+  })
+
+  it("ignores ASCII letter case in folder", () => {
+    const values = index.listPropertyValues({ key: "status", folder: "projects" }, logger)
+    expect(values).toEqual([
+      { value: "done", count: 1 },
+      { value: "in-progress", count: 1 },
+    ])
+  })
+
+  it("returns a number and the same digits as text as two separate rows", () => {
+    const propertyIndex = createSearchIndex(":memory:")
+    propertyIndex.upsertNote(
+      { filePath: "number.md", rawContent: "---\nrank: 1\n---\nbody\n", fileStat: testStat(1000) },
+      logger,
+    )
+    propertyIndex.upsertNote(
+      { filePath: "text.md", rawContent: '---\nrank: "1"\n---\nbody\n', fileStat: testStat(1000) },
+      logger,
+    )
+
+    const values = propertyIndex.listPropertyValues({ key: "rank" }, logger)
+    expect(values).toEqual([
+      { value: "1", count: 1 },
+      { value: "1", count: 1 },
+    ])
+  })
+
+  it("counts checkbox values with the numbers 1 and 0 and skips null values", () => {
+    const propertyIndex = createSearchIndex(":memory:")
+    const reviewedValues = ["true", "1", "false", ""]
+    reviewedValues.forEach((reviewedValue, noteNumber) => {
+      propertyIndex.upsertNote(
+        {
+          filePath: `note-${noteNumber}.md`,
+          rawContent: `---\nreviewed: ${reviewedValue}\n---\nbody\n`,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+    })
+
+    // true groups with the number 1; the empty value is YAML null.
+    const values = propertyIndex.listPropertyValues({ key: "reviewed" }, logger)
+    expect(values).toEqual([
+      { value: "1", count: 2 },
+      { value: "0", count: 1 },
+    ])
   })
 })
 
@@ -2137,6 +2327,38 @@ describe("searchByProperty", () => {
     expect(results[0]?.path).toBe("Projects/active.md")
   })
 
+  it("does not match a sibling folder whose name starts with the folder filter", () => {
+    index.upsertNote(
+      {
+        filePath: "ProjectsOld/old.md",
+        rawContent: "---\nstatus: in-progress\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    const results = index.searchByProperty(
+      { key: "status", value: "in-progress", folder: "Projects" },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["Projects/active.md"])
+  })
+
+  it("ignores ASCII letter case in the folder filter", () => {
+    index.upsertNote(
+      {
+        filePath: "Other/also-active.md",
+        rawContent: "---\nstatus: in-progress\n---\nbody\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+    const results = index.searchByProperty(
+      { key: "status", value: "in-progress", folder: "projects" },
+      logger,
+    )
+    expect(results.map((result) => result.path)).toEqual(["Projects/active.md"])
+  })
+
   it("respects limit", () => {
     index.upsertNote(
       {
@@ -2165,6 +2387,234 @@ describe("searchByProperty", () => {
     const results = index.searchByProperty({ key: "due", value: "2026-05-13" }, logger)
     expect(results).toHaveLength(1)
     expect(results[0]?.path).toBe("dated.md")
+  })
+
+  it("compares values as text, so '1' matches the number 1, the text '1', and a checked checkbox", () => {
+    const propertyIndex = createSearchIndex(":memory:")
+    const rankValues = ["1", '"1"', "true", "0", "false", '"2"']
+    rankValues.forEach((rankValue, noteNumber) => {
+      propertyIndex.upsertNote(
+        {
+          filePath: `note-${noteNumber}.md`,
+          rawContent: `---\nrank: ${rankValue}\n---\nbody\n`,
+          fileStat: testStat(1000),
+        },
+        logger,
+      )
+    })
+
+    const results = propertyIndex.searchByProperty({ key: "rank", value: "1" }, logger)
+    expect(results.map((result) => result.path)).toEqual(["note-0.md", "note-1.md", "note-2.md"])
+
+    const zeroResults = propertyIndex.searchByProperty({ key: "rank", value: "0" }, logger)
+    expect(zeroResults.map((result) => result.path)).toEqual(["note-3.md", "note-4.md"])
+
+    const trueResults = propertyIndex.searchByProperty({ key: "rank", value: "true" }, logger)
+    expect(trueResults).toEqual([])
+  })
+})
+
+// Obsidian accepts any property name, and YAML keeps "a.b" or "k[0]" as
+// one flat key. Every property query must match such a key as data, never
+// read it as JSON path syntax.
+describe("property keys containing JSON path syntax", () => {
+  const PATH_SYNTAX_KEYS = [
+    { label: "a dotted key", key: "a.b", value: "dotted-value" },
+    { label: "a bracketed key", key: "k[0]", value: "bracket-value" },
+  ]
+
+  const seedPathSyntaxNotes = (): void => {
+    index.upsertNote(
+      {
+        filePath: "Projects/path-syntax-keys.md",
+        rawContent:
+          '---\na.b: dotted-value\n"k[0]": bracket-value\nplain: shared\n---\nsearchable body\n',
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    // Carries both requested values under other keys, so a query that
+    // ignores the key would still match it.
+    index.upsertNote(
+      {
+        filePath: "Projects/decoy-other-keys.md",
+        rawContent:
+          "---\nother: dotted-value\nanother: bracket-value\nplain: shared\n---\nsearchable body\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "notes/decoy-no-keys.md",
+        rawContent: "---\nplain: shared\n---\nsearchable body\n",
+        fileStat: testStat(3000),
+      },
+      logger,
+    )
+    // Matches the search text but carries none of the filtered keys, so a
+    // filter that stops constraining results would let it through.
+    index.upsertNote(
+      {
+        filePath: "notes/decoy-unfiltered.md",
+        rawContent: "---\nunrelated: x\n---\nsearchable body\n",
+        fileStat: testStat(4000),
+      },
+      logger,
+    )
+  }
+
+  it.each(PATH_SYNTAX_KEYS)("listPropertyKeys samples the values of $label", ({ key, value }) => {
+    seedPathSyntaxNotes()
+    const keys = index.listPropertyKeys({}, logger)
+
+    expect(keys.find((entry) => entry.key === key)).toEqual({
+      key,
+      count: 1,
+      sample_values: [value],
+    })
+  })
+
+  it.each(PATH_SYNTAX_KEYS)("listPropertyValues counts the values of $label", ({ key, value }) => {
+    seedPathSyntaxNotes()
+
+    expect(index.listPropertyValues({ key }, logger)).toEqual([{ value, count: 1 }])
+  })
+
+  it.each(PATH_SYNTAX_KEYS)("searchByProperty matches $label", ({ key, value }) => {
+    seedPathSyntaxNotes()
+    const results = index.searchByProperty({ key, value }, logger)
+
+    expect(results.map((result) => result.path)).toEqual(["Projects/path-syntax-keys.md"])
+  })
+
+  it.each(PATH_SYNTAX_KEYS)(
+    "fullTextSearch's properties filter matches $label",
+    ({ key, value }) => {
+      seedPathSyntaxNotes()
+      const results = index.fullTextSearch(
+        { query: "searchable", filters: { properties: { [key]: value } } },
+        logger,
+      )
+
+      expect(results.map((result) => result.path)).toEqual(["Projects/path-syntax-keys.md"])
+    },
+  )
+
+  it("fullTextSearch's properties filter keeps matching a plain key", () => {
+    seedPathSyntaxNotes()
+    const results = index.fullTextSearch(
+      { query: "searchable", filters: { properties: { plain: "shared" } } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path).toSorted()).toEqual([
+      "Projects/decoy-other-keys.md",
+      "Projects/path-syntax-keys.md",
+      "notes/decoy-no-keys.md",
+    ])
+  })
+
+  it("array values under a dotted key are enumerated and matched", () => {
+    index.upsertNote(
+      {
+        filePath: "Projects/array-under-dotted-key.md",
+        rawContent: "---\nc.d:\n  - one\n  - two\n---\nbody\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Projects/decoy-scalar-dotted-key.md",
+        rawContent: "---\nc.d: three\n---\nbody\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+
+    expect(index.listPropertyValues({ key: "c.d" }, logger)).toEqual([
+      { value: "one", count: 1 },
+      { value: "three", count: 1 },
+      { value: "two", count: 1 },
+    ])
+    const matches = index.searchByProperty({ key: "c.d", value: "one" }, logger)
+    expect(matches.map((result) => result.path)).toEqual(["Projects/array-under-dotted-key.md"])
+  })
+
+  it("fullTextSearch's properties filter matches a list property by any element", () => {
+    index.upsertNote(
+      {
+        filePath: "Projects/co-authored.md",
+        rawContent: "---\nauthors:\n  - Alice\n  - Bob\n---\nsearchable body\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Projects/solo.md",
+        rawContent: "---\nauthors:\n  - Carol\n---\nsearchable body\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+
+    const results = index.fullTextSearch(
+      { query: "searchable", filters: { properties: { authors: "Bob" } } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual(["Projects/co-authored.md"])
+  })
+
+  it("fullTextSearch's properties filter compares values by exact type", () => {
+    index.upsertNote(
+      {
+        filePath: "Projects/rated.md",
+        rawContent: "---\nrating: 4\n---\nsearchable body\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+
+    const asNumber = index.fullTextSearch(
+      { query: "searchable", filters: { properties: { rating: 4 } } },
+      logger,
+    )
+    const asString = index.fullTextSearch(
+      { query: "searchable", filters: { properties: { rating: "4" } } },
+      logger,
+    )
+
+    expect(asNumber.map((result) => result.path)).toEqual(["Projects/rated.md"])
+    expect(asString.map((result) => result.path)).toEqual([])
+  })
+
+  it("fullTextSearch's properties filter matches a boolean value", () => {
+    index.upsertNote(
+      {
+        filePath: "Projects/published.md",
+        rawContent: "---\npublished: true\n---\nsearchable body\n",
+        fileStat: testStat(1000),
+      },
+      logger,
+    )
+    index.upsertNote(
+      {
+        filePath: "Projects/draft.md",
+        rawContent: "---\npublished: false\n---\nsearchable body\n",
+        fileStat: testStat(2000),
+      },
+      logger,
+    )
+
+    const results = index.fullTextSearch(
+      { query: "searchable", filters: { properties: { published: true } } },
+      logger,
+    )
+
+    expect(results.map((result) => result.path)).toEqual(["Projects/published.md"])
   })
 })
 
@@ -2807,6 +3257,28 @@ describe("findOrphans", () => {
     const orphanPaths = orphans.map((orphan) => orphan.path)
     expect(orphanPaths).not.toContain("Daily Notes/2026-05-13.md")
     expect(orphanPaths).toContain("Projects/orphan.md")
+  })
+
+  it("does not exclude a sibling folder whose name starts with an excluded folder", () => {
+    index.upsertNote(
+      {
+        filePath: "ProjectsOld/old.md",
+        rawContent: "# Old\n\nNobody links here either.\n",
+        fileStat: testStat(5000),
+      },
+      logger,
+    )
+    const orphans = index.findOrphans({ excludeFolders: ["Projects"] }, logger)
+    expect(orphans.map((orphan) => orphan.path)).toEqual([
+      "ProjectsOld/old.md",
+      "Daily Notes/2026-05-13.md",
+      "hub.md",
+    ])
+  })
+
+  it("ignores ASCII letter case in excludeFolders", () => {
+    const orphans = index.findOrphans({ excludeFolders: ["projects"] }, logger)
+    expect(orphans.map((orphan) => orphan.path)).toEqual(["Daily Notes/2026-05-13.md", "hub.md"])
   })
 
   it("respects limit", () => {
@@ -3939,14 +4411,11 @@ describe("vaultStats", () => {
 describe("embedding pipeline", () => {
   const DIMENSIONS = 384
 
-  /** Creates a mock embedder that returns deterministic embeddings. */
   const createMockEmbedder = () => ({
     embedText: vi.fn().mockResolvedValue(new Float32Array(DIMENSIONS).fill(0.1)),
-    embedBatch: vi
-      .fn()
-      .mockImplementation((texts: string[]) =>
-        Promise.resolve(texts.map(() => new Float32Array(DIMENSIONS).fill(0.1))),
-      ),
+    embedBatch: vi.fn().mockImplementation((texts: string[]) => {
+      return Promise.resolve(texts.map(() => new Float32Array(DIMENSIONS).fill(0.1)))
+    }),
   })
 
   const NOTE_FOR_EMBEDDING = `---
@@ -4284,8 +4753,8 @@ It has multiple sentences to verify chunking works correctly.
       const selectChunkCountStmt = inspectDb.prepare<[string], { count: number }>(
         "SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?",
       )
-      // Trigger guard: the first rebuild actually embedded the file, so the
-      // cleanup assertion below can't pass by the file never being indexed
+      // The first rebuild actually embedded the file, so the cleanup assertion
+      // below can't pass by the file never being indexed
       expect(selectChunkCountStmt.get("ephemeral.txt")?.count).toBe(1)
 
       await rm(join(vaultDir, "ephemeral.txt"))
@@ -4433,25 +4902,25 @@ Shared datefilter content for boundary tests.
 
   it("rejects a malformed created date with remediation text", () => {
     const dateIndex = indexWithCreatedDates()
-    expect(() =>
+    expect(() => {
       dateIndex.fullTextSearch(
         { query: "datefilter", filters: { created: { on: "March 10" } } },
         logger,
-      ),
-    ).toThrow(/^invalid created\.on date: "March 10"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/)
+      )
+    }).toThrow(/^invalid created\.on date: "March 10"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/)
   })
 
   it("rejects a calendar-invalid created date", () => {
     const dateIndex = indexWithCreatedDates()
-    expect(() =>
+    expect(() => {
       dateIndex.fullTextSearch(
         {
           query: "datefilter",
           filters: { created: { before: "2026-02-31" } },
         },
         logger,
-      ),
-    ).toThrow(
+      )
+    }).toThrow(
       /^invalid created\.before date: "2026-02-31"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
     )
   })
@@ -4538,27 +5007,27 @@ Shared datefilter content for mtime boundary tests.
 
   it("rejects a malformed modified date with remediation text", () => {
     const dateIndex = indexWithModifiedTimes()
-    expect(() =>
+    expect(() => {
       dateIndex.fullTextSearch(
         { query: "datefilter", filters: { modified: { after: "yesterday" } } },
         logger,
-      ),
-    ).toThrow(
+      )
+    }).toThrow(
       /^invalid modified\.after date: "yesterday"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
     )
   })
 
   it("rejects a calendar-invalid modified date", () => {
     const dateIndex = indexWithModifiedTimes()
-    expect(() =>
+    expect(() => {
       dateIndex.fullTextSearch(
         {
           query: "datefilter",
           filters: { modified: { before: "2026-02-31" } },
         },
         logger,
-      ),
-    ).toThrow(
+      )
+    }).toThrow(
       /^invalid modified\.before date: "2026-02-31"\. Use YYYY-MM-DD \(e\.g\. 2026-07-03\)\.$/,
     )
   })
@@ -4575,8 +5044,8 @@ Shared datefilter content for mtime boundary tests.
       logger,
     )
     expect(tagMatchedResults.map((result) => result.path)).toEqual(["during.md"])
-    // And the reverse: during.md matches the modified bound but lacks the
-    // required tag — the tag filter must exclude it despite the date match
+    // And in reverse, during.md matches the modified bound but lacks the
+    // required tag, so the tag filter must exclude it despite the date match
     const tagExcludedResults = dateIndex.fullTextSearch(
       {
         query: "datefilter",
@@ -5100,11 +5569,9 @@ describe("file content vector embeddings", () => {
   const DIMENSIONS = 384
   const createMockEmbedder = () => ({
     embedText: vi.fn().mockResolvedValue(new Float32Array(DIMENSIONS).fill(0.1)),
-    embedBatch: vi
-      .fn()
-      .mockImplementation((texts: string[]) =>
-        Promise.resolve(texts.map(() => new Float32Array(DIMENSIONS).fill(0.1))),
-      ),
+    embedBatch: vi.fn().mockImplementation((texts: string[]) => {
+      return Promise.resolve(texts.map(() => new Float32Array(DIMENSIONS).fill(0.1)))
+    }),
   })
 
   const TEXT_FILE_CONTENT = "System design overview with diagrams and architecture notes."
@@ -5243,21 +5710,25 @@ describe("file content vector embeddings", () => {
         inspectDb.close()
       })
 
-      const chunksBefore = inspectDb
-        .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
-        .get("docs/overview.txt") as { count: number }
+      const chunksBefore = countRow(
+        inspectDb
+          .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
+          .get("docs/overview.txt"),
+      )
       expect(chunksBefore.count).toBe(1)
 
       index.removeFileContent({ filePath: "docs/overview.txt" }, logger)
 
-      const chunksAfter = inspectDb
-        .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
-        .get("docs/overview.txt") as { count: number }
+      const chunksAfter = countRow(
+        inspectDb
+          .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
+          .get("docs/overview.txt"),
+      )
       expect(chunksAfter.count).toBe(0)
 
-      const vectorsAfter = inspectDb
-        .prepare("SELECT COUNT(*) as count FROM file_content_vectors")
-        .get() as { count: number }
+      const vectorsAfter = countRow(
+        inspectDb.prepare("SELECT COUNT(*) as count FROM file_content_vectors").get(),
+      )
       expect(vectorsAfter.count).toBe(0)
     })
   })
@@ -5273,14 +5744,14 @@ describe("file content vector embeddings", () => {
         fileToolsEnabled: true,
       })
 
-      const longContent = Array.from(
-        { length: 15 },
-        (_, paragraphIndex) =>
+      const longContent = Array.from({ length: 15 }, (_, paragraphIndex) => {
+        return (
           `Paragraph ${String(paragraphIndex)} discusses advanced architecture and system design patterns ` +
           `including microservices communication protocols and event-driven messaging architectures ` +
           `with distributed tracing observability and structured logging for production monitoring ` +
-          `plus container orchestration deployment strategies and infrastructure provisioning automation.`,
-      ).join("\n\n")
+          `plus container orchestration deployment strategies and infrastructure provisioning automation.`
+        )
+      }).join("\n\n")
 
       index.upsertNonMdFile("docs/long.txt", 2000)
       index.upsertFileContent(
@@ -5300,9 +5771,11 @@ describe("file content vector embeddings", () => {
         inspectDb.close()
       })
 
-      const chunkCountBefore = inspectDb
-        .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
-        .get("docs/long.txt") as { count: number }
+      const chunkCountBefore = countRow(
+        inspectDb
+          .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
+          .get("docs/long.txt"),
+      )
       expect(chunkCountBefore.count).toBeGreaterThan(1)
 
       // Replace with short content — produces exactly 1 chunk
@@ -5316,14 +5789,16 @@ describe("file content vector embeddings", () => {
       )
       await index.embedFileContent({ filePath: "docs/long.txt" }, logger)
 
-      const chunkCountAfter = inspectDb
-        .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
-        .get("docs/long.txt") as { count: number }
+      const chunkCountAfter = countRow(
+        inspectDb
+          .prepare("SELECT COUNT(*) as count FROM file_content_chunks WHERE file_path = ?")
+          .get("docs/long.txt"),
+      )
       expect(chunkCountAfter.count).toBe(1)
 
-      const vectorCount = inspectDb
-        .prepare("SELECT COUNT(*) as count FROM file_content_vectors")
-        .get() as { count: number }
+      const vectorCount = countRow(
+        inspectDb.prepare("SELECT COUNT(*) as count FROM file_content_vectors").get(),
+      )
       expect(vectorCount.count).toBe(1)
     })
   })

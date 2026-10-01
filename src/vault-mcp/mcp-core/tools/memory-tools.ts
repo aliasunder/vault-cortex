@@ -72,7 +72,9 @@ Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entrie
           .string()
           .min(1)
           .optional()
-          .describe('Memory file name without .md (e.g. "Principles", "Opinions")'),
+          .describe(
+            'Memory file name without .md (e.g. "Principles", "Opinions"). Use the exact letter case.',
+          ),
         section: z
           .string()
           .min(1)
@@ -161,16 +163,18 @@ Returns: Without on_or_after, raw markdown text. With on_or_after, JSON { entrie
     TOOL_NAMES.VAULT_LIST_MEMORY_FILES,
     {
       title: "List Memory Files",
-      description: `Discovery tool — lists ${config.memoryDir}/ memory files with their H1/H2 heading structure, per-section entry counts, entry policy, and each file's leading callout (by convention a "Scope of this file" block describing what belongs in it). Does NOT return actual entries.
+      description: `Discovery tool — lists ${config.memoryDir}/ memory files with their H1/H2 heading structure, per-section entry counts, and each file's leading callout (by convention a "Scope of this file" block describing what belongs in it). An entry is a dated bullet line ("- **YYYY-MM-DD**: text"). Does NOT return actual entries.
 
-Example: vault_list_memory_files() returns file outlines with headings like "Decision heuristics (newest first)", entry counts, each file's entry policy, and its scope callout.
+Example: vault_list_memory_files() returns [{ file: "Principles", title: "Principles", bytes: 2048, entry_policy: "append-only", leading_callout: null, headings: [{ level: 2, text: "Decision heuristics (newest first)", entry_count: 12 }] }, ...]
 
-When to use: ${discoveryPurpose} Always call this first to get valid file and section names${whenToolEnabledText("vault_delete_memory", ", and to check a file's entry policy before pruning entries")}.
+When to use: ${discoveryPurpose} Always call this first to get valid file and section names${whenToolEnabledText("vault_delete_memory", ", and to check a file's entry_policy before pruning entries")}.
+
+Behavior: Lists every .md file directly inside ${config.memoryDir}/, sorted by file name, whether or not it has frontmatter or a scope callout. Subfolders are not read, and hidden (dot-prefixed) files are skipped.
 
 Errors:
 - An empty or nonexistent memory folder returns an empty array, not an error.
 
-Returns: JSON array of file outlines, each { file, title, bytes, entry_policy, leading_callout, headings } — bytes is the on-disk file size; entry_policy is "append-only" (the default — entries are never edited or deleted) or "living" (a current-state file whose expired entries may be pruned; declared via \`entry-policy\` frontmatter); leading_callout is the file's top-of-file callout ({ type, title, body }), by convention a "Scope of this file" block, or null.`,
+Returns: JSON array of file outlines, each { file, title, bytes, entry_policy, leading_callout, headings } — file is the name the other memory tools take as file (no .md); bytes is the on-disk file size; headings lists H1 and H2 headings in order, with entry_count on H2s; entry_policy is "append-only" (the default: by convention, entries are never edited or deleted) or "living" (a current-state file whose expired entries may be pruned; declared via \`entry-policy\` frontmatter). The server does not enforce either policy. leading_callout is the file's top-of-file callout ({ type, title, body }), or null.`,
       inputSchema: {},
     },
     async (_args, extra) => {
@@ -239,7 +243,7 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
           .min(1)
           .optional()
           .describe(
-            'Optional: restrict to one memory file, name without .md (e.g. "Opinions"). Omit for cross-file recall — the default and usual choice.',
+            'Optional: restrict to one memory file, name without .md (e.g. "Opinions"), in its exact letter case. Omit for cross-file recall — the default and usual choice.',
           ),
         limit: z
           .number()
@@ -306,7 +310,12 @@ Errors:
 
 Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
       inputSchema: {
-        file: z.string().min(1).describe('Memory file name without .md (e.g. "Principles")'),
+        file: z
+          .string()
+          .min(1)
+          .describe(
+            'Memory file name without .md (e.g. "Principles"). Use the exact letter case; a different case can create a second file.',
+          ),
         section: z
           .string()
           .min(1)
@@ -394,7 +403,10 @@ Errors:
 
 Returns: Confirmation message.`,
       inputSchema: {
-        file: z.string().min(1).describe('Memory file name without .md (e.g. "Principles")'),
+        file: z
+          .string()
+          .min(1)
+          .describe('Memory file name without .md (e.g. "Principles"). Use the exact letter case.'),
         section: z
           .string()
           .min(1)
@@ -409,6 +421,7 @@ Returns: Confirmation message.`,
           ),
         entry: z
           .string()
+          .min(1)
           .describe(
             'Exact entry text as shown by vault_get_memory — without the "- **YYYY-MM-DD**: " prefix or bullet. Both date and entry must match for deletion.',
           ),

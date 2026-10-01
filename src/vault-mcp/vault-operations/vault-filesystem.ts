@@ -56,6 +56,8 @@ export const resolveSafePath = (vaultPath: string, notePath: string): string => 
   const escapesVault =
     pathFromVaultRoot === ".." ||
     pathFromVaultRoot.startsWith(`..${sep}`) ||
+    // On POSIX relative() always returns a relative path, but across drives
+    // on Windows it can return an absolute one — this guard catches that.
     isAbsolute(pathFromVaultRoot)
 
   if (escapesVault) {
@@ -109,9 +111,9 @@ export const isProtectedPath = (params: {
  * with zero entries is removed, so a folder still holding any file (including a
  * hidden one like .DS_Store) is left in place and stops the walk.
  *
- * Best-effort cleanup: the delete/move that triggered it has already succeeded,
- * so a failure to remove a folder (permissions, a race, a vanished dir) is
- * logged and ends the walk rather than thrown — it never fails the tool call.
+ * The delete/move that triggered the prune has already succeeded, so a failure
+ * to remove a folder (permissions, a race, a vanished dir) is logged and ends
+ * the walk rather than thrown — it never fails the tool call.
  * Returns the number of folders removed.
  */
 export const pruneEmptyParents = async (
@@ -145,8 +147,8 @@ export const pruneEmptyParents = async (
 }
 
 /**
- * Writes a file atomically: stage to a unique temp file, then rename over the
- * target. `rename` is atomic on the same filesystem, so the target is never
+ * Stages content to a unique temp file, then renames over the target.
+ * `rename` is atomic on the same filesystem, so the target is never
  * truncated — readers (notably the obsidian-sync container) see either the old
  * content or the new content, never a 0-byte or partial write. This is the
  * core defense against the partial-write clobber class of bug.
@@ -419,6 +421,16 @@ const writeNote = async (
     if (existing !== null && !params.overwrite) {
       throw new Error(`note already exists: "${params.path}"`)
     }
+    // readFileOrNull reads a folder at the path as no file. The write below
+    // renames over the path, which would replace a symlink that points at a
+    // folder, so the write stops when the path leads to anything but a file.
+    if (existing === null) {
+      const occupant = await statOrNull(fullPath)
+
+      if (occupant && !occupant.isFile()) {
+        throw new Error(`cannot write note "${params.path}": that path is not a file`)
+      }
+    }
     const serialized = serializeNote(existing, params.body, params.properties)
     await atomicWriteFile({ filePath: fullPath, content: serialized }, logger)
     logger.info("wrote note", {
@@ -522,6 +534,7 @@ const moveNoteToTrash = async (
   logger: Logger,
 ): Promise<string> => {
   const { dir, name, ext } = parse(params.relativePath)
+  // Obsidian appends " 1", " 2", etc. for name collisions in .trash/.
   const candidateRelativePaths = [
     `.trash/${params.relativePath}`,
     ...Array.from({ length: 100 }, (_, index) => {
@@ -613,9 +626,9 @@ const deleteNote = async (
      *  caller decides which trash options are recorded (and therefore
      *  swept); omitted moves are kept in .trash/ forever. */
     recordTrashEntry?: ((trashRelativePath: string) => void) | undefined
-    /** Forwarded to moveNoteToTrash: clears the sweep's row for a landed
-     *  trash path when the move is not recorded, so an unrecorded move can
-     *  never inherit an earlier occupant's retention clock. */
+    /** Clears the sweep's row for a landed trash path when the move is not
+     *  recorded, so an unrecorded move can never inherit an earlier occupant's
+     *  retention clock. Forwarded to moveNoteToTrash. */
     clearStaleTrashEntry?: ((trashRelativePath: string) => void) | undefined
   },
   logger: Logger,
@@ -692,8 +705,12 @@ const deleteNote = async (
       ? await pruneEmptyParents({ vaultPath: params.vaultPath, path }, logger)
       : 0
 
+    // trash_option is the only record of whether a trashed note is swept
+    // later ("system") or kept forever ("local") — the result text and the
+    // tool_result log say "trashed" for both.
     logger.info("deleted note", {
       path,
+      trash_option: params.trashOption,
       ...(trashLocation ? { trash_location: trashLocation } : {}),
       pruned_empty_folders: prunedEmptyFolders,
     })
@@ -744,7 +761,7 @@ const listVaultFilePaths = async (
     relative(normalizedVault, join(entry.parentPath, entry.name)),
   )
   const visiblePaths = relativePaths.filter((relativePath) => !hasHiddenPathSegment(relativePath))
-  return visiblePaths.sort()
+  return visiblePaths.toSorted()
 }
 
 /** Lists .md files under a folder (or vault root). Supports glob filtering. */
@@ -765,8 +782,16 @@ const listNotes = async (
     logger,
   )
 
+  // With a folder, the glob matches each path relative to that folder. The
+  // folder is re-derived from its resolved form so aliases ("Projects/",
+  // "./Projects") reduce to the same vault-relative prefix as the listed paths.
+  const globBase = params.folder
+    ? relative(resolve(params.vaultPath), resolveSafePath(params.vaultPath, params.folder))
+    : ""
   const isMatch = params.glob ? picomatch(params.glob) : undefined
-  const result = isMatch ? paths.filter((notePath) => isMatch(notePath)) : paths
+  const result = isMatch
+    ? paths.filter((notePath) => isMatch(posix.relative(globBase, notePath)))
+    : paths
   logger.info("listed notes", { folder: params.folder, count: result.length })
   return result
 }
@@ -816,6 +841,7 @@ const readAsset = async (
     )
   }
 
+  // IIFE scopes the ENOENT mapping to just the open call.
   const fileHandle = await (async () => {
     try {
       return await open(fullPath, "r")
