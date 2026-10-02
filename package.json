@@ -92,7 +92,7 @@
   },
   "dependencies": {
     "@huggingface/transformers": "4.3.0",
-    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/sdk": "1.31.0",
     "@napi-rs/canvas": "1.0.9",
     "better-sqlite3": "13.0.3",
     "chokidar": "5.0.0",
@@ -104,7 +104,7 @@
     "pdfjs-dist": "6.3.289",
     "picomatch": "4.0.7",
     "rrule": "2.8.1",
-    "sharp": "0.35.4",
+    "sharp": "0.35.5",
     "sqlite-vec": "0.1.9",
     "unpdf": "1.8.1",
     "yaml": "2.9.1",
