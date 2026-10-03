@@ -113,7 +113,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .optional()
           .default("due")
           .describe(
-            'Sort key (default "due"). Date sorts cascade through related fields when the primary is absent (through the rest of due → scheduled → start → created, in that order; done and cancelled do not cascade); each fallback uses its own natural direction. "position" sorts by file path then line number — the natural order for Kanban boards.',
+            'Sort key (default "due"). Date sorts cascade through related fields when the primary is absent (through the rest of due → scheduled → start → created, in that order; done does not cascade); each fallback uses its own natural direction. "position" sorts by file path then line number — the natural order for Kanban boards.',
           ),
         sort_direction: z
           .enum(["asc", "desc"])

@@ -556,7 +556,7 @@
           },
           "sort_by": {
             "default": "due",
-            "description": "Sort key (default \"due\"). Date sorts cascade through related fields when the primary is absent (through the rest of due → scheduled → start → created, in that order; done and cancelled do not cascade); each fallback uses its own natural direction. \"position\" sorts by file path then line number — the natural order for Kanban boards.",
+            "description": "Sort key (default \"due\"). Date sorts cascade through related fields when the primary is absent (through the rest of due → scheduled → start → created, in that order; done does not cascade); each fallback uses its own natural direction. \"position\" sorts by file path then line number — the natural order for Kanban boards.",
             "type": "string",
             "enum": [
               "due",
