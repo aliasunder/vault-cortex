@@ -170,10 +170,13 @@ export const registerVaultOrientationPrompt = ({
         )
         const hasMoreOrphans = orphanResults.length > ORIENTATION_ORPHAN_LIMIT
         const orphans = orphanResults.slice(0, ORIENTATION_ORPHAN_LIMIT)
-        const dailyNotesConfig = await readDailyNotesConfig(vaultPath, {
-          folder: config.dailyNotesFolder,
-          format: config.dailyNotesFormat,
-        })
+        const dailyNotesConfig = await readDailyNotesConfig(
+          {
+            vaultPath,
+            envSettings: { folder: config.dailyNotesFolder, format: config.dailyNotesFormat },
+          },
+          reqLogger,
+        )
         const brokenLinkResult = search.brokenLinkCount(
           { dailyNotesFolder: dailyNotesConfig.folder },
           reqLogger,

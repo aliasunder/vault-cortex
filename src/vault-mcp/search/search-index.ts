@@ -14,7 +14,7 @@ import { links } from "../obsidian-markdown/links.js"
 import { splitIntoLines } from "../obsidian-markdown/lines.js"
 import { parseHeadings } from "../obsidian-markdown/headings.js"
 import { parseMemoryEntries, type MemoryEntry } from "../obsidian-markdown/memory-entries.js"
-import { tasks } from "../obsidian-markdown/tasks.js"
+import { DEFAULT_STATUS_REGISTRY, tasks } from "../obsidian-markdown/tasks.js"
 import type { StatusClassification, TaskPriority, TaskStatus } from "../obsidian-markdown/tasks.js"
 import { contentHash, type Embedder } from "./embedder.js"
 import type { Reranker } from "./reranker.js"
@@ -343,8 +343,10 @@ export const createSearchIndex = (
     /** When true, creates file_content + file_content_fts tables for
      *  full-text search of non-markdown file content (e.g. canvas). */
     fileToolsEnabled?: boolean | undefined
-    /** Checkbox char → classified type from the Tasks plugin config.
-     *  Captured once at boot — a config change requires a server restart. */
+    /** Checkbox char → classified type from the Tasks plugin config; the
+     *  built-in statuses when omitted. Captured once at boot and exposed as
+     *  `statusRegistry`, so task writes classify with the same map the index
+     *  did — a status-type change in the plugin needs a server restart. */
     statusRegistry?: ReadonlyMap<string, StatusClassification> | undefined
     /** Query-time overrides for hybridSearch (file-leg RRF weight, reranker
      *  kind prefix — defaults in hybrid-search.ts) plus the index-time
@@ -356,7 +358,7 @@ export const createSearchIndex = (
 ) => {
   const memoryDir = options?.memoryDir
   const fileToolsEnabled = options?.fileToolsEnabled ?? false
-  const statusRegistry = options?.statusRegistry
+  const statusRegistry = options?.statusRegistry ?? DEFAULT_STATUS_REGISTRY
   const db = new Database(dbPath)
   db.pragma("journal_mode = WAL")
   db.pragma("synchronous = NORMAL")
@@ -2468,6 +2470,7 @@ export const createSearchIndex = (
     modifiedOnDate: bindQueryContext(queries.modifiedOnDate),
     vaultStats: bindQueryContext(queries.vaultStats),
     fileContentIndexingEnabled: fileToolsEnabled,
+    statusRegistry,
   }
 }
 

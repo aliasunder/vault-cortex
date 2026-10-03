@@ -269,6 +269,17 @@ const PRIORITY_BY_WORD: Readonly<Record<string, TaskPriority>> = {
 
 // ── Status mapping ──────────────────────────────────────────────
 
+/** The Tasks plugin's built-in statuses — what the registry holds when the
+ *  plugin config is absent. Classifies every char the way statusForChar
+ *  does without a registry. */
+export const DEFAULT_STATUS_REGISTRY: ReadonlyMap<string, StatusClassification> = new Map([
+  [" ", "todo"],
+  ["x", "done"],
+  ["X", "done"],
+  ["/", "in_progress"],
+  ["-", "cancelled"],
+])
+
 /** Maps a checkbox character to a status classification. With a registry
  *  (from the Tasks plugin config), the registry lookup wins and unknown
  *  chars fall back to "todo". Without a registry, the four built-in chars

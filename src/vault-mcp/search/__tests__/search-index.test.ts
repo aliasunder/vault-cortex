@@ -994,6 +994,31 @@ describe("upsertNote", () => {
     expect(tags).toEqual([{ tag: "single-tag", count: 1 }])
   })
 
+  it("exposes the status registry it was built with", () => {
+    const statusRegistry: ReadonlyMap<string, StatusClassification> = new Map([
+      [" ", "todo"],
+      ["x", "done"],
+      ["D", "done"],
+    ])
+    const registryIndex = createSearchIndex(":memory:", undefined, undefined, {
+      statusRegistry,
+    })
+
+    expect(registryIndex.statusRegistry).toBe(statusRegistry)
+  })
+
+  it("exposes the built-in statuses when no registry is given", () => {
+    expect(index.statusRegistry).toEqual(
+      new Map<string, StatusClassification>([
+        [" ", "todo"],
+        ["x", "done"],
+        ["X", "done"],
+        ["/", "in_progress"],
+        ["-", "cancelled"],
+      ]),
+    )
+  })
+
   it("threads the status registry to classify custom task statuses", () => {
     const statusRegistry: ReadonlyMap<string, StatusClassification> = new Map([
       [" ", "todo"],

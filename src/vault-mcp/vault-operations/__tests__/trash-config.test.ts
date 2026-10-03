@@ -96,6 +96,19 @@ describe("readTrashConfig", () => {
     expect(result).toBe("system")
   })
 
+  it('defaults to "system" when .obsidian is a file rather than a folder', async () => {
+    const vault = await createVault()
+    await writeFile(join(vault, ".obsidian"), "not a folder", "utf8")
+    const warnSpy = vi.spyOn(logger, "warn")
+    onTestFinished(() => warnSpy.mockRestore())
+
+    const result = await readTrashConfig(vault, logger)
+
+    // No settings exist, so nothing is wrong to warn about.
+    expect(result).toBe("system")
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+
   it('throws on malformed JSON instead of falling back to "system"', async () => {
     const vault = await createVault()
     const obsidianDir = join(vault, ".obsidian")

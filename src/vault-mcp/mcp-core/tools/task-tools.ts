@@ -249,8 +249,8 @@ Errors:
 - "heading "X" not found; available: ..." — no heading matches; the error lists the note's headings
 - "cannot place at position N under "X" — the heading appears N times" — integer position on a note with duplicate heading names; rename one section to make it unique
 - "parent task not found" — parent_block_id or parent_line doesn't resolve to a task (message names the blockId or line tried), or the line is inside a fenced code block or %% %% comment
-- "checkbox '[c]' is a NON_TASK status" — the parent task's checkbox char is typed NON_TASK in the Tasks plugin's status registry; NON_TASK checkboxes are excluded from the task system
-- "no checkbox symbol for status ..." — the status registry has no symbol for the todo status and the built-in default is retyped; update the plugin's status registry to include a todo symbol
+- "checkbox '[c]' is a NON_TASK status" — the parent task's checkbox char is typed NON_TASK in the Tasks plugin's status registry, so it is not a task; to change that, retype it there and restart the server
+- "no checkbox symbol for status ..." — the status registry has no symbol for the todo status and the built-in default is retyped; update the plugin's status registry to include a todo symbol, then restart the server
 - "parentBlockId and parentLine are mutually exclusive" — both parent_block_id and parent_line were passed; drop one
 - "parent and heading are mutually exclusive" — a parent (parent_block_id or parent_line) and heading were both passed; drop one
 - "blockId ... already exists in this note" — pick a block_id not yet used in the note
@@ -421,6 +421,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
             {
               vaultPath,
               path,
+              statusRegistry: search.statusRegistry,
               description,
               blockId: block_id,
               heading,
@@ -508,8 +509,8 @@ Errors:
 - "blockId ... is inside a fenced code block or comment" — the block_id matches a line inside a fenced code block or %% %% comment; target a line outside the fence
 - "no task at line N" — line doesn't contain a task checkbox
 - "line N is inside a fenced code block or comment" — the line is inside a fenced code block or %% %% comment; target a line outside the fence
-- "checkbox '[c]' is a NON_TASK status" — the task's checkbox char is typed NON_TASK in the Tasks plugin's status registry; NON_TASK checkboxes are excluded from the task system and cannot be mutated
-- "no checkbox symbol for status ..." — the status registry has no symbol for the target status and the built-in default is retyped; update the plugin's status registry to include a symbol for this status
+- "checkbox '[c]' is a NON_TASK status" — the task's checkbox char is typed NON_TASK in the Tasks plugin's status registry, so it is not a task; to change that, retype it there and restart the server
+- "no checkbox symbol for status ..." — the status registry has no symbol for the target status and the built-in default is retyped; update the plugin's status registry to include a symbol for this status, then restart the server
 - "at least one mutation" — no change params provided
 - "cannot move a sub-task to a heading" — explicit heading on a task nested under another task (depth > 0${whenToolEnabledText("vault_list_tasks", " in vault_list_tasks")})
 - "cannot reposition a sub-task" — explicit position on a sub-task (sub-tasks move with their parent)
@@ -713,6 +714,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
             {
               vaultPath,
               path,
+              statusRegistry: search.statusRegistry,
               blockId: block_id,
               line,
               status,

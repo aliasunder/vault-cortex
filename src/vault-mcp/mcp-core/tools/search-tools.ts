@@ -586,10 +586,13 @@ Errors: Rejects paths that don't end in .md or .canvas. A path not in the index 
       return safeHandler(
         reqLogger,
         async () => {
-          const dailyNotesConfig = await readDailyNotesConfig(vaultPath, {
-            folder: config.dailyNotesFolder,
-            format: config.dailyNotesFormat,
-          })
+          const dailyNotesConfig = await readDailyNotesConfig(
+            {
+              vaultPath,
+              envSettings: { folder: config.dailyNotesFolder, format: config.dailyNotesFormat },
+            },
+            reqLogger,
+          )
           return search.getOutgoingLinks(
             { path, dailyNotesFolder: dailyNotesConfig.folder },
             reqLogger,
