@@ -221,7 +221,6 @@ Example: vault_create_task({ path: "TASKS.md", description: "Mid-priority", bloc
 When to use: Creating a new task card on a board or in a note. Guarantees correct field ordering (description → priority → 🔁 recurrence → 🏁 onCompletion → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id)${whenToolEnabledText("vault_list_tasks", " so the card round-trips through vault_list_tasks with all fields intact")}.${whenToolEnabledText("vault_update_task", " For lightweight checklist items under an existing card (no metadata), use vault_update_task's add_subtasks param instead.")}
 
 Parameters:
-- path, description, and block_id are required.
 - heading is required on Kanban boards (notes with kanban-plugin frontmatter).
 - parent_block_id / parent_line: the same pair vault_update_task uses (block_id / line). Pass at most one. Either is mutually exclusive with heading — a sub-task lives wherever its parent lives.
 - position: Kanban boards with new-card-insertion-method set to "prepend" default to "top" instead of "bottom". Ignored when no heading or when placing under a parent.
@@ -232,11 +231,12 @@ Parameters:
 Errors:
 - "note not found" — path does not exist
 - "path must end in …" — add the .md extension
+- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "heading required for Kanban boards" — kanban-plugin note without heading
 - "heading "X" not found; available: ..." — no heading matches; the error lists the note's headings
 - "cannot place at position N under "X" — the heading appears N times" — integer position on a note with duplicate heading names; rename one section to make it unique
 - "parent task not found" — parent_block_id or parent_line doesn't resolve to a task (message names the blockId or line tried), or the line is inside a fenced code block or %% %% comment
-- "checkbox '[c]' is a NON_TASK status" — the parent task's checkbox char is typed NON_TASK in the Tasks plugin's status registry, so it is not a task; to change that, retype it there and restart the server
+- "checkbox "[c]" is a NON_TASK status" — the parent task's checkbox char is typed NON_TASK in the Tasks plugin's status registry, so it is not a task; to change that, retype it there and restart the server
 - "no checkbox symbol for status ..." — the status registry has no symbol for the todo status and the built-in default is retyped; update the plugin's status registry to include a todo symbol, then restart the server
 - "parentBlockId and parentLine are mutually exclusive" — both parent_block_id and parent_line were passed; drop one
 - "parent and heading are mutually exclusive" — a parent (parent_block_id or parent_line) and heading were both passed; drop one
@@ -475,12 +475,13 @@ Parameters:
 Errors:
 - "note not found" — path does not exist
 - "path must end in …" — add the .md extension
+- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "exactly one of blockId or line is required" / "blockId and line are mutually exclusive" — pass exactly one of block_id or line
 - "blockId ... not found" — no task line in the note ends with ^block_id
 - "blockId ... is inside a fenced code block or comment" — the block_id matches a line inside a fenced code block or %% %% comment; target a line outside the fence
 - "no task at line N" — line doesn't contain a task checkbox
 - "line N is inside a fenced code block or comment" — the line is inside a fenced code block or %% %% comment; target a line outside the fence
-- "checkbox '[c]' is a NON_TASK status" — the task's checkbox char is typed NON_TASK in the Tasks plugin's status registry, so it is not a task; to change that, retype it there and restart the server
+- "checkbox "[c]" is a NON_TASK status" — the task's checkbox char is typed NON_TASK in the Tasks plugin's status registry, so it is not a task; to change that, retype it there and restart the server
 - "no checkbox symbol for status ..." — the status registry has no symbol for the target status and the built-in default is retyped; update the plugin's status registry to include a symbol for this status, then restart the server
 - "at least one mutation" — no change params provided
 - "cannot move a sub-task to a heading" — explicit heading on a task nested under another task (depth > 0${whenToolEnabledText("vault_list_tasks", " in vault_list_tasks")})

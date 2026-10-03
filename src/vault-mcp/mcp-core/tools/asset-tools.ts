@@ -109,6 +109,7 @@ Errors:
 - "start line past the end" — start_line exceeds the file's line count; the error states the total, so retry with a smaller start_line
 - "line range is not available" (start_line or limit on an image, or on a PDF read with raw: true) / "raw source is not available for images" (raw on an image) — drop that input; paging applies only to text results, and an image always comes back as its image block
 - "not valid UTF-8" — the file's bytes aren't UTF-8 text; returning them would silently corrupt the content
+- "invalid .canvas JSON" — the canvas file is empty or not valid JSON, so no outline can be built; set raw: true to read its source as text
 - "PDF has no extractable text" — the PDF contains no text (scanned or image-only); the error states the page count. Set raw: true to render pages as images instead
 - "PDF page rendering failed" — raw: true was set but no pages could be rendered; the PDF may be corrupt
 - "image cannot be fitted" — the image could not be compressed under the image output budget

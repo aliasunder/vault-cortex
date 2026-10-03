@@ -889,6 +889,24 @@ describe("parameter combinations", () => {
     expectToolError(result, "heading_level requires a heading")
   })
 
+  it("vault_read_note with a whitespace-only heading", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: "Projects/alpha.md", heading: "   " },
+    })
+    expectToolError(result, "heading cannot be empty")
+  })
+
+  it("vault_patch_note with a whitespace-only heading", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_patch_note",
+      args: { path: "Projects/alpha.md", operation: "append", heading: "   ", content: "refused" },
+    })
+    expectToolError(result, "heading cannot be empty")
+  })
+
   it("vault_move_note onto its own path", async () => {
     const result = await callTool({
       client,
@@ -896,6 +914,48 @@ describe("parameter combinations", () => {
       args: { old_path: "Projects/alpha.md", new_path: "Projects/alpha.md" },
     })
     expectToolError(result, "source and destination are the same path")
+  })
+})
+
+// ── Task tool path guards ────────────────────────────────────
+
+describe("task tool path guards", () => {
+  const blockedPathCases = [
+    { label: "an absolute path", path: "/TASKS.md", message: "absolute path blocked" },
+    { label: "a path outside the vault", path: "../TASKS.md", message: "path traversal blocked" },
+    { label: "a hidden path", path: ".obsidian/TASKS.md", message: "hidden path blocked" },
+  ]
+
+  it.each(blockedPathCases)("vault_create_task rejects $label", async ({ path, message }) => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: { path, description: "never written", block_id: "never-written" },
+    })
+    expectToolError(result, message)
+  })
+
+  it.each(blockedPathCases)("vault_update_task rejects $label", async ({ path, message }) => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: { path, block_id: "never-read", status: "done" },
+    })
+    expectToolError(result, message)
+  })
+})
+
+// ── Malformed canvas ─────────────────────────────────────────
+
+describe("malformed canvas", () => {
+  it("vault_read_file on a .canvas that is not valid JSON", async () => {
+    const canvasPath = "Not A Canvas.canvas"
+    const canvasFullPath = join(serverVaultPath, canvasPath)
+    await writeFile(canvasFullPath, "{ not json", "utf8")
+    onTestFinished(() => rm(canvasFullPath))
+
+    const result = await callTool({ client, name: "vault_read_file", args: { path: canvasPath } })
+    expectToolError(result, "invalid .canvas JSON")
   })
 })
 
