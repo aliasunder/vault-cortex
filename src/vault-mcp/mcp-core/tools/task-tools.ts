@@ -242,7 +242,7 @@ Errors:
 - "parent and heading are mutually exclusive" — a parent (parent_block_id or parent_line) and heading were both passed; drop one
 - "blockId ... already exists in this note" — pick a block_id not yet used in the note
 - "blockId ... contains invalid characters" — block_id must match [a-zA-Z0-9-]+
-- "description is empty" / "dependsOn cannot be empty" / "subtasks cannot contain an empty item" — whitespace-only description, an empty depends_on array, or a whitespace-only checklist item
+- "description is empty" / "subtasks cannot contain an empty item" — whitespace-only description or checklist item
 - "description must be a single line" / "subtasks items must be a single line" — a task is one file line; a line break in the text would split its metadata onto a line the parser never reads
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
 - "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur
@@ -493,7 +493,7 @@ Errors:
 - "no done lane detected" — status "done" on a Kanban board with no **Complete** marker and no "Done" heading; pass heading explicitly
 - "blockId ... already exists" / "blockId ... contains invalid characters" — assign_block_id must be unique in the note and match [a-zA-Z0-9-]+
 - "invalid date" — a date param fails calendar validation
-- "description cannot be empty" / "dependsOn cannot be empty" / "addSubtasks cannot be empty" / "addSubtasks cannot contain an empty item" — whitespace-only text or an empty array (use null to clear depends_on)
+- "description cannot be empty" / "addSubtasks cannot contain an empty item" — whitespace-only description or checklist item
 - "description must be a single line" / "addSubtasks items must be a single line" — a task is one file line; a line break in the text would split its metadata onto a line the parser never reads
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
 - "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur

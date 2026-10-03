@@ -99,6 +99,7 @@ Errors:
 - "heading not found" — no heading matches the text; error lists available headings
 - "ambiguous heading" — multiple headings match; use heading_level to disambiguate, or read the full note (omit heading) when headings share the same level
 - "outline, heading, and properties_only are mutually exclusive" — only one mode per call
+- "heading_level requires a heading" — heading_level only disambiguates a heading; pass heading with it
 - "line paging is not available in outline mode" / "... properties_only mode" — start_line/limit only work on text renditions (full read or heading section)
 - "start line past the end" — start_line exceeds the rendition's line count; error states the total
 - 'path must end in ".md"' — the path names a non-markdown file${whenToolEnabledText("vault_read_file", "; read files (images, .canvas, data files) with vault_read_file instead")}
@@ -588,7 +589,6 @@ Errors:
 - "note not found" — path does not exist; check vault_list_notes for valid paths
 - "path must end in …" — add the .md extension
 - "text not found" — old_text does not appear in the note body; verify exact text with vault_read_note
-- "oldText cannot be empty" — old_text must be at least one character
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "new_text contains a control character" — new_text includes a non-printable control byte; remove it before writing
@@ -1058,6 +1058,7 @@ Parameters:
 Errors:
 - "destination exists: …" — a note already lives at new_path; this tool never overwrites. Pick a free path or delete the existing note first.
 - "note not found: …" — old_path does not exist; verify it with vault_list_notes.
+- "source and destination are the same path" — old_path and new_path name the same note, so there is nothing to move.
 - "cannot move protected path …" / "cannot move into protected path …" — old_path or new_path sits under a protected folder.
 - "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable, so the daily notes folder to protect is unknown; repair it, or set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry.
 - "path must end in …" — both old_path and new_path must end in .md.

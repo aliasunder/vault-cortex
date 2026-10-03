@@ -816,6 +816,114 @@ describe("memory errors", () => {
     })
     expectToolError(result, 'memory file not found: "About Me/Nonexistent.md"')
   })
+
+  it("vault_get_memory with a folder in the file name", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_memory",
+      args: { file: "Nested/Preferences" },
+    })
+    expectToolError(
+      result,
+      'memory file must be a bare name without path separators: "Nested/Preferences"',
+    )
+  })
+
+  it("vault_update_memory with a folder in the file name", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_memory",
+      args: { file: "Nested/Preferences", section: "Editor settings", entry: "never written" },
+    })
+    expectToolError(
+      result,
+      'memory file must be a bare name without path separators: "Nested/Preferences"',
+    )
+  })
+
+  it("vault_delete_memory with a folder in the file name", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_memory",
+      args: {
+        file: "Nested/Preferences",
+        section: "Editor settings",
+        date: "2026-01-01",
+        entry: "anything",
+      },
+    })
+    expectToolError(
+      result,
+      'memory file must be a bare name without path separators: "Nested/Preferences"',
+    )
+  })
+})
+
+// ── Parameter combinations ───────────────────────────────────
+
+describe("parameter combinations", () => {
+  it("vault_read_note with heading_level but no heading", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: "Projects/alpha.md", heading_level: 2 },
+    })
+    expectToolError(result, "heading_level requires a heading")
+  })
+
+  it("vault_move_note onto its own path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: "Projects/alpha.md", new_path: "Projects/alpha.md" },
+    })
+    expectToolError(result, "source and destination are the same path")
+  })
+})
+
+// ── Whitespace-only task text ────────────────────────────────
+
+describe("whitespace-only task text", () => {
+  it("vault_create_task with a whitespace-only description", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: { path: "Projects/alpha.md", description: "   ", block_id: "blank-description" },
+    })
+    expectToolError(result, "description is empty")
+  })
+
+  it("vault_create_task with a whitespace-only checklist item", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/alpha.md",
+        description: "Card with a blank checklist item",
+        block_id: "blank-checklist-item",
+        subtasks: ["   "],
+      },
+    })
+    expectToolError(result, "subtasks cannot contain an empty item")
+  })
+
+  it("vault_update_task with a whitespace-only description", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: { path: "Projects/alpha.md", block_id: "alpha-task-1", description: "   " },
+    })
+    expectToolError(result, "description cannot be empty")
+  })
+
+  it("vault_update_task with a whitespace-only checklist item", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: { path: "Projects/alpha.md", block_id: "alpha-task-1", add_subtasks: ["   "] },
+    })
+    expectToolError(result, "addSubtasks cannot contain an empty item")
+  })
 })
 
 // ── Undecodable image ────────────────────────────────────────

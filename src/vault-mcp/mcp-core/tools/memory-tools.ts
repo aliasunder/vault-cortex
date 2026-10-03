@@ -63,6 +63,7 @@ Errors:
 - "on_or_after requires a file" — on_or_after needs a file to scope the filter
 - "memory file not found" — file does not exist in ${config.memoryDir}/; call vault_list_memory_files to discover valid names
 - "memory file must not start with a dot" — a dot-prefixed name would be a hidden file; memory files are always visible notes
+- "memory file must be a bare name without path separators" — pass the file's name only, with no folder or slash
 - "section not found: …" — no H2 heading matches; the error lists the file's available sections
 - "date must be a real ISO calendar date" — on_or_after must be a valid YYYY-MM-DD date
 
@@ -304,6 +305,7 @@ Errors:
 - "date must be a real ISO calendar date" — options.date only accepts an existing calendar date in bare YYYY-MM-DD form (e.g. "2026-07-02"), not a timestamp.
 - "entry/section contains a control character" — entry or section includes a non-printable control byte; remove it before writing.
 - "memory file must not start with a dot" — a dot-prefixed name would create a hidden file (invisible in Obsidian and to every listing); choose a visible name.
+- "memory file must be a bare name without path separators" — pass the file's name only, with no folder or slash.
 - "section not created: … is nearly identical to existing section …" — near-duplicate guard; pass the exact existing heading (listed in the error) to append there, or choose a clearly different name for a genuinely new section.
 
 Returns: Confirmation message (notes when an identical entry already existed and nothing was written).`,
@@ -394,6 +396,7 @@ Parameters:
 Errors:
 - "memory file not found" — file does not exist in ${config.memoryDir}/; call vault_list_memory_files to discover valid names.
 - "memory file must not start with a dot" — a dot-prefixed name would target a hidden file; memory files are always visible notes.
+- "memory file must be a bare name without path separators" — pass the file's name only, with no folder or slash.
 - "date must be a real ISO calendar date" — date only accepts an existing calendar date in bare YYYY-MM-DD form. A hand-edited bullet carrying an impossible date cannot be targeted by this tool — remove it with ${whenToolEnabledText("vault_delete_span", "vault_delete_span or ")}a manual edit.
 - "section not found: …" — no H2 heading matches; the error lists the file's available sections
 - "no entry matching …" — no bullet matched the given date and entry text; verify exact text via vault_get_memory(file, section).
