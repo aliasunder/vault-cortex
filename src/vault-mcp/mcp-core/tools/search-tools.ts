@@ -23,12 +23,8 @@ export const registerSearchTools = ({
 
 Filters — all conditions AND-combine with each other and the text query:
 - folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
-- tags: require all listed tags (AND)
-- type: exact match on frontmatter type (e.g. "person", "session-log")
-- related: require all listed related links (AND)
 - properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }); values compare by exact type (pass a number as a number, not "4"), except that checkbox values are stored as 1 and 0, so true matches 1 and false matches 0; a list property matches when any element equals the value
-- created: date bounds { before, on, after } in YYYY-MM-DD on the frontmatter created property — before/after are exclusive, on is exact (calendar-day match, server-local). Notes without a parseable created property never match
-- modified: date bounds { before, on, after } in YYYY-MM-DD on filesystem modified time (server-local day boundaries) — before/after match strictly earlier/later days, on matches within the day
+- created / modified: bounds compare whole calendar days, server-local — before/after match strictly earlier/later days, on matches within the day. Notes without a parseable created property never match a created filter
 
 Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
 Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
@@ -48,12 +44,8 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
 
 Filters — all conditions AND-combine with each other and the text query:
 - folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
-- tags: require all listed tags (AND)
-- type: exact match on frontmatter type (e.g. "person", "session-log")
-- related: require all listed related links (AND)
 - properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }); values compare by exact type (pass a number as a number, not "4"), except that checkbox values are stored as 1 and 0, so true matches 1 and false matches 0; a list property matches when any element equals the value
-- created: date bounds { before, on, after } in YYYY-MM-DD on the frontmatter created property — before/after are exclusive, on is exact (calendar-day match, server-local). Notes without a parseable created property never match
-- modified: date bounds { before, on, after } in YYYY-MM-DD on filesystem modified time (server-local day boundaries) — before/after match strictly earlier/later days, on matches within the day
+- created / modified: bounds compare whole calendar days, server-local — before/after match strictly earlier/later days, on matches within the day. Notes without a parseable created property never match a created filter
 
 Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
 Example: vault_search({ query: "meeting notes", filters: { type: "meeting", folder: "Work" } })
@@ -215,12 +207,15 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
     TOOL_NAMES.VAULT_LIST_TAGS,
     {
       title: "List Tags",
-      description: `List all tags in the vault with note counts, ordered by count descending. Only frontmatter tags are counted (inline #tags in note bodies are not indexed). Each hierarchical tag (e.g. "project/vault-cortex") appears as one full entry, not split into segments. Count is unique notes, not occurrences. A vault with no tagged notes returns an empty array.
+      description: `List all tags in the vault with note counts, ordered by count descending. Only frontmatter tags are counted (inline #tags in note bodies are not indexed). Each hierarchical tag (e.g. "project/vault-cortex") appears as one full entry, not split into segments. Count is unique notes, not occurrences.
 
 Example: vault_list_tags() returns [{ tag: "session-log", count: 42 }, { tag: "project/vault-cortex", count: 8 }, ...]
 
 When to use: Discovering what tags exist before searching by tag. Good first step for vault orientation.
 Prefer vault_search_by_tag once you know which tag to query — it supports hierarchical prefix matching ("project" matches "project/*").
+
+Errors:
+- A vault with no tagged notes returns an empty array, not an error.
 
 Returns: JSON array of { tag, count } sorted by count descending. tag omits the "#" prefix; count is unique notes with this tag.`,
       inputSchema: {},
@@ -548,7 +543,7 @@ Errors: Rejects paths that don't end in .md or .canvas. A non-indexed path retur
   const fileReadableClause = whenToolEnabledText("vault_read_file", " readable via vault_read_file")
   const fileBytesClause = whenToolEnabledText(
     "vault_read_file",
-    " — not the delivery cost: vault_read_file downscales images to fit response limits, so a large image file is still cheap to read",
+    " — not the delivery cost: vault_read_file downscales images to fit response limits, so a large image is still cheap to read",
   )
   registerTool(
     TOOL_NAMES.VAULT_GET_OUTGOING_LINKS,
@@ -565,7 +560,7 @@ For incoming links (what links TO a note), use vault_get_backlinks.
 Parameters:
 - path: exact vault-relative path including .md or .canvas extension, case-sensitive. Matched against the search index, so the note or canvas must be indexed (file watcher processes new/moved files within seconds).
 
-Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"): exists+note${whenToolEnabledText("vault_read_note", " = readable via vault_read_note")}; exists+file = non-markdown file (.canvas, image, PDF)${fileReadableClause}; !exists+note = broken link. daily_note_forward_ref is true on broken links into the vault's daily notes folder — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage. bytes is the on-disk file size for notes and files alike (null for broken links)${fileBytesClause}.
+Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"): exists+note${whenToolEnabledText("vault_read_note", " = readable via vault_read_note")}; exists+file = non-markdown file (.canvas, image, PDF)${fileReadableClause}; !exists+note = broken link. daily_note_forward_ref is true on broken links into the vault's daily notes folder — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage. bytes is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
 
 Errors: Rejects paths that don't end in .md or .canvas. A path not in the index returns an empty result (count 0), not an error — indistinguishable from a note with no outbound links.`,
       inputSchema: {
@@ -622,7 +617,7 @@ When to use: Vault maintenance — surfacing notes to integrate into the graph.$
 Prefer vault_get_backlinks to check the connectivity of one specific note rather than scanning the whole vault.
 
 Parameters:
-- exclude_folders replaces the defaults (${JSON.stringify(config.orphanExcludeFolders)}), it does not add to them — include the defaults yourself to keep them. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.
+- exclude_folders replaces the defaults, it does not add to them — include the defaults yourself to keep them. Each entry names a whole folder, subfolders included ("Projects" also excludes "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.
 - limit (default 50) applies after sorting by most recently modified. Nothing in the response signals truncation: exactly limit results may mean more exist, so raise limit to check.
 
 Errors:

@@ -802,6 +802,34 @@ describe("memory errors", () => {
     })
     expectToolError(result, 'section not found: "Missing Section" in About Me/Preferences.md')
   })
+
+  it("vault_delete_memory with a nonexistent file", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_memory",
+      args: {
+        file: "Nonexistent",
+        section: "Editor settings",
+        date: "2026-01-01",
+        entry: "anything",
+      },
+    })
+    expectToolError(result, 'memory file not found: "About Me/Nonexistent.md"')
+  })
+})
+
+// ── Undecodable image ────────────────────────────────────────
+
+describe("undecodable image", () => {
+  it("vault_read_file on a .png that holds no image data", async () => {
+    const imagePath = "Not Really An Image.png"
+    const imageFullPath = join(serverVaultPath, imagePath)
+    await writeFile(imageFullPath, "plain text, not image bytes", "utf8")
+    onTestFinished(() => rm(imageFullPath))
+
+    const result = await callTool({ client, name: "vault_read_file", args: { path: imagePath } })
+    expectToolError(result, "Input buffer contains unsupported image format")
+  })
 })
 
 // ── Task errors ──────────────────────────────────────────────
