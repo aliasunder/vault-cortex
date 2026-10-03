@@ -674,7 +674,7 @@ Parameters:
 Errors:
 - "note not found" — verify path with vault_list_notes
 - "path must end in …" — add the .md extension
-- "anchor not found" — fragment not on any line; verify with vault_read_note
+- "anchor not found" — fragment not on any line (end_anchor: on no line at or after the start line); verify with vault_read_note
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
@@ -757,12 +757,12 @@ Parameters:
 - end_anchor is searched at or after the start line, so the span can never run backward. If both match the same line, only that one line is replaced.
 - content: a trailing newline adds a blank line after the new block.
 - first_match applies to both anchors independently.
-- Blank-line runs in the body after the replacement, including runs inside content, are collapsed to a single blank line.
+- After the replacement, every blank-line run in the note's body, including runs inside content, is collapsed to a single blank line.
 
 Errors:
 - "note not found" — verify path with vault_list_notes
 - "path must end in …" — add the .md extension
-- "anchor not found" — fragment not on any line; verify with vault_read_note
+- "anchor not found" — fragment not on any line (end_anchor: on no line at or after the start line); verify with vault_read_note
 - "ambiguous start anchor …" / "ambiguous end anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
@@ -957,7 +957,7 @@ Errors:
 - "note not found: …" — the note does not exist${whenToolEnabledText("vault_list_notes", "; verify the path with vault_list_notes before deleting")}
 - "cannot move to trash … — 100 collisions in .trash/" — .trash/ already holds this name and its numbered copies ("Plan 1.md" … "Plan 100.md"); clear old trash copies, then retry
 - any other "cannot move to trash …" — the .trash/ move failed (e.g. a plain file blocks a needed folder); the note stays put; fix .trash/, then retry
-- "cannot delete …" — the permanent delete failed (e.g. permissions); the note stays put; fix the cause, then retry
+- any other "cannot delete …" — the permanent delete failed (e.g. permissions); the note stays put; fix the cause, then retry
 - "cannot read trash config from .obsidian/app.json" — the file exists but is unreadable; the delete is blocked because a guessed setting could let the retention sweep remove a note set to be kept forever; repair the file, then retry
 - "cannot read daily notes config from .obsidian/daily-notes.json" — the file exists but is unreadable, so the daily notes folder to protect is unknown; repair it, or set DAILY_NOTES_FOLDER or PROTECTED_PATHS, then retry
 

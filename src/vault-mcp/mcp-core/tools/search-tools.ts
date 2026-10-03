@@ -562,7 +562,9 @@ Parameters:
 
 Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"): exists+note${whenToolEnabledText("vault_read_note", " = readable via vault_read_note")}; exists+file = non-markdown file (.canvas, image, PDF)${fileReadableClause}; !exists+note = broken link. daily_note_forward_ref is true on broken links into the vault's daily notes folder — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage. bytes is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
 
-Errors: Rejects paths that don't end in .md or .canvas. A path not in the index returns an empty result (count 0), not an error — indistinguishable from a note with no outbound links.`,
+Errors:
+- "path must end in …" — add the .md or .canvas extension
+- A path not in the index returns an empty result (count 0), not an error — indistinguishable from a note with no outbound links.`,
       inputSchema: {
         path: z
           .string()
@@ -628,9 +630,7 @@ Returns: JSON array of note metadata (path, title, tags, related, folder, type, 
         exclude_folders: z
           .array(z.string().min(1))
           .optional()
-          .describe(
-            `Folders to exclude — replaces the defaults (${JSON.stringify(config.orphanExcludeFolders)}), not merged`,
-          ),
+          .describe(`Folders to exclude (default ${JSON.stringify(config.orphanExcludeFolders)})`),
         limit: z.number().int().min(1).optional().default(50).describe("Max results (default 50)"),
       },
     },

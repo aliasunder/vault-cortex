@@ -841,6 +841,24 @@ describe("memory errors", () => {
     )
   })
 
+  it("vault_update_memory with a control character in the entry", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_memory",
+      args: { file: "Preferences", section: "Editor settings", entry: "bell\u0007inside" },
+    })
+    expectToolError(result, "entry contains a control character (U+0007 at position 4)")
+  })
+
+  it("vault_update_memory with a control character in the section", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_memory",
+      args: { file: "Preferences", section: "Editor\u0007settings", entry: "never written" },
+    })
+    expectToolError(result, "section contains a control character (U+0007 at position 6)")
+  })
+
   it("vault_delete_memory with a folder in the file name", async () => {
     const result = await callTool({
       client,
