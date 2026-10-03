@@ -296,7 +296,7 @@ Parameters:
 Obsidian syntax: Entry text is Obsidian Flavored Markdown. Watch for: #word = tag, [[ = wikilink. Escape with \\# or backticks when unintentional.
 
 Errors:
-- "refusing memory write: … would shrink content" — safety guard: the write would leave the file at under half its size, which happens when the file holds content a rewrite cannot keep (for example long YAML comments in its properties). Inspect the file with vault_read_note before retrying.
+- "refusing memory write: … would shrink content" — safety guard: the write would leave the file at under half its size, which happens when the file holds content a rewrite cannot keep (for example long YAML comments in its properties). A retry returns the same refusal until a manual edit removes that content; inspect the file with vault_read_note to find it.
 - "entry must be a single line" — memory entries are single dated bullets; collapse newlines or append multiple entries.
 - "section must be a single line" — section names become H2 headings; remove line breaks.
 - "date must be a real ISO calendar date" — options.date only accepts an existing calendar date in bare YYYY-MM-DD form (e.g. "2026-07-02"), not a timestamp.
