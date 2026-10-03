@@ -108,7 +108,7 @@ Errors:
 
 Returns: Raw markdown string (default); JSON object of properties (properties_only); JSON outline object, shaped as the outline parameter describes (outline); raw markdown of the section, heading line included (heading). When start_line or limit is given, the result is preceded by a window-metadata text block ("path — lines 1–20 of 250 (continue with start_line: 21)").
 
-Outline: the top-level bytes is the whole file's on-disk size and modified is its filesystem modification time; each heading's bytes is the exact UTF-8 byte length of the text that heading mode returns for that section. Empty headings ("##" with no text) appear with text: "" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section (which includes child headings) or the full note${whenToolEnabledText("vault_replace_in_note", ", and edit via vault_replace_in_note")}.`,
+Outline: bytes at the root is the whole file's on-disk size and modified is its filesystem modification time; each heading's bytes is the exact UTF-8 byte length of the text that heading mode returns for that section. Empty headings ("##" with no text) appear with text: "" — they act as section boundaries but cannot be targeted by the heading parameter; read the parent section (which includes child headings) or the full note${whenToolEnabledText("vault_replace_in_note", ", and edit via vault_replace_in_note")}.`,
       inputSchema: {
         path: z
           .string()
@@ -148,7 +148,7 @@ Outline: the top-level bytes is the whole file's on-disk size and modified is it
           .min(1)
           .optional()
           .describe(
-            "First line to return, 1-based (default 1). Pages the delivered rendition (full body or a heading section). Not valid for outline or properties_only (JSON modes).",
+            "First line to return, 1-based (default 1). Pages the text output (full body or a heading section). Not valid for outline or properties_only (JSON modes).",
           ),
         limit: z
           .number()
@@ -467,7 +467,7 @@ Operations:
 
 Heading-targeted ops keep the matched heading and write content verbatim. No separator is added around the content — end it with a newline to leave a blank line after the inserted block.
 
-Limitation: A no-heading prepend inserts at body line 0. If the note has content above its first heading and your content starts with a heading, that content becomes the new section's body. The write still succeeds and the confirmation says so — use insert_before on the first heading to place a section above it instead.
+Limitation: A no-heading prepend inserts at body line 0. If the note has content above its first heading and your content starts with a heading, the pre-existing content becomes the new section's body. The write still succeeds and the confirmation says so — use insert_before on the first heading to place a section above it instead.
 
 Section boundaries: a section spans from its heading to the next heading of the same or higher level (or EOF). Empty headings ("##" with no text) act as boundaries but cannot be targeted — edit their content via vault_replace_in_note instead.
 
@@ -759,7 +759,7 @@ Parameters:
 - end_anchor is searched at or after the start line, so the span can never run backward. If both match the same line, only that one line is replaced.
 - content: a trailing newline adds a blank line after the new block.
 - first_match applies to both anchors independently.
-- After the replacement, every blank-line run in the note's body, including runs inside content, is collapsed to a single blank line.
+- After the replacement, every run of consecutive blank lines in the note's body — including runs within the replacement text — is collapsed to a single blank line.
 
 Errors:
 - "note not found" — verify path with vault_list_notes
@@ -1067,8 +1067,8 @@ Errors:
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use vault-relative paths with no hidden (dot-prefixed) file or folder in them (notes cannot move from or into hidden paths, matching Obsidian).
 - "concurrent write in progress" — a write is in flight on the note, the destination, or one of its backlink sources (the move locks all of them as one unit); retry the move.
 - "backlink set did not stabilize" — the vault was modified during the move and new backlink sources kept appearing across retries; nothing was written; retry the move.
-- An ordinary move that fails partway (rare: a permission or disk error) — no data is lost, and the error names what failed and the resulting state. The original is deleted last, after the destination and every backlink are written. Backlink write failed: new_path exists and old_path is intact, so delete the partial new_path, then re-run the move. Final delete failed: both paths exist, so delete old_path to finish.
-- A case-only rename that fails partway — the note is renamed in place first. Rename failed: nothing was written. Later link write failed: the note already lives at new_path and old_path is gone, so fix the remaining links in place (the error names the note whose update failed) instead of re-running the move.
+- An ordinary move that fails partway (rare: a permission or disk error) — no data is lost, and the error names what failed and the resulting state. The original is deleted last, after the destination and every backlink are written. If a backlink write failed: new_path exists and old_path is intact, so delete the partial new_path, then re-run the move. If the final delete failed: both paths exist, so delete old_path to finish.
+- A case-only rename that fails partway — the note is renamed in place first. If the rename failed: nothing was written. If a later link write failed: the note already lives at new_path and old_path is gone, so fix the remaining links in place (the error names the note whose update failed) instead of re-running the move.
 
 Obsidian syntax: Link rewrites preserve each link's existing form — embed marker (!), heading anchor (#…), and alias (|…) are kept; a markdown link keeps its original extension and link text. Only the target path is changed.
 

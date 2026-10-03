@@ -23,7 +23,7 @@ export const registerSearchTools = ({
 
 Filters — all conditions AND-combine with each other and the text query:
 - folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
-- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }); values compare by exact type (pass a number as a number, not "4"), except that checkbox values are stored as 1 and 0, so true matches 1 and false matches 0; a list property matches when any element equals the value
+- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }). Values compare by exact type — pass a number as a number, not "4". Exception: checkbox values are stored as 1 and 0, so pass true to match 1 and false to match 0. A list property matches when any element equals the value.
 - created / modified: bounds compare whole calendar days, server-local — before/after match strictly earlier/later days, on matches within the day. Notes without a parseable created property never match a created filter
 
 Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
@@ -44,7 +44,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
 
 Filters — all conditions AND-combine with each other and the text query:
 - folder: a whole folder, subfolders included — "Projects" covers "Projects/Archive" but not "ProjectsOld/"; ignores ASCII letter case
-- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }); values compare by exact type (pass a number as a number, not "4"), except that checkbox values are stored as 1 and 0, so true matches 1 and false matches 0; a list property matches when any element equals the value
+- properties: arbitrary frontmatter key-value pairs, supports string/number/boolean (e.g. { status: "active" }). Values compare by exact type — pass a number as a number, not "4". Exception: checkbox values are stored as 1 and 0, so pass true to match 1 and false to match 0. A list property matches when any element equals the value.
 - created / modified: bounds compare whole calendar days, server-local — before/after match strictly earlier/later days, on matches within the day. Notes without a parseable created property never match a created filter
 
 Example: vault_search({ query: "kubernetes networking", filters: { tags: ["reference"] } })
@@ -108,7 +108,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
           .min(1)
           .optional()
           .default(30)
-          .describe("Snippet length in tokens (default 30)"),
+          .describe("Snippet length in words (default 30)"),
         include_leading_callout: z
           .boolean()
           .optional()
@@ -560,7 +560,7 @@ For incoming links (what links TO a note), use vault_get_backlinks.
 Parameters:
 - path: exact vault-relative path including .md or .canvas extension, case-sensitive. Matched against the search index, so the note or canvas must be indexed (file watcher processes new/moved files within seconds).
 
-Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"): exists+note${whenToolEnabledText("vault_read_note", " = readable via vault_read_note")}; exists+file = non-markdown file (.canvas, image, PDF)${fileReadableClause}; !exists+note = broken link. daily_note_forward_ref is true on broken links into the vault's daily notes folder — expected "create on click" navigation to a daily note that doesn't exist yet, not genuine breakage. bytes is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
+Returns: JSON with path, outgoing_links (array of { path, title, exists, kind, bytes, daily_note_forward_ref } sorted by target path), and count. Each link carries exists (boolean) and kind ("note"|"file"). When exists is true: kind "note" is a markdown note${whenToolEnabledText("vault_read_note", " readable via vault_read_note")}; kind "file" is a non-markdown file (.canvas, image, PDF)${fileReadableClause}. When exists is false the link is broken (kind is always "note"). daily_note_forward_ref is true on broken links into the vault's daily notes folder — expected "create on click" navigation, not genuine breakage. bytes is the on-disk size of a note or file (null for broken links)${fileBytesClause}.
 
 Errors:
 - "path must end in …" — add the .md or .canvas extension
