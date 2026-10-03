@@ -841,6 +841,9 @@ which are the description and the input schema with each parameter's Zod
   second copy of a guard the data layer must enforce regardless (drift
   risk). `.min(1)` is the floor because it does serialize (`minLength`)
   and its default failure message is self-explanatory.
+- **Edit only the tools a change is meant for.** A grader re-scores
+  every definition whose text changes, so apply a shared wording change
+  tool by tool and leave every other tool's text as it is.
 - **`tool-surface-snapshot.test.ts` caps the tool list's size**, because
   clients such as claude.ai load every definition into each
   conversation. Each checked combo's total must stay within
