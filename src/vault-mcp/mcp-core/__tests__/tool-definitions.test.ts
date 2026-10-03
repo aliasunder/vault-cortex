@@ -193,11 +193,11 @@ describe("registerTools", () => {
     expect(config.description).toContain("Cross-section move")
   })
 
-  it("vault_read_note description documents the outline response", () => {
+  it("vault_read_note documents the outline response on the outline parameter", () => {
     // The only guard against this drifting from the actual response shape.
     const [, config] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
-    expect(config.description).toContain(
-      "Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }",
+    expect(config.inputSchema?.outline?.description).toBe(
+      "If true, returns { bytes, modified, leading_callout?, leading_content?, headings } as JSON instead of body content — a cheap structure fetch for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
     )
   })
 
