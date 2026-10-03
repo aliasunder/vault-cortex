@@ -112,6 +112,24 @@
 
 
 
+
+## [0.54.8] — 2026-10-03
+
+### Bug Fixes
+
+- **config:** Read the daily-notes and Tasks-format settings on every call (#630)
+
+### Documentation
+
+- Bust CI badge cache (#632)
+- Update CHANGELOG.md for v0.54.7
+
+### Maintenance
+
+- **deps-dev:** Bump the development group across 1 directory with 10 updates (#635)
+- **deps:** Bump the production group with 2 updates (#633)
+- **deps:** Bump github/codeql-action/upload-sarif from 4.38.1 to 4.38.2 (#634)
+
 ## [0.54.7] — 2026-10-01
 
 ### Bug Fixes
