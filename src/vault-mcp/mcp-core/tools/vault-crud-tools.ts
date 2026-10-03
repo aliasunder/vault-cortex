@@ -130,9 +130,7 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
           .string()
           .min(1)
           .optional()
-          .describe(
-            "Return only this section (heading line + body, through the next same-or-higher heading). Case-sensitive exact match.",
-          ),
+          .describe("Return only this section. Case-sensitive exact match."),
         heading_level: z
           .number()
           .int()
@@ -155,9 +153,7 @@ Outline: bytes at the root is the whole file's on-disk size and modified is its 
           .int()
           .min(1)
           .optional()
-          .describe(
-            "Maximum lines returned (default: all remaining). A paged read's metadata line states the window, the total line count, and the next start_line.",
-          ),
+          .describe("Maximum lines returned (default: all remaining)."),
       },
     },
     async (
@@ -499,21 +495,19 @@ Returns: Confirmation message — "Applied <operation> to <path> → <target>", 
           ),
         operation: z
           .enum(["append", "prepend", "replace", "insert_before"])
-          .describe(
-            "append | prepend | replace | insert_before. replace and insert_before require a heading; append and prepend work with or without one.",
-          ),
+          .describe("append | prepend | replace | insert_before."),
         content: z
           .string()
           .min(1)
           .describe(
-            "Markdown content to insert, written verbatim with no separator added — end it with a newline to leave a blank line after the inserted block. Must not begin with the target heading text (it would duplicate the heading, which is kept automatically).",
+            "Markdown content to insert. Must not begin with the target heading text (it would duplicate the heading, which is kept automatically).",
           ),
         heading: z
           .string()
           .min(1)
           .optional()
           .describe(
-            "Target heading text (case-sensitive exact match). Required for replace and insert_before. Optional for append/prepend (omit for file-level operation).",
+            "Target heading text (case-sensitive exact match). Omit for a file-level append or prepend.",
           ),
         heading_level: z
           .number()
@@ -700,7 +694,7 @@ Returns: Confirmation with lines removed and a truncated preview of the deleted 
           .min(1)
           .optional()
           .describe(
-            "Short, unique substring that identifies the LAST line of the block, searched at or after the start_anchor line. The entire line is selected. Omit to delete just the single line containing start_anchor.",
+            "Short, unique substring that identifies the LAST line of the block. The entire line is selected. Omit to delete just the single line containing start_anchor.",
           ),
         first_match: z
           .boolean()
@@ -791,13 +785,13 @@ Returns: Confirmation message "Replaced <N> lines with <M> lines in <path>" — 
           .min(1)
           .optional()
           .describe(
-            "Short, unique substring that identifies the LAST line of the block, searched at or after the start_anchor line. The entire line is selected. Omit to replace just the single line containing start_anchor.",
+            "Short, unique substring that identifies the LAST line of the block. The entire line is selected. Omit to replace just the single line containing start_anchor.",
           ),
         content: z
           .string()
           .min(1)
           .describe(
-            `Replacement content (one or more lines) — replaces every line of the matched span. Must be non-empty${whenToolEnabledText("vault_delete_span", "; use vault_delete_span to delete without replacement")}.`,
+            "Replacement content (one or more lines) — replaces every line of the matched span. Must be non-empty.",
           ),
         first_match: z
           .boolean()

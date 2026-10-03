@@ -821,8 +821,8 @@ which are the description and the input schema with each parameter's Zod
 - **Split parameter facts between `.describe()` and the tool description.**
   The calling model receives each parameter's Zod `.describe()` text
   inside the input schema, so the tool description earns its space
-  (and its score from graders such as Glama's TDQS) only with what
-  that text doesn't say:
+  (and its score from graders such as Glama's Tool Definition Quality
+  Score, TDQS) only with what that text doesn't say:
   - `.describe()` gives the parameter's plain meaning: what it is,
     its format, and its default.
   - The description gives what `.describe()` can't: interactions

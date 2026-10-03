@@ -201,7 +201,7 @@ Returns: JSON array of file outlines, each { file, title, bytes, entry_policy, l
     ? `Recall memory entries about a topic — entry-granular hybrid (keyword + semantic) retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns every relevant dated entry sorted oldest-first, so the full evolution of a preference, opinion, or fact is visible — semantic matching finds early entries even when their phrasing differs from the query. Tuned for recall over precision: expect some marginal entries and judge relevance yourself when synthesizing an answer. Content-word queries ("testing philosophy", "sustainable pacing") rank best. A meta-framed query ("opinions on testing") that scores below the relevance threshold degrades to relaxed any-term keyword matching instead of returning nothing.
 
 Example: vault_memory_recall({ query: "working hours and pacing" })
-Example: vault_memory_recall({ query: "opinions on testing", file: "Opinions" })
+Example: vault_memory_recall({ query: "testing philosophy", file: "Opinions" })
 
 When to use: Answering "what does my memory say about X?" or "how has my view on Y evolved?" — topic-based recall across memory files. Prefer vault_get_memory to read a known file or section verbatim; prefer vault_search for notes outside the memory layer.
 
@@ -213,7 +213,7 @@ Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry i
     : `Recall memory entries about a topic — entry-granular keyword retrieval across ALL ${config.memoryDir}/ files and ALL time. Returns every matching dated entry sorted oldest-first, so the evolution of a preference, opinion, or fact reads in order. Matching is stemmed keywords only (semantic matching is off — EMBEDDING_ENABLED=false), and phrasing drifts across months, so re-query with synonyms to cover a topic fully (e.g. "pacing", then "recovery", then "sustainable hours"). A multi-word query whose terms never co-occur in one entry degrades to any-term matching before returning empty.
 
 Example: vault_memory_recall({ query: "working hours and pacing" })
-Example: vault_memory_recall({ query: "opinions on testing", file: "Opinions" })
+Example: vault_memory_recall({ query: "testing philosophy", file: "Opinions" })
 
 When to use: Answering "what does my memory say about X?" or "how has my view on Y evolved?" — topic-based recall across memory files. Prefer vault_get_memory to read a known file or section verbatim; prefer vault_search for notes outside the memory layer.
 
@@ -221,7 +221,7 @@ Errors:
 - No matching entries returns { entries: [], total: 0 }, not an error
 - An unknown file returns empty results — call vault_list_memory_files to discover valid names
 
-Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. entries ascend by date (oldest first). total counts all matched entries; truncated=true means limit dropped the least-relevant matches — never a date range. file is applied before limit, so limit keeps the most relevant matches from that file. search_mode is always "fts" and reranked always false in keyword-only mode.`
+Returns: JSON { entries, total, truncated, search_mode, reranked }. Each entry is { file, section, date, text } — text is the raw entry markdown (wikilinks intact, continuation lines included)${recallConsumerClause}. entries ascend by date (oldest first). total counts all matched entries; truncated=true means limit dropped the least-relevant matches — never a date range — so raise limit or narrow the query for the complete set. file is applied before limit, so limit keeps the most relevant matches from that file. search_mode is always "fts" and reranked always false in keyword-only mode.`
 
   registerTool(
     TOOL_NAMES.VAULT_MEMORY_RECALL,
@@ -291,7 +291,6 @@ When to use: Recording a new preference, principle, opinion, or fact about the u
 Prefer vault_write_note for creating non-memory notes. A missing file or section is created automatically (new sections get "(newest first)" appended; new files get a placeholder scope callout to fill in via vault_replace_in_note). A new section name nearly identical to an existing heading (an HTML-entity slip, typo, or spacing variation) is rejected, so a mistyped name cannot silently fragment the file — names differing only in digits (e.g. "2025" vs "2026") are distinct.
 
 Parameters:
-- options.date — ISO YYYY-MM-DD, defaults to today (server timezone).
 - options.position — "top" (default, newest-first) inserts above existing entries; "bottom" appends below them.
 
 Obsidian syntax: Entry text is Obsidian Flavored Markdown. Watch for: #word = tag, [[ = wikilink. Escape with \\# or backticks when unintentional.
@@ -327,7 +326,11 @@ Returns: Confirmation message (notes when an identical entry already existed and
           ),
         options: z
           .object({
-            date: z.string().min(1).optional().describe("ISO YYYY-MM-DD date (defaults to today)"),
+            date: z
+              .string()
+              .min(1)
+              .optional()
+              .describe("ISO YYYY-MM-DD date (defaults to today, server timezone)"),
             position: z
               .enum(["top", "bottom"])
               .optional()
@@ -421,7 +424,7 @@ Returns: Confirmation message.`,
           .string()
           .min(1)
           .describe(
-            'Exact entry text as shown by vault_get_memory — without the "- **YYYY-MM-DD**: " prefix or bullet. Both date and entry must match for deletion.',
+            'Exact entry text as shown by vault_get_memory — without the "- **YYYY-MM-DD**: " prefix or bullet.',
           ),
       },
     },

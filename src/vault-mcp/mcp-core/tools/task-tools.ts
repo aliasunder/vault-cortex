@@ -50,7 +50,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .optional()
           .default("not_done")
           .describe(
-            'Status filter, OR-combined (default "not_done" = todo + in_progress, excluding done and cancelled). Virtual values expand in arrays: "not_done" adds todo + in_progress, "all" includes every status.',
+            'Status filter, OR-combined (default "not_done" = todo + in_progress, excluding done and cancelled). "all" includes every status.',
           ),
         due: dateFilterSchema.describe("Due date (📅 / [due:: ]) bounds"),
         scheduled: dateFilterSchema.describe("Scheduled date (⏳ / [scheduled:: ]) bounds"),
@@ -113,7 +113,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .optional()
           .default("due")
           .describe(
-            'Sort key (default "due"). Date sorts cascade through related fields when the primary is absent (due → scheduled → start → created, and symmetrically for the others); each fallback uses its own natural direction. "position" sorts by file path then line number — the natural order for Kanban boards.',
+            'Sort key (default "due"). Date sorts cascade through related fields when the primary is absent (through the rest of due → scheduled → start → created, in that order; done and cancelled do not cascade); each fallback uses its own natural direction. "position" sorts by file path then line number — the natural order for Kanban boards.',
           ),
         sort_direction: z
           .enum(["asc", "desc"])
@@ -224,8 +224,8 @@ Parameters:
 - heading is required on Kanban boards (notes with kanban-plugin frontmatter).
 - parent_block_id / parent_line: the same pair vault_update_task uses (block_id / line). Pass at most one. Either is mutually exclusive with heading — a sub-task lives wherever its parent lives.
 - position: Kanban boards with new-card-insertion-method set to "prepend" default to "top" instead of "bottom". Ignored when no heading or when placing under a parent.
-- priority: omit for normal priority (the plugin ranks "no signifier" between medium and low).
-- recurrence: e.g. "every week", "every month on the 15th", "every 3 days when done" — "when done" bases the next occurrence on the completion day.
+- priority: the plugin ranks "no signifier" (normal priority) between medium and low.
+- recurrence: a rule ending "when done" bases the next occurrence on the completion day.
 - due / scheduled / start: omit a date rather than guessing — an absent 📅 means "no deadline".
 
 Errors:
@@ -249,7 +249,7 @@ Errors:
 - "invalid date" — a date param fails calendar validation
 - "concurrent write in progress" — another write to this note is in flight; retry
 
-Obsidian syntax: The Tasks plugin reads metadata off the END of a task line. A trailing signifier in description or subtasks text (e.g. "🔁 every week") that the plugin's parser recognizes as a field — followed only by other recognized fields — is read back as metadata, not text. Whether it is captured depends on the field's value grammar: 🔁 reads any trailing words as its recurrence rule, while 📅 followed by non-date words stays description text. The write still succeeds either way; when the stored line would read back differently than submitted, the result carries an advisories array naming each divergence.
+Obsidian syntax: The Tasks plugin reads metadata off the END of a task line. A trailing signifier in description or subtasks text (an emoji field like "🔁 every week", or a Dataview [key:: value] field) that the plugin's parser recognizes as a field — followed only by other recognized fields — is read back as metadata, not text. Whether it is captured depends on the field's value grammar: 🔁 reads any trailing words as its recurrence rule, while 📅 followed by non-date words stays description text. The same interference can change the value an adjacent field reads back with, or make a field appear that was never set. The write still succeeds either way; when the stored line would read back differently than submitted, the result carries an advisories array naming each divergence.
 
 Returns: JSON { path, line, description, block_id, heading, subtasks, changes, advisories } — line is the new card's 1-based position; heading is the nearest heading above the new task (omitted when the note has none); subtasks lists each checklist item written as { line, description } (omitted when none) — checklist items carry no block_id, so line is the handle for a follow-up update; changes lists every field written as "field: before → after", with "(none)" for an absent value; advisories (omitted when the line round-trips clean) lists one sentence per place the stored line parses back differently than submitted — see Obsidian syntax above.`,
       inputSchema: {
@@ -270,23 +270,19 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
           .string()
           .min(1)
           .optional()
-          .describe(
-            "Target heading. Required on Kanban boards; optional on regular notes (omit to append at end of body).",
-          ),
+          .describe("Target heading. On a regular note, omit to append at end of body."),
         parent_block_id: z
           .string()
           .min(1)
           .optional()
-          .describe(
-            "^block-id (without the ^) of an existing task to nest under as a sub-task. Mutually exclusive with parent_line and heading.",
-          ),
+          .describe("^block-id (without the ^) of an existing task to nest under as a sub-task."),
         parent_line: z
           .number()
           .int()
           .min(1)
           .optional()
           .describe(
-            "1-based line number of an existing task to nest under as a sub-task. Mutually exclusive with parent_block_id and heading. Fragile if the file changed since the line was read.",
+            "1-based line number of an existing task to nest under as a sub-task. Fragile if the file changed since the line was read.",
           ),
         position: z
           .union([z.enum(["top", "bottom"]), z.number().int().min(1)])
@@ -305,7 +301,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
           .min(1)
           .optional()
           .describe(
-            'Tasks plugin 🔁 rule in natural language (e.g. "every week", "every 2 weeks when done"). Completing the task spawns its next occurrence.',
+            'Tasks plugin 🔁 rule in natural language (e.g. "every week", "every month on the 15th", "every 2 weeks when done"). Completing the task spawns its next occurrence.',
           ),
         on_completion: z
           .enum(["delete", "keep"])
@@ -467,8 +463,8 @@ Parameters:
 - status manages the checkbox and the done/cancelled dates.
   Kanban: "done" moves the card and its checklist sub-items to the done lane (sub-item checkboxes left as they are); a sub-task stays under its parent.
   Recurring (🔁): spawns the next occurrence above the completed one (below with the plugin's "next line" setting), dates advanced per the rule. The spawn stays in the source lane with no block_id, 🆔, or ⛔ — follow up with assign_block_id on next_occurrence.line. Completing by line is NOT idempotent for recurring tasks (the spawn occupies the old line); prefer block_id.
-  Delete (🏁): removes the task line and children instead of moving to done. With 🔁 + 🏁, the spawn is created first, then the completed line is removed; with "next line", children transfer to the spawn. Result carries on_completion_applied: "delete".
-- recurrence: e.g. "every week", "every month on the 15th", "every 3 days when done" — "when done" bases the next occurrence on the completion day. When set together with status "done", the new rule governs the spawn. Setting recurrence to null while completing removes the rule and completes without spawning.
+  Delete (🏁 delete / [onCompletion:: delete]): removes the task line and children instead of moving to done. With 🔁 + 🏁, the spawn is created first, then the completed line is removed; with "next line", children transfer to the spawn. Result carries on_completion_applied: "delete".
+- recurrence: a rule ending "when done" bases the next occurrence on the completion day. When set together with status "done", the new rule governs the spawn. Setting recurrence to null while completing removes the rule and completes without spawning.
 - on_completion: passed together with status, the submitted value governs the delete decision — "keep" while completing a "delete" task prevents the deletion.
 - position: applies to a heading move or an auto-done-lane move. Without a heading, it triggers a same-lane reorder to the given position; omitting position performs no reorder. Ignored when the task is deleted on completion. Not valid on sub-tasks.
 
@@ -500,7 +496,7 @@ Errors:
 - "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur
 - "concurrent write in progress" — another write to this note is in flight; retry
 
-Obsidian syntax: The Tasks plugin reads metadata off the END of a task line. A trailing signifier in description or add_subtasks text (e.g. "🔁 every week") that the plugin's parser recognizes as a field — followed only by other recognized fields — is read back as metadata, not text. Whether it is captured depends on the field's value grammar: 🔁 reads any trailing words as its recurrence rule, while 📅 followed by non-date words stays description text. The write still succeeds either way; when the stored line would read back differently than this call set, the result carries an advisories array naming each divergence. The dates a status change stamps or clears (the ✅/❌ dates) produce no advisories on their own — but a description signifier that changes what the stamped date parses back as is still reported.
+Obsidian syntax: The Tasks plugin reads metadata off the END of a task line. A trailing signifier in description or add_subtasks text (an emoji field like "🔁 every week", or a Dataview [key:: value] field) that the plugin's parser recognizes as a field — followed only by other recognized fields — is read back as metadata, not text. Whether it is captured depends on the field's value grammar: 🔁 reads any trailing words as its recurrence rule, while 📅 followed by non-date words stays description text. The same interference can change the value an adjacent field reads back with, or make a field appear that was never set. The write still succeeds either way; when the stored line would read back differently than this call set, the result carries an advisories array naming each divergence. The dates a status change stamps or clears (the ✅/❌ dates) produce no advisories on their own — but a description signifier that changes what the stamped date parses back as is still reported.
 
 Returns: JSON { path, line, description, block_id, heading, subtasks, next_occurrence, changes, advisories, on_completion_applied } — line is the final 1-based position (when on_completion_applied is "delete", it is the position the task occupied before removal); description is the current text; block_id and heading reflect the task after the update (block_id is omitted when the task has none, heading when the task sits above the first heading); subtasks lists each checklist item added by add_subtasks as { line, description } (omitted when none were added) — checklist items carry no block_id, so line is the handle for a follow-up update; next_occurrence is present only when a completion spawned a recurring task's next occurrence: { line, description, due?, scheduled?, start? } with only the dates the occurrence has — it carries no block_id, so line is its handle; changes lists every field applied as "field: before → after", with "(none)" for an absent value (for subtasks the two sides are checklist-item counts, and a spawn adds "next_occurrence: (none) → line N"); advisories (omitted when there are none) lists one sentence for each: a stored line that parses back differently than submitted (see Obsidian syntax above), a duplicate tag removed from the line, or a completed recurring task whose rule yields no next occurrence (unreadable rule text or a rule with no dates left); on_completion_applied (present only when the effective on_completion was delete — pre-existing on the task or set in the same call — and it was transitioned to done) is always "delete".`,
       inputSchema: {
@@ -528,9 +524,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
         status: z
           .enum(["todo", "in_progress", "done", "cancelled"])
           .optional()
-          .describe(
-            'Target status. "done" appends the ✅ date and, on a Kanban board, moves the card and its checklist sub-items to the done lane (sub-item checkboxes are left as they are); a task with 🏁 delete / [onCompletion:: delete] is removed from the file instead. "cancelled" appends the ❌ date.',
-          ),
+          .describe('Target status. "done" appends the ✅ date; "cancelled" appends the ❌ date.'),
         priority: z
           .enum(["highest", "high", "medium", "low", "lowest"])
           .nullable()
@@ -542,7 +536,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .nullable()
           .optional()
           .describe(
-            'Tasks plugin 🔁 rule in natural language (e.g. "every week", "every 2 weeks when done") to set, or null to remove it. Completing the task spawns its next occurrence.',
+            'Tasks plugin 🔁 rule in natural language (e.g. "every week", "every month on the 15th", "every 2 weeks when done") to set, or null to remove it. Completing the task spawns its next occurrence.',
           ),
         on_completion: z
           .enum(["delete", "keep"])
