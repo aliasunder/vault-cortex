@@ -2,7 +2,7 @@
  *  verified over real HTTP transport against a real server. */
 
 import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
-import { readFile, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
@@ -571,6 +571,24 @@ describe("note already exists", () => {
   })
 })
 
+// ── Path is not a file ───────────────────────────────────────
+
+describe("path is not a file", () => {
+  it("vault_write_note refuses a path that a folder occupies", async () => {
+    const folderPath = "Folder Named Like A Note.md"
+    const folderFullPath = join(serverVaultPath, folderPath)
+    await mkdir(folderFullPath)
+    onTestFinished(() => rm(folderFullPath, { recursive: true }))
+
+    const result = await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: folderPath, body: "refused" },
+    })
+    expectToolError(result, `cannot write note "${folderPath}": that path is not a file`)
+  })
+})
+
 // ── Heading not found ────────────────────────────────────────
 
 describe("heading not found", () => {
@@ -783,6 +801,220 @@ describe("memory errors", () => {
       },
     })
     expectToolError(result, 'section not found: "Missing Section" in About Me/Preferences.md')
+  })
+
+  it("vault_delete_memory with a nonexistent file", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_memory",
+      args: {
+        file: "Nonexistent",
+        section: "Editor settings",
+        date: "2026-01-01",
+        entry: "anything",
+      },
+    })
+    expectToolError(result, 'memory file not found: "About Me/Nonexistent.md"')
+  })
+
+  it("vault_get_memory with a folder in the file name", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_get_memory",
+      args: { file: "Nested/Preferences" },
+    })
+    expectToolError(
+      result,
+      'memory file must be a bare name without path separators: "Nested/Preferences"',
+    )
+  })
+
+  it("vault_update_memory with a folder in the file name", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_memory",
+      args: { file: "Nested/Preferences", section: "Editor settings", entry: "never written" },
+    })
+    expectToolError(
+      result,
+      'memory file must be a bare name without path separators: "Nested/Preferences"',
+    )
+  })
+
+  it("vault_update_memory with a control character in the entry", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_memory",
+      args: { file: "Preferences", section: "Editor settings", entry: "bell\u0007inside" },
+    })
+    expectToolError(result, "entry contains a control character (U+0007 at position 4)")
+  })
+
+  it("vault_update_memory with a control character in the section", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_memory",
+      args: { file: "Preferences", section: "Editor\u0007settings", entry: "never written" },
+    })
+    expectToolError(result, "section contains a control character (U+0007 at position 6)")
+  })
+
+  it("vault_delete_memory with a folder in the file name", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_delete_memory",
+      args: {
+        file: "Nested/Preferences",
+        section: "Editor settings",
+        date: "2026-01-01",
+        entry: "anything",
+      },
+    })
+    expectToolError(
+      result,
+      'memory file must be a bare name without path separators: "Nested/Preferences"',
+    )
+  })
+})
+
+// ── Parameter combinations ───────────────────────────────────
+
+describe("parameter combinations", () => {
+  it("vault_read_note with heading_level but no heading", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: "Projects/alpha.md", heading_level: 2 },
+    })
+    expectToolError(result, "heading_level requires a heading")
+  })
+
+  it("vault_read_note with a whitespace-only heading", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_read_note",
+      args: { path: "Projects/alpha.md", heading: "   " },
+    })
+    expectToolError(result, "heading cannot be empty")
+  })
+
+  it("vault_patch_note with a whitespace-only heading", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_patch_note",
+      args: { path: "Projects/alpha.md", operation: "append", heading: "   ", content: "refused" },
+    })
+    expectToolError(result, "heading cannot be empty")
+  })
+
+  it("vault_move_note onto its own path", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_move_note",
+      args: { old_path: "Projects/alpha.md", new_path: "Projects/alpha.md" },
+    })
+    expectToolError(result, "source and destination are the same path")
+  })
+})
+
+// ── Task tool path guards ────────────────────────────────────
+
+describe("task tool path guards", () => {
+  const blockedPathCases = [
+    { label: "an absolute path", path: "/TASKS.md", message: "absolute path blocked" },
+    { label: "a path outside the vault", path: "../TASKS.md", message: "path traversal blocked" },
+    { label: "a hidden path", path: ".obsidian/TASKS.md", message: "hidden path blocked" },
+  ]
+
+  it.each(blockedPathCases)("vault_create_task rejects $label", async ({ path, message }) => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: { path, description: "never written", block_id: "never-written" },
+    })
+    expectToolError(result, message)
+  })
+
+  it.each(blockedPathCases)("vault_update_task rejects $label", async ({ path, message }) => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: { path, block_id: "never-read", status: "done" },
+    })
+    expectToolError(result, message)
+  })
+})
+
+// ── Malformed canvas ─────────────────────────────────────────
+
+describe("malformed canvas", () => {
+  it("vault_read_file on a .canvas that is not valid JSON", async () => {
+    const canvasPath = "Not A Canvas.canvas"
+    const canvasFullPath = join(serverVaultPath, canvasPath)
+    await writeFile(canvasFullPath, "{ not json", "utf8")
+    onTestFinished(() => rm(canvasFullPath))
+
+    const result = await callTool({ client, name: "vault_read_file", args: { path: canvasPath } })
+    expectToolError(result, "invalid .canvas JSON")
+  })
+})
+
+// ── Whitespace-only task text ────────────────────────────────
+
+describe("whitespace-only task text", () => {
+  it("vault_create_task with a whitespace-only description", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: { path: "Projects/alpha.md", description: "   ", block_id: "blank-description" },
+    })
+    expectToolError(result, "description is empty")
+  })
+
+  it("vault_create_task with a whitespace-only checklist item", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_create_task",
+      args: {
+        path: "Projects/alpha.md",
+        description: "Card with a blank checklist item",
+        block_id: "blank-checklist-item",
+        subtasks: ["   "],
+      },
+    })
+    expectToolError(result, "subtasks cannot contain an empty item")
+  })
+
+  it("vault_update_task with a whitespace-only description", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: { path: "Projects/alpha.md", block_id: "alpha-task-1", description: "   " },
+    })
+    expectToolError(result, "description cannot be empty")
+  })
+
+  it("vault_update_task with a whitespace-only checklist item", async () => {
+    const result = await callTool({
+      client,
+      name: "vault_update_task",
+      args: { path: "Projects/alpha.md", block_id: "alpha-task-1", add_subtasks: ["   "] },
+    })
+    expectToolError(result, "addSubtasks cannot contain an empty item")
+  })
+})
+
+// ── Undecodable image ────────────────────────────────────────
+
+describe("undecodable image", () => {
+  it("vault_read_file on a .png that holds no image data", async () => {
+    const imagePath = "Not Really An Image.png"
+    const imageFullPath = join(serverVaultPath, imagePath)
+    await writeFile(imageFullPath, "plain text, not image bytes", "utf8")
+    onTestFinished(() => rm(imageFullPath))
+
+    const result = await callTool({ client, name: "vault_read_file", args: { path: imagePath } })
+    expectToolError(result, "Input buffer contains unsupported image format")
   })
 })
 

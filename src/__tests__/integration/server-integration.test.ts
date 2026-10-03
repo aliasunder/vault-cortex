@@ -1092,6 +1092,21 @@ describe("default config", () => {
       expect(text).toContain("Boards/test.canvas")
     })
 
+    it("vault_list_files — an empty extensions array returns an empty listing", async () => {
+      const result = await callTool({
+        client,
+        name: "vault_list_files",
+        args: { extensions: [] },
+      })
+      expect(result.isError).not.toBe(true)
+      expect(JSON.parse(textContent(result))).toEqual({
+        files: [],
+        extension_counts: {},
+        total: 0,
+        truncated: false,
+      })
+    })
+
     it("vault_read_file — text", async () => {
       const result = await callTool({
         client,
