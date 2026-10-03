@@ -2,7 +2,7 @@
  *  verified over real HTTP transport against a real server. */
 
 import { describe, it, expect, beforeAll, afterAll, onTestFinished, vi } from "vitest"
-import { readFile, writeFile } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import {
@@ -568,6 +568,24 @@ describe("note already exists", () => {
       args: { path: "Projects/alpha.md", body: "overwrite attempt" },
     })
     expectToolError(result, 'note already exists: "Projects/alpha.md"')
+  })
+})
+
+// ── Path is not a file ───────────────────────────────────────
+
+describe("path is not a file", () => {
+  it("vault_write_note refuses a path that a folder occupies", async () => {
+    const folderPath = "Folder Named Like A Note.md"
+    const folderFullPath = join(serverVaultPath, folderPath)
+    await mkdir(folderFullPath)
+    onTestFinished(() => rm(folderFullPath, { recursive: true }))
+
+    const result = await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: folderPath, body: "refused" },
+    })
+    expectToolError(result, `cannot write note "${folderPath}": that path is not a file`)
   })
 })
 

@@ -377,7 +377,7 @@ Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Proj
     TOOL_NAMES.VAULT_WRITE_NOTE,
     {
       title: "Write Note",
-      description: `Create a markdown note. Errors if a note already exists at the path unless overwrite is set. Body replaces the entire note content — this is a full write, not a partial edit. Properties are passed separately and merged with any existing properties when overwriting (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved).
+      description: `Create a markdown note. Errors if a note already exists at the path unless overwrite is set. Body replaces the entire note content — this is a full write, not a partial edit, so existing content will be lost unless you include it in body; do not use it for surgical edits to large files. Properties are passed separately and merged with any existing properties when overwriting (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved); overwriting without properties keeps the existing property values.
 
 Example: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProject notes here.", properties: { tags: ["project"], type: "project" } })
 Example: vault_write_note({ path: "Projects/notes.md", body: "Updated content.", overwrite: true })
@@ -385,12 +385,11 @@ Example: vault_write_note({ path: "Projects/notes.md", body: "Updated content.",
 When to use: Creating a new note. Set overwrite: true only when you intend to replace an existing note's body.
 Prefer vault_update_properties for property-only edits (no body round-trip).${whenToolEnabledText("vault_update_memory", `\nPrefer vault_update_memory for appending dated entries to ${config.memoryDir}/ memory files.`)}
 
-Limitation: Writes the entire body. Do not use for surgical edits to large files — existing content will be lost unless you include it in the body parameter.
-
 Errors:
 - "note already exists" — a note already lives at this path; set overwrite: true to replace it, or use ${whenToolEnabledText("vault_patch_note", "vault_patch_note / ")}vault_replace_in_note for partial edits
 - "path must end in …" — add the .md extension
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the path starts at the filesystem root, escapes the vault, or targets a hidden (dot-prefixed) file or folder like ".obsidian/"; use a vault-relative path outside hidden folders
+- "cannot write note …: that path is not a file" — a folder already has this name; choose another path
+- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path outside hidden folders
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "body contains a control character" — body includes a non-printable control byte; remove it before writing
 
@@ -855,17 +854,14 @@ When to use: Adding content at a precise location identified by a nearby line's 
 ${whenToolEnabledText("vault_patch_note", "Prefer vault_patch_note for heading-targeted inserts (append/prepend to a section).")}${whenToolEnabledText("vault_replace_span", " Prefer vault_replace_span when replacing a block rather than inserting next to it.")}
 
 Parameters:
-- anchor locates a full line — the content is inserted as whole lines before or after it (never splits a line).
-- position: "before" inserts above the anchor line; "after" inserts below it.
-- content is inserted verbatim — blank lines inside it are kept, and a trailing newline adds a blank line after the inserted block.
-- first_match: when the anchor matches multiple lines, takes the first instead of erroring.
+- anchor locates a full line — the insert never splits a line.
 
 Errors:
 - "note not found" — verify path with vault_list_notes
 - "path must end in …" — add the .md extension
 - "anchor not found" — fragment not on any line; verify with vault_read_note
 - "ambiguous anchor …" — the anchor matches multiple lines; use a longer fragment or set first_match: true
-- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — the path starts at the filesystem root, escapes the vault, or targets a hidden (dot-prefixed) file or folder like ".obsidian/"; use a vault-relative path outside hidden folders
+- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path outside hidden folders
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "content contains a control character" — content includes a non-printable control byte; remove it before writing
 

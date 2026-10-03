@@ -167,9 +167,9 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
       title: "Search by Tag",
       description: `Find notes with a specific tag. By default uses hierarchical prefix matching — a parent tag matches all children (e.g. "project" matches "project/vault-cortex", "project/blog"). Set exact=true for exact match only.
 
-Example: vault_search_by_tag({ tag: "project" }) returns notes tagged project or project/*.
+Example: vault_search_by_tag({ tag: "project" })
 
-When to use: Exploring tag hierarchies or finding notes with a specific tag, without needing a text query.
+When to use: Exploring tag hierarchies without needing a text query.
 Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
 
 Parameters:
@@ -315,7 +315,7 @@ Behavior: Reads the search index, which picks up a file change within a few seco
 Errors:
 - An empty or nonexistent folder returns an empty array, not an error.
 
-Returns: JSON array of note metadata sorted by most recently modified, then by path: path, title, tags, related, folder, type, created (frontmatter; null when missing), modified (file modification time), bytes (on-disk size), plus leading_callout ({ type, title, body }) when the note opens with a callout and additional_properties (its other frontmatter keys) when it has any.`,
+Returns: JSON array of note metadata sorted by most recently modified, then by path: path, title, tags, related, folder, type, created (frontmatter; null when missing), modified (file time), bytes (on-disk size), plus, when present, leading_callout (the note's opening callout, { type, title, body }) and additional_properties (other frontmatter keys).`,
       inputSchema: {
         folder: z
           .string()
