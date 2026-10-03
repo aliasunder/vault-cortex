@@ -169,7 +169,7 @@ Returns: JSON with results array (path, title, snippet, score, tags, folder, typ
 
 Example: vault_search_by_tag({ tag: "project" })
 
-When to use: Exploring tag hierarchies without needing a text query.
+When to use: Tag-only lookups, for one tag or a whole tag hierarchy, with no text query.
 Prefer vault_search when you also need text-based relevance ranking. Use vault_list_tags first to discover available tags.
 
 Parameters:
