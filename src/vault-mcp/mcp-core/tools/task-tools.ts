@@ -222,7 +222,7 @@ When to use: Creating a new task card on a board or in a note. Guarantees correc
 
 Parameters:
 - heading is required on Kanban boards (notes with kanban-plugin frontmatter).
-- parent_block_id / parent_line: the same pair vault_update_task uses (block_id / line). Pass at most one. Either is mutually exclusive with heading — a sub-task lives wherever its parent lives.
+- parent_block_id / parent_line: ${whenToolEnabledText("vault_update_task", "the same pair vault_update_task uses (block_id / line). ")}Pass at most one. Either is mutually exclusive with heading — a sub-task lives wherever its parent lives.
 - position: Kanban boards with new-card-insertion-method set to "prepend" default to "top" instead of "bottom". Ignored when no heading or when placing under a parent.
 - priority: the plugin ranks "no signifier" (normal priority) between medium and low.
 - recurrence: a rule ending "when done" bases the next occurrence on the completion day.
