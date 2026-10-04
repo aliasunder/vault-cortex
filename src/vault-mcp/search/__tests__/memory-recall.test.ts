@@ -265,6 +265,22 @@ describe("memoryRecall", () => {
     expect(entries.map((entry) => [entry.file, entry.date])).toEqual([["Routines", "2026-07-10"]])
   })
 
+  it("applies the file filter before limit", async () => {
+    const index = await createRecallIndex({
+      reranker: createTopicMockReranker(),
+    })
+    // The Routines walk entry is the least relevant match vault-wide (logit
+    // -1 against the Opinions entries' 6), so a limit applied before the file
+    // filter would keep an Opinions entry and then filter it out.
+    const { entries, total, truncated } = await index.memoryRecall(
+      { query: "pacing recovery", file: "Routines", limit: 1 },
+      logger,
+    )
+    expect(entries.map((entry) => [entry.file, entry.date])).toEqual([["Routines", "2026-07-10"]])
+    expect(total).toBe(1)
+    expect(truncated).toBe(false)
+  })
+
   it("returns an empty result rather than an error when nothing matches", async () => {
     const index = await createRecallIndex({
       reranker: createTopicMockReranker(),
