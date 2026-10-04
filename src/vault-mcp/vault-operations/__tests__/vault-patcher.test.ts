@@ -2737,6 +2737,35 @@ B
 `)
   })
 
+  it("collapses a blank-line run elsewhere in the body, away from the deleted lines", async () => {
+    const content = `---
+title: Distant
+---
+
+top
+
+
+middle
+LINE TO DELETE
+after
+`
+    await writeTestNote("distant.md", content)
+    await deleteSpan(
+      { vaultPath: vault, path: "distant.md", startAnchor: "LINE TO DELETE" },
+      logger,
+    )
+    const updated = await readTestNote("distant.md")
+    expect(updated).toBe(`---
+title: Distant
+---
+
+top
+
+middle
+after
+`)
+  })
+
   it("collapses blank-line runs in a CRLF-authored note and writes LF-only output", async () => {
     // CRLF body: split("\n") leaves a trailing "\r" on each line, which would
     // defeat the LF-only blank-run collapse unless the reader strips it.
@@ -3407,6 +3436,68 @@ before
 
 new content
 
+after
+`)
+  })
+
+  it("collapses a blank-line run inside the replacement content", async () => {
+    const noteContent = `---
+title: Inner
+---
+
+before
+old line
+after
+`
+    await writeTestNote("inner.md", noteContent)
+    await replaceSpan(
+      {
+        vaultPath: vault,
+        path: "inner.md",
+        startAnchor: "old line",
+        content: "first paragraph\n\n\n\nsecond paragraph",
+      },
+      logger,
+    )
+    const updatedNote = await readTestNote("inner.md")
+    expect(updatedNote).toBe(`---
+title: Inner
+---
+
+before
+first paragraph
+
+second paragraph
+after
+`)
+  })
+
+  it("collapses a blank-line run elsewhere in the body, away from the replaced lines", async () => {
+    const noteContent = `---
+title: Distant
+---
+
+top
+
+
+middle
+old line
+after
+`
+    await writeTestNote("distant.md", noteContent)
+    await replaceSpan(
+      { vaultPath: vault, path: "distant.md", startAnchor: "old line", content: "new line" },
+      logger,
+    )
+    const updatedNote = await readTestNote("distant.md")
+    expect(updatedNote).toBe(`---
+title: Distant
+---
+
+top
+
+middle
+new line
 after
 `)
   })

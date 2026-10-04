@@ -665,7 +665,7 @@ Parameters:
 - start_anchor + end_anchor define a line range, not a text range — each anchor locates a full line, and entire lines are removed (never cuts mid-line). Omit end_anchor for a single-line delete.
 - end_anchor is searched at or after the start line, so the span can never run backward. If both match the same line, only that one line is deleted.
 - first_match applies to both anchors independently — when an anchor matches multiple lines, takes the first instead of erroring.
-- Blank-line runs left by the deletion are collapsed to a single blank line.
+- After the deletion, every run of consecutive blank lines in the note's body is collapsed to a single blank line.
 
 Errors:
 - "note not found" — verify path with vault_list_notes
