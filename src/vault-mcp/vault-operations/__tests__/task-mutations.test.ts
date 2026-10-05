@@ -817,7 +817,11 @@ title: Tasks
           { statusRegistry: DEFAULT_STATUS_REGISTRY, vaultPath: vault, path: "tasks.md", line: 5 },
           logger,
         ),
-      ).rejects.toThrow("at least one mutation")
+      ).rejects.toThrow(
+        new Error(
+          "at least one mutation (status, priority, recurrence, onCompletion, heading, position, description, due, scheduled, start, created, taskId, dependsOn, addSubtasks, or assignBlockId) is required",
+        ),
+      )
     })
 
     it("throws when target heading not found", async () => {
@@ -853,7 +857,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("multiple done lanes detected")
+      ).rejects.toThrow(new Error("multiple done lanes detected"))
     })
 
     it("both identifiers provided is rejected", async () => {
@@ -872,7 +876,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("blockId and line are mutually exclusive")
+      ).rejects.toThrow(new Error("blockId and line are mutually exclusive"))
     })
 
     it("no identifier provided is rejected", async () => {
@@ -889,7 +893,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("exactly one of blockId or line is required")
+      ).rejects.toThrow(new Error("exactly one of blockId or line is required"))
     })
 
     it("throws when no done lane exists for auto-completion", async () => {
@@ -907,7 +911,7 @@ title: Tasks
           },
           logger,
         ),
-      ).rejects.toThrow("no done lane detected")
+      ).rejects.toThrow(new Error("no done lane detected"))
     })
   })
 
@@ -1228,7 +1232,9 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("heading required for Kanban boards")
+      ).rejects.toThrow(
+        new Error("heading required for Kanban boards (note has kanban-plugin frontmatter)"),
+      )
     })
 
     it("errors on invalid date", async () => {
@@ -1354,7 +1360,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("parentBlockId and parentLine are mutually exclusive")
+      ).rejects.toThrow(new Error("parentBlockId and parentLine are mutually exclusive"))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -1376,7 +1382,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("parent and heading are mutually exclusive")
+      ).rejects.toThrow(new Error("parent and heading are mutually exclusive"))
     })
 
     it("errors when parent line number and heading are both provided", async () => {
@@ -1396,7 +1402,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("parent and heading are mutually exclusive")
+      ).rejects.toThrow(new Error("parent and heading are mutually exclusive"))
       const content = await readTestNote(vault, "board.md")
       expect(content).toBe(KANBAN_BOARD)
     })
@@ -1417,7 +1423,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("subtasks cannot contain an empty item")
+      ).rejects.toThrow(new Error("subtasks cannot contain an empty item"))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -1437,7 +1443,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("description must be a single line")
+      ).rejects.toThrow(new Error("description must be a single line"))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -1458,7 +1464,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("subtasks items must be a single line")
+      ).rejects.toThrow(new Error("subtasks items must be a single line"))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -1479,7 +1485,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("dependsOn cannot be empty")
+      ).rejects.toThrow(new Error("dependsOn cannot be empty"))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -1518,7 +1524,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("description is empty")
+      ).rejects.toThrow(new Error("description is empty"))
     })
 
     it("skips past **Complete** marker when inserting under a heading", async () => {
@@ -2073,7 +2079,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("dependsOn cannot be empty (use null to clear)")
+      ).rejects.toThrow(new Error("dependsOn cannot be empty (use null to clear)"))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -2194,7 +2200,11 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("cannot move a sub-task to a heading")
+      ).rejects.toThrow(
+        new Error(
+          "cannot move a sub-task to a heading — the parent's heading determines placement",
+        ),
+      )
     })
 
     it("errors on invalid date in update", async () => {
@@ -2230,7 +2240,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("description cannot be empty")
+      ).rejects.toThrow(new Error("description cannot be empty"))
     })
 
     it("errors on a whitespace-only add_subtasks item", async () => {
@@ -2248,7 +2258,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("addSubtasks cannot contain an empty item")
+      ).rejects.toThrow(new Error("addSubtasks cannot contain an empty item"))
     })
 
     it("errors when the new description contains a line break", async () => {
@@ -2266,7 +2276,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("description must be a single line")
+      ).rejects.toThrow(new Error("description must be a single line"))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -2286,7 +2296,7 @@ kanban-plugin: board
           },
           logger,
         ),
-      ).rejects.toThrow("addSubtasks items must be a single line")
+      ).rejects.toThrow(new Error("addSubtasks items must be a single line"))
       const content = await readTestNote(vault, "tasks.md")
       expect(content).toBe(SIMPLE_NOTE)
     })
@@ -3192,7 +3202,7 @@ kanban-plugin: board
             logger,
           ),
         ).rejects.toThrow(
-          "cannot reposition a sub-task — the parent's position determines placement",
+          new Error("cannot reposition a sub-task — the parent's position determines placement"),
         )
       })
 
@@ -3289,7 +3299,7 @@ kanban-plugin: board
             logger,
           ),
         ).rejects.toThrow(
-          "cannot reorder a task that sits above the first heading — pass a heading",
+          new Error("cannot reorder a task that sits above the first heading — pass a heading"),
         )
       })
 

@@ -237,7 +237,7 @@ describe("atomicWriteFileExclusive", () => {
           { filePath: target, content: "body\n", hardLinksSupported: false },
           logger,
         ),
-      ).rejects.toThrow("EIO: injected swap failure")
+      ).rejects.toThrow(new Error("EIO: injected swap failure"))
 
       expect(warnSpy).toHaveBeenCalledTimes(1)
       expect(warnSpy).toHaveBeenCalledWith("failed to remove reservation placeholder", {
@@ -2548,7 +2548,7 @@ describe("readNoteSection", () => {
   it("throws heading cannot be empty for an empty heading", async () => {
     await expect(
       readNoteSection({ vaultPath: vault, path: "board.md", heading: "" }, logger),
-    ).rejects.toThrow("heading cannot be empty")
+    ).rejects.toThrow(new Error("heading cannot be empty"))
   })
 })
 

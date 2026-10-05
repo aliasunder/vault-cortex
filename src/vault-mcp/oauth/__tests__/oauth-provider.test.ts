@@ -7,6 +7,7 @@ import Database from "better-sqlite3"
 import { DateTime } from "luxon"
 import {
   InvalidGrantError,
+  InvalidScopeError,
   InvalidTargetError,
   InvalidTokenError,
 } from "@modelcontextprotocol/sdk/server/auth/errors.js"
@@ -344,7 +345,7 @@ describe("OAuth refresh token sliding expiry", () => {
     )
 
     await expect(oauth.provider.exchangeRefreshToken(client, "expired-token")).rejects.toThrow(
-      "Refresh token expired or invalid",
+      new InvalidGrantError("Refresh token expired or invalid"),
     )
   })
 
@@ -359,7 +360,7 @@ describe("OAuth refresh token sliding expiry", () => {
     )
 
     await expect(oauth.provider.exchangeRefreshToken(client, "expired-token")).rejects.toThrow(
-      "Refresh token expired or invalid",
+      new InvalidGrantError("Refresh token expired or invalid"),
     )
 
     expect(storedRefreshTokenKeys(db)).toEqual([])
@@ -410,7 +411,7 @@ describe("OAuth refresh token sliding expiry", () => {
     await oauth.provider.exchangeRefreshToken(client, "first-token")
 
     await expect(oauth.provider.exchangeRefreshToken(client, "first-token")).rejects.toThrow(
-      "Refresh token expired or invalid",
+      new InvalidGrantError("Refresh token expired or invalid"),
     )
   })
 
@@ -420,13 +421,13 @@ describe("OAuth refresh token sliding expiry", () => {
 
     await expect(
       oauth.provider.exchangeRefreshToken(client, "pre-migration-token"),
-    ).rejects.toThrow("Refresh token expired or invalid")
+    ).rejects.toThrow(new InvalidGrantError("Refresh token expired or invalid"))
   })
 
   it("rejects a non-existent refresh token", async () => {
     const { oauth, client } = await createSlidingExpiryTest()
     await expect(oauth.provider.exchangeRefreshToken(client, "never-existed")).rejects.toThrow(
-      "Refresh token expired or invalid",
+      new InvalidGrantError("Refresh token expired or invalid"),
     )
   })
 })
@@ -714,7 +715,9 @@ describe("verifyAccessToken", () => {
     )
     seedRevokedToken(db, token)
 
-    await expect(verifyAccessToken(oauth, token)).rejects.toThrow("Token has been revoked")
+    await expect(verifyAccessToken(oauth, token)).rejects.toThrow(
+      new InvalidTokenError("Token has been revoked"),
+    )
   })
 
   it("rejects an expired JWT", async () => {
@@ -730,13 +733,15 @@ describe("verifyAccessToken", () => {
       AUTH_TOKEN,
     )
 
-    await expect(verifyAccessToken(oauth, token)).rejects.toThrow("Token expired or invalid")
+    await expect(verifyAccessToken(oauth, token)).rejects.toThrow(
+      new InvalidTokenError("Token expired or invalid"),
+    )
   })
 
   it("rejects a garbage token", async () => {
     const { oauth } = await createVerifyTokenTest()
     await expect(verifyAccessToken(oauth, "not-a-jwt-not-the-static-token")).rejects.toThrow(
-      "Token expired or invalid",
+      new InvalidTokenError("Token expired or invalid"),
     )
   })
 })
@@ -821,7 +826,7 @@ describe("OAuth audit logging", () => {
     const { logs, oauth, client } = await setupAuditTest()
 
     await expect(exchangeAuthorizationCode(oauth, client, "bogus-code")).rejects.toThrow(
-      "Authorization code expired or invalid",
+      new InvalidGrantError("Authorization code expired or invalid"),
     )
 
     const event = logs.find((log) => log.message === "oauth_code_exchange_failed")
@@ -865,7 +870,7 @@ describe("OAuth audit logging", () => {
     const { logs, oauth, client } = await setupAuditTest()
 
     await expect(oauth.provider.exchangeRefreshToken(client, "nonexistent")).rejects.toThrow(
-      "Refresh token expired or invalid",
+      new InvalidGrantError("Refresh token expired or invalid"),
     )
 
     const event = logs.find((log) => log.message === "oauth_token_refresh_failed")
@@ -942,7 +947,9 @@ describe("OAuth audit logging", () => {
     )
     seedRevokedToken(db, validJwt)
 
-    await expect(verifyAccessToken(oauth, validJwt)).rejects.toThrow("Token has been revoked")
+    await expect(verifyAccessToken(oauth, validJwt)).rejects.toThrow(
+      new InvalidTokenError("Token has been revoked"),
+    )
 
     const event = logs.find((log) => log.message === "oauth_token_rejected")
 
@@ -1105,7 +1112,7 @@ describe("OAuth token audience and issuer", () => {
     )
 
     await expect(oauth.provider.verifyAccessToken(foreignAudience)).rejects.toThrow(
-      "Token expired or invalid",
+      new InvalidTokenError("Token expired or invalid"),
     )
     const rejected = logs.find((log) => log.message === "oauth_token_rejected")
     expect(rejected?.data.reason).toBe("invalid_or_expired")
@@ -1125,7 +1132,7 @@ describe("OAuth token audience and issuer", () => {
     )
 
     await expect(oauth.provider.verifyAccessToken(foreignIssuer)).rejects.toThrow(
-      "Token expired or invalid",
+      new InvalidTokenError("Token expired or invalid"),
     )
   })
 
@@ -1710,7 +1717,7 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     })
 
     await expect(exchangeRefreshToken(rotated, client, firstToken)).rejects.toThrow(
-      "Refresh token expired or invalid",
+      new InvalidGrantError("Refresh token expired or invalid"),
     )
 
     expect(storedRefreshTokenKeys(db)).toEqual(
@@ -1753,7 +1760,7 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     expect(storedRefreshTokenKeys(db)).toEqual([])
     expect(storedRevokedTokens(db)).toEqual([])
     await expect(exchangeRefreshToken(oauth, client, refreshToken)).rejects.toThrow(
-      "Refresh token expired or invalid",
+      new InvalidGrantError("Refresh token expired or invalid"),
     )
   })
 
@@ -1849,7 +1856,7 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
 
     expect(storedRevokedTokens(db)).toEqual([accessToken])
     await expect(oauth.provider.verifyAccessToken(accessToken)).rejects.toThrow(
-      "Token has been revoked",
+      new InvalidTokenError("Token has been revoked"),
     )
   })
 
@@ -1862,7 +1869,7 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
     }
 
     await expect(exchangeRefreshToken(oauth, otherClient, refreshToken)).rejects.toThrow(
-      "Refresh token expired or invalid",
+      new InvalidGrantError("Refresh token expired or invalid"),
     )
 
     expect(storedRefreshTokenKeys(db)).toEqual([refreshTokenKey(refreshToken)])
@@ -1876,7 +1883,7 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
 
     await expect(
       oauth.provider.exchangeRefreshToken(client, refreshToken, ["vault", "admin"]),
-    ).rejects.toThrow("Requested scope exceeds the granted scope")
+    ).rejects.toThrow(new InvalidScopeError("Requested scope exceeds the granted scope"))
   })
 
   it("consumes the token on scope widening but does not trigger reuse detection on retry", async () => {
@@ -1885,7 +1892,7 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
 
     await expect(
       oauth.provider.exchangeRefreshToken(client, refreshToken, ["vault", "admin"]),
-    ).rejects.toThrow("Requested scope exceeds the granted scope")
+    ).rejects.toThrow(new InvalidScopeError("Requested scope exceeds the granted scope"))
 
     // Token is burned — retry is a plain miss, not a reuse signal
     expect(storedRefreshTokenKeys(db)).toEqual([])
@@ -1983,7 +1990,7 @@ describe("OAuth refresh token storage keyed by the auth token", () => {
 
     await expect(
       oauth.provider.exchangeRefreshToken(client, refreshToken, ["vault", "admin"]),
-    ).rejects.toThrow("Requested scope exceeds the granted scope")
+    ).rejects.toThrow(new InvalidScopeError("Requested scope exceeds the granted scope"))
 
     const event = logs.find((log) => log.message === "oauth_token_refresh_failed")
     expect(event).toEqual({

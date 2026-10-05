@@ -932,7 +932,7 @@ describe("moveNote — guards", () => {
     await writeFixture("Foo.md", "content\n")
 
     await expect(moveNote({ oldPath: "Foo.md", newPath: "Foo.md" })).rejects.toThrow(
-      "source and destination are the same path",
+      new Error("source and destination are the same path"),
     )
   })
 
@@ -941,7 +941,7 @@ describe("moveNote — guards", () => {
     await writeFixture("Foo.md", "content\n")
 
     await expect(moveNote({ oldPath: "Inbox/../Foo.md", newPath: "Foo.md" })).rejects.toThrow(
-      "source and destination are the same path",
+      new Error("source and destination are the same path"),
     )
     expect(await readNote("Foo.md")).toBe("content\n")
   })
@@ -1572,7 +1572,7 @@ describe("moveNote — concurrent write locking", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("concurrent write in progress")
+    ).rejects.toThrow(new Error("concurrent write in progress"))
 
     // The move itself completes untouched by the rejected patch.
     const result = await movePromise
@@ -1596,7 +1596,7 @@ describe("moveNote — concurrent write locking", () => {
 
     await expect(
       vaultFs.writeNote({ vaultPath: vault, path: "Bar.md", body: "squatter" }, logger),
-    ).rejects.toThrow("concurrent write in progress")
+    ).rejects.toThrow(new Error("concurrent write in progress"))
 
     await movePromise
     expect(await readNote("Bar.md")).toBe("content\n")
@@ -1627,7 +1627,7 @@ describe("moveNote — concurrent write locking", () => {
         },
         logger,
       ),
-    ).rejects.toThrow("concurrent write in progress")
+    ).rejects.toThrow(new Error("concurrent write in progress"))
 
     await movePromise
     expect(await noteExists("Bar.md")).toBe(true)
@@ -1655,7 +1655,7 @@ describe("moveNote — concurrent write locking", () => {
       allNotePaths,
     })
 
-    await expect(secondMove).rejects.toThrow("concurrent write in progress")
+    await expect(secondMove).rejects.toThrow(new Error("concurrent write in progress"))
 
     await firstMove
     expect(await noteExists("Bar.md")).toBe(true)
@@ -1681,7 +1681,7 @@ describe("moveNote — concurrent write locking", () => {
       backlinkSources: ["Hub.md"],
       allNotePaths,
     })
-    await expect(movePromise).rejects.toThrow("concurrent write in progress")
+    await expect(movePromise).rejects.toThrow(new Error("concurrent write in progress"))
 
     // Fail-fast means fail-clean — nothing was moved or rewritten.
     await holdHubLock
