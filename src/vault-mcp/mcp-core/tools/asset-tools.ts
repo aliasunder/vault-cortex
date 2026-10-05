@@ -90,13 +90,17 @@ Example: vault_read_file({ path: "exports/data.json" }) — the file content as 
 Example: vault_read_file({ path: "exports/big.csv", limit: 500 }) — the first 500 lines, preceded by a metadata line stating the window and total line count
 Example: vault_read_file({ path: "papers/research.pdf" }) — structured text with title, headings, and links
 
-What each type returns:
+What each file type returns:
 - Images (.png/.jpg/.jpeg/.gif/.webp): the image as a viewable image block — downscaled and recompressed server-side when it exceeds the image output budget (MAX_IMAGE_OUTPUT_BYTES, ${config.maxImageOutputBytes} bytes) or 1568 pixels on its longer side, delivered untouched otherwise — plus a text line stating the path, delivered format/dimensions/bytes, and the original dimensions when shrunk. Animated GIFs are reduced to their first frame when recompressed.
 - Canvas (.canvas): a readable markdown outline per JSON Canvas 1.0 — groups (by visual containment), node content in reading order, and a connections list with edge labels.
 - PDFs (.pdf): structured text with document metadata — title, page count, heading hierarchy (from font sizes relative to the body text), code blocks and inline code (from monospace fonts), page separators, and a deduplicated links footer. Richer than flat text extraction: headings, code, and hyperlinks that flat extraction loses are preserved.
-- raw: true returns the other form instead: a canvas's exact JSON source (geometry, ids, colors — full fidelity), or a PDF's pages, each rendered and returned as an image block, showing layout, diagrams, tables, and formatting that text extraction cannot preserve. Image-only and scanned PDFs work in raw mode. Only the first ${config.maxPdfRenderPages} pages are rendered; the text read (without raw) covers every page.
 - Text formats (.svg/.json/.txt/.csv/.xml/.log/.yaml/.yml/.base): the file content verbatim as text. .svg is returned as its XML source; .base as its YAML source.
-- Line paging: start_line and limit page any text result — text formats, canvas outlines and raw JSON, PDF-extracted text — as a 1-based line window, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"). The text output cap (100 KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap. Paged windows come back with \\n line endings and no trailing newline; a read without paging inputs stays byte-exact.
+
+raw: true switches a canvas or PDF to its other form:
+- Canvas: the exact JSON source (geometry, ids, colors — full fidelity) instead of the outline.
+- PDF: each page rendered and returned as an image block instead of extracted text, showing layout, diagrams, tables, and formatting that text extraction cannot preserve. Image-only and scanned PDFs work in raw mode. Only the first ${config.maxPdfRenderPages} pages are rendered; the text read (without raw) covers every page.
+
+Line paging: start_line and limit page any text result — text formats, canvas outlines and raw JSON, PDF-extracted text — as a 1-based line window, preceded by a metadata line stating the window, the total line count, and where to continue ("data.csv — lines 51–100 of 400 (continue with start_line: 101)"). The text output cap (100 KiB) applies to each window, so one very long line can still overflow it; paging never gets around the file-size cap. Paged windows come back with \\n line endings and no trailing newline; a read without paging inputs stays byte-exact.
 
 When to use: whenever a note references a file you need to actually see or read — an embedded diagram, a linked canvas, data file, or PDF. Find the files a note links to (with byte sizes) via vault_get_outgoing_links; browse a folder's files via vault_list_files. vault_search also indexes canvas, PDF, and text-format content, but not images or other files. For .md notes use vault_read_note — this tool rejects them. To check a large file's line count before reading it whole, request start_line: 1 with limit: 1 — one line plus the total.
 
