@@ -613,7 +613,7 @@ Errors:
 
   const orphanDefaultDescription = config.orphanExcludeFoldersOverride
     ? `With exclude_folders omitted, the ORPHAN_EXCLUDE_FOLDERS override excludes ${JSON.stringify(config.orphanExcludeFoldersOverride)}.`
-    : `With exclude_folders omitted, defaults are the daily notes folder (DAILY_NOTES_FOLDER → .obsidian/daily-notes.json → "Daily Notes"), "Templates", and ${JSON.stringify(config.memoryDir)}, resolved on each call. ORPHAN_EXCLUDE_FOLDERS replaces that list. Unreadable daily settings log a server-side warning and use "Daily Notes".`
+    : `With exclude_folders omitted, defaults are the daily notes folder (DAILY_NOTES_FOLDER → .obsidian/daily-notes.json → "Daily Notes"), "Templates", and ${JSON.stringify(config.memoryDir)}, resolved on each call. ORPHAN_EXCLUDE_FOLDERS replaces that list. For unreadable daily settings, the server logs a warning and uses "Daily Notes".`
 
   registerTool(
     TOOL_NAMES.VAULT_FIND_ORPHANS,
