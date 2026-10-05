@@ -822,7 +822,7 @@ describe("OAuth audit logging", () => {
     })
   })
 
-  it("logs oauth_code_exchange_failed when auth code is expired", async () => {
+  it("logs oauth_code_exchange_failed when auth code is invalid", async () => {
     const { logs, oauth, client } = await setupAuditTest()
 
     await expect(exchangeAuthorizationCode(oauth, client, "bogus-code")).rejects.toThrow(
