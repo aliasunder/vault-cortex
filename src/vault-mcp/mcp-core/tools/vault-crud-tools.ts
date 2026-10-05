@@ -554,7 +554,7 @@ To delete a large multi-line block, prefer vault_delete_span (short anchors inst
 
 Parameters:
 - old_text: include enough surrounding context to ensure uniqueness when the target text appears in multiple places. No regex.
-- new_text: non-empty new_text replaces the match exactly. After a deletion (new_text=""), the blank lines above and below each removed match join into one gap that keeps the larger of the two counts (only at the end of the note, the count above drops by one). A match that leaves text on its line changes no blank lines; where matches empty their lines, the joined gap keeps at least one blank line unless it ends the note, so include the line break in old_text to remove the line. Blank lines outside the joined gaps never change.
+- new_text: non-empty new_text replaces the match exactly. After a deletion (new_text=""), the empty lines above and below each removed match join into one gap that keeps the larger of the two counts (only at the end of the note, the count above drops by one). A match that leaves text on its line changes no blank lines; where matches empty their lines, the joined gap keeps at least one blank line unless it ends the note, so include the line break in old_text to remove the line. Blank lines outside the joined gaps never change.
 - replace_all_occurrences: replacing only the first match is a safety default for when old_text appears in multiple places. Set true for deliberate bulk renames or term replacements.
 
 Errors:
@@ -642,7 +642,7 @@ When to use: Removing a block you have already read — a table row, callout, or
 ${whenToolEnabledText("vault_replace_in_note", "Prefer vault_replace_in_note for small in-place edits (this tool only deletes). ")}To replace a block, ${replaceBlockAdvice}.
 
 Parameters:
-- start_anchor + end_anchor define a line range, not a text range (never cuts mid-line). Omit end_anchor for a single-line delete. The blank lines above and below the removed lines join into one gap that keeps the larger of the two counts (only at the end of the note, the count above drops by one); no other blank line in the note changes.
+- start_anchor + end_anchor define a line range, not a text range (never cuts mid-line). Omit end_anchor for a single-line delete. The empty lines above and below the removed lines join into one gap that keeps the larger of the two counts (only at the end of the note, the count above drops by one); no other blank line in the note changes.
 - end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is deleted.
 - first_match applies to both anchors independently — when an anchor matches multiple lines, takes the first instead of erroring.
 
@@ -729,7 +729,7 @@ ${whenToolEnabledText("vault_replace_in_note", "Prefer vault_replace_in_note for
 
 Parameters:
 - end_anchor is searched at or after the start line, so the span can never run backward; it must be unique among those lines. If both match the same line, only that one line is replaced.
-- content: blank lines at its start and end join the blank lines around the replaced lines, and each joined gap keeps the larger of the two counts (only at the end of the note, the count above drops by one). So content can widen a gap but not narrow it: a trailing newline leaves at least one blank line after the new block unless the block ends the note. Content made only of blank lines joins both sides into one gap. Blank lines inside content are written as given, and no other blank line in the note changes.
+- content: empty lines at its start and end join the empty lines around the replaced lines, and each joined gap keeps the larger of the two counts (only at the end of the note, the count above drops by one). So content can widen a gap but not narrow it: a trailing newline leaves at least one blank line after the new block unless the block ends the note. Content made only of blank lines joins both sides into one gap. Blank lines inside content are written as given, and no other blank line in the note changes.
 - first_match applies to both anchors independently.
 
 Errors:
