@@ -360,7 +360,7 @@ Returns: JSON array of vault-relative path strings (e.g. ["Notes/idea.md", "Proj
     TOOL_NAMES.VAULT_WRITE_NOTE,
     {
       title: "Write Note",
-      description: `Create a markdown note. Errors if a note already exists at the path unless overwrite is set. Body replaces the entire note content: existing content will be lost unless you include it in body, so do not use this tool for surgical edits to large files. Properties are passed separately and merged with any existing properties when overwriting (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved); overwriting without properties keeps the existing property values.
+      description: `Create a markdown note. Errors if a note already exists at the path unless overwrite is set. Body replaces the entire note content: existing content will be lost unless you include it in body, so do not use this tool for surgical edits to large files. Properties merge with any existing properties when overwriting (new keys added, matching keys overwritten, keys set to null removed, unmentioned keys preserved); overwriting without properties keeps the existing property values.
 
 Example: vault_write_note({ path: "Projects/notes.md", body: "# Notes\\n\\nProject notes here.", properties: { tags: ["project"], type: "project" } })
 Example: vault_write_note({ path: "Projects/notes.md", body: "Updated content.", overwrite: true })
@@ -369,17 +369,17 @@ When to use: Creating a new note. Set overwrite: true only when you intend to re
 Prefer vault_update_properties for property-only edits (no body round-trip).${whenToolEnabledText("vault_update_memory", `\nPrefer vault_update_memory for appending dated entries to ${config.memoryDir}/ memory files.`)}
 
 Errors:
-- "note already exists" — a note already lives at this path; set overwrite: true to replace it, or use ${whenToolEnabledText("vault_patch_note", "vault_patch_note / ")}vault_replace_in_note for partial edits
+- "note already exists" — set overwrite: true to replace it, or use ${whenToolEnabledText("vault_patch_note", "vault_patch_note / ")}vault_replace_in_note for partial edits
 - "path must end in …" — add the .md extension
 - "cannot write note …: that path is not a file" — a folder already has this name; choose another path
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
 - "body contains a control character" — body includes a non-printable control byte; remove it before writing
-- "the note would open with a properties block the server cannot keep …" — body starts with --- lines that are not plain key-value YAML (invalid YAML, a list, a single value, or a YAML tag); pass properties separately, or start the body without --- lines
+- "the note would open with a properties block the server cannot keep …" — body starts with --- lines holding invalid YAML, a list, a single value, or a YAML tag; pass properties separately, or start the body without --- lines
 
 Obsidian syntax: Body is Obsidian Flavored Markdown (no escaping applied). Watch for: #word = tag (escape with \\#), [[ = wikilink, %% = comment block. In properties: quote wikilink values ("[[Note]]"), use YAML lists for tags, keep property types consistent (string/number/list mismatches cause silent query failures).
 
-Returns: Confirmation message.`,
+Returns: "Wrote <path>".`,
       inputSchema: {
         path: z
           .string()
@@ -395,12 +395,12 @@ Returns: Confirmation message.`,
         properties: z
           .record(z.string().min(1), z.unknown())
           .optional()
-          .describe("Optional properties to merge; a null value deletes that key."),
+          .describe("Properties to merge."),
         overwrite: z
           .boolean()
           .optional()
           .default(false)
-          .describe("Allow overwriting an existing note (default: false — errors if file exists)."),
+          .describe("Allow overwriting an existing note (default: false)."),
       },
     },
     async ({ path, body, properties, overwrite }, extra) => {
@@ -1222,7 +1222,7 @@ Returns: JSON with moved_to (the new path), links_updated (count of link occurre
     TOOL_NAMES.VAULT_UPDATE_PROPERTIES,
     {
       title: "Update Properties",
-      description: `Update a note's frontmatter properties. By default they merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. With replace: true, the given properties replace the whole properties block instead (null writes an empty property, {} removes the block). A merge refuses a block it cannot keep — invalid YAML, a list, a single value, or a YAML tag — so replace is how to repair one. Body is never modified.
+      description: `Update a note's frontmatter properties. By default they merge shallowly — new keys added, matching keys overwritten, null deletes a key, unmentioned keys preserved. With replace: true they replace the whole properties block (null writes an empty property, {} removes it). A merge refuses a block it cannot keep — invalid YAML, a list, a single value, or a YAML tag — so replace is how to repair one. Body is never modified.
 
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { status: "active", draft: null } })
 Example: vault_update_properties({ path: "Projects/todo.md", properties: { title: "Todo", status: "active" }, replace: true })
@@ -1235,6 +1235,7 @@ Errors:
 - "path must end in …" — add the .md extension
 - "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "concurrent write in progress" — another write to this note is in flight; re-read the note and retry
+- "the note would open with a properties block the server cannot keep …" — removing every property exposes --- lines at the top of the body; keep one property, or remove those lines first
 
 Obsidian syntax: Use arrays for multi-value fields (tags: [a, b]), quote wikilinks ("[[Note]]"), keep types consistent (mismatches cause silent query failures).
 
@@ -1253,7 +1254,7 @@ Returns: "Updated properties on <path>", or "Replaced properties on <path>" with
           .boolean()
           .optional()
           .default(false)
-          .describe("Replace the whole properties block instead of merging (default: false)."),
+          .describe("Replace instead of merging (default: false)."),
       },
     },
     async ({ path, properties, replace }, extra) => {
