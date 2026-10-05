@@ -421,8 +421,8 @@ const rewriteNoteContent = (
   if (linksRewritten === 0) return null
 
   // Only a real rewrite gets here; a note with no link to change moves
-  // byte-for-byte whatever its properties block holds. The rewrite below
-  // would drop a list, single-value or tagged block, so refuse it instead.
+  // byte-for-byte whatever readable properties block it holds. The rewrite
+  // below would drop a list, single-value or tagged block, so refuse it instead.
   parseNoteForRewrite(rawContent)
 
   const rewrittenData = frontmatterResult.value

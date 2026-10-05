@@ -174,9 +174,9 @@ The three anchor tools share one resolution rule: a short, case-sensitive substr
 Every tool handles a note's properties block by the same rules, so a write never silently drops one:
 
 - **Reads** accept any block the YAML parser can read. A list or single-value block reads as no properties.
-- **Rewrites** refuse a block they would lose: invalid YAML, a list, a single value, or a value with an explicit YAML tag. A move adds this refusal only when it must rewrite a link inside such a note.
+- **Rewrites** refuse a block they would lose: invalid YAML, a list, a single value, or a value with an explicit YAML tag. A move refuses invalid YAML in the note it moves and in each backlink source it plans to update, and the other three only in a note where it must rewrite a link.
 - **New content** is refused when the written note would open with a block the server could not read or keep — a body that starts with `---` lines becomes the properties block when no properties are passed.
-- **Refusals** carry the server's own message, with the line and column for invalid YAML. For a block already in the vault, the tool appends repair steps (`vault_read_note`, then `vault_update_properties` with `replace: true`) when those tools are served, and points at Obsidian otherwise.
+- **Refusals** carry the server's own message, with the line and column when the parser reports a position. For a block already in the vault, the tool appends repair steps when all three repair tools are served: `vault_read_note`, `vault_update_properties` with `replace: true`, and `vault_patch_note` to put back prose the block held. Otherwise it points at Obsidian.
 
 `vault_delete_note` and `vault_move_note` refuse paths under protected folders as a server-side guardrail:
 
