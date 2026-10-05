@@ -1890,6 +1890,37 @@ describe("trash retention over real HTTP", () => {
     expect(readTrashEntryRows(server.dataDir)).toEqual([])
   }, 30_000)
 
+  it("a sync-mode delete succeeds with an unreadable Deleted files setting and a blocked .trash", async () => {
+    // vault_delete_note's description leaves its trash errors out under Sync.
+    // Without Sync, the first condition fails the delete with "cannot read
+    // trash config" and the second with "cannot move to trash".
+    const server = await startServer(await freePort(), {
+      OBSIDIAN_SYNC: "true",
+    })
+    onTestFinished(() => server.cleanup())
+    await writeFile(join(server.vaultPath, ".obsidian", "app.json"), "{ not json", "utf8")
+    await writeFile(join(server.vaultPath, ".trash"), "a file where the trash folder goes", "utf8")
+    const client = await createTestClient(server.port)
+    onTestFinished(() => client.close())
+
+    await callTool({
+      client,
+      name: "vault_write_note",
+      args: { path: "Scratch/sync-blocked-trash.md", body: "gone for good" },
+    })
+    const deleteResult = await callTool({
+      client,
+      name: "vault_delete_note",
+      args: { path: "Scratch/sync-blocked-trash.md" },
+    })
+
+    expect(deleteResult.isError).not.toBe(true)
+    expect(textContent(deleteResult)).toBe("Deleted Scratch/sync-blocked-trash.md")
+    await expect(
+      fileExists(join(server.vaultPath, "Scratch", "sync-blocked-trash.md")),
+    ).resolves.toBe(false)
+  }, 30_000)
+
   it("a Deleted files setting changed between two deletes is followed without a restart", async () => {
     const server = await startServer(await freePort())
     onTestFinished(() => server.cleanup())

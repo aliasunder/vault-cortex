@@ -2515,7 +2515,7 @@ Hello World.
     ).rejects.toThrow(/x{80}…/)
   })
 
-  it("collapses blank lines when deleting text with empty new_text", async () => {
+  it("collapses the blank-line run a deletion with empty new_text leaves behind", async () => {
     const content = `---
 title: Board
 ---
@@ -2523,6 +2523,7 @@ title: Board
 ## Active
 
 - [ ] Task A
+
 - [ ] Task B
 `
     await writeTestNote("board.md", content)
@@ -2536,8 +2537,48 @@ title: Board
       logger,
     )
     const updated = await readTestNote("board.md")
-    expect(updated).not.toMatch(/\n{3,}/)
-    expect(updated).toContain("## Active\n\n- [ ] Task B")
+    expect(updated).toBe(`---
+title: Board
+---
+
+## Active
+
+- [ ] Task B
+`)
+  })
+
+  it("collapses a blank-line run elsewhere in the body when deleting with empty new_text", async () => {
+    const content = `---
+title: Distant
+---
+
+top
+
+
+middle
+TEXT TO DELETE
+after
+`
+    await writeTestNote("distant.md", content)
+    await replaceInNote(
+      {
+        vaultPath: vault,
+        path: "distant.md",
+        oldText: "TEXT TO DELETE\n",
+        newText: "",
+      },
+      logger,
+    )
+    const updated = await readTestNote("distant.md")
+    expect(updated).toBe(`---
+title: Distant
+---
+
+top
+
+middle
+after
+`)
   })
 
   it("does not collapse blank lines when new_text is non-empty", async () => {
@@ -2734,6 +2775,35 @@ title: Spaced
 A
 
 B
+`)
+  })
+
+  it("collapses a blank-line run elsewhere in the body, away from the deleted lines", async () => {
+    const content = `---
+title: Distant
+---
+
+top
+
+
+middle
+LINE TO DELETE
+after
+`
+    await writeTestNote("distant.md", content)
+    await deleteSpan(
+      { vaultPath: vault, path: "distant.md", startAnchor: "LINE TO DELETE" },
+      logger,
+    )
+    const updated = await readTestNote("distant.md")
+    expect(updated).toBe(`---
+title: Distant
+---
+
+top
+
+middle
+after
 `)
   })
 
@@ -3407,6 +3477,68 @@ before
 
 new content
 
+after
+`)
+  })
+
+  it("collapses a blank-line run inside the replacement content", async () => {
+    const noteContent = `---
+title: Inner
+---
+
+before
+old line
+after
+`
+    await writeTestNote("inner.md", noteContent)
+    await replaceSpan(
+      {
+        vaultPath: vault,
+        path: "inner.md",
+        startAnchor: "old line",
+        content: "first paragraph\n\n\n\nsecond paragraph",
+      },
+      logger,
+    )
+    const updatedNote = await readTestNote("inner.md")
+    expect(updatedNote).toBe(`---
+title: Inner
+---
+
+before
+first paragraph
+
+second paragraph
+after
+`)
+  })
+
+  it("collapses a blank-line run elsewhere in the body, away from the replaced lines", async () => {
+    const noteContent = `---
+title: Distant
+---
+
+top
+
+
+middle
+old line
+after
+`
+    await writeTestNote("distant.md", noteContent)
+    await replaceSpan(
+      { vaultPath: vault, path: "distant.md", startAnchor: "old line", content: "new line" },
+      logger,
+    )
+    const updatedNote = await readTestNote("distant.md")
+    expect(updatedNote).toBe(`---
+title: Distant
+---
+
+top
+
+middle
+new line
 after
 `)
   })

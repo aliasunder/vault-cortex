@@ -818,11 +818,11 @@ which are the description and the input schema with each parameter's Zod
   which lists only the messages that tool can raise: for example
   `"absolute path blocked"`, `"path traversal blocked"`, and
   `"hidden path blocked"`.
-- **Parameter text has one home per kind of fact.** The calling model
-  receives each parameter's Zod `.describe()` text inside the input
-  schema, so the tool description earns its space (and its score from
-  graders such as Glama's Tool Definition Quality Score, TDQS) only
-  with what that text doesn't say:
+- **Split parameter facts between `.describe()` and the tool description.**
+  The calling model receives each parameter's Zod `.describe()` text
+  inside the input schema, so the tool description earns its space
+  (and its score from graders such as Glama's Tool Definition Quality
+  Score, TDQS) only with what that text doesn't say:
   - `.describe()` gives the parameter's plain meaning: what it is,
     its format, and its default.
   - The description gives what `.describe()` can't: interactions
@@ -841,6 +841,9 @@ which are the description and the input schema with each parameter's Zod
   second copy of a guard the data layer must enforce regardless (drift
   risk). `.min(1)` is the floor because it does serialize (`minLength`)
   and its default failure message is self-explanatory.
+- **Edit only the tools a change is meant for.** A grader re-scores
+  every definition whose text changes, so apply a shared wording change
+  tool by tool and leave every other tool's text as it is.
 - **`tool-surface-snapshot.test.ts` caps the tool list's size**, because
   clients such as claude.ai load every definition into each
   conversation. Each checked combo's total must stay within
@@ -1118,7 +1121,8 @@ test.
 - New config gating axis → config matrix test in
   `server-integration.test.ts` (tool count + key behavior), and add the
   axis to `SURFACE_AXES` in `scripts/tool-surface-capture.ts` so the
-  snapshot combos cover it.
+  snapshot combos cover it. For a setting that changes only one tool's
+  text, add a single combo to `SURFACE_COMBOS` instead.
 - New prompt → assembly test verifying live vault data, not just the
   instruction wrapper.
 

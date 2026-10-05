@@ -19,32 +19,30 @@ export const registerTaskTools = ({
     TOOL_NAMES.VAULT_LIST_TASKS,
     {
       title: "List Tasks",
-      description: `List checkbox tasks across the whole vault with structured filters — the Tasks-plugin data model over MCP. Both task metadata formats are indexed: emoji signifiers (📅 due, ⏳ scheduled, 🛫 start, ➕ created, ✅ done, ❌ cancelled, 🔺⏫🔼🔽⏬ priority, 🔁 recurrence, 🏁 onCompletion, 🆔/⛔ dependencies) and Dataview inline fields ([due:: 2026-07-04], [priority:: high], ...). Every result carries its attribution — note path, folder, line number, and the nearest heading when the task sits under one (the lane on a Kanban board) — so no follow-up reads are needed to locate a task. Task lines inside fenced code blocks and %% %% comment blocks are not indexed. Checkboxes the Tasks plugin's status registry types NON_TASK are also excluded.
+      description: `List checkbox tasks across the whole vault with structured filters — the Tasks-plugin data model over MCP. Both task metadata formats are indexed: emoji signifiers (📅 due, ⏳ scheduled, 🛫 start, ➕ created, ✅ done, ❌ cancelled, 🔺⏫🔼🔽⏬ priority, 🔁 recurrence, 🏁 onCompletion, 🆔/⛔ dependencies) and Dataview inline fields ([due:: 2026-07-04], [priority:: high], ...). Every result carries its attribution — note path, folder, line number, and the nearest heading when the task sits under one (the lane on a Kanban board) — so no follow-up reads are needed to locate a task. Task lines inside fenced code blocks and %% %% comment blocks are not indexed. Checkboxes typed NON_TASK in the Tasks plugin's status registry are also excluded.
 
 Example: vault_list_tasks({ due: { before: "2026-07-04" } }) — overdue triage; the default status (not_done) and sort (due ascending) make this the "what's overdue?" call
-Example: vault_list_tasks({ path: "Code Projects/vault-cortex/TASKS.md", heading: ["Active", "Up Next", "Waiting On"], sort_by: "position" }) — actionable Kanban lanes in board order; position is the natural sort for boards (file path then line number, preserving card arrangement)
-Example: vault_list_tasks({ folder: "Code Projects/vault-cortex" }) — all open tasks across a project tree (TASKS.md + task-notes/ subdirectories); folder includes its subfolders
+Example: vault_list_tasks({ path: "Code Projects/vault-cortex/TASKS.md", heading: ["Active", "Up Next", "Waiting On"], sort_by: "position" }) — actionable Kanban lanes in board order
+Example: vault_list_tasks({ folder: "Code Projects/vault-cortex" }) — all open tasks across a project tree (TASKS.md + task-notes/ subdirectories)
 Example: vault_list_tasks({ status: "done", done: { after: "2026-06-26" } }) — what got completed this week
 Example: vault_list_tasks({ top_level_only: true, path: "TASKS.md" }) — board cards only, excluding checklist sub-items
 
-When to use: Any vault-wide task triage question — "what's overdue?", "what's open per project?", "what did I finish this week?" — in one call instead of per-board reads.
-Prefer vault_read_note (heading mode) to read one specific board lane verbatim. Prefer vault_search for full-text queries over note content.
+When to use: Reading task status and order on one board (path + sort_by: "position"; add status: "all" to include done and cancelled cards). Also any vault-wide task triage question — "what's overdue?", "what's open per project?", "what did I finish this week?" — in one call instead of per-board reads.
+${whenToolEnabledText("vault_read_note", "Prefer vault_read_note (heading mode) only when you need a lane's verbatim Markdown or a task's state right after a write. ")}Prefer vault_search for full-text queries over note content.
+
+Behavior: Reads the search index, which picks up a file change within a few seconds, so a task written moments ago may still show its old state.
 
 Parameters:
-- status: a single value or an array of values, OR-combined (default "not_done"). Values: "not_done" (todo + in_progress, excludes done AND cancelled), "todo", "in_progress", "done", "cancelled", "all". Virtual values expand in arrays: ["not_done", "done"] matches todo + in_progress + done.
-- due / scheduled / start / done / created / cancelled: date filters, each { before, on, after } in YYYY-MM-DD — before/after are exclusive, on is exact. A date filter only matches tasks that HAVE that date.
-- priority: array of "highest" | "high" | "medium" | "low" | "lowest" | "none", OR-combined ("none" = tasks with no priority signifier).
-- folder: a whole folder, subfolders included ("Projects" covers "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case. tag: bare inline-task-tag name; a parent tag matches children. heading: exact heading text or array of headings, case-sensitive, OR-combined. path: one note, must end in ".md".
-- top_level_only: boolean (default false). When true, only top-level tasks (depth 0) are returned — excludes indented sub-tasks and checklist items.
-- sort_by: "due" (default) | "scheduled" | "start" | "created" | "done" | "priority" | "note_mtime" | "position". "position" sorts by file path then line number — the natural order for Kanban boards.
-- limit: max results (default 50). The total field always reports the full match count.
+- status: virtual values expand in arrays — ["not_done", "done"] matches todo + in_progress + done.
+- due / scheduled / start / done / created / cancelled: a date filter only matches tasks that HAVE that date.
+- folder: a whole folder, subfolders included ("Projects" covers "Projects/Archive" but not "ProjectsOld/"), ignoring ASCII letter case.
 
 Errors:
 - A malformed or calendar-invalid date filter throws with remediation text ("Use YYYY-MM-DD")
 - path without the ".md" extension is rejected
 - No matches returns { total: 0, tasks: [] }, not an error
 
-Returns: JSON { total, tasks }. Every task carries path, line, status, status_char, description, folder, depth (0 for top-level, 1+ for sub-tasks), is_kanban_task, depends_on, and tags (the arrays are [] when empty). Every other field appears only when the task has it: heading (nearest heading above the task), created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, block_id, parent_block_id (sub-tasks whose parent carries a ^block-id), done_lanes (Kanban boards only), and subtask_progress — { done, total } over the task's DIRECT checklist children, present only when the task has a checklist (absent = no checklist items); done counts status "done" only (a cancelled child counts toward total, not done), and the counts ignore the query's filters — so a filtered or top_level_only read still shows each card's checklist progress.`,
+Returns: JSON { total, tasks }. Every task carries path, line, status, status_char, description, folder, depth (0 for top-level, 1+ for sub-tasks), is_kanban_task, depends_on, and tags (the arrays are [] when empty). Every other field appears only when the task has it: heading (nearest heading above the task), created/scheduled/start/due/done/cancelled dates, priority, recurrence, on_completion, task_id, block_id, parent_block_id (sub-tasks whose parent carries a ^block-id), done_lanes (Kanban boards only), and subtask_progress — { done, total } over the task's DIRECT checklist children, present only when the task has a checklist; done counts status "done" only (a cancelled child counts toward total, not done), and the counts ignore the query's filters — so a filtered or top_level_only read still shows each card's checklist progress.`,
       inputSchema: {
         status: z
           .union([
@@ -54,7 +52,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .optional()
           .default("not_done")
           .describe(
-            'Status filter, OR-combined (default "not_done" = todo + in_progress, excluding done and cancelled). Virtual values expand in arrays: "not_done" adds todo + in_progress, "all" includes every status.',
+            'Status filter, OR-combined (default "not_done" = todo + in_progress, excluding done and cancelled). "all" includes every status.',
           ),
         due: dateFilterSchema.describe("Due date (📅 / [due:: ]) bounds"),
         scheduled: dateFilterSchema.describe("Scheduled date (⏳ / [scheduled:: ]) bounds"),
@@ -64,6 +62,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
         cancelled: dateFilterSchema.describe("Cancelled date (❌ / [cancelled:: ]) bounds"),
         priority: z
           .array(z.enum(["highest", "high", "medium", "low", "lowest", "none"]))
+          .min(1)
           .optional()
           .describe(
             'Priority levels, OR-combined; "none" selects tasks with no priority signifier',
@@ -117,7 +116,7 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
           .optional()
           .default("due")
           .describe(
-            'Sort key (default "due"). Date sorts cascade through related fields when the primary is absent; each fallback uses its own natural direction. "position" sorts by file path then line number — the natural order for Kanban boards.',
+            'Sort key (default "due"). Date sorts cascade through related fields when the primary is absent (through the rest of due → scheduled → start → created, in that order; done does not cascade); each fallback uses its own natural direction. "position" sorts by file path then line number — the natural order for Kanban boards.',
           ),
         sort_direction: z
           .enum(["asc", "desc"])
@@ -218,51 +217,42 @@ Returns: JSON { total, tasks }. Every task carries path, line, status, status_ch
       description: `Create a correctly-formatted task in one call — description, target heading, dates, priority, block_id, and optional checklist sub-items. The task is created as todo (using the status registry's todo symbol, [ ] by default) with ➕ today auto-stamped${whenToolEnabledText("vault_update_task", " — starting work is vault_update_task's job")}. Metadata is written in the format the vault's Tasks plugin is configured for (emoji unless the plugin config says Dataview).
 
 Example: vault_create_task({ path: "TASKS.md", description: "Fix login bug", block_id: "fix-login", heading: "Active", priority: "high", due: "2026-09-15" })
-Example: vault_create_task({ path: "TASKS.md", description: "Ship the feature", block_id: "ship-feature", heading: "Up Next", subtasks: ["Design", "Implement", "Test"] }) — card with checklist stages
 Example: vault_create_task({ path: "TASKS.md", description: "Sub-bug", block_id: "sub-bug", parent_block_id: "fix-login", due: "2026-09-01" }) — full sub-task under a parent identified by block_id
 Example: vault_create_task({ path: "TASKS.md", description: "Quick fix", block_id: "quick-fix", parent_line: 42 }) — sub-task under a parent identified by line number
-Example: vault_create_task({ path: "TASKS.md", description: "Urgent fix", block_id: "urgent-fix", heading: "Active", position: "top" }) — insert at the top of a lane instead of the default bottom
-Example: vault_create_task({ path: "TASKS.md", description: "Mid-priority", block_id: "mid-priority", heading: "Active", position: 3 }) — insert as the 3rd card in the lane (1-based; past the card count lands directly below the last card)
+Example: vault_create_task({ path: "TASKS.md", description: "Mid-priority", block_id: "mid-priority", heading: "Active", position: 3 }) — insert as the 3rd card in the lane
 
 When to use: Creating a new task card on a board or in a note. Guarantees correct field ordering (description → priority → 🔁 recurrence → 🏁 onCompletion → ➕ created → 🛫 start → ⏳ scheduled → 📅 due → 🆔 task_id → ⛔ depends_on → ^block_id)${whenToolEnabledText("vault_list_tasks", " so the card round-trips through vault_list_tasks with all fields intact")}.${whenToolEnabledText("vault_update_task", " For lightweight checklist items under an existing card (no metadata), use vault_update_task's add_subtasks param instead.")}
 
 Parameters:
-- path (required): vault-relative path to the note (must end in ".md"). The note must already exist.
-- description (required): the task text (before metadata fields).
-- block_id (required): the ^block-id for stable identification — letters, digits, and hyphens only. Must be unique within the note.
-- heading: target heading. Required on Kanban boards (notes with kanban-plugin frontmatter); optional on regular notes (omit to append at end of body).
-- parent_block_id / parent_line: the existing task to nest under as a sub-task, identified by its ^block-id or its 1-based line number — the same pair vault_update_task uses (block_id / line). Pass at most one. Either is mutually exclusive with heading — a sub-task lives wherever its parent lives.
-- position: "top", "bottom", or a 1-based integer — where within the heading section the task is placed. "top" or "bottom" for the extremes; an integer for an exact slot among the lane's top-level cards (position 1 is the first card; past the card count lands directly below the last card). Defaults to "bottom" (append). Kanban boards with new-card-insertion-method set to "prepend" default to "top" instead. Ignored when no heading or when placing under a parent.
-- priority: "highest" | "high" | "medium" | "low" | "lowest". Omit for normal priority (the plugin ranks "no signifier" between medium and low).
-- recurrence: a Tasks plugin 🔁 rule in natural language ("every week", "every month on the 15th", "every 3 days when done" — "when done" bases the next occurrence on the completion day). Completing the task later spawns its next occurrence automatically.
-- on_completion: "delete" or "keep" — sets the Tasks plugin 🏁 action applied when the task is completed. "delete" removes the task line on completion; "keep" leaves it in place.
-- due / scheduled / start: YYYY-MM-DD dates (calendar-validated). Omit a date rather than guessing — an absent 📅 means "no deadline".
-- task_id: Tasks plugin 🆔 identifier for dependency chains.
-- depends_on: non-empty string array of Tasks plugin ⛔ dependency IDs (🆔 values of other tasks).
-- subtasks: string array of checklist item descriptions — created as indented todo lines under the card (no metadata, no block_ids). For full sub-tasks with their own dates, priority, and block_id, make a separate vault_create_task call with parent_block_id.
-- format: "emoji" or "dataview" — overrides the auto-detected Tasks plugin format (emoji when no plugin config is present).
+- heading is required on Kanban boards (notes with kanban-plugin frontmatter).
+- parent_block_id / parent_line: ${whenToolEnabledText("vault_update_task", "the same pair vault_update_task uses (block_id / line). ")}Pass at most one. Either is mutually exclusive with heading — a sub-task lives wherever its parent lives.
+- position: Kanban boards with new-card-insertion-method set to "prepend" default to "top" instead of "bottom". Ignored when no heading or when placing under a parent.
+- priority: the plugin ranks "no signifier" (normal priority) between medium and low.
+- recurrence: a rule ending "when done" bases the next occurrence on the completion day.
+- due / scheduled / start: omit a date rather than guessing — an absent 📅 means "no deadline".
 
 Errors:
 - "note not found" — path does not exist
 - "path must end in …" — add the .md extension
+- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "heading required for Kanban boards" — kanban-plugin note without heading
 - "heading "X" not found; available: ..." — no heading matches; the error lists the note's headings
 - "cannot place at position N under "X" — the heading appears N times" — integer position on a note with duplicate heading names; rename one section to make it unique
 - "parent task not found" — parent_block_id or parent_line doesn't resolve to a task (message names the blockId or line tried), or the line is inside a fenced code block or %% %% comment
-- "checkbox '[c]' is a NON_TASK status" — the parent task's checkbox char is typed NON_TASK in the Tasks plugin's status registry, so it is not a task; to change that, retype it there and restart the server
+- "checkbox "[c]" is a NON_TASK status" — the parent task's checkbox char is typed NON_TASK in the Tasks plugin's status registry, so it is not a task; to change that, retype it there and restart the server
 - "no checkbox symbol for status ..." — the status registry has no symbol for the todo status and the built-in default is retyped; update the plugin's status registry to include a todo symbol, then restart the server
 - "parentBlockId and parentLine are mutually exclusive" — both parent_block_id and parent_line were passed; drop one
 - "parent and heading are mutually exclusive" — a parent (parent_block_id or parent_line) and heading were both passed; drop one
 - "blockId ... already exists in this note" — pick a block_id not yet used in the note
 - "blockId ... contains invalid characters" — block_id must match [a-zA-Z0-9-]+
-- "description is empty" / "dependsOn cannot be empty" / "subtasks cannot contain an empty item" — whitespace-only description, an empty depends_on array, or a whitespace-only checklist item
+- "description is empty" / "subtasks cannot contain an empty item" — whitespace-only description or checklist item
 - "description must be a single line" / "subtasks items must be a single line" — a task is one file line; a line break in the text would split its metadata onto a line the parser never reads
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
 - "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur
 - "invalid date" — a date param fails calendar validation
 - "concurrent write in progress" — another write to this note is in flight; retry
 
-Obsidian syntax: The Tasks plugin reads metadata off the END of a task line, so a trailing run of signifier syntax inside description or subtasks text — an emoji field like "🔁 every week", or a Dataview [key:: value] field, followed only by other recognized task fields — is read back as task metadata rather than text. A signifier followed by ordinary prose stays description text unless the prose matches that field's value grammar — a 🔁 recurrence reads any trailing words as its rule, while a 📅 followed by ordinary words stays description text because the words are not a date. The same interference can change the value an adjacent field reads back with, or make a field appear that was never set, as the 🔁 example shows. The write still succeeds either way; when the stored line would read back differently than submitted, the result carries an advisories array naming each divergence.
+Obsidian syntax: The Tasks plugin reads metadata off the END of a task line. A trailing signifier in description or subtasks text (an emoji field like "🔁 every week", or a Dataview [key:: value] field) that the plugin's parser recognizes as a field — followed only by other recognized fields — is read back as metadata, not text. Whether it is captured depends on the field's value grammar: 🔁 reads any trailing words as its recurrence rule, while 📅 followed by non-date words stays description text. The same interference can change the value an adjacent field reads back with, or make a field appear that was never set. The write still succeeds either way; when the stored line would read back differently than submitted, the result carries an advisories array naming each divergence.
 
 Returns: JSON { path, line, description, block_id, heading, subtasks, changes, advisories } — line is the new card's 1-based position; heading is the nearest heading above the new task (omitted when the note has none); subtasks lists each checklist item written as { line, description } (omitted when none) — checklist items carry no block_id, so line is the handle for a follow-up update; changes lists every field written as "field: before → after", with "(none)" for an absent value; advisories (omitted when the line round-trips clean) lists one sentence per place the stored line parses back differently than submitted — see Obsidian syntax above.`,
       inputSchema: {
@@ -283,29 +273,25 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
           .string()
           .min(1)
           .optional()
-          .describe(
-            "Target heading. Required on Kanban boards; optional on regular notes (omit to append at end of body).",
-          ),
+          .describe("Target heading. On a regular note, omit to append at end of body."),
         parent_block_id: z
           .string()
           .min(1)
           .optional()
-          .describe(
-            "^block-id (without the ^) of an existing task to nest under as a sub-task. Mutually exclusive with parent_line and heading.",
-          ),
+          .describe("^block-id (without the ^) of an existing task to nest under as a sub-task."),
         parent_line: z
           .number()
           .int()
           .min(1)
           .optional()
           .describe(
-            "1-based line number of an existing task to nest under as a sub-task. Mutually exclusive with parent_block_id and heading. Fragile if the file changed since the line was read.",
+            "1-based line number of an existing task to nest under as a sub-task. Fragile if the file changed since the line was read.",
           ),
         position: z
           .union([z.enum(["top", "bottom"]), z.number().int().min(1)])
           .optional()
           .describe(
-            'Where within the heading section the task is placed. "top" or "bottom" for the extremes; an integer (1-based) for an exact position among the lane\'s top-level cards (sub-tasks move with their parent and are not counted). Position 1 is the first card. A position past the card count lands directly below the last card (unlike "bottom", which appends after any trailing section content). Defaults to bottom. Kanban boards with new-card-insertion-method set to prepend default to top instead. Ignored when no heading or when placing under a parent.',
+            'Where within the heading section the task is placed. "top" or "bottom" for the extremes; an integer (1-based) for an exact position among the lane\'s top-level cards (sub-tasks move with their parent and are not counted). Position 1 is the first card. A position past the card count lands directly below the last card (unlike "bottom", which appends after any non-task text at the end of the section). Defaults to bottom.',
           ),
         priority: z
           .enum(["highest", "high", "medium", "low", "lowest"])
@@ -318,7 +304,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
           .min(1)
           .optional()
           .describe(
-            'Tasks plugin 🔁 rule in natural language (e.g. "every week", "every 2 weeks when done"). Completing the task spawns its next occurrence.',
+            'Tasks plugin 🔁 rule in natural language (e.g. "every week", "every month on the 15th", "every 2 weeks when done"). Completing the task spawns its next occurrence.',
           ),
         on_completion: z
           .enum(["delete", "keep"])
@@ -467,49 +453,34 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, changes, a
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "done" }) — complete a task; on a Kanban board, auto-moves to the done lane; a recurring task (🔁) spawns its next occurrence
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", recurrence: "every week" }) — make a task recurring (null removes the rule)
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Done" }) — move a task to a different heading (lands at the top of the lane by default)
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Done", position: "bottom" }) — move to the bottom of the lane
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", description: "Updated task name", due: "2026-10-01" }) — change description and set due date
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", due: null }) — clear a date field
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", description: "Updated task name", due: "2026-10-01", scheduled: null }) — change the description, set one date, and clear another
 Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", status: "in_progress", add_subtasks: ["Design", "Implement", "Test"] }) — start working and add checklist stages
 Example: vault_update_task({ path: "TASKS.md", line: 42, assign_block_id: "my-task" }) — add a block_id to a task that lacks one
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", task_id: "abc123" }) — set a Tasks plugin 🆔 identifier
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", on_completion: "delete" }) — set the task to be removed on completion (null clears the field)
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Active", position: 3 }) — move to the 3rd position in a lane (1-based; past the card count lands directly below the last card)
-Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", position: 1 }) — same-lane reorder to the top without a heading move
+Example: vault_update_task({ path: "TASKS.md", block_id: "my-task", heading: "Active", position: 3 }) — move to the 3rd position in a lane
 
 When to use: Any change to an existing task — completing, starting, re-prioritizing, editing text, setting or clearing dates, adding checklist items, assigning block_ids, moving between headings, or reordering within a lane.${whenToolEnabledText("vault_list_tasks", " Use vault_list_tasks first to get identification fields (path + block_id or line).")}${whenToolEnabledText("vault_create_task", " For creating a new task, use vault_create_task instead.")}
 
 Parameters:
-- path (required): vault-relative path to the note (must end in ".md").
 - Exactly one of block_id or line is required to identify the task.
-- At least one change is required. Every field passed is applied in the same single write:
-  - status: "todo" | "in_progress" | "done" | "cancelled". Manages checkbox and done/cancelled dates.
-    Kanban: "done" moves the card and its checklist sub-items to the done lane (sub-item checkboxes left as they are); a sub-task stays under its parent.
-    Recurring (🔁): spawns the next occurrence above the completed one (below with the plugin's "next line" setting), dates advanced per the rule. The spawn stays in the source lane with no block_id, 🆔, or ⛔ — follow up with assign_block_id on next_occurrence.line. Completing by line is NOT idempotent for recurring tasks (the spawn occupies the old line); prefer block_id.
-    Delete (🏁): removes the task line and children instead of moving to done. With 🔁 + 🏁, the spawn is created first, then the completed line is removed; with "next line", children transfer to the spawn. Result carries on_completion_applied: "delete".
-  - priority: "highest" | "high" | "medium" | "low" | "lowest" sets the signifier; null removes it.
-  - recurrence: sets the Tasks plugin 🔁 rule, in natural language ("every week", "every month on the 15th", "every 3 days when done" — "when done" bases the next occurrence on the completion day); null removes it. Passed together with status "done", the new rule governs the spawn (recurrence: null completes without spawning).
-  - on_completion: "delete" or "keep" — sets the Tasks plugin 🏁 action applied when the task is completed; null removes it. When on_completion and status are passed in the same call, the submitted on_completion value governs the delete decision — setting "keep" while completing a "delete" task prevents the deletion. See the status bullet for delete behavior details.
-  - description: replaces the task text. Metadata fields and block_id are preserved.
-  - due / scheduled / start / created: YYYY-MM-DD sets the date; null clears it.
-  - task_id: string sets the Tasks plugin 🆔; null clears it.
-  - depends_on: non-empty string array sets the Tasks plugin ⛔; null clears it.
-  - add_subtasks: non-empty string array — appends one indented todo checklist item per entry under the task; existing checklist items are kept.${whenToolEnabledText("vault_create_task", " For full sub-tasks with their own metadata, use vault_create_task with parent_block_id.")}
-  - assign_block_id: adds or replaces the ^block-id on the task line. Letters, digits, and hyphens only; must be unique within the note.
-  - heading: target heading to move the task to. On Kanban boards this is a lane move; works on any note with headings. Not valid on sub-tasks.
-  - position: "top", "bottom", or a 1-based integer — where within the target heading the task lands after a heading move or auto-done-lane move. Position 1 is the first card; past the card count lands directly below the last card. Defaults to "top" on heading moves. Without a heading, triggers a same-lane reorder to the given position; omitting position entirely performs no reorder. Ignored when the task is deleted on completion. Not valid on sub-tasks.
-  - Clearing is always explicit null — omitting a field leaves it untouched.
-- format: "emoji" or "dataview" — overrides the auto-detected Tasks plugin format.
+- At least one change is required. Clearing is always explicit null — omitting a field leaves it untouched.
+- status manages the checkbox and the done/cancelled dates.
+  Kanban: "done" moves the card and its checklist sub-items to the done lane (sub-item checkboxes left as they are); a sub-task stays under its parent.
+  Recurring (🔁): spawns the next occurrence above the completed one (below with the plugin's "next line" setting), dates advanced per the rule. The spawn stays in the source lane with no block_id, 🆔, or ⛔ — follow up with assign_block_id on next_occurrence.line. Completing by line is NOT idempotent for recurring tasks (the spawn occupies the old line); prefer block_id.
+  Delete (🏁 delete / [onCompletion:: delete]): removes the task line and children instead of moving to done. With 🔁 + 🏁, the spawn is created first, then the completed line is removed; with "next line", children transfer to the spawn. Result carries on_completion_applied: "delete".
+- recurrence: a rule ending "when done" bases the next occurrence on the completion day. When set together with status "done", the new rule governs the spawn. Setting recurrence to null while completing removes the rule and completes without spawning.
+- on_completion: passed together with status, the submitted value governs the delete decision — "keep" while completing a "delete" task prevents the deletion.
+- position: applies to a heading move or an auto-done-lane move. Without a heading, it triggers a same-lane reorder to the given position; omitting position performs no reorder. Ignored when the task is deleted on completion. Not valid on sub-tasks.
 
 Errors:
 - "note not found" — path does not exist
 - "path must end in …" — add the .md extension
+- "absolute path blocked" / "path traversal blocked" / "hidden path blocked" — use a vault-relative path with no hidden (dot-prefixed) file or folder in it
 - "exactly one of blockId or line is required" / "blockId and line are mutually exclusive" — pass exactly one of block_id or line
 - "blockId ... not found" — no task line in the note ends with ^block_id
 - "blockId ... is inside a fenced code block or comment" — the block_id matches a line inside a fenced code block or %% %% comment; target a line outside the fence
 - "no task at line N" — line doesn't contain a task checkbox
 - "line N is inside a fenced code block or comment" — the line is inside a fenced code block or %% %% comment; target a line outside the fence
-- "checkbox '[c]' is a NON_TASK status" — the task's checkbox char is typed NON_TASK in the Tasks plugin's status registry, so it is not a task; to change that, retype it there and restart the server
+- "checkbox "[c]" is a NON_TASK status" — the task's checkbox char is typed NON_TASK in the Tasks plugin's status registry, so it is not a task; to change that, retype it there and restart the server
 - "no checkbox symbol for status ..." — the status registry has no symbol for the target status and the built-in default is retyped; update the plugin's status registry to include a symbol for this status, then restart the server
 - "at least one mutation" — no change params provided
 - "cannot move a sub-task to a heading" — explicit heading on a task nested under another task (depth > 0${whenToolEnabledText("vault_list_tasks", " in vault_list_tasks")})
@@ -522,15 +493,15 @@ Errors:
 - "no done lane detected" — status "done" on a Kanban board with no **Complete** marker and no "Done" heading; pass heading explicitly
 - "blockId ... already exists" / "blockId ... contains invalid characters" — assign_block_id must be unique in the note and match [a-zA-Z0-9-]+
 - "invalid date" — a date param fails calendar validation
-- "description cannot be empty" / "dependsOn cannot be empty" / "addSubtasks cannot be empty" / "addSubtasks cannot contain an empty item" — whitespace-only text or an empty array (use null to clear depends_on)
+- "description cannot be empty" / "addSubtasks cannot contain an empty item" — whitespace-only description or checklist item
 - "description must be a single line" / "addSubtasks items must be a single line" — a task is one file line; a line break in the text would split its metadata onto a line the parser never reads
 - "taskId ... contains invalid characters" / "dependsOn entry ... contains invalid characters" — task_id and every depends_on entry must match [a-zA-Z0-9_-]+ (the Tasks plugin's id grammar)
 - "unrecognized recurrence rule ..." — the rule text is not Tasks-plugin natural language; written as-is it would silently never recur
 - "concurrent write in progress" — another write to this note is in flight; retry
 
-Obsidian syntax: The Tasks plugin reads metadata off the END of a task line, so a trailing run of signifier syntax inside description or add_subtasks text — an emoji field like "🔁 every week", or a Dataview [key:: value] field, followed only by other recognized task fields — is read back as task metadata rather than text. A signifier followed by ordinary prose stays description text unless the prose matches that field's value grammar — a 🔁 recurrence reads any trailing words as its rule, while a 📅 followed by ordinary words stays description text because the words are not a date. The same interference can change the value an adjacent field reads back with, or make a field appear that was never set, as the 🔁 example shows. The write still succeeds either way; when the stored line would read back differently than this call set, the result carries an advisories array naming each divergence. The dates a status change stamps or clears (the ✅/❌ dates) are expected and produce no advisories on their own — but a description signifier that changes what the stamped date parses back as is still reported.
+Obsidian syntax: The Tasks plugin reads metadata off the END of a task line. A trailing signifier in description or add_subtasks text (an emoji field like "🔁 every week", or a Dataview [key:: value] field) that the plugin's parser recognizes as a field — followed only by other recognized fields — is read back as metadata, not text. Whether it is captured depends on the field's value grammar: 🔁 reads any trailing words as its recurrence rule, while 📅 followed by non-date words stays description text. The same interference can change the value an adjacent field reads back with, or make a field appear that was never set. The write still succeeds either way; when the stored line would read back differently than this call set, the result carries an advisories array naming each divergence. The dates a status change stamps or clears (the ✅/❌ dates) produce no advisories on their own — but a description signifier that changes what the stamped date parses back as is still reported.
 
-Returns: JSON { path, line, description, block_id, heading, subtasks, next_occurrence, changes, advisories, on_completion_applied } — line is the final 1-based position (when on_completion_applied is "delete", it is the position the task occupied before removal); description is the current text; block_id and heading reflect the task after the update (block_id is omitted when the task has none, heading when the task sits above the first heading); subtasks lists each checklist item added by add_subtasks as { line, description } (omitted when none were added) — checklist items carry no block_id, so line is the handle for a follow-up update; next_occurrence is present only when a completion spawned a recurring task's next occurrence: { line, description, due?, scheduled?, start? } with only the dates the occurrence has — it carries no block_id, so line is its handle; changes lists every field applied as "field: before → after", with "(none)" for an absent value (for subtasks the two sides are checklist-item counts, and a spawn adds "next_occurrence: (none) → line N"); advisories (omitted when there are none) lists one sentence per place the stored line parses back differently than this call set (see Obsidian syntax above), per duplicate tag removed from the line, or per completed recurring task whose rule yields no next occurrence (for example, unreadable rule text or a rule with no dates left); on_completion_applied (present only when the effective on_completion was delete — pre-existing on the task or set in the same call — and it was transitioned to done) is always "delete".`,
+Returns: JSON { path, line, description, block_id, heading, subtasks, next_occurrence, changes, advisories, on_completion_applied } — line is the final 1-based position (when on_completion_applied is "delete", it is the position the task occupied before removal); description is the current text; block_id and heading reflect the task after the update (block_id is omitted when the task has none, heading when the task sits above the first heading); subtasks lists each checklist item added by add_subtasks as { line, description } (omitted when none were added) — checklist items carry no block_id, so line is the handle for a follow-up update; next_occurrence is present only when a completion spawned a recurring task's next occurrence: { line, description, due?, scheduled?, start? } with only the dates the occurrence has — it carries no block_id, so line is its handle; changes lists every field applied as "field: before → after", with "(none)" for an absent value (for subtasks the two sides are checklist-item counts, and a spawn adds "next_occurrence: (none) → line N"); advisories (omitted when there are none) lists one sentence for each: a stored line that parses back differently than submitted (see Obsidian syntax above), a duplicate tag removed from the line, or a completed recurring task whose rule yields no next occurrence (unreadable rule text or a rule with no dates left); on_completion_applied (present only when the effective on_completion was delete — pre-existing on the task or set in the same call — and it was transitioned to done) is always "delete".`,
       inputSchema: {
         path: z
           .string()
@@ -556,9 +527,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
         status: z
           .enum(["todo", "in_progress", "done", "cancelled"])
           .optional()
-          .describe(
-            'Target status. "done" appends the ✅ date and, on a Kanban board, moves the card and its checklist sub-items to the done lane (sub-item checkboxes are left as they are); a task with 🏁 delete / [onCompletion:: delete] is removed from the file instead. "cancelled" appends the ❌ date.',
-          ),
+          .describe('Target status. "done" appends the ✅ date; "cancelled" appends the ❌ date.'),
         priority: z
           .enum(["highest", "high", "medium", "low", "lowest"])
           .nullable()
@@ -570,7 +539,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .nullable()
           .optional()
           .describe(
-            'Tasks plugin 🔁 rule in natural language (e.g. "every week", "every 2 weeks when done") to set, or null to remove it. Completing the task spawns its next occurrence.',
+            'Tasks plugin 🔁 rule in natural language (e.g. "every week", "every month on the 15th", "every 2 weeks when done") to set, or null to remove it. Completing the task spawns its next occurrence.',
           ),
         on_completion: z
           .enum(["delete", "keep"])
@@ -649,7 +618,7 @@ Returns: JSON { path, line, description, block_id, heading, subtasks, next_occur
           .union([z.enum(["top", "bottom"]), z.number().int().min(1)])
           .optional()
           .describe(
-            'Where within the target heading the task lands after a heading move or auto-done-lane move. "top" or "bottom" for the extremes; an integer (1-based) for an exact position among the lane\'s top-level cards (sub-tasks move with their parent and are not counted). Position 1 is the first card. A position past the card count lands directly below the last card (unlike "bottom", which appends after any trailing section content). Defaults to "top" on heading moves. Without a heading, triggers a same-lane reorder to the given position; omitting position entirely performs no reorder. Ignored when the task is deleted on completion. Not valid on sub-tasks.',
+            'Where within the target heading the task lands. "top" or "bottom" for the extremes; an integer (1-based) for an exact position among the lane\'s top-level cards (sub-tasks move with their parent and are not counted). Position 1 is the first card. A position past the card count lands directly below the last card (unlike "bottom", which appends after any non-task text at the end of the section). Defaults to "top" on heading moves.',
           ),
         format: z
           .enum(["emoji", "dataview"])

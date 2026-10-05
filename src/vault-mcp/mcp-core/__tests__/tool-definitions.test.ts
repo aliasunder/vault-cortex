@@ -71,6 +71,19 @@ beforeEach(() => {
   calls = mockServer.registerTool.mock.calls as RegisterToolCall[]
 })
 
+/** The registerTool calls a server makes under the config this env produces. */
+const registerWithConfig = (env: Record<string, string>): RegisterToolCall[] => {
+  const server = { registerTool: vi.fn() }
+  registerTools({
+    server: server as unknown as McpServer,
+    vaultPath: "/test-vault",
+    search: {} as SearchIndex,
+    logger,
+    config: loadConfig(env),
+  })
+  return server.registerTool.mock.calls as RegisterToolCall[]
+}
+
 const findCall = (name: string): RegisterToolCall | undefined => {
   return calls.find(([toolName]) => toolName === name)
 }
@@ -193,11 +206,11 @@ describe("registerTools", () => {
     expect(config.description).toContain("Cross-section move")
   })
 
-  it("vault_read_note description documents the outline response", () => {
+  it("vault_read_note documents the outline response on the outline parameter", () => {
     // The only guard against this drifting from the actual response shape.
     const [, config] = requireCall(TOOL_NAMES.VAULT_READ_NOTE)
-    expect(config.description).toContain(
-      "Outline shape: { bytes, modified, leading_callout?, leading_content?, headings }",
+    expect(config.inputSchema?.outline?.description).toBe(
+      "If true, returns { bytes, modified, leading_callout?, leading_content?, headings } as JSON instead of body content — a cheap structure fetch for large notes. headings: [{ level, text, bytes }]; leading_callout: { type, title, body } when the note has a top-of-file callout; leading_content: the rest of the body text above the first heading (callout lines excluded) when the note has any.",
     )
   })
 
@@ -428,18 +441,7 @@ describe("annotations", () => {
 
 describe("config interpolation in descriptions", () => {
   const CUSTOM_MEMORY_DIR = "Profile"
-  const customConfig = loadConfig({ MEMORY_DIR: CUSTOM_MEMORY_DIR })
-  const customCalls = (() => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: customConfig,
-    })
-    return server.registerTool.mock.calls as RegisterToolCall[]
-  })()
+  const customCalls = registerWithConfig({ MEMORY_DIR: CUSTOM_MEMORY_DIR })
 
   /** Like requireCall, but over the custom-config registration — throws
    *  instead of returning undefined so call sites need no non-null assertion. */
@@ -783,6 +785,26 @@ describe("optional selector params reject an empty string", () => {
   })
 })
 
+describe("optional filter lists reject an empty array", () => {
+  // - A "match any of these" list (the four below) selects nothing when empty,
+  //   so an empty one is a caller mistake. Without min(1) the call succeeds
+  //   and the empty or unfiltered result reads as a real answer.
+  // - A "require all of these" list (vault_search's tags and related) stays
+  //   valid when empty, because requiring no tags is no constraint.
+  it.each([
+    { tool: TOOL_NAMES.VAULT_LIST_FILES, field: "extensions", validValue: [".png"] },
+    { tool: TOOL_NAMES.VAULT_LIST_TASKS, field: "priority", validValue: ["high"] },
+    { tool: TOOL_NAMES.VAULT_LIST_TASKS, field: "status", validValue: ["todo"] },
+    { tool: TOOL_NAMES.VAULT_LIST_TASKS, field: "heading", validValue: ["Active"] },
+  ])("$tool $field rejects [] and accepts a list or no value", ({ tool, field, validValue }) => {
+    const [, config] = requireCall(tool)
+    const fieldSchema = config.inputSchema?.[field]
+    expect(fieldSchema?.safeParse([]).success).toBe(false)
+    expect(fieldSchema?.safeParse(validValue).success).toBe(true)
+    expect(fieldSchema?.safeParse(undefined).success).toBe(true)
+  })
+})
+
 describe("vault_update_memory handler", () => {
   const mockExtra = { requestId: "test-1", sessionId: "session-1" }
 
@@ -991,19 +1013,6 @@ describe("vault_read_note outline mode", () => {
 })
 
 describe("vault_search description reflects EMBEDDING_ENABLED", () => {
-  const registerWithConfig = (env: Record<string, string>): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig(env),
-    })
-    const registeredCalls = server.registerTool.mock.calls as RegisterToolCall[]
-    return registeredCalls
-  }
-
   const findSearchDescription = (registeredCalls: RegisterToolCall[]): string => {
     const searchCall = registeredCalls.find(([name]) => name === TOOL_NAMES.VAULT_SEARCH)
 
@@ -1034,19 +1043,48 @@ describe("vault_search description reflects EMBEDDING_ENABLED", () => {
   })
 })
 
-describe("vault_memory_recall description reflects EMBEDDING_ENABLED", () => {
-  const registerWithConfig = (env: Record<string, string>): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig(env),
+describe("vault_delete_note Errors list reflects OBSIDIAN_SYNC", () => {
+  /** Each Errors entry up to its first em dash, in listed order. */
+  const deleteNoteErrorLeads = (env: Record<string, string>): string[] => {
+    const errorsSection = extractDescriptionSection({
+      registeredCalls: registerWithConfig(env),
+      toolName: TOOL_NAMES.VAULT_DELETE_NOTE,
+      startMarker: "Errors:",
+      endMarker: "\n\nReturns:",
     })
-    return server.registerTool.mock.calls as RegisterToolCall[]
+    const [, ...errorEntries] = errorsSection.split("\n")
+    return errorEntries.map((entry) => entry.slice(0, entry.indexOf(" — ")))
   }
 
+  it("lists the trash-move and trash-setting errors when the server does not sync", () => {
+    expect(deleteNoteErrorLeads({})).toEqual([
+      '- "cannot delete protected path"',
+      '- "path must end in …"',
+      '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked"',
+      '- "concurrent write in progress"',
+      '- "note not found: …"',
+      '- "cannot move to trash …',
+      '- any other "cannot move to trash …"',
+      '- any other "cannot delete …"',
+      '- "cannot read trash config from .obsidian/app.json"',
+      '- "cannot read daily notes config from .obsidian/daily-notes.json"',
+    ])
+  })
+
+  it("leaves the trash-move and trash-setting errors out under OBSIDIAN_SYNC=true", () => {
+    expect(deleteNoteErrorLeads({ OBSIDIAN_SYNC: "true" })).toEqual([
+      '- "cannot delete protected path"',
+      '- "path must end in …"',
+      '- "absolute path blocked" / "path traversal blocked" / "hidden path blocked"',
+      '- "concurrent write in progress"',
+      '- "note not found: …"',
+      '- any other "cannot delete …"',
+      '- "cannot read daily notes config from .obsidian/daily-notes.json"',
+    ])
+  })
+})
+
+describe("vault_memory_recall description reflects EMBEDDING_ENABLED", () => {
   const findRecallDescription = (registeredCalls: RegisterToolCall[]): string => {
     const recallCall = registeredCalls.find(([name]) => name === TOOL_NAMES.VAULT_MEMORY_RECALL)
 
@@ -1086,15 +1124,7 @@ describe("MEMORY_ENABLED=false", () => {
   const NON_MEMORY_TOOL_COUNT = ALL_TOOL_NAMES.length - MEMORY_TOOLS.length
 
   const registerWithDisabledMemory = (): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig({ MEMORY_ENABLED: "false" }),
-    })
-    return server.registerTool.mock.calls as RegisterToolCall[]
+    return registerWithConfig({ MEMORY_ENABLED: "false" })
   }
 
   it("does not register memory tools", () => {
@@ -1133,15 +1163,7 @@ describe("FILE_TOOLS_ENABLED=false", () => {
   const EXPECTED_NON_FILE_TOOLS = ALL_TOOL_NAMES.filter((toolName) => !FILE_TOOL_SET.has(toolName))
 
   const registerWithDisabledFileTools = (): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig({ FILE_TOOLS_ENABLED: "false" }),
-    })
-    return server.registerTool.mock.calls as RegisterToolCall[]
+    return registerWithConfig({ FILE_TOOLS_ENABLED: "false" })
   }
 
   it("does not register file tools", () => {
@@ -1176,15 +1198,7 @@ describe("READONLY_MODE=true", () => {
   )
 
   const registerReadOnly = (extraEnv: Record<string, string> = {}): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig({ READONLY_MODE: "true", ...extraEnv }),
-    })
-    return server.registerTool.mock.calls as RegisterToolCall[]
+    return registerWithConfig({ READONLY_MODE: "true", ...extraEnv })
   }
 
   it("does not register mutating tools", () => {
@@ -1763,6 +1777,15 @@ describe("file tool handlers", () => {
     })
   })
 
+  it("returns the source of a canvas that is not valid JSON when raw is true", async () => {
+    const { vault, readAsset } = await setupAssetHarness()
+    await writeFile(join(vault, "Broken.canvas"), "{ not json", "utf8")
+    const result = await readAsset({ path: "Broken.canvas", raw: true })
+    expect(result).toEqual({
+      content: [{ type: "text", text: "{ not json" }],
+    })
+  })
+
   it("rejects raw for an image", async () => {
     const { vault, readAsset } = await setupAssetHarness()
     const png = await sharp({
@@ -1926,6 +1949,22 @@ describe("file tool handlers", () => {
     })
   })
 
+  it("lists a file without an extension under the (none) marker", async () => {
+    const { vault, listAssets } = await setupAssetHarness()
+    await writeFile(join(vault, "license"), "12345", "utf8")
+    await writeFile(join(vault, "photo.png"), "12", "utf8")
+    const result = await listAssets({})
+    expect(JSON.parse(requireTextContent(result))).toEqual({
+      files: [
+        { path: "license", extension: "(none)", bytes: 5 },
+        { path: "photo.png", extension: ".png", bytes: 2 },
+      ],
+      extension_counts: { "(none)": 1, ".png": 1 },
+      total: 2,
+      truncated: false,
+    })
+  })
+
   it.each(["PNG", ".PNG"])(
     "filters by extension case-insensitively for %s",
     async (extensionSpelling) => {
@@ -1958,18 +1997,6 @@ describe("file tool handlers", () => {
 })
 
 describe("DISABLED_TOOLS", () => {
-  const registerWithConfig = (env: Record<string, string>): RegisterToolCall[] => {
-    const server = { registerTool: vi.fn() }
-    registerTools({
-      server: server as unknown as McpServer,
-      vaultPath: "/test-vault",
-      search: {} as SearchIndex,
-      logger,
-      config: loadConfig(env),
-    })
-    return server.registerTool.mock.calls as RegisterToolCall[]
-  }
-
   it("hides exactly the named tools and keeps every other tool", () => {
     const registeredCalls = registerWithConfig({
       DISABLED_TOOLS: "vault_write_note,vault_find_orphans",
@@ -2033,6 +2060,43 @@ describe("DISABLED_TOOLS", () => {
       ([toolName]) => toolName === TOOL_NAMES.VAULT_READ_NOTE,
     )
     expect(enabledReadNoteCall?.[1].description).toContain(TOOL_NAMES.VAULT_PATCH_NOTE)
+  })
+
+  it("vault_read_note's board guidance names vault_list_tasks only while that tool is served", () => {
+    const readNoteRoutingLine = (disabledTools: string): string => {
+      return extractDescriptionSection({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+        toolName: TOOL_NAMES.VAULT_READ_NOTE,
+        startMarker: "Prefer vault_search",
+        endMarker: "\n\nSection boundaries:",
+      })
+    }
+    const ROUTING_LINE_START = "Prefer vault_search when you don't know the path."
+    const ROUTING_LINE_END =
+      " Prefer vault_get_memory for About Me/ files (returns content without properties). To edit a section you've read, use vault_patch_note. To explore what links to this note or what it links to, use vault_get_backlinks and vault_get_outgoing_links."
+
+    expect(readNoteRoutingLine("")).toBe(
+      `${ROUTING_LINE_START} For task status or order on a board, prefer vault_list_tasks; heading mode returns a lane's verbatim Markdown.${ROUTING_LINE_END}`,
+    )
+    expect(readNoteRoutingLine("vault_list_tasks")).toBe(`${ROUTING_LINE_START}${ROUTING_LINE_END}`)
+  })
+
+  it("vault_list_tasks' lane guidance names vault_read_note only while that tool is served", () => {
+    const listTasksRoutingLines = (disabledTools: string): string => {
+      return extractDescriptionSection({
+        registeredCalls: registerWithConfig({ DISABLED_TOOLS: disabledTools }),
+        toolName: TOOL_NAMES.VAULT_LIST_TASKS,
+        startMarker: "in one call instead of per-board reads.",
+        endMarker: "\n\nBehavior:",
+      })
+    }
+    const TRIAGE_LINE_END = "in one call instead of per-board reads.\n"
+    const SEARCH_ROUTING = "Prefer vault_search for full-text queries over note content."
+
+    expect(listTasksRoutingLines("")).toBe(
+      `${TRIAGE_LINE_END}Prefer vault_read_note (heading mode) only when you need a lane's verbatim Markdown or a task's state right after a write. ${SEARCH_ROUTING}`,
+    )
+    expect(listTasksRoutingLines("vault_read_note")).toBe(`${TRIAGE_LINE_END}${SEARCH_ROUTING}`)
   })
 
   it("disabling the memory write tools trims them from memory read-tool descriptions", () => {
