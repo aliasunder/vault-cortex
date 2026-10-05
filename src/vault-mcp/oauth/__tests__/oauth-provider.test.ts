@@ -990,7 +990,9 @@ describe("OAuth audit logging", () => {
     const { logs, testLogger, oauth } = await setupAuditTest()
     const reqLogger = testLogger.child({ requestId: "nonexistent" })
 
-    expect(() => oauth.approveRequest("nonexistent", reqLogger)).toThrow("No pending request")
+    expect(() => oauth.approveRequest("nonexistent", reqLogger)).toThrow(
+      new Error("No pending request"),
+    )
 
     const event = logs.find((log) => log.message === "oauth_consent_approve_failed")
 
