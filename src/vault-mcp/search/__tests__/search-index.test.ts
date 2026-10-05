@@ -2972,7 +2972,7 @@ describe("numeric property search", () => {
     seedPropertyNotes(propertyIndex, [
       { filePath: "a-text.md", frontmatter: `rank: ${JSON.stringify(queryValue)}` },
       { filePath: "b-list-text.md", frontmatter: `rank: [${JSON.stringify(queryValue)}]` },
-      { filePath: "c-numbers.md", frontmatter: "rank: [0, 1, 4, 16, 1000]" },
+      { filePath: "c-numbers.md", frontmatter: "rank: [0, 1, 4, 8, 16, 1000]" },
       { filePath: "d-checkbox.md", frontmatter: "rank: false" },
       { filePath: "e-other-text.md", frontmatter: 'rank: "4"' },
     ])
